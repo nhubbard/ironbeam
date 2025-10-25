@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-// src/collection.rs (add/imports as needed)
 use crate::node::{DynOp, Node};
 use crate::pipeline::Pipeline;
 use crate::type_token::{Partition, TypeTag, vec_ops_for};
 use anyhow::Result;
 use serde::{Serialize, de::DeserializeOwned};
 use std::marker::PhantomData;
+use std::path::Path;
 use std::sync::Arc;
 use crate::{ExecMode, Runner};
+use crate::io::{read_jsonl_vec, write_jsonl_vec};
 
 // ----- RFBound as before -----
 pub trait RFBound: 'static + Send + Sync + Clone + Serialize + DeserializeOwned {}
@@ -31,6 +32,24 @@ where T: RFBound
         elem_tag: TypeTag::of::<T>(),
     });
     PCollection { pipeline: p.clone(), id, _t: PhantomData }
+}
+
+/// Create a collection from any owned iterator (collects into Vec<T>).
+pub fn from_iter<T, I>(p: &Pipeline, iter: I) -> PCollection<T>
+where
+    T: RFBound,
+    I: IntoIterator<Item = T>,
+{
+    from_vec(p, iter.into_iter().collect::<Vec<T>>())
+}
+
+/// Read a JSONL file into a typed PCollection<T>.
+pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
+where
+    T: RFBound,
+{
+    let data: Vec<T> = read_jsonl_vec(path)?;
+    Ok(from_vec(p, data))
 }
 
 // ----- stateless ops (DynOp) -----
@@ -104,6 +123,15 @@ impl<T: RFBound> PCollection<T> {
     pub fn collect_par(self, threads: Option<usize>, partitions: Option<usize>) -> Result<Vec<T>> {
         Runner { mode: ExecMode::Parallel { threads, partitions }, ..Default::default() }
             .run_collect::<T>(&self.pipeline, self.id)
+    }
+}
+
+impl<T: RFBound> PCollection<T> {
+    /// Execute the pipeline and write the result to a JSONL file.
+    /// Returns number of records written.
+    pub fn write_jsonl(self, path: impl AsRef<Path>) -> Result<usize> {
+        let data = self.collect_seq()?; // keep it simple; you can add a _par variant later
+        write_jsonl_vec(path, &data)
     }
 }
 
