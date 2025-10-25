@@ -1,5 +1,6 @@
-use rustflow::{from_vec, Count, Pipeline};
 use std::collections::HashMap;
+use rustflow::{from_vec, Pipeline};
+use rustflow::collection::Count;
 
 #[test]
 fn map_filter_flatmap_chain() -> anyhow::Result<()> {
