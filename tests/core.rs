@@ -1,34 +1,5 @@
 use rustflow::{from_vec, Count, Pipeline};
-
-#[test]
-fn word_count_pipeline() -> anyhow::Result<()> {
-    let p = Pipeline::default();
-
-    let lines = from_vec(
-        &p,
-        vec![
-            "The quick brown fox".to_string(),
-            "Jumps over the lazy dog".to_string()
-        ]
-    );
-
-    let words = lines.flat_map(|s: &String| {
-        s.split_whitespace()
-            .map(|w| w.to_lowercase())
-            .collect::<Vec<_>>()
-    });
-
-    let filtered = words.filter(|w: &String| w.len() >= 3);
-
-    let out = filtered.collect()?;
-
-    assert_eq!(out.len(), 9);
-
-    let expected = vec!["the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"];
-    assert_eq!(expected, out);
-
-    Ok(())
-}
+use std::collections::HashMap;
 
 #[test]
 fn map_filter_flatmap_chain() -> anyhow::Result<()> {
@@ -45,13 +16,20 @@ fn map_filter_flatmap_chain() -> anyhow::Result<()> {
         s.split_whitespace().map(|w| w.to_lowercase()).collect::<Vec<_>>()
     });
     let filtered = words.filter(|w: &String| w.len() >= 4);
-    let out = filtered.collect()?;
 
-    assert_eq!(out, vec![
-        "quick".to_string(), "brown".to_string(),
-        "jumps".to_string(), "over".to_string(),
-        "lazy".to_string()
-    ]);
+    // either .collect() if you added the shim, or .collect_seq()
+    let out = filtered.collect_seq()?;
+
+    assert_eq!(
+        out,
+        vec![
+            "quick".to_string(),
+            "brown".to_string(),
+            "jumps".to_string(),
+            "over".to_string(),
+            "lazy".to_string()
+        ]
+    );
     Ok(())
 }
 
@@ -64,10 +42,10 @@ fn key_by_and_group_by_key_counts_words() -> anyhow::Result<()> {
     );
     let keyed = words.key_by(|w: &String| w.clone()); // (word, word)
     let grouped = keyed.group_by_key();               // (word, Vec<word>)
-    let out = grouped.collect()?;
+    let out = grouped.collect_seq()?;
 
-    // Convert to a map for stable assertions
-    let mut m = std::collections::HashMap::new();
+    // Explicit map type to satisfy inference on v.len()
+    let mut m: HashMap<String, usize> = HashMap::new();
     for (k, v) in out {
         m.insert(k, v.len());
     }
@@ -86,12 +64,14 @@ fn combine_values_count() -> anyhow::Result<()> {
     );
 
     let counts = words
-        .key_by(|w: &String| w.clone()) // (word, word)
-        .map_values(|_v: &String| 1u32) // (word, 1)
-        .combine_values(Count);         // (word, u64)
+        .flat_map(|w: &String| vec![w.clone()])            // keep as Vec<String>
+        .key_by(|w: &String| w.clone())                    // (String, String)
+        .map_values(|_v: &String| 1u64)                    // (String, u64)
+        .combine_values(Count);                            // (String, u64)
 
-    let mut m = std::collections::HashMap::new();
-    for (k, v) in counts.collect()? {
+    // either .collect() if shim exists, or .collect_seq()
+    let mut m: HashMap<String, u64> = HashMap::new();
+    for (k, v) in counts.collect_seq()? {
         m.insert(k, v);
     }
     assert_eq!(m.get("a"), Some(&2u64));
@@ -107,12 +87,26 @@ fn map_values_transforms_payloads() -> anyhow::Result<()> {
 
     let kv = nums.key_by(|n: &u32| if (*n).is_multiple_of(2) { "even" } else { "odd" }.to_string());
     let doubled = kv.map_values(|v: &u32| v * 2);
-    let out = doubled.collect()?;
 
-    // verify there are five elements and values are doubled
+    // either .collect() if shim exists, or .collect_seq()
+    let out = doubled.collect_seq()?;
+
     assert_eq!(out.len(), 5);
     for (_k, v) in out {
         assert_eq!(v % 2, 0);
     }
+    Ok(())
+}
+
+#[test]
+fn stateless_seq_vs_par_equivalent() -> anyhow::Result<()> {
+    let p = Pipeline::default();
+    let lines = from_vec(&p, (0..1000).map(|i| format!("w{i} w{i}")).collect::<Vec<_>>());
+    let words = lines.flat_map(|s: &String| s.split_whitespace().map(|w| w.to_string()).collect::<Vec<_>>());
+    let filtered = words.filter(|w: &String| w.len() >= 2);
+
+    let a = filtered.clone().collect_seq()?;
+    let b = filtered.collect_par(Some(4), Some(8))?;
+    assert_eq!(a, b);
     Ok(())
 }

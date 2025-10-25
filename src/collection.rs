@@ -1,121 +1,112 @@
-use std::collections::HashMap;
+use std::any::Any;
 use std::hash::Hash;
+use crate::pipeline::Pipeline;
+use crate::node_id::NodeId;
+use crate::node::{Node, DynOp};
+use crate::runner::{Runner, ExecMode, Partition};
+use anyhow::Result;
+use serde::{Serialize, de::DeserializeOwned};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use crate::node_id::NodeId;
-use crate::pipeline::Pipeline;
-
-/// A typed handle to a node's output.
-pub struct PCollection<T> {
-    pipeline: Pipeline,
-    id: NodeId,
-    _t: PhantomData<T>,
-}
-
-impl<T> Clone for PCollection<T> {
-    fn clone(&self) -> Self {
-        Self {
-            pipeline: Pipeline { inner: Arc::clone(&self.pipeline.inner) },
-            id: self.id,
-            _t: PhantomData,
-        }
-    }
-}
 
 pub trait RFBound: 'static + Send + Sync + Clone + Serialize + DeserializeOwned {}
 impl<T> RFBound for T where T: 'static + Send + Sync + Clone + Serialize + DeserializeOwned {}
 
-/// -------- Sources --------
+#[derive(Clone)]
+pub struct PCollection<T> {
+    pub(crate) pipeline: Pipeline,
+    pub(crate) id: NodeId,
+    _t: PhantomData<T>,
+}
+
 pub fn from_vec<T>(p: &Pipeline, data: Vec<T>) -> PCollection<T>
-where
-    T: RFBound,
+where T: RFBound
 {
-    let id = p.write_vec(data);
+    let id = p.add_source(data);
     PCollection { pipeline: p.clone(), id, _t: PhantomData }
 }
 
-/// -------- Transforms (eager execution into new node) --------
-impl<T> PCollection<T>
+/// ---- Stateless DynOps ----
+struct MapOp<I, O, F>(F, PhantomData<(I,O)>);
+impl<I, O, F> DynOp for MapOp<I, O, F>
 where
-    T: RFBound,
+    I: RFBound,
+    O: RFBound,
+    F: Send + Sync + Fn(&I) -> O + 'static,
 {
-    /// Map T -> O
-    pub fn map<O, F>(self, f: F) -> PCollection<O>
-    where
-        O: RFBound,
-        F: 'static + Send + Sync + Fn(&T) -> O,
-    {
-        let input: Vec<T> = self.pipeline.read_vec(self.id)
-            .expect("internal: source vector missing");
-        let out: Vec<O> = input.iter().map(f).collect();
-        let out_id = self.pipeline.write_vec(out);
-        self.pipeline.connect(self.id, out_id);
-        PCollection { pipeline: self.pipeline, id: out_id, _t: PhantomData }
+    fn apply(&self, input: Partition) -> Partition {
+        let v = *input.downcast::<Vec<I>>().expect("MapOp input");
+        let out: Vec<O> = v.iter().map(|i| self.0(i)).collect();
+        Box::new(out) as Partition
     }
-
-    /// Filter T with predicate(&T) -> bool
-    pub fn filter<F>(self, pred: F) -> PCollection<T>
-    where
-        F: 'static + Send + Sync + Fn(&T) -> bool,
-    {
-        let input: Vec<T> = self.pipeline.read_vec(self.id)
-            .expect("internal: source vector missing");
-        let out: Vec<T> = input.into_iter().filter(|t| pred(t)).collect();
-        let out_id = self.pipeline.write_vec(out);
-        self.pipeline.connect(self.id, out_id);
-        PCollection { pipeline: self.pipeline, id: out_id, _t: PhantomData }
+}
+struct FilterOp<T, P>(P, PhantomData<T>);
+impl<T,P> DynOp for FilterOp<T,P>
+where T: RFBound, P: Send + Sync + Fn(&T)->bool + 'static
+{
+    fn apply(&self, input: Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync> {
+        let v = *input.downcast::<Vec<T>>().expect("FilterOp input");
+        Box::new(v.into_iter().filter(|t| self.0(t)).collect::<Vec<T>>())
     }
-
-    /// FlatMap T -> Vec<O>
-    pub fn flat_map<O, F>(self, f: F) -> PCollection<O>
-    where
-        O: RFBound,
-        F: 'static + Send + Sync + Fn(&T) -> Vec<O>,
-    {
-        let input: Vec<T> = self.pipeline.read_vec(self.id)
-            .expect("internal: source vector missing");
+}
+struct FlatMapOp<I,O,F>(F, PhantomData<(I,O)>);
+impl<I,O,F> DynOp for FlatMapOp<I,O,F>
+where I: RFBound, O: RFBound, F: Send + Sync + Fn(&I)->Vec<O> + 'static
+{
+    fn apply(&self, input: Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync> {
+        let v = *input.downcast::<Vec<I>>().expect("FlatMapOp input");
         let mut out: Vec<O> = Vec::new();
-        for t in &input {
-            out.extend(f(t));
-        }
-        let out_id = self.pipeline.write_vec(out);
-        self.pipeline.connect(self.id, out_id);
-        PCollection { pipeline: self.pipeline, id: out_id, _t: PhantomData }
-    }
-
-    /// Materialize result as Vec<T>.
-    pub fn collect(self) -> anyhow::Result<Vec<T>> {
-        self.pipeline.read_vec::<T>(self.id)
+        for i in &v { out.extend(self.0(i)); }
+        Box::new(out)
     }
 }
 
-/// -------- Keyed transforms --------
-/// key_by: T -> (K, T)
-impl<T> PCollection<T>
-where
-    T: RFBound,
-{
-    pub fn key_by<K, F>(self, key_fn: F) -> PCollection<(K, T)>
-    where
-        K: RFBound + Eq + Hash,
-        F: 'static + Send + Sync + Fn(&T) -> K,
+impl<T: RFBound> PCollection<T> {
+    pub fn map<O, F>(self, f: F) -> PCollection<O>
+    where O: RFBound, F: 'static + Send + Sync + Fn(&T) -> O
     {
-        let input: Vec<T> = self.pipeline.read_vec(self.id)
-            .expect("internal: source vector missing");
-        let out: Vec<(K, T)> = input.into_iter().map(|t| (key_fn(&t), t)).collect();
-        let out_id = self.pipeline.write_vec(out);
-        self.pipeline.connect(self.id, out_id);
-        PCollection {
-            pipeline: self.pipeline,
-            id: out_id,
-            _t: PhantomData
-        }
+        let op: Arc<dyn DynOp> = Arc::new(MapOp::<T,O,F>(f, PhantomData));
+        let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
+        self.pipeline.connect(self.id, id);
+        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+    }
+
+    pub fn filter<F>(self, pred: F) -> PCollection<T>
+    where F: 'static + Send + Sync + Fn(&T) -> bool
+    {
+        let op: Arc<dyn DynOp> = Arc::new(FilterOp::<T,F>(pred, PhantomData));
+        let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
+        self.pipeline.connect(self.id, id);
+        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+    }
+
+    pub fn flat_map<O, F>(self, f: F) -> PCollection<O>
+    where O: RFBound, F: 'static + Send + Sync + Fn(&T) -> Vec<O>
+    {
+        let op: Arc<dyn DynOp> = Arc::new(FlatMapOp::<T,O,F>(f, PhantomData));
+        let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
+        self.pipeline.connect(self.id, id);
+        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+    }
+
+    pub fn collect_seq(self) -> Result<Vec<T>> {
+        let r = Runner { mode: ExecMode::Sequential, ..Default::default() };
+        r.run_collect::<T>(&self.pipeline, self.id)
+    }
+    pub fn collect_par(self, threads: Option<usize>, partitions: Option<usize>) -> Result<Vec<T>> {
+        let r = Runner { mode: ExecMode::Parallel { threads, partitions }, ..Default::default() };
+        r.run_collect::<T>(&self.pipeline, self.id)
     }
 }
 
-/// map_values: (K,V) -> (K,O)
+// ---- keyed ops (String keys shown for simplicity) ----
+impl<T: RFBound> PCollection<T> {
+    pub fn key_by<F>(self, key_fn: F) -> PCollection<(String, T)>
+    where F: 'static + Send + Sync + Fn(&T) -> String
+    {
+        self.map(move |t| (key_fn(t), t.clone()))
+    }
+}
 impl<K, V> PCollection<(K, V)>
 where
     K: RFBound + Eq + Hash,
@@ -126,44 +117,24 @@ where
         O: RFBound,
         F: 'static + Send + Sync + Fn(&V) -> O,
     {
-        let input: Vec<(K, V)> = self.pipeline.read_vec(self.id)
-            .expect("internal: source vector missing");
-        let out: Vec<(K, O)> = input.into_iter().map(|(k, v)| (k, f(&v))).collect();
-        let out_id = self.pipeline.write_vec(out);
-        self.pipeline.connect(self.id, out_id);
-        PCollection { pipeline: self.pipeline, id: out_id, _t: PhantomData }
+        self.map(move |kv: &(K, V)| (kv.0.clone(), f(&kv.1)))
     }
 }
-
-/// group_by_key: (K,V) -> (K, Vec<V>)
-impl<K, V> PCollection<(K, V)>
-where
-    K: RFBound + Eq + Hash,
-    V: RFBound,
-{
+impl<K: RFBound, V: RFBound> PCollection<(K, V)> {
     pub fn group_by_key(self) -> PCollection<(K, Vec<V>)> {
-        let input: Vec<(K, V)> = self.pipeline.read_vec(self.id)
-            .expect("internal: source vector missing");
-        let mut map: HashMap<K, Vec<V>> = HashMap::new();
-        for (k, v) in input.into_iter() {
-            map.entry(k).or_default().push(v);
-        }
-        let out: Vec<(K, Vec<V>)> = map.into_iter().collect();
-        let out_id = self.pipeline.write_vec(out);
-        self.pipeline.connect(self.id, out_id);
-        PCollection { pipeline: self.pipeline, id: out_id, _t: PhantomData }
+        // For now our runner supports String/u64 arms; keep K=String in examples/tests
+        let id = self.pipeline.insert_node(Node::GroupByKey);
+        self.pipeline.connect(self.id, id);
+        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
     }
 }
 
-/// -------- Combine (per key) --------
+// Combiner trait + Count as before:
 pub trait CombineFn<V, A, O>: Send + Sync + 'static {
-    fn create(&self) -> A;
-    fn add_input(&self, acc: &mut A, v: V);
-    fn merge(&self, acc: &mut A, other: A);
-    fn finish(&self, acc: A) -> O;
+    fn create(&self) -> A; fn add_input(&self, acc: &mut A, v: V);
+    fn merge(&self, acc: &mut A, other: A); fn finish(&self, acc: A) -> O;
 }
-
-/// Built-in: Count values
+#[derive(Clone, Default)]
 pub struct Count;
 impl<V> CombineFn<V, u64, u64> for Count {
     fn create(&self) -> u64 { 0 }
@@ -172,33 +143,17 @@ impl<V> CombineFn<V, u64, u64> for Count {
     fn finish(&self, acc: u64) -> u64 { acc }
 }
 
-impl<K, V> PCollection<(K, V)>
-where
-    K: RFBound + Eq + Hash,
-    V: RFBound,
-{
-    /// combine_values: (K,V) -> (K,O) using provided CombineFn
+impl<K: RFBound, V: RFBound> PCollection<(K, V)> {
     pub fn combine_values<C, A, O>(self, comb: C) -> PCollection<(K, O)>
     where
-        C: CombineFn<V, A, O>,
+        C: CombineFn<V, A, O> + 'static,
         A: Send + 'static,
         O: RFBound,
     {
-        let input: Vec<(K, V)> = self.pipeline.read_vec(self.id)
-            .expect("internal: source vector missing");
-        // pre-aggregate per key
-        let mut accs: HashMap<K, A> = HashMap::new();
-        for (k, v) in input {
-            let entry = accs.entry(k).or_insert_with(|| comb.create());
-            comb.add_input(entry, v);
-        }
-        // finalize
-        let out: Vec<(K, O)> = accs
-            .into_iter()
-            .map(|(k, a)| (k, comb.finish(a)))
-            .collect();
-        let out_id = self.pipeline.write_vec(out);
-        self.pipeline.connect(self.id, out_id);
-        PCollection { pipeline: self.pipeline, id: out_id, _t: PhantomData }
+        let id = self
+            .pipeline
+            .insert_node(Node::CombineValues(Arc::new(comb)));
+        self.pipeline.connect(self.id, id);
+        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
     }
 }

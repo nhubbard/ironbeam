@@ -2,6 +2,7 @@ pub mod node_id;
 pub mod node;
 pub mod pipeline;
 pub mod collection;
+mod runner;
 
 pub use node_id::NodeId;
 pub use node::Node;

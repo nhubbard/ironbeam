@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
+rayon = "1"
+num_cpus = "1.17.0"
