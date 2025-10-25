@@ -1,3 +1,4 @@
+use anyhow::Result;
 use rustflow::{from_vec, read_jsonl, Count, Pipeline};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -6,7 +7,7 @@ use std::fs;
 struct Rec { id: u32, word: String }
 
 #[test]
-fn jsonl_roundtrip_stateless() -> anyhow::Result<()> {
+fn jsonl_roundtrip_stateless() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let file = tmp.path().join("out.jsonl");
 
@@ -38,7 +39,7 @@ fn jsonl_roundtrip_stateless() -> anyhow::Result<()> {
 }
 
 #[test]
-fn jsonl_wordcount_end_to_end() -> anyhow::Result<()> {
+fn jsonl_wordcount_end_to_end() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let file = tmp.path().join("words.jsonl");
 

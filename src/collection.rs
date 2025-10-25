@@ -9,7 +9,8 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use crate::{ExecMode, Runner};
-use crate::io::{read_jsonl_vec, write_jsonl_vec};
+use crate::io::{build_csv_shards, build_jsonl_shards, read_jsonl_vec, write_jsonl_par, write_jsonl_vec, CsvShards, JsonlShards};
+use crate::stream_ops::{CsvVecOps, JsonlVecOps};
 
 // ----- RFBound as before -----
 pub trait RFBound: 'static + Send + Sync + Clone + Serialize + DeserializeOwned {}
@@ -247,5 +248,59 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
         let id = self.pipeline.insert_node(Node::CombineValues { local, merge });
         self.pipeline.connect(self.id, id);
         PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+    }
+}
+
+// --------- Sources: JSONL streaming ----------
+pub fn read_jsonl_streaming<T>(
+    p: &Pipeline,
+    path: impl AsRef<Path>,
+    lines_per_shard: usize,
+) -> Result<PCollection<T>>
+where
+    T: RFBound,
+{
+    let shards: JsonlShards = build_jsonl_shards(path, lines_per_shard)?;
+    let id = p.insert_node(Node::Source {
+        payload: Arc::new(shards),
+        vec_ops: JsonlVecOps::<T>::new(),
+        elem_tag: TypeTag::of::<T>(),
+    });
+    Ok(PCollection { pipeline: p.clone(), id, _t: PhantomData })
+}
+
+// --------- Sources: CSV (vector + streaming) ----------
+pub fn read_csv<T>(p: &Pipeline, path: impl AsRef<Path>, has_headers: bool) -> Result<PCollection<T>>
+where
+    T: RFBound,
+{
+    let v = crate::io::read_csv_vec::<T>(path, has_headers)?;
+    Ok(from_vec(p, v))
+}
+
+pub fn read_csv_streaming<T>(
+    p: &Pipeline,
+    path: impl AsRef<Path>,
+    has_headers: bool,
+    rows_per_shard: usize,
+) -> Result<PCollection<T>>
+where
+    T: RFBound,
+{
+    let shards: CsvShards = build_csv_shards(path, has_headers, rows_per_shard)?;
+    let id = p.insert_node(Node::Source {
+        payload: Arc::new(shards),
+        vec_ops: CsvVecOps::<T>::new(),
+        elem_tag: TypeTag::of::<T>(),
+    });
+    Ok(PCollection { pipeline: p.clone(), id, _t: PhantomData })
+}
+
+// --------- Sink: parallel JSONL writer (stable order) ----------
+impl<T: RFBound> PCollection<T> {
+    /// Execute sequentially and write JSONL in parallel (stable file order).
+    pub fn write_jsonl_par(self, path: impl AsRef<Path>, shards: Option<usize>) -> Result<usize> {
+        let data = self.collect_seq()?; // deterministic order of elements
+        write_jsonl_par(path, &data, shards)
     }
 }

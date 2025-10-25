@@ -30,7 +30,7 @@ impl<T: Clone + Send + Sync + 'static> VecOps for VecOpsImpl<T> {
         if n <= 1 || len <= 1 {
             return Some(vec![Box::new(v.clone())]);
         }
-        let chunk = (len + n - 1) / n;
+        let chunk = len.div_ceil(n);
         let parts = v.chunks(chunk).map(|c| Box::new(c.to_vec()) as Partition).collect();
         Some(parts)
     }
