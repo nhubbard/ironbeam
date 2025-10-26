@@ -6,6 +6,7 @@ pub mod runner;
 pub mod type_token;
 pub mod io;
 pub mod collection_helpers;
+pub mod combiners;
 
 // General re-exports
 pub use node_id::NodeId;
@@ -14,6 +15,7 @@ pub use collection::{PCollection, RFBound, CombineFn, Count};
 pub use collection_helpers::{from_vec, from_iter, side_hashmap, side_vec};
 pub use runner::{Runner, ExecMode};
 pub use type_token::Partition;
+pub use combiners::{Sum, Min, Max, AverageF64};
 
 // Gated re-exports
 #[cfg(feature = "io-jsonl")]
