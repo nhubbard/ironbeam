@@ -6,6 +6,7 @@ use std::fs;
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 struct Rec { id: u32, word: String }
 
+#[cfg(feature = "io-jsonl")]
 #[test]
 fn jsonl_roundtrip_stateless() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -38,6 +39,7 @@ fn jsonl_roundtrip_stateless() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "io-jsonl")]
 #[test]
 fn jsonl_wordcount_end_to_end() -> Result<()> {
     let tmp = tempfile::tempdir()?;

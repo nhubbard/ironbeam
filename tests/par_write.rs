@@ -1,3 +1,5 @@
+#![cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
+
 use rustflow::{from_vec, Pipeline};
 use serde::{Deserialize, Serialize};
 

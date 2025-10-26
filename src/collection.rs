@@ -9,8 +9,18 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use crate::{ExecMode, Runner};
-use crate::io::{build_csv_shards, build_jsonl_shards, read_jsonl_vec, write_jsonl_par, write_jsonl_vec, CsvShards, JsonlShards};
-use crate::stream_ops::{CsvVecOps, JsonlVecOps};
+
+#[cfg(feature = "io-jsonl")]
+use crate::io::jsonl::{read_jsonl_vec, write_jsonl_vec, build_jsonl_shards, JsonlShards, JsonlVecOps};
+
+#[cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
+use crate::io::jsonl::{write_jsonl_par};
+
+#[cfg(feature = "io-csv")]
+use crate::io::csv::{build_csv_shards, CsvShards, CsvVecOps};
+
+#[cfg(feature = "io-parquet")]
+use crate::io::parquet::{build_parquet_shards, ParquetShards, ParquetVecOps};
 
 // ----- RFBound as before -----
 pub trait RFBound: 'static + Send + Sync + Clone + Serialize + DeserializeOwned {}
@@ -45,6 +55,7 @@ where
 }
 
 /// Read a JSONL file into a typed PCollection<T>.
+#[cfg(feature = "io-jsonl")]
 pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
     T: RFBound,
@@ -127,6 +138,7 @@ impl<T: RFBound> PCollection<T> {
     }
 }
 
+#[cfg(feature = "io-jsonl")]
 impl<T: RFBound> PCollection<T> {
     /// Execute the pipeline and write the result to a JSONL file.
     /// Returns number of records written.
@@ -252,6 +264,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
 }
 
 // --------- Sources: JSONL streaming ----------
+#[cfg(feature = "io-jsonl")]
 pub fn read_jsonl_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,
@@ -270,14 +283,16 @@ where
 }
 
 // --------- Sources: CSV (vector + streaming) ----------
+#[cfg(feature = "io-csv")]
 pub fn read_csv<T>(p: &Pipeline, path: impl AsRef<Path>, has_headers: bool) -> Result<PCollection<T>>
 where
     T: RFBound,
 {
-    let v = crate::io::read_csv_vec::<T>(path, has_headers)?;
+    let v = crate::io::csv::read_csv_vec::<T>(path, has_headers)?;
     Ok(from_vec(p, v))
 }
 
+#[cfg(feature = "io-csv")]
 pub fn read_csv_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,
@@ -297,10 +312,38 @@ where
 }
 
 // --------- Sink: parallel JSONL writer (stable order) ----------
+#[cfg_attr(docsrs, doc(cfg(all(feature = "io-jsonl", feature = "parallel-io"))))]
+#[cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
 impl<T: RFBound> PCollection<T> {
     /// Execute sequentially and write JSONL in parallel (stable file order).
     pub fn write_jsonl_par(self, path: impl AsRef<Path>, shards: Option<usize>) -> Result<usize> {
         let data = self.collect_seq()?; // deterministic order of elements
         write_jsonl_par(path, &data, shards)
     }
+}
+
+#[cfg(feature = "io-parquet")]
+impl<T: RFBound> PCollection<T> {
+    pub fn write_parquet(self, path: impl AsRef<Path>) -> Result<usize> {
+        let rows: Vec<T> = self.collect_seq()?;
+        crate::io::parquet::write_parquet_vec(path, &rows)
+    }
+}
+
+#[cfg(feature = "io-parquet")]
+pub fn read_parquet_streaming<T>(
+    p: &Pipeline,
+    path: impl AsRef<Path>,
+    groups_per_shard: usize,
+) -> Result<PCollection<T>>
+where
+    T: RFBound,
+{
+    let shards: ParquetShards = build_parquet_shards(path, groups_per_shard)?;
+    let id = p.insert_node(Node::Source {
+        payload: Arc::new(shards),
+        vec_ops: ParquetVecOps::<T>::new(),
+        elem_tag: TypeTag::of::<T>(),
+    });
+    Ok(PCollection { pipeline: p.clone(), id, _t: PhantomData })
 }
