@@ -599,7 +599,7 @@ use std::sync::Arc;
 
 use crate::node::{DynOp, Node};
 use crate::type_token::{vec_ops_for, TypeTag};
-use crate::{CombineFn, ExecMode, NodeId, Partition, Runner};
+use crate::{CombineFn, ExecMode, NodeId, Partition, Runner, TimestampMs, Timestamped, Window};
 use crate::{PCollection, Pipeline, RFBound};
 
 // Build a linear chain for a terminal node by snapshotting and back-walking.
@@ -978,5 +978,61 @@ where
             id,
             _t: PhantomData,
         }
+    }
+}
+
+impl<T: RFBound> PCollection<T> {
+    /// Attach event timestamps using a user function.
+    /// Example: .attach_timestamps(|x| x.ts_field)
+    pub fn attach_timestamps<F>(self, ts_fn: F) -> PCollection<Timestamped<T>>
+    where
+        F: 'static + Send + Sync + Fn(&T) -> TimestampMs,
+    {
+        self.map(move |t| Timestamped::new(ts_fn(t), t.clone()))
+    }
+}
+
+impl<T: RFBound> PCollection<(TimestampMs, T)> {
+    /// Convenience: if your input already is (ts, value), convert to Timestamped<T>.
+    pub fn to_timestamped(self) -> PCollection<Timestamped<T>> {
+        self.map(|p| Timestamped::new(p.0, p.1.clone()))
+    }
+}
+
+// -------------- Tumbling windows: non-keyed --------------
+
+impl<T: RFBound> PCollection<Timestamped<T>> {
+    /// Key by a Window computed via tumbling of the attached timestamp.
+    /// Returns (Window, T)
+    pub fn key_by_window(self, size_ms: i64, offset_ms: i64) -> PCollection<(Window, T)> {
+        self.map(move |ev: &Timestamped<T>| {
+            let w = Window::tumble(ev.ts, size_ms, offset_ms);
+            (w, ev.value.clone())
+        })
+    }
+
+    /// Group by window → (Window, Vec<T>)
+    pub fn group_by_window(self, size_ms: i64, offset_ms: i64) -> PCollection<(Window, Vec<T>)> {
+        self.key_by_window(size_ms, offset_ms).group_by_key()
+    }
+}
+
+// -------------- Tumbling windows: keyed --------------
+// Input: (K, Timestamped<V>)  → output: ((K, Window), V)
+impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
+    pub fn key_by_window(self, size_ms: i64, offset_ms: i64) -> PCollection<((K, Window), V)> {
+        self.map(move |kv: &(K, Timestamped<V>)| {
+            let w = Window::tumble(kv.1.ts, size_ms, offset_ms);
+            ((kv.0.clone(), w), kv.1.value.clone())
+        })
+    }
+
+    /// Group by (K, Window) → ((K, Window), Vec<V>)
+    pub fn group_by_key_and_window(
+        self,
+        size_ms: i64,
+        offset_ms: i64,
+    ) -> PCollection<((K, Window), Vec<V>)> {
+        self.key_by_window(size_ms, offset_ms).group_by_key()
     }
 }

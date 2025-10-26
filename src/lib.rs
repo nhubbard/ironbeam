@@ -8,6 +8,7 @@ pub mod pipeline;
 pub mod planner;
 pub mod runner;
 pub mod type_token;
+pub mod window;
 
 // General re-exports
 pub use collection::{CombineFn, Count, PCollection, RFBound};
@@ -17,6 +18,7 @@ pub use node_id::NodeId;
 pub use pipeline::Pipeline;
 pub use runner::{ExecMode, Runner};
 pub use type_token::Partition;
+pub use window::{Timestamped, Window, TimestampMs};
 
 // Gated re-exports
 #[cfg(feature = "io-jsonl")]
