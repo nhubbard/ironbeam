@@ -9,7 +9,7 @@ pub mod io;
 // General re-exports
 pub use node_id::NodeId;
 pub use pipeline::Pipeline;
-pub use collection::{PCollection, from_vec, from_iter, RFBound, CombineFn, Count};
+pub use collection::{PCollection, RFBound, CombineFn, Count, from_vec, from_iter, side_hashmap, side_vec};
 pub use runner::{Runner, ExecMode};
 pub use type_token::Partition;
 
