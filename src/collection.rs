@@ -183,3 +183,94 @@ pub struct SideInput<T: RFBound>(pub Arc<Vec<T>>);
 
 #[derive(Clone)]
 pub struct SideMap<K: RFBound + Eq + Hash, V: RFBound>(pub Arc<HashMap<K, V>>);
+
+// BatchMapOp: &[T] -> Vec<O>, applied chunk-by-chunk
+pub struct BatchMapOp<T, O, F>(pub usize, pub F, pub PhantomData<(T, O)>)
+where
+    T: 'static + Send + Sync + Clone,
+    O: 'static + Send + Sync + Clone,
+    F: 'static + Send + Sync + Fn(&[T]) -> Vec<O>;
+
+impl<T, O, F> DynOp for BatchMapOp<T, O, F>
+where
+    T: 'static + Send + Sync + Clone,
+    O: 'static + Send + Sync + Clone,
+    F: 'static + Send + Sync + Fn(&[T]) -> Vec<O>,
+{
+    fn apply(&self, input: Partition) -> Partition {
+        let batch_size = self.0.max(1); // never 0
+        let f = &self.1;
+
+        // We only support Vec<T> inputs (standard collection partitions).
+        let v = *input
+            .downcast::<Vec<T>>()
+            .expect("BatchMapOp: expected Vec<T> input");
+
+        let mut out = Vec::with_capacity(v.len()); // heuristic: often ~1:1
+
+        // process in chunks of &T
+        for chunk in v.chunks(batch_size) {
+            let mut produced = f(chunk);
+            out.append(&mut produced);
+        }
+
+        Box::new(out) as Partition
+    }
+}
+
+// BatchMapValuesOp: &[V] -> Vec<O>, preserves keys, applies per contiguous value slice.
+// IMPORTANT: f must output exactly as many items as the input slice length.
+pub struct BatchMapValuesOp<K, V, O, F>(pub usize, pub F, pub PhantomData<(K, V, O)>)
+where
+    K: 'static + Send + Sync + Clone,
+    V: 'static + Send + Sync + Clone,
+    O: 'static + Send + Sync + Clone,
+    F: 'static + Send + Sync + Fn(&[V]) -> Vec<O>;
+
+impl<K, V, O, F> DynOp for BatchMapValuesOp<K, V, O, F>
+where
+    K: 'static + Send + Sync + Clone,
+    V: 'static + Send + Sync + Clone,
+    O: 'static + Send + Sync + Clone,
+    F: 'static + Send + Sync + Fn(&[V]) -> Vec<O>,
+{
+    fn apply(&self, input: Partition) -> Partition {
+        let batch = self.0.max(1);
+        let f = &self.1;
+
+        let kv = *input
+            .downcast::<Vec<(K, V)>>()
+            .expect("BatchMapValuesOp: expected Vec<(K,V)> input");
+
+        let mut out = Vec::<(K, O)>::with_capacity(kv.len());
+
+        // We’ll traverse in chunks of values, call f on the slice of V, then re-pair with the same keys.
+        // This requires f(chunk).len() == chunk.len().
+        let mut idx = 0usize;
+        while idx < kv.len() {
+            let end = (idx + batch).min(kv.len());
+            // Gather a temporary slice of &V to present as &[V]
+            // We’ll clone the values into a small Vec<V> to build &[V] without gymnastics.
+            // (Alternative is to create a small Vec<&V> and map, but cloning V matches the RFBound contract.)
+            let vals: Vec<V> = kv[idx..end].iter().map(|(_, v)| v.clone()).collect();
+            let produced = f(&vals);
+            assert_eq!(produced.len(), vals.len(), "BatchMapValuesOp: f(chunk) must return same length as the chunk ({} != {})", produced.len(), vals.len());
+
+            // Re-pair with original keys in order
+            for (j, o) in produced.into_iter().enumerate() {
+                let k = kv[idx + j].0.clone();
+                out.push((k, o));
+            }
+
+            idx = end;
+        }
+
+        Box::new(out) as Partition
+    }
+
+    // Planner hints: key-preserving + value-only + safe to reorder with other value-only ops.
+    fn key_preserving(&self) -> bool { true }
+    fn value_only(&self) -> bool { true }
+    fn reorder_safe_with_value_only(&self) -> bool { true }
+    fn cost_hint(&self) -> u8 { 2 }
+}
