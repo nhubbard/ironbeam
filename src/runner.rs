@@ -1,11 +1,10 @@
-// src/runner.rs
-
 use crate::node::Node;
 use crate::pipeline::Pipeline;
 use crate::NodeId;
 use anyhow::{anyhow, bail, Result};
 use rayon::prelude::*;
 use std::sync::Arc;
+use crate::planner::build_plan;
 use crate::type_token::Partition;
 
 pub struct Shard { idx: usize, data: Partition }
@@ -26,17 +25,8 @@ impl Default for Runner {
 
 impl Runner {
     pub fn run_collect<T: 'static + Send + Sync + Clone>(&self, p: &Pipeline, terminal: NodeId) -> Result<Vec<T>> {
-        let (mut nodes, edges) = p.snapshot();
-
-        // linear backwalk
-        let mut chain: Vec<Node> = Vec::new();
-        let mut cur = terminal;
-        loop {
-            let n = nodes.remove(&cur).ok_or_else(|| anyhow!("missing node {cur:?}"))?;
-            chain.push(n);
-            if let Some((from, _)) = edges.iter().find(|(_, to)| *to == cur).cloned() { cur = from; } else { break; }
-        }
-        chain.reverse();
+        // 🔧 Build an optimized linear plan
+        let chain = build_plan(p, terminal)?;
 
         match self.mode {
             ExecMode::Sequential => exec_seq::<T>(chain),

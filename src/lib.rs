@@ -7,6 +7,7 @@ pub mod type_token;
 pub mod io;
 pub mod collection_helpers;
 pub mod combiners;
+pub mod planner;
 
 // General re-exports
 pub use node_id::NodeId;
