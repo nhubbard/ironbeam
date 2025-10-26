@@ -1,15 +1,13 @@
 use crate::node::DynOp;
 use crate::pipeline::Pipeline;
 use crate::type_token::Partition;
-use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-// ----- RFBound as before -----
-pub trait RFBound: 'static + Send + Sync + Clone + Serialize + DeserializeOwned {}
-impl<T> RFBound for T where T: 'static + Send + Sync + Clone + Serialize + DeserializeOwned {}
+pub trait RFBound: 'static + Send + Sync + Clone {}
+impl<T> RFBound for T where T: 'static + Send + Sync + Clone {}
 
 #[derive(Clone)]
 pub struct PCollection<T> {

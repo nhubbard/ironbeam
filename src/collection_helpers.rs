@@ -1,21 +1,24 @@
+use crate::collection::{SideInput, SideMap};
+use crate::node::{DynOp, Node};
+use crate::type_token::{vec_ops_for, TypeTag};
+use crate::{CombineFn, ExecMode, PCollection, Partition, Pipeline, RFBound, Runner};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
-use crate::{CombineFn, ExecMode, PCollection, Partition, Pipeline, RFBound, Runner};
-use crate::collection::{SideInput, SideMap};
-use crate::node::{DynOp, Node};
-use crate::type_token::{vec_ops_for, TypeTag};
+use anyhow::Result;
 
 #[cfg(feature = "io-csv")]
 use crate::io::csv::{build_csv_shards, CsvShards, CsvVecOps};
 
 #[cfg(feature = "io-jsonl")]
-use crate::io::jsonl::{build_jsonl_shards, write_jsonl_vec, read_jsonl_vec, JsonlShards, JsonlVecOps};
+use crate::io::jsonl::{build_jsonl_shards, read_jsonl_vec, write_jsonl_vec, JsonlShards, JsonlVecOps};
 
 #[cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
-use crate::io::jsonl::{write_jsonl_par};
+use crate::io::jsonl::write_jsonl_par;
 
 #[cfg(feature = "io-parquet")]
 use crate::io::parquet::{build_parquet_shards, ParquetShards, ParquetVecOps};
@@ -43,9 +46,9 @@ where
 
 /// Read a JSONL file into a typed PCollection<T>.
 #[cfg(feature = "io-jsonl")]
-pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> anyhow::Result<PCollection<T>>
+pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
-    T: RFBound,
+    T: RFBound + DeserializeOwned,
 {
     let data: Vec<T> = read_jsonl_vec(path)?;
     Ok(from_vec(p, data))
@@ -81,23 +84,23 @@ impl<T: RFBound> PCollection<T> {
 }
 
 impl<T: RFBound> PCollection<T> {
-    pub fn collect(self) -> anyhow::Result<Vec<T>> { self.collect_seq() }
-    pub fn collect_seq(self) -> anyhow::Result<Vec<T>> {
+    pub fn collect(self) -> Result<Vec<T>> { self.collect_seq() }
+    pub fn collect_seq(self) -> Result<Vec<T>> {
         Runner { mode: ExecMode::Sequential, ..Default::default() }
             .run_collect::<T>(&self.pipeline, self.id)
     }
-    pub fn collect_par(self, threads: Option<usize>, partitions: Option<usize>) -> anyhow::Result<Vec<T>> {
+    pub fn collect_par(self, threads: Option<usize>, partitions: Option<usize>) -> Result<Vec<T>> {
         Runner { mode: ExecMode::Parallel { threads, partitions }, ..Default::default() }
             .run_collect::<T>(&self.pipeline, self.id)
     }
 }
 
 #[cfg(feature = "io-jsonl")]
-impl<T: RFBound> PCollection<T> {
+impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the pipeline and write the result to a JSONL file.
     /// Returns number of records written.
-    pub fn write_jsonl(self, path: impl AsRef<Path>) -> anyhow::Result<usize> {
-        let data = self.collect_seq()?; // keep it simple; you can add a _par variant later
+    pub fn write_jsonl(self, path: impl AsRef<Path>) -> Result<usize> {
+        let data = self.collect_seq()?;
         write_jsonl_vec(path, &data)
     }
 }
@@ -128,7 +131,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
 
     /// Group values by key: (K, V) -> (K, Vec<V>)
     pub fn group_by_key(self) -> PCollection<(K, Vec<V>)> {
-        // typed closures: no runtime type checks needed
+        // typed closures, so no runtime type checks needed
         let local = Arc::new(|p: Partition| -> Partition {
             let kv = *p.downcast::<Vec<(K, V)>>().expect("GBK local: bad input");
             let mut m: HashMap<K, Vec<V>> = HashMap::new();
@@ -204,9 +207,9 @@ pub fn read_jsonl_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,
     lines_per_shard: usize,
-) -> anyhow::Result<PCollection<T>>
+) -> Result<PCollection<T>>
 where
-    T: RFBound,
+    T: RFBound + DeserializeOwned,
 {
     let shards: JsonlShards = build_jsonl_shards(path, lines_per_shard)?;
     let id = p.insert_node(Node::Source {
@@ -219,12 +222,34 @@ where
 
 // --------- Sources: CSV (vector + streaming) ----------
 #[cfg(feature = "io-csv")]
-pub fn read_csv<T>(p: &Pipeline, path: impl AsRef<Path>, has_headers: bool) -> anyhow::Result<PCollection<T>>
+pub fn read_csv<T>(p: &Pipeline, path: impl AsRef<Path>, has_headers: bool) -> Result<PCollection<T>>
 where
-    T: RFBound,
+    T: RFBound + DeserializeOwned,
 {
     let v = crate::io::csv::read_csv_vec::<T>(path, has_headers)?;
     Ok(from_vec(p, v))
+}
+
+#[cfg(feature = "io-csv")]
+impl<T: RFBound + Serialize> PCollection<T> {
+    pub fn write_csv(self, path: impl AsRef<Path>, has_headers: bool) -> Result<usize> {
+        let v = self.collect_seq()?;
+        crate::io::csv::write_csv_vec(path, has_headers, &v)
+    }
+}
+
+#[cfg_attr(docsrs, doc(cfg(all(feature = "io-csv", feature = "parallel-io"))))]
+#[cfg(all(feature = "io-csv", feature = "parallel-io"))]
+impl<T: RFBound + Serialize> PCollection<T> {
+    pub fn write_csv_par(
+        self,
+        path: impl AsRef<Path>,
+        shards: Option<usize>,
+        has_headers: bool,
+    ) -> Result<usize> {
+        let data = self.collect_par(shards, None)?;
+        crate::io::csv::write_csv_vec(path, has_headers, &data)
+    }
 }
 
 #[cfg(feature = "io-csv")]
@@ -233,9 +258,9 @@ pub fn read_csv_streaming<T>(
     path: impl AsRef<Path>,
     has_headers: bool,
     rows_per_shard: usize,
-) -> anyhow::Result<PCollection<T>>
+) -> Result<PCollection<T>>
 where
-    T: RFBound,
+    T: RFBound + DeserializeOwned,
 {
     let shards: CsvShards = build_csv_shards(path, has_headers, rows_per_shard)?;
     let id = p.insert_node(Node::Source {
@@ -249,17 +274,17 @@ where
 // --------- Sink: parallel JSONL writer (stable order) ----------
 #[cfg_attr(docsrs, doc(cfg(all(feature = "io-jsonl", feature = "parallel-io"))))]
 #[cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
-impl<T: RFBound> PCollection<T> {
+impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute sequentially and write JSONL in parallel (stable file order).
-    pub fn write_jsonl_par(self, path: impl AsRef<Path>, shards: Option<usize>) -> anyhow::Result<usize> {
+    pub fn write_jsonl_par(self, path: impl AsRef<Path>, shards: Option<usize>) -> Result<usize> {
         let data = self.collect_seq()?; // deterministic order of elements
         write_jsonl_par(path, &data, shards)
     }
 }
 
 #[cfg(feature = "io-parquet")]
-impl<T: RFBound> PCollection<T> {
-    pub fn write_parquet(self, path: impl AsRef<Path>) -> anyhow::Result<usize> {
+impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
+    pub fn write_parquet(self, path: impl AsRef<Path>) -> Result<usize> {
         let rows: Vec<T> = self.collect_seq()?;
         crate::io::parquet::write_parquet_vec(path, &rows)
     }
@@ -270,9 +295,9 @@ pub fn read_parquet_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,
     groups_per_shard: usize,
-) -> anyhow::Result<PCollection<T>>
+) -> Result<PCollection<T>>
 where
-    T: RFBound,
+    T: RFBound + DeserializeOwned,
 {
     let shards: ParquetShards = build_parquet_shards(path, groups_per_shard)?;
     let id = p.insert_node(Node::Source {
@@ -285,7 +310,7 @@ where
 
 impl<T: RFBound + Ord> PCollection<T> {
     /// Collect (seq) and sort to a total order.
-    pub fn collect_seq_sorted(self) -> anyhow::Result<Vec<T>> {
+    pub fn collect_seq_sorted(self) -> Result<Vec<T>> {
         let mut v = self.collect_seq()?;
         v.sort();
         Ok(v)
@@ -294,7 +319,7 @@ impl<T: RFBound + Ord> PCollection<T> {
 
 impl<T: RFBound + Ord> PCollection<T> {
     /// Collect (par) and sort to a total order.
-    pub fn collect_par_sorted(self, parts: Option<usize>, chunk: Option<usize>) -> anyhow::Result<Vec<T>> {
+    pub fn collect_par_sorted(self, parts: Option<usize>, chunk: Option<usize>) -> Result<Vec<T>> {
         let mut v = self.collect_par(parts, chunk)?;
         v.sort();
         Ok(v)
@@ -303,7 +328,7 @@ impl<T: RFBound + Ord> PCollection<T> {
 
 // Keyed convenience: sort by key only
 impl<K: RFBound + Ord, V: RFBound> PCollection<(K, V)> {
-    pub fn collect_par_sorted_by_key(self, parts: Option<usize>, chunk: Option<usize>) -> anyhow::Result<Vec<(K, V)>> {
+    pub fn collect_par_sorted_by_key(self, parts: Option<usize>, chunk: Option<usize>) -> Result<Vec<(K, V)>> {
         let mut v = self.collect_par(parts, chunk)?;
         v.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(v)
@@ -348,5 +373,43 @@ impl<T: RFBound> PCollection<T> {
     {
         let side_map = side.0.clone();
         self.map(move |t: &T| f(t, &side_map))
+    }
+}
+
+impl<T: RFBound> PCollection<T> {
+    pub fn try_map<O, E, F>(self, f: F) -> PCollection<Result<O, E>>
+    where
+        O: RFBound,
+        E: 'static + Send + Sync + Clone + std::fmt::Display,
+        F: 'static + Send + Sync + Fn(&T) -> Result<O, E>,
+    {
+        // Result<O,E> now satisfies RFBound because E: Clone
+        self.map(move |t| f(t))
+    }
+
+    pub fn try_flat_map<O, E, F>(self, f: F) -> PCollection<Result<Vec<O>, E>>
+    where
+        O: RFBound,
+        E: 'static + Send + Sync + Clone + std::fmt::Display,
+        F: 'static + Send + Sync + Fn(&T) -> Result<Vec<O>, E>,
+    {
+        self.map(move |t| f(t))
+    }
+}
+
+// Fail-fast terminal (keeps errors ergonomic)
+impl<T: RFBound, E> PCollection<Result<T, E>>
+where
+    E: 'static + Send + Sync + Clone + std::fmt::Display,
+{
+    pub fn collect_fail_fast(self) -> Result<Vec<T>> {
+        let mut ok = Vec::new();
+        for r in self.collect_seq()? {
+            match r {
+                Ok(v) => ok.push(v),
+                Err(e) => return Err(anyhow::anyhow!("element failed: {}", e)),
+            }
+        }
+        Ok(ok)
     }
 }

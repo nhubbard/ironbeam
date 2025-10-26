@@ -5,7 +5,7 @@ pub mod collection;
 pub mod runner;
 pub mod type_token;
 pub mod io;
-mod collection_helpers;
+pub mod collection_helpers;
 
 // General re-exports
 pub use node_id::NodeId;
@@ -26,7 +26,10 @@ pub use collection_helpers::{read_jsonl, read_jsonl_streaming};
 pub use io::jsonl::{write_jsonl_par};
 
 #[cfg(feature = "io-csv")]
-pub use io::csv::{read_csv_vec, write_csv_vec};
+pub use io::csv::{read_csv_vec, write_csv_vec, write_csv};
+
+#[cfg(all(feature = "io-csv", feature = "parallel-io"))]
+pub use io::csv::{write_csv_par};
 
 #[cfg(feature = "io-csv")]
 pub use collection_helpers::{read_csv, read_csv_streaming};

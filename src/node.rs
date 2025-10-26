@@ -31,6 +31,5 @@ pub enum Node {
         merge: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
     },
 
-    /// (Optional) Materialized for tests (rarely needed now)
     Materialized(Arc<dyn Any + Send + Sync>),
 }

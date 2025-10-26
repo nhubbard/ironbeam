@@ -66,7 +66,6 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 merge(vec![mid])
             }
             Node::Materialized(p) => {
-                // Keep for convenience if you have tests that insert Materialized later in the chain.
                 // We only support terminal Vec<T> here.
                 Box::new(p.downcast_ref::<Vec<T>>().cloned().ok_or_else(|| anyhow!("terminal type mismatch"))?) as Partition
             }
@@ -79,7 +78,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
 }
 
 fn exec_par<T: 'static + Send + Sync + Clone>(chain: Vec<Node>, partitions: usize) -> Result<Vec<T>> {
-    // Require a Source as the first node (keeps partitioning generic & simple)
+    // Require a Source as the first node
     let (payload, vec_ops, rest) = match &chain[0] {
         Node::Source { payload, vec_ops, .. } => (Arc::clone(payload), Arc::clone(vec_ops), &chain[1..]),
         _ => bail!("execution plan must start with a Source node"),
@@ -156,7 +155,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: Vec<Node>, partitions: usiz
         let v = *one.downcast::<Vec<T>>().map_err(|_| anyhow!("terminal type mismatch"))?;
         Ok(v)
     } else {
-        // Make order explicit & robust to future refactors
+        // Make order explicit
         curr.sort_by_key(|s| s.idx);
         let mut out = Vec::<T>::new();
         for Shard { data, .. } in curr {
