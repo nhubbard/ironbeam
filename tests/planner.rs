@@ -11,7 +11,7 @@ fn planner_fuses_stateless_equivalence() -> Result<()> {
     let many = from_vec(&p, input.clone())
         .map(|x: &u32| x + 1)
         .filter(|x: &u32| x.is_multiple_of(2))
-        .flat_map(|x: &u32| vec![*x, *x])           // duplicate
+        .flat_map(|x: &u32| vec![*x, *x]) // duplicate
         .map(|x: &u32| x / 2)
         .filter(|x: &u32| !x.is_multiple_of(3));
 

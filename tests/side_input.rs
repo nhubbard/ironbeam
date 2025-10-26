@@ -1,10 +1,12 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize};
 
-use rustflow::{Pipeline, from_vec, side_hashmap, side_vec};
+use rustflow::{from_vec, side_hashmap, side_vec, Pipeline};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct Product { sku: String }
+struct Product {
+    sku: String,
+}
 
 #[test]
 fn map_with_side_map_enriches_records() -> anyhow::Result<()> {
@@ -35,7 +37,9 @@ fn map_with_side_map_enriches_records() -> anyhow::Result<()> {
     // Collect (either path should work; use par to exercise concurrency)
     let out = enriched.collect_par(Some(4), None)?;
     let mut m: HashMap<String, u32> = HashMap::new();
-    for (sku, price) in out { m.insert(sku, price); }
+    for (sku, price) in out {
+        m.insert(sku, price);
+    }
 
     assert_eq!(m.get("A"), Some(&100));
     assert_eq!(m.get("B"), Some(&250));
@@ -51,7 +55,12 @@ fn filter_with_side_allows_only_whitelisted() -> anyhow::Result<()> {
     // Input: countries seen in events
     let input = from_vec(
         &p,
-        vec!["us".to_string(), "de".to_string(), "xx".to_string(), "jp".to_string()],
+        vec![
+            "us".to_string(),
+            "de".to_string(),
+            "xx".to_string(),
+            "jp".to_string(),
+        ],
     );
 
     // Side vec whitelist (we'll turn it into a set inside the closure)
@@ -66,6 +75,9 @@ fn filter_with_side_allows_only_whitelisted() -> anyhow::Result<()> {
     // Deterministic check: sort results
     let mut out = filtered.collect_par_sorted(Some(4), None)?;
     out.sort();
-    assert_eq!(out, vec!["de".to_string(), "jp".to_string(), "us".to_string()]);
+    assert_eq!(
+        out,
+        vec!["de".to_string(), "jp".to_string(), "us".to_string()]
+    );
     Ok(())
 }

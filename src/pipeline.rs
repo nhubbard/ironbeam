@@ -1,8 +1,8 @@
-use crate::{NodeId};
+use crate::node::Node;
+use crate::NodeId;
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use crate::node::Node;
 
 pub struct Pipeline {
     pub(crate) inner: Arc<Mutex<PipelineInner>>,
@@ -14,15 +14,28 @@ pub(crate) struct PipelineInner {
 }
 impl Default for Pipeline {
     fn default() -> Self {
-        Self { inner: Arc::new(Mutex::new(PipelineInner { next_id: 0, nodes: HashMap::new(), edges: vec![] })) }
+        Self {
+            inner: Arc::new(Mutex::new(PipelineInner {
+                next_id: 0,
+                nodes: HashMap::new(),
+                edges: vec![],
+            })),
+        }
     }
 }
-impl Clone for Pipeline { fn clone(&self) -> Self { Self { inner: Arc::clone(&self.inner) } } }
+impl Clone for Pipeline {
+    fn clone(&self) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
 
 impl Pipeline {
     pub(crate) fn insert_node(&self, node: Node) -> NodeId {
         let mut g = self.inner.lock().unwrap();
-        let id = NodeId::new(g.next_id); g.next_id += 1;
+        let id = NodeId::new(g.next_id);
+        g.next_id += 1;
         g.nodes.insert(id, node);
         id
     }
@@ -37,7 +50,9 @@ impl Pipeline {
     #[allow(dead_code)]
     pub(crate) fn read_vec<T: 'static + Send + Sync + Clone>(&self, id: NodeId) -> Result<Vec<T>> {
         let g = self.inner.lock().unwrap();
-        let Some(Node::Materialized(p)) = g.nodes.get(&id) else { bail!("not materialized"); };
+        let Some(Node::Materialized(p)) = g.nodes.get(&id) else {
+            bail!("not materialized");
+        };
         Ok(p.downcast_ref::<Vec<T>>().unwrap().clone())
     }
     #[allow(dead_code)]

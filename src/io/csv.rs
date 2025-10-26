@@ -1,13 +1,13 @@
-use rayon::iter::ParallelIterator;
-use crate::Partition;
 use crate::type_token::VecOps;
+use crate::Partition;
 use anyhow::{Context, Result};
 use csv::WriterBuilder;
 use rayon::iter::IntoParallelIterator;
-use serde::Serialize;
+use rayon::iter::ParallelIterator;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::any::Any;
-use std::fs::{File, create_dir_all};
+use std::fs::{create_dir_all, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use rustflow::{from_vec, Pipeline};
 use rustflow::collection::Count;
+use rustflow::{from_vec, Pipeline};
+use std::collections::HashMap;
 
 #[test]
 fn map_filter_flatmap_chain() -> anyhow::Result<()> {
@@ -14,7 +14,9 @@ fn map_filter_flatmap_chain() -> anyhow::Result<()> {
     );
 
     let words = lines.flat_map(|s: &String| {
-        s.split_whitespace().map(|w| w.to_lowercase()).collect::<Vec<_>>()
+        s.split_whitespace()
+            .map(|w| w.to_lowercase())
+            .collect::<Vec<_>>()
     });
     let filtered = words.filter(|w: &String| w.len() >= 4);
 
@@ -39,10 +41,16 @@ fn key_by_and_group_by_key_counts_words() -> anyhow::Result<()> {
     let p = Pipeline::default();
     let words = from_vec(
         &p,
-        vec!["a".to_string(), "b".to_string(), "a".to_string(), "c".to_string(), "b".to_string()],
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "a".to_string(),
+            "c".to_string(),
+            "b".to_string(),
+        ],
     );
     let keyed = words.key_by(|w: &String| w.clone()); // (word, word)
-    let grouped = keyed.group_by_key();               // (word, Vec<word>)
+    let grouped = keyed.group_by_key(); // (word, Vec<word>)
     let out = grouped.collect_seq()?;
 
     // Explicit map type to satisfy inference on v.len()
@@ -61,14 +69,20 @@ fn combine_values_count() -> anyhow::Result<()> {
     let p = Pipeline::default();
     let words = from_vec(
         &p,
-        vec!["a".to_string(), "b".to_string(), "a".to_string(), "c".to_string(), "b".to_string()],
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "a".to_string(),
+            "c".to_string(),
+            "b".to_string(),
+        ],
     );
 
     let counts = words
-        .flat_map(|w: &String| vec![w.clone()])            // keep as Vec<String>
-        .key_by(|w: &String| w.clone())                    // (String, String)
-        .map_values(|_v: &String| 1u64)                    // (String, u64)
-        .combine_values(Count);                            // (String, u64)
+        .flat_map(|w: &String| vec![w.clone()]) // keep as Vec<String>
+        .key_by(|w: &String| w.clone()) // (String, String)
+        .map_values(|_v: &String| 1u64) // (String, u64)
+        .combine_values(Count); // (String, u64)
 
     // either .collect() if shim exists, or .collect_seq()
     let mut m: HashMap<String, u64> = HashMap::new();
@@ -86,7 +100,14 @@ fn map_values_transforms_payloads() -> anyhow::Result<()> {
     let p = Pipeline::default();
     let nums = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
 
-    let kv = nums.key_by(|n: &u32| if (*n).is_multiple_of(2) { "even" } else { "odd" }.to_string());
+    let kv = nums.key_by(|n: &u32| {
+        if (*n).is_multiple_of(2) {
+            "even"
+        } else {
+            "odd"
+        }
+        .to_string()
+    });
     let doubled = kv.map_values(|v: &u32| v * 2);
 
     // either .collect() if shim exists, or .collect_seq()
@@ -102,8 +123,15 @@ fn map_values_transforms_payloads() -> anyhow::Result<()> {
 #[test]
 fn stateless_seq_vs_par_equivalent() -> anyhow::Result<()> {
     let p = Pipeline::default();
-    let lines = from_vec(&p, (0..1000).map(|i| format!("w{i} w{i}")).collect::<Vec<_>>());
-    let words = lines.flat_map(|s: &String| s.split_whitespace().map(|w| w.to_string()).collect::<Vec<_>>());
+    let lines = from_vec(
+        &p,
+        (0..1000).map(|i| format!("w{i} w{i}")).collect::<Vec<_>>(),
+    );
+    let words = lines.flat_map(|s: &String| {
+        s.split_whitespace()
+            .map(|w| w.to_string())
+            .collect::<Vec<_>>()
+    });
     let filtered = words.filter(|w: &String| w.len() >= 2);
 
     let a = filtered.clone().collect_seq()?;

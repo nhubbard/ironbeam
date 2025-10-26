@@ -1,4 +1,4 @@
-use std::any::{Any, TypeId, type_name};
+use std::any::{type_name, Any, TypeId};
 use std::sync::Arc;
 
 pub type Partition = Box<dyn Any + Send + Sync>;
@@ -9,7 +9,12 @@ pub struct TypeTag {
     pub name: &'static str,
 }
 impl TypeTag {
-    pub fn of<T: 'static>() -> Self { Self { id: TypeId::of::<T>(), name: type_name::<T>() } }
+    pub fn of<T: 'static>() -> Self {
+        Self {
+            id: TypeId::of::<T>(),
+            name: type_name::<T>(),
+        }
+    }
 }
 
 /// Type-erased helpers for Vec<T>
@@ -31,11 +36,15 @@ impl<T: Clone + Send + Sync + 'static> VecOps for VecOpsImpl<T> {
             return Some(vec![Box::new(v.clone())]);
         }
         let chunk = len.div_ceil(n);
-        let parts = v.chunks(chunk).map(|c| Box::new(c.to_vec()) as Partition).collect();
+        let parts = v
+            .chunks(chunk)
+            .map(|c| Box::new(c.to_vec()) as Partition)
+            .collect();
         Some(parts)
     }
     fn clone_any(&self, data: &dyn Any) -> Option<Partition> {
-        data.downcast_ref::<Vec<T>>().map(|v| Box::new(v.clone()) as Partition)
+        data.downcast_ref::<Vec<T>>()
+            .map(|v| Box::new(v.clone()) as Partition)
     }
 }
 

@@ -1,19 +1,21 @@
-use std::any::Any;
+use crate::type_token::VecOps;
+use crate::Partition;
 use anyhow::{Context, Result};
-use arrow::datatypes::FieldRef;                 // <-- needed for SchemaLike
+use arrow::datatypes::FieldRef;
+// <-- needed for SchemaLike
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use parquet::file::properties::WriterProperties;
+use parquet::file::reader::{FileReader, SerializedFileReader};
 use serde::{de::DeserializeOwned, Serialize};
+use serde_arrow::schema::{SchemaLike, TracingOptions};
+// <-- from_type lives on SchemaLike
 use serde_arrow::{from_record_batch, to_record_batch};
-use serde_arrow::schema::{SchemaLike, TracingOptions}; // <-- from_type lives on SchemaLike
+use std::any::Any;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use parquet::file::reader::{FileReader, SerializedFileReader};
-use crate::Partition;
-use crate::type_token::VecOps;
 
 /// Write a typed Vec<T> to Parquet.
 /// Accepts &Vec<T> (Sized) because to_record_batch requires a Sized input.
@@ -29,9 +31,8 @@ pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
     }
 
     // Infer Arrow fields from T using SchemaLike::from_type
-    let fields: Vec<FieldRef> =
-        Vec::<FieldRef>::from_type::<T>(TracingOptions::default())
-            .context("infer Arrow schema from type T")?;
+    let fields: Vec<FieldRef> = Vec::<FieldRef>::from_type::<T>(TracingOptions::default())
+        .context("infer Arrow schema from type T")?;
 
     // Convert rows -> RecordBatch
     let batch: RecordBatch =
@@ -40,8 +41,8 @@ pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
     // Write Parquet
     let file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     let props = WriterProperties::builder().build();
-    let mut writer = ArrowWriter::try_new(file, batch.schema(), Some(props))
-        .context("create ArrowWriter")?;
+    let mut writer =
+        ArrowWriter::try_new(file, batch.schema(), Some(props)).context("create ArrowWriter")?;
     writer.write(&batch).context("write batch to parquet")?;
     writer.close().context("close ArrowWriter")?;
 
@@ -49,21 +50,21 @@ pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
 }
 
 /// Read a Parquet file into a typed Vec<T>.
-pub fn read_parquet_vec<T: DeserializeOwned>(
-    path: impl AsRef<Path>,
-) -> Result<Vec<T>> {
+pub fn read_parquet_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
 
-    let builder = ParquetRecordBatchReaderBuilder::try_new(file)
-        .context("open ParquetRecordBatchReader")?;
-    let mut reader = builder.with_batch_size(64 * 1024).build()
+    let builder =
+        ParquetRecordBatchReaderBuilder::try_new(file).context("open ParquetRecordBatchReader")?;
+    let mut reader = builder
+        .with_batch_size(64 * 1024)
+        .build()
         .context("build ParquetRecordBatchReader")?;
 
     let mut out: Vec<T> = Vec::new();
     while let Some(batch) = reader.next().transpose().context("read next batch")? {
-        let mut rows: Vec<T> = from_record_batch(&batch)
-            .context("deserialize RecordBatch rows to T")?;
+        let mut rows: Vec<T> =
+            from_record_batch(&batch).context("deserialize RecordBatch rows to T")?;
         out.append(&mut rows);
     }
     Ok(out)
@@ -91,7 +92,11 @@ pub fn build_parquet_shards(
 
     let num_groups = meta.num_row_groups();
     if num_groups == 0 {
-        return Ok(ParquetShards { path, group_ranges: vec![], total_rows: 0 });
+        return Ok(ParquetShards {
+            path,
+            group_ranges: vec![],
+            total_rows: 0,
+        });
     }
 
     let total_rows: u64 = (0..num_groups)
@@ -107,7 +112,11 @@ pub fn build_parquet_shards(
         start = end;
     }
 
-    Ok(ParquetShards { path, group_ranges: ranges, total_rows })
+    Ok(ParquetShards {
+        path,
+        group_ranges: ranges,
+        total_rows,
+    })
 }
 
 /// Read the given row-group range [start_group, end_group) into a typed Vec<T>.
@@ -117,11 +126,13 @@ pub fn read_parquet_row_group_range<T: DeserializeOwned>(
     end_group: usize,
 ) -> Result<Vec<T>> {
     let f = File::open(&src.path).with_context(|| format!("open {}", src.path.display()))?;
-    let b = ParquetRecordBatchReaderBuilder::try_new(f)
-        .context("open ParquetRecordBatchReader")?;
+    let b = ParquetRecordBatchReaderBuilder::try_new(f).context("open ParquetRecordBatchReader")?;
     // select only the row groups for this shard
     let groups: Vec<usize> = (start_group..end_group).collect();
-    let mut reader = b.with_row_groups(groups).build().context("build row-group reader")?;
+    let mut reader = b
+        .with_row_groups(groups)
+        .build()
+        .context("build row-group reader")?;
 
     let mut out: Vec<T> = Vec::new();
     while let Some(batch) = reader.next().transpose().context("read batch")? {
@@ -136,7 +147,9 @@ pub fn read_parquet_row_group_range<T: DeserializeOwned>(
 pub struct ParquetVecOps<T>(std::marker::PhantomData<T>);
 #[cfg(feature = "io-parquet")]
 impl<T> ParquetVecOps<T> {
-    pub fn new() -> Arc<Self> { Arc::new(Self(std::marker::PhantomData)) }
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self(std::marker::PhantomData))
+    }
 }
 
 #[cfg(feature = "io-parquet")]
@@ -161,8 +174,12 @@ where
 
     fn clone_any(&self, data: &dyn Any) -> Option<Partition> {
         let s = data.downcast_ref::<ParquetShards>()?;
-        let v: Vec<T> =
-            read_parquet_row_group_range::<T>(s, 0, s.group_ranges.last().map(|&(_, e)| e).unwrap_or(0)).ok()?;
+        let v: Vec<T> = read_parquet_row_group_range::<T>(
+            s,
+            0,
+            s.group_ranges.last().map(|&(_, e)| e).unwrap_or(0),
+        )
+        .ok()?;
         Some(Box::new(v) as Partition)
     }
 }

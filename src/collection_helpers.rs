@@ -1,7 +1,8 @@
-use crate::collection::{LiftableCombiner, SideInput, SideMap};
+use crate::collection::{FilterValuesOp, LiftableCombiner, MapValuesOp, SideInput, SideMap};
 use crate::node::{DynOp, Node};
 use crate::type_token::{vec_ops_for, TypeTag};
 use crate::{CombineFn, ExecMode, PCollection, Partition, Pipeline, RFBound, Runner};
+use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -9,13 +10,14 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
-use anyhow::Result;
 
 #[cfg(feature = "io-csv")]
 use crate::io::csv::{build_csv_shards, CsvShards, CsvVecOps};
 
 #[cfg(feature = "io-jsonl")]
-use crate::io::jsonl::{build_jsonl_shards, read_jsonl_vec, write_jsonl_vec, JsonlShards, JsonlVecOps};
+use crate::io::jsonl::{
+    build_jsonl_shards, read_jsonl_vec, write_jsonl_vec, JsonlShards, JsonlVecOps,
+};
 
 #[cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
 use crate::io::jsonl::write_jsonl_par;
@@ -25,14 +27,19 @@ use crate::io::parquet::{build_parquet_shards, ParquetShards, ParquetVecOps};
 
 // ----- from_vec -----
 pub fn from_vec<T>(p: &Pipeline, data: Vec<T>) -> PCollection<T>
-where T: RFBound
+where
+    T: RFBound,
 {
     let id = p.insert_node(Node::Source {
         payload: Arc::new(data),
         vec_ops: vec_ops_for::<T>(),
         elem_tag: TypeTag::of::<T>(),
     });
-    PCollection { pipeline: p.clone(), id, _t: PhantomData }
+    PCollection {
+        pipeline: p.clone(),
+        id,
+        _t: PhantomData,
+    }
 }
 
 /// Create a collection from any owned iterator (collects into Vec<T>).
@@ -56,42 +63,70 @@ where
 
 impl<T: RFBound> PCollection<T> {
     pub fn map<O, F>(self, f: F) -> PCollection<O>
-    where O: RFBound, F: 'static + Send + Sync + Fn(&T) -> O
+    where
+        O: RFBound,
+        F: 'static + Send + Sync + Fn(&T) -> O,
     {
         let op: Arc<dyn DynOp> = Arc::new(crate::collection::MapOp::<T, O, F>(f, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
-        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+        PCollection {
+            pipeline: self.pipeline,
+            id,
+            _t: PhantomData,
+        }
     }
 
     pub fn filter<F>(self, pred: F) -> PCollection<T>
-    where F: 'static + Send + Sync + Fn(&T) -> bool
+    where
+        F: 'static + Send + Sync + Fn(&T) -> bool,
     {
         let op: Arc<dyn DynOp> = Arc::new(crate::collection::FilterOp::<T, F>(pred, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
-        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+        PCollection {
+            pipeline: self.pipeline,
+            id,
+            _t: PhantomData,
+        }
     }
 
     pub fn flat_map<O, F>(self, f: F) -> PCollection<O>
-    where O: RFBound, F: 'static + Send + Sync + Fn(&T) -> Vec<O>
+    where
+        O: RFBound,
+        F: 'static + Send + Sync + Fn(&T) -> Vec<O>,
     {
         let op: Arc<dyn DynOp> = Arc::new(crate::collection::FlatMapOp::<T, O, F>(f, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
-        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+        PCollection {
+            pipeline: self.pipeline,
+            id,
+            _t: PhantomData,
+        }
     }
 }
 
 impl<T: RFBound> PCollection<T> {
-    pub fn collect(self) -> Result<Vec<T>> { self.collect_seq() }
+    pub fn collect(self) -> Result<Vec<T>> {
+        self.collect_seq()
+    }
     pub fn collect_seq(self) -> Result<Vec<T>> {
-        Runner { mode: ExecMode::Sequential, ..Default::default() }
-            .run_collect::<T>(&self.pipeline, self.id)
+        Runner {
+            mode: ExecMode::Sequential,
+            ..Default::default()
+        }
+        .run_collect::<T>(&self.pipeline, self.id)
     }
     pub fn collect_par(self, threads: Option<usize>, partitions: Option<usize>) -> Result<Vec<T>> {
-        Runner { mode: ExecMode::Parallel { threads, partitions }, ..Default::default() }
-            .run_collect::<T>(&self.pipeline, self.id)
+        Runner {
+            mode: ExecMode::Parallel {
+                threads,
+                partitions,
+            },
+            ..Default::default()
+        }
+        .run_collect::<T>(&self.pipeline, self.id)
     }
 }
 
@@ -119,16 +154,6 @@ impl<T: RFBound> PCollection<T> {
 }
 
 impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
-    /// Map only the value: (K, V) -> (K, O)
-    pub fn map_values<O, F>(self, f: F) -> PCollection<(K, O)>
-    where
-        O: RFBound,
-        F: 'static + Send + Sync + Fn(&V) -> O,
-    {
-        // map receives & (K, V); clone K to keep (K, O), not (&K, O)
-        self.map(move |kv: &(K, V)| (kv.0.clone(), f(&kv.1)))
-    }
-
     /// Group values by key: (K, V) -> (K, Vec<V>)
     pub fn group_by_key(self) -> PCollection<(K, Vec<V>)> {
         // typed closures, so no runtime type checks needed
@@ -144,7 +169,9 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
         let merge = Arc::new(|parts: Vec<Partition>| -> Partition {
             let mut acc: HashMap<K, Vec<V>> = HashMap::new();
             for p in parts {
-                let m = *p.downcast::<HashMap<K, Vec<V>>>().expect("GBK merge: bad part");
+                let m = *p
+                    .downcast::<HashMap<K, Vec<V>>>()
+                    .expect("GBK merge: bad part");
                 for (k, vs) in m {
                     acc.entry(k).or_default().extend(vs);
                 }
@@ -154,7 +181,11 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
 
         let id = self.pipeline.insert_node(Node::GroupByKey { local, merge });
         self.pipeline.connect(self.id, id);
-        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+        PCollection {
+            pipeline: self.pipeline,
+            id,
+            _t: PhantomData,
+        }
     }
 }
 
@@ -171,7 +202,9 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
         let local = {
             let comb = Arc::clone(&comb);
             Arc::new(move |p: Partition| -> Partition {
-                let kv = *p.downcast::<Vec<(K, V)>>().expect("combine local: bad input");
+                let kv = *p
+                    .downcast::<Vec<(K, V)>>()
+                    .expect("combine local: bad input");
                 let mut map: HashMap<K, A> = HashMap::new();
                 for (k, v) in kv {
                     comb.add_input(map.entry(k).or_insert_with(|| comb.create()), v);
@@ -185,7 +218,9 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
             Arc::new(move |parts: Vec<Partition>| -> Partition {
                 let mut accs: HashMap<K, A> = HashMap::new();
                 for p in parts {
-                    let m = *p.downcast::<HashMap<K, A>>().expect("combine merge: bad part");
+                    let m = *p
+                        .downcast::<HashMap<K, A>>()
+                        .expect("combine merge: bad part");
                     for (k, a) in m {
                         comb.merge(accs.entry(k).or_insert_with(|| comb.create()), a);
                     }
@@ -195,9 +230,17 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
             })
         };
 
-        let id = self.pipeline.insert_node(Node::CombineValues { local, merge });
+        let id = self.pipeline.insert_node(Node::CombineValues {
+            local_pairs: local, // existing closure from your current code
+            local_groups: None, // not liftable from grouped input by default
+            merge,              // existing
+        });
         self.pipeline.connect(self.id, id);
-        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+        PCollection {
+            pipeline: self.pipeline,
+            id,
+            _t: PhantomData,
+        }
     }
 }
 
@@ -207,54 +250,82 @@ where
     V: RFBound,
 {
     /// Lifted combine: to be used right after `group_by_key()`.
-    /// It skips the GBK barrier by creating accumulators from each group's full value slice.
+    /// Skips the GBK barrier by creating accumulators from each group's full value slice.
     pub fn combine_values_lifted<C, A, O>(self, comb: C) -> PCollection<(K, O)>
     where
         C: CombineFn<V, A, O> + LiftableCombiner<V, A, O> + 'static,
         A: Send + Sync + 'static,
         O: RFBound,
     {
+        use crate::node::Node;
+        use crate::type_token::Partition;
+        use std::collections::HashMap;
+        use std::marker::PhantomData;
+        use std::sync::Arc;
+
         let comb = Arc::new(comb);
 
-        // local: input is Vec<(K, Vec<V>)> → produce HashMap<K, A> by calling C::from_group
-        let local = {
-            let comb = std::sync::Arc::clone(&comb);
+        // regular local_pairs: Vec<(K,V)> → HashMap<K, A>
+        let local_pairs = {
+            let comb = Arc::clone(&comb);
             Arc::new(move |p: Partition| -> Partition {
-                let kvv = *p.downcast::<Vec<(K, Vec<V>)>>()
-                    .expect("lifted combine local: bad input");
+                let kv = *p
+                    .downcast::<Vec<(K, V)>>()
+                    .expect("combine local_pairs: expected Vec<(K, V)>");
+                let mut map: HashMap<K, A> = HashMap::new();
+                for (k, v) in kv {
+                    comb.add_input(map.entry(k).or_insert_with(|| comb.create()), v);
+                }
+                Box::new(map) as Partition
+            })
+        };
+
+        // lifted local_groups: Vec<(K, Vec<V>)> → HashMap<K, A>
+        let local_groups = {
+            let comb = Arc::clone(&comb);
+            Arc::new(move |p: Partition| -> Partition {
+                let kvv = *p
+                    .downcast::<Vec<(K, Vec<V>)>>()
+                    .expect("lifted combine local: expected Vec<(K, Vec<V>)>");
                 let mut map: HashMap<K, A> = HashMap::new();
                 for (k, vs) in kvv {
-                    let acc = comb.build_from_group(&vs); // note: instance call
+                    let acc = comb.build_from_group(&vs);
                     map.insert(k, acc);
                 }
                 Box::new(map) as Partition
             })
         };
 
-        // merge: identical to your existing combine_values merge — reuse comb to merge A's and finish
+        // merge: Vec<HashMap<K,A>> → Vec<(K,O)>
         let merge = {
-            let comb = std::sync::Arc::clone(&comb);
+            let comb = Arc::clone(&comb);
             Arc::new(move |parts: Vec<Partition>| -> Partition {
                 let mut accs: HashMap<K, A> = HashMap::new();
                 for p in parts {
-                    let m = *p.downcast::<HashMap<K, A>>()
-                        .expect("lifted combine merge: bad part");
+                    let m = *p
+                        .downcast::<HashMap<K, A>>()
+                        .expect("lifted combine merge: expected HashMap<K, A>");
                     for (k, a) in m {
                         let entry = accs.entry(k).or_insert_with(|| comb.create());
                         comb.merge(entry, a);
                     }
                 }
-                let out: Vec<(K, O)> = accs
-                    .into_iter()
-                    .map(|(k, a)| (k, comb.finish(a)))
-                    .collect();
+                let out: Vec<(K, O)> = accs.into_iter().map(|(k, a)| (k, comb.finish(a))).collect();
                 Box::new(out) as Partition
             })
         };
 
-        let id = self.pipeline.insert_node(Node::CombineValues { local, merge });
+        let id = self.pipeline.insert_node(Node::CombineValues {
+            local_pairs,
+            local_groups: Some(local_groups),
+            merge,
+        });
         self.pipeline.connect(self.id, id);
-        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+        PCollection {
+            pipeline: self.pipeline,
+            id,
+            _t: PhantomData,
+        }
     }
 }
 
@@ -274,12 +345,20 @@ where
         vec_ops: JsonlVecOps::<T>::new(),
         elem_tag: TypeTag::of::<T>(),
     });
-    Ok(PCollection { pipeline: p.clone(), id, _t: PhantomData })
+    Ok(PCollection {
+        pipeline: p.clone(),
+        id,
+        _t: PhantomData,
+    })
 }
 
 // --------- Sources: CSV (vector + streaming) ----------
 #[cfg(feature = "io-csv")]
-pub fn read_csv<T>(p: &Pipeline, path: impl AsRef<Path>, has_headers: bool) -> Result<PCollection<T>>
+pub fn read_csv<T>(
+    p: &Pipeline,
+    path: impl AsRef<Path>,
+    has_headers: bool,
+) -> Result<PCollection<T>>
 where
     T: RFBound + DeserializeOwned,
 {
@@ -325,7 +404,11 @@ where
         vec_ops: CsvVecOps::<T>::new(),
         elem_tag: TypeTag::of::<T>(),
     });
-    Ok(PCollection { pipeline: p.clone(), id, _t: PhantomData })
+    Ok(PCollection {
+        pipeline: p.clone(),
+        id,
+        _t: PhantomData,
+    })
 }
 
 // --------- Sink: parallel JSONL writer (stable order) ----------
@@ -362,7 +445,11 @@ where
         vec_ops: ParquetVecOps::<T>::new(),
         elem_tag: TypeTag::of::<T>(),
     });
-    Ok(PCollection { pipeline: p.clone(), id, _t: PhantomData })
+    Ok(PCollection {
+        pipeline: p.clone(),
+        id,
+        _t: PhantomData,
+    })
 }
 
 impl<T: RFBound + Ord> PCollection<T> {
@@ -385,7 +472,11 @@ impl<T: RFBound + Ord> PCollection<T> {
 
 // Keyed convenience: sort by key only
 impl<K: RFBound + Ord, V: RFBound> PCollection<(K, V)> {
-    pub fn collect_par_sorted_by_key(self, parts: Option<usize>, chunk: Option<usize>) -> Result<Vec<(K, V)>> {
+    pub fn collect_par_sorted_by_key(
+        self,
+        parts: Option<usize>,
+        chunk: Option<usize>,
+    ) -> Result<Vec<(K, V)>> {
         let mut v = self.collect_par(parts, chunk)?;
         v.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(v)
@@ -400,8 +491,9 @@ impl<T: RFBound> PCollection<T> {
     /// Map with read-only side input vector (e.g., lookup table)
     pub fn map_with_side<O, S, F>(self, side: SideInput<S>, f: F) -> PCollection<O>
     where
-        O: RFBound, S: RFBound,
-        F: 'static + Send + Sync + Fn(&T, &[S]) -> O
+        O: RFBound,
+        S: RFBound,
+        F: 'static + Send + Sync + Fn(&T, &[S]) -> O,
     {
         let side_arc = side.0.clone();
         self.map(move |t: &T| f(t, &side_arc))
@@ -411,7 +503,7 @@ impl<T: RFBound> PCollection<T> {
     pub fn filter_with_side<S, F>(self, side: SideInput<S>, pred: F) -> PCollection<T>
     where
         S: RFBound,
-        F: 'static + Send + Sync + Fn(&T, &[S]) -> bool
+        F: 'static + Send + Sync + Fn(&T, &[S]) -> bool,
     {
         let side_arc = side.0.clone();
         self.filter(move |t: &T| pred(t, &side_arc))
@@ -425,8 +517,10 @@ pub fn side_hashmap<K: RFBound + Eq + Hash, V: RFBound>(pairs: Vec<(K, V)>) -> S
 impl<T: RFBound> PCollection<T> {
     pub fn map_with_side_map<O, K, V, F>(self, side: SideMap<K, V>, f: F) -> PCollection<O>
     where
-        O: RFBound, K: RFBound + Eq + Hash, V: RFBound,
-        F: 'static + Send + Sync + Fn(&T, &HashMap<K, V>) -> O
+        O: RFBound,
+        K: RFBound + Eq + Hash,
+        V: RFBound,
+        F: 'static + Send + Sync + Fn(&T, &HashMap<K, V>) -> O,
     {
         let side_map = side.0.clone();
         self.map(move |t: &T| f(t, &side_map))
@@ -468,5 +562,38 @@ where
             }
         }
         Ok(ok)
+    }
+}
+
+impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
+    /// Map only the value: (K, V) -> (K, O)
+    pub fn map_values<O, F>(self, f: F) -> PCollection<(K, O)>
+    where
+        O: RFBound,
+        F: 'static + Send + Sync + Fn(&V) -> O,
+    {
+        let op: Arc<dyn DynOp> = Arc::new(MapValuesOp::<K, V, O, F>(f, PhantomData));
+        let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
+        self.pipeline.connect(self.id, id);
+        PCollection {
+            pipeline: self.pipeline,
+            id,
+            _t: PhantomData,
+        }
+    }
+
+    /// Filter by value: keep entries where `pred(&V)` is true.
+    pub fn filter_values<F>(self, pred: F) -> PCollection<(K, V)>
+    where
+        F: 'static + Send + Sync + Fn(&V) -> bool,
+    {
+        let op: Arc<dyn DynOp> = Arc::new(FilterValuesOp::<K, V, F>(pred, PhantomData));
+        let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
+        self.pipeline.connect(self.id, id);
+        PCollection {
+            pipeline: self.pipeline,
+            id,
+            _t: PhantomData,
+        }
     }
 }

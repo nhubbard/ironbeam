@@ -17,10 +17,13 @@ pub struct PCollection<T> {
 }
 
 // ----- stateless ops (DynOp) -----
-pub(crate) struct MapOp<I,O,F>(pub F, pub PhantomData<(I, O)>);
+pub(crate) struct MapOp<I, O, F>(pub F, pub PhantomData<(I, O)>);
 
-impl<I,O,F> DynOp for MapOp<I,O,F>
-where I: RFBound, O: RFBound, F: Send + Sync + Fn(&I)->O + 'static
+impl<I, O, F> DynOp for MapOp<I, O, F>
+where
+    I: RFBound,
+    O: RFBound,
+    F: Send + Sync + Fn(&I) -> O + 'static,
 {
     fn apply(&self, input: Partition) -> Partition {
         let v = *input.downcast::<Vec<I>>().expect("MapOp input type");
@@ -29,10 +32,45 @@ where I: RFBound, O: RFBound, F: Send + Sync + Fn(&I)->O + 'static
     }
 }
 
-pub(crate) struct FilterOp<T,P>(pub P, pub PhantomData<T>);
+pub(crate) struct MapValuesOp<K, V, O, F>(pub F, pub PhantomData<(K, V, O)>);
 
-impl<T,P> DynOp for FilterOp<T,P>
-where T: RFBound, P: Send + Sync + Fn(&T)->bool + 'static
+impl<K, V, O, F> DynOp for MapValuesOp<K, V, O, F>
+where
+    K: RFBound,
+    V: RFBound,
+    O: RFBound,
+    F: 'static + Send + Sync + Fn(&V) -> O,
+{
+    fn apply(&self, p: Partition) -> Partition {
+        let f = &self.0;
+        let kv = *p
+            .downcast::<Vec<(K, V)>>()
+            .expect("MapValuesOp: expected Vec<(K,V)>");
+        let out: Vec<(K, O)> = kv.into_iter().map(|(k, v)| (k, f(&v))).collect();
+        Box::new(out) as Partition
+    }
+
+    // Planner capability flags:
+    fn key_preserving(&self) -> bool {
+        true
+    }
+    fn value_only(&self) -> bool {
+        true
+    }
+    fn reorder_safe_with_value_only(&self) -> bool {
+        true
+    }
+    fn cost_hint(&self) -> u8 {
+        3
+    } // cheap, but keep filters before it
+}
+
+pub(crate) struct FilterOp<T, P>(pub P, pub PhantomData<T>);
+
+impl<T, P> DynOp for FilterOp<T, P>
+where
+    T: RFBound,
+    P: Send + Sync + Fn(&T) -> bool + 'static,
 {
     fn apply(&self, input: Partition) -> Partition {
         let v = *input.downcast::<Vec<T>>().expect("FilterOp input type");
@@ -41,15 +79,52 @@ where T: RFBound, P: Send + Sync + Fn(&T)->bool + 'static
     }
 }
 
-pub(crate) struct FlatMapOp<I,O,F>(pub F, pub PhantomData<(I, O)>);
+pub(crate) struct FilterValuesOp<K, V, F>(pub F, pub PhantomData<(K, V)>);
 
-impl<I,O,F> DynOp for FlatMapOp<I,O,F>
-where I: RFBound, O: RFBound, F: Send + Sync + Fn(&I)->Vec<O> + 'static
+impl<K, V, F> DynOp for FilterValuesOp<K, V, F>
+where
+    K: RFBound,
+    V: RFBound,
+    F: 'static + Send + Sync + Fn(&V) -> bool,
+{
+    fn apply(&self, p: Partition) -> Partition {
+        let pred = &self.0;
+        let kv = *p
+            .downcast::<Vec<(K, V)>>()
+            .expect("FilterValuesOp: expected Vec<(K,V)>");
+        let out: Vec<(K, V)> = kv.into_iter().filter(|(_, v)| pred(v)).collect();
+        Box::new(out) as Partition
+    }
+
+    // Planner capability flags:
+    fn key_preserving(&self) -> bool {
+        true
+    }
+    fn value_only(&self) -> bool {
+        true
+    }
+    fn reorder_safe_with_value_only(&self) -> bool {
+        true
+    }
+    fn cost_hint(&self) -> u8 {
+        1
+    } // filters are "cheapest" -> push earlier
+}
+
+pub(crate) struct FlatMapOp<I, O, F>(pub F, pub PhantomData<(I, O)>);
+
+impl<I, O, F> DynOp for FlatMapOp<I, O, F>
+where
+    I: RFBound,
+    O: RFBound,
+    F: Send + Sync + Fn(&I) -> Vec<O> + 'static,
 {
     fn apply(&self, input: Partition) -> Partition {
         let v = *input.downcast::<Vec<I>>().expect("FlatMapOp input type");
         let mut out: Vec<O> = Vec::new();
-        for i in &v { out.extend(self.0(i)); }
+        for i in &v {
+            out.extend(self.0(i));
+        }
         Box::new(out) as Partition
     }
 }
@@ -68,17 +143,25 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
 pub struct Count;
 
 impl<V> CombineFn<V, u64, u64> for Count {
-    fn create(&self) -> u64 { 0 }
-    fn add_input(&self, acc: &mut u64, _v: V) { *acc += 1; }
-    fn merge(&self, acc: &mut u64, other: u64) { *acc += other; }
-    fn finish(&self, acc: u64) -> u64 { acc }
+    fn create(&self) -> u64 {
+        0
+    }
+    fn add_input(&self, acc: &mut u64, _v: V) {
+        *acc += 1;
+    }
+    fn merge(&self, acc: &mut u64, other: u64) {
+        *acc += other;
+    }
+    fn finish(&self, acc: u64) -> u64 {
+        acc
+    }
 }
 
 /// A combiner that can construct its accumulator directly from a group of values.
 /// Default implementation folds via `add_input`, but specific combiners can override.
 pub trait LiftableCombiner<V, A, O>: CombineFn<V, A, O>
 where
-    V: RFBound, // brings Clone (+ Send+Sync+'static) along
+    V: RFBound,
 {
     fn build_from_group(&self, values: &[V]) -> A {
         let mut acc = self.create();

@@ -17,8 +17,18 @@ fn parquet_roundtrip_typed() -> anyhow::Result<()> {
     let path = tmp.path().join("rows.parquet");
 
     let data = vec![
-        Row { id: 1, name: "a".into(), score: Some(1.5), tags: vec!["x".into()] },
-        Row { id: 2, name: "b".into(), score: None,       tags: vec!["y".into(), "z".into()] },
+        Row {
+            id: 1,
+            name: "a".into(),
+            score: Some(1.5),
+            tags: vec!["x".into()],
+        },
+        Row {
+            id: 2,
+            name: "b".into(),
+            score: None,
+            tags: vec!["y".into(), "z".into()],
+        },
     ];
 
     // Write directly

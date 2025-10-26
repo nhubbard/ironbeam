@@ -1,8 +1,14 @@
 use anyhow::Result;
 use rustflow::{
-    Pipeline, from_vec,
+    from_vec,
+    AverageF64,
+    DistinctCount,
+    Max,
+    Min,
     // re-export these at crate root or import from your module:
-    Sum, Min, Max, AverageF64, DistinctCount, TopK,
+    Pipeline,
+    Sum,
+    TopK,
 };
 
 #[test]
@@ -70,7 +76,7 @@ fn distinct_count_basic_and_lifted() -> Result<()> {
     let vals: Vec<u32> = (0..500).map(|i| (i % 25) as u32).collect();
 
     let dc_direct = from_vec(&p, vals.clone())
-        .key_by(|x| x % 5)              // 5 buckets
+        .key_by(|x| x % 5) // 5 buckets
         .combine_values(DistinctCount::<u32>::new())
         .collect_par_sorted_by_key(Some(6), None)?;
 

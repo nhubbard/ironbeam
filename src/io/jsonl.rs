@@ -1,12 +1,12 @@
-use std::any::Any;
+use crate::type_token::VecOps;
+use crate::Partition;
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Serialize};
+use std::any::Any;
 use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use crate::Partition;
-use crate::type_token::VecOps;
 
 pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
@@ -15,9 +15,12 @@ pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec
     let mut out = Vec::<T>::new();
     for (i, line) in rdr.lines().enumerate() {
         let line = line.with_context(|| format!("read line {} in {}", i + 1, path.display()))?;
-        if line.trim().is_empty() { continue; }
-        let v: T = serde_json::from_str(&line)
-            .with_context(|| format!("parse JSONL line {} in {}: {}", i + 1, path.display(), line))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let v: T = serde_json::from_str(&line).with_context(|| {
+            format!("parse JSONL line {} in {}: {}", i + 1, path.display(), line)
+        })?;
         out.push(v);
     }
     Ok(out)
@@ -66,18 +69,21 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
         .map(|i| path.with_extension(format!("jsonl.part{i}")))
         .collect();
 
-    shard_paths.par_iter().enumerate().try_for_each(|(i, p)| -> Result<()> {
-        let start = i * chunk;
-        let end = ((i + 1) * chunk).min(n);
-        let f = File::create(p).with_context(|| format!("create {}", p.display()))?;
-        let mut w = BufWriter::new(f);
-        for item in &data[start..end] {
-            serde_json::to_writer(&mut w, item)?;
-            w.write_all(b"\n")?;
-        }
-        w.flush()?;
-        Ok(())
-    })?;
+    shard_paths
+        .par_iter()
+        .enumerate()
+        .try_for_each(|(i, p)| -> Result<()> {
+            let start = i * chunk;
+            let end = ((i + 1) * chunk).min(n);
+            let f = File::create(p).with_context(|| format!("create {}", p.display()))?;
+            let mut w = BufWriter::new(f);
+            for item in &data[start..end] {
+                serde_json::to_writer(&mut w, item)?;
+                w.write_all(b"\n")?;
+            }
+            w.flush()?;
+            Ok(())
+        })?;
 
     // concat in order
     let mut out = BufWriter::new(File::create(path)?);
@@ -86,7 +92,9 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
         std::io::copy(&mut r, &mut out)?;
     }
     out.flush()?;
-    for p in shard_paths { let _ = std::fs::remove_file(p); }
+    for p in shard_paths {
+        let _ = std::fs::remove_file(p);
+    }
     Ok(n)
 }
 
@@ -110,7 +118,11 @@ pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Res
         total += 1;
     }
     if total == 0 {
-        return Ok(JsonlShards { path, ranges: vec![], total_lines: 0 });
+        return Ok(JsonlShards {
+            path,
+            ranges: vec![],
+            total_lines: 0,
+        });
     }
     let lps = lines_per_shard.max(1) as u64;
     let shards = ((total + lps - 1) / lps) as usize;
@@ -120,20 +132,34 @@ pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Res
         let end = ((i as u64 + 1) * lps).min(total);
         ranges.push((start, end));
     }
-    Ok(JsonlShards { path, ranges, total_lines: total })
+    Ok(JsonlShards {
+        path,
+        ranges,
+        total_lines: total,
+    })
 }
 
 /// Read a single [start,end) range into Vec<T>
-pub fn read_jsonl_range<T: DeserializeOwned>(src: &JsonlShards, start: u64, end: u64) -> Result<Vec<T>> {
+pub fn read_jsonl_range<T: DeserializeOwned>(
+    src: &JsonlShards,
+    start: u64,
+    end: u64,
+) -> Result<Vec<T>> {
     let f = File::open(&src.path).with_context(|| format!("open {}", src.path.display()))?;
     let rdr = BufReader::new(f);
     let mut out = Vec::<T>::new();
     for (i, line) in rdr.lines().enumerate() {
         let i = i as u64;
         let line = line?;
-        if i < start { continue; }
-        if i >= end { break; }
-        if line.trim().is_empty() { continue; }
+        if i < start {
+            continue;
+        }
+        if i >= end {
+            break;
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
         let v: T = serde_json::from_str(&line)
             .with_context(|| format!("parse JSONL line {} in {}", i + 1, src.path.display()))?;
         out.push(v);
@@ -144,7 +170,11 @@ pub fn read_jsonl_range<T: DeserializeOwned>(src: &JsonlShards, start: u64, end:
 /// VecOps for JSONL shards, typed over T.
 pub struct JsonlVecOps<T>(std::marker::PhantomData<T>);
 
-impl<T> JsonlVecOps<T> { pub fn new() -> Arc<Self> { Arc::new(Self(std::marker::PhantomData)) } }
+impl<T> JsonlVecOps<T> {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self(std::marker::PhantomData))
+    }
+}
 
 impl<T> VecOps for JsonlVecOps<T>
 where

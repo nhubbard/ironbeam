@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rustflow::{Pipeline, from_vec, Count};
+use rustflow::{from_vec, Count, Pipeline};
 
 #[test]
 fn gbk_then_combine_lifted_equals_classic_combine() -> Result<()> {

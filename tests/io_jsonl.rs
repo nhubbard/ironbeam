@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
-struct Rec { id: u32, word: String }
+struct Rec {
+    id: u32,
+    word: String,
+}
 
 #[cfg(feature = "io-jsonl")]
 #[test]
@@ -16,12 +19,21 @@ fn jsonl_roundtrip_stateless() -> Result<()> {
     let input = from_vec(
         &p,
         vec![
-            Rec { id: 1, word: "hi".into() },
-            Rec { id: 2, word: "there".into() },
+            Rec {
+                id: 1,
+                word: "hi".into(),
+            },
+            Rec {
+                id: 2,
+                word: "there".into(),
+            },
         ],
     );
 
-    let upper = input.map(|r: &Rec| Rec { id: r.id, word: r.word.to_uppercase() });
+    let upper = input.map(|r: &Rec| Rec {
+        id: r.id,
+        word: r.word.to_uppercase(),
+    });
     let n = upper.clone().write_jsonl(&file)?;
     assert_eq!(n, 2);
 
@@ -32,8 +44,14 @@ fn jsonl_roundtrip_stateless() -> Result<()> {
     assert_eq!(
         v,
         vec![
-            Rec { id: 1, word: "HI".into() },
-            Rec { id: 2, word: "THERE".into() },
+            Rec {
+                id: 1,
+                word: "HI".into()
+            },
+            Rec {
+                id: 2,
+                word: "THERE".into()
+            },
         ]
     );
     Ok(())
@@ -53,12 +71,17 @@ fn jsonl_wordcount_end_to_end() -> Result<()> {
     )?;
 
     #[derive(Clone, Serialize, Deserialize, Debug)]
-    struct Line { line: String }
+    struct Line {
+        line: String,
+    }
 
     let p = Pipeline::default();
     let input = read_jsonl::<Line>(&p, &file)?;
     let words = input.flat_map(|l: &Line| {
-        l.line.split_whitespace().map(|w| w.to_lowercase()).collect::<Vec<_>>()
+        l.line
+            .split_whitespace()
+            .map(|w| w.to_lowercase())
+            .collect::<Vec<_>>()
     });
     let counts = words
         .key_by(|w: &String| w.clone())
@@ -66,7 +89,9 @@ fn jsonl_wordcount_end_to_end() -> Result<()> {
         .combine_values(Count);
 
     let mut m = std::collections::HashMap::<String, u64>::new();
-    for (k, v) in counts.collect_seq()? { m.insert(k, v); }
+    for (k, v) in counts.collect_seq()? {
+        m.insert(k, v);
+    }
     assert_eq!(m.get("the"), Some(&2));
     assert_eq!(m.get("quick"), Some(&1));
     assert_eq!(m.get("lazy"), Some(&1));
