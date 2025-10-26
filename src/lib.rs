@@ -15,7 +15,7 @@ pub use collection::{PCollection, RFBound, CombineFn, Count};
 pub use collection_helpers::{from_vec, from_iter, side_hashmap, side_vec};
 pub use runner::{Runner, ExecMode};
 pub use type_token::Partition;
-pub use combiners::{Sum, Min, Max, AverageF64};
+pub use combiners::{Sum, Min, Max, AverageF64, DistinctCount, TopK};
 
 // Gated re-exports
 #[cfg(feature = "io-jsonl")]

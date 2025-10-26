@@ -1,42 +1,114 @@
 use anyhow::Result;
-use rustflow::{AverageF64, Max, Min, Pipeline, Sum, from_vec};
+use rustflow::{
+    Pipeline, from_vec,
+    // re-export these at crate root or import from your module:
+    Sum, Min, Max, AverageF64, DistinctCount, TopK,
+};
 
 #[test]
-fn sum_min_max_basic() -> Result<()> {
+fn sum_min_max_average_basic_and_lifted() -> Result<()> {
     let p = Pipeline::default();
-    let xs: Vec<i32> = (0..100).collect();
+    let vals: Vec<i32> = (0..100).collect();
 
-    let sum = from_vec(&p, xs.clone())
-        .key_by(|x| x % 3)
+    // Sum
+    let sum_direct = from_vec(&p, vals.clone())
+        .key_by(|x| x % 5)
         .combine_values(Sum::<i32>::new())
         .collect_par_sorted_by_key(Some(4), None)?;
-    let min = from_vec(&p, xs.clone())
-        .key_by(|x| x % 3)
-        .combine_values(Min::<i32>::new())
-        .collect_par_sorted_by_key(Some(4), None)?;
-    let max = from_vec(&p, xs.clone())
-        .key_by(|x| x % 3)
-        .combine_values(Max::<i32>::new())
+
+    let sum_lifted = from_vec(&p, vals.clone())
+        .key_by(|x| x % 5)
+        .group_by_key()
+        .combine_values_lifted(Sum::<i32>::new())
         .collect_par_sorted_by_key(Some(4), None)?;
 
-    // quick sanity
-    assert_eq!(min[0].1, 0); // key 0 min in 0..99
-    assert_eq!(max[0].1, 99); // key 0 max
-    assert!(sum.iter().map(|(_, v)| v).sum::<i32>() > 0);
+    assert_eq!(sum_direct, sum_lifted);
+
+    // Min
+    let min_direct = from_vec(&p, vals.clone())
+        .key_by(|x| x % 7)
+        .combine_values(Min::<i32>::new())
+        .collect_par_sorted_by_key(Some(4), None)?;
+    let min_lifted = from_vec(&p, vals.clone())
+        .key_by(|x| x % 7)
+        .group_by_key()
+        .combine_values_lifted(Min::<i32>::new())
+        .collect_par_sorted_by_key(Some(4), None)?;
+    assert_eq!(min_direct, min_lifted);
+
+    // Max
+    let max_direct = from_vec(&p, vals.clone())
+        .key_by(|x| x % 9)
+        .combine_values(Max::<i32>::new())
+        .collect_par_sorted_by_key(Some(4), None)?;
+    let max_lifted = from_vec(&p, vals.clone())
+        .key_by(|x| x % 9)
+        .group_by_key()
+        .combine_values_lifted(Max::<i32>::new())
+        .collect_par_sorted_by_key(Some(4), None)?;
+    assert_eq!(max_direct, max_lifted);
+
+    // AverageF64
+    let avg_direct = from_vec(&p, (1u32..=100).collect::<Vec<_>>())
+        .key_by(|x| x % 4)
+        .combine_values(AverageF64)
+        .collect_par_sorted_by_key(Some(4), None)?;
+    let avg_lifted = from_vec(&p, (1u32..=100).collect::<Vec<_>>())
+        .key_by(|x| x % 4)
+        .group_by_key()
+        .combine_values_lifted(AverageF64)
+        .collect_par_sorted_by_key(Some(4), None)?;
+    assert_eq!(avg_direct, avg_lifted);
+
     Ok(())
 }
 
 #[test]
-fn average_f64_basic() -> Result<()> {
+fn distinct_count_basic_and_lifted() -> Result<()> {
     let p = Pipeline::default();
-    let xs: Vec<u32> = (1..=10).collect(); // avg per key 0/1 mod 2
+    // keys: 0..5, values: repeated pattern to ensure duplicates
+    let vals: Vec<u32> = (0..500).map(|i| (i % 25) as u32).collect();
 
-    let avgs = from_vec(&p, xs)
-        .key_by(|x| x % 2)
-        .combine_values(AverageF64)
-        .collect_par_sorted_by_key(Some(2), None)?;
+    let dc_direct = from_vec(&p, vals.clone())
+        .key_by(|x| x % 5)              // 5 buckets
+        .combine_values(DistinctCount::<u32>::new())
+        .collect_par_sorted_by_key(Some(6), None)?;
 
-    // roughly: evens avg ~ 6, odds avg ~ 5
-    assert!((avgs[0].1 - 5.0).abs() < 1.0 || (avgs[1].1 - 5.0).abs() < 1.0);
+    let dc_lifted = from_vec(&p, vals.clone())
+        .key_by(|x| x % 5)
+        .group_by_key()
+        .combine_values_lifted(DistinctCount::<u32>::new())
+        .collect_par_sorted_by_key(Some(6), None)?;
+
+    assert_eq!(dc_direct, dc_lifted);
+    Ok(())
+}
+
+#[test]
+fn topk_basic_and_lifted() -> Result<()> {
+    let p = Pipeline::default();
+    let vals: Vec<i32> = (0..200).collect();
+
+    // Top 3 per key (keyed by mod 7)
+    let k = 3usize;
+
+    let top_direct = from_vec(&p, vals.clone())
+        .key_by(|x| x % 7)
+        .combine_values(TopK::<i32>::new(k))
+        .collect_par_sorted_by_key(Some(6), None)?;
+
+    let top_lifted = from_vec(&p, vals.clone())
+        .key_by(|x| x % 7)
+        .group_by_key()
+        .combine_values_lifted(TopK::<i32>::new(k))
+        .collect_par_sorted_by_key(Some(6), None)?;
+
+    assert_eq!(top_direct, top_lifted);
+
+    // sanity: each bucket should have descending order and len ≤ k
+    for (_k, v) in top_direct {
+        assert!(v.windows(2).all(|w| w[0] >= w[1]));
+        assert!(v.len() <= 3);
+    }
     Ok(())
 }

@@ -1,16 +1,16 @@
 use std::cmp::Ord;
+use std::collections::{BinaryHeap, HashSet};
+use std::hash::Hash;
 use std::ops::Add;
 
-use crate::{RFBound};
-use crate::collection::CombineFn; // wherever CombineFn lives
-use crate::collection::LiftableCombiner; // your new trait
+use crate::collection::{CombineFn, LiftableCombiner};
+use crate::RFBound;
 
-/* ---------- Sum<T> ---------- */
+/* ===================== Sum<T> ===================== */
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Sum<T>(pub std::marker::PhantomData<T>);
-
-impl<T> Sum<T> { pub fn new() -> Self { Sum(std::marker::PhantomData) } }
+impl<T> Sum<T> { pub fn new() -> Self { Self(std::marker::PhantomData) } }
 
 impl<T> CombineFn<T, T, T> for Sum<T>
 where
@@ -38,14 +38,12 @@ where
     }
 }
 
-/* ---------- Min<T> ---------- */
+/* ===================== Min<T> ===================== */
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Min<T>(pub std::marker::PhantomData<T>);
+impl<T> Min<T> { pub fn new() -> Self { Self(std::marker::PhantomData) } }
 
-impl<T> Min<T> { pub fn new() -> Self { Min(std::marker::PhantomData) } }
-
-// Accumulator is Option<T> to avoid requiring a sentinel default value.
 impl<T> CombineFn<T, Option<T>, T> for Min<T>
 where
     T: RFBound + Ord,
@@ -62,8 +60,8 @@ where
     fn merge(&self, acc: &mut Option<T>, other: Option<T>) {
         if let Some(b) = other {
             match acc {
-                Some(a) => { if b < *a { *a = b; } }
-                None => { *acc = Some(b); }
+                Some(a) => { if b < *a { *a = b } }
+                None => { *acc = Some(b) }
             }
         }
     }
@@ -82,12 +80,11 @@ where
     }
 }
 
-/* ---------- Max<T> ---------- */
+/* ===================== Max<T> ===================== */
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Max<T>(pub std::marker::PhantomData<T>);
-
-impl<T> Max<T> { pub fn new() -> Self { Max(std::marker::PhantomData) } }
+impl<T> Max<T> { pub fn new() -> Self { Self(std::marker::PhantomData) } }
 
 impl<T> CombineFn<T, Option<T>, T> for Max<T>
 where
@@ -105,8 +102,8 @@ where
     fn merge(&self, acc: &mut Option<T>, other: Option<T>) {
         if let Some(b) = other {
             match acc {
-                Some(a) => { if b > *a { *a = b; } }
-                None => { *acc = Some(b); }
+                Some(a) => { if b > *a { *a = b } }
+                None => { *acc = Some(b) }
             }
         }
     }
@@ -125,7 +122,7 @@ where
     }
 }
 
-/* ---------- (Optional) AverageF64 ---------- */
+/* ===================== AverageF64 ===================== */
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AverageF64;
@@ -156,6 +153,89 @@ where
     V: RFBound + Into<f64>,
 {
     fn build_from_group(&self, values: &[V]) -> (f64, u64) {
-        (values.iter().map(|v| (*v).clone().into()).sum(), values.len() as u64)
+        let sum: f64 = values.iter().map(|v| v.clone().into()).sum();
+        (sum, values.len() as u64)
+    }
+}
+
+/* ===================== DistinctCount<T> ===================== */
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DistinctCount<T>(pub std::marker::PhantomData<T>);
+impl<T> DistinctCount<T> { pub fn new() -> Self { Self(std::marker::PhantomData) } }
+
+impl<T> CombineFn<T, HashSet<T>, u64> for DistinctCount<T>
+where
+    T: RFBound + Eq + Hash,
+{
+    fn create(&self) -> HashSet<T> { HashSet::new() }
+
+    fn add_input(&self, acc: &mut HashSet<T>, v: T) { acc.insert(v); }
+
+    fn merge(&self, acc: &mut HashSet<T>, other: HashSet<T>) {
+        if acc.is_empty() { *acc = other; }
+        else { acc.extend(other); }
+    }
+
+    fn finish(&self, acc: HashSet<T>) -> u64 { acc.len() as u64 }
+}
+
+impl<T> LiftableCombiner<T, HashSet<T>, u64> for DistinctCount<T>
+where
+    T: RFBound + Eq + Hash,
+{
+    fn build_from_group(&self, values: &[T]) -> HashSet<T> {
+        values.iter().cloned().collect()
+    }
+}
+
+/* ===================== TopK<T> ===================== */
+
+#[derive(Clone, Debug)]
+pub struct TopK<T> { pub k: usize, _m: std::marker::PhantomData<T> }
+impl<T> TopK<T> { pub fn new(k: usize) -> Self { Self { k, _m: std::marker::PhantomData } } }
+
+// We store a min-heap of size ≤ k using Reverse to keep the largest k elements.
+impl<T> CombineFn<T, BinaryHeap<std::cmp::Reverse<T>>, Vec<T>> for TopK<T>
+where
+    T: RFBound + Ord,
+{
+    fn create(&self) -> BinaryHeap<std::cmp::Reverse<T>> { BinaryHeap::new() }
+
+    fn add_input(&self, acc: &mut BinaryHeap<std::cmp::Reverse<T>>, v: T) {
+        acc.push(std::cmp::Reverse(v));
+        if acc.len() > self.k { acc.pop(); } // drop smallest
+    }
+
+    fn merge(&self, acc: &mut BinaryHeap<std::cmp::Reverse<T>>, mut other: BinaryHeap<std::cmp::Reverse<T>>) {
+        // Merge by pushing and trimming
+        while let Some(x) = other.pop() {
+            acc.push(x);
+            if acc.len() > self.k { acc.pop(); }
+        }
+    }
+
+    fn finish(&self, mut acc: BinaryHeap<std::cmp::Reverse<T>>) -> Vec<T> {
+        // Drain to a Vec in descending order
+        let mut v = Vec::with_capacity(acc.len());
+        while let Some(std::cmp::Reverse(x)) = acc.pop() {
+            v.push(x);
+        }
+        v.reverse(); // largest first
+        v
+    }
+}
+
+impl<T> LiftableCombiner<T, BinaryHeap<std::cmp::Reverse<T>>, Vec<T>> for TopK<T>
+where
+    T: RFBound + Ord,
+{
+    fn build_from_group(&self, values: &[T]) -> BinaryHeap<std::cmp::Reverse<T>> {
+        let mut heap: BinaryHeap<std::cmp::Reverse<T>> = BinaryHeap::new();
+        for v in values.iter().cloned() {
+            heap.push(std::cmp::Reverse(v));
+            if heap.len() > self.k { heap.pop(); }
+        }
+        heap
     }
 }
