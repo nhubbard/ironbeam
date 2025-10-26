@@ -1,4 +1,4 @@
-use crate::collection::{SideInput, SideMap};
+use crate::collection::{LiftableCombiner, SideInput, SideMap};
 use crate::node::{DynOp, Node};
 use crate::type_token::{vec_ops_for, TypeTag};
 use crate::{CombineFn, ExecMode, PCollection, Partition, Pipeline, RFBound, Runner};
@@ -191,6 +191,63 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
                     }
                 }
                 let out: Vec<(K, O)> = accs.into_iter().map(|(k, a)| (k, comb.finish(a))).collect();
+                Box::new(out) as Partition
+            })
+        };
+
+        let id = self.pipeline.insert_node(Node::CombineValues { local, merge });
+        self.pipeline.connect(self.id, id);
+        PCollection { pipeline: self.pipeline, id, _t: PhantomData }
+    }
+}
+
+impl<K, V> PCollection<(K, Vec<V>)>
+where
+    K: RFBound + Eq + Hash,
+    V: RFBound,
+{
+    /// Lifted combine: to be used right after `group_by_key()`.
+    /// It skips the GBK barrier by creating accumulators from each group's full value slice.
+    pub fn combine_values_lifted<C, A, O>(self, comb: C) -> PCollection<(K, O)>
+    where
+        C: CombineFn<V, A, O> + LiftableCombiner<V, A, O> + 'static,
+        A: Send + Sync + 'static,
+        O: RFBound,
+    {
+        let comb = Arc::new(comb);
+
+        // local: input is Vec<(K, Vec<V>)> → produce HashMap<K, A> by calling C::from_group
+        let local = {
+            let comb = std::sync::Arc::clone(&comb);
+            Arc::new(move |p: Partition| -> Partition {
+                let kvv = *p.downcast::<Vec<(K, Vec<V>)>>()
+                    .expect("lifted combine local: bad input");
+                let mut map: HashMap<K, A> = HashMap::new();
+                for (k, vs) in kvv {
+                    let acc = comb.build_from_group(&vs); // note: instance call
+                    map.insert(k, acc);
+                }
+                Box::new(map) as Partition
+            })
+        };
+
+        // merge: identical to your existing combine_values merge — reuse comb to merge A's and finish
+        let merge = {
+            let comb = std::sync::Arc::clone(&comb);
+            Arc::new(move |parts: Vec<Partition>| -> Partition {
+                let mut accs: HashMap<K, A> = HashMap::new();
+                for p in parts {
+                    let m = *p.downcast::<HashMap<K, A>>()
+                        .expect("lifted combine merge: bad part");
+                    for (k, a) in m {
+                        let entry = accs.entry(k).or_insert_with(|| comb.create());
+                        comb.merge(entry, a);
+                    }
+                }
+                let out: Vec<(K, O)> = accs
+                    .into_iter()
+                    .map(|(k, a)| (k, comb.finish(a)))
+                    .collect();
                 Box::new(out) as Partition
             })
         };

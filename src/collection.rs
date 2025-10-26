@@ -74,6 +74,27 @@ impl<V> CombineFn<V, u64, u64> for Count {
     fn finish(&self, acc: u64) -> u64 { acc }
 }
 
+/// A combiner that can construct its accumulator directly from a group of values.
+/// Default implementation folds via `add_input`, but specific combiners can override.
+pub trait LiftableCombiner<V, A, O>: CombineFn<V, A, O>
+where
+    V: RFBound, // brings Clone (+ Send+Sync+'static) along
+{
+    fn build_from_group(&self, values: &[V]) -> A {
+        let mut acc = self.create();
+        for v in values {
+            self.add_input(&mut acc, v.clone());
+        }
+        acc
+    }
+}
+
+impl<V: RFBound> LiftableCombiner<V, u64, u64> for Count {
+    fn build_from_group(&self, values: &[V]) -> u64 {
+        values.len() as u64
+    }
+}
+
 #[derive(Clone)]
 pub struct SideInput<T: RFBound>(pub Arc<Vec<T>>);
 
