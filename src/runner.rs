@@ -8,6 +8,8 @@ use rayon::prelude::*;
 use std::sync::Arc;
 use crate::type_token::Partition;
 
+pub struct Shard { idx: usize, data: Partition }
+
 #[derive(Clone, Copy, Debug)]
 pub enum ExecMode { Sequential, Parallel { threads: Option<usize>, partitions: Option<usize> } }
 
@@ -15,6 +17,7 @@ pub struct Runner {
     pub mode: ExecMode,
     pub default_partitions: usize,
 }
+
 impl Default for Runner {
     fn default() -> Self {
         Self { mode: ExecMode::Parallel { threads: None, partitions: None }, default_partitions: 2 * num_cpus::get().max(2) }
@@ -82,44 +85,82 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: Vec<Node>, partitions: usiz
         _ => bail!("execution plan must start with a Source node"),
     };
 
+    // Ask the source for a length hint and split into at most `partitions` pieces.
     let total_len = vec_ops.len(payload.as_ref()).unwrap_or(0);
-    let parts = partitions.max(1).min(total_len.max(1));
-    let mut curr = vec_ops
-        .split(payload.as_ref(), parts)
-        .unwrap_or_else(|| vec![vec_ops.clone_any(payload.as_ref()).expect("cloneable source")] );
+    let target_parts = partitions.max(1).min(total_len.max(1));
 
+    // Split if possible; otherwise fall back to a single clone.
+    let initial_parts: Vec<Partition> = vec_ops
+        .split(payload.as_ref(), target_parts)
+        .unwrap_or_else(|| vec![vec_ops.clone_any(payload.as_ref()).expect("cloneable source")]);
+
+    // Wrap partitions with stable indices so we can maintain deterministic order.
+    let mut curr: Vec<Shard> = initial_parts
+        .into_iter()
+        .enumerate()
+        .map(|(idx, data)| Shard { idx, data })
+        .collect();
+
+    // Walk the rest of the chain. Fuse stateless ops; collapse at barriers (GBK/Combine).
     let mut i = 0usize;
     while i < rest.len() {
         match &rest[i] {
             Node::Stateless(_) => {
+                // Collect a fused block of stateless ops
                 let mut ops = Vec::new();
                 while i < rest.len() {
-                    if let Node::Stateless(more) = &rest[i] { ops.extend(more.iter().cloned()); i += 1; } else { break; }
+                    if let Node::Stateless(more) = &rest[i] {
+                        ops.extend(more.iter().cloned());
+                        i += 1;
+                    } else {
+                        break;
+                    }
                 }
-                curr = curr.into_par_iter().map(|p| ops.iter().fold(p, |acc, op| op.apply(acc))).collect();
+                // Apply the fused block per-shard (can run in parallel safely)
+                curr = curr
+                    .into_par_iter()
+                    .map(|Shard { idx, data }| {
+                        let data2 = ops.iter().fold(data, |acc, op| op.apply(acc));
+                        Shard { idx, data: data2 }
+                    })
+                    .collect();
             }
             Node::GroupByKey { local, merge } => {
-                let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
-                curr = vec![merge(mids)];
+                // Local per-shard aggregation, then global merge as a barrier
+                let mids: Vec<Partition> = curr
+                    .into_par_iter()
+                    .map(|s| local(s.data))
+                    .collect();
+                let merged = merge(mids);
+                // After a barrier, we reset to a single shard with idx=0
+                curr = vec![Shard { idx: 0, data: merged }];
                 i += 1;
             }
             Node::CombineValues { local, merge } => {
-                let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
-                curr = vec![merge(mids)];
+                // Local per-shard combine, then global merge as a barrier
+                let mids: Vec<Partition> = curr
+                    .into_par_iter()
+                    .map(|s| local(s.data))
+                    .collect();
+                let merged = merge(mids);
+                curr = vec![Shard { idx: 0, data: merged }];
                 i += 1;
             }
             Node::Source { .. } | Node::Materialized(_) => bail!("unexpected additional source/materialized"),
         }
     }
 
+    // Terminal: concatenate deterministically in shard-index order.
     if curr.len() == 1 {
-        let one = curr.into_iter().next().unwrap();
+        let one = curr.into_iter().next().unwrap().data;
         let v = *one.downcast::<Vec<T>>().map_err(|_| anyhow!("terminal type mismatch"))?;
         Ok(v)
     } else {
+        // Make order explicit & robust to future refactors
+        curr.sort_by_key(|s| s.idx);
         let mut out = Vec::<T>::new();
-        for part in curr {
-            let v = *part
+        for Shard { data, .. } in curr {
+            let v = *data
                 .downcast::<Vec<T>>()
                 .map_err(|_| anyhow!("terminal type mismatch"))?;
             out.extend(v);
