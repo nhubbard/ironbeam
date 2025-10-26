@@ -4,8 +4,8 @@ use rustflow::{
     AverageF64,
     DistinctCount,
     Max,
-    Min,
     // re-export these at crate root or import from your module:
+    Min,
     Pipeline,
     Sum,
     TopK,
