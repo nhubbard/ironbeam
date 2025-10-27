@@ -89,16 +89,12 @@ fn left_right_full_outer() -> Result<()> {
     full_out.sort_by(|a, b| {
         a.0.cmp(&b.0)
             .then(
-                a.1.0
-                    .as_ref()
-                    .map(|s| s.clone())
-                    .cmp(&b.1.0.as_ref().map(|s| s.clone())),
+                a.1.0.clone()
+                    .cmp(&b.1.0.clone()),
             )
             .then(
-                a.1.1
-                    .as_ref()
-                    .map(|s| s.clone())
-                    .cmp(&b.1.1.as_ref().map(|s| s.clone())),
+                a.1.1.clone()
+                    .cmp(&b.1.1.clone()),
             )
     });
     assert_eq!(

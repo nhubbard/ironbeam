@@ -1,15 +1,5 @@
 use anyhow::Result;
-use rustflow::{
-    from_vec,
-    AverageF64,
-    DistinctCount,
-    Max,
-    // re-export these at crate root or import from your module:
-    Min,
-    Pipeline,
-    Sum,
-    TopK,
-};
+use rustflow::{from_vec, AverageF64, DistinctCount, Max, Min, Pipeline, Sum, TopK};
 
 #[test]
 fn sum_min_max_average_basic_and_lifted() -> Result<()> {

@@ -1,8 +1,7 @@
 #![cfg(feature = "io-jsonl")]
 
 use anyhow::Result;
-use rustflow::read_jsonl_streaming;
-use rustflow::{Count, Pipeline};
+use rustflow::{read_jsonl_streaming, Count, Pipeline};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

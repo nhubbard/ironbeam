@@ -35,10 +35,8 @@ pub fn write_csv_vec<T: Serialize>(
     data: &[T],
 ) -> Result<usize> {
     let path = path.as_ref();
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
-        }
+    if let Some(parent) = path.parent() && !parent.as_os_str().is_empty() {
+        create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
     }
     let mut wtr = WriterBuilder::new()
         .has_headers(has_headers)
@@ -71,8 +69,8 @@ pub fn build_csv_shards(
         .has_headers(has_headers)
         .from_path(&path)?;
     let mut total: u64 = 0;
-    let mut it = rdr.records();
-    while let Some(_) = it.next() {
+    let it = rdr.records();
+    for _ in it {
         total += 1;
     }
     if total == 0 {
@@ -84,7 +82,7 @@ pub fn build_csv_shards(
         });
     }
     let rps = rows_per_shard.max(1) as u64;
-    let shards = ((total + rps - 1) / rps) as usize;
+    let shards = total.div_ceil(rps) as usize;
     let mut ranges = Vec::with_capacity(shards);
     for i in 0..shards {
         let start = (i as u64) * rps;
@@ -169,7 +167,7 @@ pub fn write_csv<T: Serialize>(
 #[cfg(feature = "parallel-io")]
 pub fn write_csv_par<T: Serialize + Sync>(
     path: impl AsRef<Path>,
-    data: &Vec<T>,
+    data: &[T],
     shards: Option<usize>,
     has_headers: bool,
 ) -> Result<usize> {

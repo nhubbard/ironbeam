@@ -28,10 +28,8 @@ pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec
 
 pub fn write_jsonl_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Result<usize> {
     let path = path.as_ref();
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
-        }
+    if let Some(parent) = path.parent() && !parent.as_os_str().is_empty() {
+        create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
     }
     let f = File::create(path).with_context(|| format!("create {}", path.display()))?;
     let mut w = BufWriter::new(f);
@@ -52,10 +50,8 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
 ) -> Result<usize> {
     use rayon::prelude::*;
     let path = path.as_ref();
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
-        }
+    if let Some(parent) = path.parent() && !parent.as_os_str().is_empty() {
+        create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
     }
     let n = data.len();
     if n == 0 {
@@ -63,7 +59,7 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
         return Ok(0);
     }
     let shards = shards.unwrap_or_else(|| num_cpus::get().max(2)).clamp(1, n);
-    let chunk = (n + shards - 1) / shards;
+    let chunk = n.div_ceil(shards);
 
     let shard_paths: Vec<PathBuf> = (0..shards)
         .map(|i| path.with_extension(format!("jsonl.part{i}")))
@@ -125,7 +121,7 @@ pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Res
         });
     }
     let lps = lines_per_shard.max(1) as u64;
-    let shards = ((total + lps - 1) / lps) as usize;
+    let shards = total.div_ceil(lps) as usize;
     let mut ranges = Vec::with_capacity(shards);
     for i in 0..shards {
         let start = (i as u64) * lps;
