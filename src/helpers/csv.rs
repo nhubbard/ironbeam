@@ -1,56 +1,225 @@
+//! CSV sources and sinks for `PCollection`.
+//!
+//! This module provides typed, serde-backed CSV I/O that integrates with the
+//! Rustflow pipeline. You can either:
+//!
+//! - **Vector I/O** — read the whole file into memory or write an in-memory collection:
+//!   - [`read_csv`] -> `PCollection<T>`
+//!   - [`PCollection::write_csv`] / [`PCollection::write_csv_par`]
+//!
+//! - **Streaming I/O** — build a source that shards a CSV file by row count and
+//!   parses each shard lazily in the runner:
+//!   - [`read_csv_streaming`] -> `PCollection<T>`
+//!
+//! All functions are serde-driven: your record type `T` should `#[derive(serde::Deserialize)]`
+//! for reads and `#[derive(serde::Serialize)]` for writes.
+//!
+//! ## Feature flags
+//! - `io-csv`: enables CSV helpers.
+//! - `parallel-io`: enables the parallel writer (`write_csv_par`).
+//!
+//! ## Examples
+//! Read a CSV file into a typed collection and write it back out (vector I/O):
+//! ```no_run
+//! use rustflow::*;
+//! use serde::{Deserialize, Serialize};
+//!
+//! #[derive(Clone, Serialize, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+//! struct Row { k: String, v: u64 }
+//!
+//! # fn main() -> anyhow::Result<()> {
+//! let p = Pipeline::default();
+//!
+//! // Vector read -> PCollection<Row>
+//! let rows = read_csv::<Row>(&p, "input.csv", true)?;
+//!
+//! // Transform and write
+//! let doubled = rows.map(|r: &Row| Row { k: r.k.clone(), v: r.v * 2 });
+//! doubled.write_csv("output.csv", true)?;
+//! # Ok(()) }
+//! ```
+//!
+//! Streaming read shard-by-shard (useful for large files):
+//! ```no_run
+//! use rustflow::*;
+//! use serde::{Deserialize, Serialize};
+//!
+//! #[derive(Clone, Serialize, Deserialize)]
+//! struct Row { k: String, v: u64 }
+//!
+//! # fn main() -> anyhow::Result<()> {
+//! let p = Pipeline::default();
+//! let stream = read_csv_streaming::<Row>(&p, "input.csv", true, 50_000)?;
+//! let out = stream.collect_seq()?; // materialize after transforms
+//! # Ok(()) }
+//! ```
+
+use crate::io::csv::{build_csv_shards, read_csv_vec, write_csv_vec, CsvShards, CsvVecOps};
+use crate::node::Node;
+use crate::type_token::TypeTag;
+use crate::{from_vec, PCollection, Pipeline, RFBound};
+use anyhow::Result;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use crate::{PCollection, Pipeline, RFBound};
-use crate::io::csv::{build_csv_shards, CsvShards, CsvVecOps};
-use crate::node::Node;
-use crate::type_token::TypeTag;
 
-// --------- Sources: CSV (vector + streaming) ----------
+/// Read a CSV file into a typed `PCollection<T>` (vector mode).
+///
+/// This eagerly parses the entire file into memory using `serde` and returns
+/// a source collection. For very large files, prefer [`read_csv_streaming`].
+///
+/// *Enabled when the `io-csv` feature is on.*
+///
+/// # Arguments
+/// - `p`: Pipeline to attach the source to.
+/// - `path`: File path to read.
+/// - `has_headers`: Whether the input CSV includes a header row.
+///
+/// # Errors
+/// Returns an error if the file cannot be opened or if any row fails to deserialize.
+///
+/// # Example
+/// ```no_run
+/// use rustflow::*;
+/// use serde::Deserialize;
+///
+/// #[derive(Clone, Deserialize)]
+/// struct Row { k: String, v: u64 }
+///
+/// # fn main() -> anyhow::Result<()> {
+/// let p = Pipeline::default();
+/// let rows = read_csv::<Row>(&p, "data.csv", true)?;
+/// let out = rows.collect_seq()?;
+/// # Ok(()) }
+/// ```
 #[cfg(feature = "io-csv")]
 pub fn read_csv<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,
     has_headers: bool,
-) -> anyhow::Result<PCollection<T>>
+) -> Result<PCollection<T>>
 where
     T: RFBound + DeserializeOwned,
 {
-    let v = crate::io::csv::read_csv_vec::<T>(path, has_headers)?;
-    Ok(crate::from_vec(p, v))
+    let v = read_csv_vec::<T>(path, has_headers)?;
+    Ok(from_vec(p, v))
 }
 
 #[cfg(feature = "io-csv")]
 impl<T: RFBound + Serialize> PCollection<T> {
-    pub fn write_csv(self, path: impl AsRef<Path>, has_headers: bool) -> anyhow::Result<usize> {
+    /// Execute the pipeline sequentially and write the result as CSV (vector mode).
+    ///
+    /// This collects the entire result into memory and writes it to `path` using `serde`.
+    /// For parallel writing, see [`PCollection::write_csv_par`] (requires `parallel-io`).
+    ///
+    /// # Arguments
+    /// - `path`: Destination path.
+    /// - `has_headers`: Whether to write a header row.
+    ///
+    /// # Errors
+    /// Returns an error if writing/serialization fails.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use rustflow::*;
+    /// use serde::Serialize;
+    ///
+    /// #[derive(Clone, Serialize)]
+    /// struct Row { k: String, v: u64 }
+    ///
+    /// # fn main() -> anyhow::Result<()> {
+    /// let p = Pipeline::default();
+    /// let rows = from_vec(&p, vec![Row { k: "a".into(), v: 1 }]);
+    /// rows.write_csv("out.csv", true)?;
+    /// # Ok(()) }
+    /// ```
+    pub fn write_csv(self, path: impl AsRef<Path>, has_headers: bool) -> Result<usize> {
         let v = self.collect_seq()?;
-        crate::io::csv::write_csv_vec(path, has_headers, &v)
+        write_csv_vec(path, has_headers, &v)
     }
 }
 
 #[cfg_attr(docsrs, doc(cfg(all(feature = "io-csv", feature = "parallel-io"))))]
 #[cfg(all(feature = "io-csv", feature = "parallel-io"))]
 impl<T: RFBound + Serialize> PCollection<T> {
+    /// Execute the pipeline in parallel and write the result as CSV.
+    ///
+    /// This collects the result in parallel (respecting the runner’s partition settings),
+    /// then writes a single CSV file in deterministic order.
+    ///
+    /// # Arguments
+    /// - `path`: Destination path.
+    /// - `shards`: Optional parallelism hint for collection (partitions); `None` lets the runner decide.
+    /// - `has_headers`: Whether to write a header row.
+    ///
+    /// # Errors
+    /// Returns an error if collection or CSV serialization fails.
+    ///
+    /// # Example
+    /// ```no_run
+    /// use rustflow::*;
+    /// use serde::Serialize;
+    ///
+    /// #[derive(Clone, Serialize)]
+    /// struct Row { k: String, v: u64 }
+    ///
+    /// # fn main() -> anyhow::Result<()> {
+    /// let p = Pipeline::default();
+    /// let rows = from_vec(&p, vec![Row { k: "a".into(), v: 1 }]);
+    /// rows.write_csv_par("out.csv", Some(4), true)?;
+    /// # Ok(()) }
+    /// ```
     pub fn write_csv_par(
         self,
         path: impl AsRef<Path>,
         shards: Option<usize>,
         has_headers: bool,
-    ) -> anyhow::Result<usize> {
+    ) -> Result<usize> {
         let data = self.collect_par(shards, None)?;
-        crate::io::csv::write_csv_vec(path, has_headers, &data)
+        write_csv_vec(path, has_headers, &data)
     }
 }
 
+/// Create a **streaming** CSV source, sharded by a fixed number of rows per shard.
+///
+/// This builds a `CsvShards` descriptor (counting rows up front) and inserts a `Source`
+/// node that reads and deserializes only its shard when executed by the runner. Useful
+/// for large files that don’t fit comfortably in memory.
+///
+/// *Enabled when the `io-csv` feature is on.*
+///
+/// # Arguments
+/// - `p`: Pipeline to attach the source to.
+/// - `path`: CSV file path.
+/// - `has_headers`: Whether the input CSV includes a header row.
+/// - `rows_per_shard`: Target number of rows per shard (minimum 1).
+///
+/// # Errors
+/// Returns an error if the file cannot be scanned or opened by the CSV reader.
+///
+/// # Example
+/// ```no_run
+/// use rustflow::*;
+/// use serde::Deserialize;
+///
+/// #[derive(Clone, Deserialize)]
+/// struct Row { k: String, v: u64 }
+///
+/// # fn main() -> anyhow::Result<()> {
+/// let p = Pipeline::default();
+/// let stream = read_csv_streaming::<Row>(&p, "big.csv", true, 50_000)?;
+/// let out = stream.collect_seq()?; // materialize after transforms
+/// # Ok(()) }
+/// ```
 #[cfg(feature = "io-csv")]
 pub fn read_csv_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,
     has_headers: bool,
     rows_per_shard: usize,
-) -> anyhow::Result<PCollection<T>>
+) -> Result<PCollection<T>>
 where
     T: RFBound + DeserializeOwned,
 {
