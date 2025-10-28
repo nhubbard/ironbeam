@@ -1,3 +1,17 @@
+//! CSV I/O utilities and `VecOps` integration.
+//!
+//! This module provides:
+//! - **Typed vector I/O** with Serde: [`read_csv_vec`] and [`write_csv_vec`]
+//! - **Deterministic parallel writer**: [`write_csv_par`] (feature `parallel-io`)
+//! - **Streaming ingestion** by sharding rows: [`CsvShards`], [`build_csv_shards`], [`read_csv_range`]
+//! - **Execution runner integration**: [`CsvVecOps<T>`] implements [`VecOps`] over `CsvShards`
+//!
+//! # Design notes
+//! - All typed I/O is Serde-backed (`DeserializeOwned`/`Serialize`).
+//! - Sharding is **row-count based** (header excluded), not byte-range based.
+//! - The parallel writer preserves **deterministic final order** by writing shard
+//!   buffers in index order after parallel serialization.
+
 use crate::type_token::VecOps;
 use crate::Partition;
 use anyhow::{Context, Result};
@@ -12,7 +26,17 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// ---------- CSV helpers (typed; serde-backed) ----------
+/// Read a CSV file into a typed `Vec<T>`.
+///
+/// Rows are deserialized with Serde using `T: DeserializeOwned`.
+///
+/// * If `has_headers` is `true`, the first row is treated as a header and
+///   not deserialized into `T`.
+/// * Errors are annotated with row numbers for easier debugging.
+///
+/// # Errors
+/// Returns an error if the file cannot be opened or if any row fails to
+/// deserialize into `T`.
 pub fn read_csv_vec<T: DeserializeOwned>(
     path: impl AsRef<Path>,
     has_headers: bool,
@@ -29,13 +53,29 @@ pub fn read_csv_vec<T: DeserializeOwned>(
     Ok(out)
 }
 
+/// Write a typed slice to a CSV file.
+///
+/// Rows are serialized with Serde using `T: Serialize`.
+///
+/// * Creates parent directories if they don’t exist.
+/// * Emits a header row when `has_headers` is `true` and the `Serialize`
+///   implementation for `T` supports headers (via `csv` conventions).
+///
+/// # Returns
+/// The number of rows written (i.e., `data.len()`).
+///
+/// # Errors
+/// Returns an error if the file/dirs cannot be created or any row fails to
+/// serialize/flush.
 pub fn write_csv_vec<T: Serialize>(
     path: impl AsRef<Path>,
     has_headers: bool,
     data: &[T],
 ) -> Result<usize> {
     let path = path.as_ref();
-    if let Some(parent) = path.parent() && !parent.as_os_str().is_empty() {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
         create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
     }
     let mut wtr = WriterBuilder::new()
@@ -50,15 +90,31 @@ pub fn write_csv_vec<T: Serialize>(
     Ok(data.len())
 }
 
-/// Streaming CSV: shard by row count (excluding header).
+/// Sharding metadata for streaming CSV ingestion.
+///
+/// The CSV is split into contiguous row ranges (start-inclusive, end-exclusive),
+/// excluding an optional header row from the count.
+///
+/// Construct with [`build_csv_shards`] and read ranges with [`read_csv_range`].
 #[derive(Clone)]
 pub struct CsvShards {
+    /// Source file path.
     pub path: PathBuf,
-    pub ranges: Vec<(u64, u64)>, // [start_row, end_row)
+    /// Row ranges as `(start_row, end_row)`, 0-based, end-exclusive.
+    pub ranges: Vec<(u64, u64)>,
+    /// Total number of data rows (excluding header).
     pub total_rows: u64,
+    /// Whether the source has a header row.
     pub has_headers: bool,
 }
 
+/// Build [`CsvShards`] by scanning row count and slicing into `rows_per_shard`.
+///
+/// * Counting is performed by iterating over CSV records, respecting `has_headers`.
+/// * For empty files, returns `CsvShards` with no ranges.
+///
+/// # Errors
+/// Returns an error if the file cannot be opened or read as CSV.
 pub fn build_csv_shards(
     path: impl AsRef<Path>,
     has_headers: bool,
@@ -97,6 +153,13 @@ pub fn build_csv_shards(
     })
 }
 
+/// Read a single shard (row range) from a CSV described by [`CsvShards`].
+///
+/// `start` and `end` are row indices into the data region (excluding header).
+///
+/// # Errors
+/// Returns an error if the file cannot be opened or if deserialization of any
+/// row in the range fails.
 pub fn read_csv_range<T: DeserializeOwned>(
     src: &CsvShards,
     start: u64,
@@ -120,9 +183,19 @@ pub fn read_csv_range<T: DeserializeOwned>(
     Ok(out)
 }
 
+/// `VecOps` adapter for streaming CSV via [`CsvShards`].
+///
+/// This allows the execution engine to:
+/// * introspect a logical length (`len`) without loading all rows,
+/// * split the input into concrete partitions (`split`) by row range,
+/// * clone the entire dataset as a single partition (`clone_any`) for
+///   sequential execution paths.
+///
+/// Requires `T: DeserializeOwned + Clone + Send + Sync + 'static`.
 pub struct CsvVecOps<T>(std::marker::PhantomData<T>);
 
 impl<T> CsvVecOps<T> {
+    /// Construct an `Arc` to the adapter.
     pub fn new() -> Arc<Self> {
         Arc::new(Self(std::marker::PhantomData))
     }
@@ -152,7 +225,12 @@ where
     }
 }
 
-/// Convenience wrapper that accepts &Vec<T>.
+/// Convenience wrapper that accepts `&Vec<T>` for writing.
+///
+/// Equivalent to `write_csv_vec(path, has_headers, data.as_slice())`.
+///
+/// # Errors
+/// See [`write_csv_vec`].
 pub fn write_csv<T: Serialize>(
     path: impl AsRef<Path>,
     has_headers: bool,
@@ -161,9 +239,25 @@ pub fn write_csv<T: Serialize>(
     write_csv_vec(path, has_headers, data.as_slice())
 }
 
-/// Parallel CSV writer that keeps the final file **deterministically ordered**.
-/// It serializes contiguous chunks in parallel into per-chunk buffers, then
-/// writes header (once) + buffers in chunk index order into a single file.
+/// Parallel CSV writer with **deterministic final order**.
+///
+/// Each shard (a contiguous sub-slice of `data`) is serialized into an
+/// in-memory buffer **in parallel**, then all buffers are concatenated in shard
+/// index order into a single file. This preserves stable, predictable file
+/// ordering regardless of thread scheduling.
+///
+/// * `shards`: optional shard count. If `None`, defaults to `2 * num_cpus()`,
+///   clamped to `[1, data.len()]`.
+/// * `has_headers`: if `true`, only shard 0 writes the header (once).
+///
+/// # Returns
+/// The number of rows written (i.e., `data.len()`).
+///
+/// # Errors
+/// Returns an error on serialization or file I/O failures.
+///
+/// # Feature
+/// Requires the `parallel-io` feature.
 #[cfg(feature = "parallel-io")]
 pub fn write_csv_par<T: Serialize + Sync>(
     path: impl AsRef<Path>,
@@ -216,7 +310,12 @@ pub fn write_csv_par<T: Serialize + Sync>(
     Ok(n)
 }
 
-/// Split [0, len) into `parts` contiguous ranges. Returns (chunk_idx, start, end).
+/// Split `[0, len)` into `parts` contiguous ranges as `(chunk_idx, start, end)`.
+///
+/// Ensures `parts ∈ [1, len]` (when `len > 0`) and distributes remainder fairly.
+/// Ranges are non-empty and cover the entire domain.
+///
+/// This is not published to keep the public API focused on CSV semantics.
 fn split_ranges(len: usize, parts: usize) -> Vec<(usize, usize, usize)> {
     let parts = parts.max(1).min(len.max(1));
     let base = len / parts;
