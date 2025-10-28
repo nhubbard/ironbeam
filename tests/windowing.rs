@@ -2,7 +2,7 @@
 use rustflow::window::{Timestamped, Window};
 use rustflow::*;
 
-fn mk_ts(i: i64) -> i64 {
+fn mk_ts(i: u64) -> u64 {
     i
 } // convenience: using raw millis in tests
 
@@ -74,7 +74,7 @@ fn attach_timestamps_then_window() -> anyhow::Result<()> {
     // Start from raw payloads + separate timestamp field
     #[derive(Clone, serde::Serialize, serde::Deserialize)]
     struct Row {
-        ts: i64,
+        ts: u64,
         val: u32,
     }
 

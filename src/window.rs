@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 
 /// Milliseconds since UNIX epoch (UTC).
-pub type TimestampMs = i64;
+pub type TimestampMs = u64;
 
 /// A closed-open time range: [start, end).
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq)]
@@ -21,7 +21,7 @@ impl Window {
     /// Compute the tumbling window [win_start, win_start + size) for a timestamp.
     /// `size_ms` > 0; `offset_ms` may be negative or positive.
     #[inline]
-    pub fn tumble(ts: TimestampMs, size_ms: i64, offset_ms: i64) -> Self {
+    pub fn tumble(ts: TimestampMs, size_ms: u64, offset_ms: u64) -> Self {
         debug_assert!(size_ms > 0);
         // normalized position relative to offset
         let rel = ts - offset_ms;
@@ -32,9 +32,9 @@ impl Window {
     }
 }
 
-/// Floor division for i64 (unlike `/` which truncates toward zero).
+/// Floor division for u64 (unlike `/` which truncates toward zero).
 #[inline]
-fn div_floor(a: i64, b: i64) -> i64 {
+fn div_floor(a: u64, b: u64) -> u64 {
     let q = a / b;
     let r = a % b;
     if (r != 0) && ((r > 0) != (b > 0)) { q - 1 } else { q }
