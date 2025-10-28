@@ -1,24 +1,53 @@
-use crate::type_token::VecOps;
+//! Parquet I/O utilities and `VecOps` integration.
+//!
+//! This module provides:
+//! - **Typed vector I/O** powered by Serde + Arrow + Parquet:
+//!   - [`write_parquet_vec`] to write `&Vec<T>`
+//!   - [`read_parquet_vec`] to read an entire file into `Vec<T>`
+//! - **Streaming ingestion** by row-group ranges:
+//!   - [`ParquetShards`] metadata (row-group slicing)
+//!   - [`build_parquet_shards`] to compute ranges
+//!   - [`read_parquet_row_group_range`] to read only selected groups
+//! - **Execution runner integration**: [`ParquetVecOps<T>`] implements [`VecOps`]
+//!   over [`ParquetShards`] so sources can be split/len/clone’d deterministically.
+//!
+//! Uses Arrow 56 and `serde_arrow` 0.13 (`SchemaLike::from_type` and
+//! `to_record_batch`/`from_record_batch`).
+
 use crate::Partition;
+use crate::type_token::VecOps;
 use anyhow::{Context, Result};
 use arrow::datatypes::FieldRef;
-// <-- needed for SchemaLike
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 use parquet::file::reader::{FileReader, SerializedFileReader};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
-// <-- from_type lives on SchemaLike
 use serde_arrow::{from_record_batch, to_record_batch};
 use std::any::Any;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Write a typed Vec<T> to Parquet.
-/// Accepts &Vec<T> (Sized) because to_record_batch requires a Sized input.
+/// Write a typed `Vec<T>` to a Parquet file.
+///
+/// Internally:
+/// 1. Infers an Arrow schema from `T` using `SchemaLike::from_type`.
+/// 2. Converts `&Vec<T>` into a `RecordBatch` via `to_record_batch`.
+/// 3. Writes the batch with `parquet::arrow::ArrowWriter`.
+///
+/// This works even when `data` is empty (a zero-row batch is written).
+///
+/// # Type bounds
+/// `T` must be Serde-serializable/deserializable so `serde_arrow` can map it.
+///
+/// # Returns
+/// Number of rows written (`data.len()`).
+///
+/// # Errors
+/// Returns an error if schema inference, conversion, file creation, or writing fails.
 pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
     path: impl AsRef<Path>,
     data: &Vec<T>,
@@ -26,9 +55,8 @@ pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
     let path = path.as_ref();
 
     // 1) Infer fields from T (works even if data.is_empty()).
-    let fields: Vec<FieldRef> =
-        Vec::<FieldRef>::from_type::<T>(TracingOptions::default())
-            .context("infer Arrow schema from type T")?;
+    let fields: Vec<FieldRef> = Vec::<FieldRef>::from_type::<T>(TracingOptions::default())
+        .context("infer Arrow schema from type T")?;
 
     // 2) Build a RecordBatch from data (allowing zero rows).
     let batch: RecordBatch =
@@ -47,7 +75,15 @@ pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
     Ok(data.len())
 }
 
-/// Read a Parquet file into a typed Vec<T>.
+/// Read a Parquet file into a typed `Vec<T>`.
+///
+/// Uses `ParquetRecordBatchReaderBuilder` to iterate Arrow batches from the file
+/// and converts each `RecordBatch` to `Vec<T>` via `serde_arrow::from_record_batch`,
+/// appending into one final vector.
+///
+/// # Errors
+/// Returns an error if the file cannot be opened, the reader cannot be built,
+/// batch iteration fails, or conversion to `T` fails.
 pub fn read_parquet_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
@@ -68,17 +104,27 @@ pub fn read_parquet_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<V
     Ok(out)
 }
 
-/// Partition a Parquet file by **row groups** into shard ranges.
+/// Sharding metadata for streaming Parquet reads by row groups.
+///
+/// Produced by [`build_parquet_shards`] and consumed by [`read_parquet_row_group_range`]
+/// and the execution engine via [`ParquetVecOps`].
 #[derive(Clone)]
 pub struct ParquetShards {
+    /// Source file path.
     pub path: PathBuf,
-    /// [start_group, end_group) in row-group indices
+    /// Row-group index ranges `(start_group, end_group)` (end-exclusive).
     pub group_ranges: Vec<(usize, usize)>,
+    /// Total number of rows across all row groups.
     pub total_rows: u64,
 }
 
-/// Inspect file metadata and create shard ranges of `groups_per_shard` row groups each.
-/// If `groups_per_shard == 0`, defaults to 1.
+/// Inspect Parquet metadata and partition into ranges of `groups_per_shard` row groups.
+///
+/// If the file has zero row groups, returns an empty set of ranges. If
+/// `groups_per_shard == 0`, it is treated as 1.
+///
+/// # Errors
+/// Returns an error if the file cannot be opened or metadata cannot be read.
 pub fn build_parquet_shards(
     path: impl AsRef<Path>,
     groups_per_shard: usize,
@@ -117,7 +163,15 @@ pub fn build_parquet_shards(
     })
 }
 
-/// Read the given row-group range [start_group, end_group) into a typed Vec<T>.
+/// Read a row-group range `[start_group, end_group)` into `Vec<T>`.
+///
+/// Builds a `ParquetRecordBatchReader` restricted to the specified row groups,
+/// then converts each `RecordBatch` into typed rows with
+/// `serde_arrow::from_record_batch`.
+///
+/// # Errors
+/// Returns an error if the file cannot be opened, the range reader cannot be
+/// built, batch iteration fails, or conversion to `T` fails.
 pub fn read_parquet_row_group_range<T: DeserializeOwned>(
     src: &ParquetShards,
     start_group: usize,
@@ -141,10 +195,18 @@ pub fn read_parquet_row_group_range<T: DeserializeOwned>(
     Ok(out)
 }
 
+/// `VecOps` adapter for streaming Parquet via [`ParquetShards`].
+///
+/// Enables the engine to:
+/// - get total length (`len`)
+/// - split into partitions by row-group ranges (`split`)
+/// - read the entire dataset for sequential paths (`clone_any`)
 #[cfg(feature = "io-parquet")]
 pub struct ParquetVecOps<T>(std::marker::PhantomData<T>);
+
 #[cfg(feature = "io-parquet")]
 impl<T> ParquetVecOps<T> {
+    /// Construct an `Arc` to the adapter.
     pub fn new() -> Arc<Self> {
         Arc::new(Self(std::marker::PhantomData))
     }
