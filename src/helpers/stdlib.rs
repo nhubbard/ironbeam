@@ -1,10 +1,63 @@
-use std::marker::PhantomData;
-use std::sync::Arc;
-use crate::{PCollection, Pipeline, RFBound};
+//! Standard library helpers for constructing `PCollection`s.
+//!
+//! These helpers create in-memory sources for RustFlow pipelines directly from
+//! native Rust data structures like `Vec<T>` or iterators. They’re ideal for
+//! tests, demos, or pipelines where data is small and self-contained — avoiding
+//! external I/O layers such as JSONL, CSV, or Parquet.
+//!
+//! ### Overview
+//! - [`from_vec`] — Converts a `Vec<T>` into a `PCollection<T>` source node.
+//! - [`from_iter`] — Builds a `PCollection<T>` from any `IntoIterator<Item = T>`.
+//!
+//! These utilities insert a [`Node::Source`] into the [`Pipeline`] graph using
+//! a type-aware vector operations handler derived from `vec_ops_for::<T>()`.
+//!
+//! ### Example
+//! ```no_run
+//! use rustflow::*;
+//!
+//! let p = Pipeline::default();
+//!
+//! // Create a PCollection directly from a Vec
+//! let words = from_vec(&p, vec!["alpha", "beta", "gamma"]);
+//!
+//! // Or from any iterable sequence
+//! let numbers = from_iter(&p, 1..=5);
+//!
+//! // Basic transform
+//! let squared = numbers.map(|n| n * n);
+//! assert_eq!(squared.collect_seq().unwrap(), vec![1, 4, 9, 16, 25]);
+//! ```
+
 use crate::node::Node;
 use crate::type_token::{vec_ops_for, TypeTag};
+use crate::{PCollection, Pipeline, RFBound};
+use std::marker::PhantomData;
+use std::sync::Arc;
 
-// ----- from_vec -----
+/// Create a [`PCollection<T>`] from a pre-existing [`Vec<T>`].
+///
+/// This function inserts a [`Node::Source`] node into the provided [`Pipeline`],
+/// wrapping the given vector in an `Arc` and recording its type metadata.
+///
+/// The resulting `PCollection` acts as a root source for subsequent transforms.
+///
+/// ### Arguments
+/// - `p` — The pipeline to attach the source node to.
+/// - `data` — The in-memory vector to use as the data source.
+///
+/// ### Returns
+/// A [`PCollection<T>`] representing the vector as a stream of elements.
+///
+/// ### Example
+/// ```no_run
+/// use rustflow::*;
+///
+/// let p = Pipeline::default();
+/// let numbers = vec![10, 20, 30];
+/// let pc = from_vec(&p, numbers);
+/// assert_eq!(pc.collect_seq().unwrap(), vec![10, 20, 30]);
+/// ```
 pub fn from_vec<T>(p: &Pipeline, data: Vec<T>) -> PCollection<T>
 where
     T: RFBound,
@@ -21,7 +74,29 @@ where
     }
 }
 
-/// Create a collection from any owned iterator (collects into Vec<T>).
+
+/// Create a [`PCollection<T>`] from any iterator or collection implementing [`IntoIterator`].
+///
+/// Internally collects the iterator into a [`Vec<T>`] and delegates to [`from_vec`].
+///
+/// ### Arguments
+/// - `p` — The pipeline to attach the source node to.
+/// - `iter` — Any `IntoIterator<Item = T>` — e.g., a range, vector, or array.
+///
+/// ### Example
+/// ```no_run
+/// use rustflow::*;
+///
+/// let p = Pipeline::default();
+///
+/// // Build a PCollection from a range
+/// let nums = from_iter(&p, 1..=4);
+/// assert_eq!(nums.collect_seq().unwrap(), vec![1, 2, 3, 4]);
+///
+/// // Build from a vector of strings
+/// let strs = from_iter(&p, vec!["x", "y", "z"]);
+/// assert_eq!(strs.collect_seq().unwrap(), vec!["x", "y", "z"]);
+/// ```
 pub fn from_iter<T, I>(p: &Pipeline, iter: I) -> PCollection<T>
 where
     T: RFBound,
