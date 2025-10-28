@@ -2,6 +2,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use crate::{PCollection, RFBound};
+use crate::collection::BatchMapOp;
 use crate::node::{DynOp, Node};
 
 impl<T: RFBound> PCollection<T> {
@@ -12,7 +13,7 @@ impl<T: RFBound> PCollection<T> {
         O: RFBound,
         F: 'static + Send + Sync + Fn(&[T]) -> Vec<O>,
     {
-        let op: Arc<dyn DynOp> = Arc::new(crate::collection::BatchMapOp::<T, O, F>(
+        let op: Arc<dyn DynOp> = Arc::new(BatchMapOp::<T, O, F>(
             batch_size,
             f,
             PhantomData,

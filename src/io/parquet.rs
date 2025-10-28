@@ -25,24 +25,22 @@ pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
 ) -> Result<usize> {
     let path = path.as_ref();
 
-    if data.is_empty() {
-        let _ = File::create(path).with_context(|| format!("create {}", path.display()))?;
-        return Ok(0);
-    }
+    // 1) Infer fields from T (works even if data.is_empty()).
+    let fields: Vec<FieldRef> =
+        Vec::<FieldRef>::from_type::<T>(TracingOptions::default())
+            .context("infer Arrow schema from type T")?;
 
-    // Infer Arrow fields from T using SchemaLike::from_type
-    let fields: Vec<FieldRef> = Vec::<FieldRef>::from_type::<T>(TracingOptions::default())
-        .context("infer Arrow schema from type T")?;
-
-    // Convert rows -> RecordBatch
+    // 2) Build a RecordBatch from data (allowing zero rows).
     let batch: RecordBatch =
         to_record_batch(&fields, data).context("convert rows to RecordBatch")?;
 
-    // Write Parquet
+    // 3) Open writer with the batch schema and always close it.
     let file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     let props = WriterProperties::builder().build();
     let mut writer =
         ArrowWriter::try_new(file, batch.schema(), Some(props)).context("create ArrowWriter")?;
+
+    // Writing a zero-row batch is fine; alternatively, you could skip write() when empty.
     writer.write(&batch).context("write batch to parquet")?;
     writer.close().context("close ArrowWriter")?;
 
