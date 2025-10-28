@@ -1,18 +1,80 @@
-use std::cmp::Ord;
-use std::collections::{BinaryHeap, HashSet};
-use std::hash::Hash;
-use std::ops::Add;
+//! Built-in combiners for `combine_values` and `combine_values_lifted`.
+//!
+//! These are reusable implementations of [`CombineFn`] (and many also implement
+//! [`LiftableCombiner`]) that operate over per-key value streams:
+//!
+//! - [`Sum<T>`] — sum of values.
+//! - [`Min<T>`] — minimum value.
+//! - [`Max<T>`] — maximum value.
+//! - [`AverageF64`] — average as `f64` (values convertible to `f64`).
+//! - [`DistinctCount<T>`] — count of distinct values.
+//! - [`TopK<T>`] — top-K largest values.
+//!
+//! Each combiner specifies its accumulator type (`A`) and output type (`O`).
+//! Many provide a `build_from_group` optimization via [`LiftableCombiner`],
+//! enabling efficient `group_by_key().combine_values_lifted(...)` plans.
+//!
+//! # Examples
+//! ```no_run
+//! use rustflow::*;
+//! use rustflow::combiners::{Sum, Min, Max, AverageF64, DistinctCount, TopK};
+//!
+//! let p = Pipeline::default();
+//!
+//! // Sum
+//! let s = from_vec(&p, vec![("a", 1u64), ("a", 2), ("b", 10)])
+//!     .combine_values(Sum::<u64>::default())
+//!     .collect_seq_sorted()?;
+//!
+//! // Min / Max (require Ord)
+//! let mn = from_vec(&p, vec![("a", 3u64), ("a", 2), ("a", 5)])
+//!     .combine_values(Min::<u64>::default())
+//!     .collect_seq()?;
+//! let mx = from_vec(&p, vec![("a", 3u64), ("a", 2), ("a", 5)])
+//!     .combine_values(Max::<u64>::default())
+//!     .collect_seq()?;
+//!
+//! // AverageF64 (values must be Into<f64>)
+//! let avg = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
+//!     .combine_values(AverageF64::default())
+//!     .collect_seq()?;
+//!
+//! // DistinctCount (values must be Eq + Hash)
+//! let dc = from_vec(&p, vec![("a", 1u32), ("a", 1), ("a", 2)])
+//!     .combine_values(DistinctCount::<u32>::default())
+//!     .collect_seq()?;
+//!
+//! // TopK (values must be Ord)
+//! let top = from_vec(&p, vec![("a", 3u32), ("a", 7), ("a", 5)])
+//!     .combine_values(TopK::<u32>::new(2))
+//!     .collect_seq()?;
+//!
+//! # anyhow::Result::<()>::Ok(())
+//! ```
 
 use crate::collection::{CombineFn, LiftableCombiner};
 use crate::RFBound;
+use std::cmp::{Ord, Reverse};
+use std::collections::{BinaryHeap, HashSet};
+use std::hash::Hash;
+use std::marker::PhantomData;
+use std::mem::take;
+use std::ops::Add;
 
 /* ===================== Sum<T> ===================== */
 
+/// Sum of values per key.
+///
+/// - Accumulator: `T`
+/// - Output: `T`
+///
+/// Requires `T: Add<Output=T> + Default`.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Sum<T>(pub std::marker::PhantomData<T>);
+pub struct Sum<T>(pub PhantomData<T>);
 impl<T> Sum<T> {
+    /// Convenience constructor (same as `Default`).
     pub fn new() -> Self {
-        Self(std::marker::PhantomData)
+        Self(PhantomData)
     }
 }
 
@@ -25,11 +87,11 @@ where
     }
 
     fn add_input(&self, acc: &mut T, v: T) {
-        *acc = std::mem::take(acc) + v;
+        *acc = take(acc) + v;
     }
 
     fn merge(&self, acc: &mut T, other: T) {
-        *acc = std::mem::take(acc) + other;
+        *acc = take(acc) + other;
     }
 
     fn finish(&self, acc: T) -> T {
@@ -48,11 +110,16 @@ where
 
 /* ===================== Min<T> ===================== */
 
+/// Minimum value per key (requires `Ord`).
+///
+/// - Accumulator: `Option<T>`
+/// - Output: `T`
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Min<T>(pub std::marker::PhantomData<T>);
+pub struct Min<T>(pub PhantomData<T>);
 impl<T> Min<T> {
+    /// Convenience constructor (same as `Default`).
     pub fn new() -> Self {
-        Self(std::marker::PhantomData)
+        Self(PhantomData)
     }
 }
 
@@ -104,11 +171,16 @@ where
 
 /* ===================== Max<T> ===================== */
 
+/// Maximum value per key (requires `Ord`).
+///
+/// - Accumulator: `Option<T>`
+/// - Output: `T`
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Max<T>(pub std::marker::PhantomData<T>);
+pub struct Max<T>(pub PhantomData<T>);
 impl<T> Max<T> {
+    /// Convenience constructor (same as `Default`).
     pub fn new() -> Self {
-        Self(std::marker::PhantomData)
+        Self(PhantomData)
     }
 }
 
@@ -160,6 +232,14 @@ where
 
 /* ===================== AverageF64 ===================== */
 
+/// Average of values per key as `f64`.
+///
+/// Values must be convertible into `f64` via `Into<f64>`.
+///
+/// - Accumulator: `(sum_f64, count_u64)`
+/// - Output: `f64`
+///
+/// Empty groups produce `0.0`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AverageF64;
 
@@ -202,11 +282,18 @@ where
 
 /* ===================== DistinctCount<T> ===================== */
 
+/// Count of **distinct** values per key.
+///
+/// - Accumulator: `HashSet<T>`
+/// - Output: `u64`
+///
+/// Requires `T: Eq + Hash`.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct DistinctCount<T>(pub std::marker::PhantomData<T>);
+pub struct DistinctCount<T>(pub PhantomData<T>);
 impl<T> DistinctCount<T> {
+    /// Convenience constructor (same as `Default`).
     pub fn new() -> Self {
-        Self(std::marker::PhantomData)
+        Self(PhantomData)
     }
 }
 
@@ -246,41 +333,47 @@ where
 
 /* ===================== TopK<T> ===================== */
 
+/// Top-**K** largest values per key (requires `Ord`).
+///
+/// The accumulator maintains a **min-heap** (via `BinaryHeap<Reverse<T>>`) of
+/// size ≤ `k`, so memory is bounded by `k`.
+///
+/// - Accumulator: `BinaryHeap<Reverse<T>>`
+/// - Output: `Vec<T>` sorted descending.
+///
+/// # Notes
+/// - `k == 0` will always produce an empty vector.
+/// - Merge is implemented by pushing elements and trimming back to `k`.
 #[derive(Clone, Debug)]
 pub struct TopK<T> {
+    /// Number of largest elements to keep.
     pub k: usize,
-    _m: std::marker::PhantomData<T>,
+    _m: PhantomData<T>,
 }
 impl<T> TopK<T> {
+    /// Create a new `TopK` with the given `k`.
     pub fn new(k: usize) -> Self {
-        Self {
-            k,
-            _m: std::marker::PhantomData,
-        }
+        Self { k, _m: PhantomData }
     }
 }
 
 // We store a min-heap of size ≤ k using Reverse to keep the largest k elements.
-impl<T> CombineFn<T, BinaryHeap<std::cmp::Reverse<T>>, Vec<T>> for TopK<T>
+impl<T> CombineFn<T, BinaryHeap<Reverse<T>>, Vec<T>> for TopK<T>
 where
     T: RFBound + Ord,
 {
-    fn create(&self) -> BinaryHeap<std::cmp::Reverse<T>> {
+    fn create(&self) -> BinaryHeap<Reverse<T>> {
         BinaryHeap::new()
     }
 
-    fn add_input(&self, acc: &mut BinaryHeap<std::cmp::Reverse<T>>, v: T) {
-        acc.push(std::cmp::Reverse(v));
+    fn add_input(&self, acc: &mut BinaryHeap<Reverse<T>>, v: T) {
+        acc.push(Reverse(v));
         if acc.len() > self.k {
             acc.pop();
         } // drop smallest
     }
 
-    fn merge(
-        &self,
-        acc: &mut BinaryHeap<std::cmp::Reverse<T>>,
-        mut other: BinaryHeap<std::cmp::Reverse<T>>,
-    ) {
+    fn merge(&self, acc: &mut BinaryHeap<Reverse<T>>, mut other: BinaryHeap<Reverse<T>>) {
         // Merge by pushing and trimming
         while let Some(x) = other.pop() {
             acc.push(x);
@@ -290,10 +383,10 @@ where
         }
     }
 
-    fn finish(&self, mut acc: BinaryHeap<std::cmp::Reverse<T>>) -> Vec<T> {
+    fn finish(&self, mut acc: BinaryHeap<Reverse<T>>) -> Vec<T> {
         // Drain to a Vec in descending order
         let mut v = Vec::with_capacity(acc.len());
-        while let Some(std::cmp::Reverse(x)) = acc.pop() {
+        while let Some(Reverse(x)) = acc.pop() {
             v.push(x);
         }
         v.reverse(); // largest first
@@ -301,14 +394,14 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, BinaryHeap<std::cmp::Reverse<T>>, Vec<T>> for TopK<T>
+impl<T> LiftableCombiner<T, BinaryHeap<Reverse<T>>, Vec<T>> for TopK<T>
 where
     T: RFBound + Ord,
 {
-    fn build_from_group(&self, values: &[T]) -> BinaryHeap<std::cmp::Reverse<T>> {
-        let mut heap: BinaryHeap<std::cmp::Reverse<T>> = BinaryHeap::new();
+    fn build_from_group(&self, values: &[T]) -> BinaryHeap<Reverse<T>> {
+        let mut heap: BinaryHeap<Reverse<T>> = BinaryHeap::new();
         for v in values.iter().cloned() {
-            heap.push(std::cmp::Reverse(v));
+            heap.push(Reverse(v));
             if heap.len() > self.k {
                 heap.pop();
             }
