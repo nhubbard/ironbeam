@@ -6,7 +6,7 @@
 //!   fused by the planner.
 //! - [`Node`]: the **typed execution IR** that the planner/runner interprets.
 //!   Nodes include sources, chains of stateless ops, keyed barriers
-//!   ([`GroupByKey`], [`CombineValues`]), binary co-groups for joins, and
+//!   ([`Node::GroupByKey`], [`Node::CombineValues`]), binary co-groups for joins, and
 //!   pre-materialized payloads.
 //!
 //! The planner uses the capability flags on [`DynOp`] to reorder/fuse stateless
@@ -21,7 +21,7 @@
 //! # Notes
 //! * Nodes are **type-erased** at runtime via `Partition` (a boxed `Any`), but
 //!   every node closure we build is typed, so downcasts are safe where used.
-//! * Barriers like [`GroupByKey`] and [`CombineValues`] intentionally break
+//! * Barriers like [`Node::GroupByKey`] and [`Node::CombineValues`] intentionally break
 //!   partition parallelism to enforce global grouping/merge semantics.
 //! * [`Node::CoGroup`] executes two **subplans** (left/right) and then invokes a
 //!   typed closure to produce joined results; it is the building block for
@@ -71,11 +71,11 @@ pub trait DynOp: Send + Sync {
 /// A node in the compiled execution plan.
 ///
 /// The runner interprets a linearized chain of nodes:
-/// - A plan **must** start with a [`Source`].
-/// - Zero or more [`Stateless`] segments may be fused by the planner.
-/// - Barriers like [`GroupByKey`] and [`CombineValues`] materialize/merge partitions.
-/// - [`CoGroup`] executes two subplans (for joins) and then a typed exec closure.
-/// - [`Materialized`] anchors a pre-existing typed payload for terminal reads.
+/// - A plan **must** start with a [`Node::Source`].
+/// - Zero or more [`Node::Stateless`] segments may be fused by the planner.
+/// - Barriers like [`Node::GroupByKey`] and [`Node::CombineValues`] materialize/merge partitions.
+/// - [`Node::CoGroup`] executes two subplans (for joins) and then a typed exec closure.
+/// - [`Node::Materialized`] anchors a pre-existing typed payload for terminal reads.
 #[derive(Clone)]
 pub enum Node {
     /// Start of a plan; holds the payload and the vector operations used to split/clone it.

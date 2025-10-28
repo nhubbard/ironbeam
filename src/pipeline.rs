@@ -1,7 +1,7 @@
 //! In-memory representation of a dataflow pipeline graph.
 //!
 //! The [`Pipeline`] acts as the central registry for all execution nodes
-//! ([`Node`](Node)) and their directed connections. It is lightweight,
+//! ([`Node`]) and their directed connections. It is lightweight,
 //! cloneable, and thread-safe via internal `Arc<Mutex<_>>` wrapping, allowing
 //! concurrent construction and inspection from different builder contexts.
 //!
@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 /// ```
 ///
 /// The `Pipeline` itself is cheaply cloneable; all clones share the same
-/// underlying [`PipelineInner`].
+/// underlying `PipelineInner`.
 pub struct Pipeline {
     /// Shared reference to the internal graph data.
     pub(crate) inner: Arc<Mutex<PipelineInner>>,

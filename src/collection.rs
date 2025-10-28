@@ -325,7 +325,7 @@ pub struct SideMap<K: RFBound + Eq + Hash, V: RFBound>(pub Arc<HashMap<K, V>>);
 // | Batch map operators |
 // |---------------------|
 
-/// BatchMapOp: &[T] -> Vec<O>, applied chunk-by-chunk over Vec<T>.
+/// BatchMapOp: `&[T] -> Vec<O>`, applied chunk-by-chunk over `Vec<T>`.
 /// Used by `map_batches` helper.
 pub struct BatchMapOp<T, O, F>(pub usize, pub F, pub PhantomData<(T, O)>)
 where
@@ -360,7 +360,7 @@ where
     }
 }
 
-/// BatchMapValuesOp: &[V] -> Vec<O>, preserves keys, applies per contiguous value slice.
+/// BatchMapValuesOp: `&[V] -> Vec<O>`, preserves keys, applies per contiguous value slice.
 /// IMPORTANT: f must output exactly as many items as the input slice length.
 /// Used by `map_values_batches`.
 pub struct BatchMapValuesOp<K, V, O, F>(pub usize, pub F, pub PhantomData<(K, V, O)>)

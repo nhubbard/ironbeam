@@ -17,7 +17,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     /// Collect all elements **sequentially** and return a **sorted** `Vec<T>`.
     ///
     /// Internally calls [`PCollection::collect_seq`] to materialize the entire
-    /// collection, then sorts it using [`Vec::sort`] (total ordering via `Ord`).
+    /// collection, then sorts it using [`[T]::sort`] (total ordering via `Ord`).
     ///
     /// # Type bounds
     /// - `T: Ord` -- Elements must implement total ordering.
@@ -47,7 +47,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     /// Collect all elements **in parallel** and return a **sorted** `Vec<T>`.
     ///
     /// Internally calls [`PCollection::collect_par`] with optional partition
-    /// and chunk sizing, then sorts the aggregated output via [`Vec::sort`].
+    /// and chunk sizing, then sorts the aggregated output via [`[T]::sort`].
     ///
     /// # Arguments
     /// - `parts`: Optional number of parallel partitions (defaults to pipeline policy).
@@ -79,7 +79,7 @@ impl<T: RFBound + Ord> PCollection<T> {
 impl<K: RFBound + Ord, V: RFBound> PCollection<(K, V)> {
     /// Collect all `(K, V)` pairs **in parallel** and return a vector sorted by **key**.
     ///
-    /// Sorting is stable across partitions and uses [`Vec::sort_by`] with `K`’s
+    /// Sorting is stable across partitions and uses [`[T]::sort_by`] with `K`’s
     /// total order (`Ord`).
     /// Values are not compared or grouped -- only key order is enforced.
     ///

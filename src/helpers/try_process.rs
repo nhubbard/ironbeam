@@ -40,7 +40,7 @@ impl<T: RFBound> PCollection<T> {
     /// Converts a `PCollection<T>` into a `PCollection<Result<O, E>>` by
     /// applying a function that may fail per element. Errors are not raised
     /// immediately; they flow downstream as values until you explicitly collect
-    /// them or use a terminal like [`collect_fail_fast`].
+    /// them or use a terminal like [`PCollection<T>::collect_fail_fast`].
     ///
     /// ### Type bounds
     /// - `E: Clone + Display`: cloning allows the `Result<_,E>` to satisfy the library's
@@ -71,7 +71,7 @@ impl<T: RFBound> PCollection<T> {
 
     /// Fallible 1→N transform: `T -> Result<Vec<O>, E>`.
     ///
-    /// Like [`try_map`], but your function expands each input into zero or more
+    /// Like [`PCollection<T>::try_map`], but your function expands each input into zero or more
     /// outputs, still with fallible behavior. This yields
     /// `PCollection<Result<Vec<O>, E>>`. You typically combine this with
     /// a later `flat_map` or just collect and inspect failures explicitly.
