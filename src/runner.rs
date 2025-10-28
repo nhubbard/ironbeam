@@ -1,3 +1,17 @@
+//! Execution engine.
+//!
+//! The `Runner` executes an optimized, linearized plan produced by the planner.
+//! It supports both **sequential** and **parallel** execution modes:
+//!
+//! - **Sequential** walks the node chain in a single thread, materializing one
+//!   partition buffer at a time.
+//! - **Parallel** uses `rayon` to evaluate partition-local work in parallel,
+//!   coalescing at barriers such as `GroupByKey`, `CombineValues`, and `CoGroup`.
+//!
+//! Determinism: within a single partition, stateless transforms preserve element
+//! order. Parallel execution may interleave partitions; callers that require a
+//! stable final order can use the `collect_*_sorted` helpers after collection.
+
 use crate::node::Node;
 use crate::pipeline::Pipeline;
 use crate::planner::build_plan;
@@ -5,19 +19,39 @@ use crate::type_token::Partition;
 use crate::NodeId;
 use anyhow::{anyhow, bail, Result};
 use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use std::sync::Arc;
 
+/// Execution mode for a plan.
+///
+/// - `Sequential` runs in a single thread.
+/// - `Parallel` runs with optional thread count and partition count hints.
+///   If `threads` is `Some(n)`, a global rayon thread pool with `n` threads
+///   is installed for this process (first one wins; subsequent calls are no-ops).
+///   If `partitions` is `None`, the planner’s suggestion (if any) is used,
+///   otherwise `Runner::default_partitions`.
 #[derive(Clone, Copy, Debug)]
 pub enum ExecMode {
+    /// Single-threaded execution.
     Sequential,
+    /// Parallel execution using rayon.
     Parallel {
+        /// Optional rayon worker thread count.
         threads: Option<usize>,
+        /// Optional number of source partitions.
         partitions: Option<usize>,
     },
 }
 
+/// Executes a pipeline produced by the builder API.
+///
+/// Construct a `Runner` and call [`Runner::run_collect`] with a pipeline and
+/// terminal node id. See `helpers` for higher-level `collect_*` convenience
+/// methods that build a `Runner` for you.
 pub struct Runner {
+    /// Selected execution mode.
     pub mode: ExecMode,
+    /// Default partition count when neither the caller nor the planner suggests one.
     pub default_partitions: usize,
 }
 
@@ -28,12 +62,25 @@ impl Default for Runner {
                 threads: None,
                 partitions: None,
             },
+            // Heuristic default: 2× hardware threads (min 2)
             default_partitions: 2 * num_cpus::get().max(2),
         }
     }
 }
 
 impl Runner {
+    /// Execute the pipeline ending at `terminal`, collecting the terminal
+    /// vector as `Vec<T>`.
+    ///
+    /// This function:
+    /// 1. Builds an optimized plan with the planner.
+    /// 2. Chooses sequential or parallel engine based on `self.mode`.
+    /// 3. Honors planner’s suggested partitioning unless overridden.
+    ///
+    /// # Errors
+    /// Returns an error if the plan is malformed (e.g., missing source),
+    /// if a node encounters an unexpected input type, or if the terminal
+    /// materialized type does not match `T`.
     pub fn run_collect<T: 'static + Send + Sync + Clone>(
         &self,
         p: &Pipeline,
@@ -51,10 +98,8 @@ impl Runner {
                 partitions,
             } => {
                 if let Some(t) = threads {
-                    rayon::ThreadPoolBuilder::new()
-                        .num_threads(t)
-                        .build_global()
-                        .ok();
+                    // Best-effort: first builder to install wins globally.
+                    ThreadPoolBuilder::new().num_threads(t).build_global().ok();
                 }
                 let parts = partitions
                     .or(suggested_parts)
@@ -65,9 +110,17 @@ impl Runner {
     }
 }
 
+/// Execute a fully linearized chain **sequentially**, collecting `Vec<T>`.
+///
+/// Internal helper used by [`Runner::run_collect`]. Walks the chain left→right,
+/// maintaining a single opaque `Partition` buffer.
 fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>> {
     let mut buf: Option<Partition> = None;
 
+    /// Run a nested subplan (used by `CoGroup`) sequentially and return **one**
+    /// final partition (wrapped in a single-element `Vec` for convenience).
+    ///
+    /// The subplan must start with a `Source`. Nested `CoGroup` is not supported.
     fn run_subplan_seq(mut chain: Vec<Node>) -> Result<Vec<Partition>> {
         let mut curr: Option<Partition> = None;
         for node in chain.drain(..) {
@@ -89,6 +142,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                     local_groups,
                     merge,
                 } => {
+                    // choose which local to run based on presence of local_groups
                     let local = if let Some(lg) = local_groups {
                         lg
                     } else {
@@ -113,6 +167,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 coalesce_right,
                 exec,
             } => {
+                // Execute left/right subplans and coalesce if they produced multiple partitions.
                 let mut left_parts = run_subplan_seq((*left_chain).clone())?;
                 let mut right_parts = run_subplan_seq((*right_chain).clone())?;
 
@@ -154,6 +209,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 let mid = local(buf.take().unwrap());
                 merge(vec![mid])
             }
+            // Terminal: type-check and materialize as Vec<T>
             Node::Materialized(p) => Box::new(
                 p.downcast_ref::<Vec<T>>()
                     .cloned()
@@ -169,11 +225,18 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
     Ok(v)
 }
 
+/// Execute a fully linearized chain **in parallel**, collecting `Vec<T>`.
+///
+/// Internal helper used by [`Runner::run_collect`]. Partitions the head source
+/// and applies stateless runs with rayon. Barriers (`GroupByKey`, `CombineValues`,
+/// `CoGroup`) perform a parallel local phase followed by a global merge.
 fn exec_par<T: 'static + Send + Sync + Clone>(
     chain: Vec<Node>,
     partitions: usize,
 ) -> Result<Vec<T>> {
-    // helper: run a subplan in parallel; returns vector of partitions (may be >1)
+    /// Run a nested subplan (used by `CoGroup`) in parallel, returning a vector
+    /// of partitions. The subplan must start with a `Source`. Nested `CoGroup`
+    /// inside a subplan is not supported.
     fn run_subplan_par(chain: Vec<Node>, partitions: usize) -> Result<Vec<Partition>> {
         // must start with source
         let (payload, vec_ops, rest) = match &chain[0] {
@@ -238,7 +301,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
         Ok(curr)
     }
 
-    // original head Source
+    // Original head Source
     let (payload, vec_ops, rest) = match &chain[0] {
         Node::Source {
             payload, vec_ops, ..
@@ -300,6 +363,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                 coalesce_right,
                 exec,
             } => {
+                // Execute left/right subplans in parallel; coalesce when necessary.
                 let left_parts = run_subplan_par((**left_chain).clone(), partitions)?;
                 let right_parts = run_subplan_par((**right_chain).clone(), partitions)?;
 
@@ -323,6 +387,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
         }
     }
 
+    // Terminal collection
     if curr.len() == 1 {
         let one = curr.into_iter().next().unwrap();
         let v = *one
