@@ -1,3 +1,17 @@
+//! JSON Lines (JSONL) I/O utilities and `VecOps` integration.
+//!
+//! This module provides:
+//! - **Typed vector I/O** with Serde: [`read_jsonl_vec`] and [`write_jsonl_vec`]
+//! - **Deterministic parallel writer**: [`write_jsonl_par`] (feature `parallel-io`)
+//! - **Streaming ingestion** by line ranges: [`JsonlShards`], [`build_jsonl_shards`], [`read_jsonl_range`]
+//! - **Execution runner integration**: [`JsonlVecOps<T>`] implements [`VecOps`] over `JsonlShards`
+//!
+//! # Notes
+//! - Files are newline-delimited JSON; empty/whitespace-only lines are skipped on read.
+//! - Sharding is **line-count based**; it does not rely on byte offsets.
+//! - The parallel writer preserves **deterministic file order** by joining shard
+//!   outputs in index order.
+
 use crate::type_token::VecOps;
 use crate::Partition;
 use anyhow::{Context, Result};
@@ -8,6 +22,13 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Read a JSONL file into a typed `Vec<T>`.
+///
+/// Each non-empty line is parsed as a JSON document and deserialized to `T`.
+///
+/// # Errors
+/// Returns an error if the file cannot be opened, read, or if any line fails
+/// to parse into `T`. Errors include contextual information (line number).
 pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
     let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
@@ -26,6 +47,17 @@ pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec
     Ok(out)
 }
 
+/// Write a typed slice as a JSONL file (one JSON value per line).
+///
+/// Each element is serialized with Serde to a single line, followed by `\n`.
+/// Parent directories are created as needed.
+///
+/// # Returns
+/// The number of items written (`data.len()`).
+///
+/// # Errors
+/// Returns an error if the file/dirs cannot be created or any item fails to
+/// serialize/flush.
 pub fn write_jsonl_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Result<usize> {
     let path = path.as_ref();
     if let Some(parent) = path.parent() && !parent.as_os_str().is_empty() {
@@ -42,6 +74,22 @@ pub fn write_jsonl_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Resu
     Ok(data.len())
 }
 
+/// Write JSONL in parallel while keeping **deterministic final order**.
+///
+/// The input slice is split into contiguous shards; each shard is serialized to
+/// a temporary part file in parallel, then all parts are concatenated in shard
+/// index order into the final file. Temporary files are removed at the end.
+///
+/// * `shards`: if `None`, defaults to `num_cpus::get().max(2)`, clamped to `[1,n]`.
+///
+/// # Returns
+/// The number of items written (`data.len()`).
+///
+/// # Errors
+/// Returns an error if part or output files cannot be created/written.
+///
+/// # Feature
+/// Requires the `parallel-io` feature.
 #[cfg(feature = "parallel-io")]
 pub fn write_jsonl_par<T: Serialize + Send + Sync>(
     path: impl AsRef<Path>,
@@ -94,16 +142,27 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
     Ok(n)
 }
 
-/// ---------- streaming JSONL source support ----------
-/// We pre-scan the file to build (start_line, end_line) shard ranges.
-/// `split()` reads and parses only the lines in its own range, returning a Vec<T>.
+/// Streaming JSONL sharding metadata.
+///
+/// Produced by [`build_jsonl_shards`] and consumed by [`read_jsonl_range`]
+/// and the execution engine via [`JsonlVecOps`].
 #[derive(Clone)]
 pub struct JsonlShards {
+    /// Source file path.
     pub path: PathBuf,
-    pub ranges: Vec<(u64, u64)>, // [start, end)
+    /// Line ranges `(start, end)` (0-based, end-exclusive). Empty/whitespace-only lines
+    /// are still counted when building ranges; they are skipped at parse time.
+    pub ranges: Vec<(u64, u64)>,
+    /// Total number of lines considered for sharding.
     pub total_lines: u64,
 }
 
+/// Build [`JsonlShards`] by counting lines and slicing into `lines_per_shard`.
+///
+/// For an empty file, returns an empty set of ranges.
+///
+/// # Errors
+/// Returns an error if the file cannot be opened or read.
 pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Result<JsonlShards> {
     let path = path.as_ref().to_path_buf();
     let f = File::open(&path).with_context(|| format!("open {}", path.display()))?;
@@ -135,7 +194,13 @@ pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Res
     })
 }
 
-/// Read a single [start,end) range into Vec<T>
+/// Read a `[start, end)` line range from a JSONL file into `Vec<T>`.
+///
+/// Lines that are empty/whitespace are skipped. Each remaining line is parsed as JSON.
+///
+/// # Errors
+/// Returns an error if the file cannot be opened or any selected line fails to
+/// parse into `T`.
 pub fn read_jsonl_range<T: DeserializeOwned>(
     src: &JsonlShards,
     start: u64,
@@ -163,10 +228,17 @@ pub fn read_jsonl_range<T: DeserializeOwned>(
     Ok(out)
 }
 
-/// VecOps for JSONL shards, typed over T.
+/// `VecOps` adapter for streaming JSONL via [`JsonlShards`].
+///
+/// This enables the execution engine to determine total length (`len`), split
+/// into concrete partitions (`split` by line range), and read the entire dataset
+/// (`clone_any`) for sequential paths.
+///
+/// Requires `T: DeserializeOwned + Clone + Send + Sync + 'static`.
 pub struct JsonlVecOps<T>(std::marker::PhantomData<T>);
 
 impl<T> JsonlVecOps<T> {
+    /// Construct an `Arc` to the adapter.
     pub fn new() -> Arc<Self> {
         Arc::new(Self(std::marker::PhantomData))
     }
