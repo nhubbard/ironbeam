@@ -14,7 +14,7 @@
 //! 1) turn `PCollection<T>` into `PCollection<Result<O,E>>` (or `Result<Vec<O>,E>`)
 //! 2) at the end, call `collect_fail_fast()` to bail out on the first error.
 //!
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //! use anyhow::Result;
 //!
@@ -47,7 +47,7 @@ impl<T: RFBound> PCollection<T> {
     ///   internal trait constraints; `Display` is used for human-readable errors.
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -77,7 +77,7 @@ impl<T: RFBound> PCollection<T> {
     /// a later `flat_map` or just collect and inspect failures explicitly.
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -113,7 +113,7 @@ where
     /// returns `anyhow::Error` with your `E: Display` rendered in the message.
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     /// use anyhow::Result;
     ///

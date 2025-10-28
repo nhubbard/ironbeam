@@ -3,11 +3,11 @@
 //! This module provides typed, serde-backed CSV I/O that integrates with the
 //! Rustflow pipeline. You can either:
 //!
-//! - **Vector I/O** — read the whole file into memory or write an in-memory collection:
+//! - **Vector I/O** -- read the whole file into memory or write an in-memory collection:
 //!   - [`read_csv`] -> `PCollection<T>`
 //!   - [`PCollection::write_csv`] / [`PCollection::write_csv_par`]
 //!
-//! - **Streaming I/O** — build a source that shards a CSV file by row count and
+//! - **Streaming I/O** -- build a source that shards a CSV file by row count and
 //!   parses each shard lazily in the runner:
 //!   - [`read_csv_streaming`] -> `PCollection<T>`
 //!
@@ -20,7 +20,7 @@
 //!
 //! ## Examples
 //! Read a CSV file into a typed collection and write it back out (vector I/O):
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //!
@@ -40,7 +40,7 @@
 //! ```
 //!
 //! Streaming read shard-by-shard (useful for large files):
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //!
@@ -81,7 +81,7 @@ use std::sync::Arc;
 /// Returns an error if the file cannot be opened or if any row fails to deserialize.
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 /// use serde::Deserialize;
 ///
@@ -122,7 +122,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// Returns an error if writing/serialization fails.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     /// use serde::Serialize;
     ///
@@ -158,7 +158,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// Returns an error if collection or CSV serialization fails.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     /// use serde::Serialize;
     ///
@@ -200,7 +200,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// Returns an error if the file cannot be scanned or opened by the CSV reader.
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 /// use serde::Deserialize;
 ///

@@ -10,7 +10,7 @@
 //! - Edges are stored as `(from, to)` pairs of [`NodeId`]s.
 //! - The planner and runner take a *snapshot* of the current graph state before execution.
 //!
-//! The graph is intentionally simple—no complex dependency tracking—since
+//! The graph is intentionally simple--no complex dependency tracking--since
 //! execution occurs in topologically sorted linear chains rather than arbitrary DAGs.
 
 use crate::node::Node;

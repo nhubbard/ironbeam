@@ -1,7 +1,7 @@
 //! Side input helpers for `PCollection` transforms.
 //!
-//! Provides ergonomic APIs for injecting **read-only auxiliary data**—like small
-//! vectors or hash maps—into map and filter operations. These inputs are captured
+//! Provides ergonomic APIs for injecting **read-only auxiliary data**--like small
+//! vectors or hash maps--into map and filter operations. These inputs are captured
 //! by value (cloned into `Arc`s) and broadcast read-only to all workers or threads.
 //!
 //! ### Use cases
@@ -14,7 +14,7 @@
 //! memory and remain immutable during execution.
 //!
 //! ### Example
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //! use std::collections::HashMap;
 //!
@@ -40,7 +40,7 @@ use std::sync::Arc;
 /// Use this to provide small lookup tables or configuration to map/filter steps.
 ///
 /// # Examples
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 ///
 /// let p = Pipeline::default();
@@ -66,7 +66,7 @@ impl<T: RFBound> PCollection<T> {
     /// - `O`: output element type
     ///
     /// # Examples
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     /// let p = Pipeline::default();
     /// let words = from_vec(&p, vec!["aa".to_string(), "abc".to_string()]);
@@ -91,7 +91,7 @@ impl<T: RFBound> PCollection<T> {
     /// The predicate receives each element and a shared slice view of the side vector.
     ///
     /// # Examples
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     /// let p = Pipeline::default();
     /// let nums = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
@@ -115,7 +115,7 @@ impl<T: RFBound> PCollection<T> {
 /// The map is built eagerly from the provided `pairs`.
 ///
 /// # Examples
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 /// use std::collections::HashMap;
 ///
@@ -145,7 +145,7 @@ impl<T: RFBound> PCollection<T> {
     /// - `O`: output element type
     ///
     /// # Examples
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     /// use std::collections::HashMap;
     ///

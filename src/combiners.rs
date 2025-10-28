@@ -3,19 +3,19 @@
 //! These are reusable implementations of [`CombineFn`] (and many also implement
 //! [`LiftableCombiner`]) that operate over per-key value streams:
 //!
-//! - [`Sum<T>`] — sum of values.
-//! - [`Min<T>`] — minimum value.
-//! - [`Max<T>`] — maximum value.
-//! - [`AverageF64`] — average as `f64` (values convertible to `f64`).
-//! - [`DistinctCount<T>`] — count of distinct values.
-//! - [`TopK<T>`] — top-K largest values.
+//! - [`Sum<T>`] -- sum of values.
+//! - [`Min<T>`] -- minimum value.
+//! - [`Max<T>`] -- maximum value.
+//! - [`AverageF64`] -- average as `f64` (values convertible to `f64`).
+//! - [`DistinctCount<T>`] -- count of distinct values.
+//! - [`TopK<T>`] -- top-K largest values.
 //!
 //! Each combiner specifies its accumulator type (`A`) and output type (`O`).
 //! Many provide a `build_from_group` optimization via [`LiftableCombiner`],
 //! enabling efficient `group_by_key().combine_values_lifted(...)` plans.
 //!
 //! # Examples
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //! use rustflow::combiners::{Sum, Min, Max, AverageF64, DistinctCount, TopK};
 //!

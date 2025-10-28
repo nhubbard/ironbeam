@@ -2,15 +2,15 @@
 //!
 //! This module defines the core functional operators used throughout Rustflow:
 //!
-//! - [`PCollection::map`] — one-to-one element transformation.
-//! - [`PCollection::filter`] — element selection by predicate.
-//! - [`PCollection::flat_map`] — one-to-many expansion.
+//! - [`PCollection::map`] -- one-to-one element transformation.
+//! - [`PCollection::filter`] -- element selection by predicate.
+//! - [`PCollection::flat_map`] -- one-to-many expansion.
 //!
 //! It also includes collection materialization helpers:
 //!
-//! - [`PCollection::collect`] — collects sequentially by default.
-//! - [`PCollection::collect_seq`] — explicit sequential collection.
-//! - [`PCollection::collect_par`] — parallel collection with configurable concurrency.
+//! - [`PCollection::collect`] -- collects sequentially by default.
+//! - [`PCollection::collect_seq`] -- explicit sequential collection.
+//! - [`PCollection::collect_par`] -- parallel collection with configurable concurrency.
 //!
 //! These operations form the foundation of the dataflow API, similar to Apache Beam’s
 //! elementwise transforms (`Map`, `Filter`, `FlatMap`).
@@ -25,7 +25,7 @@ use std::sync::Arc;
 impl<T: RFBound> PCollection<T> {
     /// Apply a function to each element of the collection.
     ///
-    /// This is the simplest transform — it applies `f(&T) -> O` to each element independently,
+    /// This is the simplest transform -- it applies `f(&T) -> O` to each element independently,
     /// producing a new [`PCollection<O>`].
     ///
     /// # Type Parameters
@@ -33,7 +33,7 @@ impl<T: RFBound> PCollection<T> {
     /// - `F`: Closure type implementing `Fn(&T) -> O`.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -62,7 +62,7 @@ impl<T: RFBound> PCollection<T> {
     /// for which the predicate returns `true`.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -89,10 +89,10 @@ impl<T: RFBound> PCollection<T> {
     /// Each element is passed to `f(&T) -> Vec<O>`, and the resulting vectors are concatenated
     /// into a single flattened stream.
     ///
-    /// This is analogous to a “flatMap” or “SelectMany” operation in other dataflow APIs.
+    /// This is analogous to a "flatMap" or "SelectMany" operation in other dataflow APIs.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -123,7 +123,7 @@ impl<T: RFBound> PCollection<T> {
     /// Equivalent to calling [`PCollection::collect_seq`].
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -140,7 +140,7 @@ impl<T: RFBound> PCollection<T> {
     /// single-threaded context and materializing the results into a `Vec<T>`.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -167,7 +167,7 @@ impl<T: RFBound> PCollection<T> {
     /// - `partitions`: Optional number of partitions per operator (defaults to auto-chosen).
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

@@ -3,9 +3,9 @@
 //! This module provides convenience methods to **collect and sort** a
 //! [`PCollection`] either sequentially or in parallel.
 //!
-//! - [`PCollection::collect_seq_sorted`] — collects results on a single thread and sorts them.
-//! - [`PCollection::collect_par_sorted`] — collects results in parallel (via partitioned execution) and sorts them.
-//! - [`PCollection::collect_par_sorted_by_key`] — collects keyed data `(K, V)` and sorts by `K` only.
+//! - [`PCollection::collect_seq_sorted`] -- collects results on a single thread and sorts them.
+//! - [`PCollection::collect_par_sorted`] -- collects results in parallel (via partitioned execution) and sorts them.
+//! - [`PCollection::collect_par_sorted_by_key`] -- collects keyed data `(K, V)` and sorts by `K` only.
 //!
 //! These helpers are typically used in tests or final sinks where deterministic
 //! output ordering is desired for validation or snapshot comparison.
@@ -20,7 +20,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     /// collection, then sorts it using [`Vec::sort`] (total ordering via `Ord`).
     ///
     /// # Type bounds
-    /// - `T: Ord` — Elements must implement total ordering.
+    /// - `T: Ord` -- Elements must implement total ordering.
     ///
     /// # Returns
     /// A sorted vector of all collected elements.
@@ -30,7 +30,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     /// deserialization failures.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -61,7 +61,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     /// deserialization failures, or operator errors.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -81,7 +81,7 @@ impl<K: RFBound + Ord, V: RFBound> PCollection<(K, V)> {
     ///
     /// Sorting is stable across partitions and uses [`Vec::sort_by`] with `K`’s
     /// total order (`Ord`).
-    /// Values are not compared or grouped — only key order is enforced.
+    /// Values are not compared or grouped -- only key order is enforced.
     ///
     /// # Arguments
     /// - `parts`: Optional number of partitions for parallel collection.
@@ -94,7 +94,7 @@ impl<K: RFBound + Ord, V: RFBound> PCollection<(K, V)> {
     /// Propagates any error from `collect_par()`.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

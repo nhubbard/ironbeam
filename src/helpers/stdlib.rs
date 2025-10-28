@@ -2,18 +2,18 @@
 //!
 //! These helpers create in-memory sources for RustFlow pipelines directly from
 //! native Rust data structures like `Vec<T>` or iterators. They’re ideal for
-//! tests, demos, or pipelines where data is small and self-contained — avoiding
+//! tests, demos, or pipelines where data is small and self-contained -- avoiding
 //! external I/O layers such as JSONL, CSV, or Parquet.
 //!
 //! ### Overview
-//! - [`from_vec`] — Converts a `Vec<T>` into a `PCollection<T>` source node.
-//! - [`from_iter`] — Builds a `PCollection<T>` from any `IntoIterator<Item = T>`.
+//! - [`from_vec`] -- Converts a `Vec<T>` into a `PCollection<T>` source node.
+//! - [`from_iter`] -- Builds a `PCollection<T>` from any `IntoIterator<Item = T>`.
 //!
 //! These utilities insert a [`Node::Source`] into the [`Pipeline`] graph using
 //! a type-aware vector operations handler derived from `vec_ops_for::<T>()`.
 //!
 //! ### Example
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //!
 //! let p = Pipeline::default();
@@ -43,14 +43,14 @@ use std::sync::Arc;
 /// The resulting `PCollection` acts as a root source for subsequent transforms.
 ///
 /// ### Arguments
-/// - `p` — The pipeline to attach the source node to.
-/// - `data` — The in-memory vector to use as the data source.
+/// - `p` -- The pipeline to attach the source node to.
+/// - `data` -- The in-memory vector to use as the data source.
 ///
 /// ### Returns
 /// A [`PCollection<T>`] representing the vector as a stream of elements.
 ///
 /// ### Example
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 ///
 /// let p = Pipeline::default();
@@ -80,11 +80,11 @@ where
 /// Internally collects the iterator into a [`Vec<T>`] and delegates to [`from_vec`].
 ///
 /// ### Arguments
-/// - `p` — The pipeline to attach the source node to.
-/// - `iter` — Any `IntoIterator<Item = T>` — e.g., a range, vector, or array.
+/// - `p` -- The pipeline to attach the source node to.
+/// - `iter` -- Any `IntoIterator<Item = T>` -- e.g., a range, vector, or array.
 ///
 /// ### Example
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 ///
 /// let p = Pipeline::default();

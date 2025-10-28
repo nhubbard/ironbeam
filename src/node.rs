@@ -1,4 +1,4 @@
-//! Execution graph “nodes” and the dynamic operator trait.
+//! Execution graph "nodes" and the dynamic operator trait.
 //!
 //! This module defines:
 //! - [`DynOp`]: the trait for **stateless, per-partition** operators (map, filter,
@@ -11,11 +11,11 @@
 //!
 //! The planner uses the capability flags on [`DynOp`] to reorder/fuse stateless
 //! ops safely and cheaply:
-//! - [`DynOp::key_preserving`] — the op keeps `(K, _)` keys unchanged.
-//! - [`DynOp::value_only`] — the op touches only the value side of `(K, V)`.
-//! - [`DynOp::reorder_safe_with_value_only`] — the op can be reordered across
+//! - [`DynOp::key_preserving`] -- the op keeps `(K, _)` keys unchanged.
+//! - [`DynOp::value_only`] -- the op touches only the value side of `(K, V)`.
+//! - [`DynOp::reorder_safe_with_value_only`] -- the op can be reordered across
 //!   other `value_only` ops without changing semantics.
-//! - [`DynOp::cost_hint`] — tiny integer used to bias local ordering (smaller
+//! - [`DynOp::cost_hint`] -- tiny integer used to bias local ordering (smaller
 //!   tends to run earlier).
 //!
 //! # Notes
@@ -38,11 +38,11 @@ use std::sync::Arc;
 /// aggressively because they do not require cross-partition coordination.
 ///
 /// The optional capability flags inform the planner how to reorder/fuse ops:
-/// - [`Self::key_preserving`] — returns `true` if keys are unchanged for `(K, V)` inputs.
-/// - [`Self::value_only`] — returns `true` if the op only inspects/modifies `V`.
-/// - [`Self::reorder_safe_with_value_only`] — returns `true` if reordering across
+/// - [`Self::key_preserving`] -- returns `true` if keys are unchanged for `(K, V)` inputs.
+/// - [`Self::value_only`] -- returns `true` if the op only inspects/modifies `V`.
+/// - [`Self::reorder_safe_with_value_only`] -- returns `true` if reordering across
 ///   other `value_only` ops is semantics-preserving.
-/// - [`Self::cost_hint`] — small heuristic cost (smaller often scheduled earlier).
+/// - [`Self::cost_hint`] -- small heuristic cost (smaller often scheduled earlier).
 pub trait DynOp: Send + Sync {
     /// Apply the operator to a single partition.
     fn apply(&self, input: Partition) -> Partition;
@@ -62,7 +62,7 @@ pub trait DynOp: Send + Sync {
         false
     }
 
-    /// Small cost hint to help local op ordering (lower is “cheaper”).
+    /// Small cost hint to help local op ordering (lower is "cheaper").
     fn cost_hint(&self) -> u8 {
         10
     }
@@ -96,7 +96,7 @@ pub enum Node {
     /// Combine-by-key barrier.
     ///
     /// The runner selects the appropriate `local` closure depending on whether the
-    /// input is still `(K, V)` (“pairs”) or already grouped as `(K, Vec<V>)` (“groups”).
+    /// input is still `(K, V)` ("pairs") or already grouped as `(K, Vec<V>)` ("groups").
     ///
     /// - `local_pairs`: consumes `Vec<(K, V)>` and builds `HashMap<K, A>` (per-partition).
     /// - `local_groups`: optional lifted path that consumes `Vec<(K, Vec<V>)>` and builds `HashMap<K, A>`.

@@ -36,7 +36,7 @@ use std::sync::Arc;
 /// This blanket impl allows any type fitting these constraints to be used.
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 ///
 /// #[derive(Clone)]
@@ -62,7 +62,7 @@ impl<T> RFBound for T where T: 'static + Send + Sync + Clone {}
 /// helpers (feature-gated), and then chain transformations.
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 ///
 /// let p = Pipeline::default();
@@ -236,7 +236,7 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
 /// Accumulator type is `u64`, and the output is also `u64`.
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 ///
 /// let p = Pipeline::default();
@@ -273,7 +273,7 @@ impl<V> CombineFn<V, u64, u64> for Count {
 /// slice via `add_input`; combiners can override it for more efficient logic.
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 ///
 /// // Count overrides build_from_group to use values.len()

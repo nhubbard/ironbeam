@@ -1,7 +1,7 @@
 //! Lightweight unique identifier for nodes within a [`Pipeline`](crate::pipeline::Pipeline).
 //!
 //! Each [`Node`](crate::node::Node) inserted into the pipeline graph is assigned
-//! a sequential `NodeId`. These are opaque handles—only the planner and runner
+//! a sequential `NodeId`. These are opaque handles--only the planner and runner
 //! inspect them directly.
 //!
 //! They’re small, `Copy`, and hashable, so they can be used efficiently as keys

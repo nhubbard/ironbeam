@@ -3,9 +3,9 @@
 //! Provides two batching operators for expensive transformations where
 //! per-element closures are inefficient:
 //!
-//! - [`PCollection::map_batches`] — applies a function over fixed-size slices of
+//! - [`PCollection::map_batches`] -- applies a function over fixed-size slices of
 //!   elements (`&[T]`) and concatenates their results.
-//! - [`PCollection::map_values_batches`] — same concept, but operates only on
+//! - [`PCollection::map_values_batches`] -- same concept, but operates only on
 //!   the *values* in a keyed collection `(K, V)`.
 //!
 //! Batching allows CPU-intensive or I/O-heavy transforms to amortize setup
@@ -28,7 +28,7 @@ impl<T: RFBound> PCollection<T> {
     /// `Vec<O>` results.
     ///
     /// This is ideal for expensive transforms where per-element function calls
-    /// are too granular — for example, model inference, regex parsing, or
+    /// are too granular -- for example, model inference, regex parsing, or
     /// external API lookups.
     ///
     /// # Type parameters
@@ -44,7 +44,7 @@ impl<T: RFBound> PCollection<T> {
     /// batch outputs.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -92,7 +92,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// values.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

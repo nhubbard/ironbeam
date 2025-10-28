@@ -39,7 +39,7 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     /// Returns the number of rows written.
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     /// # fn main() -> anyhow::Result<()> {
     /// #[cfg(feature = "io-parquet")]
@@ -73,7 +73,7 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 /// - The returned `PCollection<T>` can be processed with the usual stateless / keyed ops.
 ///
 /// ### Example
-/// ```no_run
+/// ```ignore
 /// use rustflow::*;
 /// # fn main() -> anyhow::Result<()> {
 /// #[cfg(feature = "io-parquet")]

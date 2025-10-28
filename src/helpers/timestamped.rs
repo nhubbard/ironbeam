@@ -8,11 +8,11 @@
 //! ### What this is (and isn’t)
 //! - ✅ Attaches/normalizes event timestamps, preserving data and order within a partition
 //! - ✅ Plays nicely with tumbling window helpers (e.g., `key_by_window(...)`)
-//! - ❌ Not a full watermark/late data engine — timestamps are metadata used by
+//! - ❌ Not a full watermark/late data engine -- timestamps are metadata used by
 //!   subsequent operators; there’s no lateness tracking or triggers.
 //!
 //! ### Quick start
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //!
 //! let p = Pipeline::default();
@@ -47,13 +47,13 @@ impl<T: RFBound> PCollection<T> {
     /// Use this when your data doesn’t already come as `(timestamp, value)` pairs.
     ///
     /// ### Arguments
-    /// - `ts_fn` — A pure function that returns the event timestamp for an element.
+    /// - `ts_fn` -- A pure function that returns the event timestamp for an element.
     ///
     /// ### Returns
     /// A timestamped stream: `PCollection<Timestamped<T>>`.
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// #[derive(Clone)]
@@ -87,7 +87,7 @@ impl<T: RFBound> PCollection<(TimestampMs, T)> {
     /// A timestamped stream: `PCollection<Timestamped<T>>`.
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

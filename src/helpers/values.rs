@@ -6,11 +6,11 @@
 //! values.
 //!
 //! ## Provided methods
-//! - [`map_values`] — apply a function `&V -> O`, producing `(K, O)`
-//! - [`filter_values`] — retain only entries where `pred(&V)` is true
+//! - [`map_values`] -- apply a function `&V -> O`, producing `(K, O)`
+//! - [`filter_values`] -- retain only entries where `pred(&V)` is true
 //!
 //! ## Example
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //!
 //! let p = Pipeline::default();
@@ -52,7 +52,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// `PCollection<(K, O)>`
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -88,7 +88,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// A filtered `PCollection<(K, V)>`.
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

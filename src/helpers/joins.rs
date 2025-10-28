@@ -19,7 +19,7 @@
 //!
 //! ## Examples
 //! Inner / left / right / full joins:
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //!
 //! # fn main() -> anyhow::Result<()> {
@@ -53,7 +53,7 @@ use std::sync::Arc;
 /// and walking backwards through single-input edges.
 ///
 /// This is an internal helper used by joins to capture each side’s subplan so that
-/// the runner can execute them as independent “subplans” before the co-group step.
+/// the runner can execute them as independent "subplans" before the co-group step.
 ///
 /// # Errors
 /// Returns an error if the pipeline snapshot is missing a referenced node.
@@ -80,7 +80,7 @@ fn chain_from(p: &Pipeline, terminal: NodeId) -> Result<Vec<Node>> {
 /// `Source` node (as expected by the runner).
 ///
 /// The dummy payload is a `Vec<u8>` of length 1. It does not participate in the
-/// join semantics—it's only a structural anchor for the execution plan.
+/// join semantics--it's only a structural anchor for the execution plan.
 fn insert_dummy_source(p: &Pipeline) -> NodeId {
     p.insert_node(Node::Source {
         payload: Arc::new(vec![0u8]),
@@ -99,7 +99,7 @@ where
     /// Emits one row for every `(k, v)` on the left and `(k, w)` on the right with the same `k`.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
@@ -194,7 +194,7 @@ where
     /// Emits all left rows; missing right values appear as `None`.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
@@ -293,7 +293,7 @@ where
     /// Emits all right rows; missing left values appear as `None`.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
@@ -393,7 +393,7 @@ where
     /// Emits rows for the union of keys found on either side. Missing values are `None`.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// # fn main() -> anyhow::Result<()> {

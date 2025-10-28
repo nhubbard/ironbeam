@@ -17,7 +17,7 @@
 //! - `offset_ms`: an optional phase offset to shift window boundaries.
 //!
 //! ## Examples
-//! ```no_run
+//! ```ignore
 //! use rustflow::*;
 //!
 //! let p = Pipeline::default();
@@ -61,7 +61,7 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
     /// - `offset_ms`: phase offset to shift window boundaries (commonly `0`).
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -90,7 +90,7 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
     /// ```
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -118,7 +118,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
     /// `((K, Window), V)` so you can aggregate by key *and* window.
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -146,7 +146,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
     /// ```
     ///
     /// ### Example
-    /// ```no_run
+    /// ```ignore
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

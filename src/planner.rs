@@ -3,14 +3,14 @@
 //! The planner converts the pipeline graph into a single **linear execution chain**
 //! and applies a few lightweight, semantics-preserving rewrites:
 //!
-//! 1. **Fuse stateless ops** — adjacent `Node::Stateless` blocks are concatenated.
-//! 2. **Reorder value-only runs** — within a stateless block where *all* ops are
+//! 1. **Fuse stateless ops** -- adjacent `Node::Stateless` blocks are concatenated.
+//! 2. **Reorder value-only runs** -- within a stateless block where *all* ops are
 //!    key-preserving and value-only, put cheaper/filters first using `cost_hint`.
-//! 3. **Lift GBK→Combine** — if a `GroupByKey` is immediately followed by a
+//! 3. **Lift GBK→Combine** -- if a `GroupByKey` is immediately followed by a
 //!    `CombineValues` that also has a lifted local (`local_groups.is_some()`),
 //!    drop the `GroupByKey` and keep the combine, switching it to consume
 //!    `(K, V)` pairs via `local_pairs`.
-//! 4. **Drop mid-materialized** — only keep a `Materialized` node if it is the final
+//! 4. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
 //!    terminal in the chain.
 //!
 //! The planner also provides a heuristic **partition suggestion** that the runner
@@ -122,7 +122,7 @@ fn fuse_stateless(chain: Vec<Node>) -> Vec<Node> {
 
 /// Within each `Node::Stateless`, if **all** ops are key-preserving, value-only,
 /// and declare `reorder_safe_with_value_only() == true`, reorder the ops:
-/// - “Cheapest” filters (we tag with `cost_hint() == 1`) first,
+/// - "Cheapest" filters (we tag with `cost_hint() == 1`) first,
 /// - then the rest by ascending `cost_hint()`.
 ///
 /// This is a local, stable improvement that can reduce intermediate sizes
@@ -138,7 +138,7 @@ fn reorder_value_only_runs(chain: Vec<Node>) -> Vec<Node> {
             if all_vo {
                 let mut ops_owned: Vec<Arc<dyn DynOp>> = ops;
                 ops_owned.sort_by_key(|op| {
-                    // promote “filters” (cost==1) first, then by cost
+                    // promote "filters" (cost==1) first, then by cost
                     let is_filter_first = if op.cost_hint() == 1 { 0 } else { 1 };
                     (is_filter_first, op.cost_hint())
                 });

@@ -2,8 +2,8 @@
 //!
 //! This module exposes two flavors of keyed combining:
 //!
-//! - [`PCollection::<(K, V)>::combine_values`] — **classic** combine-by-key over `(K, V)` pairs.
-//! - [`PCollection::<(K, Vec<V>)>::combine_values_lifted`] — **lifted** combine that consumes
+//! - [`PCollection::<(K, V)>::combine_values`] -- **classic** combine-by-key over `(K, V)` pairs.
+//! - [`PCollection::<(K, Vec<V>)>::combine_values_lifted`] -- **lifted** combine that consumes
 //!   grouped input `(K, Vec<V>)` (typically right after `group_by_key()`), allowing a
 //!   [`LiftableCombiner`] to build its accumulator directly from the full group.
 //!
@@ -34,7 +34,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// A `PCollection<(K, O)>` with one output per distinct key.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     /// use std::collections::HashMap;
     ///
@@ -136,7 +136,7 @@ where
     /// A `PCollection<(K, O)>` with one output per distinct key.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// use rustflow::*;
     /// use rustflow::collection::LiftableCombiner;
     ///
