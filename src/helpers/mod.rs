@@ -15,6 +15,7 @@ pub mod tumbling;
 pub mod values;
 pub mod combine_global;
 pub mod distinct;
+pub mod sampling;
 
 // Only re-export files with top-level functions
 pub use csv::*;
