@@ -19,7 +19,8 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rayon = "1"
-num_cpus = "1.17.0"
+num_cpus = "1"
+ordered-float = "5"
 
 csv = { version = "1", optional = true }
 arrow = { version = "56", optional = true }

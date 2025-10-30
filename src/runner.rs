@@ -12,6 +12,7 @@
 //! order. Parallel execution may interleave partitions; callers that require a
 //! stable final order can use the `collect_*_sorted` helpers after collection.
 
+use std::collections::BinaryHeap;
 use crate::node::Node;
 use crate::pipeline::Pipeline;
 use crate::planner::build_plan;
@@ -21,6 +22,7 @@ use anyhow::{anyhow, bail, Result};
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::sync::Arc;
+use ordered_float::NotNan;
 
 /// Execution mode for a plan.
 ///
@@ -157,6 +159,9 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 } => {
                     let mid = local(curr.take().unwrap());
                     let acc = merge(vec![mid]);
+                    if let Some(h) = acc.downcast_ref::<BinaryHeap<NotNan<f64>>>() {
+                        eprintln!("DEBUG: KMV heap len = {}", h.len()); // should be <= k
+                    }
                     finish(acc)
                 }
             });
@@ -229,6 +234,9 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
             } => {
                 let mid_acc = local(buf.take().unwrap());
                 let acc = merge(vec![mid_acc]);
+                if let Some(h) = acc.downcast_ref::<BinaryHeap<NotNan<f64>>>() {
+                    eprintln!("DEBUG: KMV heap len = {}", h.len()); // should be <= k
+                }
                 finish(acc)
             }
         });
@@ -350,6 +358,9 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                     }
 
                     let acc = accs.pop().unwrap_or_else(|| merge(Vec::new()));
+                    if let Some(h) = acc.downcast_ref::<BinaryHeap<NotNan<f64>>>() {
+                        eprintln!("DEBUG: KMV heap len = {}", h.len()); // should be <= k
+                    }
                     curr = vec![finish(acc)];
                     i += 1;
                 }
@@ -476,6 +487,9 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                 }
 
                 let acc = accs.pop().unwrap_or_else(|| merge(Vec::new()));
+                if let Some(h) = acc.downcast_ref::<BinaryHeap<NotNan<f64>>>() {
+                    eprintln!("DEBUG: KMV heap len = {}", h.len()); // should be <= k
+                }
                 curr = vec![finish(acc)];
                 i += 1;
             }

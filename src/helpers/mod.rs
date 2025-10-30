@@ -1,19 +1,20 @@
-pub(crate) mod batches;
-pub(crate) mod collect_sorted;
-pub(crate) mod combine;
-pub(crate) mod common;
-pub(crate) mod csv;
-pub(crate) mod joins;
-pub(crate) mod jsonl;
-pub(crate) mod keyed;
-pub(crate) mod parquet;
-pub(crate) mod side_inputs;
-pub(crate) mod stdlib;
-pub(crate) mod timestamped;
-pub(crate) mod try_process;
-pub(crate) mod tumbling;
-pub(crate) mod values;
-pub(crate) mod combine_global;
+pub mod batches;
+pub mod collect_sorted;
+pub mod combine;
+pub mod common;
+pub mod csv;
+pub mod joins;
+pub mod jsonl;
+pub mod keyed;
+pub mod parquet;
+pub mod side_inputs;
+pub mod stdlib;
+pub mod timestamped;
+pub mod try_process;
+pub mod tumbling;
+pub mod values;
+pub mod combine_global;
+pub mod distinct;
 
 // Only re-export files with top-level functions
 pub use csv::*;
