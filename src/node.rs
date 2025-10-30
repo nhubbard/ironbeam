@@ -138,6 +138,18 @@ pub enum Node {
         exec: Arc<dyn Fn(Partition, Partition) -> Partition + Send + Sync>,
     },
 
+    /// Global (non-keyed) combine:
+    /// - `local`: consumes `Vec<T>` → `A` (accumulator)
+    /// - `merge`: merges `Vec<A>` → `A`
+    /// - `finish`: converts `A` → `Vec<O>` (typically a singleton)
+    /// - `fanout`: optional breadth limit for multi-round parallel reduction
+    CombineGlobal {
+        local: Arc<dyn Fn(Partition) -> Partition + Send + Sync>,
+        merge: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
+        finish: Arc<dyn Fn(Partition) -> Partition + Send + Sync>,
+        fanout: Option<usize>,
+    },
+
     /// Pre-materialized payload (type-erased).
     ///
     /// Used by some tests/terminals to anchor a typed vector that the runner

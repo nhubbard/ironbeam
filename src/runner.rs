@@ -117,11 +117,7 @@ impl Runner {
 fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>> {
     let mut buf: Option<Partition> = None;
 
-    /// Run a nested subplan (used by `CoGroup`) sequentially and return **one**
-    /// final partition (wrapped in a single-element `Vec` for convenience).
-    ///
-    /// The subplan must start with a `Source`. Nested `CoGroup` is not supported.
-    fn run_subplan_seq(mut chain: Vec<Node>) -> Result<Vec<Partition>> {
+    let run_subplan_seq = |mut chain: Vec<Node>| -> Result<Vec<Partition>> {
         let mut curr: Option<Partition> = None;
         for node in chain.drain(..) {
             curr = Some(match node {
@@ -153,10 +149,20 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 }
                 Node::Materialized(p) => Box::new(p) as Partition,
                 Node::CoGroup { .. } => bail!("nested CoGroup not supported in subplan"),
+                Node::CombineGlobal {
+                    local,
+                    merge,
+                    finish,
+                    ..
+                } => {
+                    let mid = local(curr.take().unwrap());
+                    let acc = merge(vec![mid]);
+                    finish(acc)
+                }
             });
         }
         Ok(vec![curr.unwrap()])
-    }
+    };
 
     for node in chain {
         buf = Some(match node {
@@ -215,6 +221,16 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                     .cloned()
                     .ok_or_else(|| anyhow!("terminal type mismatch"))?,
             ) as Partition,
+            Node::CombineGlobal {
+                local,
+                merge,
+                finish,
+                ..
+            } => {
+                let mid_acc = local(buf.take().unwrap());
+                let acc = merge(vec![mid_acc]);
+                finish(acc)
+            }
         });
     }
 
@@ -296,6 +312,47 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                     bail!("unexpected source/materialized in subplan")
                 }
                 Node::CoGroup { .. } => bail!("nested CoGroup not supported in subplan"),
+                Node::CombineGlobal {
+                    local,
+                    merge,
+                    finish,
+                    fanout,
+                } => {
+                    // local on each partition -> Vec<A> (type-erased)
+                    let mut accs: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
+
+                    // multi-round merge with optional fanout, no cloning
+                    let f = fanout.unwrap_or(usize::MAX).max(1);
+                    while accs.len() > 1 {
+                        if f == usize::MAX {
+                            accs = vec![merge(accs)];
+                            break;
+                        } else {
+                            let mut next: Vec<Partition> =
+                                Vec::with_capacity((accs.len() + f - 1) / f);
+                            let mut it = accs.into_iter(); // take ownership to avoid clones
+                            loop {
+                                let mut group: Vec<Partition> = Vec::with_capacity(f);
+                                for _ in 0..f {
+                                    if let Some(p) = it.next() {
+                                        group.push(p);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                if group.is_empty() {
+                                    break;
+                                }
+                                next.push(merge(group));
+                            }
+                            accs = next;
+                        }
+                    }
+
+                    let acc = accs.pop().unwrap_or_else(|| merge(Vec::new()));
+                    curr = vec![finish(acc)];
+                    i += 1;
+                }
             }
         }
         Ok(curr)
@@ -383,6 +440,44 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
             }
             Node::Source { .. } | Node::Materialized(_) => {
                 bail!("unexpected additional source/materialized")
+            }
+            Node::CombineGlobal {
+                local,
+                merge,
+                finish,
+                fanout,
+            } => {
+                let mut accs: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
+
+                let f = fanout.unwrap_or(usize::MAX).max(1);
+                while accs.len() > 1 {
+                    if f == usize::MAX {
+                        accs = vec![merge(accs)];
+                        break;
+                    } else {
+                        let mut next: Vec<Partition> = Vec::with_capacity((accs.len() + f - 1) / f);
+                        let mut it = accs.into_iter();
+                        loop {
+                            let mut group: Vec<Partition> = Vec::with_capacity(f);
+                            for _ in 0..f {
+                                if let Some(p) = it.next() {
+                                    group.push(p);
+                                } else {
+                                    break;
+                                }
+                            }
+                            if group.is_empty() {
+                                break;
+                            }
+                            next.push(merge(group));
+                        }
+                        accs = next;
+                    }
+                }
+
+                let acc = accs.pop().unwrap_or_else(|| merge(Vec::new()));
+                curr = vec![finish(acc)];
+                i += 1;
             }
         }
     }

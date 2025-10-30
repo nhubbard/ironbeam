@@ -13,6 +13,7 @@ pub(crate) mod timestamped;
 pub(crate) mod try_process;
 pub(crate) mod tumbling;
 pub(crate) mod values;
+pub(crate) mod combine_global;
 
 // Only re-export files with top-level functions
 pub use csv::*;
