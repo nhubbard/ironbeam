@@ -96,7 +96,7 @@ impl<T: Clone + Send + Sync + 'static> VecOps for VecOpsImpl<T> {
             return Some(vec![Box::new(v.clone())]);
         }
 
-        // Split into contiguous chunks of ~len/n each (last chunk may be shorter).
+        // Split into contiguous chunks of ~len/n each (the last chunk may be shorter).
         let chunk = len.div_ceil(n);
         let parts = v
             .chunks(chunk)

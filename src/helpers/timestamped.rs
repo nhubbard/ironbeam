@@ -5,11 +5,11 @@
 //! existing `(timestamp, value)` stream into the internal [`Timestamped<T>`]
 //! representation used by windowing transforms.
 //!
-//! ### What this is (and isn’t)
+//! ### What this is (and isn't)
 //! - ✅ Attaches/normalizes event timestamps, preserving data and order within a partition
 //! - ✅ Plays nicely with tumbling window helpers (e.g., `key_by_window(...)`)
 //! - ❌ Not a full watermark/late data engine -- timestamps are metadata used by
-//!   subsequent operators; there’s no lateness tracking or triggers.
+//!   later operators; there's no lateness tracking or triggers.
 //!
 //! ### Quick start
 //! ```ignore
@@ -40,11 +40,11 @@ impl<T: RFBound> PCollection<T> {
     /// Attach event timestamps using a user-provided function.
     ///
     /// This converts a `PCollection<T>` into a `PCollection<Timestamped<T>>` by
-    /// calling `ts_fn` on each element to obtain an event-time timestamp (in
+    /// calling `ts_fn` on each element to get an event-time timestamp (in
     /// milliseconds). The element is carried along unchanged inside
     /// [`Timestamped<T>`].
     ///
-    /// Use this when your data doesn’t already come as `(timestamp, value)` pairs.
+    /// Use this when your data doesn't already come as `(timestamp, value)` pairs.
     ///
     /// ### Arguments
     /// - `ts_fn` -- A pure function that returns the event timestamp for an element.

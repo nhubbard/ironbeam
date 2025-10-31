@@ -88,14 +88,8 @@ fn left_right_full_outer() -> Result<()> {
     let mut full_out = fullj.collect_par(None, None)?;
     full_out.sort_by(|a, b| {
         a.0.cmp(&b.0)
-            .then(
-                a.1.0.clone()
-                    .cmp(&b.1.0.clone()),
-            )
-            .then(
-                a.1.1.clone()
-                    .cmp(&b.1.1.clone()),
-            )
+            .then(a.1.0.clone().cmp(&b.1.0.clone()))
+            .then(a.1.1.clone().cmp(&b.1.1.clone()))
     });
     assert_eq!(
         full_out,

@@ -6,13 +6,13 @@
 //! - [`PCollection::filter`] -- element selection by predicate.
 //! - [`PCollection::flat_map`] -- one-to-many expansion.
 //!
-//! It also includes collection materialization helpers:
+//! It also includes some collection materialization helpers:
 //!
 //! - [`PCollection::collect`] -- collects sequentially by default.
 //! - [`PCollection::collect_seq`] -- explicit sequential collection.
 //! - [`PCollection::collect_par`] -- parallel collection with configurable concurrency.
 //!
-//! These operations form the foundation of the dataflow API, similar to Apache Beam’s
+//! These operations form the foundation of the dataflow API, similar to Apache Beam's
 //! elementwise transforms (`Map`, `Filter`, `FlatMap`).
 
 use crate::collection::{FilterOp, FlatMapOp, MapOp};

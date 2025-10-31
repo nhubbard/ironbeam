@@ -72,7 +72,7 @@ pub trait DynOp: Send + Sync {
 ///
 /// The runner interprets a linearized chain of nodes:
 /// - A plan **must** start with a [`Node::Source`].
-/// - Zero or more [`Node::Stateless`] segments may be fused by the planner.
+/// - The planner may fuse zero or more ['Node::Stateless'] segments.
 /// - Barriers like [`Node::GroupByKey`] and [`Node::CombineValues`] materialize/merge partitions.
 /// - [`Node::CoGroup`] executes two subplans (for joins) and then a typed exec closure.
 /// - [`Node::Materialized`] anchors a pre-existing typed payload for terminal reads.

@@ -39,7 +39,7 @@ pub struct Pipeline {
 /// - `nodes`: map of [`NodeId`] → [`Node`](Node).
 /// - `edges`: ordered list of `(from, to)` directed edges.
 ///
-/// Access to this data is synchronized by the parent [`Pipeline`].
+/// The parent synchronizes access to the data in the [`Pipeline`].
 pub(crate) struct PipelineInner {
     pub next_id: u64,
     pub nodes: HashMap<NodeId, Node>,

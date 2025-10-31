@@ -60,7 +60,9 @@ pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec
 /// serialize/flush.
 pub fn write_jsonl_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Result<usize> {
     let path = path.as_ref();
-    if let Some(parent) = path.parent() && !parent.as_os_str().is_empty() {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
         create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
     }
     let f = File::create(path).with_context(|| format!("create {}", path.display()))?;
@@ -98,7 +100,9 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
 ) -> Result<usize> {
     use rayon::prelude::*;
     let path = path.as_ref();
-    if let Some(parent) = path.parent() && !parent.as_os_str().is_empty() {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
         create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
     }
     let n = data.len();

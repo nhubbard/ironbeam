@@ -1,4 +1,4 @@
-//! Top-K combiner for selecting largest values
+//! Top-K combiner for selecting the largest values
 
 use crate::collection::{CombineFn, LiftableCombiner};
 use crate::RFBound;

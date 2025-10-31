@@ -6,8 +6,8 @@
 //! [`collect_fail_fast`].
 //!
 //! ## When to use
-//! - You have parsing/validation/IO-lite logic that can fail per record and you
-//!   want to keep going until the terminal sink.
+//! - You have parsing/validation/IO-lite logic that can fail per record, and you
+//!   want to keep going until the terminal sink is reached.
 //! - You want easy error surfacing during tests or interactive runs.
 //!
 //! ## Pattern

@@ -1,7 +1,7 @@
 //! Standard library helpers for constructing `PCollection`s.
 //!
 //! These helpers create in-memory sources for RustFlow pipelines directly from
-//! native Rust data structures like `Vec<T>` or iterators. They’re ideal for
+//! native Rust data structures like `Vec<T>` or iterators. They're ideal for
 //! tests, demos, or pipelines where data is small and self-contained -- avoiding
 //! external I/O layers such as JSONL, CSV, or Parquet.
 //!
@@ -40,7 +40,7 @@ use std::sync::Arc;
 /// This function inserts a [`Node::Source`] node into the provided [`Pipeline`],
 /// wrapping the given vector in an `Arc` and recording its type metadata.
 ///
-/// The resulting `PCollection` acts as a root source for subsequent transforms.
+/// The resulting `PCollection` acts as a root source for later transforms.
 ///
 /// ### Arguments
 /// - `p` -- The pipeline to attach the source node to.
@@ -73,7 +73,6 @@ where
         _t: PhantomData,
     }
 }
-
 
 /// Create a [`PCollection<T>`] from any iterator or collection implementing [`IntoIterator`].
 ///

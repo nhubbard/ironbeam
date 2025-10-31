@@ -1,9 +1,9 @@
 //! # Sampling helpers
 //!
 //! Deterministic, mergeable **reservoir sampling** helpers built on top of
-//! the `PriorityReservoir` combiner (Efraimidis–Spirakis priority sampling,
+//! the `PriorityReservoir` combiner (Efraimidis-Spirakis priority sampling,
 //! unit weights). These are stable across sequential vs. parallel execution
-//! and across partitionings of the same input.
+//! and across partitions of the same input.
 //!
 //! ## APIs
 //! - Global (unkeyed):

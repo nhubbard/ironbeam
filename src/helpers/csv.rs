@@ -78,7 +78,7 @@ use std::sync::Arc;
 /// - `has_headers`: Whether the input CSV includes a header row.
 ///
 /// # Errors
-/// Returns an error if the file cannot be opened or if any row fails to deserialize.
+/// An error is returned if the file cannot be opened or if any row fails to deserialize.
 ///
 /// # Example
 /// ```ignore
@@ -119,7 +119,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// - `has_headers`: Whether to write a header row.
     ///
     /// # Errors
-    /// Returns an error if writing/serialization fails.
+    /// An error is returned if writing/serialization fails.
     ///
     /// # Example
     /// ```ignore
@@ -146,7 +146,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the pipeline in parallel and write the result as CSV.
     ///
-    /// This collects the result in parallel (respecting the runner’s partition settings),
+    /// This collects the result in parallel (respecting the runner's partition settings),
     /// then writes a single CSV file in deterministic order.
     ///
     /// # Arguments
@@ -155,7 +155,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// - `has_headers`: Whether to write a header row.
     ///
     /// # Errors
-    /// Returns an error if collection or CSV serialization fails.
+    /// An error is returned if collection or CSV serialization fails.
     ///
     /// # Example
     /// ```ignore
@@ -186,7 +186,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 ///
 /// This builds a `CsvShards` descriptor (counting rows up front) and inserts a `Source`
 /// node that reads and deserializes only its shard when executed by the runner. Useful
-/// for large files that don’t fit comfortably in memory.
+/// for large files that don't fit comfortably in system memory.
 ///
 /// *Enabled when the `io-csv` feature is on.*
 ///

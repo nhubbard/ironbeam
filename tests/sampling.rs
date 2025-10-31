@@ -1,5 +1,5 @@
-use rustflow::*;
 use anyhow::Result;
+use rustflow::*;
 
 #[test]
 fn reservoir_global_vec_and_flatten() -> Result<()> {
@@ -50,9 +50,14 @@ fn reservoir_per_key_vec_and_flatten() -> Result<()> {
     assert_eq!(per_key, per_key_2);
 
     // flatten variant
-    let flat = from_vec(&p, (0..3).flat_map(|k| (0..20).map(move |i| (format!("k{k}"), i))).collect::<Vec<_>>())
-        .sample_values_reservoir(5, 77)
-        .collect_seq()?;
+    let flat = from_vec(
+        &p,
+        (0..3)
+            .flat_map(|k| (0..20).map(move |i| (format!("k{k}"), i)))
+            .collect::<Vec<_>>(),
+    )
+    .sample_values_reservoir(5, 77)
+    .collect_seq()?;
     // 3 keys * 5 samples per key
     assert_eq!(flat.len(), 15);
 

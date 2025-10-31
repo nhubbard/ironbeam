@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 /// The standard trait bound for elements carried by a `PCollection`.
 ///
-/// Rustflow’s runtime may move elements across threads and partitions. To keep
+/// Rustflow's runtime may move elements across threads and partitions. To keep
 /// this simple and predictable, all element types must be:
 ///
 /// - `'static` (no non-'static borrows inside elements),
@@ -78,7 +78,6 @@ pub struct PCollection<T> {
     pub(crate) id: NodeId,
     pub(crate) _t: PhantomData<T>,
 }
-
 
 // |---------------------|
 // | Stateless operators |
@@ -233,7 +232,7 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
 
 /// Built-in combiner that **counts** values per key.
 ///
-/// Accumulator type is `u64`, and the output is also `u64`.
+/// The accumulator type is `u64`, and the output is also `u64`.
 ///
 /// # Example
 /// ```ignore
@@ -264,8 +263,7 @@ impl<V> CombineFn<V, u64, u64> for Count {
     }
 }
 
-
-/// Optional capability for a combiner to *construct its accumulator from an
+/// The optional ability of a combiner to *construct its accumulator from an
 /// entire group* of values at once.
 ///
 /// Using `build_from_group` lets the planner skip some shuffle barriers in
@@ -403,7 +401,7 @@ where
                 vals.len()
             );
 
-            // Re-pair with original keys in order
+            // Re-pair with the original keys in order
             for (j, o) in produced.into_iter().enumerate() {
                 let k = kv[idx + j].0.clone();
                 out.push((k, o));

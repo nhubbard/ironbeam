@@ -6,7 +6,7 @@
 //! - `combine_globally`: folds all elements `T` into a single `O` via a
 //!   user-provided `CombineFn<V, A, O>`.
 //! - `combine_globally_lifted`: same, but uses `LiftableCombiner::build_from_group`
-//!   to construct `A` from each partition’s full slice for better locality.
+//!   to construct `A` from each partition's full slice for better locality.
 //!
 //! Both APIs accept an optional `fanout`: during parallel execution we reduce
 //! accumulators in rounds, merging at most `fanout` accumulators per round to
@@ -25,7 +25,7 @@ impl<T: RFBound> PCollection<T> {
     /// # Parameters
     /// - `comb`: the combiner (`create/add_input/merge/finish`)
     /// - `fanout`: if set, merges accumulators in rounds of at most this size.
-    ///   Use small values (e.g. 8, 16) to limit merge breadth on huge inputs.
+    ///   Use small values (e.g., 8 or 16) to limit merge breadth on huge inputs.
     ///
     /// # Semantics
     /// Produces exactly **one** element even for empty inputs (by calling
@@ -51,7 +51,7 @@ impl<T: RFBound> PCollection<T> {
     {
         let comb = Arc::new(comb);
 
-        // local: Vec<T> -> A (via create + add_input)
+        // local: Vec<T> -> A (via the creation and add_input steps)
         let local = {
             let comb = Arc::clone(&comb);
             Arc::new(move |p: Partition| -> Partition {
@@ -79,9 +79,7 @@ impl<T: RFBound> PCollection<T> {
                     comb.create()
                 };
                 for p in it {
-                    let a = *p
-                        .downcast::<A>()
-                        .expect("CombineGlobally merge: bad part");
+                    let a = *p.downcast::<A>().expect("CombineGlobally merge: bad part");
                     comb.merge(&mut acc, a);
                 }
                 Box::new(acc) as Partition
@@ -121,11 +119,7 @@ impl<T: RFBound> PCollection<T> {
     /// profitable (e.g., `Count`, `TopK`, etc.).
     ///
     /// See [`combine_globally`] for fanout semantics and example usage.
-    pub fn combine_globally_lifted<C, A, O>(
-        self,
-        comb: C,
-        fanout: Option<usize>,
-    ) -> PCollection<O>
+    pub fn combine_globally_lifted<C, A, O>(self, comb: C, fanout: Option<usize>) -> PCollection<O>
     where
         C: CombineFn<T, A, O> + LiftableCombiner<T, A, O> + 'static,
         A: Send + Sync + 'static,

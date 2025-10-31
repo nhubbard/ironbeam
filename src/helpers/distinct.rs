@@ -11,10 +11,9 @@
 //! expanded back into an element stream via `flat_map`. Approximate counts use
 //! a KMV estimator (`KMVApproxDistinctCount<T>`).
 
-use std::hash::Hash;
-
 use crate::combiners::{DistinctSet, KMVApproxDistinctCount};
 use crate::{PCollection, RFBound};
+use std::hash::Hash;
 
 impl<T: RFBound + Eq + Hash> PCollection<T> {
     /// Exact global distinct. Removes duplicates across the entire collection.
@@ -88,7 +87,10 @@ where
         self.group_by_key()
             .combine_values_lifted(DistinctSet::<V>::default())
             .flat_map(|kv: &(K, Vec<V>)| {
-                kv.1.iter().cloned().map(|v| (kv.0.clone(), v)).collect::<Vec<_>>()
+                kv.1.iter()
+                    .cloned()
+                    .map(|v| (kv.0.clone(), v))
+                    .collect::<Vec<_>>()
             })
     }
 

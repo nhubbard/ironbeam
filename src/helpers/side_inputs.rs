@@ -111,7 +111,7 @@ impl<T: RFBound> PCollection<T> {
 
 /// Create a read-only side input backed by a `HashMap<K, V>`.
 ///
-/// Useful for lookup/enrichment joins that don’t justify a full shuffle.
+/// Useful for lookup/enrichment joins that don't justify a full shuffle.
 /// The map is built eagerly from the provided `pairs`.
 ///
 /// # Examples

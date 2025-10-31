@@ -14,7 +14,7 @@ fn planner_fuses_stateless_equivalence() -> Result<()> {
         .map(|x: &u32| x / 2)
         .filter(|x: &u32| !x.is_multiple_of(3));
 
-    // Collect seq and par to ensure planner changes don’t affect results
+    // Collect seq and par to ensure planner changes don't affect results
     let seq = many.clone().collect_seq_sorted()?;
     let par = many.clone().collect_par_sorted(Some(8), None)?;
     assert_eq!(seq, par);

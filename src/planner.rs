@@ -60,7 +60,7 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
 /// edges and return a **forward** (source→terminal) linear chain.
 ///
 /// # Errors
-/// Returns an error if a referenced node is missing from the snapshot.
+/// An error is returned if a referenced node is missing from the snapshot.
 fn backwalk_linear(
     mut nodes: HashMap<NodeId, Node>,
     edges: Vec<(NodeId, NodeId)>,

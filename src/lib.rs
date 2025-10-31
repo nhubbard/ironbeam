@@ -57,7 +57,7 @@
 //!
 //! ### PCollection
 //!
-//! A [`PCollection<T>`] represents a distributed collection of elements of type `T`.
+//! A [`PCollection<T>`] represents a distributed collection with elements of type `T`.
 //! It's the fundamental abstraction for data in Rustflow. Collections are:
 //! - **Immutable** - transformations create new collections
 //! - **Lazy** - computation happens when you call a collect method
@@ -76,7 +76,7 @@
 //! #### Stateful (keyed operations)
 //! - [`key_by`](PCollection::key_by) - convert `PCollection<T>` to `PCollection<(K, V)>`
 //! - [`map_values`](PCollection::map_values) - transform values while preserving keys
-//! - [`filter_values`](PCollection::filter_values) - filter by value predicate
+//! - [`filter_values`](PCollection::filter_values) - filter-by-value predicate
 //! - [`group_by_key`](PCollection::group_by_key) - group values by key into `Vec<V>`
 //! - [`combine_values`](PCollection::combine_values) - aggregate values per key with a combiner
 //!
@@ -292,6 +292,7 @@
 
 pub mod collection;
 pub mod combiners;
+pub mod helpers;
 pub mod io;
 pub mod node;
 pub mod node_id;
@@ -300,17 +301,16 @@ pub mod planner;
 pub mod runner;
 pub mod type_token;
 pub mod window;
-pub mod helpers;
 
 // General re-exports
 pub use collection::{CombineFn, Count, PCollection, RFBound};
 pub use combiners::{AverageF64, DistinctCount, Max, Min, Sum, TopK};
+pub use helpers::*;
 pub use node_id::NodeId;
 pub use pipeline::Pipeline;
 pub use runner::{ExecMode, Runner};
 pub use type_token::Partition;
 pub use window::{TimestampMs, Timestamped, Window};
-pub use helpers::*;
 
 // Gated re-exports
 #[cfg(feature = "io-jsonl")]
@@ -331,11 +331,11 @@ pub use io::csv::write_csv_par;
 #[cfg(feature = "io-parquet")]
 pub use io::parquet::{read_parquet_vec, write_parquet_vec};
 
-#[cfg(feature = "io-parquet")]
-pub use helpers::parquet::read_parquet_streaming;
 #[cfg(feature = "io-csv")]
 pub use helpers::csv::read_csv;
 #[cfg(feature = "io-csv")]
 pub use helpers::csv::read_csv_streaming;
 #[cfg(feature = "io-jsonl")]
 pub use helpers::jsonl::read_jsonl;
+#[cfg(feature = "io-parquet")]
+pub use helpers::parquet::read_parquet_streaming;

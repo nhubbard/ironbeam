@@ -25,8 +25,8 @@
 //! See also the higher-level helpers in `helpers/tumbling.rs` that derive window keys
 //! from `Timestamped<T>` streams.
 
-use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 
 /// Milliseconds since the Unix epoch (UTC).
@@ -87,7 +87,10 @@ impl Window {
         // For u64, floor division equals integer division.
         let k = div_floor(rel, size_ms);
         let win_start = k * size_ms + offset_ms;
-        Self { start: win_start, end: win_start + size_ms }
+        Self {
+            start: win_start,
+            end: win_start + size_ms,
+        }
     }
 }
 
@@ -99,17 +102,26 @@ impl Window {
 fn div_floor(a: u64, b: u64) -> u64 {
     let q = a / b;
     let r = a % b;
-    if (r != 0) && ((r > 0) != (b > 0)) { q - 1 } else { q }
+    if (r != 0) && ((r > 0) != (b > 0)) {
+        q - 1
+    } else {
+        q
+    }
 }
 
 // Hash/Ord so `Window` can be used as keys and sorted deterministically.
 impl PartialEq for Window {
     #[inline]
-    fn eq(&self, other: &Self) -> bool { self.start == other.start && self.end == other.end }
+    fn eq(&self, other: &Self) -> bool {
+        self.start == other.start && self.end == other.end
+    }
 }
 impl Hash for Window {
     #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) { self.start.hash(state); self.end.hash(state); }
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.start.hash(state);
+        self.end.hash(state);
+    }
 }
 impl Ord for Window {
     #[inline]
@@ -119,7 +131,9 @@ impl Ord for Window {
 }
 impl PartialOrd for Window {
     #[inline]
-    fn partial_cmp(&self, o: &Self) -> Option<Ordering> { Some(self.cmp(o)) }
+    fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
+        Some(self.cmp(o))
+    }
 }
 
 /// An event-time stamped element.
@@ -144,5 +158,7 @@ impl<T> Timestamped<T> {
     /// assert_eq!(ev.value, "payload");
     /// ```
     #[inline]
-    pub fn new(ts: TimestampMs, value: T) -> Self { Self { ts, value } }
+    pub fn new(ts: TimestampMs, value: T) -> Self {
+        Self { ts, value }
+    }
 }

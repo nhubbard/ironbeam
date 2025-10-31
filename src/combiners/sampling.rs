@@ -11,16 +11,25 @@ use std::marker::PhantomData;
 // ======================================================================
 
 #[derive(Clone, Copy, Debug)]
-struct SplitMix64 { state: u64 }
+struct SplitMix64 {
+    state: u64,
+}
 impl SplitMix64 {
-    fn new(seed: u64) -> Self { Self { state: seed } }
-    #[inline] fn next_u64(&mut self) -> u64 {
-        let mut z = { self.state = self.state.wrapping_add(0x9E3779B97F4A7C15); self.state };
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+    #[inline]
+    fn next_u64(&mut self) -> u64 {
+        let mut z = {
+            self.state = self.state.wrapping_add(0x9E3779B97F4A7C15);
+            self.state
+        };
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
         z ^ (z >> 31)
     }
-    #[inline] fn next_f64(&mut self) -> f64 {
+    #[inline]
+    fn next_f64(&mut self) -> f64 {
         const SCALE: f64 = 1.0 / ((1u64 << 53) as f64);
         ((self.next_u64() >> 11) as f64) * SCALE
     }
@@ -29,8 +38,18 @@ impl SplitMix64 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct OrdF64(f64);
 impl Eq for OrdF64 {}
-impl PartialOrd for OrdF64 { #[inline] fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(o)) } }
-impl Ord for OrdF64 { #[inline] fn cmp(&self, o: &Self) -> std::cmp::Ordering { self.0.total_cmp(&o.0) } }
+impl PartialOrd for OrdF64 {
+    #[inline]
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for OrdF64 {
+    #[inline]
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&o.0)
+    }
+}
 
 /// Accumulator for priority reservoir.
 /// - `heap`: min-heap by (priority asc, seq asc) with entries (key, seq, idx)
@@ -54,7 +73,7 @@ pub struct PRAcc<T> {
 /// take the k largest keys across both.
 ///
 /// Determinism: we use a tiny SplitMix64 PRNG in the accumulator seeded from
-/// the combiner's seed. Sequential vs parallel runs produce identical results
+/// the combiner's seed. Sequential vs. parallel runs produce identical results
 /// as long as the input multiset is the same (merge is order/partition-neutral).
 ///
 /// Output order: `finish` returns items sorted by (priority desc, seq asc)
@@ -67,7 +86,13 @@ pub struct PriorityReservoir<T> {
 }
 
 impl<T> PriorityReservoir<T> {
-    pub fn new(k: usize, seed: u64) -> Self { Self { k, seed, _m: PhantomData } }
+    pub fn new(k: usize, seed: u64) -> Self {
+        Self {
+            k,
+            seed,
+            _m: PhantomData,
+        }
+    }
 }
 
 impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
@@ -83,18 +108,26 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
     }
 
     fn add_input(&self, acc: &mut PRAcc<T>, v: T) {
-        if acc.k == 0 { return; }
+        if acc.k == 0 {
+            return;
+        }
         let mut u = acc.rng.next_f64();
-        if u == 0.0 { u = f64::from_bits(1); } // strictly > 0
+        if u == 0.0 {
+            u = f64::from_bits(1);
+        } // strictly > 0
         let key = OrdF64(u);
-        let seq = { let s = acc.seq; acc.seq += 1; s };
+        let seq = {
+            let s = acc.seq;
+            acc.seq += 1;
+            s
+        };
 
         let idx = acc.store.len();
         acc.store.push(Some((key, seq, v)));
         acc.heap.push(Reverse((key, seq, idx)));
         acc.alive += 1;
 
-        // Trim to k real (non-tombstoned) items
+        // Trim to k real (non-dead) items
         while acc.alive > acc.k {
             if let Some(Reverse((_k, _s, i))) = acc.heap.pop() {
                 if let Some(slot) = acc.store.get_mut(i) {
@@ -110,7 +143,9 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
     }
 
     fn merge(&self, acc: &mut PRAcc<T>, mut other: PRAcc<T>) {
-        if acc.k == 0 { return; }
+        if acc.k == 0 {
+            return;
+        }
         // align k (keep the larger request in case of mismatch)
         acc.k = acc.k.max(other.k);
 
@@ -150,7 +185,9 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
     }
 
     fn finish(&self, acc: PRAcc<T>) -> Vec<T> {
-        if acc.k == 0 || acc.alive == 0 { return Vec::new(); }
+        if acc.k == 0 || acc.alive == 0 {
+            return Vec::new();
+        }
         // Collect live items with their (key,seq), sort by (key desc, seq asc)
         let mut items: Vec<(OrdF64, u64, T)> = Vec::with_capacity(acc.alive.min(acc.k));
         for slot in acc.store.into_iter().flatten() {
@@ -165,7 +202,9 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
 impl<T: RFBound> LiftableCombiner<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
     fn build_from_group(&self, values: &[T]) -> PRAcc<T> {
         let mut acc = self.create();
-        for v in values.iter().cloned() { self.add_input(&mut acc, v); }
+        for v in values.iter().cloned() {
+            self.add_input(&mut acc, v);
+        }
         acc
     }
 }

@@ -19,8 +19,8 @@ use std::sync::Arc;
 impl<T: RFBound> PCollection<T> {
     /// Derive a key for each element and emit `(K, T)` pairs.
     ///
-    /// The provided `key_fn` runs once per element and its result becomes the
-    /// pair’s key. The value is the original element (cloned).
+    /// The provided `key_fn` runs once per element, and its result becomes the
+    /// pair's key. The value is the original element (cloned).
     ///
     /// ### Types
     /// * `K`: key type; must be hashable and equatable.
@@ -55,7 +55,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// 2. **Merge** (global): merges all local maps and emits a flat `Vec<(K, Vec<V>)>`.
     ///
     /// ### Performance & memory
-    /// Each key’s values are materialized as a `Vec<V>`. If your next step is a
+    /// Each key's values are materialized as a `Vec<V>`. If your next step is a
     /// summary like sum/min/max/etc., consider using a *combiner* (e.g.
     /// `combine_values` or `combine_values_lifted`) to avoid buffering every value.
     ///

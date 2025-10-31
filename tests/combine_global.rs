@@ -1,5 +1,5 @@
+use rustflow::combiners::{AverageF64, DistinctCount, Sum};
 use rustflow::*;
-use rustflow::combiners::{Sum, AverageF64, DistinctCount};
 
 #[test]
 fn combine_globally_sum_basic() -> anyhow::Result<()> {

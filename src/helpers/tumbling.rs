@@ -6,7 +6,7 @@
 //!
 //! ## Overview
 //! - **`key_by_window(size_ms, offset_ms)`**: attaches a [`Window`] (computed
-//!   from each element’s timestamp) to the element/key.
+//!   from each element's timestamp) to the element/key.
 //! - **`group_by_window(size_ms, offset_ms)`**: shorthand for
 //!   `key_by_window(...).group_by_key()` for unkeyed streams.
 //! - **`group_by_key_and_window(size_ms, offset_ms)`**: keyed variant that
@@ -52,10 +52,10 @@ use crate::{PCollection, RFBound, Timestamped, Window};
 use std::hash::Hash;
 
 impl<T: RFBound> PCollection<Timestamped<T>> {
-    /// Attach a tumbling window key computed from each element’s timestamp.
+    /// Attach a tumbling window key computed from each element's timestamp.
     ///
     /// For each `Timestamped<T>` input element, computes `Window::tumble(ts, size_ms, offset_ms)`
-    /// and emits `(Window, T)`. Useful for subsequent aggregations per window.
+    /// and emits `(Window, T)`. Useful for later aggregations per window.
     ///
     /// - `size_ms`: window size (must be > 0 in meaningful pipelines).
     /// - `offset_ms`: phase offset to shift window boundaries (commonly `0`).
@@ -84,7 +84,7 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
 
     /// Group `Timestamped<T>` by their tumbling windows.
     ///
-    /// This is a shorthand for:
+    /// This is shorthand for:
     /// ```ignore
     /// self.key_by_window(size_ms, offset_ms).group_by_key()
     /// ```
@@ -110,12 +110,12 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
 }
 
 // -------------- Tumbling windows: keyed --------------
-// Input: (K, Timestamped<V>)  → output: ((K, Window), V)
+// Input: (K, Timestamped<V>) → output: ((K, Window), V)
 impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
     /// Attach a `(K, Window)` key to each `(K, Timestamped<V>)` element.
     ///
-    /// Computes the tumbling window from the element’s timestamp, returning
-    /// `((K, Window), V)` so you can aggregate by key *and* window.
+    /// Computes the tumbling window from the element's timestamp, returning
+    /// `((K, Window), V)` so you can aggregate by the key *and* window.
     ///
     /// ### Example
     /// ```ignore
@@ -138,7 +138,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
         })
     }
 
-    /// Group by `(K, Window)` to obtain `((K, Window), Vec<V>)`.
+    /// Group by `(K, Window)` to get `((K, Window), Vec<V>)`.
     ///
     /// Shorthand for:
     /// ```ignore

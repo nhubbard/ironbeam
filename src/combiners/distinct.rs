@@ -60,7 +60,7 @@ where
 
 /* ===================== DistinctSet<T> (exact set) ===================== */
 
-/// Exact distinct over a stream: accumulates a `HashSet<T>` and finishes to a `Vec<T>`.
+/// Get the distinct elements over a stream: accumulates a `HashSet<T>` and outputs a `Vec<T>`.
 ///
 /// This is intended for use through helpers (e.g., `PCollection<T>::distinct()` or
 /// `PCollection<(K,V)>::distinct_per_key()`), which expand the final `Vec<T>` back
@@ -122,15 +122,18 @@ pub struct KMVApproxDistinctCount<T> {
 }
 impl<T> KMVApproxDistinctCount<T> {
     pub fn new(k: usize) -> Self {
-        Self { k: k.max(4), _m: PhantomData }
+        Self {
+            k: k.max(4),
+            _m: PhantomData,
+        }
     }
 }
 
 /// Accumulator keeps k smallest **distinct** ranks.
 #[derive(Default)]
 pub(crate) struct KMVAcc {
-    heap: BinaryHeap<NotNan<f64>>,   // max-heap of the kept k smallest
-    set: HashSet<NotNan<f64>>,       // membership test to prevent duplicates
+    heap: BinaryHeap<NotNan<f64>>, // max-heap of the kept k smallest
+    set: HashSet<NotNan<f64>>,     // membership test to prevent duplicates
     k: usize,
 }
 
@@ -160,7 +163,7 @@ impl KMVAcc {
                 // Insert the better (smaller) rank
                 self.heap.push(r);
             } else {
-                // New rank worse than threshold; forget it from the set
+                // New rank worse than the threshold; forget it from the set
                 self.set.remove(&r);
             }
         }
@@ -176,7 +179,8 @@ impl KMVAcc {
             self.try_insert(r);
         }
         // Any leftovers in other's set that weren't in heap (rare) can be ignored:
-        // their ranks are >= other's threshold, and we've already considered the k best from other.
+        // their ranks are >= other's threshold, and we've already considered the k
+        // best from `other`.
     }
 
     #[inline]
@@ -189,9 +193,9 @@ impl KMVAcc {
             // Fewer than k uniques: exact count.
             return m as f64;
         }
-        // m >= k: estimator based on k-th smallest rank (heap root).
+        // m >= k: estimator based on the k-th smallest rank (heap root).
         let rk = *self.heap.peek().expect("heap non-empty when m>=k");
-        // Classic KMV estimator: (k-1)/R_k . Using (k-1) reduces small-sample bias slightly.
+        // Classic KMV estimator: (k-1)/R_k. Using (k-1) reduces small-sample bias slightly.
         ((self.k as f64) - 1.0) / rk.into_inner()
     }
 }
@@ -201,7 +205,11 @@ where
     T: RFBound + Hash,
 {
     fn create(&self) -> KMVAcc {
-        KMVAcc { heap: BinaryHeap::new(), set: HashSet::new(), k: self.k }
+        KMVAcc {
+            heap: BinaryHeap::new(),
+            set: HashSet::new(),
+            k: self.k,
+        }
     }
 
     fn add_input(&self, acc: &mut KMVAcc, v: T) {

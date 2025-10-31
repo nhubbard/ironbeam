@@ -10,27 +10,28 @@
 //!
 //! Determinism: within a single partition, stateless transforms preserve element
 //! order. Parallel execution may interleave partitions; callers that require a
-//! stable final order can use the `collect_*_sorted` helpers after collection.
+//! stable final order can use the `collect_*_sorted` helpers after the collection
+//! is complete.
 
-use std::collections::BinaryHeap;
 use crate::node::Node;
 use crate::pipeline::Pipeline;
 use crate::planner::build_plan;
 use crate::type_token::Partition;
 use crate::NodeId;
 use anyhow::{anyhow, bail, Result};
+use ordered_float::NotNan;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
+use std::collections::BinaryHeap;
 use std::sync::Arc;
-use ordered_float::NotNan;
 
 /// Execution mode for a plan.
 ///
 /// - `Sequential` runs in a single thread.
 /// - `Parallel` runs with optional thread count and partition count hints.
 ///   If `threads` is `Some(n)`, a global rayon thread pool with `n` threads
-///   is installed for this process (first one wins; subsequent calls are no-ops).
-///   If `partitions` is `None`, the planner’s suggestion (if any) is used,
+///   is installed for this process (first one wins; later calls are no-ops).
+///   If `partitions` is `None`, the planner's suggestion (if any) is used,
 ///   otherwise `Runner::default_partitions`.
 #[derive(Clone, Copy, Debug)]
 pub enum ExecMode {
@@ -77,10 +78,10 @@ impl Runner {
     /// This function:
     /// 1. Builds an optimized plan with the planner.
     /// 2. Chooses sequential or parallel engine based on `self.mode`.
-    /// 3. Honors planner’s suggested partitioning unless overridden.
+    /// 3. Honors planner's suggested partitioning unless overridden.
     ///
     /// # Errors
-    /// Returns an error if the plan is malformed (e.g., missing source),
+    /// An error is returned if the plan is malformed (e.g., a missing source),
     /// if a node encounters an unexpected input type, or if the terminal
     /// materialized type does not match `T`.
     pub fn run_collect<T: 'static + Send + Sync + Clone>(
@@ -140,7 +141,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                     local_groups,
                     merge,
                 } => {
-                    // choose which local to run based on presence of local_groups
+                    // choose which local to run based on the presence of local_groups
                     let local = if let Some(lg) = local_groups {
                         lg
                     } else {
@@ -262,7 +263,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
     /// of partitions. The subplan must start with a `Source`. Nested `CoGroup`
     /// inside a subplan is not supported.
     fn run_subplan_par(chain: Vec<Node>, partitions: usize) -> Result<Vec<Partition>> {
-        // must start with source
+        // must start with a source
         let (payload, vec_ops, rest) = match &chain[0] {
             Node::Source {
                 payload, vec_ops, ..

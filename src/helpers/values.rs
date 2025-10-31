@@ -1,7 +1,7 @@
 //! Value-only transforms for keyed collections.
 //!
 //! This module provides ergonomic helpers to manipulate only the *values* of
-//! key–value pairs while preserving their keys. They’re direct analogs to
+//! key–value pairs while preserving their keys. They're direct analogs to
 //! [`map`] and [`filter`], but operating over `(K, V)` pairs instead of single
 //! values.
 //!

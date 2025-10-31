@@ -15,7 +15,7 @@
 //! - Ordering of output rows is not guaranteed; if you need deterministic ordering for assertions,
 //!   call `.collect_par_sorted_by_key(None, None)` or `.collect_seq_sorted()` where appropriate.
 //! - For very large datasets, consider splitting upstream with meaningful partitioning and relying
-//!   on subsequent combiners/GBK to reduce volume prior to joins.
+//!   on any later combiners/GBK to reduce volume prior to any other joins.
 //!
 //! ## Examples
 //! Inner / left / right / full joins:
@@ -52,7 +52,7 @@ use std::sync::Arc;
 /// Build a linear execution chain ending at `terminal` by snapshotting the pipeline
 /// and walking backwards through single-input edges.
 ///
-/// This is an internal helper used by joins to capture each side’s subplan so that
+/// This is an internal helper used by joins to capture each side's subplan so that
 /// the runner can execute them as independent "subplans" before the co-group step.
 ///
 /// # Errors
@@ -94,7 +94,7 @@ where
     K: RFBound + Eq + Hash,
     V: RFBound,
 {
-    /// Inner join on key with another `(K, W)` → `(K, (V, W))`.
+    /// Inner join on a key with another `(K, W)` → `(K, (V, W))`.
     ///
     /// Emits one row for every `(k, v)` on the left and `(k, w)` on the right with the same `k`.
     ///
@@ -189,7 +189,7 @@ where
         }
     }
 
-    /// Left outer join on key with `(K, W)` → `(K, (V, Option<W>))`.
+    /// Left outer join on a key with `(K, W)` → `(K, (V, Option<W>))`.
     ///
     /// Emits all left rows; missing right values appear as `None`.
     ///
@@ -288,7 +288,7 @@ where
         }
     }
 
-    /// Right outer join on key with `(K, W)` → `(K, (Option<V>, W))`.
+    /// Right outer join on a key with `(K, W)` → `(K, (Option<V>, W))`.
     ///
     /// Emits all right rows; missing left values appear as `None`.
     ///
@@ -388,7 +388,7 @@ where
         }
     }
 
-    /// Full outer join on key with `(K, W)` → `(K, (Option<V>, Option<W>))`.
+    /// Full outer join on a key with `(K, W)` → `(K, (Option<V>, Option<W>))`.
     ///
     /// Emits rows for the union of keys found on either side. Missing values are `None`.
     ///

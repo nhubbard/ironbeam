@@ -17,7 +17,7 @@
 //! - The parallel writer additionally requires `parallel-io`.
 //!
 //! ### Examples
-//! Read + write (sequential):
+//! Read and write (sequential):
 //! ```ignore
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
@@ -109,7 +109,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the collection and write it to a JSONL file (sequential).
     ///
     /// Returns the number of records written. The output order matches the
-    /// collection’s sequential execution order.
+    /// collection's sequential execution order.
     ///
     /// ### Errors
     /// Propagates I/O and serialization errors.

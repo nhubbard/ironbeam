@@ -9,13 +9,13 @@
 //!   - [`build_parquet_shards`] to compute ranges
 //!   - [`read_parquet_row_group_range`] to read only selected groups
 //! - **Execution runner integration**: [`ParquetVecOps<T>`] implements [`VecOps`]
-//!   over [`ParquetShards`] so sources can be split/len/clone’d deterministically.
+//!   over [`ParquetShards`] so sources can be split/counted/cloned deterministically.
 //!
 //! Uses Arrow 56 and `serde_arrow` 0.13 (`SchemaLike::from_type` and
 //! `to_record_batch`/`from_record_batch`).
 
-use crate::Partition;
 use crate::type_token::VecOps;
+use crate::Partition;
 use anyhow::{Context, Result};
 use arrow::datatypes::FieldRef;
 use arrow::record_batch::RecordBatch;
@@ -23,7 +23,7 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 use parquet::file::reader::{FileReader, SerializedFileReader};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use serde_arrow::{from_record_batch, to_record_batch};
 use std::any::Any;
@@ -47,7 +47,7 @@ use std::sync::Arc;
 /// Number of rows written (`data.len()`).
 ///
 /// # Errors
-/// Returns an error if schema inference, conversion, file creation, or writing fails.
+/// An error is returned if the schema inference, conversion, file creation, or writing fails.
 pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
     path: impl AsRef<Path>,
     data: &Vec<T>,
@@ -62,7 +62,7 @@ pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
     let batch: RecordBatch =
         to_record_batch(&fields, data).context("convert rows to RecordBatch")?;
 
-    // 3) Open writer with the batch schema and always close it.
+    // 3) Open the writer with the batch schema and always close it.
     let file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     let props = WriterProperties::builder().build();
     let mut writer =
@@ -120,7 +120,7 @@ pub struct ParquetShards {
 
 /// Inspect Parquet metadata and partition into ranges of `groups_per_shard` row groups.
 ///
-/// If the file has zero row groups, returns an empty set of ranges. If
+/// If the file has zero row groups, it returns an empty set of ranges. If
 /// `groups_per_shard == 0`, it is treated as 1.
 ///
 /// # Errors

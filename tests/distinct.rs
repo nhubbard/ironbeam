@@ -3,10 +3,10 @@ use rustflow::*;
 #[test]
 fn distinct_global_exact() -> anyhow::Result<()> {
     let p = Pipeline::default();
-    let out = from_vec(&p, vec![1,1,2,3,3,3]).distinct();
+    let out = from_vec(&p, vec![1, 1, 2, 3, 3, 3]).distinct();
     let mut v = out.collect_seq()?;
     v.sort();
-    assert_eq!(v, vec![1,2,3]);
+    assert_eq!(v, vec![1, 2, 3]);
     Ok(())
 }
 
@@ -14,17 +14,23 @@ fn distinct_global_exact() -> anyhow::Result<()> {
 fn distinct_per_key_exact() -> anyhow::Result<()> {
     let p = Pipeline::default();
     let kv = vec![
-        ("a".to_string(), 1), ("a".to_string(), 1), ("a".to_string(), 2),
-        ("b".to_string(), 7), ("b".to_string(), 7),
+        ("a".to_string(), 1),
+        ("a".to_string(), 1),
+        ("a".to_string(), 2),
+        ("b".to_string(), 7),
+        ("b".to_string(), 7),
     ];
     let out = from_vec(&p, kv).distinct_per_key();
     let mut v = out.collect_seq()?;
     v.sort();
-    assert_eq!(v, vec![
-        ("a".to_string(), 1),
-        ("a".to_string(), 2),
-        ("b".to_string(), 7),
-    ]);
+    assert_eq!(
+        v,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 7),
+        ]
+    );
     Ok(())
 }
 
@@ -46,11 +52,11 @@ fn approx_distinct_per_key_kmv() -> anyhow::Result<()> {
     let mut data = Vec::new();
     for i in 0..1000 {
         data.push(("a".to_string(), i % 37)); // 37 uniques
-        data.push(("b".to_string(), i % 7));  // 7 uniques
+        data.push(("b".to_string(), i % 7)); // 7 uniques
     }
     let out = from_vec(&p, data).approx_distinct_count_per_key(96);
     let mut v = out.collect_seq()?;
-    v.sort_by(|a,b| a.0.cmp(&b.0));
+    v.sort_by(|a, b| a.0.cmp(&b.0));
     let (ka, ea) = (&v[0].0, v[0].1);
     let (kb, eb) = (&v[1].0, v[1].1);
     println!("ea={:?},eb={:?}", ea, eb);

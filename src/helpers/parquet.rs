@@ -33,7 +33,7 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     /// Execute the pipeline, collect results, and write them to a **single Parquet file**.
     ///
     /// The Arrow schema is inferred from `T` (via `serde-arrow`). The entire collection
-    /// is first collected into memory (sequentially) to preserve deterministic ordering,
+    /// is first collected into memory (sequentially) to preserve deterministic ordering
     /// and then written as one Parquet file.
     ///
     /// Returns the number of rows written.

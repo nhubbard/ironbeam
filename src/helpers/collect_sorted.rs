@@ -26,7 +26,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     /// A sorted vector of all collected elements.
     ///
     /// # Errors
-    /// Propagates any error from `collect_seq()`, such as upstream I/O or
+    /// Any errors are propagated from `collect_seq()`, such as upstream I/O or
     /// deserialization failures.
     ///
     /// # Example
@@ -57,7 +57,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     /// A globally sorted vector of all collected elements.
     ///
     /// # Errors
-    /// Propagates any error from `collect_par()`, such as partition errors,
+    /// Any errors are propagated from `collect_par()`, such as partition errors,
     /// deserialization failures, or operator errors.
     ///
     /// # Example
@@ -79,12 +79,12 @@ impl<T: RFBound + Ord> PCollection<T> {
 impl<K: RFBound + Ord, V: RFBound> PCollection<(K, V)> {
     /// Collect all `(K, V)` pairs **in parallel** and return a vector sorted by **key**.
     ///
-    /// Sorting is stable across partitions and uses [`[T]::sort_by`] with `K`’s
+    /// Sorting is stable across partitions and uses [`[T]::sort_by`] with `K`'s
     /// total order (`Ord`).
     /// Values are not compared or grouped -- only key order is enforced.
     ///
     /// # Arguments
-    /// - `parts`: Optional number of partitions for parallel collection.
+    /// - `parts`: Optional number of partitions for parallel collection processing.
     /// - `chunk`: Optional chunk size for each partition.
     ///
     /// # Returns

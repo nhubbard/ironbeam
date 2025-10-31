@@ -57,7 +57,7 @@ pub fn read_csv_vec<T: DeserializeOwned>(
 ///
 /// Rows are serialized with Serde using `T: Serialize`.
 ///
-/// * Creates parent directories if they don’t exist.
+/// * Creates parent directories if they don't exist.
 /// * Emits a header row when `has_headers` is `true` and the `Serialize`
 ///   implementation for `T` supports headers (via `csv` conventions).
 ///

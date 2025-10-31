@@ -77,7 +77,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// order of records.
     ///
     /// The provided function `f` receives a contiguous slice of values and must
-    /// return a vector of outputs of the same length.
+    /// return an output vector of the same length.
     ///
     /// # Contract
     /// `f(chunk).len()` **must equal** `chunk.len()`.
@@ -106,11 +106,8 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
         O: RFBound,
         F: 'static + Send + Sync + Fn(&[V]) -> Vec<O>,
     {
-        let op: Arc<dyn DynOp> = Arc::new(BatchMapValuesOp::<K, V, O, F>(
-            batch_size,
-            f,
-            PhantomData,
-        ));
+        let op: Arc<dyn DynOp> =
+            Arc::new(BatchMapValuesOp::<K, V, O, F>(batch_size, f, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
         PCollection {
