@@ -9,6 +9,8 @@
 //! - [`AverageF64`] -- average as `f64` (values convertible to `f64`).
 //! - [`DistinctCount<T>`] -- count of distinct values.
 //! - [`TopK<T>`] -- the top-K largest values.
+//! - [`ApproxQuantiles<T>`] -- approximate quantiles/percentiles using t-digest.
+//! - [`ApproxMedian<T>`] -- approximate median using t-digest.
 //!
 //! Each combiner specifies its accumulator type (`A`) and output type (`O`).
 //! Many provide a `build_from_group` optimization via [`LiftableCombiner`],
@@ -17,7 +19,7 @@
 //! # Examples
 //! ```ignore
 //! use rustflow::*;
-//! use rustflow::combiners::{Sum, Min, Max, AverageF64, DistinctCount, TopK};
+//! use rustflow::combiners::{Sum, Min, Max, AverageF64, DistinctCount, TopK, ApproxQuantiles, ApproxMedian};
 //!
 //! let p = Pipeline::default();
 //!
@@ -49,11 +51,22 @@
 //!     .combine_values(TopK::<u32>::new(2))
 //!     .collect_seq()?;
 //!
+//! // Approximate quantiles (values must be Into<f64>)
+//! let quantiles = from_vec(&p, vec![("a", 1.0), ("a", 2.0), ("a", 3.0), ("a", 4.0)])
+//!     .combine_values(ApproxQuantiles::<f64>::new(vec![0.25, 0.5, 0.75], 100.0))
+//!     .collect_seq()?;
+//!
+//! // Approximate median
+//! let median = from_vec(&p, vec![("a", 1.0), ("a", 2.0), ("a", 3.0)])
+//!     .combine_values(ApproxMedian::<f64>::default())
+//!     .collect_seq()?;
+//!
 //! # anyhow::Result::<()>::Ok(())
 //! ```
 
 mod basic;
 mod distinct;
+mod quantiles;
 mod sampling;
 mod statistical;
 mod topk;
@@ -61,6 +74,7 @@ mod topk;
 // Re-export all public combiners
 pub use basic::{Max, Min, Sum};
 pub use distinct::{DistinctCount, DistinctSet, KMVApproxDistinctCount};
+pub use quantiles::{ApproxMedian, ApproxQuantiles, TDigest};
 pub use sampling::PriorityReservoir;
 pub use statistical::AverageF64;
 pub use topk::TopK;
