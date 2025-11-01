@@ -13,7 +13,7 @@ pub struct NodeId(u64);
 
 impl NodeId {
     /// Create a new `NodeId` (used internally by the pipeline).
-    pub(crate) fn new(v: u64) -> Self {
+    pub fn new(v: u64) -> Self {
         Self(v)
     }
 

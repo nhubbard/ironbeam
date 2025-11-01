@@ -277,7 +277,7 @@ fn approx_quantiles_skewed_distribution() -> Result<()> {
     let p = Pipeline::default();
     let mut data = Vec::new();
 
-    // Skewed distribution: many low values, few high values
+    // Skewed distribution: many low values, and few high values
     // 90 values between 1-10
     for i in 1..=90 {
         data.push(("key".to_string(), (i % 10 + 1) as f64));
@@ -324,10 +324,228 @@ fn approx_quantiles_parallel_execution() -> Result<()> {
     // Should have 10 keys (0-9)
     assert_eq!(result.len(), 10);
 
-    // Each key should have median around 50
+    // Each key should have a median around 50
     for (_, median) in &result {
         assert!((median[0] - 50.0).abs() < 10.0);
     }
+
+    Ok(())
+}
+
+// ===== Edge Case Tests =====
+
+#[test]
+fn approx_quantiles_single_value() -> Result<()> {
+    let p = Pipeline::default();
+    let data = vec![("a".to_string(), 42.0)];
+
+    let result = from_vec(&p, data)
+        .combine_values(ApproxQuantiles::new(vec![0.0, 0.5, 1.0], 100.0))
+        .collect_seq()?;
+
+    assert_eq!(result.len(), 1);
+    let (_, quantiles) = &result[0];
+
+    // All quantiles should be the single value
+    assert!((quantiles[0] - 42.0).abs() < 1.0);
+    assert!((quantiles[1] - 42.0).abs() < 1.0);
+    assert!((quantiles[2] - 42.0).abs() < 1.0);
+
+    Ok(())
+}
+
+#[test]
+fn approx_quantiles_all_same_values() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<(String, f64)> = vec![("a".to_string(), 5.0); 100];
+
+    let result = from_vec(&p, data)
+        .combine_values(ApproxQuantiles::new(vec![0.25, 0.5, 0.75], 100.0))
+        .collect_seq()?;
+
+    assert_eq!(result.len(), 1);
+    let (_, quantiles) = &result[0];
+
+    // All quantiles should be the same value
+    for q in quantiles {
+        assert!((q - 5.0).abs() < 1.0);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn approx_median_single_value() -> Result<()> {
+    let p = Pipeline::default();
+    let data = vec![("a".to_string(), 99.0)];
+
+    let result = from_vec(&p, data)
+        .combine_values(ApproxMedian::default())
+        .collect_seq()?;
+
+    assert_eq!(result.len(), 1);
+    assert!((result[0].1 - 99.0).abs() < 1.0);
+
+    Ok(())
+}
+
+#[test]
+fn approx_quantiles_two_values() -> Result<()> {
+    let p = Pipeline::default();
+    let data = vec![("a".to_string(), 10.0), ("a".to_string(), 20.0)];
+
+    let result = from_vec(&p, data)
+        .combine_values(ApproxQuantiles::new(vec![0.5], 100.0))
+        .collect_seq()?;
+
+    assert_eq!(result.len(), 1);
+    let median = result[0].1[0];
+
+    // Median should be between the two values (t-digest approximation)
+    assert!(median >= 10.0 && median <= 20.0);
+
+    Ok(())
+}
+
+#[test]
+fn approx_quantiles_extreme_values() -> Result<()> {
+    let p = Pipeline::default();
+    let data = vec![
+        ("a".to_string(), 0.0),
+        ("a".to_string(), 1e10),
+        ("a".to_string(), 1e-10),
+    ];
+
+    let result = from_vec(&p, data)
+        .combine_values(ApproxQuantiles::new(vec![0.0, 0.5, 1.0], 100.0))
+        .collect_seq()?;
+
+    assert_eq!(result.len(), 1);
+    let (_, quantiles) = &result[0];
+
+    // Should handle extreme values
+    assert!(quantiles[0] < 1.0); // min close to 0
+    assert!(quantiles[2] > 1e9); // max close to 1e10
+
+    Ok(())
+}
+
+#[test]
+fn approx_quantiles_with_negatives() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<(String, f64)> = (-50..=50).map(|i| ("a".to_string(), i as f64)).collect();
+
+    let result = from_vec(&p, data)
+        .combine_values(ApproxQuantiles::new(vec![0.0, 0.5, 1.0], 100.0))
+        .collect_seq()?;
+
+    assert_eq!(result.len(), 1);
+    let (_, quantiles) = &result[0];
+
+    assert!((quantiles[0] - (-50.0)).abs() < 5.0); // min
+    assert!((quantiles[1] - 0.0).abs() < 5.0); // median
+    assert!((quantiles[2] - 50.0).abs() < 5.0); // max
+
+    Ok(())
+}
+
+#[test]
+fn approx_quantiles_different_compression() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<(String, f64)> = (1..=1000).map(|i| ("a".to_string(), i as f64)).collect();
+
+    // Test with different compression parameters
+    for compression in [20.0, 50.0, 100.0, 200.0] {
+        let result = from_vec(&p, data.clone())
+            .combine_values(ApproxQuantiles::new(vec![0.5], compression))
+            .collect_seq()?;
+
+        assert_eq!(result.len(), 1);
+        let median = result[0].1[0];
+
+        // All should give reasonable median estimates
+        assert!((median - 500.0).abs() < 50.0, "Compression {} gave median {}", compression, median);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn approx_median_large_dataset() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<(String, f64)> = (1..=10_000).map(|i| ("a".to_string(), i as f64)).collect();
+
+    let result = from_vec(&p, data)
+        .combine_values(ApproxMedian::new(200.0))
+        .collect_par(Some(4), Some(16))?;
+
+    assert_eq!(result.len(), 1);
+    let median = result[0].1;
+
+    // Median should be around 5000
+    assert!((median - 5000.0).abs() < 100.0);
+
+    Ok(())
+}
+
+#[test]
+fn approx_quantiles_multiple_quantiles() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("a".to_string(), i as f64)).collect();
+
+    // Request many quantiles
+    let quantiles_requested: Vec<f64> = (0..=10).map(|i| i as f64 / 10.0).collect();
+
+    let result = from_vec(&p, data)
+        .combine_values(ApproxQuantiles::new(quantiles_requested.clone(), 100.0))
+        .collect_seq()?;
+
+    assert_eq!(result.len(), 1);
+    let (_, quantiles) = &result[0];
+
+    // Should have 11 quantiles (0.0, 0.1, 0.2, ..., 1.0)
+    assert_eq!(quantiles.len(), 11);
+
+    // Quantiles should be monotonically increasing
+    for i in 0..quantiles.len() - 1 {
+        assert!(quantiles[i] <= quantiles[i + 1], "Quantiles not monotonic at index {}", i);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn approx_quantiles_boundary_values() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("a".to_string(), i as f64)).collect();
+
+    // Test exact boundary quantiles
+    let result = from_vec(&p, data)
+        .combine_values(ApproxQuantiles::new(vec![0.0, 0.01, 0.99, 1.0], 100.0))
+        .collect_seq()?;
+
+    assert_eq!(result.len(), 1);
+    let (_, quantiles) = &result[0];
+
+    assert!((quantiles[0] - 1.0).abs() < 2.0); // 0th percentile (min)
+    assert!(quantiles[1] < 5.0); // 1st percentile
+    assert!(quantiles[2] > 95.0); // 99th percentile
+    assert!((quantiles[3] - 100.0).abs() < 2.0); // 100th percentile (max)
+
+    Ok(())
+}
+
+#[test]
+fn approx_quantiles_empty_key() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<(String, f64)> = vec![];
+
+    let result = from_vec(&p, data)
+        .combine_values(ApproxQuantiles::new(vec![0.5], 100.0))
+        .collect_seq()?;
+
+    // Should have no results for empty input
+    assert_eq!(result.len(), 0);
 
     Ok(())
 }
