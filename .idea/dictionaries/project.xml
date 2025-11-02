@@ -3,6 +3,7 @@
     <words>
       <w>accs</w>
       <w>backwalk</w>
+      <w>dups</w>
       <w>efraimidis</w>
       <w>fullj</w>
       <w>gnodes</w>
@@ -17,6 +18,7 @@
       <w>tdigest</w>
       <w>topk</w>
       <w>vecs</w>
+      <w>zstd</w>
     </words>
   </dictionary>
 </component>

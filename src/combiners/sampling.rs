@@ -1,8 +1,9 @@
 //! Priority-based reservoir sampling combiner
 
 use crate::collection::{CombineFn, LiftableCombiner};
+use crate::utils::OrdF64;
 use crate::RFBound;
-use std::cmp::{Ord, Reverse};
+use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::marker::PhantomData;
 
@@ -35,21 +36,6 @@ impl SplitMix64 {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct OrdF64(f64);
-impl Eq for OrdF64 {}
-impl PartialOrd for OrdF64 {
-    #[inline]
-    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(o))
-    }
-}
-impl Ord for OrdF64 {
-    #[inline]
-    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
-        self.0.total_cmp(&o.0)
-    }
-}
 
 /// Accumulator for priority reservoir.
 /// - `heap`: min-heap by (priority asc, seq asc) with entries (key, seq, idx)
@@ -130,11 +116,9 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
         // Trim to k real (non-dead) items
         while acc.alive > acc.k {
             if let Some(Reverse((_k, _s, i))) = acc.heap.pop() {
-                if let Some(slot) = acc.store.get_mut(i) {
-                    if slot.is_some() {
-                        *slot = None;
-                        acc.alive -= 1;
-                    }
+                if let Some(slot) = acc.store.get_mut(i) && slot.is_some() {
+                    *slot = None;
+                    acc.alive -= 1;
                 }
             } else {
                 break;
@@ -172,11 +156,9 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
         // Trim to k live items
         while acc.alive > acc.k {
             if let Some(Reverse((_k, _s, i))) = acc.heap.pop() {
-                if let Some(slot) = acc.store.get_mut(i) {
-                    if slot.is_some() {
-                        *slot = None;
-                        acc.alive -= 1;
-                    }
+                if let Some(slot) = acc.store.get_mut(i) && slot.is_some() {
+                    *slot = None;
+                    acc.alive -= 1;
                 }
             } else {
                 break;

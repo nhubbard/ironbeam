@@ -185,5 +185,9 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.toptal.com/developers/gitignore/api/windows,macos,linux,rust,rust-analyzer,intellij+all
+
+# Test and coverage files
 test_out.csv
+path_stats.csv
+path_stats.jsonl
 *.info

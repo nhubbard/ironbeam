@@ -356,6 +356,7 @@ pub mod pipeline;
 pub mod planner;
 pub mod runner;
 pub mod type_token;
+pub mod utils;
 pub mod window;
 
 // General re-exports
@@ -366,6 +367,7 @@ pub use node_id::NodeId;
 pub use pipeline::Pipeline;
 pub use runner::{ExecMode, Runner};
 pub use type_token::Partition;
+pub use utils::OrdF64;
 pub use window::{TimestampMs, Timestamped, Window};
 
 // Extension point exports
