@@ -290,9 +290,72 @@
 //! - [`runner`] - Execution engine (sequential and parallel modes)
 //! - [`planner`] - Query optimization and graph transformations
 //! - [`helpers`] - Convenience functions and side input builders
+//! - [`extensions`] - Extension points for custom transforms and I/O
+//!
+//! ## Extensibility
+//!
+//! Rustflow provides several extension points for adding custom functionality:
+//!
+//! ### Custom Transforms
+//! Implement [`node::DynOp`] to create custom stateless transformations:
+//! ```ignore
+//! use rustflow::*;
+//! use rustflow::node::DynOp;
+//! use rustflow::type_token::Partition;
+//! use std::sync::Arc;
+//!
+//! struct MyCustomOp;
+//! impl DynOp for MyCustomOp {
+//!     fn apply(&self, input: Partition) -> Partition {
+//!         // Your custom logic here
+//!         input
+//!     }
+//! }
+//!
+//! let p = Pipeline::default();
+//! let data = from_vec(&p, vec![1, 2, 3]);
+//! let transformed = data.apply_transform::<i32>(Arc::new(MyCustomOp));
+//! ```
+//!
+//! ### Custom I/O Sources
+//! Implement [`type_token::VecOps`] to integrate custom data sources:
+//! ```ignore
+//! use rustflow::*;
+//! use rustflow::type_token::VecOps;
+//!
+//! struct MyCustomVecOps;
+//! impl VecOps for MyCustomVecOps {
+//!     fn len(&self, data: &dyn std::any::Any) -> Option<usize> { /* ... */ None }
+//!     fn split(&self, data: &dyn std::any::Any, n: usize) -> Option<Vec<Partition>> { /* ... */ None }
+//!     fn clone_any(&self, data: &dyn std::any::Any) -> Option<Partition> { /* ... */ None }
+//! }
+//!
+//! let p = Pipeline::default();
+//! let data: PCollection<MyType> = from_custom_source(
+//!     &p,
+//!     my_custom_payload,
+//!     Arc::new(MyCustomVecOps)
+//! );
+//! ```
+//!
+//! ### Composite Transforms
+//! Use [`extensions::CompositeTransform`] to package reusable pipelines:
+//! ```ignore
+//! use rustflow::*;
+//! use rustflow::extensions::CompositeTransform;
+//!
+//! struct MyComposite;
+//! impl CompositeTransform<String, String> for MyComposite {
+//!     fn expand(&self, input: PCollection<String>) -> PCollection<String> {
+//!         input.map(|s: &String| s.to_uppercase())
+//!              .filter(|s: &String| !s.is_empty())
+//!     }
+//! }
+//! ```
 
 pub mod collection;
 pub mod combiners;
+pub mod extensions;
 pub mod helpers;
 pub mod io;
 pub mod node;
@@ -312,6 +375,11 @@ pub use pipeline::Pipeline;
 pub use runner::{ExecMode, Runner};
 pub use type_token::Partition;
 pub use window::{TimestampMs, Timestamped, Window};
+
+// Extension point exports
+pub use node::DynOp;
+pub use type_token::{TypeTag, VecOps};
+pub use extensions::CompositeTransform;
 
 // Gated re-exports
 #[cfg(feature = "io-jsonl")]

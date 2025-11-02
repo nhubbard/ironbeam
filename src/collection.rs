@@ -79,6 +79,63 @@ pub struct PCollection<T> {
     pub(crate) _t: PhantomData<T>,
 }
 
+impl<T: RFBound> PCollection<T> {
+    /// Apply a custom stateless transform to this collection.
+    ///
+    /// This is the primary extension point for adding custom operations to the pipeline.
+    /// Your operator must implement the [`DynOp`](crate::node::DynOp) trait, which
+    /// processes a single partition (typically `Vec<T>`) and returns a transformed partition.
+    ///
+    /// # Type Safety
+    /// The input type `T` and output type `O` are enforced at compile time, but the
+    /// runtime will panic if your operator's `apply` method downcasts to the wrong type.
+    ///
+    /// # Example
+    /// ```
+    /// use rustflow::*;
+    /// use rustflow::node::DynOp;
+    /// use rustflow::type_token::Partition;
+    /// use std::sync::Arc;
+    /// use std::marker::PhantomData;
+    ///
+    /// // Custom operator that reverses strings
+    /// struct ReverseOp;
+    ///
+    /// impl DynOp for ReverseOp {
+    ///     fn apply(&self, input: Partition) -> Partition {
+    ///         let v = input.downcast::<Vec<String>>()
+    ///             .expect("ReverseOp expects Vec<String>");
+    ///         let out: Vec<String> = v.iter()
+    ///             .map(|s| s.chars().rev().collect())
+    ///             .collect();
+    ///         Box::new(out)
+    ///     }
+    /// }
+    ///
+    /// # fn main() -> anyhow::Result<()> {
+    /// let p = Pipeline::default();
+    /// let words = from_vec(&p, vec!["hello".to_string(), "world".to_string()]);
+    /// let reversed: PCollection<String> = words.apply_transform(Arc::new(ReverseOp));
+    /// let result = reversed.collect_seq()?;
+    /// assert_eq!(result, vec!["olleh", "dlrow"]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn apply_transform<O: RFBound>(
+        &self,
+        op: Arc<dyn crate::node::DynOp>,
+    ) -> PCollection<O> {
+        use crate::node::Node;
+        let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
+        self.pipeline.connect(self.id, id);
+        PCollection {
+            pipeline: self.pipeline.clone(),
+            id,
+            _t: PhantomData,
+        }
+    }
+}
+
 // |---------------------|
 // | Stateless operators |
 // |---------------------|
