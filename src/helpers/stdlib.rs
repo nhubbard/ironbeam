@@ -13,7 +13,7 @@
 //! a type-aware vector operations handler derived from `vec_ops_for::<T>()`.
 //!
 //! ### Example
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //!
 //! let p = Pipeline::default();
@@ -50,7 +50,7 @@ use std::sync::Arc;
 /// A [`PCollection<T>`] representing the vector as a stream of elements.
 ///
 /// ### Example
-/// ```ignore
+/// ```no_run
 /// use rustflow::*;
 ///
 /// let p = Pipeline::default();
@@ -83,7 +83,7 @@ where
 /// - `iter` -- Any `IntoIterator<Item = T>` -- e.g., a range, vector, or array.
 ///
 /// ### Example
-/// ```ignore
+/// ```no_run
 /// use rustflow::*;
 ///
 /// let p = Pipeline::default();
@@ -125,72 +125,30 @@ where
 /// - `payload` -- Your custom data source (e.g., connection handle, file metadata, shards info)
 /// - `vec_ops` -- Implementation of [`VecOps`] that knows how to work with your payload type
 ///
-/// ### Example: Custom CSV Sharding Format
-/// ```ignore
+/// ### Example
+///
+/// See [`tests/extensions.rs`] in the source code for a complete working example
+/// of implementing a custom data source with `VecOps`.
+///
+/// ```
 /// use rustflow::*;
-/// use rustflow::type_token::{VecOps, Partition, vec_ops_for};
+/// use rustflow::type_token::VecOps;
 /// use std::any::Any;
 /// use std::sync::Arc;
-/// use std::marker::PhantomData;
-/// use std::path::PathBuf;
-/// use serde::de::DeserializeOwned;
-///
-/// // Custom metadata for a sharded CSV file
-/// struct CustomCsvShards {
-///     path: PathBuf,
-///     shard_ranges: Vec<(u64, u64)>,
-/// }
-///
-/// // VecOps implementation that reads CSV on-demand
-/// struct CustomCsvVecOps<T>(PhantomData<T>);
-///
-/// impl<T: DeserializeOwned + Clone + Send + Sync + 'static> VecOps for CustomCsvVecOps<T> {
-///     fn len(&self, data: &dyn Any) -> Option<usize> {
-///         data.downcast_ref::<CustomCsvShards>()
-///             .map(|s| s.shard_ranges.len())
-///     }
-///
-///     fn split(&self, data: &dyn Any, n: usize) -> Option<Vec<Partition>> {
-///         let shards = data.downcast_ref::<CustomCsvShards>()?;
-///         let mut parts = Vec::new();
-///         for &(start, end) in &shards.shard_ranges {
-///             // Read CSV range and parse to Vec<T>
-///             let rows: Vec<T> = read_csv_range(&shards.path, start, end).ok()?;
-///             parts.push(Box::new(rows) as Partition);
-///         }
-///         Some(parts)
-///     }
-///
-///     fn clone_any(&self, data: &dyn Any) -> Option<Partition> {
-///         let shards = data.downcast_ref::<CustomCsvShards>()?;
-///         // Read entire file
-///         let all: Vec<T> = read_csv_full(&shards.path).ok()?;
-///         Some(Box::new(all))
-///     }
-/// }
-///
-/// fn read_csv_range<T>(path: &Path, start: u64, end: u64) -> Result<Vec<T>> {
-///     // Your custom CSV reading logic
-///     unimplemented!()
-/// }
-///
-/// fn read_csv_full<T>(path: &Path) -> Result<Vec<T>> {
-///     unimplemented!()
-/// }
-///
-/// // Usage:
-/// # fn example() -> anyhow::Result<()> {
+/// # fn main() -> anyhow::Result<()> {
+/// // Simple example: source from a pre-computed Vec
 /// let p = Pipeline::default();
-/// let shards = CustomCsvShards {
-///     path: "data.csv".into(),
-///     shard_ranges: vec![(0, 1000), (1000, 2000)],
-/// };
+/// let data = vec![1, 2, 3, 4, 5];
 ///
-/// let data: PCollection<MyRecord> = from_custom_source(
+/// // Use vec_ops_for helper for simple cases
+/// let collection: PCollection<i32> = from_custom_source(
 ///     &p,
-///     shards,
-///     Arc::new(CustomCsvVecOps(PhantomData))
+///     data,
+///     rustflow::type_token::vec_ops_for::<i32>()
 /// );
+///
+/// let results = collection.collect_seq()?;
+/// assert_eq!(results, vec![1, 2, 3, 4, 5]);
 /// # Ok(())
 /// # }
 /// ```

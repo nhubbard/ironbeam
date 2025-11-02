@@ -111,7 +111,7 @@
 //!
 //! ## Example Usage
 //!
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! # use anyhow::Result;
 //!

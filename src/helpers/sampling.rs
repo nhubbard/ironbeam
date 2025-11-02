@@ -23,7 +23,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// Deterministic across seq/par for a given `seed` and input multiset.
     pub fn sample_reservoir_vec(self, k: usize, seed: u64) -> PCollection<Vec<T>> {
-        // CombineGlobally over T → Vec<T>
+        // CombineGlobally over T -> Vec<T>
         self.combine_globally(PriorityReservoir::<T>::new(k, seed), None)
     }
 

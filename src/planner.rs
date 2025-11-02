@@ -6,7 +6,7 @@
 //! 1. **Fuse stateless ops** -- adjacent `Node::Stateless` blocks are concatenated.
 //! 2. **Reorder value-only runs** -- within a stateless block where *all* ops are
 //!    key-preserving and value-only, put cheaper/filters first using `cost_hint`.
-//! 3. **Lift GBK→Combine** -- if a `GroupByKey` is immediately followed by a
+//! 3. **Lift GBK->Combine** -- if a `GroupByKey` is immediately followed by a
 //!    `CombineValues` that also has a lifted local (`local_groups.is_some()`),
 //!    drop the `GroupByKey` and keep the combine, switching it to consume
 //!    `(K, V)` pairs via `local_pairs`.
@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 /// A finalized execution plan: a linearized chain and an optional partition hint.
 pub struct Plan {
-    /// Linear list of nodes to execute from source → terminal.
+    /// Linear list of nodes to execute from source -> terminal.
     pub chain: Vec<Node>,
     /// Optional suggested partition count (runner may override).
     pub suggested_partitions: Option<usize>,
@@ -34,10 +34,10 @@ pub struct Plan {
 /// a partitioning hint.
 ///
 /// The pass order is intentional:
-/// 1) backwalk graph → chain
+/// 1) backwalk graph -> chain
 /// 2) fuse stateless
 /// 3) reorder value-only ops (requires fused blocks)
-/// 4) lift GBK→Combine (structure-changing)
+/// 4) lift GBK->Combine (structure-changing)
 /// 5) drop mid-materialized (cleanup)
 pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     let (nodes, edges) = p.snapshot();
@@ -57,7 +57,7 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
 }
 
 /// Walk the pipeline graph **backwards** from `terminal` following single-predecessor
-/// edges and return a **forward** (source→terminal) linear chain.
+/// edges and return a **forward** (source->terminal) linear chain.
 ///
 /// # Errors
 /// An error is returned if a referenced node is missing from the snapshot.
@@ -153,7 +153,7 @@ fn reorder_value_only_runs(chain: Vec<Node>) -> Vec<Node> {
     out
 }
 
-/* ---------- NEW: GBK → Combine lifting ---------- */
+/* ---------- NEW: GBK -> Combine lifting ---------- */
 
 /// If a `GroupByKey` is immediately followed by a `CombineValues` **with a lifted local**
 /// (`local_groups.is_some()`), remove the `GroupByKey` and keep the `CombineValues`

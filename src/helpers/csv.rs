@@ -20,7 +20,7 @@
 //!
 //! ## Examples
 //! Read a CSV file into a typed collection and write it back out (vector I/O):
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //!
@@ -40,7 +40,7 @@
 //! ```
 //!
 //! Streaming read shard-by-shard (useful for large files):
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //!
@@ -81,7 +81,7 @@ use std::sync::Arc;
 /// An error is returned if the file cannot be opened or if any row fails to deserialize.
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
 /// use rustflow::*;
 /// use serde::Deserialize;
 ///
@@ -122,7 +122,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// An error is returned if writing/serialization fails.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// use serde::Serialize;
     ///
@@ -158,7 +158,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// An error is returned if collection or CSV serialization fails.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// use serde::Serialize;
     ///
@@ -200,7 +200,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// Returns an error if the file cannot be scanned or opened by the CSV reader.
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
 /// use rustflow::*;
 /// use serde::Deserialize;
 ///

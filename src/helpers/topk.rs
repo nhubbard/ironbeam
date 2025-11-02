@@ -4,7 +4,7 @@
 //! from keyed collections without needing to explicitly instantiate combiners.
 //!
 //! ## Example
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! # use anyhow::Result;
 //!
@@ -49,7 +49,7 @@ where
     /// A `PCollection<(K, Vec<V>)>` with the top K values per key, sorted descending.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// # use anyhow::Result;
     ///

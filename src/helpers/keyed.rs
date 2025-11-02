@@ -27,7 +27,7 @@ impl<T: RFBound> PCollection<T> {
     /// * `T`: original element type.
     ///
     /// ### Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
@@ -60,7 +60,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// `combine_values` or `combine_values_lifted`) to avoid buffering every value.
     ///
     /// ### Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();

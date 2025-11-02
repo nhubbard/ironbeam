@@ -109,8 +109,8 @@ pub enum Node {
 
     /// Group-by-key barrier.
     ///
-    /// - `local`: partitions of `Vec<(K, V)>` → `HashMap<K, Vec<V>>`
-    /// - `merge`: merges `Vec<HashMap<K, Vec<V>>>` → `Vec<(K, Vec<V>)>`
+    /// - `local`: partitions of `Vec<(K, V)>` -> `HashMap<K, Vec<V>>`
+    /// - `merge`: merges `Vec<HashMap<K, Vec<V>>>` -> `Vec<(K, Vec<V>)>`
     GroupByKey {
         local: Arc<dyn Fn(Partition) -> Partition + Send + Sync>,
         merge: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
@@ -139,9 +139,9 @@ pub enum Node {
     },
 
     /// Global (non-keyed) combine:
-    /// - `local`: consumes `Vec<T>` → `A` (accumulator)
-    /// - `merge`: merges `Vec<A>` → `A`
-    /// - `finish`: converts `A` → `Vec<O>` (typically a singleton)
+    /// - `local`: consumes `Vec<T>` -> `A` (accumulator)
+    /// - `merge`: merges `Vec<A>` -> `A`
+    /// - `finish`: converts `A` -> `Vec<O>` (typically a singleton)
     /// - `fanout`: optional breadth limit for multi-round parallel reduction
     CombineGlobal {
         local: Arc<dyn Fn(Partition) -> Partition + Send + Sync>,

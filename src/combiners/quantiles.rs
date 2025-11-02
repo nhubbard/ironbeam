@@ -160,13 +160,16 @@ impl TDigest {
     /// The estimated value at the given quantile, or `f64::NAN` if the digest is empty.
     ///
     /// # Examples
-    /// ```ignore
+    /// ```
+    /// use rustflow::combiners::TDigest;
     /// let mut digest = TDigest::new(100.0);
     /// for i in 1..=100 {
     ///     digest.add(i as f64);
     /// }
     /// let median = digest.quantile(0.5);  // ~50.0
     /// let p95 = digest.quantile(0.95);    // ~95.0
+    /// assert!((median - 50.0).abs() < 5.0);  // Approximate
+    /// assert!((p95 - 95.0).abs() < 5.0);
     /// ```
     pub fn quantile(&self, q: f64) -> f64 {
         if self.centroids.is_empty() {
@@ -278,10 +281,10 @@ impl TDigest {
 /// * `V` - Value type that can be converted to `f64`
 ///
 /// # Examples
-/// ```ignore
+/// ```
 /// use rustflow::*;
 /// use rustflow::combiners::ApproxQuantiles;
-///
+/// # fn main() -> anyhow::Result<()> {
 /// let p = Pipeline::default();
 ///
 /// // Compute median and quartiles per key
@@ -291,6 +294,8 @@ impl TDigest {
 /// ])
 ///     .combine_values(ApproxQuantiles::new(vec![0.25, 0.5, 0.75], 100.0))
 ///     .collect_seq()?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct ApproxQuantiles<V> {

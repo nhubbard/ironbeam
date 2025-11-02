@@ -29,7 +29,7 @@ pub type Partition = Box<dyn Any + Send + Sync>;
 /// `Source` nodes so the runner and planner can reason about the element type
 /// without a generic parameter.
 ///
-/// ```ignore
+/// ```no_run
 /// use rustflow::type_token::TypeTag;
 /// let tag = TypeTag::of::<u32>();
 /// assert_eq!(tag.name, "u32");
@@ -116,7 +116,7 @@ impl<T: Clone + Send + Sync + 'static> VecOps for VecOpsImpl<T> {
 /// The returned trait object is used by `Source` nodes to support length queries,
 /// partition splitting, and cloning at runtime.
 ///
-/// ```ignore
+/// ```no_run
 /// use rustflow::type_token::{vec_ops_for, VecOps};
 /// use std::any::Any;
 ///

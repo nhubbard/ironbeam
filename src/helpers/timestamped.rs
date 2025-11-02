@@ -12,7 +12,7 @@
 //!   later operators; there's no lateness tracking or triggers.
 //!
 //! ### Quick start
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //!
 //! let p = Pipeline::default();
@@ -53,7 +53,7 @@ impl<T: RFBound> PCollection<T> {
     /// A timestamped stream: `PCollection<Timestamped<T>>`.
     ///
     /// ### Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// #[derive(Clone)]
@@ -87,7 +87,7 @@ impl<T: RFBound> PCollection<(TimestampMs, T)> {
     /// A timestamped stream: `PCollection<Timestamped<T>>`.
     ///
     /// ### Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

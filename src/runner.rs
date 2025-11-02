@@ -115,7 +115,7 @@ impl Runner {
 
 /// Execute a fully linearized chain **sequentially**, collecting `Vec<T>`.
 ///
-/// Internal helper used by [`Runner::run_collect`]. Walks the chain left→right,
+/// Internal helper used by [`Runner::run_collect`]. Walks the chain left->right,
 /// maintaining a single opaque `Partition` buffer.
 fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>> {
     let mut buf: Option<Partition> = None;

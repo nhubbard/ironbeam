@@ -33,7 +33,7 @@ impl<T: RFBound> PCollection<T> {
     /// - `F`: Closure type implementing `Fn(&T) -> O`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -62,7 +62,7 @@ impl<T: RFBound> PCollection<T> {
     /// for which the predicate returns `true`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -92,7 +92,7 @@ impl<T: RFBound> PCollection<T> {
     /// This is analogous to a "flatMap" or "SelectMany" operation in other dataflow APIs.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -123,7 +123,7 @@ impl<T: RFBound> PCollection<T> {
     /// Equivalent to calling [`PCollection::collect_seq`].
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -140,7 +140,7 @@ impl<T: RFBound> PCollection<T> {
     /// single-threaded context and materializing the results into a `Vec<T>`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -167,7 +167,7 @@ impl<T: RFBound> PCollection<T> {
     /// - `partitions`: Optional number of partitions per operator (defaults to auto-chosen).
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

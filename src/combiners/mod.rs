@@ -17,7 +17,7 @@
 //! enabling efficient `group_by_key().combine_values_lifted(...)` plans.
 //!
 //! # Examples
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use rustflow::combiners::{Sum, Min, Max, AverageF64, DistinctCount, TopK, ApproxQuantiles, ApproxMedian};
 //!

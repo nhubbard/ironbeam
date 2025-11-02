@@ -19,7 +19,7 @@
 //!
 //! ## Examples
 //! Inner / left / right / full joins:
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //!
 //! # fn main() -> anyhow::Result<()> {
@@ -94,12 +94,12 @@ where
     K: RFBound + Eq + Hash,
     V: RFBound,
 {
-    /// Inner join on a key with another `(K, W)` → `(K, (V, W))`.
+    /// Inner join on a key with another `(K, W)` -> `(K, (V, W))`.
     ///
     /// Emits one row for every `(k, v)` on the left and `(k, w)` on the right with the same `k`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
@@ -189,12 +189,12 @@ where
         }
     }
 
-    /// Left outer join on a key with `(K, W)` → `(K, (V, Option<W>))`.
+    /// Left outer join on a key with `(K, W)` -> `(K, (V, Option<W>))`.
     ///
     /// Emits all left rows; missing right values appear as `None`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
@@ -288,12 +288,12 @@ where
         }
     }
 
-    /// Right outer join on a key with `(K, W)` → `(K, (Option<V>, W))`.
+    /// Right outer join on a key with `(K, W)` -> `(K, (Option<V>, W))`.
     ///
     /// Emits all right rows; missing left values appear as `None`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
@@ -388,12 +388,12 @@ where
         }
     }
 
-    /// Full outer join on a key with `(K, W)` → `(K, (Option<V>, Option<W>))`.
+    /// Full outer join on a key with `(K, W)` -> `(K, (Option<V>, Option<W>))`.
     ///
     /// Emits rows for the union of keys found on either side. Missing values are `None`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// # fn main() -> anyhow::Result<()> {

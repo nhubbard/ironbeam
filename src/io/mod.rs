@@ -37,7 +37,7 @@
 //! ### Vector I/O Pattern
 //!
 //! All formats follow the same pattern for in-memory I/O:
-//! ```ignore
+//! ```text
 //! // Read entire file into Vec<T>
 //! let data: Vec<MyRecord> = read_FORMAT_vec(path)?;
 //!
@@ -52,7 +52,7 @@
 //! 2. **Lazy reading** - Each shard is read-only when needed by the runner
 //! 3. **Parallel execution** - Shards can be processed in parallel
 //!
-//! ```ignore
+//! ```text
 //! // Create shard descriptor (lightweight, just metadata)
 //! let shards = build_FORMAT_shards(path, rows_per_shard)?;
 //!
@@ -126,10 +126,10 @@
 //! ## Examples
 //!
 //! ### Vector I/O (in-memory)
-//! ```ignore
+//! ```no_run
 //! use rustflow::io::jsonl::{read_jsonl_vec, write_jsonl_vec};
 //! use serde::{Deserialize, Serialize};
-//!
+//! # fn main() -> anyhow::Result<()> {
 //! #[derive(Serialize, Deserialize)]
 //! struct Record { id: u32, name: String }
 //!
@@ -143,13 +143,15 @@
 //!
 //! // Write
 //! write_jsonl_vec("output.jsonl", &filtered)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### Streaming I/O
-//! ```ignore
+//! ```no_run
 //! use rustflow::io::csv::{build_csv_shards, read_csv_range};
 //! use serde::Deserialize;
-//!
+//! # fn main() -> anyhow::Result<()> {
 //! #[derive(Deserialize)]
 //! struct Row { k: String, v: u64 }
 //!
@@ -157,17 +159,19 @@
 //! let shards = build_csv_shards("large.csv", true, 10_000)?;
 //!
 //! // Process each shard independently
-//! for (start, end) in shards.ranges {
+//! for &(start, end) in &shards.ranges {
 //!     let data: Vec<Row> = read_csv_range(&shards, start, end)?;
 //!     // ... process this chunk ...
 //! }
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### Parallel Writing
-//! ```ignore
+//! ```no_run
 //! use rustflow::io::jsonl::write_jsonl_par;
 //! use serde::Serialize;
-//!
+//! # fn main() -> anyhow::Result<()> {
 //! #[derive(Serialize)]
 //! struct Record { id: u32 }
 //!
@@ -175,6 +179,8 @@
 //!
 //! // Write in parallel with 8 shards
 //! write_jsonl_par("output.jsonl", &data, Some(8))?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## See Also

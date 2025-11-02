@@ -44,7 +44,7 @@ impl<T: RFBound> PCollection<T> {
     /// batch outputs.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -92,7 +92,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// values.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

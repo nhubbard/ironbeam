@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 ///
 /// Each pipeline is essentially a shared, mutable graph:
 /// ```text
-///  Source → Stateless → GroupByKey → CombineValues → ...
+///  Source -> Stateless -> GroupByKey -> CombineValues -> ...
 /// ```
 ///
 /// The `Pipeline` itself is cheaply cloneable; all clones share the same
@@ -36,7 +36,7 @@ pub struct Pipeline {
 ///
 /// This struct tracks:
 /// - `next_id`: incremental counter for node IDs.
-/// - `nodes`: map of [`NodeId`] → [`Node`](Node).
+/// - `nodes`: map of [`NodeId`] -> [`Node`](Node).
 /// - `edges`: ordered list of `(from, to)` directed edges.
 ///
 /// The parent synchronizes access to the data in the [`Pipeline`].
@@ -79,7 +79,7 @@ impl Pipeline {
         id
     }
 
-    /// Connect two nodes by their IDs, forming a directed edge `(from → to)`.
+    /// Connect two nodes by their IDs, forming a directed edge `(from -> to)`.
     ///
     /// Used to chain together consecutive transforms within the same pipeline.
     pub(crate) fn connect(&self, from: NodeId, to: NodeId) {

@@ -14,7 +14,7 @@
 //! 1) turn `PCollection<T>` into `PCollection<Result<O,E>>` (or `Result<Vec<O>,E>`)
 //! 2) at the end, call `collect_fail_fast()` to bail out on the first error.
 //!
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use anyhow::Result;
 //!
@@ -35,7 +35,7 @@ use anyhow::{anyhow, Result};
 use std::fmt::Display;
 
 impl<T: RFBound> PCollection<T> {
-    /// Fallible 1→1 transform: `T -> Result<O, E>`.
+    /// Fallible 1->1 transform: `T -> Result<O, E>`.
     ///
     /// Converts a `PCollection<T>` into a `PCollection<Result<O, E>>` by
     /// applying a function that may fail per element. Errors are not raised
@@ -47,7 +47,7 @@ impl<T: RFBound> PCollection<T> {
     ///   internal trait constraints; `Display` is used for human-readable errors.
     ///
     /// ### Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -69,7 +69,7 @@ impl<T: RFBound> PCollection<T> {
         self.map(move |t| f(t))
     }
 
-    /// Fallible 1→N transform: `T -> Result<Vec<O>, E>`.
+    /// Fallible 1->N transform: `T -> Result<Vec<O>, E>`.
     ///
     /// Like [`PCollection<T>::try_map`], but your function expands each input into zero or more
     /// outputs, still with fallible behavior. This yields
@@ -77,7 +77,7 @@ impl<T: RFBound> PCollection<T> {
     /// a later `flat_map` or just collect and inspect failures explicitly.
     ///
     /// ### Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -113,7 +113,7 @@ where
     /// returns `anyhow::Error` with your `E: Display` rendered in the message.
     ///
     /// ### Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// use anyhow::Result;
     ///

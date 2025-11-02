@@ -32,7 +32,7 @@ impl<T: RFBound> PCollection<T> {
     /// `finish(create())`).
     ///
     /// # Examples
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// use rustflow::combiners::Sum;
     ///

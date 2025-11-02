@@ -18,7 +18,7 @@
 //!
 //! ## Quick Start
 //!
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! # use anyhow::Result;
 //!
@@ -121,13 +121,14 @@
 //! Rustflow supports reading and writing common data formats (all optional via feature flags):
 //!
 //! ### JSON Lines (feature: `io-jsonl`)
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
 //! struct Record { id: u32, name: String }
 //!
+//! # fn main() -> anyhow::Result<()> {
 //! let p = Pipeline::default();
 //!
 //! // Read entire file into memory
@@ -138,32 +139,40 @@
 //!
 //! // Write results
 //! data.write_jsonl("output.jsonl")?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### CSV (feature: `io-csv`)
-//! ```rust,ignore
+//! ```no_run
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
 //! struct Row { k: String, v: u64 }
 //!
+//! # fn main() -> anyhow::Result<()> {
 //! let p = Pipeline::default();
 //! let data = read_csv::<Row>(&p, "data.csv", true)?; // true = has headers
 //! data.write_csv("output.csv", true)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### Parquet (feature: `io-parquet`)
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
 //! struct Record { id: u32, score: f64 }
 //!
+//! # fn main() -> anyhow::Result<()> {
 //! let p = Pipeline::default();
 //! let data = read_parquet_streaming::<Record>(&p, "data.parquet", 1)?;
 //! data.write_parquet("output.parquet")?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Feature Flags
@@ -176,7 +185,7 @@
 //! ## Examples
 //!
 //! ### Word Count
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! # use anyhow::Result;
 //!
@@ -196,7 +205,7 @@
 //! ```
 //!
 //! ### Group and Aggregate
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! # use anyhow::Result;
 //!
@@ -215,7 +224,7 @@
 //! ```
 //!
 //! ### Join Two Collections
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! # use anyhow::Result;
 //!
@@ -240,7 +249,7 @@
 //! ```
 //!
 //! ### Using Side Inputs
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use std::collections::HashMap;
 //! # use anyhow::Result;
@@ -298,7 +307,7 @@
 //!
 //! ### Custom Transforms
 //! Implement [`node::DynOp`] to create custom stateless transformations:
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use rustflow::node::DynOp;
 //! use rustflow::type_token::Partition;
@@ -318,29 +327,12 @@
 //! ```
 //!
 //! ### Custom I/O Sources
-//! Implement [`type_token::VecOps`] to integrate custom data sources:
-//! ```ignore
-//! use rustflow::*;
-//! use rustflow::type_token::VecOps;
-//!
-//! struct MyCustomVecOps;
-//! impl VecOps for MyCustomVecOps {
-//!     fn len(&self, data: &dyn std::any::Any) -> Option<usize> { /* ... */ None }
-//!     fn split(&self, data: &dyn std::any::Any, n: usize) -> Option<Vec<Partition>> { /* ... */ None }
-//!     fn clone_any(&self, data: &dyn std::any::Any) -> Option<Partition> { /* ... */ None }
-//! }
-//!
-//! let p = Pipeline::default();
-//! let data: PCollection<MyType> = from_custom_source(
-//!     &p,
-//!     my_custom_payload,
-//!     Arc::new(MyCustomVecOps)
-//! );
-//! ```
+//! Implement [`type_token::VecOps`] to integrate custom data sources.
+//! See [`from_custom_source`] for a complete example.
 //!
 //! ### Composite Transforms
 //! Use [`extensions::CompositeTransform`] to package reusable pipelines:
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use rustflow::extensions::CompositeTransform;
 //!

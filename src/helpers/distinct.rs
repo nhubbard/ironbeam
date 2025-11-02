@@ -2,10 +2,10 @@
 //! unkeyed and keyed collections.
 //!
 //! # Overview
-//! - `PCollection<T>::distinct()` → remove duplicates globally (exact).
-//! - `PCollection<(K,V)>::distinct_per_key()` → remove duplicate values per key (exact).
-//! - `PCollection<T>::approx_distinct_count(k)` → approximate global cardinality (f64).
-//! - `PCollection<(K,V)>::approx_distinct_count_per_key(k)` → approximate cardinality per key.
+//! - `PCollection<T>::distinct()` -> remove duplicates globally (exact).
+//! - `PCollection<(K,V)>::distinct_per_key()` -> remove duplicate values per key (exact).
+//! - `PCollection<T>::approx_distinct_count(k)` -> approximate global cardinality (f64).
+//! - `PCollection<(K,V)>::approx_distinct_count_per_key(k)` -> approximate cardinality per key.
 //!
 //! Exact distinct is implemented with the `DistinctSet<T>` combiner and then
 //! expanded back into an element stream via `flat_map`. Approximate counts use
@@ -21,7 +21,7 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     /// Returns a `PCollection<T>` containing each unique element once (order unspecified).
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// let p = Pipeline::default();
     /// let out = from_vec(&p, vec![1,1,2,3,3,3]).distinct();
@@ -41,7 +41,7 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     /// * For large sets, estimator variance decreases with larger `k`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// let p = Pipeline::default();
     /// let out = from_vec(&p, (0..10_000u64).map(|n| n % 1234).collect::<Vec<_>>())
@@ -65,7 +65,7 @@ where
     /// at most one per distinct value within each key.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// let p = Pipeline::default();
     /// let kv = vec![

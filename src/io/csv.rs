@@ -312,7 +312,7 @@ pub fn write_csv_par<T: Serialize + Sync>(
 
 /// Split `[0, len)` into `parts` contiguous ranges as `(chunk_idx, start, end)`.
 ///
-/// Ensures `parts ∈ [1, len]` (when `len > 0`) and distributes remainder fairly.
+/// Ensures `parts  in  [1, len]` (when `len > 0`) and distributes remainder fairly.
 /// Ranges are non-empty and cover the entire domain.
 ///
 /// This is not published to keep the public API focused on CSV semantics.

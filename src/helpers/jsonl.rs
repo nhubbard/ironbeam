@@ -18,7 +18,7 @@
 //!
 //! ### Examples
 //! Read and write (sequential):
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //! # fn main() -> anyhow::Result<()> {
@@ -33,7 +33,7 @@
 //! ```
 //!
 //! Streaming read:
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //! # fn main() -> anyhow::Result<()> {
@@ -48,7 +48,7 @@
 //! ```
 //!
 //! Parallel write with stable order:
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //! use serde::{Deserialize, Serialize};
 //! # fn main() -> anyhow::Result<()> {
@@ -83,7 +83,7 @@ use std::sync::Arc;
 /// Propagates I/O and JSON parsing errors with line context.
 ///
 /// ### Example
-/// ```ignore
+/// ```no_run
 /// use rustflow::*;
 /// use serde::{Deserialize, Serialize};
 /// # fn main() -> anyhow::Result<()> {
@@ -130,7 +130,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// Propagates I/O and parsing errors during pre-scan or per-partition reads.
 ///
 /// ### Example
-/// ```ignore
+/// ```no_run
 /// use rustflow::*;
 /// use serde::{Deserialize, Serialize};
 /// # fn main() -> anyhow::Result<()> {

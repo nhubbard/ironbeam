@@ -69,7 +69,7 @@ impl Window {
     /// The window `[win_start, win_start + size_ms)` that contains `ts`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::window::{Window, TimestampMs};
     /// let w = Window::tumble(27, 10, 0);
     /// assert_eq!(w.start, 20);
@@ -152,7 +152,7 @@ impl<T> Timestamped<T> {
     /// Construct a new [`Timestamped`] value.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::window::{Timestamped, TimestampMs};
     /// let ev = Timestamped::new(1_700_000_000_000u64, "payload");
     /// assert_eq!(ev.value, "payload");

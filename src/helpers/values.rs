@@ -10,7 +10,7 @@
 //! - [`filter_values`] -- retain only entries where `pred(&V)` is true
 //!
 //! ## Example
-//! ```ignore
+//! ```no_run
 //! use rustflow::*;
 //!
 //! let p = Pipeline::default();
@@ -52,7 +52,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// `PCollection<(K, O)>`
     ///
     /// ### Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -88,7 +88,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// A filtered `PCollection<(K, V)>`.
     ///
     /// ### Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();

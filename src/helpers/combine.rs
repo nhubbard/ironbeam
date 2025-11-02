@@ -34,7 +34,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// A `PCollection<(K, O)>` with one output per distinct key.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// use std::collections::HashMap;
     ///
@@ -69,7 +69,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     {
         let comb = Arc::new(comb);
 
-        // local: Vec<(K, V)> → HashMap<K, A>
+        // local: Vec<(K, V)> -> HashMap<K, A>
         let local = {
             let comb = Arc::clone(&comb);
             Arc::new(move |p: Partition| -> Partition {
@@ -84,7 +84,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
             })
         };
 
-        // merge: Vec<HashMap<K, A>> → Vec<(K, O)>
+        // merge: Vec<HashMap<K, A>> -> Vec<(K, O)>
         let merge = {
             let comb = Arc::clone(&comb);
             Arc::new(move |parts: Vec<Partition>| -> Partition {
@@ -136,7 +136,7 @@ where
     /// A `PCollection<(K, O)>` with one output per distinct key.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     /// use rustflow::collection::LiftableCombiner;
     ///
@@ -184,7 +184,7 @@ where
     {
         let comb = Arc::new(comb);
 
-        // Fallback classic local for Vec<(K, V)> → HashMap<K, A> (kept for uniform node shape).
+        // Fallback classic local for Vec<(K, V)> -> HashMap<K, A> (kept for uniform node shape).
         let local_pairs = {
             let comb = Arc::clone(&comb);
             Arc::new(move |p: Partition| -> Partition {
@@ -199,7 +199,7 @@ where
             })
         };
 
-        // Lifted local: Vec<(K, Vec<V>)> → HashMap<K, A> using `build_from_group`
+        // Lifted local: Vec<(K, Vec<V>)> -> HashMap<K, A> using `build_from_group`
         let local_groups = {
             let comb = Arc::clone(&comb);
             Arc::new(move |p: Partition| -> Partition {
@@ -215,7 +215,7 @@ where
             })
         };
 
-        // Merge accumulators across partitions: Vec<HashMap<K, A>> → Vec<(K, O)>
+        // Merge accumulators across partitions: Vec<HashMap<K, A>> -> Vec<(K, O)>
         let merge = {
             let comb = Arc::clone(&comb);
             Arc::new(move |parts: Vec<Partition>| -> Partition {

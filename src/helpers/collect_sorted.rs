@@ -30,7 +30,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     /// deserialization failures.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -61,7 +61,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     /// deserialization failures, or operator errors.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
@@ -94,7 +94,7 @@ impl<K: RFBound + Ord, V: RFBound> PCollection<(K, V)> {
     /// Propagates any error from `collect_par()`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
     /// use rustflow::*;
     ///
     /// let p = Pipeline::default();
