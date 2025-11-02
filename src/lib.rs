@@ -181,6 +181,7 @@
 //! - `io-csv` - Enable CSV I/O support
 //! - `io-parquet` - Enable Parquet I/O support (requires Arrow)
 //! - `parallel-io` - Enable parallel I/O operations (`write_*_par` methods)
+//! - `metrics` - Enable metrics collection and reporting (enabled by default)
 //!
 //! ## Examples
 //!
@@ -274,6 +275,39 @@
 //! # }
 //! ```
 //!
+//! ### Tracking Metrics
+//! ```no_run
+//! # #[cfg(feature = "metrics")]
+//! # {
+//! use rustflow::*;
+//! # use anyhow::Result;
+//!
+//! # fn main() -> Result<()> {
+//! let p = Pipeline::default();
+//!
+//! // Enable metrics collection
+//! let mut metrics = metrics::MetricsCollector::new();
+//! metrics.register(Box::new(metrics::CounterMetric::with_value("input_records", 1000)));
+//! p.set_metrics(metrics);
+//!
+//! // Build and execute pipeline
+//! let data = from_vec(&p, (0..1000).collect::<Vec<i32>>());
+//! let result = data
+//!     .filter(|x: &i32| x % 2 == 0)
+//!     .map(|x: &i32| x * 2)
+//!     .collect_seq()?;
+//!
+//! // Print or save metrics after execution
+//! if let Some(metrics) = p.take_metrics() {
+//!     metrics.print();
+//!     // Or save to a file
+//!     metrics.save_to_file("pipeline_metrics.json")?;
+//! }
+//! # Ok(())
+//! # }
+//! # }
+//! ```
+//!
 //! ## Performance Tips
 //!
 //! - Use [`map_batches`](PCollection::map_batches) for CPU-intensive operations
@@ -300,6 +334,7 @@
 //! - [`planner`] - Query optimization and graph transformations
 //! - [`helpers`] - Convenience functions and side input builders
 //! - [`extensions`] - Extension points for custom transforms and I/O
+//! - [`metrics`] - Metrics collection and reporting (feature: `metrics`)
 //!
 //! ## Extensibility
 //!
@@ -358,6 +393,9 @@ pub mod runner;
 pub mod type_token;
 pub mod utils;
 pub mod window;
+
+#[cfg(feature = "metrics")]
+pub mod metrics;
 
 // General re-exports
 pub use collection::{CombineFn, Count, PCollection, RFBound};

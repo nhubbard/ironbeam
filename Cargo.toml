@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["io-jsonl", "io-csv", "io-parquet", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz"]
+default = ["io-jsonl", "io-csv", "io-parquet", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics"]
 
 # IO backends
 io-jsonl = []
@@ -19,6 +19,7 @@ compression-xz = ["dep:xz2"]
 
 # Behaviors
 parallel-io = []
+metrics = []
 
 [dependencies]
 anyhow = "1"

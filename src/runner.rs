@@ -89,12 +89,16 @@ impl Runner {
         p: &Pipeline,
         terminal: NodeId,
     ) -> Result<Vec<T>> {
+        // Record start time in metrics
+        #[cfg(feature = "metrics")]
+        p.record_metrics_start();
+
         // Get the optimized plan
         let plan = build_plan(p, terminal)?;
         let chain = plan.chain;
         let suggested_parts = plan.suggested_partitions;
 
-        match self.mode {
+        let result = match self.mode {
             ExecMode::Sequential => exec_seq::<T>(chain),
             ExecMode::Parallel {
                 threads,
@@ -109,7 +113,13 @@ impl Runner {
                     .unwrap_or(self.default_partitions);
                 exec_par::<T>(chain, parts)
             }
-        }
+        };
+
+        // Record end time in metrics
+        #[cfg(feature = "metrics")]
+        p.record_metrics_end();
+
+        result
     }
 }
 

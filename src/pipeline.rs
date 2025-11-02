@@ -18,6 +18,9 @@ use crate::NodeId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "metrics")]
+use crate::metrics::MetricsCollector;
+
 /// Thread-safe pipeline graph structure holding all nodes and edges.
 ///
 /// Each pipeline is essentially a shared, mutable graph:
@@ -38,12 +41,15 @@ pub struct Pipeline {
 /// - `next_id`: incremental counter for node IDs.
 /// - `nodes`: map of [`NodeId`] -> [`Node`](Node).
 /// - `edges`: ordered list of `(from, to)` directed edges.
+/// - `metrics`: optional metrics collector for tracking execution statistics.
 ///
 /// The parent synchronizes access to the data in the [`Pipeline`].
 pub(crate) struct PipelineInner {
     pub next_id: u64,
     pub nodes: HashMap<NodeId, Node>,
     pub edges: Vec<(NodeId, NodeId)>,
+    #[cfg(feature = "metrics")]
+    pub metrics: Option<MetricsCollector>,
 }
 
 impl Default for Pipeline {
@@ -53,6 +59,8 @@ impl Default for Pipeline {
                 next_id: 0,
                 nodes: HashMap::new(),
                 edges: vec![],
+                #[cfg(feature = "metrics")]
+                metrics: None,
             })),
         }
     }
@@ -93,5 +101,49 @@ impl Pipeline {
     pub(crate) fn snapshot(&self) -> (HashMap<NodeId, Node>, Vec<(NodeId, NodeId)>) {
         let g = self.inner.lock().unwrap();
         (g.nodes.clone(), g.edges.clone())
+    }
+
+    /// Set the metrics collector for this pipeline.
+    ///
+    /// This enables metrics collection during pipeline execution. Metrics can be
+    /// retrieved after execution using [`take_metrics`](Self::take_metrics).
+    #[cfg(feature = "metrics")]
+    pub fn set_metrics(&self, metrics: MetricsCollector) {
+        let mut g = self.inner.lock().unwrap();
+        g.metrics = Some(metrics);
+    }
+
+    /// Take the metrics collector from this pipeline, leaving `None` in its place.
+    ///
+    /// This is typically called after pipeline execution to retrieve and report metrics.
+    #[cfg(feature = "metrics")]
+    pub fn take_metrics(&self) -> Option<MetricsCollector> {
+        let mut g = self.inner.lock().unwrap();
+        g.metrics.take()
+    }
+
+    /// Get a clone of the metrics collector, if present.
+    #[cfg(feature = "metrics")]
+    pub fn get_metrics(&self) -> Option<MetricsCollector> {
+        let g = self.inner.lock().unwrap();
+        g.metrics.clone()
+    }
+
+    /// Record the start of pipeline execution in metrics.
+    #[cfg(feature = "metrics")]
+    pub(crate) fn record_metrics_start(&self) {
+        let g = self.inner.lock().unwrap();
+        if let Some(ref metrics) = g.metrics {
+            metrics.record_start();
+        }
+    }
+
+    /// Record the end of pipeline execution in metrics.
+    #[cfg(feature = "metrics")]
+    pub(crate) fn record_metrics_end(&self) {
+        let g = self.inner.lock().unwrap();
+        if let Some(ref metrics) = g.metrics {
+            metrics.record_end();
+        }
     }
 }
