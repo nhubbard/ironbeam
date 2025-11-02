@@ -211,11 +211,10 @@ fn detect_from_magic<R: BufRead>(reader: &mut R) -> Option<Arc<dyn CompressionCo
     }
 
     for codec in get_registry() {
-        if let Some(magic) = codec.magic_bytes() {
-            if buf.len() >= magic.len() && buf.starts_with(magic) {
+        if let Some(magic) = codec.magic_bytes()
+            && buf.len() >= magic.len() && buf.starts_with(magic) {
                 return Some(codec.clone());
             }
-        }
     }
     None
 }

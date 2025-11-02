@@ -338,7 +338,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                             break;
                         } else {
                             let mut next: Vec<Partition> =
-                                Vec::with_capacity((accs.len() + f - 1) / f);
+                                Vec::with_capacity(accs.len().div_ceil(f));
                             let mut it = accs.into_iter(); // take ownership to avoid clones
                             loop {
                                 let mut group: Vec<Partition> = Vec::with_capacity(f);
@@ -467,7 +467,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                         accs = vec![merge(accs)];
                         break;
                     } else {
-                        let mut next: Vec<Partition> = Vec::with_capacity((accs.len() + f - 1) / f);
+                        let mut next: Vec<Partition> = Vec::with_capacity(accs.len().div_ceil(f));
                         let mut it = accs.into_iter();
                         loop {
                             let mut group: Vec<Partition> = Vec::with_capacity(f);

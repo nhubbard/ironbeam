@@ -128,3 +128,45 @@ fn read_parquet_row_group_range_test() -> anyhow::Result<()> {
     assert!(subset.len() > 0);
     Ok(())
 }
+
+#[test]
+fn read_parquet_vec_file_not_found() {
+    let result: anyhow::Result<Vec<Row>> = read_parquet_vec("nonexistent_file.parquet");
+    assert!(result.is_err());
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(err_msg.contains("open") || err_msg.contains("No such file"));
+}
+
+#[test]
+fn build_parquet_shards_file_not_found() {
+    let result = build_parquet_shards("nonexistent_file.parquet", 10);
+    assert!(result.is_err());
+    if let Err(e) = result {
+        let err_msg = format!("{:?}", e);
+        assert!(err_msg.contains("open") || err_msg.contains("No such file"));
+    }
+}
+
+#[test]
+fn read_parquet_row_group_range_file_error() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let path = tmp.path().join("test.parquet");
+    let data = vec![Row {
+        id: 1,
+        name: "test".into(),
+        score: Some(1.0),
+        tags: vec!["tag".into()],
+    }];
+    write_parquet_vec(&path, &data)?;
+
+    let shards = build_parquet_shards(&path, 1)?;
+
+    // Delete the file before reading
+    std::fs::remove_file(&path)?;
+
+    let result: anyhow::Result<Vec<Row>> = read_parquet_row_group_range(&shards, 0, 1);
+    assert!(result.is_err());
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(err_msg.contains("open") || err_msg.contains("No such file"));
+    Ok(())
+}

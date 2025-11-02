@@ -227,6 +227,22 @@ mod compression_tests {
         std::fs::remove_file(gz_path)?;
         Ok(())
     }
+
+    #[test]
+    #[cfg(feature = "compression-gzip")]
+    fn test_detect_from_magic_insufficient_bytes() {
+        use std::io::BufRead;
+        // Test with less bytes than gzip magic bytes
+        let data: &[u8] = &[0x1f]; // Only 1 byte, but gzip needs 2
+        let mut reader = std::io::BufReader::new(std::io::Cursor::new(data));
+        // Force fill_buf to be called
+        let _ = reader.fill_buf();
+        // Test that detection doesn't panic and returns None
+        let file = std::io::Cursor::new(data);
+        let result = auto_detect_reader(file, "test.dat");
+        // Should succeed but not detect compression
+        assert!(result.is_ok());
+    }
 }
 
 #[cfg(not(any(

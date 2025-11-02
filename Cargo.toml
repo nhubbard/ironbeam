@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["io-jsonl", "io-csv", "io-parquet", "parallel-io"]
+default = ["io-jsonl", "io-csv", "io-parquet", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz"]
 
 # IO backends
 io-jsonl = []
