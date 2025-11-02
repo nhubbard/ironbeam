@@ -12,6 +12,7 @@
 //! - The parallel writer preserves **deterministic final order** by writing shard
 //!   buffers in index order after parallel serialization.
 
+use crate::io::compression::{auto_detect_reader, auto_detect_writer};
 use crate::type_token::VecOps;
 use crate::Partition;
 use anyhow::{Context, Result};
@@ -34,6 +35,9 @@ use std::sync::Arc;
 ///   not deserialized into `T`.
 /// * Errors are annotated with row numbers for easier debugging.
 ///
+/// **Compression**: Automatically detects and decompresses gzip, zstd, bzip2, and xz
+/// formats based on file extension or magic bytes (when respective feature flags are enabled).
+///
 /// # Errors
 /// Returns an error if the file cannot be opened or if any row fails to
 /// deserialize into `T`.
@@ -41,10 +45,13 @@ pub fn read_csv_vec<T: DeserializeOwned>(
     path: impl AsRef<Path>,
     has_headers: bool,
 ) -> Result<Vec<T>> {
+    let path = path.as_ref();
+    let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let rdr = auto_detect_reader(f, path)
+        .with_context(|| format!("setup decompression for {}", path.display()))?;
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(has_headers)
-        .from_path(path.as_ref())
-        .with_context(|| "open csv")?;
+        .from_reader(rdr);
     let mut out = Vec::<T>::new();
     for (i, rec) in rdr.deserialize::<T>().enumerate() {
         let v = rec.with_context(|| format!("parse CSV record #{}", i + 1))?;
@@ -60,6 +67,9 @@ pub fn read_csv_vec<T: DeserializeOwned>(
 /// * Creates parent directories if they don't exist.
 /// * Emits a header row when `has_headers` is `true` and the `Serialize`
 ///   implementation for `T` supports headers (via `csv` conventions).
+///
+/// **Compression**: Automatically detects and compresses output based on file extension
+/// (e.g., `.gz`, `.zst`) when respective feature flags are enabled.
 ///
 /// # Returns
 /// The number of rows written (i.e., `data.len()`).
@@ -78,10 +88,12 @@ pub fn write_csv_vec<T: Serialize>(
     {
         create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
     }
+    let f = File::create(path).with_context(|| format!("create {}", path.display()))?;
+    let w = auto_detect_writer(f, path)
+        .with_context(|| format!("setup compression for {}", path.display()))?;
     let mut wtr = WriterBuilder::new()
         .has_headers(has_headers)
-        .from_path(path)
-        .with_context(|| format!("create csv {}", path.display()))?;
+        .from_writer(w);
     for (i, row) in data.iter().enumerate() {
         wtr.serialize(row)
             .with_context(|| format!("serialize CSV row #{}", i + 1))?;
@@ -113,6 +125,9 @@ pub struct CsvShards {
 /// * Counting is performed by iterating over CSV records, respecting `has_headers`.
 /// * For empty files, returns `CsvShards` with no ranges.
 ///
+/// **Compression**: Automatically detects and decompresses compressed files for row counting.
+/// Note that compressed files require full decompression during this step.
+///
 /// # Errors
 /// Returns an error if the file cannot be opened or read as CSV.
 pub fn build_csv_shards(
@@ -121,9 +136,12 @@ pub fn build_csv_shards(
     rows_per_shard: usize,
 ) -> Result<CsvShards> {
     let path = path.as_ref().to_path_buf();
+    let f = File::open(&path).with_context(|| format!("open {}", path.display()))?;
+    let rdr = auto_detect_reader(f, &path)
+        .with_context(|| format!("setup decompression for {}", path.display()))?;
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(has_headers)
-        .from_path(&path)?;
+        .from_reader(rdr);
     let mut total: u64 = 0;
     let it = rdr.records();
     for _ in it {
@@ -157,6 +175,10 @@ pub fn build_csv_shards(
 ///
 /// `start` and `end` are row indices into the data region (excluding header).
 ///
+/// **Compression**: Automatically detects and decompresses compressed files. Note that
+/// compressed streams don't support seeking, so the entire file is decompressed from
+/// the start and rows are skipped until reaching `start`.
+///
 /// # Errors
 /// Returns an error if the file cannot be opened or if deserialization of any
 /// row in the range fails.
@@ -165,9 +187,12 @@ pub fn read_csv_range<T: DeserializeOwned>(
     start: u64,
     end: u64,
 ) -> Result<Vec<T>> {
+    let f = File::open(&src.path).with_context(|| format!("open {}", src.path.display()))?;
+    let rdr = auto_detect_reader(f, &src.path)
+        .with_context(|| format!("setup decompression for {}", src.path.display()))?;
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(src.has_headers)
-        .from_path(&src.path)?;
+        .from_reader(rdr);
     // skip rows
     let mut out = Vec::<T>::new();
     for (i, rec) in rdr.deserialize::<T>().enumerate() {

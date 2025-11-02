@@ -12,6 +12,7 @@
 //! - The parallel writer preserves **deterministic file order** by joining shard
 //!   outputs in index order.
 
+use crate::io::compression::{auto_detect_reader, auto_detect_writer};
 use crate::type_token::VecOps;
 use crate::Partition;
 use anyhow::{Context, Result};
@@ -26,13 +27,18 @@ use std::sync::Arc;
 ///
 /// Each non-empty line is parsed as a JSON document and deserialized to `T`.
 ///
+/// **Compression**: Automatically detects and decompresses gzip, zstd, bzip2, and xz
+/// formats based on file extension or magic bytes (when respective feature flags are enabled).
+///
 /// # Errors
 /// Returns an error if the file cannot be opened, read, or if any line fails
 /// to parse into `T`. Errors include contextual information (line number).
 pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
     let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
-    let rdr = BufReader::new(f);
+    let rdr = auto_detect_reader(f, path)
+        .with_context(|| format!("setup decompression for {}", path.display()))?;
+    let rdr = BufReader::new(rdr);
     let mut out = Vec::<T>::new();
     for (i, line) in rdr.lines().enumerate() {
         let line = line.with_context(|| format!("read line {} in {}", i + 1, path.display()))?;
@@ -52,6 +58,9 @@ pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec
 /// Each element is serialized with Serde to a single line, followed by `\n`.
 /// Parent directories are created as needed.
 ///
+/// **Compression**: Automatically detects and compresses output based on file extension
+/// (e.g., `.gz`, `.zst`) when respective feature flags are enabled.
+///
 /// # Returns
 /// The number of items written (`data.len()`).
 ///
@@ -66,7 +75,8 @@ pub fn write_jsonl_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Resu
         create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
     }
     let f = File::create(path).with_context(|| format!("create {}", path.display()))?;
-    let mut w = BufWriter::new(f);
+    let mut w = auto_detect_writer(f, path)
+        .with_context(|| format!("setup compression for {}", path.display()))?;
     for (i, item) in data.iter().enumerate() {
         serde_json::to_writer(&mut w, item)
             .with_context(|| format!("serialize item #{} to {}", i, path.display()))?;
@@ -165,12 +175,17 @@ pub struct JsonlShards {
 ///
 /// For an empty file, returns an empty set of ranges.
 ///
+/// **Compression**: Automatically detects and decompresses compressed files for line counting.
+/// Note that compressed files require full decompression during this step.
+///
 /// # Errors
 /// Returns an error if the file cannot be opened or read.
 pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Result<JsonlShards> {
     let path = path.as_ref().to_path_buf();
     let f = File::open(&path).with_context(|| format!("open {}", path.display()))?;
-    let rdr = BufReader::new(f);
+    let rdr = auto_detect_reader(f, &path)
+        .with_context(|| format!("setup decompression for {}", path.display()))?;
+    let rdr = BufReader::new(rdr);
     let mut total: u64 = 0;
     for line in rdr.lines() {
         let _ = line?;
@@ -202,6 +217,10 @@ pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Res
 ///
 /// Lines that are empty/whitespace are skipped. Each remaining line is parsed as JSON.
 ///
+/// **Compression**: Automatically detects and decompresses compressed files. Note that
+/// compressed streams don't support seeking, so the entire file is decompressed from
+/// the start and lines are skipped until reaching `start`.
+///
 /// # Errors
 /// Returns an error if the file cannot be opened or any selected line fails to
 /// parse into `T`.
@@ -211,7 +230,9 @@ pub fn read_jsonl_range<T: DeserializeOwned>(
     end: u64,
 ) -> Result<Vec<T>> {
     let f = File::open(&src.path).with_context(|| format!("open {}", src.path.display()))?;
-    let rdr = BufReader::new(f);
+    let rdr = auto_detect_reader(f, &src.path)
+        .with_context(|| format!("setup decompression for {}", src.path.display()))?;
+    let rdr = BufReader::new(rdr);
     let mut out = Vec::<T>::new();
     for (i, line) in rdr.lines().enumerate() {
         let i = i as u64;

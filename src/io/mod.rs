@@ -200,3 +200,5 @@ pub mod csv;
 #[cfg_attr(docsrs, doc(cfg(feature = "io-parquet")))]
 #[cfg(feature = "io-parquet")]
 pub mod parquet;
+
+pub mod compression;
