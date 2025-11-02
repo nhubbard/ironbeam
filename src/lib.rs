@@ -79,6 +79,7 @@
 //! - [`filter_values`](PCollection::filter_values) - filter-by-value predicate
 //! - [`group_by_key`](PCollection::group_by_key) - group values by key into `Vec<V>`
 //! - [`combine_values`](PCollection::combine_values) - aggregate values per key with a combiner
+//! - [`top_k_per_key`](PCollection::top_k_per_key) - select the top-K largest values per key
 //!
 //! ### Combiners
 //!

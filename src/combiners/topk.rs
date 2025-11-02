@@ -48,14 +48,50 @@ where
         } // drop smallest
     }
 
-    fn merge(&self, acc: &mut BinaryHeap<Reverse<T>>, mut other: BinaryHeap<Reverse<T>>) {
-        // Merge by pushing and trimming
-        while let Some(x) = other.pop() {
-            acc.push(x);
-            if acc.len() > self.k {
-                acc.pop();
-            }
+    fn merge(&self, acc: &mut BinaryHeap<Reverse<T>>, other: BinaryHeap<Reverse<T>>) {
+        // Optimized partial-order merge:
+        // If we can fit everything, just extend
+        if acc.len() + other.len() <= self.k {
+            acc.extend(other);
+            return;
         }
+
+        // Otherwise, merge via sorted order for better cache locality
+        // Convert both heaps to sorted vecs (largest first)
+        let mut v1: Vec<T> = Vec::with_capacity(acc.len());
+        let mut v2: Vec<T> = Vec::with_capacity(other.len());
+
+        while let Some(Reverse(x)) = acc.pop() {
+            v1.push(x);
+        }
+        v1.reverse(); // now largest first
+
+        for Reverse(x) in other {
+            v2.push(x);
+        }
+        v2.sort_unstable();
+        v2.reverse(); // now largest first
+
+        // Merge the two sorted vectors, keeping only top k
+        let mut i = 0;
+        let mut j = 0;
+        let mut result = BinaryHeap::with_capacity(self.k);
+
+        while result.len() < self.k && (i < v1.len() || j < v2.len()) {
+            let val = if i >= v1.len() {
+                j += 1;
+                v2[j - 1].clone()
+            } else if j >= v2.len() || v1[i] >= v2[j] {
+                i += 1;
+                v1[i - 1].clone()
+            } else {
+                j += 1;
+                v2[j - 1].clone()
+            };
+            result.push(Reverse(val));
+        }
+
+        *acc = result;
     }
 
     fn finish(&self, mut acc: BinaryHeap<Reverse<T>>) -> Vec<T> {

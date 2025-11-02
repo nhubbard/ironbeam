@@ -36,8 +36,8 @@
 //!
 //! ### Side Inputs
 //! - [`side_inputs`] - Enrich streams with auxiliary data
-//!   - [`side_vec`](crate::side_vec) - Create a side input from a vector
-//!   - [`side_hashmap`](crate::side_hashmap) - Create a side input from a hash map
+//!   - [`side_vec`](side_vec) - Create a side input from a vector
+//!   - [`side_hashmap`](side_hashmap) - Create a side input from a hash map
 //!   - [`PCollection::map_with_side`](crate::PCollection::map_with_side)
 //!   - [`PCollection::filter_with_side`](crate::PCollection::filter_with_side)
 //!
@@ -49,6 +49,10 @@
 //! ### Sampling
 //! - [`sampling`] - Random sampling operations
 //!   - [`PCollection::sample`](crate::PCollection::sample)
+//!
+//! ### Top-K Operations
+//! - [`topk`] - Convenience API for selecting top K values per key
+//!   - [`PCollection::top_k_per_key`](crate::PCollection::top_k_per_key)
 //!
 //! ### Error Handling
 //! - [`try_process`] - Fallible transformations
@@ -64,15 +68,15 @@
 //!
 //! ### I/O Helpers
 //! - [`jsonl`] - JSON Lines I/O utilities (feature: `io-jsonl`)
-//!   - [`read_jsonl`](crate::read_jsonl)
-//!   - [`read_jsonl_streaming`](crate::read_jsonl_streaming)
+//!   - [`read_jsonl`](read_jsonl)
+//!   - [`read_jsonl_streaming`](read_jsonl_streaming)
 //!   - [`PCollection::write_jsonl`](crate::PCollection::write_jsonl)
 //! - [`csv`] - CSV I/O utilities (feature: `io-csv`)
-//!   - [`read_csv`](crate::read_csv)
-//!   - [`read_csv_streaming`](crate::read_csv_streaming)
+//!   - [`read_csv`](read_csv)
+//!   - [`read_csv_streaming`](read_csv_streaming)
 //!   - [`PCollection::write_csv`](crate::PCollection::write_csv)
 //! - [`parquet`] - Parquet I/O utilities (feature: `io-parquet`)
-//!   - [`read_parquet_streaming`](crate::read_parquet_streaming)
+//!   - [`read_parquet_streaming`](read_parquet_streaming)
 //!   - [`PCollection::write_parquet`](crate::PCollection::write_parquet)
 //!
 //! ### Windowing
@@ -82,8 +86,8 @@
 //!
 //! ### Standard Library Integration
 //! - [`stdlib`] - Convenience constructors for common sources
-//!   - [`from_vec`](crate::from_vec) - Create a collection from a vector
-//!   - [`from_iter`](crate::from_iter) - Create a collection from an iterator
+//!   - [`from_vec`](from_vec) - Create a collection from a vector
+//!   - [`from_iter`](from_iter) - Create a collection from an iterator
 //!
 //! ### Internal Utilities
 //! - [`common`] - Shared internal utilities used by other helpers
@@ -157,6 +161,7 @@ pub mod sampling;
 pub mod side_inputs;
 pub mod stdlib;
 pub mod timestamped;
+pub mod topk;
 pub mod try_process;
 pub mod tumbling;
 pub mod values;

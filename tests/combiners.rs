@@ -259,6 +259,76 @@ fn topk_edge_cases() -> Result<()> {
 }
 
 #[test]
+fn topk_convenience_api() -> Result<()> {
+    let p = Pipeline::default();
+
+    // Basic usage of the top_k_per_key convenience method
+    let data = vec![
+        ("alice", 95),
+        ("alice", 87),
+        ("alice", 92),
+        ("bob", 78),
+        ("bob", 88),
+        ("bob", 82),
+    ];
+
+    let top2 = from_vec(&p, data)
+        .top_k_per_key(2)
+        .collect_seq_sorted()?;
+
+    assert_eq!(top2.len(), 2);
+    assert_eq!(top2[0].0, "alice");
+    assert_eq!(top2[0].1, vec![95, 92]);
+    assert_eq!(top2[1].0, "bob");
+    assert_eq!(top2[1].1, vec![88, 82]);
+
+    // Compare with explicit combiner approach
+    let data2 = vec![
+        ("alice", 95),
+        ("alice", 87),
+        ("alice", 92),
+        ("bob", 78),
+        ("bob", 88),
+        ("bob", 82),
+    ];
+
+    let top2_explicit = from_vec(&p, data2)
+        .combine_values(TopK::new(2))
+        .collect_seq_sorted()?;
+
+    assert_eq!(top2, top2_explicit);
+
+    Ok(())
+}
+
+#[test]
+fn topk_partial_order_merge() -> Result<()> {
+    let p = Pipeline::default();
+
+    // Test that partial-order merge produces correct results
+    // with large dataset across multiple partitions
+    let data: Vec<(u8, u64)> = (0..1000)
+        .map(|i| ((i % 5) as u8, i as u64))
+        .collect();
+
+    let top10 = from_vec(&p, data)
+        .top_k_per_key(10)
+        .collect_par_sorted_by_key(Some(4), None)?;
+
+    // Each key should have exactly 10 values (200 values per key, take the top 10)
+    for (key, values) in &top10 {
+        assert_eq!(values.len(), 10);
+        // Values should be descending
+        assert!(values.windows(2).all(|w| w[0] >= w[1]));
+        // Check that we got the actual top 10 for this key
+        let expected_max = 995 + *key as u64;
+        assert_eq!(values[0], expected_max);
+    }
+
+    Ok(())
+}
+
+#[test]
 fn distinct_count_edge_cases() -> Result<()> {
     let p = Pipeline::default();
 
