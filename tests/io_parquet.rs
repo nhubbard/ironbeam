@@ -1,5 +1,6 @@
 #![cfg(feature = "io-parquet")]
 
+use rustflow::io::parquet::*;
 use rustflow::{from_vec, Pipeline};
 use serde::{Deserialize, Serialize};
 
@@ -47,5 +48,83 @@ fn parquet_roundtrip_typed() -> anyhow::Result<()> {
     assert_eq!(m, 2);
     let back2: Vec<Row> = rustflow::read_parquet_vec(&out_path)?;
     assert_eq!(back2, data);
+    Ok(())
+}
+
+#[test]
+fn write_parquet_vec_empty() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let path = tmp.path().join("empty.parquet");
+    let data: Vec<Row> = vec![];
+
+    let n = write_parquet_vec(&path, &data)?;
+    assert_eq!(n, 0);
+    assert!(path.exists());
+
+    // Read back empty file
+    let back: Vec<Row> = read_parquet_vec(&path)?;
+    assert_eq!(back.len(), 0);
+    Ok(())
+}
+
+#[test]
+fn build_parquet_shards_empty() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let path = tmp.path().join("empty.parquet");
+    let data: Vec<Row> = vec![];
+
+    write_parquet_vec(&path, &data)?;
+
+    let shards = build_parquet_shards(&path, 1)?;
+    assert_eq!(shards.total_rows, 0);
+    assert_eq!(shards.group_ranges.len(), 0);
+    Ok(())
+}
+
+#[test]
+fn build_parquet_shards_multiple_groups() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let path = tmp.path().join("multi_group.parquet");
+    let mut data = vec![];
+    for i in 0..100 {
+        data.push(Row {
+            id: i,
+            name: format!("name{}", i),
+            score: Some(i as f64),
+            tags: vec!["tag".into()],
+        });
+    }
+
+    write_parquet_vec(&path, &data)?;
+
+    let shards = build_parquet_shards(&path, 2)?;
+    assert_eq!(shards.total_rows, 100);
+    assert!(shards.group_ranges.len() > 0);
+    Ok(())
+}
+
+#[test]
+fn read_parquet_row_group_range_test() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let path = tmp.path().join("range_test.parquet");
+    let mut data = vec![];
+    for i in 0..50 {
+        data.push(Row {
+            id: i,
+            name: format!("name{}", i),
+            score: Some(i as f64),
+            tags: vec!["tag".into()],
+        });
+    }
+
+    write_parquet_vec(&path, &data)?;
+
+    let shards = build_parquet_shards(&path, 1)?;
+    assert!(shards.group_ranges.len() >= 1);
+
+    // Read first group
+    let (start, end) = shards.group_ranges[0];
+    let subset: Vec<Row> = read_parquet_row_group_range(&shards, start, end)?;
+    assert!(subset.len() > 0);
     Ok(())
 }
