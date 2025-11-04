@@ -17,11 +17,12 @@
 //! - Use `read_parquet_streaming` for large datasets where loading the entire file
 //!   would be too expensive; processing happens partition-by-partition.
 
-use crate::io::parquet::{build_parquet_shards, write_parquet_vec, ParquetShards, ParquetVecOps};
+use crate::io::glob::expand_glob;
+use crate::io::parquet::{build_parquet_shards, read_parquet_vec, write_parquet_vec, ParquetShards, ParquetVecOps};
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{PCollection, Pipeline, RFBound};
-use anyhow::Result;
+use crate::{from_vec, PCollection, Pipeline, RFBound};
+use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::marker::PhantomData;
@@ -64,15 +65,27 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     }
 }
 
-/// Read a Parquet file as a **streaming** source partitioned by row groups.
+/// Read Parquet file(s) as a **streaming** source partitioned by row groups.
 ///
 /// Each partition reads a contiguous range of **row groups** and deserializes
 /// the rows into `Vec<T>`. This avoids loading the entire file into memory at once.
 ///
+/// ### Glob Pattern Support
+///
+/// The `path` parameter can be either:
+/// - A single file path: `"data/input.parquet"`
+/// - A glob pattern: `"data/*.parquet"` or `"data/year=2024/month=*/day=*/*.parquet"`
+///
+/// When a glob pattern is provided, all matching files are read and concatenated
+/// in sorted (lexicographic) order for deterministic results. Note: For glob patterns,
+/// the function uses eager loading (all files read into memory) rather than streaming.
+///
 /// - `groups_per_shard`: how many row groups each shard/partition should read (minimum 1).
 /// - The returned `PCollection<T>` can be processed with the usual stateless / keyed ops.
 ///
-/// ### Example
+/// ### Examples
+///
+/// Single file (streaming):
 /// ```no_run
 /// use rustflow::*;
 /// # fn main() -> anyhow::Result<()> {
@@ -90,6 +103,40 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 /// }
 /// # Ok(()) }
 /// ```
+///
+/// Glob pattern:
+/// ```no_run
+/// use rustflow::*;
+/// # fn main() -> anyhow::Result<()> {
+/// #[cfg(feature = "io-parquet")]
+/// {
+///     #[derive(serde::Serialize, serde::Deserialize, Clone)]
+///     struct Rec { k: String, v: u64 }
+///
+///     let p = Pipeline::default();
+///     // Read all Parquet files in date partitions
+///     let stream = read_parquet_streaming::<Rec>(&p, "data/year=2024/month=*/day=*/*.parquet", 1)?;
+///     let rows = stream.collect_seq()?;
+/// }
+/// # Ok(()) }
+/// ```
+///
+/// Glob pattern:
+/// ```no_run
+/// use rustflow::*;
+/// # fn main() -> anyhow::Result<()> {
+/// #[cfg(feature = "io-parquet")]
+/// {
+///     #[derive(serde::Serialize, serde::Deserialize, Clone)]
+///     struct Rec { k: String, v: u64 }
+///
+///     let p = Pipeline::default();
+///     // Read all Parquet files in date partitions
+///     let stream = read_parquet_streaming::<Rec>(&p, "data/year=2024/month=*/day=*/*.parquet", 1)?;
+///     let rows = stream.collect_seq()?;
+/// }
+/// # Ok(()) }
+/// ```
 #[cfg(feature = "io-parquet")]
 pub fn read_parquet_streaming<T>(
     p: &Pipeline,
@@ -99,15 +146,40 @@ pub fn read_parquet_streaming<T>(
 where
     T: RFBound + DeserializeOwned,
 {
-    let shards: ParquetShards = build_parquet_shards(path, groups_per_shard)?;
-    let id = p.insert_node(Node::Source {
-        payload: Arc::new(shards),
-        vec_ops: ParquetVecOps::<T>::new(),
-        elem_tag: TypeTag::of::<T>(),
-    });
-    Ok(PCollection {
-        pipeline: p.clone(),
-        id,
-        _t: PhantomData,
-    })
+    let path_str = path.as_ref().to_str()
+        .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
+
+    // Check if path contains glob patterns
+    if path_str.contains('*') || path_str.contains('?') || path_str.contains('[') {
+        // Glob pattern - expand and read all matching files
+        let files = expand_glob(path_str)
+            .with_context(|| format!("expanding glob pattern: {}", path_str))?;
+
+        if files.is_empty() {
+            anyhow::bail!("no files found matching pattern: {}", path_str);
+        }
+
+        // For glob patterns, we use eager loading since streaming multiple
+        // parquet files would require a more complex sharding strategy
+        let mut all_data = Vec::new();
+        for file in files {
+            let data: Vec<T> = read_parquet_vec(&file)
+                .with_context(|| format!("reading {}", file.display()))?;
+            all_data.extend(data);
+        }
+        Ok(from_vec(p, all_data))
+    } else {
+        // Single file path - use streaming
+        let shards: ParquetShards = build_parquet_shards(path, groups_per_shard)?;
+        let id = p.insert_node(Node::Source {
+            payload: Arc::new(shards),
+            vec_ops: ParquetVecOps::<T>::new(),
+            elem_tag: TypeTag::of::<T>(),
+        });
+        Ok(PCollection {
+            pipeline: p.clone(),
+            id,
+            _t: PhantomData,
+        })
+    }
 }

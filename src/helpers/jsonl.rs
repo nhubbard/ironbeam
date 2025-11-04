@@ -63,26 +63,38 @@
 //! # Ok(()) }
 //! ```
 
+use crate::io::glob::expand_glob;
 use crate::io::jsonl::{build_jsonl_shards, write_jsonl_vec, JsonlShards, JsonlVecOps};
 use crate::node::Node;
 use crate::type_token::TypeTag;
 use crate::{from_vec, read_jsonl_vec, write_jsonl_par, PCollection, Pipeline, RFBound};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Read an entire JSONL file into a typed `PCollection<T>`.
+/// Read JSONL file(s) into a typed `PCollection<T>`.
 ///
-/// This is an *eager* source: the file is fully read and parsed into memory
+/// This is an *eager* source: the file(s) are fully read and parsed into memory
 /// before being wrapped as a `PCollection`.
+///
+/// ### Glob Pattern Support
+///
+/// The `path` parameter can be either:
+/// - A single file path: `"data/input.jsonl"`
+/// - A glob pattern: `"logs/*.jsonl"` or `"data/year=2024/month=*/day=*/*.jsonl"`
+///
+/// When a glob pattern is provided, all matching files are read and concatenated
+/// in sorted (lexicographic) order for deterministic results.
 ///
 /// ### Errors
 /// Propagates I/O and JSON parsing errors with line context.
 ///
-/// ### Example
+/// ### Examples
+///
+/// Single file:
 /// ```no_run
 /// use rustflow::*;
 /// use serde::{Deserialize, Serialize};
@@ -95,13 +107,66 @@ use std::sync::Arc;
 /// let v = pc.collect_seq()?;
 /// # Ok(()) }
 /// ```
+///
+/// Glob pattern:
+/// ```no_run
+/// use rustflow::*;
+/// use serde::{Deserialize, Serialize};
+/// # fn main() -> anyhow::Result<()> {
+/// #[derive(Serialize, Deserialize, Clone)]
+/// struct Row { k: String, v: u64 }
+///
+/// let p = Pipeline::default();
+/// // Read all JSONL files in the logs directory
+/// let pc: PCollection<Row> = read_jsonl(&p, "logs/*.jsonl")?;
+/// let v = pc.collect_seq()?;
+/// # Ok(()) }
+/// ```
+///
+/// Glob pattern:
+/// ```no_run
+/// use rustflow::*;
+/// use serde::{Deserialize, Serialize};
+/// # fn main() -> anyhow::Result<()> {
+/// #[derive(Serialize, Deserialize, Clone)]
+/// struct Row { k: String, v: u64 }
+///
+/// let p = Pipeline::default();
+/// // Read all JSONL files in the logs directory
+/// let pc: PCollection<Row> = read_jsonl(&p, "logs/*.jsonl")?;
+/// let v = pc.collect_seq()?;
+/// # Ok(()) }
+/// ```
 #[cfg(feature = "io-jsonl")]
 pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
     T: RFBound + DeserializeOwned,
 {
-    let data: Vec<T> = read_jsonl_vec(path)?;
-    Ok(from_vec(p, data))
+    let path_str = path.as_ref().to_str()
+        .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
+
+    // Check if path contains glob patterns
+    if path_str.contains('*') || path_str.contains('?') || path_str.contains('[') {
+        // Glob pattern - expand and read all matching files
+        let files = expand_glob(path_str)
+            .with_context(|| format!("expanding glob pattern: {}", path_str))?;
+
+        if files.is_empty() {
+            anyhow::bail!("no files found matching pattern: {}", path_str);
+        }
+
+        let mut all_data = Vec::new();
+        for file in files {
+            let data: Vec<T> = read_jsonl_vec(&file)
+                .with_context(|| format!("reading {}", file.display()))?;
+            all_data.extend(data);
+        }
+        Ok(from_vec(p, all_data))
+    } else {
+        // Single file path
+        let data: Vec<T> = read_jsonl_vec(path)?;
+        Ok(from_vec(p, data))
+    }
 }
 
 #[cfg(feature = "io-jsonl")]

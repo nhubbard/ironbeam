@@ -202,3 +202,4 @@ pub mod csv;
 pub mod parquet;
 
 pub mod compression;
+pub mod glob;

@@ -55,32 +55,44 @@
 //! ```
 
 use crate::io::csv::{build_csv_shards, read_csv_vec, write_csv_vec, CsvShards, CsvVecOps};
+use crate::io::glob::expand_glob;
 use crate::node::Node;
 use crate::type_token::TypeTag;
 use crate::{from_vec, PCollection, Pipeline, RFBound};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Read a CSV file into a typed `PCollection<T>` (vector mode).
+/// Read CSV file(s) into a typed `PCollection<T>` (vector mode).
 ///
-/// This eagerly parses the entire file into memory using `serde` and returns
+/// This eagerly parses the entire file(s) into memory using `serde` and returns
 /// a source collection. For very large files, prefer [`read_csv_streaming`].
+///
+/// ### Glob Pattern Support
+///
+/// The `path` parameter can be either:
+/// - A single file path: `"data/input.csv"`
+/// - A glob pattern: `"data/*.csv"` or `"data/year=2024/month=*/day=*/*.csv"`
+///
+/// When a glob pattern is provided, all matching files are read and concatenated
+/// in sorted (lexicographic) order for deterministic results.
 ///
 /// *Enabled when the `io-csv` feature is on.*
 ///
 /// # Arguments
 /// - `p`: Pipeline to attach the source to.
-/// - `path`: File path to read.
+/// - `path`: File path or glob pattern to read.
 /// - `has_headers`: Whether the input CSV includes a header row.
 ///
 /// # Errors
 /// An error is returned if the file cannot be opened or if any row fails to deserialize.
 ///
-/// # Example
+/// # Examples
+///
+/// Single file:
 /// ```no_run
 /// use rustflow::*;
 /// use serde::Deserialize;
@@ -94,6 +106,22 @@ use std::sync::Arc;
 /// let out = rows.collect_seq()?;
 /// # Ok(()) }
 /// ```
+///
+/// Glob pattern:
+/// ```no_run
+/// use rustflow::*;
+/// use serde::Deserialize;
+///
+/// #[derive(Clone, Deserialize)]
+/// struct Row { k: String, v: u64 }
+///
+/// # fn main() -> anyhow::Result<()> {
+/// let p = Pipeline::default();
+/// // Read all CSV files in the data directory
+/// let rows = read_csv::<Row>(&p, "data/*.csv", true)?;
+/// let out = rows.collect_seq()?;
+/// # Ok(()) }
+/// ```
 #[cfg(feature = "io-csv")]
 pub fn read_csv<T>(
     p: &Pipeline,
@@ -103,8 +131,31 @@ pub fn read_csv<T>(
 where
     T: RFBound + DeserializeOwned,
 {
-    let v = read_csv_vec::<T>(path, has_headers)?;
-    Ok(from_vec(p, v))
+    let path_str = path.as_ref().to_str()
+        .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
+
+    // Check if path contains glob patterns
+    if path_str.contains('*') || path_str.contains('?') || path_str.contains('[') {
+        // Glob pattern - expand and read all matching files
+        let files = expand_glob(path_str)
+            .with_context(|| format!("expanding glob pattern: {}", path_str))?;
+
+        if files.is_empty() {
+            anyhow::bail!("no files found matching pattern: {}", path_str);
+        }
+
+        let mut all_data = Vec::new();
+        for file in files {
+            let data: Vec<T> = read_csv_vec(&file, has_headers)
+                .with_context(|| format!("reading {}", file.display()))?;
+            all_data.extend(data);
+        }
+        Ok(from_vec(p, all_data))
+    } else {
+        // Single file path
+        let v = read_csv_vec::<T>(path, has_headers)?;
+        Ok(from_vec(p, v))
+    }
 }
 
 #[cfg(feature = "io-csv")]
