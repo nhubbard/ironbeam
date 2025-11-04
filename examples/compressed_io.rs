@@ -7,9 +7,15 @@
 //!
 //! Run with: cargo run --example compressed_io --features compression-gzip
 
-use rustflow::io::compression::{auto_detect_reader, auto_detect_writer, register_codec, CompressionCodec};
+use anyhow::Result as AnyhowResult;
+use rustflow::io::compression::{
+    auto_detect_reader, auto_detect_writer, register_codec, CompressionCodec,
+};
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
+use serde_json::{from_str, to_writer};
+use std::fs::{metadata, remove_file, File};
+use std::io::Result as IOResult;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -35,18 +41,18 @@ impl CompressionCodec for CustomCodec {
         None
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> std::io::Result<Box<dyn Read>> {
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IOResult<Box<dyn Read>> {
         println!("🔧 Custom codec: wrapping reader");
         Ok(reader)
     }
 
-    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
+    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> IOResult<Box<dyn Write>> {
         println!("🔧 Custom codec: wrapping writer");
         Ok(writer)
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> AnyhowResult<()> {
     println!("=== Rustflow Pluggable Compression Demo ===\n");
 
     // Sample data
@@ -72,30 +78,30 @@ fn main() -> anyhow::Result<()> {
     #[cfg(feature = "compression-gzip")]
     {
         println!("📝 Writing compressed data to logs.jsonl.gz...");
-        let file = std::fs::File::create("logs.jsonl.gz")?;
+        let file = File::create("logs.jsonl.gz")?;
         let mut writer = auto_detect_writer(file, "logs.jsonl.gz")?;
 
         for entry in &logs {
-            serde_json::to_writer(&mut writer, entry)?;
+            to_writer(&mut writer, entry)?;
             writer.write_all(b"\n")?;
         }
         writer.flush()?;
         drop(writer); // Ensure encoder finishes before reading
 
-        let size = std::fs::metadata("logs.jsonl.gz")?.len();
+        let size = metadata("logs.jsonl.gz")?.len();
         println!("✅ Compressed file size: {} bytes\n", size);
 
         // 2. Read compressed data (automatic detection)
         println!("📖 Reading compressed data from logs.jsonl.gz...");
-        let file = std::fs::File::open("logs.jsonl.gz")?;
+        let file = File::open("logs.jsonl.gz")?;
         let reader = auto_detect_reader(file, "logs.jsonl.gz")?;
-        let buf_reader = std::io::BufReader::new(reader);
+        let buf_reader = BufReader::new(reader);
 
         let mut loaded_logs = Vec::new();
-        for line in std::io::BufRead::lines(buf_reader) {
+        for line in BufRead::lines(buf_reader) {
             let line = line?;
             if !line.trim().is_empty() {
-                let entry: LogEntry = serde_json::from_str(&line)?;
+                let entry: LogEntry = from_str(&line)?;
                 loaded_logs.push(entry);
             }
         }
@@ -106,7 +112,7 @@ fn main() -> anyhow::Result<()> {
         }
         println!();
 
-        std::fs::remove_file("logs.jsonl.gz")?;
+        remove_file("logs.jsonl.gz")?;
     }
 
     // 3. Register and use custom codec
@@ -115,32 +121,35 @@ fn main() -> anyhow::Result<()> {
     println!("✅ Custom codec registered\n");
 
     println!("📝 Writing with custom codec to logs.jsonl.custom...");
-    let file = std::fs::File::create("logs.jsonl.custom")?;
+    let file = File::create("logs.jsonl.custom")?;
     let mut writer = auto_detect_writer(file, "logs.jsonl.custom")?;
 
     for entry in &logs {
-        serde_json::to_writer(&mut writer, entry)?;
+        to_writer(&mut writer, entry)?;
         writer.write_all(b"\n")?;
     }
     writer.flush()?;
     println!("✅ Written with custom codec\n");
 
     println!("📖 Reading with custom codec from logs.jsonl.custom...");
-    let file = std::fs::File::open("logs.jsonl.custom")?;
+    let file = File::open("logs.jsonl.custom")?;
     let reader = auto_detect_reader(file, "logs.jsonl.custom")?;
-    let buf_reader = std::io::BufReader::new(reader);
+    let buf_reader = BufReader::new(reader);
 
     let mut custom_logs = Vec::new();
-    for line in std::io::BufRead::lines(buf_reader) {
+    for line in BufRead::lines(buf_reader) {
         let line = line?;
         if !line.trim().is_empty() {
-            let entry: LogEntry = serde_json::from_str(&line)?;
+            let entry: LogEntry = from_str(&line)?;
             custom_logs.push(entry);
         }
     }
-    println!("✅ Read {} log entries with custom codec\n", custom_logs.len());
+    println!(
+        "✅ Read {} log entries with custom codec\n",
+        custom_logs.len()
+    );
 
-    std::fs::remove_file("logs.jsonl.custom")?;
+    remove_file("logs.jsonl.custom")?;
 
     println!("=== Demo Complete ===");
     println!("\nKey Features Demonstrated:");

@@ -164,6 +164,7 @@ pub mod timestamped;
 pub mod topk;
 pub mod try_process;
 pub mod tumbling;
+pub mod validation;
 pub mod values;
 
 // Only re-export files with top-level functions
