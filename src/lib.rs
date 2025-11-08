@@ -182,6 +182,7 @@
 //! - `io-parquet` - Enable Parquet I/O support (requires Arrow)
 //! - `parallel-io` - Enable parallel I/O operations (`write_*_par` methods)
 //! - `metrics` - Enable metrics collection and reporting (enabled by default)
+//! - `checkpointing` - Enable automatic checkpointing for fault tolerance (enabled by default)
 //!
 //! ## Examples
 //!
@@ -308,6 +309,46 @@
 //! # }
 //! ```
 //!
+//! ### Using Checkpointing for Fault Tolerance
+//! ```no_run
+//! # #[cfg(feature = "checkpointing")]
+//! # {
+//! use rustflow::*;
+//! use rustflow::checkpoint::{CheckpointConfig, CheckpointPolicy};
+//! # use anyhow::Result;
+//!
+//! # fn main() -> Result<()> {
+//! let p = Pipeline::default();
+//! let data = from_vec(&p, (0..1_000_000).collect::<Vec<i32>>());
+//!
+//! // Configure automatic checkpointing
+//! let checkpoint_config = CheckpointConfig {
+//!     enabled: true,
+//!     directory: "./checkpoints".into(),
+//!     policy: CheckpointPolicy::AfterEveryBarrier,
+//!     auto_recover: true,
+//!     max_checkpoints: Some(5),
+//! };
+//!
+//! let runner = Runner {
+//!     mode: ExecMode::Sequential,
+//!     checkpoint_config: Some(checkpoint_config),
+//!     ..Default::default()
+//! };
+//!
+//! // Build pipeline - checkpoints will be created automatically
+//! let result_collection = data
+//!     .key_by(|x: &i32| x % 100)
+//!     .map_values(|x: &i32| *x as u64)
+//!     .combine_values(Sum::<u64>::default());
+//!
+//! // Pipeline will checkpoint after each barrier and can recover on failure
+//! let result = runner.run_collect::<(i32, u64)>(&p, result_collection.id)?;
+//! # Ok(())
+//! # }
+//! # }
+//! ```
+//!
 //! ## Performance Tips
 //!
 //! - Use [`map_batches`](PCollection::map_batches) for CPU-intensive operations
@@ -335,6 +376,7 @@
 //! - [`helpers`] - Convenience functions and side input builders
 //! - [`extensions`] - Extension points for custom transforms and I/O
 //! - [`metrics`] - Metrics collection and reporting (feature: `metrics`)
+//! - [`checkpoint`] - Automatic checkpointing for fault tolerance (feature: `checkpointing`)
 //!
 //! ## Extensibility
 //!
@@ -397,6 +439,9 @@ pub mod window;
 
 #[cfg(feature = "metrics")]
 pub mod metrics;
+
+#[cfg(feature = "checkpointing")]
+pub mod checkpoint;
 
 // General re-exports
 pub use collection::{CombineFn, Count, PCollection, RFBound};

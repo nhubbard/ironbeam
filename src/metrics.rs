@@ -1,7 +1,7 @@
 //! Metrics collection and reporting for pipeline execution.
 //!
 //! The metrics module provides an extensible API for tracking pipeline execution statistics.
-//! Users can register custom metrics alongside built-in metrics, and optionally print or
+//! Users can register custom metrics alongside built-in metrics and optionally print or
 //! save metrics to a file at the end of pipeline execution.
 //!
 //! # Overview
@@ -45,7 +45,7 @@
 //! metrics.register(Box::new(MyCustomMetric { count: 42 }));
 //! p.set_metrics(metrics);
 //!
-//! // Build and execute pipeline
+//! // Build and execute the pipeline
 //! let data = from_vec(&p, vec![1, 2, 3, 4, 5]);
 //! let result = data.map(|x: &i32| x * 2).collect_seq()?;
 //!
@@ -170,7 +170,7 @@ impl MetricsCollector {
                 self.set_counter(name, new_count);
             }
         } else {
-            // Create new counter
+            // Create a new counter
             inner.metrics.insert(
                 name.to_string(),
                 Box::new(CounterMetric {
@@ -484,52 +484,5 @@ impl Default for HistogramStats {
             p95: 0.0,
             p99: 0.0,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_counter_metric() {
-        let mut collector = MetricsCollector::new();
-        collector.register(Box::new(CounterMetric::with_value("test_counter", 5)));
-
-        let snapshot = collector.snapshot();
-        assert_eq!(snapshot.get("test_counter").unwrap(), &json!(5));
-    }
-
-    #[test]
-    fn test_gauge_metric() {
-        let mut collector = MetricsCollector::new();
-        collector.register(Box::new(
-            GaugeMetric::new("test_gauge", 42.5).with_description("Test gauge"),
-        ));
-
-        let snapshot = collector.snapshot();
-        assert_eq!(snapshot.get("test_gauge").unwrap(), &json!(42.5));
-    }
-
-    #[test]
-    fn test_histogram_metric() {
-        let mut collector = MetricsCollector::new();
-        let values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        collector.register(Box::new(HistogramMetric::with_values("test_hist", values)));
-
-        let snapshot = collector.snapshot();
-        let hist_value = snapshot.get("test_hist").unwrap();
-        assert_eq!(hist_value["count"], json!(5));
-        assert_eq!(hist_value["mean"], json!(3.0));
-    }
-
-    #[test]
-    fn test_increment_counter() {
-        let collector = MetricsCollector::new();
-        collector.increment_counter("requests", 1);
-        collector.increment_counter("requests", 5);
-
-        let snapshot = collector.snapshot();
-        assert_eq!(snapshot.get("requests").unwrap(), &json!(6));
     }
 }

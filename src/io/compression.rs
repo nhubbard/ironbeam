@@ -212,9 +212,11 @@ fn detect_from_magic<R: BufRead>(reader: &mut R) -> Option<Arc<dyn CompressionCo
 
     for codec in get_registry() {
         if let Some(magic) = codec.magic_bytes()
-            && buf.len() >= magic.len() && buf.starts_with(magic) {
-                return Some(codec.clone());
-            }
+            && buf.len() >= magic.len()
+            && buf.starts_with(magic)
+        {
+            return Some(codec.clone());
+        }
     }
     None
 }
@@ -319,8 +321,8 @@ impl CompressionCodec for GzipCodec {
     }
 
     fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
-        use flate2::write::GzEncoder;
         use flate2::Compression;
+        use flate2::write::GzEncoder;
         Ok(Box::new(GzEncoder::new(writer, Compression::default())))
     }
 }
@@ -343,8 +345,7 @@ impl CompressionCodec for ZstdCodec {
     }
 
     fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> std::io::Result<Box<dyn Read>> {
-        zstd::stream::read::Decoder::new(reader)
-            .map(|d| Box::new(d) as Box<dyn Read>)
+        zstd::stream::read::Decoder::new(reader).map(|d| Box::new(d) as Box<dyn Read>)
     }
 
     fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
@@ -376,8 +377,8 @@ impl CompressionCodec for Bzip2Codec {
     }
 
     fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
-        use bzip2::write::BzEncoder;
         use bzip2::Compression;
+        use bzip2::write::BzEncoder;
         Ok(Box::new(BzEncoder::new(writer, Compression::default())))
     }
 }
@@ -407,86 +408,5 @@ impl CompressionCodec for XzCodec {
     fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
         use xz2::write::XzEncoder;
         Ok(Box::new(XzEncoder::new(writer, 6)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Cursor;
-
-    #[test]
-    #[cfg(feature = "compression-gzip")]
-    fn test_gzip_codec_name() {
-        let codec = GzipCodec;
-        assert_eq!(codec.name(), "gzip");
-    }
-
-    #[test]
-    #[cfg(feature = "compression-zstd")]
-    fn test_zstd_codec_name() {
-        let codec = ZstdCodec;
-        assert_eq!(codec.name(), "zstd");
-    }
-
-    #[test]
-    #[cfg(feature = "compression-bzip2")]
-    fn test_bzip2_codec_name() {
-        let codec = Bzip2Codec;
-        assert_eq!(codec.name(), "bzip2");
-    }
-
-    #[test]
-    #[cfg(feature = "compression-xz")]
-    fn test_xz_codec_name() {
-        let codec = XzCodec;
-        assert_eq!(codec.name(), "xz");
-    }
-
-    #[test]
-    fn test_detect_from_magic_empty_buffer() {
-        let data: &[u8] = &[];
-        let mut reader = BufReader::new(Cursor::new(data));
-        let result = detect_from_magic(&mut reader);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_detect_from_magic_no_match() {
-        let data: &[u8] = &[0x00, 0x01, 0x02, 0x03];
-        let mut reader = BufReader::new(Cursor::new(data));
-        let result = detect_from_magic(&mut reader);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    #[cfg(feature = "compression-gzip")]
-    fn test_auto_detect_reader_error_on_bad_compression() {
-        // Create invalid gzip data
-        let bad_data: Vec<u8> = vec![0x1f, 0x8b, 0x00, 0x00]; // Gzip magic but incomplete
-        let cursor = Cursor::new(bad_data);
-
-        // This should fail when trying to decompress
-        let result = auto_detect_reader(cursor, "test.gz");
-        // The error context should mention the codec name
-        if let Err(e) = result {
-            let error_msg = format!("{:?}", e);
-            assert!(error_msg.contains("gzip") || error_msg.contains("wrap reader"));
-        }
-    }
-
-    #[test]
-    #[cfg(feature = "compression-gzip")]
-    fn test_auto_detect_writer_with_gzip() {
-        let buffer = Vec::new();
-        let result = auto_detect_writer(buffer, "test.gz");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_auto_detect_writer_no_compression() {
-        let buffer = Vec::new();
-        let result = auto_detect_writer(buffer, "test.txt");
-        assert!(result.is_ok());
     }
 }

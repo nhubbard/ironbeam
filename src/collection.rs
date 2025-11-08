@@ -40,7 +40,7 @@ use std::sync::Arc;
 /// use rustflow::*;
 ///
 /// #[derive(Clone)]
-/// struct MyRow { k: String, v: u64 } // Send + Sync implied for these fields
+/// struct MyRow { k: String, v: u64 } // Send and Sync implied for these fields
 ///
 /// let p = Pipeline::default();
 /// let _pc: PCollection<MyRow> = from_vec(&p, vec![
@@ -80,10 +80,19 @@ pub struct PCollection<T> {
 }
 
 impl<T: RFBound> PCollection<T> {
+    /// Get the internal node ID for this collection.
+    ///
+    /// This is primarily used for advanced use cases like custom runner execution.
+    /// Most users should use the helper methods like `collect_seq()` or `collect_par()`
+    /// instead of directly accessing the node ID.
+    pub fn node_id(&self) -> NodeId {
+        self.id
+    }
+
     /// Apply a custom stateless transform to this collection.
     ///
     /// This is the primary extension point for adding custom operations to the pipeline.
-    /// Your operator must implement the [`DynOp`](crate::node::DynOp) trait, which
+    /// Your operator must implement the [`DynOp`](DynOp) trait, which
     /// processes a single partition (typically `Vec<T>`) and returns a transformed partition.
     ///
     /// # Type Safety
@@ -121,10 +130,7 @@ impl<T: RFBound> PCollection<T> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn apply_transform<O: RFBound>(
-        &self,
-        op: Arc<dyn crate::node::DynOp>,
-    ) -> PCollection<O> {
+    pub fn apply_transform<O: RFBound>(&self, op: Arc<dyn DynOp>) -> PCollection<O> {
         use crate::node::Node;
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
