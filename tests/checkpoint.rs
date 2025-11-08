@@ -89,7 +89,7 @@ mod checkpoint_tests {
             },
         };
 
-        let path = manager.save_checkpoint(state).unwrap();
+        let path = manager.save_checkpoint(&state).unwrap();
         assert!(path.exists());
 
         let loaded = manager.load_checkpoint(&path).unwrap();
@@ -129,7 +129,7 @@ mod checkpoint_tests {
                     progress_percent: (i * 33) as u8,
                 },
             };
-            manager.save_checkpoint(state).unwrap();
+            manager.save_checkpoint(&state).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
@@ -168,7 +168,7 @@ mod checkpoint_tests {
                     progress_percent: (i * 25) as u8,
                 },
             };
-            manager.save_checkpoint(state).unwrap();
+            manager.save_checkpoint(&state).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
@@ -207,7 +207,7 @@ mod checkpoint_tests {
             },
         };
 
-        let path = manager.save_checkpoint(state).unwrap();
+        let path = manager.save_checkpoint(&state).unwrap();
 
         // Corrupt the checkpoint by modifying the completed_node_index
         let mut file = File::open(&path).unwrap();

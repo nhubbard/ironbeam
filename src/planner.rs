@@ -39,9 +39,13 @@ pub struct Plan {
 /// 3) reorder value-only ops (requires fused blocks)
 /// 4) lift GBK->Combine (structure-changing)
 /// 5) drop mid-materialized (cleanup)
+///
+/// # Errors
+///
+/// If any of the optimizer passes fail or the pipeline is in an inconsistent state.
 pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     let (nodes, edges) = p.snapshot();
-    let mut chain = backwalk_linear(nodes, edges, terminal)?;
+    let mut chain = backwalk_linear(nodes, &edges, terminal)?;
     let len_hint = estimate_source_len(&chain);
 
     chain = fuse_stateless(chain);
@@ -60,10 +64,11 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
 /// edges and return a **forward** (source->terminal) linear chain.
 ///
 /// # Errors
+///
 /// An error is returned if a referenced node is missing from the snapshot.
 fn backwalk_linear(
     mut nodes: HashMap<NodeId, Node>,
-    edges: Vec<(NodeId, NodeId)>,
+    edges: &[(NodeId, NodeId)],
     terminal: NodeId,
 ) -> Result<Vec<Node>> {
     let mut chain = Vec::<Node>::new();
@@ -73,7 +78,7 @@ fn backwalk_linear(
             .remove(&cur)
             .ok_or_else(|| anyhow!("planner: missing node {cur:?}"))?;
         chain.push(n);
-        if let Some((from, _)) = edges.iter().find(|(_, to)| *to == cur).cloned() {
+        if let Some((from, _)) = edges.iter().find(|(_, to)| *to == cur).copied() {
             cur = from;
         } else {
             break;
@@ -129,7 +134,7 @@ fn fuse_stateless(chain: Vec<Node>) -> Vec<Node> {
 /// without changing semantics.
 fn reorder_value_only_runs(chain: Vec<Node>) -> Vec<Node> {
     let mut out = Vec::with_capacity(chain.len());
-    for n in chain.into_iter() {
+    for n in chain {
         if let Node::Stateless(ops) = n {
             // reorder only when ALL ops meet the capability contract
             let all_vo = ops.iter().all(|op| {
@@ -139,7 +144,7 @@ fn reorder_value_only_runs(chain: Vec<Node>) -> Vec<Node> {
                 let mut ops_owned: Vec<Arc<dyn DynOp>> = ops;
                 ops_owned.sort_by_key(|op| {
                     // promote "filters" (cost==1) first, then by cost
-                    let is_filter_first = if op.cost_hint() == 1 { 0 } else { 1 };
+                    let is_filter_first = i32::from(op.cost_hint() != 1);
                     (is_filter_first, op.cost_hint())
                 });
                 out.push(Node::Stateless(ops_owned));

@@ -96,6 +96,7 @@ impl<T: RFBound> PCollection<(TimestampMs, T)> {
     /// let stamped = pairs.to_timestamped();
     /// // stamped: PCollection<Timestamped<String>>
     /// ```
+    #[must_use]
     pub fn to_timestamped(self) -> PCollection<Timestamped<T>> {
         self.map(|p| Timestamped::new(p.0, p.1.clone()))
     }

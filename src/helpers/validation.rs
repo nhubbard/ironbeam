@@ -1,4 +1,4 @@
-//! Validation helper functions for PCollection.
+//! Validation helper functions for `PCollection`.
 //!
 //! These helpers add validation capabilities to pipelines, allowing you to
 //! handle bad data gracefully with configurable error handling modes.
@@ -6,7 +6,7 @@
 use crate::collection::{PCollection, RFBound};
 use crate::node::DynOp;
 use crate::type_token::Partition;
-use crate::validation::{ErrorCollector, Validate, ValidationMode};
+use crate::validation::{ErrorCollector, Validate, ValidationError, ValidationMode};
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
@@ -62,6 +62,7 @@ impl<T: RFBound + Validate> PCollection<T> {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn validate_with_mode(
         &self,
         mode: ValidationMode,
@@ -97,6 +98,7 @@ impl<T: RFBound + Validate> PCollection<T> {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn validate_skip_invalid(&self) -> PCollection<T> {
         self.apply_transform(Arc::new(ValidateOp::<T> {
             mode: ValidationMode::SkipInvalid,
@@ -129,6 +131,7 @@ impl<T: RFBound + Validate> PCollection<T> {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn validate_fail_fast(&self) -> PCollection<T> {
         self.apply_transform(Arc::new(ValidateOp::<T> {
             mode: ValidationMode::FailFast,
@@ -166,7 +169,7 @@ impl<T: RFBound + Validate> DynOp for ValidateOp<T> {
                         ValidationMode::LogAndContinue => {
                             if let Some(ref collector) = self.collector {
                                 let mut c = collector.lock().unwrap();
-                                c.add_error(Some(format!("record_{}", idx)), errors);
+                                c.add_error(Some(format!("record_{idx}")), errors);
                             }
                         }
                         ValidationMode::FailFast => {
@@ -176,7 +179,7 @@ impl<T: RFBound + Validate> DynOp for ValidateOp<T> {
                                 idx,
                                 errors
                                     .iter()
-                                    .map(|e| e.to_string())
+                                    .map(ValidationError::to_string)
                                     .collect::<Vec<_>>()
                                     .join(", ")
                             );
@@ -227,6 +230,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     pub fn validate_values_skip_invalid(&self) -> PCollection<(K, V)> {
         self.apply_transform(Arc::new(ValidateValuesOp::<K, V> {
             mode: ValidationMode::SkipInvalid,
@@ -236,6 +240,7 @@ where
     }
 
     /// Validate values with a specified mode and error collector.
+    #[must_use]
     pub fn validate_values_with_mode(
         &self,
         mode: ValidationMode,
@@ -277,7 +282,7 @@ impl<K: RFBound, V: RFBound + Validate> DynOp for ValidateValuesOp<K, V> {
                         ValidationMode::LogAndContinue => {
                             if let Some(ref collector) = self.collector {
                                 let mut c = collector.lock().unwrap();
-                                c.add_error(Some(format!("pair_{}", idx)), errors);
+                                c.add_error(Some(format!("pair_{idx}")), errors);
                             }
                         }
                         ValidationMode::FailFast => {
@@ -286,7 +291,7 @@ impl<K: RFBound, V: RFBound + Validate> DynOp for ValidateValuesOp<K, V> {
                                 idx,
                                 errors
                                     .iter()
-                                    .map(|e| e.to_string())
+                                    .map(ValidationError::to_string)
                                     .collect::<Vec<_>>()
                                     .join(", ")
                             );

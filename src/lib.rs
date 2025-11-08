@@ -7,8 +7,8 @@
 //! ## Key Features
 //!
 //! - **Declarative pipeline API** - chain transformations with a fluent interface
-//! - **Stateless and stateful operations** - map, filter, flat_map, group_by_key, combine
-//! - **Built-in combiners** - Sum, Min, Max, Average, DistinctCount, TopK, and more
+//! - **Stateless and stateful operations** - `map`, `filter`, `flat_map`, `group_by_key`, `combine`
+//! - **Built-in combiners** - `Sum`, `Min`, `Max`, `Average`, `DistinctCount`, `TopK`, and more
 //! - **Join support** - inner, left, right, and full outer joins
 //! - **Side inputs** - enrich streams with auxiliary data (vectors and hash maps)
 //! - **Batch processing** - optimize CPU-heavy operations with batch transforms
@@ -50,12 +50,12 @@
 //!
 //! ## Core Concepts
 //!
-//! ### Pipeline
+//! ### `Pipeline`
 //!
 //! A [`Pipeline`] is the container for your computation graph. Create one with
 //! `Pipeline::default()`, then attach data sources and transformations to it.
 //!
-//! ### PCollection
+//! ### `PCollection`
 //!
 //! A [`PCollection<T>`] represents a distributed collection with elements of type `T`.
 //! It's the fundamental abstraction for data in Rustflow. Collections are:
@@ -266,7 +266,7 @@
 //!     ("user_456".into(), "Bob".into()),
 //! ]);
 //!
-//! let enriched = events.map_with_side_map(user_names, |user_id, names| {
+//! let enriched = events.map_with_side_map(&user_names, |user_id, names| {
 //!     let name = names.get(user_id).cloned().unwrap_or_else(|| "Unknown".into());
 //!     format!("{}: {}", user_id, name)
 //! });
@@ -343,7 +343,7 @@
 //!     .combine_values(Sum::<u64>::default());
 //!
 //! // Pipeline will checkpoint after each barrier and can recover on failure
-//! let result = runner.run_collect::<(i32, u64)>(&p, result_collection.id)?;
+//! let result = runner.run_collect::<(i32, u64)>(&p, result_collection.node_id())?;
 //! # Ok(())
 //! # }
 //! # }

@@ -1,4 +1,4 @@
-//! Distinct value combiners: DistinctCount, DistinctSet, KMVApproxDistinctCount
+//! Distinct value combiners: `DistinctCount`, `DistinctSet`, `KMVApproxDistinctCount`
 
 use crate::collection::{CombineFn, LiftableCombiner};
 use crate::RFBound;
@@ -19,6 +19,7 @@ use std::marker::PhantomData;
 pub struct DistinctCount<T>(pub PhantomData<T>);
 impl<T> DistinctCount<T> {
     /// Convenience constructor (same as `Default`).
+    #[must_use]
     pub fn new() -> Self {
         Self(PhantomData)
     }
@@ -68,6 +69,7 @@ where
 #[derive(Clone, Copy, Debug)]
 pub struct DistinctSet<T>(pub PhantomData<T>);
 impl<T> DistinctSet<T> {
+    #[must_use]
     pub fn new() -> Self {
         Self(PhantomData)
     }
@@ -121,6 +123,7 @@ pub struct KMVApproxDistinctCount<T> {
     _m: PhantomData<T>,
 }
 impl<T> KMVApproxDistinctCount<T> {
+    #[must_use]
     pub fn new(k: usize) -> Self {
         Self {
             k: k.max(4),
@@ -138,6 +141,7 @@ pub(crate) struct KMVAcc {
 }
 
 #[inline]
+#[allow(clippy::cast_precision_loss)]
 fn rank_from_value<T: Hash>(v: &T) -> NotNan<f64> {
     let mut h = DefaultHasher::new();
     v.hash(&mut h);
@@ -184,6 +188,7 @@ impl KMVAcc {
     }
 
     #[inline]
+    #[allow(clippy::cast_precision_loss)]
     fn finish(self) -> f64 {
         let m = self.set.len();
         if m == 0 {

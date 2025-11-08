@@ -60,7 +60,7 @@
 //! let data = read_FORMAT_range(&shards, start, end)?;
 //! ```
 //!
-//! ### VecOps Integration
+//! ### `VecOps` Integration
 //!
 //! Each format provides a `VecOps` adapter (`JsonlVecOps<T>`, `CsvVecOps<T>`,
 //! `ParquetVecOps<T>`) that enables:

@@ -21,11 +21,11 @@
 //! let p = Pipeline::default();
 //! let nums = from_vec(&p, vec![1u32, 2, 3, 4]);
 //! let primes = side_vec(vec![2u32, 3]);
-//! let flagged = nums.map_with_side(primes, |n, ps| ps.contains(n));
+//! let flagged = nums.map_with_side(&primes, |n, ps| ps.contains(n));
 //!
 //! let map = side_hashmap(vec![("a".to_string(), 1), ("b".to_string(), 2)]);
 //! let kvs = from_vec(&p, vec![("a".to_string(), 10), ("b".to_string(), 20)]);
-//! let enriched = kvs.map_with_side_map(map, |(k, v), m| (k.clone(), v + m.get(k).unwrap_or(&0)));
+//! let enriched = kvs.map_with_side_map(&map, |(k, v), m| (k.clone(), v + m.get(k).unwrap_or(&0)));
 //! ```
 
 use crate::collection::{SideInput, SideMap};
@@ -48,8 +48,9 @@ use std::sync::Arc;
 /// let primes = side_vec(vec![2u32, 3, 5, 7]);
 ///
 /// let flagged = data
-///     .map_with_side(primes, |n, ps| if ps.contains(n) { n + 100 } else { *n });
+///     .map_with_side(&primes, |n, ps| if ps.contains(n) { n + 100 } else { *n });
 /// ```
+#[must_use]
 pub fn side_vec<T: RFBound>(v: Vec<T>) -> SideInput<T> {
     SideInput(Arc::new(v))
 }
@@ -72,11 +73,12 @@ impl<T: RFBound> PCollection<T> {
     /// let words = from_vec(&p, vec!["aa".to_string(), "abc".to_string()]);
     /// let lengths = side_vec::<usize>(vec![2, 3]);
     ///
-    /// let marked = words.map_with_side(lengths, |w, ls| {
+    /// let marked = words.map_with_side(&lengths, |w, ls| {
     ///     if ls.contains(&w.len()) { format!("{w}:hit") } else { w.clone() }
     /// });
     /// ```
-    pub fn map_with_side<O, S, F>(self, side: SideInput<S>, f: F) -> PCollection<O>
+    #[must_use]
+    pub fn map_with_side<O, S, F>(self, side: &SideInput<S>, f: F) -> PCollection<O>
     where
         O: RFBound,
         S: RFBound,
@@ -97,9 +99,10 @@ impl<T: RFBound> PCollection<T> {
     /// let nums = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
     /// let allow = side_vec(vec![2u32, 4]);
     ///
-    /// let even_whitelist = nums.filter_with_side(allow, |n, allow| allow.contains(n));
+    /// let even_whitelist = nums.filter_with_side(&allow, |n, allow| allow.contains(n));
     /// ```
-    pub fn filter_with_side<S, F>(self, side: SideInput<S>, pred: F) -> PCollection<T>
+    #[must_use]
+    pub fn filter_with_side<S, F>(self, side: &SideInput<S>, pred: F) -> PCollection<T>
     where
         S: RFBound,
         F: 'static + Send + Sync + Fn(&T, &[S]) -> bool,
@@ -124,11 +127,12 @@ impl<T: RFBound> PCollection<T> {
 ///
 /// let facts = side_hashmap(vec![("a".to_string(), 10u32), ("c".to_string(), 30u32)]);
 ///
-/// let enriched = rows.map_with_side_map(facts, |(k, v), m: &HashMap<String, u32>| {
+/// let enriched = rows.map_with_side_map(&facts, |(k, v), m: &HashMap<String, u32>| {
 ///     let add = m.get(k).copied().unwrap_or_default();
 ///     (k.clone(), v + add)
 /// });
 /// ```
+#[must_use]
 pub fn side_hashmap<K: RFBound + Eq + Hash, V: RFBound>(pairs: Vec<(K, V)>) -> SideMap<K, V> {
     SideMap(Arc::new(pairs.into_iter().collect()))
 }
@@ -153,12 +157,13 @@ impl<T: RFBound> PCollection<T> {
     /// let users = from_vec(&p, vec![("u1".to_string(), 5u32), ("u2".to_string(), 7u32)]);
     /// let quotas = side_hashmap(vec![("u1".to_string(), 100u32)]);
     ///
-    /// let with_quota = users.map_with_side_map(quotas, |(u, s), m: &HashMap<String, u32>| {
+    /// let with_quota = users.map_with_side_map(&quotas, |(u, s), m: &HashMap<String, u32>| {
     ///     let q = m.get(u).copied().unwrap_or(0);
     ///     (u.clone(), s + q)
     /// });
     /// ```
-    pub fn map_with_side_map<O, K, V, F>(self, side: SideMap<K, V>, f: F) -> PCollection<O>
+    #[must_use]
+    pub fn map_with_side_map<O, K, V, F>(self, side: &SideMap<K, V>, f: F) -> PCollection<O>
     where
         O: RFBound,
         K: RFBound + Eq + Hash,

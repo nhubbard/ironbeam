@@ -24,14 +24,14 @@ fn everything_everywhere_all_at_once() -> Result<()> {
         .map(|s: &String| s.split_whitespace().map(str::to_string).collect::<Vec<_>>())
         .flat_map(|v: &Vec<String>| v.clone())
         .filter(|w: &String| !w.starts_with('v'))
-        .map_with_side(side_vec.clone(), |w: &String, primes| {
+        .map_with_side(&side_vec.clone(), |w: &String, primes| {
             if primes.contains(&(w.len() as u32)) {
                 format!("{w}:P")
             } else {
                 w.clone()
             }
         })
-        .filter_with_side(side_vec.clone(), |w: &String, primes| {
+        .filter_with_side(&side_vec.clone(), |w: &String, primes| {
             let d = w.chars().last().unwrap_or('0').to_digit(10).unwrap_or(0);
             primes.contains(&d)
         });
@@ -144,7 +144,7 @@ fn everything_everywhere_all_at_once() -> Result<()> {
     // ---------- 7) Side map enrichment ----------
     let enriched = counts
         .clone() // clone so `counts` is still available later
-        .map_with_side_map(side_map.clone(), |(k, v), m: &HashMap<String, u32>| {
+        .map_with_side_map(&side_map.clone(), |(k, v), m: &HashMap<String, u32>| {
             let base = m.get(k).copied().unwrap_or_default() as u64;
             (k.clone(), v + base)
         });

@@ -126,7 +126,7 @@ fn composite_transform_basic() -> Result<()> {
         ],
     );
 
-    let cleaned = data.apply_composite(TrimAndFilter);
+    let cleaned = data.apply_composite(&TrimAndFilter);
     let result = cleaned.collect_seq()?;
 
     assert_eq!(result, vec!["hello", "world"]);
@@ -156,7 +156,7 @@ fn composite_transform_type_change() -> Result<()> {
         ],
     );
 
-    let parsed = data.apply_composite(ParseInts);
+    let parsed = data.apply_composite(&ParseInts);
     let result = parsed.collect_seq()?;
 
     assert_eq!(result, vec![123, 456]);
@@ -268,7 +268,7 @@ fn composite_transform_with_aggregation() -> Result<()> {
         ],
     );
 
-    let counts = lines.apply_composite(WordCount);
+    let counts = lines.apply_composite(&WordCount);
     let result = counts.collect_seq()?;
 
     let mut counts_map = std::collections::HashMap::new();

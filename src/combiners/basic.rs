@@ -19,6 +19,7 @@ use std::ops::Add;
 pub struct Sum<T>(pub PhantomData<T>);
 impl<T> Sum<T> {
     /// Convenience constructor (same as `Default`).
+    #[must_use]
     pub fn new() -> Self {
         Self(PhantomData)
     }
@@ -64,6 +65,7 @@ where
 pub struct Min<T>(pub PhantomData<T>);
 impl<T> Min<T> {
     /// Convenience constructor (same as `Default`).
+    #[must_use]
     pub fn new() -> Self {
         Self(PhantomData)
     }
@@ -81,7 +83,7 @@ where
         match acc {
             Some(cur) => {
                 if v < *cur {
-                    *cur = v
+                    *cur = v;
                 }
             }
             None => *acc = Some(v),
@@ -93,7 +95,7 @@ where
             match acc {
                 Some(a) => {
                     if b < *a {
-                        *a = b
+                        *a = b;
                     }
                 }
                 None => *acc = Some(b),
@@ -125,6 +127,7 @@ where
 pub struct Max<T>(pub PhantomData<T>);
 impl<T> Max<T> {
     /// Convenience constructor (same as `Default`).
+    #[must_use]
     pub fn new() -> Self {
         Self(PhantomData)
     }
@@ -142,7 +145,7 @@ where
         match acc {
             Some(cur) => {
                 if v > *cur {
-                    *cur = v
+                    *cur = v;
                 }
             }
             None => *acc = Some(v),
@@ -154,7 +157,7 @@ where
             match acc {
                 Some(a) => {
                     if b > *a {
-                        *a = b
+                        *a = b;
                     }
                 }
                 None => *acc = Some(b),

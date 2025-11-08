@@ -1,6 +1,6 @@
 //! Standard library helpers for constructing `PCollection`s.
 //!
-//! These helpers create in-memory sources for RustFlow pipelines directly from
+//! These helpers create in-memory sources for pipelines directly from
 //! native Rust data structures like `Vec<T>` or iterators. They're ideal for
 //! tests, demos, or pipelines where data is small and self-contained -- avoiding
 //! external I/O layers such as JSONL, CSV, or Parquet.
@@ -58,6 +58,7 @@ use std::sync::Arc;
 /// let pc = from_vec(&p, numbers);
 /// assert_eq!(pc.collect_seq().unwrap(), vec![10, 20, 30]);
 /// ```
+#[must_use]
 pub fn from_vec<T>(p: &Pipeline, data: Vec<T>) -> PCollection<T>
 where
     T: RFBound,
@@ -115,7 +116,7 @@ where
 /// must correctly downcast to the expected type. Mismatches will cause runtime panics.
 ///
 /// ### Use Cases
-/// - Custom file formats (Avro, Protocol Buffers, MessagePack, etc.)
+/// - Custom file formats (Avro, Protocol Buffers, Message Pack, etc.)
 /// - Database connections with custom sharding
 /// - Streaming data sources with buffering
 /// - External data APIs with pagination

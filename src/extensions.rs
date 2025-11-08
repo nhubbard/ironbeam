@@ -47,7 +47,7 @@ use crate::{PCollection, RFBound};
 ///     "bob@test.com".to_string(),
 /// ]);
 ///
-/// let normalized = emails.apply_composite(NormalizeEmails);
+/// let normalized = emails.apply_composite(&NormalizeEmails);
 /// let result = normalized.collect_seq()?;
 /// assert_eq!(result, vec!["alice@example.com", "bob@test.com"]);
 /// # Ok(())
@@ -79,7 +79,7 @@ use crate::{PCollection, RFBound};
 ///     " test ".to_string(),
 /// ]);
 ///
-/// let lengths = words.apply_composite(WordLengths);
+/// let lengths = words.apply_composite(&WordLengths);
 /// let result = lengths.collect_seq()?;
 /// assert_eq!(result.len(), 3);
 /// # Ok(())
@@ -90,7 +90,7 @@ pub trait CompositeTransform<I: RFBound, O: RFBound>: Send + Sync {
     ///
     /// This method receives the input collection and must return the transformed
     /// output collection. You can use any combination of built-in transformations
-    /// (map, filter, group_by_key, combine_values, joins, etc.) to implement
+    /// (`map`, `filter`, `group_by_key`, `combine_values`, joins, etc.) to implement
     /// your logic.
     ///
     /// # Arguments
@@ -135,13 +135,13 @@ impl<T: RFBound> PCollection<T> {
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec!["  hello  ".into(), "".into(), "world".into()]);
-    /// let cleaned = data.apply_composite(TrimAndFilter);
+    /// let cleaned = data.apply_composite(&TrimAndFilter);
     /// let result = cleaned.collect_seq()?;
     /// assert_eq!(result, vec!["hello", "world"]);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn apply_composite<O: RFBound, CT>(&self, transform: CT) -> PCollection<O>
+    pub fn apply_composite<O: RFBound, CT>(&self, transform: &CT) -> PCollection<O>
     where
         CT: CompositeTransform<T, O>,
     {

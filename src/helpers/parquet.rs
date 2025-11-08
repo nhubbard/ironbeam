@@ -61,6 +61,10 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     /// }
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If an error is encountered while writing the Parquet file, a [`Result`] is returned.
     pub fn write_parquet(self, path: impl AsRef<Path>) -> Result<usize> {
         let rows: Vec<T> = self.collect_seq()?;
         write_parquet_vec(path, &rows)
@@ -139,6 +143,10 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 /// }
 /// # Ok(()) }
 /// ```
+///
+/// # Errors
+///
+/// If an error occurs while streaming the Parquet input data, then a [`Result`] is returned.
 #[cfg(feature = "io-parquet")]
 pub fn read_parquet_streaming<T>(
     p: &Pipeline,
@@ -153,14 +161,14 @@ where
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
 
-    // Check if path contains glob patterns
+    // Check if the path contains glob patterns
     if path_str.contains('*') || path_str.contains('?') || path_str.contains('[') {
         // Glob pattern - expand and read all matching files
         let files = expand_glob(path_str)
-            .with_context(|| format!("expanding glob pattern: {}", path_str))?;
+            .with_context(|| format!("expanding glob pattern: {path_str}"))?;
 
         if files.is_empty() {
-            anyhow::bail!("no files found matching pattern: {}", path_str);
+            anyhow::bail!("no files found matching pattern: {path_str}");
         }
 
         // For glob patterns, we use eager loading since streaming multiple

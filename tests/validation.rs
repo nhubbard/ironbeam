@@ -177,9 +177,9 @@ fn test_validation_helpers() {
     assert!(contains("email", "invalid", "@").is_err());
 
     // Test in_range
-    assert!(in_range("age", 25, 0, 150).is_ok());
-    assert!(in_range("age", -5, 0, 150).is_err());
-    assert!(in_range("age", 200, 0, 150).is_err());
+    assert!(in_range("age", &25, &0, &150).is_ok());
+    assert!(in_range("age", &-5, &0, &150).is_err());
+    assert!(in_range("age", &200,&0, &150).is_err());
 
     // Test is_email
     assert!(is_email("email", "alice@example.com").is_ok());
@@ -486,15 +486,15 @@ fn test_validators_range_boundaries() {
     use validators::*;
 
     // Test exact boundaries
-    assert!(in_range("val", 0, 0, 10).is_ok());
-    assert!(in_range("val", 10, 0, 10).is_ok());
-    assert!(in_range("val", 5, 0, 10).is_ok());
-    assert!(in_range("val", -1, 0, 10).is_err());
-    assert!(in_range("val", 11, 0, 10).is_err());
+    assert!(in_range("val", &0, &0, &10).is_ok());
+    assert!(in_range("val", &10, &0, &10).is_ok());
+    assert!(in_range("val", &5, &0, &10).is_ok());
+    assert!(in_range("val", &-1, &0, &10).is_err());
+    assert!(in_range("val", &11, &0, &10).is_err());
 
     // Test with floats
-    assert!(in_range("price", 5.5, 0.0, 10.0).is_ok());
-    assert!(in_range("price", -0.1, 0.0, 10.0).is_err());
+    assert!(in_range("price", &5.5, &0.0, &10.0).is_ok());
+    assert!(in_range("price", &-0.1, &0.0, &10.0).is_err());
 }
 
 #[test]

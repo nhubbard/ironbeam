@@ -144,7 +144,7 @@ pub fn build_parquet_shards(
     }
 
     let total_rows: u64 = (0..num_groups)
-        .map(|i| meta.row_group(i).num_rows() as u64)
+        .map(|i| meta.row_group(i).num_rows().cast_unsigned())
         .sum();
 
     let g = groups_per_shard.max(1);
@@ -207,6 +207,7 @@ pub struct ParquetVecOps<T>(std::marker::PhantomData<T>);
 #[cfg(feature = "io-parquet")]
 impl<T> ParquetVecOps<T> {
     /// Construct an `Arc` to the adapter.
+    #[must_use]
     pub fn new() -> Arc<Self> {
         Arc::new(Self(std::marker::PhantomData))
     }
@@ -219,7 +220,7 @@ where
 {
     fn len(&self, data: &dyn Any) -> Option<usize> {
         let s = data.downcast_ref::<ParquetShards>()?;
-        Some(s.total_rows as usize)
+        usize::try_from(s.total_rows).ok()
     }
 
     fn split(&self, data: &dyn Any, _n: usize) -> Option<Vec<Partition>> {
@@ -237,7 +238,7 @@ where
         let v: Vec<T> = read_parquet_row_group_range::<T>(
             s,
             0,
-            s.group_ranges.last().map(|&(_, e)| e).unwrap_or(0),
+            s.group_ranges.last().map_or(0, |&(_, e)| e),
         )
         .ok()?;
         Some(Box::new(v) as Partition)

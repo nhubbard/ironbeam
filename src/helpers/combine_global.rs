@@ -43,6 +43,10 @@ impl<T: RFBound> PCollection<T> {
     /// assert_eq!(out, vec![10u64]);
     /// # Ok::<_, anyhow::Error>(())
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function panics if incorrect types are used on its input.
     pub fn combine_globally<C, A, O>(self, comb: C, fanout: Option<usize>) -> PCollection<O>
     where
         C: CombineFn<T, A, O> + 'static,
@@ -119,6 +123,10 @@ impl<T: RFBound> PCollection<T> {
     /// profitable (e.g., `Count`, `TopK`, etc.).
     ///
     /// See [`combine_globally`] for fanout semantics and example usage.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if incorrect types are used on its input.
     pub fn combine_globally_lifted<C, A, O>(self, comb: C, fanout: Option<usize>) -> PCollection<O>
     where
         C: CombineFn<T, A, O> + LiftableCombiner<T, A, O> + 'static,

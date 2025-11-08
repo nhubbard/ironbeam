@@ -61,6 +61,10 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     ///     ("b".to_string(), 3u64),
     /// ]);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the downcast from `Partition` to `Vec<(K, V)>` fails.
     pub fn combine_values<C, A, O>(self, comb: C) -> PCollection<(K, O)>
     where
         C: CombineFn<V, A, O> + 'static,
@@ -176,6 +180,10 @@ where
     ///     ("b".to_string(), 5u64),
     /// ]);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// This function panics if incorrect types are used on its input.
     pub fn combine_values_lifted<C, A, O>(self, comb: C) -> PCollection<(K, O)>
     where
         C: CombineFn<V, A, O> + LiftableCombiner<V, A, O> + 'static,

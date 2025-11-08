@@ -29,6 +29,7 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     /// // v contains 1,2,3 in some order
     /// assert_eq!(v.len(), 3);
     /// ```
+    #[must_use]
     pub fn distinct(self) -> PCollection<T> {
         // CombineGlobally produces Vec<T> (single element in the stream), then expand.
         let vecs = self.combine_globally(DistinctSet::<T>::default(), None);
@@ -49,6 +50,7 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     /// let est = out.collect_seq().unwrap()[0];
     /// assert!(est > 1200.0 && est < 1300.0); // rough bound
     /// ```
+    #[must_use]
     pub fn approx_distinct_count(self, k: usize) -> PCollection<f64> {
         self.combine_globally(KMVApproxDistinctCount::<T>::new(k), None)
     }
@@ -81,6 +83,7 @@ where
     ///   ("b".to_string(), 7),
     /// ]);
     /// ```
+    #[must_use]
     pub fn distinct_per_key(self) -> PCollection<(K, V)> {
         // (K,V) -> group_by_key -> (K, Vec<V>) -> combine_values_lifted(DistinctSet) -> (K, Vec<V>)
         // -> flat_map to (K,V)
@@ -99,6 +102,7 @@ where
     /// Produces `(K, f64)` where the value is the estimated number of distinct
     /// values observed for that key. For keys with fewer than `k` unique values,
     /// the estimate is exact (equal to the true count).
+    #[must_use]
     pub fn approx_distinct_count_per_key(self, k: usize) -> PCollection<(K, f64)> {
         self.combine_values(KMVApproxDistinctCount::<V>::new(k))
     }

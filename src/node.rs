@@ -1,8 +1,8 @@
 //! Execution graph "nodes" and the dynamic operator trait.
 //!
 //! This module defines:
-//! - [`DynOp`]: the trait for **stateless, per-partition** operators (map, filter,
-//!   flat_map, value-only transforms, batching, etc.). These are scheduled and
+//! - [`DynOp`]: the trait for **stateless, per-partition** operators (`map`, `filter`,
+//!   `flat_map`, value-only transforms, batching, etc.). These are scheduled and
 //!   fused by the planner.
 //! - [`Node`]: the **typed execution IR** that the planner/runner interprets.
 //!   Nodes include sources, chains of stateless ops, keyed barriers
@@ -72,7 +72,7 @@ pub trait DynOp: Send + Sync {
 ///
 /// The runner interprets a linearized chain of nodes:
 /// - A plan **must** start with a [`Node::Source`].
-/// - The planner may fuse zero or more ['Node::Stateless'] segments.
+/// - The planner may fuse zero or more [`Node::Stateless`] segments.
 /// - Barriers like [`Node::GroupByKey`] and [`Node::CombineValues`] materialize/merge partitions.
 /// - [`Node::CoGroup`] executes two subplans (for joins) and then a typed exec closure.
 /// - [`Node::Materialized`] anchors a pre-existing typed payload for terminal reads.

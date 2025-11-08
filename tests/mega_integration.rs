@@ -68,7 +68,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     // map_with_side
     let _marked_primes = numbers
         .clone()
-        .map_with_side(primes_vec.clone(), |n: &u32, primes| {
+        .map_with_side(&primes_vec.clone(), |n: &u32, primes| {
             if primes.contains(n) {
                 format!("{n}:PRIME")
             } else {
@@ -79,11 +79,11 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     // filter_with_side
     let only_primes = numbers
         .clone()
-        .filter_with_side(primes_vec.clone(), |n: &u32, primes| primes.contains(n));
+        .filter_with_side(&primes_vec.clone(), |n: &u32, primes| primes.contains(n));
 
     // map_with_side_map
     let enriched = numbers.clone().filter(|n| *n <= 3).map_with_side_map(
-        lookup_map.clone(),
+        &lookup_map.clone(),
         |n: &u32, map: &HashMap<u32, String>| {
             format!("{n}: {}", map.get(n).unwrap_or(&"unknown".to_string()))
         },
@@ -473,7 +473,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     }
 
     let custom_result = from_vec(&p, vec![5u32, 10, 15, 20])
-        .apply_composite(DoubleAndFilter)
+        .apply_composite(&DoubleAndFilter)
         .collect_seq()?;
 
     assert!(custom_result.iter().all(|n| *n > 20));

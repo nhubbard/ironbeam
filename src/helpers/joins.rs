@@ -1,6 +1,6 @@
 //! Join helpers built on top of a co-group plan.
 //!
-//! These helpers construct a *CoGroup* node that:
+//! These helpers construct a `CoGroup` node that:
 //! 1) snapshots the left and right subplans ending at the provided `PCollection`s,
 //! 2) replays each subplan into intermediate, coalesced `Vec<(K, V)>` / `Vec<(K, W)>` buffers,
 //! 3) executes a join-specific closure over those buffers to emit the final joined rows.
@@ -66,7 +66,7 @@ fn chain_from(p: &Pipeline, terminal: NodeId) -> Result<Vec<Node>> {
             .remove(&cur)
             .ok_or_else(|| anyhow!("missing node {cur:?}"))?;
         chain.push(n);
-        if let Some((from, _)) = edges.iter().find(|(_, to)| *to == cur).cloned() {
+        if let Some((from, _)) = edges.iter().find(|(_, to)| *to == cur).copied() {
             cur = from;
         } else {
             break;
@@ -111,6 +111,11 @@ where
     /// let _ = joined.collect_par_sorted_by_key(None, None)?;
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if types are mismatched or if the chain building operation fails.
+    #[must_use]
     pub fn join_inner<W>(&self, right: &PCollection<(K, W)>) -> PCollection<(K, (V, W))>
     where
         W: RFBound,
@@ -138,7 +143,7 @@ where
             }
 
             let mut out: Vec<(K, (V, W))> = Vec::new();
-            for (k, vs) in lm.into_iter() {
+            for (k, vs) in lm {
                 if let Some(ws) = rm.get(&k) {
                     for v in &vs {
                         for w in ws {
@@ -206,6 +211,11 @@ where
     /// let _ = joined.collect_par_sorted_by_key(None, None)?;
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if types are mismatched or chain building fails.
+    #[must_use]
     pub fn join_left<W>(&self, right: &PCollection<(K, W)>) -> PCollection<(K, (V, Option<W>))>
     where
         W: RFBound,
@@ -231,7 +241,7 @@ where
             }
 
             let mut out: Vec<(K, (V, Option<W>))> = Vec::new();
-            for (k, vs) in lm.into_iter() {
+            for (k, vs) in lm {
                 match rm.get(&k) {
                     Some(ws) => {
                         for v in &vs {
@@ -305,6 +315,11 @@ where
     /// let _ = joined.collect_par_sorted_by_key(None, None)?;
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if types are mismatched or chain building fails.
+    #[must_use]
     pub fn join_right<W>(&self, right: &PCollection<(K, W)>) -> PCollection<(K, (Option<V>, W))>
     where
         W: RFBound,
@@ -331,7 +346,7 @@ where
 
             let mut out: Vec<(K, (Option<V>, W))> = Vec::new();
 
-            for (k, ws) in rm.into_iter() {
+            for (k, ws) in rm {
                 match lm.get(&k) {
                     Some(vs) => {
                         for w in &ws {
@@ -405,6 +420,11 @@ where
     /// let _ = joined.collect_par_sorted_by_key(None, None)?;
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if types are mismatched or chain building fails.
+    #[must_use]
     #[allow(clippy::type_complexity)]
     pub fn join_full<W>(
         &self,

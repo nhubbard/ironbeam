@@ -17,6 +17,7 @@ struct Centroid {
 }
 
 impl Centroid {
+    #[must_use]
     fn new(mean: f64, weight: f64) -> Self {
         Self { mean, weight }
     }
@@ -51,6 +52,7 @@ impl TDigest {
     /// # Arguments
     /// * `compression` - Controls accuracy vs. memory. Higher = more accurate but more memory.
     ///   Typical values: 20-1000. Default recommendation: 100.
+    #[must_use]
     pub fn new(compression: f64) -> Self {
         Self {
             compression,
@@ -67,6 +69,7 @@ impl TDigest {
     }
 
     /// Add a value with a specified weight.
+    #[allow(clippy::cast_precision_loss)]
     pub fn add_weighted(&mut self, value: f64, weight: f64) {
         if !value.is_finite() {
             return; // Skip NaN and infinity
@@ -79,7 +82,7 @@ impl TDigest {
         self.total_weight += weight;
 
         // Compress when we have too many centroids
-        if self.centroids.len() > (self.compression * 2.0) as usize {
+        if self.centroids.len() as f64 > self.compression * 2.0 {
             self.compress();
         }
     }
@@ -171,6 +174,8 @@ impl TDigest {
     /// assert!((median - 50.0).abs() < 5.0);  // Approximate
     /// assert!((p95 - 95.0).abs() < 5.0);
     /// ```
+    #[must_use]
+    #[allow(clippy::float_cmp)]
     pub fn quantile(&self, q: f64) -> f64 {
         if self.centroids.is_empty() {
             return f64::NAN;
@@ -182,6 +187,7 @@ impl TDigest {
         if q == 0.0 || self.centroids.len() == 1 {
             return self.min;
         }
+        // clippy::float_cmp is disabled because we already clamp to [0.0, 1.0]
         if q == 1.0 {
             return self.max;
         }
@@ -223,7 +229,8 @@ impl TDigest {
         self.max
     }
 
-    /// Get multiple quantiles at once (more efficient than calling quantile() multiple times).
+    /// Get multiple quantiles at once (more efficient than calling `quantile()` multiple times).
+    #[must_use]
     pub fn quantiles(&self, qs: &[f64]) -> Vec<f64> {
         qs.iter().map(|&q| self.quantile(q)).collect()
     }
@@ -231,6 +238,7 @@ impl TDigest {
     /// Estimate the cumulative distribution function (CDF) at a given value.
     ///
     /// Returns the estimated fraction of values less than or equal to the given value.
+    #[must_use]
     pub fn cdf(&self, value: f64) -> f64 {
         if self.centroids.is_empty() || value < self.min {
             return 0.0;
@@ -256,11 +264,13 @@ impl TDigest {
     }
 
     /// Get the total count of values added.
+    #[must_use]
     pub fn count(&self) -> f64 {
         self.total_weight
     }
 
     /// Check if the digest is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.total_weight == 0.0
     }
@@ -313,6 +323,7 @@ impl<V> ApproxQuantiles<V> {
     /// * `quantiles` - The quantiles to compute (e.g., `vec![0.5]` for median,
     ///   `vec![0.25, 0.5, 0.75]` for quartiles)
     /// * `compression` - T-digest compression parameter (typical: 20-1000, recommended: 100)
+    #[must_use]
     pub fn new(quantiles: Vec<f64>, compression: f64) -> Self {
         Self {
             quantiles,
@@ -322,11 +333,13 @@ impl<V> ApproxQuantiles<V> {
     }
 
     /// Create a combiner for common quantiles: min, 25th, median, 75th, max.
+    #[must_use]
     pub fn five_number_summary(compression: f64) -> Self {
         Self::new(vec![0.0, 0.25, 0.5, 0.75, 1.0], compression)
     }
 
     /// Create a combiner for percentiles (1st, 5th, 10th, ..., 90th, 95th, 99th).
+    #[must_use]
     pub fn percentiles(compression: f64) -> Self {
         Self::new(
             vec![0.01, 0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99],
@@ -335,6 +348,7 @@ impl<V> ApproxQuantiles<V> {
     }
 
     /// Create a combiner for just the median (50th percentile).
+    #[must_use]
     pub fn median(compression: f64) -> Self {
         Self::new(vec![0.5], compression)
     }
@@ -399,6 +413,7 @@ impl<V> ApproxMedian<V> {
     ///
     /// # Arguments
     /// * `compression` - T-digest compression parameter (typical: 20-1000, recommended: 100)
+    #[must_use]
     pub fn new(compression: f64) -> Self {
         Self {
             compression,

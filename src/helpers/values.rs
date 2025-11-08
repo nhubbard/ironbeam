@@ -62,6 +62,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// assert_eq!(out, vec![("x", 2u32), ("y", 3u32)]);
     /// # anyhow::Result::<()>::Ok(())
     /// ```
+    #[must_use]
     pub fn map_values<O, F>(self, f: F) -> PCollection<(K, O)>
     where
         O: RFBound,
@@ -98,6 +99,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// assert_eq!(out, vec![("y", 8u32)]);
     /// # anyhow::Result::<()>::Ok(())
     /// ```
+    #[must_use]
     pub fn filter_values<F>(self, pred: F) -> PCollection<(K, V)>
     where
         F: 'static + Send + Sync + Fn(&V) -> bool,

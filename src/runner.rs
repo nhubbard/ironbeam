@@ -92,6 +92,10 @@ impl Runner {
     /// An error is returned if the plan is malformed (e.g., a missing source),
     /// if a node encounters an unexpected input type, or if the terminal
     /// materialized type does not match `T`.
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline is in an inconsistent state, such as during concurrent modifications.
     pub fn run_collect<T: 'static + Send + Sync + Clone>(
         &self,
         p: &Pipeline,
@@ -110,8 +114,7 @@ impl Runner {
         let checkpoint_enabled = self
             .checkpoint_config
             .as_ref()
-            .map(|c| c.enabled)
-            .unwrap_or(false);
+            .is_some_and(|c| c.enabled);
 
         #[cfg(feature = "checkpointing")]
         let result = if checkpoint_enabled {
@@ -129,7 +132,7 @@ impl Runner {
                     let parts = partitions
                         .or(suggested_parts)
                         .unwrap_or(self.default_partitions);
-                    exec_par_with_checkpointing::<T>(chain, parts, config)
+                    exec_par_with_checkpointing::<T>(&chain, parts, config)
                 }
             }
         } else {
@@ -146,7 +149,7 @@ impl Runner {
                     let parts = partitions
                         .or(suggested_parts)
                         .unwrap_or(self.default_partitions);
-                    exec_par::<T>(chain, parts)
+                    exec_par::<T>(&chain, parts)
                 }
             }
         };
@@ -181,6 +184,7 @@ impl Runner {
 ///
 /// Internal helper used by [`Runner::run_collect`]. Walks the chain left->right,
 /// maintaining a single opaque `Partition` buffer.
+#[allow(clippy::too_many_lines)]
 fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>> {
     let mut buf: Option<Partition> = None;
 
@@ -319,14 +323,15 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
 /// Internal helper used by [`Runner::run_collect`]. Partitions the head source
 /// and applies stateless runs with rayon. Barriers (`GroupByKey`, `CombineValues`,
 /// `CoGroup`) perform a parallel local phase followed by a global merge.
+#[allow(clippy::too_many_lines)]
 fn exec_par<T: 'static + Send + Sync + Clone>(
-    chain: Vec<Node>,
+    chain: &[Node],
     partitions: usize,
 ) -> Result<Vec<T>> {
     /// Run a nested subplan (used by `CoGroup`) in parallel, returning a vector
     /// of partitions. The subplan must start with a `Source`. Nested `CoGroup`
     /// inside a subplan is not supported.
-    fn run_subplan_par(chain: Vec<Node>, partitions: usize) -> Result<Vec<Partition>> {
+    fn run_subplan_par(chain: &[Node], partitions: usize) -> Result<Vec<Partition>> {
         // must start with a source
         let (payload, vec_ops, rest) = match &chain[0] {
             Node::Source {
@@ -400,26 +405,25 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                         if f == usize::MAX {
                             accs = vec![merge(accs)];
                             break;
-                        } else {
-                            let mut next: Vec<Partition> =
-                                Vec::with_capacity(accs.len().div_ceil(f));
-                            let mut it = accs.into_iter(); // take ownership to avoid clones
-                            loop {
-                                let mut group: Vec<Partition> = Vec::with_capacity(f);
-                                for _ in 0..f {
-                                    if let Some(p) = it.next() {
-                                        group.push(p);
-                                    } else {
-                                        break;
-                                    }
-                                }
-                                if group.is_empty() {
+                        }
+                        let mut next: Vec<Partition> =
+                            Vec::with_capacity(accs.len().div_ceil(f));
+                        let mut it = accs.into_iter(); // take ownership to avoid clones
+                        loop {
+                            let mut group: Vec<Partition> = Vec::with_capacity(f);
+                            for _ in 0..f {
+                                if let Some(p) = it.next() {
+                                    group.push(p);
+                                } else {
                                     break;
                                 }
-                                next.push(merge(group));
                             }
-                            accs = next;
+                            if group.is_empty() {
+                                break;
+                            }
+                            next.push(merge(group));
                         }
+                        accs = next;
                     }
 
                     let acc = accs.pop().unwrap_or_else(|| merge(Vec::new()));
@@ -497,8 +501,8 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                 exec,
             } => {
                 // Execute left/right subplans in parallel; coalesce when necessary.
-                let left_parts = run_subplan_par((**left_chain).clone(), partitions)?;
-                let right_parts = run_subplan_par((**right_chain).clone(), partitions)?;
+                let left_parts = run_subplan_par(&(**left_chain).clone(), partitions)?;
+                let right_parts = run_subplan_par(&(**right_chain).clone(), partitions)?;
 
                 let left_single = if left_parts.len() == 1 {
                     left_parts.into_iter().next().unwrap()
@@ -530,25 +534,24 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                     if f == usize::MAX {
                         accs = vec![merge(accs)];
                         break;
-                    } else {
-                        let mut next: Vec<Partition> = Vec::with_capacity(accs.len().div_ceil(f));
-                        let mut it = accs.into_iter();
-                        loop {
-                            let mut group: Vec<Partition> = Vec::with_capacity(f);
-                            for _ in 0..f {
-                                if let Some(p) = it.next() {
-                                    group.push(p);
-                                } else {
-                                    break;
-                                }
-                            }
-                            if group.is_empty() {
+                    }
+                    let mut next: Vec<Partition> = Vec::with_capacity(accs.len().div_ceil(f));
+                    let mut it = accs.into_iter();
+                    loop {
+                        let mut group: Vec<Partition> = Vec::with_capacity(f);
+                        for _ in 0..f {
+                            if let Some(p) = it.next() {
+                                group.push(p);
+                            } else {
                                 break;
                             }
-                            next.push(merge(group));
                         }
-                        accs = next;
+                        if group.is_empty() {
+                            break;
+                        }
+                        next.push(merge(group));
                     }
+                    accs = next;
                 }
 
                 let acc = accs.pop().unwrap_or_else(|| merge(Vec::new()));
@@ -587,6 +590,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
 /// serialize intermediate partition state, so checkpoints track progress only.
 /// On recovery, the pipeline re-executes from the start but logs progress.
 #[cfg(feature = "checkpointing")]
+#[allow(clippy::too_many_lines)]
 fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
     chain: Vec<Node>,
     config: CheckpointConfig,
@@ -617,7 +621,7 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
                 // But we log that we're resuming from a previous run
             }
             Err(e) => {
-                eprintln!("[Checkpoint] Failed to load checkpoint: {}", e);
+                eprintln!("[Checkpoint] Failed to load checkpoint: {e}");
             }
         }
     }
@@ -692,8 +696,9 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
         // Check if we should create a checkpoint
         if manager.should_checkpoint(idx, is_barrier, total_nodes) {
             let timestamp = current_timestamp_ms();
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
             let progress_percent = ((idx as f64 / total_nodes as f64) * 100.0) as u8;
-            let metadata_str = format!("{}:{}:{}:1", pipeline_id, idx, timestamp);
+            let metadata_str = format!("{pipeline_id}:{idx}:{timestamp}:1");
             let checksum = compute_checksum(metadata_str.as_bytes());
 
             let state = CheckpointState {
@@ -710,15 +715,15 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
                 },
             };
 
-            match manager.save_checkpoint(state) {
+            match manager.save_checkpoint(&state) {
                 Ok(path) => {
                     eprintln!(
-                        "[Checkpoint] Saved checkpoint at node {} ({:.0}% complete) to {:?}",
-                        idx, progress_percent, path
+                        "[Checkpoint] Saved checkpoint at node {idx} ({:.0}% complete) to {:?}",
+                        progress_percent, path.display()
                     );
                 }
                 Err(e) => {
-                    eprintln!("[Checkpoint] Warning: Failed to save checkpoint: {}", e);
+                    eprintln!("[Checkpoint] Warning: Failed to save checkpoint: {e}");
                 }
             }
         }
@@ -739,7 +744,7 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
 /// Execute a fully linearized chain **in parallel** with checkpointing support.
 #[cfg(feature = "checkpointing")]
 fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
-    chain: Vec<Node>,
+    chain: &[Node],
     partitions: usize,
     config: CheckpointConfig,
 ) -> Result<Vec<T>> {
@@ -767,7 +772,7 @@ fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
                 );
             }
             Err(e) => {
-                eprintln!("[Checkpoint] Failed to load checkpoint: {}", e);
+                eprintln!("[Checkpoint] Failed to load checkpoint: {e}");
             }
         }
     }
@@ -775,7 +780,7 @@ fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
     // Execute with checkpointing (simplified: checkpoint after major barriers only)
     // Due to parallel execution complexity, we use the standard exec_par and checkpoint
     // at coarser granularity
-    let result = exec_par::<T>(chain.clone(), partitions);
+    let result = exec_par::<T>(chain, partitions);
 
     // On success, clear checkpoints
     if result.is_ok() {
@@ -784,7 +789,7 @@ fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
     } else {
         // On failure, save a checkpoint indicating the failure point
         let timestamp = current_timestamp_ms();
-        let metadata_str = format!("{}:0:{}:{}", pipeline_id, timestamp, partitions);
+        let metadata_str = format!("{pipeline_id}:0:{timestamp}:{partitions}");
         let checksum = compute_checksum(metadata_str.as_bytes());
         let state = CheckpointState {
             pipeline_id: pipeline_id.clone(),
@@ -792,14 +797,14 @@ fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
             timestamp,
             partition_count: partitions,
             checksum,
-            exec_mode: format!("parallel:{}", partitions),
+            exec_mode: format!("parallel:{partitions}"),
             metadata: CheckpointMetadata {
                 total_nodes,
                 last_node_type: "Failed".to_string(),
                 progress_percent: 0,
             },
         };
-        manager.save_checkpoint(state).ok();
+        manager.save_checkpoint(&state).ok();
     }
 
     result

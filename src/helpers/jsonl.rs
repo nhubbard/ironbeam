@@ -151,10 +151,10 @@ where
     if path_str.contains('*') || path_str.contains('?') || path_str.contains('[') {
         // Glob pattern - expand and read all matching files
         let files = expand_glob(path_str)
-            .with_context(|| format!("expanding glob pattern: {}", path_str))?;
+            .with_context(|| format!("expanding glob pattern: {path_str}"))?;
 
         if files.is_empty() {
-            anyhow::bail!("no files found matching pattern: {}", path_str);
+            anyhow::bail!("no files found matching pattern: {path_str}");
         }
 
         let mut all_data = Vec::new();

@@ -15,21 +15,25 @@ use std::marker::PhantomData;
 struct SplitMix64 {
     state: u64,
 }
+
 impl SplitMix64 {
     fn new(seed: u64) -> Self {
         Self { state: seed }
     }
+
     #[inline]
     fn next_u64(&mut self) -> u64 {
         let mut z = {
-            self.state = self.state.wrapping_add(0x9E3779B97F4A7C15);
+            self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
             self.state
         };
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^ (z >> 31)
     }
+
     #[inline]
+    #[allow(clippy::cast_precision_loss)]
     fn next_f64(&mut self) -> f64 {
         const SCALE: f64 = 1.0 / ((1u64 << 53) as f64);
         ((self.next_u64() >> 11) as f64) * SCALE
@@ -57,7 +61,7 @@ pub struct PRAcc<T> {
 /// and keeping the top-k by key. This is mergeable: to combine two reservoirs,
 /// take the k largest keys across both.
 ///
-/// Determinism: we use a tiny SplitMix64 PRNG in the accumulator seeded from
+/// Determinism: we use a tiny `SplitMix64` PRNG in the accumulator seeded from
 /// the combiner's seed. Sequential vs. parallel runs produce identical results
 /// as long as the input multiset is the same (merge is order/partition-neutral).
 ///
@@ -71,6 +75,7 @@ pub struct PriorityReservoir<T> {
 }
 
 impl<T> PriorityReservoir<T> {
+    #[must_use]
     pub fn new(k: usize, seed: u64) -> Self {
         Self {
             k,
@@ -136,7 +141,7 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
 
         // move other's live items into acc with remapped indices
         let mut map: Vec<Option<usize>> = Vec::with_capacity(other.store.len());
-        for slot in other.store.into_iter() {
+        for slot in other.store {
             if let Some((key, seq, v)) = slot {
                 let idx = acc.store.len();
                 acc.store.push(Some((key, seq, v)));

@@ -1,4 +1,4 @@
-//! Statistical combiners: AverageF64
+//! Statistical combiners: `AverageF64`
 
 use crate::collection::{CombineFn, LiftableCombiner};
 use crate::RFBound;
@@ -34,6 +34,7 @@ where
         acc.1 += other.1;
     }
 
+    #[allow(clippy::cast_precision_loss)]
     fn finish(&self, acc: (f64, u64)) -> f64 {
         if acc.1 == 0 {
             0.0

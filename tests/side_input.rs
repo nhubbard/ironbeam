@@ -29,7 +29,7 @@ fn map_with_side_map_enriches_records() -> anyhow::Result<()> {
     ]);
 
     // Enrich with price, defaulting missing SKUs to 0
-    let enriched = input.map_with_side_map(price_side, |prod, prices| {
+    let enriched = input.map_with_side_map(&price_side, |prod, prices| {
         let price = prices.get(&prod.sku).copied().unwrap_or(0);
         (prod.sku.clone(), price)
     });
@@ -67,7 +67,7 @@ fn filter_with_side_allows_only_whitelisted() -> anyhow::Result<()> {
     let whitelist = side_vec::<String>(vec!["us".into(), "de".into(), "jp".into()]);
 
     // Keep only whitelisted countries
-    let filtered = input.filter_with_side(whitelist, |code, allowed| {
+    let filtered = input.filter_with_side(&whitelist, |code, allowed| {
         let set: HashSet<&String> = allowed.iter().collect();
         set.contains(code)
     });

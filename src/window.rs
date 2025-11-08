@@ -50,6 +50,7 @@ pub struct Window {
 impl Window {
     /// Construct a window `[start, end)`. Panics in debug builds if `end < start`.
     #[inline]
+    #[must_use]
     pub fn new(start: TimestampMs, end: TimestampMs) -> Self {
         debug_assert!(end >= start);
         Self { start, end }
@@ -80,6 +81,7 @@ impl Window {
     /// assert_eq!(w2.end, 35);
     /// ```
     #[inline]
+    #[must_use]
     pub fn tumble(ts: TimestampMs, size_ms: u64, offset_ms: u64) -> Self {
         debug_assert!(size_ms > 0);
         // Position relative to the offset; windows start at offset + k*size.

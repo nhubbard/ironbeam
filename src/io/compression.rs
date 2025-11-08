@@ -138,6 +138,11 @@ fn get_registry() -> Vec<Arc<dyn CompressionCodec>> {
 ///
 /// register_codec(Arc::new(MyCodec));
 /// ```
+///
+/// # Panics
+///
+/// If the codec registry is unable to be written to, then this function will panic.
+/// This situation is highly unlikely to happen.
 pub fn register_codec(codec: Arc<dyn CompressionCodec>) {
     let mut lock = CODEC_REGISTRY.write().unwrap();
     if lock.is_none() {
@@ -172,12 +177,20 @@ pub trait CompressionCodec: Send + Sync {
     ///
     /// Takes ownership of the input reader and returns a boxed trait object
     /// that transparently decompresses the stream.
+    ///
+    /// # Errors
+    ///
+    /// You must handle errors appropriately and return an [`std::io::Result`] accordingly.
     fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> std::io::Result<Box<dyn Read>>;
 
     /// Wrap a writer with compression.
     ///
     /// Takes ownership of the input writer and returns a boxed trait object
     /// that transparently compresses the stream.
+    ///
+    /// # Errors
+    ///
+    /// You must handle errors appropriately and return an [`std::io::Result`] accordingly.
     fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>>;
 }
 
@@ -240,6 +253,10 @@ fn detect_from_magic<R: BufRead>(reader: &mut R) -> Option<Arc<dyn CompressionCo
 /// # Ok(())
 /// # }
 /// ```
+///
+/// # Errors
+///
+/// If an error occurs during detection, then a [`Result`] is returned.
 pub fn auto_detect_reader<R: Read + 'static>(
     reader: R,
     path_hint: impl AsRef<Path>,
@@ -280,6 +297,10 @@ pub fn auto_detect_reader<R: Read + 'static>(
 /// # Ok(())
 /// # }
 /// ```
+///
+/// # Errors
+///
+/// If an error occurs during auto-detection, a [`Result`] is returned.
 pub fn auto_detect_writer<W: Write + 'static>(
     writer: W,
     path_hint: impl AsRef<Path>,
@@ -303,7 +324,7 @@ struct GzipCodec;
 
 #[cfg(feature = "compression-gzip")]
 impl CompressionCodec for GzipCodec {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "gzip"
     }
 
@@ -332,7 +353,7 @@ struct ZstdCodec;
 
 #[cfg(feature = "compression-zstd")]
 impl CompressionCodec for ZstdCodec {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "zstd"
     }
 
@@ -359,7 +380,7 @@ struct Bzip2Codec;
 
 #[cfg(feature = "compression-bzip2")]
 impl CompressionCodec for Bzip2Codec {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "bzip2"
     }
 
@@ -388,7 +409,7 @@ struct XzCodec;
 
 #[cfg(feature = "compression-xz")]
 impl CompressionCodec for XzCodec {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "xz"
     }
 

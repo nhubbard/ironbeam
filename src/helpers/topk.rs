@@ -1,4 +1,4 @@
-//! Top-K convenience API for selecting largest values per key.
+//! Top-K convenience API for selecting the largest values per key.
 //!
 //! This module provides ergonomic helpers for selecting the top-K largest values
 //! from keyed collections without needing to explicitly instantiate combiners.
@@ -77,6 +77,7 @@ where
     /// # See Also
     /// - [`TopK`] - The underlying combiner implementation
     /// - [`combine_values`](PCollection::combine_values) - General combiner API
+    #[must_use]
     pub fn top_k_per_key(self, k: usize) -> PCollection<(K, Vec<V>)> {
         self.combine_values(TopK::new(k))
     }

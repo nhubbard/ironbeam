@@ -83,6 +83,10 @@ pub type ValidationResult = Result<(), Vec<ValidationError>>;
 /// Implement this trait on your data types to define validation rules.
 pub trait Validate {
     /// Validate this instance and return a list of errors if invalid.
+    ///
+    /// # Errors
+    ///
+    /// If there are validation issues, the error type will be `Vec<ValidationError>`.
     fn validate(&self) -> ValidationResult;
 }
 
@@ -117,6 +121,7 @@ impl ValidationError {
     }
 
     /// Create a validation error with an error code.
+    #[must_use]
     pub fn with_code<S: Into<String>>(mut self, code: S) -> Self {
         self.code = Some(code.into());
         self
@@ -126,12 +131,12 @@ impl ValidationError {
 impl fmt::Display for ValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(ref field) = self.field {
-            write!(f, "[{}] {}", field, self.message)?;
+            write!(f, "[{field}] {}", self.message)?;
         } else {
             write!(f, "{}", self.message)?;
         }
         if let Some(ref code) = self.code {
-            write!(f, " (code: {})", code)?;
+            write!(f, " (code: {code})")?;
         }
         Ok(())
     }
@@ -169,6 +174,7 @@ pub struct RecordError {
 
 impl ErrorCollector {
     /// Create a new empty error collector.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -179,11 +185,13 @@ impl ErrorCollector {
     }
 
     /// Get the total number of failed records.
+    #[must_use]
     pub fn error_count(&self) -> usize {
         self.errors.len()
     }
 
     /// Get all collected errors.
+    #[must_use]
     pub fn errors(&self) -> &[RecordError] {
         &self.errors
     }
@@ -205,13 +213,21 @@ impl ErrorCollector {
     }
 
     /// Export errors to JSON format.
+    ///
+    /// # Errors
+    ///
+    /// If there is an issue serializing the errors to JSON, a `serde_json::Error` will be returned.
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(&self.errors)
     }
 
     /// Write errors to a file in JSON format.
+    ///
+    /// # Errors
+    ///
+    /// If there is an issue writing to the file, an `io::Error` will be returned.
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
-        let json = self.to_json().map_err(|e| Error::other(e))?;
+        let json = self.to_json().map_err(Error::other)?;
         std::fs::write(path, json)
     }
 }
@@ -225,7 +241,7 @@ impl fmt::Display for ErrorCollector {
 fn format_errors(errors: &[ValidationError]) -> String {
     errors
         .iter()
-        .map(|e| e.to_string())
+        .map(ValidationError::to_string)
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -235,6 +251,10 @@ pub mod validators {
     use super::{ValidationError, ValidationResult};
 
     /// Validate that a string is not empty.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ValidationError` with a message about a non-empty field.
     pub fn not_empty(field: &str, value: &str) -> ValidationResult {
         if value.is_empty() {
             Err(vec![ValidationError::field(field, "must not be empty")])
@@ -244,83 +264,105 @@ pub mod validators {
     }
 
     /// Validate that a string contains a substring.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ValidationError` with a message about a missing substring.
     pub fn contains(field: &str, value: &str, substring: &str) -> ValidationResult {
         if value.contains(substring) {
             Ok(())
         } else {
             Err(vec![ValidationError::field(
                 field,
-                format!("must contain '{}'", substring),
+                format!("must contain '{substring}'"),
             )])
         }
     }
 
     /// Validate that a numeric value is within a range.
-    pub fn in_range<T: PartialOrd + fmt::Display>(
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ValidationError` with a message about a value outside the range.
+    pub fn in_range<T: PartialOrd + std::fmt::Display>(
         field: &str,
-        value: T,
-        min: T,
-        max: T,
+        value: &T,
+        min: &T,
+        max: &T,
     ) -> ValidationResult {
         if value >= min && value <= max {
             Ok(())
         } else {
             Err(vec![ValidationError::field(
                 field,
-                format!("must be between {} and {}", min, max),
+                format!("must be between {min} and {max}"),
             )])
         }
     }
 
     /// Validate that a string matches a basic email pattern.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ValidationError` with a message about an invalid email format.
     pub fn is_email(field: &str, value: &str) -> ValidationResult {
         // Basic email validation: must have @ symbol with non-empty local and domain parts
         if let Some(at_pos) = value.find('@') {
             let local = &value[..at_pos];
             let domain = &value[at_pos + 1..];
 
-            // Local part must not be empty
-            // Domain must not be empty and must contain at least one dot
-            if !local.is_empty() && !domain.is_empty() && domain.contains('.') {
-                // Domain must have at least one character after the dot
-                if let Some(dot_pos) = domain.rfind('.') {
-                    if dot_pos < domain.len() - 1 {
-                        return Ok(());
-                    }
+            // Local part must not be empty.
+            // Domain must not be empty and must contain at least one dot and at least one character
+            // after the dot.
+            if !local.is_empty()
+                && !domain.is_empty()
+                && domain.contains('.')
+                && let Some(dot_pos) = domain.rfind('.')
+                && dot_pos < domain.len() - 1 {
+                    return Ok(());
                 }
-            }
         }
         Err(vec![ValidationError::field(field, "invalid email format")])
     }
 
     /// Validate minimum length.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ValidationError` with a message about a value that is too short.
     pub fn min_length(field: &str, value: &str, min: usize) -> ValidationResult {
         if value.len() >= min {
             Ok(())
         } else {
             Err(vec![ValidationError::field(
                 field,
-                format!("must have at least {} characters", min),
+                format!("must have at least {min} characters"),
             )])
         }
     }
 
     /// Validate maximum length.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ValidationError` with a message about a value that is too long.
     pub fn max_length(field: &str, value: &str, max: usize) -> ValidationResult {
         if value.len() <= max {
             Ok(())
         } else {
             Err(vec![ValidationError::field(
                 field,
-                format!("must have at most {} characters", max),
+                format!("must have at most {max} characters"),
             )])
         }
     }
-
-    use std::fmt;
 }
 
 /// Combine multiple validation results.
+///
+/// # Errors
+///
+/// Returns a `ValidationResult` with a list of all errors if any validation failed.
 pub fn combine_validations(results: Vec<ValidationResult>) -> ValidationResult {
     let mut all_errors = Vec::new();
     for result in results {

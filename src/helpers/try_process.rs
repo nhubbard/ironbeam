@@ -127,12 +127,16 @@ where
     /// let res: Result<Vec<u64>> = parsed.collect_fail_fast();
     /// assert!(res.is_err()); // fails at "x"
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// If an error occurs, it returns a [`Result`] type.
     pub fn collect_fail_fast(self) -> Result<Vec<T>> {
         let mut ok = Vec::new();
         for r in self.collect_seq()? {
             match r {
                 Ok(v) => ok.push(v),
-                Err(e) => return Err(anyhow!("element failed: {}", e)),
+                Err(e) => return Err(anyhow!("element failed: {e}")),
             }
         }
         Ok(ok)

@@ -128,6 +128,9 @@ pub struct CsvShards {
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened or read as CSV.
+///
+/// # Panics
+/// If the shard calculation overflows.
 pub fn build_csv_shards(
     path: impl AsRef<Path>,
     has_headers: bool,
@@ -154,7 +157,7 @@ pub fn build_csv_shards(
         });
     }
     let rps = rows_per_shard.max(1) as u64;
-    let shards = total.div_ceil(rps) as usize;
+    let shards = usize::try_from(total.div_ceil(rps)).expect("overflow while calculating shards");
     let mut ranges = Vec::with_capacity(shards);
     for i in 0..shards {
         let start = (i as u64) * rps;
@@ -219,6 +222,7 @@ pub struct CsvVecOps<T>(std::marker::PhantomData<T>);
 
 impl<T> CsvVecOps<T> {
     /// Construct an `Arc` to the adapter.
+    #[must_use]
     pub fn new() -> Arc<Self> {
         Arc::new(Self(std::marker::PhantomData))
     }
@@ -230,8 +234,9 @@ where
 {
     fn len(&self, data: &dyn Any) -> Option<usize> {
         let s = data.downcast_ref::<CsvShards>()?;
-        Some(s.total_rows as usize)
+        usize::try_from(s.total_rows).ok()
     }
+
     fn split(&self, data: &dyn Any, _n: usize) -> Option<Vec<Partition>> {
         let s = data.downcast_ref::<CsvShards>()?;
         let mut parts = Vec::<Partition>::with_capacity(s.ranges.len());
@@ -241,6 +246,7 @@ where
         }
         Some(parts)
     }
+
     fn clone_any(&self, data: &dyn Any) -> Option<Partition> {
         let s = data.downcast_ref::<CsvShards>()?;
         let v: Vec<T> = read_csv_range::<T>(s, 0, s.total_rows).ok()?;
@@ -347,7 +353,7 @@ fn split_ranges(len: usize, parts: usize) -> Vec<(usize, usize, usize)> {
     let mut out = Vec::with_capacity(parts);
     let mut start = 0usize;
     for idx in 0..parts {
-        let extra = if idx < rem { 1 } else { 0 };
+        let extra = usize::from(idx < rem);
         let end = start + base + extra;
         if start < end {
             out.push((idx, start, end));

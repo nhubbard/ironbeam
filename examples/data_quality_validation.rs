@@ -28,7 +28,7 @@ impl Validate for Transaction {
         combine_validations(vec![
             validators::not_empty("transaction_id", &self.transaction_id),
             validators::not_empty("currency", &self.currency),
-            validators::in_range("amount", self.amount, 0.0, 1_000_000.0),
+            validators::in_range("amount", &self.amount, &0.0, &1_000_000.0),
             validators::is_email("email", &self.email),
             validators::min_length("currency", &self.currency, 3),
             validators::max_length("currency", &self.currency, 3),

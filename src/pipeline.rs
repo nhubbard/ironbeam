@@ -98,6 +98,11 @@ impl Pipeline {
     ///
     /// This is a deep clone of all node and edge data, used by the planner and runner
     /// to analyze or execute the pipeline without mutating the original.
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline is in an inconsistent state, such as during concurrent modifications.
+    #[must_use]
     pub fn snapshot(&self) -> (HashMap<NodeId, Node>, Vec<(NodeId, NodeId)>) {
         let g = self.inner.lock().unwrap();
         (g.nodes.clone(), g.edges.clone())
@@ -107,6 +112,10 @@ impl Pipeline {
     ///
     /// This enables metrics collection during pipeline execution. Metrics can be
     /// retrieved after execution using [`take_metrics`](Self::take_metrics).
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline is in an inconsistent state, such as during concurrent modifications.
     #[cfg(feature = "metrics")]
     pub fn set_metrics(&self, metrics: MetricsCollector) {
         let mut g = self.inner.lock().unwrap();
@@ -116,20 +125,34 @@ impl Pipeline {
     /// Take the metrics collector from this pipeline, leaving `None` in its place.
     ///
     /// This is typically called after pipeline execution to retrieve and report metrics.
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline is in an inconsistent state, such as during concurrent modifications.
     #[cfg(feature = "metrics")]
+    #[must_use]
     pub fn take_metrics(&self) -> Option<MetricsCollector> {
         let mut g = self.inner.lock().unwrap();
         g.metrics.take()
     }
 
     /// Get a clone of the metrics collector, if present.
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline is in an inconsistent state, such as during concurrent modifications.
     #[cfg(feature = "metrics")]
+    #[must_use]
     pub fn get_metrics(&self) -> Option<MetricsCollector> {
         let g = self.inner.lock().unwrap();
         g.metrics.clone()
     }
 
     /// Record the start of pipeline execution in metrics.
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline is in an inconsistent state, such as during concurrent modifications.
     #[cfg(feature = "metrics")]
     pub fn record_metrics_start(&self) {
         let g = self.inner.lock().unwrap();
@@ -139,6 +162,10 @@ impl Pipeline {
     }
 
     /// Record the end of pipeline execution in metrics.
+    /// 
+    /// # Panics
+    ///
+    /// If the pipeline is in an inconsistent state, such as during concurrent modifications.
     #[cfg(feature = "metrics")]
     pub fn record_metrics_end(&self) {
         let g = self.inner.lock().unwrap();

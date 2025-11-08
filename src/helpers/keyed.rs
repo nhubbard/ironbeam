@@ -69,6 +69,11 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// let out = grouped.collect_seq()?;   // e.g. [("a", vec![1,2]), ("b", vec![3])]
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the input partition cannot be downcast to `Vec<(K, V)>`.
+    #[must_use]
     pub fn group_by_key(self) -> PCollection<(K, Vec<V>)> {
         // Local stage: Vec<(K, V)> -> HashMap<K, Vec<V>>
         let local = Arc::new(|p: Partition| -> Partition {

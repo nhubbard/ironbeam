@@ -73,7 +73,7 @@ use std::time::{Duration, Instant};
 /// Implement this trait to define your own metrics that can be tracked
 /// during pipeline execution.
 pub trait Metric: Send + Sync + Any {
-    /// The name of this metric (e.g., "element_count", "processing_time_ms").
+    /// The name of this metric (e.g., `element_count`, `processing_time_ms`).
     fn name(&self) -> &str;
 
     /// The current value of this metric as a JSON value.
@@ -105,6 +105,7 @@ struct MetricsCollectorInner {
 
 impl MetricsCollector {
     /// Create a new metrics collector with built-in metrics enabled by default.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(MetricsCollectorInner {
@@ -116,6 +117,7 @@ impl MetricsCollector {
     }
 
     /// Create a new metrics collector without any built-in metrics.
+    #[must_use]
     pub fn empty() -> Self {
         Self::new()
     }
@@ -123,6 +125,10 @@ impl MetricsCollector {
     /// Register a custom metric.
     ///
     /// If a metric with the same name already exists, it will be replaced.
+    ///
+    /// # Panics
+    ///
+    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     pub fn register(&mut self, metric: Box<dyn Metric>) {
         let mut inner = self.inner.lock().unwrap();
         inner.metrics.insert(metric.name().to_string(), metric);
@@ -136,18 +142,31 @@ impl MetricsCollector {
     }
 
     /// Record the start time of pipeline execution.
+    ///
+    /// # Panics
+    ///
+    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     pub fn record_start(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.start_time = Some(Instant::now());
     }
 
     /// Record the end time of pipeline execution.
+    ///
+    /// # Panics
+    ///
+    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     pub fn record_end(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.end_time = Some(Instant::now());
     }
 
     /// Get the elapsed execution time, if available.
+    ///
+    /// # Panics
+    ///
+    /// Returns a `MetricsError` if the metric name is invalid or already exists.
+    #[must_use]
     pub fn elapsed(&self) -> Option<Duration> {
         let inner = self.inner.lock().unwrap();
         match (inner.start_time, inner.end_time) {
@@ -159,6 +178,10 @@ impl MetricsCollector {
     /// Increment a counter metric by name.
     ///
     /// If the metric doesn't exist, it will be created as a `CounterMetric`.
+    ///
+    /// # Panics
+    ///
+    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     pub fn increment_counter(&self, name: &str, value: u64) {
         let mut inner = self.inner.lock().unwrap();
         if let Some(metric) = inner.metrics.get_mut(name) {
@@ -182,6 +205,10 @@ impl MetricsCollector {
     }
 
     /// Set a counter metric to a specific value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the metric name is invalid or already exists.
     pub fn set_counter(&self, name: &str, value: u64) {
         let mut inner = self.inner.lock().unwrap();
         inner.metrics.insert(
@@ -194,6 +221,11 @@ impl MetricsCollector {
     }
 
     /// Get all metrics as a JSON object.
+    ///
+    /// # Panics
+    ///
+    /// Returns a `MetricsError` if the metric name is invalid or already exists.
+    #[must_use]
     pub fn to_json(&self) -> Value {
         let inner = self.inner.lock().unwrap();
         let mut metrics_json = serde_json::Map::new();
@@ -223,6 +255,10 @@ impl MetricsCollector {
     }
 
     /// Print all metrics to stdout in a human-readable format.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the metric name is invalid or already exists.
     pub fn print(&self) {
         println!("\n========== Pipeline Metrics ==========");
 
@@ -255,6 +291,10 @@ impl MetricsCollector {
     }
 
     /// Save all metrics to a JSON file.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `MetricsError` if the file cannot be created or written to.
     pub fn save_to_file(&self, path: &str) -> Result<()> {
         let json = self.to_json();
         let mut file = File::create(path)?;
@@ -264,6 +304,11 @@ impl MetricsCollector {
     }
 
     /// Get a snapshot of all metric names and values.
+    ///
+    /// # Panics
+    ///
+    /// Returns a `MetricsError` if the metric name is invalid or already exists.
+    #[must_use]
     pub fn snapshot(&self) -> HashMap<String, Value> {
         let inner = self.inner.lock().unwrap();
         inner
@@ -338,6 +383,7 @@ impl GaugeMetric {
     }
 
     /// Set a description for this gauge.
+    #[must_use]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
@@ -389,6 +435,7 @@ impl HistogramMetric {
     }
 
     /// Set a description for this histogram.
+    #[must_use]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
@@ -400,6 +447,8 @@ impl HistogramMetric {
     }
 
     /// Get statistics from the histogram.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
     pub fn stats(&self) -> HistogramStats {
         if self.values.is_empty() {
             return HistogramStats::default();

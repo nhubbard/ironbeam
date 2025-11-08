@@ -22,6 +22,7 @@ impl<T: RFBound> PCollection<T> {
     /// Sample **k** elements globally using a priority reservoir and return a single `Vec<T>`.
     ///
     /// Deterministic across seq/par for a given `seed` and input multiset.
+    #[must_use]
     pub fn sample_reservoir_vec(self, k: usize, seed: u64) -> PCollection<Vec<T>> {
         // CombineGlobally over T -> Vec<T>
         self.combine_globally(PriorityReservoir::<T>::new(k, seed), None)
@@ -30,6 +31,7 @@ impl<T: RFBound> PCollection<T> {
     /// Sample **k** elements globally and **flatten** the resulting `Vec<T>` back into a stream.
     ///
     /// Useful when you want to continue processing the sampled elements as a normal collection.
+    #[must_use]
     pub fn sample_reservoir(self, k: usize, seed: u64) -> PCollection<T> {
         self.sample_reservoir_vec(k, seed)
             .flat_map(|v: &Vec<T>| v.clone())
@@ -41,6 +43,7 @@ impl<K: RFBound + Eq + core::hash::Hash, V: RFBound> PCollection<(K, V)> {
     ///
     /// Implemented via **lifted** combine so it can skip an explicit `group_by_key`
     /// barrier when the planner detects adjacency.
+    #[must_use]
     pub fn sample_values_reservoir_vec(self, k: usize, seed: u64) -> PCollection<(K, Vec<V>)> {
         // Lifted combine over (K, Vec<V>) produces (K, Vec<V>)
         self.group_by_key()
@@ -48,6 +51,7 @@ impl<K: RFBound + Eq + core::hash::Hash, V: RFBound> PCollection<(K, V)> {
     }
 
     /// Per-key reservoir sample of values and **flatten** back to `(K, V)`.
+    #[must_use]
     pub fn sample_values_reservoir(self, k: usize, seed: u64) -> PCollection<(K, V)> {
         self.sample_values_reservoir_vec(k, seed)
             .flat_map(|kv: &(K, Vec<V>)| {

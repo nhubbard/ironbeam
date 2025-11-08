@@ -44,6 +44,7 @@ pub struct TypeTag {
 
 impl TypeTag {
     /// Construct a tag for `T`.
+    #[must_use]
     pub fn of<T: 'static>() -> Self {
         Self {
             id: TypeId::of::<T>(),
@@ -84,7 +85,7 @@ pub struct VecOpsImpl<T: Clone + Send + Sync + 'static>(PhantomData<T>);
 
 impl<T: Clone + Send + Sync + 'static> VecOps for VecOpsImpl<T> {
     fn len(&self, data: &dyn Any) -> Option<usize> {
-        data.downcast_ref::<Vec<T>>().map(|v| v.len())
+        data.downcast_ref::<Vec<T>>().map(Vec::len)
     }
 
     fn split(&self, data: &dyn Any, n: usize) -> Option<Vec<Partition>> {
@@ -124,6 +125,7 @@ impl<T: Clone + Send + Sync + 'static> VecOps for VecOpsImpl<T> {
 /// let data: Box<dyn Any + Send + Sync> = Box::new(vec![1i64, 2, 3]);
 /// assert_eq!(ops.len(data.as_ref()), Some(3));
 /// ```
+#[must_use]
 pub fn vec_ops_for<T: Clone + Send + Sync + 'static>() -> Arc<dyn VecOps> {
     Arc::new(VecOpsImpl::<T>(PhantomData))
 }

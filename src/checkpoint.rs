@@ -37,7 +37,7 @@
 //! };
 //!
 //! // Pipeline will automatically checkpoint and can recover from failures
-//! let result = runner.run_collect::<i32>(&p, data.id)?;
+//! let result = runner.run_collect::<i32>(&p, data.node_id())?;
 //! # Ok(())
 //! # }
 //! ```
@@ -50,6 +50,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 #[cfg(feature = "checkpointing")]
 use std::fs::{self, File};
+use std::fs::DirEntry;
 #[cfg(feature = "checkpointing")]
 use std::io::{Read, Write};
 #[cfg(feature = "checkpointing")]
@@ -93,7 +94,7 @@ impl Default for CheckpointConfig {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg(feature = "checkpointing")]
 pub enum CheckpointPolicy {
-    /// Create a checkpoint after every barrier node (GroupByKey, CombineValues, CoGroup, CombineGlobal).
+    /// Create a checkpoint after every barrier node (`GroupByKey`, `CombineValues`, `CoGroup`, `CombineGlobal`).
     AfterEveryBarrier,
     /// Create a checkpoint after every N nodes in the execution chain.
     EveryNNodes(usize),
@@ -150,6 +151,10 @@ pub struct CheckpointManager {
 #[cfg(feature = "checkpointing")]
 impl CheckpointManager {
     /// Create a new checkpoint manager with the given configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the checkpoint directory cannot be created.
     pub fn new(config: CheckpointConfig) -> Result<Self> {
         if config.enabled {
             // Ensure checkpoint directory exists
@@ -211,7 +216,11 @@ impl CheckpointManager {
     }
 
     /// Save a checkpoint to disk.
-    pub fn save_checkpoint(&mut self, state: CheckpointState) -> Result<PathBuf> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the checkpoint file cannot be created or written to.
+    pub fn save_checkpoint(&mut self, state: &CheckpointState) -> Result<PathBuf> {
         let filename = format!("checkpoint_{}_{}.bin", state.pipeline_id, state.timestamp);
         let path = self.config.directory.join(&filename);
 
@@ -232,6 +241,10 @@ impl CheckpointManager {
     }
 
     /// Find the most recent checkpoint for a given pipeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the checkpoint directory cannot be read or if no valid checkpoint is found.
     pub fn find_latest_checkpoint(&self, pipeline_id: &str) -> Result<Option<PathBuf>> {
         if !self.config.enabled {
             return Ok(None);
@@ -241,16 +254,15 @@ impl CheckpointManager {
             return Ok(None);
         }
 
-        let prefix = format!("checkpoint_{}_", pipeline_id);
+        let prefix = format!("checkpoint_{pipeline_id}_");
         let mut checkpoints: Vec<_> = fs::read_dir(&self.config.directory)
             .context("Failed to read checkpoint directory")?
-            .filter_map(|entry| entry.ok())
+            .filter_map(Result::ok)
             .filter(|entry| {
                 entry
                     .file_name()
                     .to_str()
-                    .map(|name| name.starts_with(&prefix) && name.ends_with(".bin"))
-                    .unwrap_or(false)
+                    .is_some_and(|name| name.starts_with(&prefix) && Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("bin")))
             })
             .collect();
 
@@ -271,10 +283,14 @@ impl CheckpointManager {
                 .unwrap_or(0)
         });
 
-        Ok(checkpoints.last().map(|e| e.path()))
+        Ok(checkpoints.last().map(DirEntry::path))
     }
 
     /// Load and verify a checkpoint from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the checkpoint file cannot be read or if the checksum verification fails.
     pub fn load_checkpoint(&self, path: &Path) -> Result<CheckpointState> {
         let mut file = File::open(path).context("Failed to open checkpoint file")?;
         let mut encoded = Vec::new();
@@ -301,21 +317,17 @@ impl CheckpointManager {
 
     /// Delete old checkpoints beyond the retention limit.
     fn cleanup_old_checkpoints(&self, pipeline_id: &str) -> Result<()> {
-        let max_checkpoints = match self.config.max_checkpoints {
-            Some(n) => n,
-            None => return Ok(()), // Keep all checkpoints
-        };
+        let Some(max_checkpoints) = self.config.max_checkpoints else { return Ok(()) };
 
-        let prefix = format!("checkpoint_{}_", pipeline_id);
+        let prefix = format!("checkpoint_{pipeline_id}_");
         let mut checkpoints: Vec<_> = fs::read_dir(&self.config.directory)
             .context("Failed to read checkpoint directory")?
-            .filter_map(|entry| entry.ok())
+            .filter_map(Result::ok)
             .filter(|entry| {
                 entry
                     .file_name()
                     .to_str()
-                    .map(|name| name.starts_with(&prefix) && name.ends_with(".bin"))
-                    .unwrap_or(false)
+                    .is_some_and(|name| name.starts_with(&prefix) && Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("bin")))
             })
             .collect();
 
@@ -346,17 +358,20 @@ impl CheckpointManager {
     }
 
     /// Delete all checkpoints for a given pipeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the checkpoint directory cannot be read or if any checkpoint file cannot be deleted.
     pub fn clear_checkpoints(&self, pipeline_id: &str) -> Result<()> {
-        let prefix = format!("checkpoint_{}_", pipeline_id);
+        let prefix = format!("checkpoint_{pipeline_id}_");
         let checkpoints: Vec<_> = fs::read_dir(&self.config.directory)
             .context("Failed to read checkpoint directory")?
-            .filter_map(|entry| entry.ok())
+            .filter_map(Result::ok)
             .filter(|entry| {
                 entry
                     .file_name()
                     .to_str()
-                    .map(|name| name.starts_with(&prefix) && name.ends_with(".bin"))
-                    .unwrap_or(false)
+                    .is_some_and(|name| name.starts_with(&prefix) && Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("bin")))
             })
             .collect();
 
@@ -370,6 +385,7 @@ impl CheckpointManager {
 
 /// Compute SHA-256 checksum of data.
 #[cfg(feature = "checkpointing")]
+#[must_use]
 pub fn compute_checksum(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -386,6 +402,8 @@ pub(crate) fn generate_pipeline_id(pipeline_hash: &str) -> String {
 
 /// Get current timestamp in milliseconds since epoch.
 #[cfg(feature = "checkpointing")]
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
 pub fn current_timestamp_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

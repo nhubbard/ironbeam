@@ -179,7 +179,12 @@ pub struct JsonlShards {
 /// Note that compressed files require full decompression during this step.
 ///
 /// # Errors
+///
 /// Returns an error if the file cannot be opened or read.
+///
+/// # Panics
+///
+/// If the shard calculation overflows.
 pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Result<JsonlShards> {
     let path = path.as_ref().to_path_buf();
     let f = File::open(&path).with_context(|| format!("open {}", path.display()))?;
@@ -199,7 +204,7 @@ pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Res
         });
     }
     let lps = lines_per_shard.max(1) as u64;
-    let shards = total.div_ceil(lps) as usize;
+    let shards = usize::try_from(total.div_ceil(lps)).expect("overflow while calculating shards");
     let mut ranges = Vec::with_capacity(shards);
     for i in 0..shards {
         let start = (i as u64) * lps;
@@ -264,6 +269,7 @@ pub struct JsonlVecOps<T>(std::marker::PhantomData<T>);
 
 impl<T> JsonlVecOps<T> {
     /// Construct an `Arc` to the adapter.
+    #[must_use]
     pub fn new() -> Arc<Self> {
         Arc::new(Self(std::marker::PhantomData))
     }
@@ -275,8 +281,9 @@ where
 {
     fn len(&self, data: &dyn Any) -> Option<usize> {
         let s = data.downcast_ref::<JsonlShards>()?;
-        Some(s.total_lines as usize)
+        usize::try_from(s.total_lines).ok()
     }
+
     fn split(&self, data: &dyn Any, _n: usize) -> Option<Vec<Partition>> {
         let s = data.downcast_ref::<JsonlShards>()?;
         let mut parts = Vec::<Partition>::with_capacity(s.ranges.len());
@@ -286,6 +293,7 @@ where
         }
         Some(parts)
     }
+
     fn clone_any(&self, data: &dyn Any) -> Option<Partition> {
         // read full file if sequential
         let s = data.downcast_ref::<JsonlShards>()?;

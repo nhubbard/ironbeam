@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 
 /// A wrapper around f64 that implements `Ord` by using `total_cmp`.
 /// This allows f64 values to be used in contexts requiring total ordering,
-/// such as BinaryHeap, sorting, and other ordered collections.
+/// such as `BinaryHeap`, sorting, and other ordered collections.
 ///
 /// # Examples
 ///
