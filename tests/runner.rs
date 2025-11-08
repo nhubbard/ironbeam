@@ -82,13 +82,7 @@ fn join_with_groupby_in_subplan_sequential() -> Result<()> {
     .group_by_key()
     .map_values(|v: &Vec<u32>| v.iter().sum::<u32>());
 
-    let right = from_vec(
-        &p,
-        vec![
-            ("a".to_string(), 10u32),
-            ("b".to_string(), 20u32),
-        ],
-    );
+    let right = from_vec(&p, vec![("a".to_string(), 10u32), ("b".to_string(), 20u32)]);
 
     let joined = left.join_inner(&right);
     let result = joined.collect_seq()?;
@@ -113,10 +107,7 @@ fn join_with_combine_values_in_subplan_sequential() -> Result<()> {
 
     let right = from_vec(
         &p,
-        vec![
-            ("x".to_string(), 100u32),
-            ("y".to_string(), 200u32),
-        ],
+        vec![("x".to_string(), 100u32), ("y".to_string(), 200u32)],
     )
     .combine_values(Count);
 
@@ -608,17 +599,20 @@ fn large_dataset_many_partitions() -> Result<()> {
 #[test]
 fn multiple_barriers_sequential() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![
-        ("a".to_string(), 1u32),
-        ("b".to_string(), 2),
-        ("a".to_string(), 3),
-        ("b".to_string(), 4),
-    ]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("a".to_string(), 3),
+            ("b".to_string(), 4),
+        ],
+    );
 
     let result = data
         .group_by_key()
         .map_values(|v: &Vec<u32>| v.iter().sum::<u32>())
-        .group_by_key()  // Second barrier
+        .group_by_key() // Second barrier
         .collect_seq()?;
 
     assert_eq!(result.len(), 2);
@@ -629,16 +623,19 @@ fn multiple_barriers_sequential() -> Result<()> {
 #[test]
 fn multiple_barriers_parallel() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![
-        ("a".to_string(), 1u32),
-        ("b".to_string(), 2),
-        ("a".to_string(), 3),
-        ("c".to_string(), 5),
-    ]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("a".to_string(), 3),
+            ("c".to_string(), 5),
+        ],
+    );
 
     let result = data
         .combine_values(Count)
-        .group_by_key()  // Second barrier
+        .group_by_key() // Second barrier
         .collect_par(None, Some(4))?;
 
     assert_eq!(result.len(), 3);
@@ -808,12 +805,15 @@ mod checkpointing_tests {
         let checkpoint_dir = temp_dir.path().to_path_buf();
 
         let p = Pipeline::default();
-        let data = from_vec(&p, vec![
-            ("a".to_string(), 1u32),
-            ("b".to_string(), 2),
-            ("a".to_string(), 3),
-            ("c".to_string(), 4),
-        ]);
+        let data = from_vec(
+            &p,
+            vec![
+                ("a".to_string(), 1u32),
+                ("b".to_string(), 2),
+                ("a".to_string(), 3),
+                ("c".to_string(), 4),
+            ],
+        );
         let combined = data.combine_values(Count);
 
         let config = CheckpointConfig {

@@ -20,7 +20,10 @@ impl Validate for User {
         }
 
         if self.age < 0 || self.age > 150 {
-            errors.push(ValidationError::field("age", "Age must be between 0 and 150"));
+            errors.push(ValidationError::field(
+                "age",
+                "Age must be between 0 and 150",
+            ));
         }
 
         if errors.is_empty() {
@@ -95,7 +98,8 @@ fn test_validate_with_error_collector() {
     );
 
     let collector = Arc::new(Mutex::new(ErrorCollector::new()));
-    let valid = users.validate_with_mode(ValidationMode::LogAndContinue, Some(Arc::clone(&collector)));
+    let valid =
+        users.validate_with_mode(ValidationMode::LogAndContinue, Some(Arc::clone(&collector)));
     let results = valid.collect_seq().unwrap();
 
     assert_eq!(results.len(), 1);
@@ -286,7 +290,8 @@ fn test_validate_values_with_error_collector() {
     );
 
     let collector = Arc::new(Mutex::new(ErrorCollector::new()));
-    let valid = orders.validate_values_with_mode(ValidationMode::LogAndContinue, Some(Arc::clone(&collector)));
+    let valid = orders
+        .validate_values_with_mode(ValidationMode::LogAndContinue, Some(Arc::clone(&collector)));
     let results = valid.collect_seq().unwrap();
 
     assert_eq!(results.len(), 1);
@@ -348,9 +353,7 @@ fn test_validation_with_grouping() {
     );
 
     let valid = users.validate_skip_invalid();
-    let by_age = valid
-        .key_by(|u: &User| u.age)
-        .group_by_key();
+    let by_age = valid.key_by(|u: &User| u.age).group_by_key();
 
     let results = by_age.collect_seq().unwrap();
     assert_eq!(results.len(), 1); // Only age 30 (with 2 valid users)
@@ -399,7 +402,7 @@ fn test_error_collector_errors() {
     let mut collector = ErrorCollector::new();
     collector.add_error(
         Some("test_record".into()),
-        vec![ValidationError::field("field1", "Error message")]
+        vec![ValidationError::field("field1", "Error message")],
     );
 
     let errors = collector.errors();

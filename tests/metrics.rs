@@ -126,10 +126,12 @@ fn test_to_json_with_execution_time() {
     let json = collector.to_json();
     assert!(json["test"]["value"] == json!(42));
     assert!(json["execution_time_ms"]["value"].is_number());
-    assert!(json["execution_time_ms"]["description"]
-        .as_str()
-        .unwrap()
-        .contains("execution time"));
+    assert!(
+        json["execution_time_ms"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("execution time")
+    );
 }
 
 #[test]
@@ -164,9 +166,7 @@ fn test_save_to_file() {
     let mut collector = MetricsCollector::new();
     collector.register(Box::new(CounterMetric::with_value("saved", 123)));
 
-    collector
-        .save_to_file(file_path.to_str().unwrap())
-        .unwrap();
+    collector.save_to_file(file_path.to_str().unwrap()).unwrap();
 
     // Verify file exists and contains valid JSON
     let contents = fs::read_to_string(&file_path).unwrap();

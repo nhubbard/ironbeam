@@ -56,15 +56,10 @@ fn test_tdigest_cdf() {
 #[test]
 fn approx_quantiles_basic() -> Result<()> {
     let p = Pipeline::default();
-    let data: Vec<(String, f64)> = (1..=100)
-        .map(|i| ("key".to_string(), i as f64))
-        .collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
 
     let result = from_vec(&p, data)
-        .combine_values(ApproxQuantiles::new(
-            vec![0.0, 0.25, 0.5, 0.75, 1.0],
-            100.0,
-        ))
+        .combine_values(ApproxQuantiles::new(vec![0.0, 0.25, 0.5, 0.75, 1.0], 100.0))
         .collect_par_sorted_by_key(Some(1), None)?;
 
     assert_eq!(result.len(), 1);
@@ -85,9 +80,7 @@ fn approx_quantiles_basic() -> Result<()> {
 #[test]
 fn approx_quantiles_lifted() -> Result<()> {
     let p = Pipeline::default();
-    let data: Vec<(String, f64)> = (1..=100)
-        .map(|i| ("key".to_string(), i as f64))
-        .collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
 
     let result_direct = from_vec(&p, data.clone())
         .combine_values(ApproxQuantiles::new(vec![0.5], 100.0))
@@ -150,9 +143,7 @@ fn approx_quantiles_multiple_keys() -> Result<()> {
 #[test]
 fn approx_median_basic() -> Result<()> {
     let p = Pipeline::default();
-    let data: Vec<(String, f64)> = (1..=100)
-        .map(|i| ("key".to_string(), i as f64))
-        .collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
 
     let result = from_vec(&p, data)
         .combine_values(ApproxMedian::default())
@@ -171,9 +162,7 @@ fn approx_median_basic() -> Result<()> {
 #[test]
 fn approx_median_lifted() -> Result<()> {
     let p = Pipeline::default();
-    let data: Vec<(String, f64)> = (1..=100)
-        .map(|i| ("key".to_string(), i as f64))
-        .collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
 
     let result_direct = from_vec(&p, data.clone())
         .combine_values(ApproxMedian::default())
@@ -200,9 +189,7 @@ fn approx_median_lifted() -> Result<()> {
 #[test]
 fn approx_quantiles_percentiles() -> Result<()> {
     let p = Pipeline::default();
-    let data: Vec<(String, f64)> = (1..=1000)
-        .map(|i| ("key".to_string(), i as f64))
-        .collect();
+    let data: Vec<(String, f64)> = (1..=1000).map(|i| ("key".to_string(), i as f64)).collect();
 
     let result = from_vec(&p, data)
         .combine_values(ApproxQuantiles::percentiles(200.0))
@@ -231,9 +218,7 @@ fn approx_quantiles_percentiles() -> Result<()> {
 #[test]
 fn approx_quantiles_five_number_summary() -> Result<()> {
     let p = Pipeline::default();
-    let data: Vec<(String, f64)> = (1..=100)
-        .map(|i| ("key".to_string(), i as f64))
-        .collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
 
     let result = from_vec(&p, data)
         .combine_values(ApproxQuantiles::five_number_summary(100.0))
@@ -288,10 +273,7 @@ fn approx_quantiles_skewed_distribution() -> Result<()> {
     }
 
     let result = from_vec(&p, data)
-        .combine_values(ApproxQuantiles::new(
-            vec![0.5, 0.9, 0.95, 0.99],
-            100.0,
-        ))
+        .combine_values(ApproxQuantiles::new(vec![0.5, 0.9, 0.95, 0.99], 100.0))
         .collect_par_sorted_by_key(Some(1), None)?;
 
     assert_eq!(result.len(), 1);
@@ -464,7 +446,12 @@ fn approx_quantiles_different_compression() -> Result<()> {
         let median = result[0].1[0];
 
         // All should give reasonable median estimates
-        assert!((median - 500.0).abs() < 50.0, "Compression {} gave median {}", compression, median);
+        assert!(
+            (median - 500.0).abs() < 50.0,
+            "Compression {} gave median {}",
+            compression,
+            median
+        );
     }
 
     Ok(())
@@ -508,7 +495,11 @@ fn approx_quantiles_multiple_quantiles() -> Result<()> {
 
     // Quantiles should be monotonically increasing
     for i in 0..quantiles.len() - 1 {
-        assert!(quantiles[i] <= quantiles[i + 1], "Quantiles not monotonic at index {}", i);
+        assert!(
+            quantiles[i] <= quantiles[i + 1],
+            "Quantiles not monotonic at index {}",
+            i
+        );
     }
 
     Ok(())

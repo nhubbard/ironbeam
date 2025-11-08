@@ -1,6 +1,6 @@
+use rustflow::node::DynOp;
 use rustflow::Partition;
 use std::sync::Arc;
-use rustflow::node::DynOp;
 
 /// Test implementation of DynOp for testing trait defaults
 struct TestDynOp;
@@ -57,8 +57,11 @@ fn test_dynop_default_trait_methods() {
     let op = TestDynOp;
 
     // Test default implementations
-    assert!(!op.key_preserving(), "default key_preserving should be false");
-    assert!(!op.value_only(),  "default value_only should be false");
+    assert!(
+        !op.key_preserving(),
+        "default key_preserving should be false"
+    );
+    assert!(!op.value_only(), "default value_only should be false");
     assert!(
         !op.reorder_safe_with_value_only(),
         "default reorder_safe_with_value_only should be false"

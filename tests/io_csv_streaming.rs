@@ -86,10 +86,22 @@ fn write_csv_par_helper_function() -> Result<()> {
 
     let p = Pipeline::default();
     let data = vec![
-        Rec { id: 1, name: "a".into() },
-        Rec { id: 2, name: "b".into() },
-        Rec { id: 3, name: "c".into() },
-        Rec { id: 4, name: "d".into() },
+        Rec {
+            id: 1,
+            name: "a".into(),
+        },
+        Rec {
+            id: 2,
+            name: "b".into(),
+        },
+        Rec {
+            id: 3,
+            name: "c".into(),
+        },
+        Rec {
+            id: 4,
+            name: "d".into(),
+        },
     ];
     let input = rustflow::from_vec(&p, data.clone());
 

@@ -71,9 +71,9 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
-use std::{fmt, io};
 use std::io::Error;
 use std::path::Path;
+use std::{fmt, io};
 
 /// Result type for validation operations.
 pub type ValidationResult = Result<(), Vec<ValidationError>>;
@@ -211,9 +211,7 @@ impl ErrorCollector {
 
     /// Write errors to a file in JSON format.
     pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
-        let json = self.to_json().map_err(|e| {
-            Error::other(e)
-        })?;
+        let json = self.to_json().map_err(|e| Error::other(e))?;
         std::fs::write(path, json)
     }
 }

@@ -100,7 +100,7 @@ fn test_pipeline_join_creates_edges() {
 #[cfg(feature = "metrics")]
 mod metrics_tests {
     use super::*;
-    use rustflow::metrics::{MetricsCollector, CounterMetric};
+    use rustflow::metrics::{CounterMetric, MetricsCollector};
 
     #[test]
     fn test_pipeline_metrics_set_and_get() {

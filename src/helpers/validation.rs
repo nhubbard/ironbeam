@@ -136,7 +136,6 @@ impl<T: RFBound + Validate> PCollection<T> {
             _phantom: PhantomData::<T>,
         }))
     }
-
 }
 
 /// Internal operator for validation.

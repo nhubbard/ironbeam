@@ -212,10 +212,7 @@ impl CheckpointManager {
 
     /// Save a checkpoint to disk.
     pub fn save_checkpoint(&mut self, state: CheckpointState) -> Result<PathBuf> {
-        let filename = format!(
-            "checkpoint_{}_{}.bin",
-            state.pipeline_id, state.timestamp
-        );
+        let filename = format!("checkpoint_{}_{}.bin", state.pipeline_id, state.timestamp);
         let path = self.config.directory.join(&filename);
 
         let encoded = bincode::serialize(&state).context("Failed to serialize checkpoint")?;

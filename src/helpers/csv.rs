@@ -131,7 +131,9 @@ pub fn read_csv<T>(
 where
     T: RFBound + DeserializeOwned,
 {
-    let path_str = path.as_ref().to_str()
+    let path_str = path
+        .as_ref()
+        .to_str()
         .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
 
     // Check if path contains glob patterns

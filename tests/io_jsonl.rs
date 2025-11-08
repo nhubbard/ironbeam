@@ -125,9 +125,12 @@ fn read_jsonl_vec_with_empty_lines() -> Result<()> {
 fn read_jsonl_vec_parse_error() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("bad.jsonl");
-    fs::write(&path, r#"{"id":1,"word":"ok"}
+    fs::write(
+        &path,
+        r#"{"id":1,"word":"ok"}
 not valid json
-"#)?;
+"#,
+    )?;
 
     let result: anyhow::Result<Vec<Rec>> = read_jsonl_vec(&path);
     assert!(result.is_err());
@@ -140,7 +143,10 @@ not valid json
 fn write_jsonl_vec_creates_parent_dirs() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("sub").join("dir").join("out.jsonl");
-    let data = vec![Rec { id: 1, word: "test".into() }];
+    let data = vec![Rec {
+        id: 1,
+        word: "test".into(),
+    }];
 
     write_jsonl_vec(&path, &data)?;
     assert!(path.exists());
@@ -166,8 +172,14 @@ fn write_jsonl_par_single_shard() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("single_par.jsonl");
     let data = vec![
-        Rec { id: 1, word: "hello".into() },
-        Rec { id: 2, word: "world".into() },
+        Rec {
+            id: 1,
+            word: "hello".into(),
+        },
+        Rec {
+            id: 2,
+            word: "world".into(),
+        },
     ];
 
     let n = write_jsonl_par(&path, &data, Some(1))?;
@@ -185,7 +197,10 @@ fn write_jsonl_par_multiple_shards() -> Result<()> {
     let path = tmp.path().join("multi_par.jsonl");
     let mut data = vec![];
     for i in 0..50 {
-        data.push(Rec { id: i, word: format!("word{}", i) });
+        data.push(Rec {
+            id: i,
+            word: format!("word{}", i),
+        });
     }
 
     let n = write_jsonl_par(&path, &data, Some(4))?;
@@ -203,7 +218,10 @@ fn write_jsonl_par_auto_shards() -> Result<()> {
     let path = tmp.path().join("auto_par.jsonl");
     let mut data = vec![];
     for i in 0..100 {
-        data.push(Rec { id: i, word: format!("word{}", i) });
+        data.push(Rec {
+            id: i,
+            word: format!("word{}", i),
+        });
     }
 
     let n = write_jsonl_par(&path, &data, None)?;
@@ -252,7 +270,10 @@ fn write_jsonl_vec_serialize_error_context() -> Result<()> {
 
     // Even if serialization fails, we want to ensure the error context includes item number
     // This is implicitly tested by the write_jsonl_vec implementation
-    let data = vec![Rec { id: 1, word: "test".into() }];
+    let data = vec![Rec {
+        id: 1,
+        word: "test".into(),
+    }];
     let result = write_jsonl_vec(&path, &data);
     assert!(result.is_ok());
     Ok(())

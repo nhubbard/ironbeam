@@ -82,12 +82,12 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         .filter_with_side(primes_vec.clone(), |n: &u32, primes| primes.contains(n));
 
     // map_with_side_map
-    let enriched = numbers
-        .clone()
-        .filter(|n| *n <= 3)
-        .map_with_side_map(lookup_map.clone(), |n: &u32, map: &HashMap<u32, String>| {
+    let enriched = numbers.clone().filter(|n| *n <= 3).map_with_side_map(
+        lookup_map.clone(),
+        |n: &u32, map: &HashMap<u32, String>| {
             format!("{n}: {}", map.get(n).unwrap_or(&"unknown".to_string()))
-        });
+        },
+    );
 
     assert_eq!(only_primes.clone().collect_seq()?.len(), 11);
     assert_eq!(enriched.clone().collect_seq()?.len(), 3);
@@ -106,9 +106,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     let _squared_values = keyed_nums.clone().map_values(|n: &u32| n * n);
 
     // filter_values
-    let _large_values = keyed_nums
-        .clone()
-        .filter_values(|n: &u32| *n > 50);
+    let _large_values = keyed_nums.clone().filter_values(|n: &u32| *n > 50);
 
     // group_by_key
     let grouped = keyed_nums.clone().group_by_key();
@@ -126,7 +124,10 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     use rustflow::combiners::*;
 
     // 4a. Basic combiners
-    let count_per_key = keyed_nums.clone().map_values(|_| 1u64).combine_values(Count);
+    let count_per_key = keyed_nums
+        .clone()
+        .map_values(|_| 1u64)
+        .combine_values(Count);
 
     let sum_per_key = keyed_nums
         .clone()
@@ -189,9 +190,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     println!("  ✅ ApproxQuantiles (TDigest) combiner works");
 
     // 4f. Sampling (reservoir)
-    let sampled_per_key = keyed_nums
-        .clone()
-        .sample_values_reservoir_vec(5, 42);
+    let sampled_per_key = keyed_nums.clone().sample_values_reservoir_vec(5, 42);
 
     let sampled_results = sampled_per_key.clone().collect_seq()?;
     for (_, sample) in sampled_results {
@@ -217,13 +216,16 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     // =============================================================================
     println!("📦 Section 5: Lifted Combiners");
 
-    let grouped_for_lifted = keyed_nums
-        .clone()
-        .map_values(|n| *n as u64)
-        .group_by_key();
+    let grouped_for_lifted = keyed_nums.clone().map_values(|n| *n as u64).group_by_key();
 
-    let lifted_sum = grouped_for_lifted.clone().combine_values_lifted(Sum::<u64>::default());
-    let _lifted_count = keyed_nums.clone().map_values(|_| 1u64).group_by_key().combine_values_lifted(Count);
+    let lifted_sum = grouped_for_lifted
+        .clone()
+        .combine_values_lifted(Sum::<u64>::default());
+    let _lifted_count = keyed_nums
+        .clone()
+        .map_values(|_| 1u64)
+        .group_by_key()
+        .combine_values_lifted(Count);
 
     // Verify lifted == non-lifted
     let sum_seq = sum_per_key.clone().collect_seq_sorted()?;
@@ -312,9 +314,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         ],
     );
 
-    let keyed_windowed = keyed_timestamped
-        .clone()
-        .group_by_key_and_window(10_000, 0);
+    let keyed_windowed = keyed_timestamped.clone().group_by_key_and_window(10_000, 0);
     let keyed_windowed_results = keyed_windowed.clone().collect_seq()?;
     assert!(keyed_windowed_results.len() >= 3); // Multiple (key, window) pairs
 
@@ -490,9 +490,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         let io_dir = tempdir()?;
         let base_path = io_dir.path();
 
-        #[derive(
-            serde::Serialize, serde::Deserialize, Clone, PartialEq, PartialOrd, Debug,
-        )]
+        #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq, PartialOrd, Debug)]
         struct Record {
             id: u32,
             name: String,
@@ -529,15 +527,13 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
 
             // Streaming I/O
             let jsonl_stream_path = base_path.join("test_stream.jsonl");
-            from_vec(&p, test_records.clone())
-                .write_jsonl(&jsonl_stream_path)?;
+            from_vec(&p, test_records.clone()).write_jsonl(&jsonl_stream_path)?;
             let streamed = read_jsonl_streaming::<Record>(&p, &jsonl_stream_path, 100)?;
             assert_eq!(streamed.collect_seq()?.len(), 3);
 
             // Parallel write
             let jsonl_par_path = base_path.join("test_par.jsonl");
-            from_vec(&p, test_records.clone())
-                .write_jsonl_par(&jsonl_par_path, Some(2))?;
+            from_vec(&p, test_records.clone()).write_jsonl_par(&jsonl_par_path, Some(2))?;
             let par_loaded: Vec<Record> = read_jsonl_vec(&jsonl_par_path)?;
             assert_eq!(par_loaded.len(), 3);
 
@@ -603,8 +599,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
             // Streaming
             let parquet_stream_path = base_path.join("test_stream.parquet");
             from_vec(&p, test_records.clone()).write_parquet(&parquet_stream_path)?;
-            let parquet_streamed =
-                read_parquet_streaming::<Record>(&p, &parquet_stream_path, 1)?;
+            let parquet_streamed = read_parquet_streaming::<Record>(&p, &parquet_stream_path, 1)?;
             assert_eq!(parquet_streamed.collect_seq()?.len(), 3);
 
             println!("  ✅ Parquet I/O (vector, streaming) works");
@@ -629,7 +624,10 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     assert_eq!(ts_results.len(), 2);
 
     // Convert from (timestamp, value) tuples
-    let tuple_events = from_vec(&p, vec![(1000u64, "a".to_string()), (2000u64, "b".to_string())]);
+    let tuple_events = from_vec(
+        &p,
+        vec![(1000u64, "a".to_string()), (2000u64, "b".to_string())],
+    );
     let converted = tuple_events.to_timestamped();
     assert_eq!(converted.collect_seq()?.len(), 2);
 

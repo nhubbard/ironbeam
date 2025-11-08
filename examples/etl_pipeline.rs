@@ -122,7 +122,10 @@ fn main() -> Result<()> {
 
     let logs = from_vec(&pipeline, raw_logs);
 
-    println!("  ✓ Loaded {} log entries\n", logs.clone().collect_seq()?.len());
+    println!(
+        "  ✓ Loaded {} log entries\n",
+        logs.clone().collect_seq()?.len()
+    );
 
     // =============================================================================
     // TRANSFORM: Clean, validate, and enrich data
@@ -155,12 +158,13 @@ fn main() -> Result<()> {
     println!("  ✓ Cleaned and enriched log entries");
 
     // Step 2: Aggregate by path
-    let path_stats = valid_logs.clone()
+    let path_stats = valid_logs
+        .clone()
         .key_by(|entry: &CleanLogEntry| entry.path.clone())
         .map_values(|entry| {
             (
-                1u64,                                // request count
-                entry.bytes,                         // bytes
+                1u64,                                          // request count
+                entry.bytes,                                   // bytes
                 if entry.status >= 400 { 1u64 } else { 0u64 }, // error count
             )
         })

@@ -209,8 +209,8 @@ mod compression_tests {
         let gz_path_str = gz_path.to_str().unwrap();
 
         // Manually write gzip data
-        use flate2::write::GzEncoder;
         use flate2::Compression;
+        use flate2::write::GzEncoder;
         let file = std::fs::File::create(&gz_path)?;
         let mut encoder = GzEncoder::new(file, Compression::default());
         let data = sample_data();

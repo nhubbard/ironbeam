@@ -91,9 +91,7 @@ pub fn write_csv_vec<T: Serialize>(
     let f = File::create(path).with_context(|| format!("create {}", path.display()))?;
     let w = auto_detect_writer(f, path)
         .with_context(|| format!("setup compression for {}", path.display()))?;
-    let mut wtr = WriterBuilder::new()
-        .has_headers(has_headers)
-        .from_writer(w);
+    let mut wtr = WriterBuilder::new().has_headers(has_headers).from_writer(w);
     for (i, row) in data.iter().enumerate() {
         wtr.serialize(row)
             .with_context(|| format!("serialize CSV row #{}", i + 1))?;

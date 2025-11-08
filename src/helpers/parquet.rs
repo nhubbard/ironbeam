@@ -18,7 +18,9 @@
 //!   would be too expensive; processing happens partition-by-partition.
 
 use crate::io::glob::expand_glob;
-use crate::io::parquet::{build_parquet_shards, read_parquet_vec, write_parquet_vec, ParquetShards, ParquetVecOps};
+use crate::io::parquet::{
+    build_parquet_shards, read_parquet_vec, write_parquet_vec, ParquetShards, ParquetVecOps,
+};
 use crate::node::Node;
 use crate::type_token::TypeTag;
 use crate::{from_vec, PCollection, Pipeline, RFBound};
@@ -146,7 +148,9 @@ pub fn read_parquet_streaming<T>(
 where
     T: RFBound + DeserializeOwned,
 {
-    let path_str = path.as_ref().to_str()
+    let path_str = path
+        .as_ref()
+        .to_str()
         .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
 
     // Check if path contains glob patterns
@@ -163,8 +167,8 @@ where
         // parquet files would require a more complex sharding strategy
         let mut all_data = Vec::new();
         for file in files {
-            let data: Vec<T> = read_parquet_vec(&file)
-                .with_context(|| format!("reading {}", file.display()))?;
+            let data: Vec<T> =
+                read_parquet_vec(&file).with_context(|| format!("reading {}", file.display()))?;
             all_data.extend(data);
         }
         Ok(from_vec(p, all_data))

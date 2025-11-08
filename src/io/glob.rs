@@ -68,12 +68,13 @@ use std::path::PathBuf;
 ///
 /// A sorted vector of absolute file paths matching the pattern.
 pub fn expand_glob(pattern: &str) -> Result<Vec<PathBuf>> {
-    let paths = glob::glob(pattern)
-        .with_context(|| format!("invalid glob pattern: {}", pattern))?;
+    let paths =
+        glob::glob(pattern).with_context(|| format!("invalid glob pattern: {}", pattern))?;
 
     let mut result = Vec::new();
     for entry in paths {
-        let path = entry.with_context(|| format!("error reading glob entry for pattern: {}", pattern))?;
+        let path =
+            entry.with_context(|| format!("error reading glob entry for pattern: {}", pattern))?;
         // Only include actual files, not directories
         if path.is_file() {
             result.push(path);

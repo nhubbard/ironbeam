@@ -41,7 +41,7 @@ fn main() -> anyhow::Result<()> {
             },
         ];
 
-        rustflow::io::jsonl::write_jsonl_vec(&log_file, &entries)?;
+        write_jsonl_vec(&log_file, &entries)?;
         println!("Created {}", log_file.display());
     }
 
@@ -58,7 +58,10 @@ fn main() -> anyhow::Result<()> {
     // Example 2: Read only specific days
     println!("\n=== Example 2: Read specific day range ===");
     let p2 = Pipeline::default();
-    let pattern2 = format!("{}/logs/year=2024/month=01/day=01/events.jsonl", base.display());
+    let pattern2 = format!(
+        "{}/logs/year=2024/month=01/day=01/events.jsonl",
+        base.display()
+    );
     println!("Pattern: {}", pattern2);
 
     let day1_logs: PCollection<LogEntry> = read_jsonl(&p2, &pattern2)?;
@@ -85,14 +88,12 @@ fn main() -> anyhow::Result<()> {
 
     for i in 1..=3 {
         let file = data_dir.join(format!("batch_{}.jsonl", i));
-        let entries = vec![
-            LogEntry {
-                timestamp: format!("2024-01-01T{:02}:00:00", i),
-                level: "INFO".to_string(),
-                message: format!("Batch {} processing", i),
-            },
-        ];
-        rustflow::io::jsonl::write_jsonl_vec(&file, &entries)?;
+        let entries = vec![LogEntry {
+            timestamp: format!("2024-01-01T{:02}:00:00", i),
+            level: "INFO".to_string(),
+            message: format!("Batch {} processing", i),
+        }];
+        write_jsonl_vec(&file, &entries)?;
     }
 
     let p4 = Pipeline::default();

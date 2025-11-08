@@ -9,8 +9,8 @@
 //! Run with: cargo run --example combiners_showcase
 
 use anyhow::Result;
-use rustflow::*;
 use rustflow::combiners::*;
+use rustflow::*;
 
 fn main() -> Result<()> {
     println!("🎯 Combiners Showcase Example\n");
@@ -33,7 +33,10 @@ fn main() -> Result<()> {
 
     let data = from_vec(
         &pipeline,
-        transactions.iter().map(|(cat, price)| (cat.to_string(), *price)).collect(),
+        transactions
+            .iter()
+            .map(|(cat, price)| (cat.to_string(), *price))
+            .collect(),
     );
 
     // =============================================================================
@@ -58,7 +61,10 @@ fn main() -> Result<()> {
     }
 
     // Min price per category
-    let mins = data.clone().map_values(|&price| OrdF64(price)).combine_values(Min::<OrdF64>::new());
+    let mins = data
+        .clone()
+        .map_values(|&price| OrdF64(price))
+        .combine_values(Min::<OrdF64>::new());
     println!("\nMinimum Price by Category:");
     let mut min_results = mins.collect_seq()?;
     min_results.sort_by_key(|(cat, _)| cat.clone());
@@ -67,7 +73,10 @@ fn main() -> Result<()> {
     }
 
     // Max price per category
-    let maxs = data.clone().map_values(|&price| OrdF64(price)).combine_values(Max::<OrdF64>::new());
+    let maxs = data
+        .clone()
+        .map_values(|&price| OrdF64(price))
+        .combine_values(Max::<OrdF64>::new());
     println!("\nMaximum Price by Category:");
     let mut max_results = maxs.collect_seq()?;
     max_results.sort_by_key(|(cat, _)| cat.clone());
@@ -90,12 +99,22 @@ fn main() -> Result<()> {
     println!("\n📊 TOP-K COMBINER\n");
 
     // Get top 2 highest-priced items per category
-    let top2 = data.clone().map_values(|&price| OrdF64(price)).top_k_per_key(2);
+    let top2 = data
+        .clone()
+        .map_values(|&price| OrdF64(price))
+        .top_k_per_key(2);
     println!("Top 2 Prices by Category:");
     let mut top2_results = top2.collect_seq()?;
     top2_results.sort_by_key(|(cat, _)| cat.clone());
     for (category, prices) in top2_results {
-        println!("  {}: {:?}", category, prices.iter().map(|p| format!("${:.2}", p.0)).collect::<Vec<_>>());
+        println!(
+            "  {}: {:?}",
+            category,
+            prices
+                .iter()
+                .map(|p| format!("${:.2}", p.0))
+                .collect::<Vec<_>>()
+        );
     }
 
     // =============================================================================
@@ -146,7 +165,14 @@ fn main() -> Result<()> {
     let mut sample_results = samples.collect_seq()?;
     sample_results.sort_by_key(|(cat, _)| cat.clone());
     for (category, sampled_prices) in sample_results {
-        println!("  {}: {:?}", category, sampled_prices.iter().map(|p: &f64| format!("${:.2}", p)).collect::<Vec<_>>());
+        println!(
+            "  {}: {:?}",
+            category,
+            sampled_prices
+                .iter()
+                .map(|p: &f64| format!("${:.2}", p))
+                .collect::<Vec<_>>()
+        );
     }
 
     // =============================================================================
@@ -157,10 +183,18 @@ fn main() -> Result<()> {
     let all_prices = data.map(|(_, price)| *price);
 
     let global_count = all_prices.clone().combine_globally(Count, None);
-    let global_sum = all_prices.clone().combine_globally(Sum::<f64>::default(), None);
+    let global_sum = all_prices
+        .clone()
+        .combine_globally(Sum::<f64>::default(), None);
     let global_avg = all_prices.clone().combine_globally(AverageF64, None);
-    let global_min = all_prices.clone().map(|&p| OrdF64(p)).combine_globally(Min::<OrdF64>::new(), None);
-    let global_max = all_prices.clone().map(|&p| OrdF64(p)).combine_globally(Max::<OrdF64>::new(), None);
+    let global_min = all_prices
+        .clone()
+        .map(|&p| OrdF64(p))
+        .combine_globally(Min::<OrdF64>::new(), None);
+    let global_max = all_prices
+        .clone()
+        .map(|&p| OrdF64(p))
+        .combine_globally(Max::<OrdF64>::new(), None);
 
     println!("Overall Statistics:");
     println!("  Total transactions: {}", global_count.collect_seq()?[0]);

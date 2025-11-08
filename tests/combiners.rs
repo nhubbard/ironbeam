@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use anyhow::Result;
 use rustflow::{from_vec, AverageF64, DistinctCount, Max, Min, Pipeline, Sum, TopK};
+use std::collections::HashMap;
 
 #[test]
 fn sum_min_max_average_basic_and_lifted() -> Result<()> {
@@ -272,9 +272,7 @@ fn topk_convenience_api() -> Result<()> {
         ("bob", 82),
     ];
 
-    let top2 = from_vec(&p, data)
-        .top_k_per_key(2)
-        .collect_seq_sorted()?;
+    let top2 = from_vec(&p, data).top_k_per_key(2).collect_seq_sorted()?;
 
     assert_eq!(top2.len(), 2);
     assert_eq!(top2[0].0, "alice");
@@ -307,9 +305,7 @@ fn topk_partial_order_merge() -> Result<()> {
 
     // Test that partial-order merge produces correct results
     // with large dataset across multiple partitions
-    let data: Vec<(u8, u64)> = (0..1000)
-        .map(|i| ((i % 5) as u8, i as u64))
-        .collect();
+    let data: Vec<(u8, u64)> = (0..1000).map(|i| ((i % 5) as u8, i as u64)).collect();
 
     let top10 = from_vec(&p, data)
         .top_k_per_key(10)

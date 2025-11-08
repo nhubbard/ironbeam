@@ -3,8 +3,8 @@
 #[cfg(feature = "checkpointing")]
 mod checkpoint_tests {
     use rustflow::checkpoint::{
-        compute_checksum, current_timestamp_ms, CheckpointConfig, CheckpointManager,
-        CheckpointMetadata, CheckpointPolicy, CheckpointState,
+        compute_checksum, current_timestamp_ms, CheckpointConfig, CheckpointManager, CheckpointMetadata,
+        CheckpointPolicy, CheckpointState,
     };
     use std::fs::{self, File};
     use std::io::{Read, Write};
@@ -109,10 +109,7 @@ mod checkpoint_tests {
         let mut manager = CheckpointManager::new(config).unwrap();
 
         // No checkpoints initially
-        assert!(manager
-            .find_latest_checkpoint("test")
-            .unwrap()
-            .is_none());
+        assert!(manager.find_latest_checkpoint("test").unwrap().is_none());
 
         // Create multiple checkpoints
         for i in 0..3 {

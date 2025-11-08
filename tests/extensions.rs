@@ -36,7 +36,9 @@ struct DoubleOp;
 
 impl DynOp for DoubleOp {
     fn apply(&self, input: Partition) -> Partition {
-        let v = input.downcast::<Vec<i32>>().expect("DoubleOp expects Vec<i32>");
+        let v = input
+            .downcast::<Vec<i32>>()
+            .expect("DoubleOp expects Vec<i32>");
         let out: Vec<i32> = v.iter().map(|n| n * 2).collect();
         Box::new(out)
     }

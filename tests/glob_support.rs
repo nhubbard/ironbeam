@@ -22,12 +22,24 @@ fn test_jsonl_glob_pattern() -> anyhow::Result<()> {
     let file2 = base.join("data2.jsonl");
 
     let records1 = vec![
-        Record { id: 1, name: "Alice".to_string() },
-        Record { id: 2, name: "Bob".to_string() },
+        Record {
+            id: 1,
+            name: "Alice".to_string(),
+        },
+        Record {
+            id: 2,
+            name: "Bob".to_string(),
+        },
     ];
     let records2 = vec![
-        Record { id: 3, name: "Charlie".to_string() },
-        Record { id: 4, name: "Diana".to_string() },
+        Record {
+            id: 3,
+            name: "Charlie".to_string(),
+        },
+        Record {
+            id: 4,
+            name: "Diana".to_string(),
+        },
     ];
 
     rustflow::io::jsonl::write_jsonl_vec(&file1, &records1)?;
@@ -57,8 +69,14 @@ fn test_jsonl_single_file() -> anyhow::Result<()> {
     let file = dir.path().join("data.jsonl");
 
     let records = vec![
-        Record { id: 1, name: "Alice".to_string() },
-        Record { id: 2, name: "Bob".to_string() },
+        Record {
+            id: 1,
+            name: "Alice".to_string(),
+        },
+        Record {
+            id: 2,
+            name: "Bob".to_string(),
+        },
     ];
 
     rustflow::io::jsonl::write_jsonl_vec(&file, &records)?;
@@ -101,12 +119,24 @@ fn test_csv_glob_pattern() -> anyhow::Result<()> {
     let file2 = base.join("data2.csv");
 
     let records1 = vec![
-        Record { id: 1, name: "Alice".to_string() },
-        Record { id: 2, name: "Bob".to_string() },
+        Record {
+            id: 1,
+            name: "Alice".to_string(),
+        },
+        Record {
+            id: 2,
+            name: "Bob".to_string(),
+        },
     ];
     let records2 = vec![
-        Record { id: 3, name: "Charlie".to_string() },
-        Record { id: 4, name: "Diana".to_string() },
+        Record {
+            id: 3,
+            name: "Charlie".to_string(),
+        },
+        Record {
+            id: 4,
+            name: "Diana".to_string(),
+        },
     ];
 
     rustflow::io::csv::write_csv_vec(&file1, true, &records1)?;
@@ -136,8 +166,14 @@ fn test_csv_single_file() -> anyhow::Result<()> {
     let file = dir.path().join("data.csv");
 
     let records = vec![
-        Record { id: 1, name: "Alice".to_string() },
-        Record { id: 2, name: "Bob".to_string() },
+        Record {
+            id: 1,
+            name: "Alice".to_string(),
+        },
+        Record {
+            id: 2,
+            name: "Bob".to_string(),
+        },
     ];
 
     rustflow::io::csv::write_csv_vec(&file, true, &records)?;
@@ -166,12 +202,24 @@ fn test_parquet_glob_pattern() -> anyhow::Result<()> {
     let file2 = base.join("data2.parquet");
 
     let records1 = vec![
-        Record { id: 1, name: "Alice".to_string() },
-        Record { id: 2, name: "Bob".to_string() },
+        Record {
+            id: 1,
+            name: "Alice".to_string(),
+        },
+        Record {
+            id: 2,
+            name: "Bob".to_string(),
+        },
     ];
     let records2 = vec![
-        Record { id: 3, name: "Charlie".to_string() },
-        Record { id: 4, name: "Diana".to_string() },
+        Record {
+            id: 3,
+            name: "Charlie".to_string(),
+        },
+        Record {
+            id: 4,
+            name: "Diana".to_string(),
+        },
     ];
 
     rustflow::io::parquet::write_parquet_vec(&file1, &records1)?;
@@ -201,8 +249,14 @@ fn test_parquet_single_file() -> anyhow::Result<()> {
     let file = dir.path().join("data.parquet");
 
     let records = vec![
-        Record { id: 1, name: "Alice".to_string() },
-        Record { id: 2, name: "Bob".to_string() },
+        Record {
+            id: 1,
+            name: "Alice".to_string(),
+        },
+        Record {
+            id: 2,
+            name: "Bob".to_string(),
+        },
     ];
 
     rustflow::io::parquet::write_parquet_vec(&file, &records)?;
@@ -235,12 +289,14 @@ fn test_jsonl_date_partitions() -> anyhow::Result<()> {
     let file1 = day1.join("data.jsonl");
     let file2 = day2.join("data.jsonl");
 
-    let records1 = vec![
-        Record { id: 1, name: "Day1".to_string() },
-    ];
-    let records2 = vec![
-        Record { id: 2, name: "Day2".to_string() },
-    ];
+    let records1 = vec![Record {
+        id: 1,
+        name: "Day1".to_string(),
+    }];
+    let records2 = vec![Record {
+        id: 2,
+        name: "Day2".to_string(),
+    }];
 
     rustflow::io::jsonl::write_jsonl_vec(&file1, &records1)?;
     rustflow::io::jsonl::write_jsonl_vec(&file2, &records2)?;
@@ -271,9 +327,18 @@ fn test_csv_deterministic_order() -> anyhow::Result<()> {
     let file2 = base.join("b_data.csv");
     let file3 = base.join("c_data.csv");
 
-    let records1 = vec![Record { id: 1, name: "A".to_string() }];
-    let records2 = vec![Record { id: 2, name: "B".to_string() }];
-    let records3 = vec![Record { id: 3, name: "C".to_string() }];
+    let records1 = vec![Record {
+        id: 1,
+        name: "A".to_string(),
+    }];
+    let records2 = vec![Record {
+        id: 2,
+        name: "B".to_string(),
+    }];
+    let records3 = vec![Record {
+        id: 3,
+        name: "C".to_string(),
+    }];
 
     rustflow::io::csv::write_csv_vec(&file1, true, &records1)?;
     rustflow::io::csv::write_csv_vec(&file2, true, &records2)?;
@@ -300,10 +365,10 @@ fn test_csv_deterministic_order() -> anyhow::Result<()> {
 
 // Unit tests from src/io/glob.rs
 mod glob_unit_tests {
+    use anyhow::Result;
     use rustflow::io::glob::{expand_glob, expand_glob_required};
     use std::fs::{create_dir_all, File};
     use tempfile::TempDir;
-    use anyhow::Result;
 
     #[test]
     fn test_expand_glob_basic() -> Result<()> {

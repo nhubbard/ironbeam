@@ -455,9 +455,9 @@ pub use utils::OrdF64;
 pub use window::{TimestampMs, Timestamped, Window};
 
 // Extension point exports
+pub use extensions::CompositeTransform;
 pub use node::DynOp;
 pub use type_token::{TypeTag, VecOps};
-pub use extensions::CompositeTransform;
 
 // Gated re-exports
 #[cfg(feature = "io-jsonl")]

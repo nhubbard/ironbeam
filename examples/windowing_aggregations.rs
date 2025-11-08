@@ -17,13 +17,13 @@ fn main() -> Result<()> {
     let pipeline = Pipeline::default();
 
     // Simulate streaming sensor data with timestamps
-    let sensor_data = vec![
-        ("sensor_1", 1000, 22.5),   // Window 1
+    let sensor_data = [
+        ("sensor_1", 1000, 22.5), // Window 1
         ("sensor_1", 2000, 23.0),
         ("sensor_2", 2500, 21.8),
-        ("sensor_1", 11000, 24.2),  // Window 2
+        ("sensor_1", 11000, 24.2), // Window 2
         ("sensor_2", 12000, 22.1),
-        ("sensor_1", 21000, 23.8),  // Window 3
+        ("sensor_1", 21000, 23.8), // Window 3
         ("sensor_2", 21500, 22.5),
         ("sensor_2", 22000, 23.2),
     ];
@@ -33,9 +33,7 @@ fn main() -> Result<()> {
         &pipeline,
         sensor_data
             .iter()
-            .map(|(sensor, ts, temp)| {
-                (sensor.to_string(), Timestamped::new(*ts, *temp))
-            })
+            .map(|(sensor, ts, temp)| (sensor.to_string(), Timestamped::new(*ts, *temp)))
             .collect::<Vec<_>>(),
     );
 
@@ -64,7 +62,10 @@ fn main() -> Result<()> {
     println!("\nWindow | Count | Avg Temp | Min | Max");
     println!("{:-<50}", "");
     for (win, count, avg, min, max) in results {
-        println!("{:?} | {} | {:.2}°C | {:.2}°C | {:.2}°C", win, count, avg, min, max);
+        println!(
+            "{:?} | {} | {:.2}°C | {:.2}°C | {:.2}°C",
+            win, count, avg, min, max
+        );
     }
 
     // =============================================================================
@@ -72,9 +73,7 @@ fn main() -> Result<()> {
     // =============================================================================
     println!("\n📊 Example 2: Per-sensor 10-second windows");
 
-    let per_sensor_windows = events
-        .clone()
-        .group_by_key_and_window(10_000, 0);
+    let per_sensor_windows = events.clone().group_by_key_and_window(10_000, 0);
 
     let sensor_window_avgs = per_sensor_windows.map(|((sensor, window), temps)| {
         let avg: f64 = temps.iter().map(|t| *t).sum::<f64>() / temps.len() as f64;
@@ -97,8 +96,14 @@ fn main() -> Result<()> {
     let sensor_temps = events.map_values(|ts| ts.value);
 
     // Min, Max, Average per sensor
-    let min_temps = sensor_temps.clone().map_values(|&v| OrdF64(v)).combine_values(Min::<OrdF64>::new());
-    let max_temps = sensor_temps.clone().map_values(|&v| OrdF64(v)).combine_values(Max::<OrdF64>::new());
+    let min_temps = sensor_temps
+        .clone()
+        .map_values(|&v| OrdF64(v))
+        .combine_values(Min::<OrdF64>::new());
+    let max_temps = sensor_temps
+        .clone()
+        .map_values(|&v| OrdF64(v))
+        .combine_values(Max::<OrdF64>::new());
     let avg_temps = sensor_temps.clone().combine_values(AverageF64);
 
     println!("\nSensor Statistics:");

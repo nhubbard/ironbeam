@@ -64,7 +64,7 @@
 //! ```
 
 use crate::io::glob::expand_glob;
-use crate::io::jsonl::{build_jsonl_shards, write_jsonl_vec, JsonlShards, JsonlVecOps};
+pub use crate::io::jsonl::{build_jsonl_shards, write_jsonl_vec, JsonlShards, JsonlVecOps};
 use crate::node::Node;
 use crate::type_token::TypeTag;
 use crate::{from_vec, read_jsonl_vec, write_jsonl_par, PCollection, Pipeline, RFBound};
@@ -142,7 +142,9 @@ pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection
 where
     T: RFBound + DeserializeOwned,
 {
-    let path_str = path.as_ref().to_str()
+    let path_str = path
+        .as_ref()
+        .to_str()
         .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
 
     // Check if path contains glob patterns
@@ -157,8 +159,8 @@ where
 
         let mut all_data = Vec::new();
         for file in files {
-            let data: Vec<T> = read_jsonl_vec(&file)
-                .with_context(|| format!("reading {}", file.display()))?;
+            let data: Vec<T> =
+                read_jsonl_vec(&file).with_context(|| format!("reading {}", file.display()))?;
             all_data.extend(data);
         }
         Ok(from_vec(p, all_data))

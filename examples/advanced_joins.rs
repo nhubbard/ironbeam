@@ -27,15 +27,13 @@ fn main() -> Result<()> {
         ],
     );
 
-    let orders = from_vec(
-        &pipeline,
-        vec![
-            (101u32, 1u32, "Product_A".to_string()), // Alice's order
-            (102u32, 1u32, "Product_B".to_string()), // Alice's another order
-            (103u32, 2u32, "Product_A".to_string()), // Bob's order
-            (104u32, 5u32, "Product_C".to_string()), // Non-existent user
-        ],
-    );
+    // Orders stored as 3-tuples for demonstration
+    let orders_raw = vec![
+        (101u32, 1u32, "Product_A".to_string()), // Alice's order
+        (102u32, 1u32, "Product_B".to_string()), // Alice's another order
+        (103u32, 2u32, "Product_A".to_string()), // Bob's order
+        (104u32, 5u32, "Product_C".to_string()), // Non-existent user
+    ];
 
     let product_prices = from_vec(
         &pipeline,
@@ -53,10 +51,16 @@ fn main() -> Result<()> {
     println!("📊 Example 1: Inner Join (Users ⋈ Orders)");
     println!("Only shows users who have placed orders\n");
 
-    let user_orders = orders
-        .clone()
-        .map(|(order_id, user_id, product)| (*user_id, (*order_id, product.clone())))
-        .join_inner(&users.clone());
+    // Create join-ready collection by keying orders by user_id
+    let orders_by_user = from_vec(
+        &pipeline,
+        orders_raw
+            .iter()
+            .map(|(order_id, user_id, product)| (*user_id, (*order_id, product.clone())))
+            .collect::<Vec<_>>(),
+    );
+
+    let user_orders = orders_by_user.clone().join_inner(&users.clone());
 
     let results = user_orders.collect_seq_sorted()?;
     for (_user_id, ((order_id, product), name)) in results {
@@ -69,16 +73,16 @@ fn main() -> Result<()> {
     println!("\n📊 Example 2: Left Join (Orders ⟕ Users)");
     println!("Shows all orders, even if user doesn't exist\n");
 
-    let all_orders_with_users = orders
-        .clone()
-        .map(|(order_id, user_id, product)| (*user_id, (*order_id, product.clone())))
-        .join_left(&users.clone());
+    let all_orders_with_users = orders_by_user.clone().join_left(&users.clone());
 
     let left_results = all_orders_with_users.collect_seq_sorted()?;
     for (user_id, ((order_id, product), maybe_name)) in left_results {
         match maybe_name {
             Some(name) => println!("  Order #{}: {} ordered {}", order_id, name, product),
-            None => println!("  Order #{}: Unknown user {} ordered {}", order_id, user_id, product),
+            None => println!(
+                "  Order #{}: Unknown user {} ordered {}",
+                order_id, user_id, product
+            ),
         }
     }
 
@@ -88,10 +92,7 @@ fn main() -> Result<()> {
     println!("\n📊 Example 3: Right Join (Orders ⟖ Users)");
     println!("Shows all users, even those without orders\n");
 
-    let users_with_maybe_orders = orders
-        .clone()
-        .map(|(order_id, user_id, product)| (*user_id, (*order_id, product.clone())))
-        .join_right(&users.clone());
+    let users_with_maybe_orders = orders_by_user.clone().join_right(&users.clone());
 
     let right_results = users_with_maybe_orders.collect_seq_sorted()?;
     for (_user_id, (maybe_order, name)) in right_results {
@@ -109,19 +110,22 @@ fn main() -> Result<()> {
     println!("\n📊 Example 4: Full Outer Join (Orders ⟗ Users)");
     println!("Shows all orders and all users\n");
 
-    let full_join = orders
-        .clone()
-        .map(|(order_id, user_id, product)| (*user_id, (*order_id, product.clone())))
-        .join_full(&users.clone());
+    let full_join = orders_by_user.clone().join_full(&users.clone());
 
     let full_results = full_join.collect_seq_sorted()?;
     for (user_id, (maybe_order, maybe_name)) in full_results {
         match (maybe_order, maybe_name) {
             (Some((order_id, product)), Some(name)) => {
-                println!("  User {}: {} ordered {} (Order #{})", user_id, name, product, order_id)
+                println!(
+                    "  User {}: {} ordered {} (Order #{})",
+                    user_id, name, product, order_id
+                )
             }
             (Some((order_id, product)), None) => {
-                println!("  User {}: Unknown user ordered {} (Order #{})", user_id, product, order_id)
+                println!(
+                    "  User {}: Unknown user ordered {} (Order #{})",
+                    user_id, product, order_id
+                )
             }
             (None, Some(name)) => {
                 println!("  User {}: {} has no orders", user_id, name)
@@ -136,27 +140,36 @@ fn main() -> Result<()> {
     println!("\n📊 Example 5: Multi-way Join (Enrichment Pattern)");
     println!("Combine orders with user names and product prices\n");
 
-    // First join: Orders with Users
-    let orders_with_users = orders
-        .map(|(order_id, user_id, product)| (*user_id, (*order_id, product.clone())))
-        .join_inner(&users)
-        .map(|(user_id, ((order_id, product), name))| {
-            (product.clone(), (*order_id, *user_id, name.clone()))
-        });
+    // Strategy: Instead of chaining joins (which creates nested CoGroup),
+    // collect intermediate results and rejoin
 
-    // Second join: Result with Prices
-    let complete_orders = orders_with_users
-        .join_inner(&product_prices)
-        .map(|(product, ((order_id, _user_id, name), price))| {
-            (*order_id, name.clone(), product.clone(), *price)
-        });
+    // Step 1: Join orders with users
+    let orders_with_users = orders_by_user.clone().join_inner(&users);
+    let step1_results = orders_with_users.collect_seq()?;
+
+    // Step 2: Transform to (product, (order_id, user_id, name))
+    let orders_by_product = from_vec(
+        &pipeline,
+        step1_results
+            .into_iter()
+            .map(|(_user_id, ((order_id, product), name))| {
+                (product, (order_id, name))
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    // Step 3: Join with prices
+    let complete_orders = orders_by_product.join_inner(&product_prices);
 
     let mut enriched = complete_orders.collect_seq()?;
-    enriched.sort_by_key(|(order_id, _, _, _)| *order_id);
+    enriched.sort_by_key(|(_product, ((order_id, _name), _price))| *order_id);
     println!("Order# | Customer | Product   | Price");
     println!("{:-<50}", "");
-    for (order_id, name, product, price) in enriched {
-        println!("{:<7}| {:<9}| {:<10}| ${:.2}", order_id, name, product, price);
+    for (product, ((order_id, name), price)) in enriched {
+        println!(
+            "{:<7}| {:<9}| {:<10}| ${:.2}",
+            order_id, name, product, price
+        );
     }
 
     println!("\n✅ Joins Complete!");

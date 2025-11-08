@@ -36,7 +36,6 @@ impl SplitMix64 {
     }
 }
 
-
 /// Accumulator for priority reservoir.
 /// - `heap`: min-heap by (priority asc, seq asc) with entries (key, seq, idx)
 /// - `store`: slot array holding actual items + their (key,seq)
@@ -116,7 +115,9 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
         // Trim to k real (non-dead) items
         while acc.alive > acc.k {
             if let Some(Reverse((_k, _s, i))) = acc.heap.pop() {
-                if let Some(slot) = acc.store.get_mut(i) && slot.is_some() {
+                if let Some(slot) = acc.store.get_mut(i)
+                    && slot.is_some()
+                {
                     *slot = None;
                     acc.alive -= 1;
                 }
@@ -156,7 +157,9 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
         // Trim to k live items
         while acc.alive > acc.k {
             if let Some(Reverse((_k, _s, i))) = acc.heap.pop() {
-                if let Some(slot) = acc.store.get_mut(i) && slot.is_some() {
+                if let Some(slot) = acc.store.get_mut(i)
+                    && slot.is_some()
+                {
                     *slot = None;
                     acc.alive -= 1;
                 }
