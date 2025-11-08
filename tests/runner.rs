@@ -475,3 +475,427 @@ fn single_element_source() -> Result<()> {
     assert_eq!(result, vec![42]);
     Ok(())
 }
+
+/// Test CombineGlobal in sequential mode
+#[test]
+fn combine_global_sequential() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<u32> = (1..=20).collect();
+    let pcoll = from_vec(&p, data);
+    let combined = pcoll.combine_globally(Count, None);
+
+    let result = combined.collect_seq()?;
+    assert_eq!(result, vec![20]);
+    Ok(())
+}
+
+/// Test CombineGlobal with fanout in sequential mode
+#[test]
+fn combine_global_sequential_with_fanout() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<u32> = (1..=50).collect();
+    let pcoll = from_vec(&p, data);
+    let combined = pcoll.combine_globally(Count, Some(4));
+
+    let result = combined.collect_seq()?;
+    assert_eq!(result, vec![50]);
+    Ok(())
+}
+
+/// Test CombineGlobal with unlimited fanout (usize::MAX)
+#[test]
+fn combine_global_unlimited_fanout() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<u32> = (1..=100).collect();
+    let pcoll = from_vec(&p, data);
+    // None translates to usize::MAX fanout in the runner
+    let combined = pcoll.combine_globally(Count, None);
+
+    let result = combined.collect_par(None, Some(8))?;
+    assert_eq!(result, vec![100]);
+    Ok(())
+}
+
+/// Test runner with custom mode configuration
+#[test]
+fn custom_runner_mode() -> Result<()> {
+    use rustflow::runner::{ExecMode, Runner};
+
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
+    let mapped = data.map(|x: &u32| x * 2);
+
+    let runner = Runner {
+        mode: ExecMode::Sequential,
+        default_partitions: 4,
+        #[cfg(feature = "checkpointing")]
+        checkpoint_config: None,
+    };
+
+    let result = runner.run_collect::<u32>(&p, mapped.node_id())?;
+    let expected: Vec<u32> = vec![2, 4, 6, 8, 10];
+    assert_eq!(result, expected);
+    Ok(())
+}
+
+/// Test parallel execution with very small partition count
+#[test]
+fn parallel_minimal_partitions() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
+    let mapped = data.map(|x: &u32| x + 10);
+
+    let result = mapped.collect_par(None, Some(1))?;
+    assert_eq!(result.len(), 5);
+    Ok(())
+}
+
+/// Test empty CoGroup in sequential mode
+#[test]
+fn empty_cogroup_sequential() -> Result<()> {
+    let p = Pipeline::default();
+    let left: Vec<(String, u32)> = vec![];
+    let right = from_vec(&p, vec![("a".to_string(), 10i32)]);
+
+    let left_coll = from_vec(&p, left);
+    let joined = left_coll.join_inner(&right);
+
+    let result = joined.collect_seq()?;
+    assert_eq!(result, Vec::<(String, (u32, i32))>::new());
+    Ok(())
+}
+
+/// Test empty CoGroup in parallel mode
+#[test]
+fn empty_cogroup_parallel() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, vec![("a".to_string(), 1u32)]);
+    let right: Vec<(String, i32)> = vec![];
+
+    let right_coll = from_vec(&p, right);
+    let joined = left.join_inner(&right_coll);
+
+    let result = joined.collect_par(None, Some(2))?;
+    assert_eq!(result, Vec::<(String, (u32, i32))>::new());
+    Ok(())
+}
+
+/// Test materialized terminal node
+#[test]
+fn materialized_terminal() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
+
+    // Process and collect
+    let result = data.collect_seq()?;
+    assert_eq!(result, vec![1, 2, 3, 4, 5]);
+    Ok(())
+}
+
+/// Test large dataset with many partitions
+#[test]
+fn large_dataset_many_partitions() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<u32> = (1..=10000).collect();
+    let pcoll = from_vec(&p, data).filter(|x: &u32| *x % 2 == 0);
+
+    let result = pcoll.collect_par(None, Some(32))?;
+    assert_eq!(result.len(), 5000);
+    Ok(())
+}
+
+/// Test chain with multiple barriers
+#[test]
+fn multiple_barriers_sequential() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![
+        ("a".to_string(), 1u32),
+        ("b".to_string(), 2),
+        ("a".to_string(), 3),
+        ("b".to_string(), 4),
+    ]);
+
+    let result = data
+        .group_by_key()
+        .map_values(|v: &Vec<u32>| v.iter().sum::<u32>())
+        .group_by_key()  // Second barrier
+        .collect_seq()?;
+
+    assert_eq!(result.len(), 2);
+    Ok(())
+}
+
+/// Test chain with multiple barriers in parallel
+#[test]
+fn multiple_barriers_parallel() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![
+        ("a".to_string(), 1u32),
+        ("b".to_string(), 2),
+        ("a".to_string(), 3),
+        ("c".to_string(), 5),
+    ]);
+
+    let result = data
+        .combine_values(Count)
+        .group_by_key()  // Second barrier
+        .collect_par(None, Some(4))?;
+
+    assert_eq!(result.len(), 3);
+    Ok(())
+}
+
+/// Test very large fanout value
+#[test]
+fn very_large_fanout() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<u32> = (1..=200).collect();
+    let pcoll = from_vec(&p, data);
+    let combined = pcoll.combine_globally(Count, Some(50));
+
+    let result = combined.collect_par(None, Some(16))?;
+    assert_eq!(result, vec![200]);
+    Ok(())
+}
+
+/// Test fanout with non-power-of-two values
+#[test]
+fn fanout_non_power_of_two() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<u32> = (1..=75).collect();
+    let pcoll = from_vec(&p, data);
+    let combined = pcoll.combine_globally(Count, Some(7));
+
+    let result = combined.collect_par(None, Some(10))?;
+    assert_eq!(result, vec![75]);
+    Ok(())
+}
+
+/// Test parallel mode with zero-length partitions after filtering
+#[test]
+fn parallel_with_aggressive_filter() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<u32> = (1..=100).collect();
+    let pcoll = from_vec(&p, data).filter(|x: &u32| *x > 95);
+
+    let result = pcoll.collect_par(None, Some(10))?;
+    assert_eq!(result.len(), 5);
+    assert!(result.iter().all(|&x| x > 95));
+    Ok(())
+}
+
+// Checkpointing tests - only compiled when checkpointing feature is enabled
+#[cfg(feature = "checkpointing")]
+mod checkpointing_tests {
+    use super::*;
+    use rustflow::checkpoint::{CheckpointConfig, CheckpointPolicy};
+    use rustflow::runner::{ExecMode, Runner};
+    use tempfile::TempDir;
+
+    /// Test sequential execution with checkpointing enabled
+    #[test]
+    fn sequential_with_checkpointing() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let checkpoint_dir = temp_dir.path().to_path_buf();
+
+        let p = Pipeline::default();
+        let data = from_vec(&p, vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        let mapped = data
+            .map(|x: &u32| x * 2)
+            .key_by(|x: &u32| format!("k{}", x % 3))
+            .group_by_key();
+
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: checkpoint_dir,
+            policy: CheckpointPolicy::EveryNNodes(2),
+            auto_recover: false,
+            max_checkpoints: Some(5),
+        };
+
+        let runner = Runner {
+            mode: ExecMode::Sequential,
+            default_partitions: 4,
+            checkpoint_config: Some(config),
+        };
+
+        let result = runner.run_collect::<(String, Vec<u32>)>(&p, mapped.node_id())?;
+        assert!(!result.is_empty());
+        Ok(())
+    }
+
+    /// Test parallel execution with checkpointing enabled
+    #[test]
+    fn parallel_with_checkpointing() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let checkpoint_dir = temp_dir.path().to_path_buf();
+
+        let p = Pipeline::default();
+        let data: Vec<u32> = (1..=50).collect();
+        let pcoll = from_vec(&p, data)
+            .filter(|x: &u32| *x % 2 == 0)
+            .map(|x: &u32| x * 3);
+
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: checkpoint_dir,
+            policy: CheckpointPolicy::EveryNNodes(3),
+            auto_recover: false,
+            max_checkpoints: Some(10),
+        };
+
+        let runner = Runner {
+            mode: ExecMode::Parallel {
+                threads: Some(2),
+                partitions: Some(4),
+            },
+            default_partitions: 4,
+            checkpoint_config: Some(config),
+        };
+
+        let result = runner.run_collect::<u32>(&p, pcoll.node_id())?;
+        assert_eq!(result.len(), 25);
+        Ok(())
+    }
+
+    /// Test checkpoint recovery in sequential mode
+    #[test]
+    fn sequential_checkpoint_recovery() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let checkpoint_dir = temp_dir.path().to_path_buf();
+
+        let p = Pipeline::default();
+        let data: Vec<u32> = (1..=20).collect();
+        let pcoll = from_vec(&p, data).map(|x: &u32| x + 1);
+
+        // First run with checkpointing
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: checkpoint_dir.clone(),
+            policy: CheckpointPolicy::EveryNNodes(1),
+            auto_recover: true,
+            max_checkpoints: Some(5),
+        };
+
+        let runner = Runner {
+            mode: ExecMode::Sequential,
+            default_partitions: 4,
+            checkpoint_config: Some(config.clone()),
+        };
+
+        let _result = runner.run_collect::<u32>(&p, pcoll.node_id())?;
+
+        // Second run with auto-recovery enabled (should detect checkpoints)
+        let p2 = Pipeline::default();
+        let data2: Vec<u32> = (1..=20).collect();
+        let pcoll2 = from_vec(&p2, data2).map(|x: &u32| x + 1);
+
+        let runner2 = Runner {
+            mode: ExecMode::Sequential,
+            default_partitions: 4,
+            checkpoint_config: Some(config),
+        };
+
+        let result2 = runner2.run_collect::<u32>(&p2, pcoll2.node_id())?;
+        assert_eq!(result2.len(), 20);
+        Ok(())
+    }
+
+    /// Test checkpointing with barriers
+    #[test]
+    fn checkpoint_with_barriers() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let checkpoint_dir = temp_dir.path().to_path_buf();
+
+        let p = Pipeline::default();
+        let data = from_vec(&p, vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("a".to_string(), 3),
+            ("c".to_string(), 4),
+        ]);
+        let combined = data.combine_values(Count);
+
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: checkpoint_dir,
+            policy: CheckpointPolicy::AfterEveryBarrier,
+            auto_recover: false,
+            max_checkpoints: Some(5),
+        };
+
+        let runner = Runner {
+            mode: ExecMode::Sequential,
+            default_partitions: 4,
+            checkpoint_config: Some(config),
+        };
+
+        let result = runner.run_collect::<(String, u64)>(&p, combined.node_id())?;
+        assert_eq!(result.len(), 3);
+        Ok(())
+    }
+
+    /// Test checkpointing with CombineGlobal
+    #[test]
+    fn checkpoint_with_combine_global() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let checkpoint_dir = temp_dir.path().to_path_buf();
+
+        let p = Pipeline::default();
+        let data: Vec<u32> = (1..=100).collect();
+        let pcoll = from_vec(&p, data);
+        let combined = pcoll.combine_globally(Count, Some(4));
+
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: checkpoint_dir,
+            policy: CheckpointPolicy::AfterEveryBarrier,
+            auto_recover: false,
+            max_checkpoints: Some(5),
+        };
+
+        let runner = Runner {
+            mode: ExecMode::Sequential,
+            default_partitions: 4,
+            checkpoint_config: Some(config),
+        };
+
+        let result = runner.run_collect::<u64>(&p, combined.node_id())?;
+        assert_eq!(result, vec![100]);
+        Ok(())
+    }
+
+    /// Test parallel checkpointing with multiple partitions
+    #[test]
+    fn parallel_checkpoint_multiple_partitions() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let checkpoint_dir = temp_dir.path().to_path_buf();
+
+        let p = Pipeline::default();
+        let data: Vec<u32> = (1..=200).collect();
+        let pcoll = from_vec(&p, data)
+            .key_by(|x: &u32| format!("k{}", x % 5))
+            .combine_values(Count);
+
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: checkpoint_dir,
+            policy: CheckpointPolicy::EveryNNodes(2),
+            auto_recover: false,
+            max_checkpoints: Some(10),
+        };
+
+        let runner = Runner {
+            mode: ExecMode::Parallel {
+                threads: Some(4),
+                partitions: Some(8),
+            },
+            default_partitions: 8,
+            checkpoint_config: Some(config),
+        };
+
+        let result = runner.run_collect::<(String, u64)>(&p, pcoll.node_id())?;
+        assert_eq!(result.len(), 5);
+        Ok(())
+    }
+}

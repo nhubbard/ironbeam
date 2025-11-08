@@ -62,7 +62,7 @@ fn run_with_node_based_checkpoints() -> anyhow::Result<()> {
     let result_collection = data
         .map(|x: &i32| x + 1)
         .map(|x: &i32| x * 3)
-        .filter(|x: &i32| x > 100)
+        .filter(|x: &i32| *x > 100)
         .key_by(|x: &i32| x % 20)
         .map_values(|x: &i32| *x as f64)
         .combine_values(AverageF64::default());

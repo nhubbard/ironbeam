@@ -98,7 +98,7 @@ impl Pipeline {
     ///
     /// This is a deep clone of all node and edge data, used by the planner and runner
     /// to analyze or execute the pipeline without mutating the original.
-    pub(crate) fn snapshot(&self) -> (HashMap<NodeId, Node>, Vec<(NodeId, NodeId)>) {
+    pub fn snapshot(&self) -> (HashMap<NodeId, Node>, Vec<(NodeId, NodeId)>) {
         let g = self.inner.lock().unwrap();
         (g.nodes.clone(), g.edges.clone())
     }
@@ -131,7 +131,7 @@ impl Pipeline {
 
     /// Record the start of pipeline execution in metrics.
     #[cfg(feature = "metrics")]
-    pub(crate) fn record_metrics_start(&self) {
+    pub fn record_metrics_start(&self) {
         let g = self.inner.lock().unwrap();
         if let Some(ref metrics) = g.metrics {
             metrics.record_start();
@@ -140,7 +140,7 @@ impl Pipeline {
 
     /// Record the end of pipeline execution in metrics.
     #[cfg(feature = "metrics")]
-    pub(crate) fn record_metrics_end(&self) {
+    pub fn record_metrics_end(&self) {
         let g = self.inner.lock().unwrap();
         if let Some(ref metrics) = g.metrics {
             metrics.record_end();

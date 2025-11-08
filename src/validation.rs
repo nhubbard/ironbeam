@@ -276,11 +276,23 @@ pub mod validators {
 
     /// Validate that a string matches a basic email pattern.
     pub fn is_email(field: &str, value: &str) -> ValidationResult {
-        if value.contains('@') && value.contains('.') && value.len() > 3 {
-            Ok(())
-        } else {
-            Err(vec![ValidationError::field(field, "invalid email format")])
+        // Basic email validation: must have @ symbol with non-empty local and domain parts
+        if let Some(at_pos) = value.find('@') {
+            let local = &value[..at_pos];
+            let domain = &value[at_pos + 1..];
+
+            // Local part must not be empty
+            // Domain must not be empty and must contain at least one dot
+            if !local.is_empty() && !domain.is_empty() && domain.contains('.') {
+                // Domain must have at least one character after the dot
+                if let Some(dot_pos) = domain.rfind('.') {
+                    if dot_pos < domain.len() - 1 {
+                        return Ok(());
+                    }
+                }
+            }
         }
+        Err(vec![ValidationError::field(field, "invalid email format")])
     }
 
     /// Validate minimum length.

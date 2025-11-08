@@ -136,13 +136,13 @@ impl MetricsCollector {
     }
 
     /// Record the start time of pipeline execution.
-    pub(crate) fn record_start(&self) {
+    pub fn record_start(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.start_time = Some(Instant::now());
     }
 
     /// Record the end time of pipeline execution.
-    pub(crate) fn record_end(&self) {
+    pub fn record_end(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.end_time = Some(Instant::now());
     }
