@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use rustflow::{from_vec, side_hashmap, side_vec, Pipeline};
+use rustflow::testing::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Product {
@@ -10,7 +11,7 @@ struct Product {
 
 #[test]
 fn map_with_side_map_enriches_records() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     // Input stream of product SKUs
     let items = vec![
@@ -50,7 +51,7 @@ fn map_with_side_map_enriches_records() -> anyhow::Result<()> {
 
 #[test]
 fn filter_with_side_allows_only_whitelisted() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     // Input: countries seen in events
     let input = from_vec(

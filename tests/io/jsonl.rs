@@ -1,6 +1,8 @@
 use anyhow::Result;
 use rustflow::io::jsonl::*;
+use rustflow::testing::*;
 use rustflow::{from_vec, read_jsonl, Count, Pipeline};
+use rustflow::testing::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -16,7 +18,7 @@ fn jsonl_roundtrip_stateless() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let file = tmp.path().join("out.jsonl");
 
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input = from_vec(
         &p,
         vec![
@@ -39,7 +41,7 @@ fn jsonl_roundtrip_stateless() -> Result<()> {
     assert_eq!(n, 2);
 
     // Read back and check
-    let p2 = Pipeline::default();
+    let p2 = TestPipeline::new();
     let back = read_jsonl::<Rec>(&p2, &file)?;
     let v = back.collect_seq()?;
     assert_eq!(
@@ -76,7 +78,7 @@ fn jsonl_wordcount_end_to_end() -> Result<()> {
         line: String,
     }
 
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input = read_jsonl::<Line>(&p, &file)?;
     let words = input.flat_map(|l: &Line| {
         l.line

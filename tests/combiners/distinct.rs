@@ -1,8 +1,9 @@
 use rustflow::*;
+use rustflow::testing::*;
 
 #[test]
 fn distinct_global_exact() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let out = from_vec(&p, vec![1, 1, 2, 3, 3, 3]).distinct();
     let mut v = out.collect_seq()?;
     v.sort();
@@ -12,7 +13,7 @@ fn distinct_global_exact() -> anyhow::Result<()> {
 
 #[test]
 fn distinct_per_key_exact() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let kv = vec![
         ("a".to_string(), 1),
         ("a".to_string(), 1),
@@ -36,7 +37,7 @@ fn distinct_per_key_exact() -> anyhow::Result<()> {
 
 #[test]
 fn approx_distinct_global_kmv() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     // 10_000 values with ~1234 uniques
     let pc = from_vec(&p, (0..10_000u64).map(|n| n % 1234).collect::<Vec<_>>());
     let est = pc.approx_distinct_count(256).collect_seq()?[0];
@@ -47,7 +48,7 @@ fn approx_distinct_global_kmv() -> anyhow::Result<()> {
 
 #[test]
 fn approx_distinct_per_key_kmv() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     // Two keys with different cardinalities
     let mut data = Vec::new();
     for i in 0..1000 {

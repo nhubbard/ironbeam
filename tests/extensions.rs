@@ -1,6 +1,7 @@
 use anyhow::Result;
 use rustflow::extensions::CompositeTransform;
 use rustflow::node::DynOp;
+use rustflow::testing::*;
 use rustflow::type_token::{Partition, VecOps};
 use rustflow::*;
 use std::any::Any;
@@ -21,13 +22,13 @@ impl DynOp for ReverseStringOp {
 
 #[test]
 fn apply_transform_custom_op() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let words = from_vec(&p, vec!["hello".to_string(), "world".to_string()]);
 
     let reversed: PCollection<String> = words.apply_transform(Arc::new(ReverseStringOp));
     let result = reversed.collect_seq()?;
 
-    assert_eq!(result, vec!["olleh", "dlrow"]);
+    assert_collections_equal(&result, &vec!["olleh".to_string(), "dlrow".to_string()]);
     Ok(())
 }
 
@@ -46,13 +47,13 @@ impl DynOp for DoubleOp {
 
 #[test]
 fn apply_transform_with_numbers() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let nums = from_vec(&p, vec![1, 2, 3, 4, 5]);
 
     let doubled: PCollection<i32> = nums.apply_transform(Arc::new(DoubleOp));
     let result = doubled.collect_seq()?;
 
-    assert_eq!(result, vec![2, 4, 6, 8, 10]);
+    assert_collections_equal(&result, &vec![2, 4, 6, 8, 10]);
     Ok(())
 }
 
@@ -80,7 +81,7 @@ impl DynOp for UppercaseValueOp {
 
 #[test]
 fn apply_transform_key_preserving() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let pairs = from_vec(
         &p,
         vec![
@@ -92,7 +93,7 @@ fn apply_transform_key_preserving() -> Result<()> {
     let upper: PCollection<(String, String)> = pairs.apply_transform(Arc::new(UppercaseValueOp));
     let result = upper.collect_seq()?;
 
-    assert_eq!(
+    assert_kv_collections_equal(
         result,
         vec![
             ("a".to_string(), "HELLO".to_string()),
@@ -115,7 +116,7 @@ impl CompositeTransform<String, String> for TrimAndFilter {
 
 #[test]
 fn composite_transform_basic() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data = from_vec(
         &p,
         vec![
@@ -129,7 +130,7 @@ fn composite_transform_basic() -> Result<()> {
     let cleaned = data.apply_composite(&TrimAndFilter);
     let result = cleaned.collect_seq()?;
 
-    assert_eq!(result, vec!["hello", "world"]);
+    assert_collections_equal(&result, &vec!["hello".to_string(), "world".to_string()]);
     Ok(())
 }
 
@@ -146,7 +147,7 @@ impl CompositeTransform<String, i32> for ParseInts {
 
 #[test]
 fn composite_transform_type_change() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data = from_vec(
         &p,
         vec![
@@ -159,7 +160,7 @@ fn composite_transform_type_change() -> Result<()> {
     let parsed = data.apply_composite(&ParseInts);
     let result = parsed.collect_seq()?;
 
-    assert_eq!(result, vec![123, 456]);
+    assert_collections_equal(&result, &vec![123, 456]);
     Ok(())
 }
 
@@ -196,7 +197,7 @@ impl VecOps for SimpleShardsVecOps {
 
 #[test]
 fn custom_source_with_vec_ops() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let shards = SimpleShards {
         chunks: vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8, 9]],
     };
@@ -204,13 +205,13 @@ fn custom_source_with_vec_ops() -> Result<()> {
     let data: PCollection<i32> = from_custom_source(&p, shards, Arc::new(SimpleShardsVecOps));
 
     let result = data.collect_seq()?;
-    assert_eq!(result, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert_collections_equal(&result, &vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
     Ok(())
 }
 
 #[test]
 fn custom_source_with_parallel_execution() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let shards = SimpleShards {
         chunks: vec![vec![1, 2], vec![3, 4], vec![5, 6]],
     };
@@ -222,21 +223,21 @@ fn custom_source_with_parallel_execution() -> Result<()> {
     let mut result = doubled.collect_par(None, None)?;
     result.sort();
 
-    assert_eq!(result, vec![2, 4, 6, 8, 10, 12]);
+    assert_collections_equal(&result, &vec![2, 4, 6, 8, 10, 12]);
     Ok(())
 }
 
 // Test chaining custom ops
 #[test]
 fn chain_multiple_custom_ops() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data = from_vec(&p, vec![1, 2, 3]);
 
     let doubled: PCollection<i32> = data.apply_transform(Arc::new(DoubleOp));
     let quadrupled: PCollection<i32> = doubled.apply_transform(Arc::new(DoubleOp));
 
     let result = quadrupled.collect_seq()?;
-    assert_eq!(result, vec![4, 8, 12]);
+    assert_collections_equal(&result, &vec![4, 8, 12]);
     Ok(())
 }
 
@@ -259,7 +260,7 @@ impl CompositeTransform<String, (String, u64)> for WordCount {
 
 #[test]
 fn composite_transform_with_aggregation() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let lines = from_vec(
         &p,
         vec![

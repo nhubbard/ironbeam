@@ -1,9 +1,10 @@
 use anyhow::Result;
-use rustflow::{from_vec, Pipeline};
+use rustflow::testing::*;
+use rustflow::from_vec;
 
 #[test]
 fn planner_fuses_stateless_equivalence() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u32> = (0..10_000).collect();
 
     // Build with many tiny stateless ops
@@ -17,13 +18,13 @@ fn planner_fuses_stateless_equivalence() -> Result<()> {
     // Collect seq and par to ensure planner changes don't affect results
     let seq = many.clone().collect_seq_sorted()?;
     let par = many.clone().collect_par_sorted(Some(8), None)?;
-    assert_eq!(seq, par);
+    assert_collections_equal(&seq, &par);
     Ok(())
 }
 
 #[test]
 fn planner_drops_mid_materialized_equivalence() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let v: Vec<String> = (0..1000).map(|i| format!("w{i}")).collect();
 
     // Force a mid-chain materialized by collecting and re-inserting (simulating a checkpoint)
@@ -36,7 +37,7 @@ fn planner_drops_mid_materialized_equivalence() -> Result<()> {
     // We just ensure the runner still yields stable results:
     let seq = col.clone().collect_seq_sorted()?;
     let par = col.clone().collect_par_sorted(Some(6), None)?;
-    assert_eq!(seq, par);
+    assert_collections_equal(&seq, &par);
 
     Ok(())
 }

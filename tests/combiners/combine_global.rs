@@ -1,9 +1,11 @@
 use rustflow::combiners::{AverageF64, DistinctCount, Sum};
+use rustflow::testing::*;
 use rustflow::*;
+use rustflow::testing::*;
 
 #[test]
 fn combine_globally_sum_basic() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u64> = (0..100u64).collect(); // sum = 4950
 
     let pc = from_vec(&p, input);
@@ -18,7 +20,7 @@ fn combine_globally_sum_basic() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_sum_with_fanout() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u64> = (0..10_000u64).collect(); // sum = 49_995_000
 
     let pc = from_vec(&p, input);
@@ -33,7 +35,7 @@ fn combine_globally_sum_with_fanout() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_average_lifted() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input = vec![1u32, 2, 3, 4]; // avg = 2.5
 
     let pc = from_vec(&p, input);
@@ -48,7 +50,7 @@ fn combine_globally_average_lifted() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_distinct_count() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     // 0..100 modulo 7 => 7 distinct values
     let input: Vec<u32> = (0..100u32).map(|n| n % 7).collect();
 
@@ -63,7 +65,7 @@ fn combine_globally_distinct_count() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_empty_input() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u64> = vec![]; // empty
 
     let pc = from_vec(&p, input);
@@ -78,7 +80,7 @@ fn combine_globally_empty_input() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_single_element() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input = vec![42u64];
 
     let pc = from_vec(&p, input);
@@ -92,7 +94,7 @@ fn combine_globally_single_element() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_lifted_path() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input = vec![10u32, 20, 30, 40, 50];
 
     let pc = from_vec(&p, input);
@@ -107,7 +109,7 @@ fn combine_globally_lifted_path() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_lifted_with_fanout() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u32> = (1..=1000).collect();
 
     let pc = from_vec(&p, input);
@@ -122,7 +124,7 @@ fn combine_globally_lifted_with_fanout() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_lifted_empty() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u32> = vec![];
 
     let pc = from_vec(&p, input);
@@ -136,7 +138,7 @@ fn combine_globally_lifted_empty() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_min_max() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input = vec![5, 2, 9, 1, 7, 3];
 
     let pc_min = from_vec(&p, input.clone());
@@ -157,7 +159,7 @@ fn combine_globally_min_max() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_parallel_with_many_partitions() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u64> = (1..=10_000).collect();
 
     let pc = from_vec(&p, input);
@@ -173,7 +175,7 @@ fn combine_globally_parallel_with_many_partitions() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_various_fanout_sizes() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u64> = (1..=100).collect();
 
     // Test with different fanout sizes
@@ -190,7 +192,7 @@ fn combine_globally_various_fanout_sizes() -> anyhow::Result<()> {
 
 #[test]
 fn combine_globally_lifted_large_dataset() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<i32> = (1..=10_000).collect();
 
     let pc = from_vec(&p, input);

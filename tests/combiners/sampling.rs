@@ -1,9 +1,10 @@
 use anyhow::Result;
 use rustflow::*;
+use rustflow::testing::*;
 
 #[test]
 fn reservoir_global_vec_and_flatten() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data: Vec<u32> = (0..10_000).collect();
 
     let v1 = from_vec(&p, data.clone())
@@ -29,7 +30,7 @@ fn reservoir_global_vec_and_flatten() -> Result<()> {
 
 #[test]
 fn reservoir_per_key_vec_and_flatten() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     // Make 5 keys with 100 items each
     let input: Vec<(String, u32)> = (0..5)
         .flat_map(|k| (0..100u32).map(move |i| (format!("k{k}"), i)))

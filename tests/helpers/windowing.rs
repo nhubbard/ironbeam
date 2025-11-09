@@ -1,6 +1,8 @@
 // tests/windowing.rs
 use rustflow::window::{Timestamped, Window};
+use rustflow::testing::*;
 use rustflow::*;
+use rustflow::testing::*;
 
 fn mk_ts(i: u64) -> u64 {
     i
@@ -8,7 +10,7 @@ fn mk_ts(i: u64) -> u64 {
 
 #[test]
 fn tumbling_non_keyed_counts() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     // Create events at timestamps 0..30 step 5; window size 10 → windows [0,10), [10,20), [20,30)
     let events: Vec<Timestamped<&'static str>> = (0..30)
@@ -34,7 +36,7 @@ fn tumbling_non_keyed_counts() -> anyhow::Result<()> {
 
 #[test]
 fn tumbling_keyed_counts() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     // Two keys: "a" and "b", over two windows; arrange unbalanced counts.
     let rows: Vec<(String, Timestamped<u8>)> = vec![
@@ -69,7 +71,7 @@ fn tumbling_keyed_counts() -> anyhow::Result<()> {
 
 #[test]
 fn attach_timestamps_then_window() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     // Start from raw payloads + separate timestamp field
     #[derive(Clone, serde::Serialize, serde::Deserialize)]

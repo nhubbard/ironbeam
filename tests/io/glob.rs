@@ -1,6 +1,7 @@
 //! Integration tests for glob pattern support in file readers.
 
 use rustflow::*;
+use rustflow::testing::*;
 use serde::{Deserialize, Serialize};
 use std::fs::create_dir_all;
 use tempfile::TempDir;
@@ -46,7 +47,7 @@ fn test_jsonl_glob_pattern() -> anyhow::Result<()> {
     rustflow::io::jsonl::write_jsonl_vec(&file2, &records2)?;
 
     // Read with glob pattern
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let pattern = format!("{}/*.jsonl", base.display());
     let pc: PCollection<Record> = read_jsonl(&p, &pattern)?;
 
@@ -82,7 +83,7 @@ fn test_jsonl_single_file() -> anyhow::Result<()> {
     rustflow::io::jsonl::write_jsonl_vec(&file, &records)?;
 
     // Read single file (no glob pattern)
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let pc: PCollection<Record> = read_jsonl(&p, &file)?;
 
     let result = pc.collect_seq()?;
@@ -100,7 +101,7 @@ fn test_jsonl_no_matches() {
     let dir = TempDir::new().unwrap();
     let pattern = format!("{}/*.nonexistent", dir.path().display());
 
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let result: Result<PCollection<Record>, _> = read_jsonl(&p, &pattern);
 
     assert!(result.is_err());
@@ -143,7 +144,7 @@ fn test_csv_glob_pattern() -> anyhow::Result<()> {
     rustflow::io::csv::write_csv_vec(&file2, true, &records2)?;
 
     // Read with glob pattern
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let pattern = format!("{}/*.csv", base.display());
     let pc: PCollection<Record> = read_csv(&p, &pattern, true)?;
 
@@ -179,7 +180,7 @@ fn test_csv_single_file() -> anyhow::Result<()> {
     rustflow::io::csv::write_csv_vec(&file, true, &records)?;
 
     // Read single file (no glob pattern)
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let pc: PCollection<Record> = read_csv(&p, &file, true)?;
 
     let result = pc.collect_seq()?;
@@ -226,7 +227,7 @@ fn test_parquet_glob_pattern() -> anyhow::Result<()> {
     rustflow::io::parquet::write_parquet_vec(&file2, &records2)?;
 
     // Read with glob pattern
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let pattern = format!("{}/*.parquet", base.display());
     let pc: PCollection<Record> = read_parquet_streaming(&p, &pattern, 1)?;
 
@@ -262,7 +263,7 @@ fn test_parquet_single_file() -> anyhow::Result<()> {
     rustflow::io::parquet::write_parquet_vec(&file, &records)?;
 
     // Read single file (no glob pattern)
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let pc: PCollection<Record> = read_parquet_streaming(&p, &file, 1)?;
 
     let result = pc.collect_seq()?;
@@ -302,7 +303,7 @@ fn test_jsonl_date_partitions() -> anyhow::Result<()> {
     rustflow::io::jsonl::write_jsonl_vec(&file2, &records2)?;
 
     // Read with date partition glob pattern
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let pattern = format!("{}/year=2024/month=*/day=*/data.jsonl", base.display());
     let pc: PCollection<Record> = read_jsonl(&p, &pattern)?;
 
@@ -345,12 +346,12 @@ fn test_csv_deterministic_order() -> anyhow::Result<()> {
     rustflow::io::csv::write_csv_vec(&file3, true, &records3)?;
 
     // Read with glob pattern multiple times
-    let p1 = Pipeline::default();
+    let p1 = TestPipeline::new();
     let pattern = format!("{}/*.csv", base.display());
     let pc1: PCollection<Record> = read_csv(&p1, &pattern, true)?;
     let result1 = pc1.collect_seq()?;
 
-    let p2 = Pipeline::default();
+    let p2 = TestPipeline::new();
     let pc2: PCollection<Record> = read_csv(&p2, &pattern, true)?;
     let result2 = pc2.collect_seq()?;
 

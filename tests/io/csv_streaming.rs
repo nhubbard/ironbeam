@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use rustflow::{read_csv, read_csv_streaming, Pipeline};
+use rustflow::testing::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -34,7 +35,7 @@ fn csv_streaming_roundtrip() -> Result<()> {
         ],
     )?;
 
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input = read_csv_streaming::<Rec>(&p, &file, true, 2)?;
     let upper = input.map(|r: &Rec| Rec {
         id: r.id,
@@ -67,7 +68,7 @@ fn read_csv_helper_function() -> Result<()> {
     )?;
 
     // Test read_csv helper
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input = read_csv::<Rec>(&p, &file, true)?;
     let out = input.collect_seq()?;
     assert_eq!(out.len(), 2);
@@ -84,7 +85,7 @@ fn write_csv_par_helper_function() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let file = tmp.path().join("par_helper_test.csv");
 
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data = vec![
         Rec {
             id: 1,

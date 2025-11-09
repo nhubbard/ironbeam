@@ -1,5 +1,6 @@
 //! Tests for validation functionality.
 
+use rustflow::testing::*;
 use rustflow::validation::*;
 use rustflow::*;
 use serde::{Deserialize, Serialize};
@@ -36,7 +37,7 @@ impl Validate for User {
 
 #[test]
 fn test_validate_skip_invalid() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let users = from_vec(
         &p,
         vec![
@@ -75,7 +76,7 @@ fn test_validate_skip_invalid() {
 fn test_validate_with_error_collector() {
     use std::sync::{Arc, Mutex};
 
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let users = from_vec(
         &p,
         vec![
@@ -110,7 +111,7 @@ fn test_validate_with_error_collector() {
 #[test]
 #[should_panic(expected = "Validation failed")]
 fn test_validate_fail_fast() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let users = from_vec(
         &p,
         vec![
@@ -133,7 +134,7 @@ fn test_validate_fail_fast() {
 
 #[test]
 fn test_validate_with_custom_function() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let numbers = from_vec(&p, vec![1, -5, 10, -3, 7, 0]);
 
     let positive = numbers.filter(|n: &i32| *n > 0);
@@ -228,7 +229,7 @@ impl Validate for Order {
 
 #[test]
 fn test_validate_values_skip_invalid() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let orders = from_vec(
         &p,
         vec![
@@ -268,7 +269,7 @@ fn test_validate_values_skip_invalid() {
 fn test_validate_values_with_error_collector() {
     use std::sync::{Arc, Mutex};
 
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let orders = from_vec(
         &p,
         vec![
@@ -300,7 +301,7 @@ fn test_validate_values_with_error_collector() {
 
 #[test]
 fn test_parallel_validation() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let users = from_vec(
         &p,
         vec![
@@ -330,7 +331,7 @@ fn test_parallel_validation() {
 
 #[test]
 fn test_validation_with_grouping() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let users = from_vec(
         &p,
         vec![

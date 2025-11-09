@@ -6,6 +6,7 @@ mod checkpoint_tests {
         compute_checksum, current_timestamp_ms, CheckpointConfig, CheckpointManager, CheckpointMetadata,
         CheckpointPolicy, CheckpointState,
     };
+    use rustflow::testing::*;
     use std::fs::{self, File};
     use std::io::{Read, Write};
     use tempfile::TempDir;

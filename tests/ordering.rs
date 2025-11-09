@@ -1,8 +1,9 @@
-use rustflow::{from_vec, Pipeline};
+use rustflow::testing::*;
+use rustflow::from_vec;
 
 #[test]
 fn par_equals_seq_after_sort() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let col = from_vec(
         &p,
         (0..10_000)
@@ -12,6 +13,6 @@ fn par_equals_seq_after_sort() -> anyhow::Result<()> {
     .flat_map(|w: &String| vec![w.clone(), w.clone()]);
     let seq = col.clone().collect_seq_sorted()?;
     let par = col.collect_par_sorted(Some(8), None)?;
-    assert_eq!(seq, par);
+    assert_collections_equal(&seq, &par);
     Ok(())
 }

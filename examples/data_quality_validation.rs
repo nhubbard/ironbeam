@@ -36,36 +36,6 @@ impl Validate for Transaction {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct Customer {
-    id: u32,
-    name: String,
-    country: String,
-}
-
-impl Validate for Customer {
-    fn validate(&self) -> ValidationResult {
-        let mut errors = Vec::new();
-
-        if self.name.is_empty() {
-            errors.push(ValidationError::field("name", "Name cannot be empty"));
-        }
-
-        if self.country.len() != 2 {
-            errors.push(ValidationError::field(
-                "country",
-                "Country must be 2-letter code",
-            ));
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors)
-        }
-    }
-}
-
 fn main() -> anyhow::Result<()> {
     println!("=== Data Quality & Validation Example ===\n");
 

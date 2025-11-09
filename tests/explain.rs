@@ -1,11 +1,12 @@
 //! Tests for the execution plan explanation feature.
 
 use anyhow::Result;
+use rustflow::testing::*;
 use rustflow::*;
 
 #[test]
 fn test_explain_simple_pipeline() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data = from_vec(&p, vec![1, 2, 3, 4, 5]);
     let doubled = data.map(|x| x * 2);
     let filtered = doubled.filter(|x| *x > 5);
@@ -26,7 +27,7 @@ fn test_explain_simple_pipeline() -> Result<()> {
 
 #[test]
 fn test_explain_with_grouping() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data = from_vec(&p, vec![("a", 1u64), ("b", 2u64), ("a", 3u64)]);
     let grouped = data.group_by_key();
 
@@ -46,7 +47,7 @@ fn test_explain_with_grouping() -> Result<()> {
 
 #[test]
 fn test_explain_with_optimizations() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data = from_vec(&p, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
     // Create multiple stateless operations that should be fused
@@ -77,7 +78,7 @@ fn test_explain_with_optimizations() -> Result<()> {
 
 #[test]
 fn test_explain_cost_estimates() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data = from_vec(&p, (1..=1000).collect::<Vec<_>>());
     let result = data
         .map(|x| (*x % 10, *x))
@@ -101,7 +102,7 @@ fn test_explain_cost_estimates() -> Result<()> {
 
 #[test]
 fn test_explain_display_format() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let data = from_vec(&p, vec![1, 2, 3]);
     let result = data.map(|x| x * 2);
 

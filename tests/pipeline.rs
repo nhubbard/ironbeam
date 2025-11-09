@@ -1,10 +1,11 @@
 //! Tests for pipeline graph functionality.
 
+use rustflow::testing::*;
 use rustflow::*;
 
 #[test]
 fn test_pipeline_default() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let (nodes, edges) = p.snapshot();
 
     assert!(nodes.is_empty());
@@ -13,7 +14,7 @@ fn test_pipeline_default() {
 
 #[test]
 fn test_pipeline_clone() {
-    let p1 = Pipeline::default();
+    let p1 = TestPipeline::new();
     let _data = from_vec(&p1, vec![1, 2, 3]);
 
     let p2 = p1.clone();
@@ -27,7 +28,7 @@ fn test_pipeline_clone() {
 
 #[test]
 fn test_pipeline_node_insertion() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     let data = from_vec(&p, vec![1, 2, 3, 4, 5]);
     let _mapped = data.map(|x: &i32| x * 2);
@@ -40,7 +41,7 @@ fn test_pipeline_node_insertion() {
 
 #[test]
 fn test_pipeline_edges() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     let data = from_vec(&p, vec![1, 2, 3]);
     let mapped = data.map(|x: &i32| x * 2);
@@ -54,7 +55,7 @@ fn test_pipeline_edges() {
 
 #[test]
 fn test_pipeline_complex_graph() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     let data = from_vec(&p, vec![1, 2, 3, 4, 5]);
     let mapped = data.map(|x: &i32| x * 2);
@@ -70,7 +71,7 @@ fn test_pipeline_complex_graph() {
 
 #[test]
 fn test_multiple_sources() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     let _data1 = from_vec(&p, vec![1, 2, 3]);
     let _data2 = from_vec(&p, vec![4, 5, 6]);
@@ -84,7 +85,7 @@ fn test_multiple_sources() {
 
 #[test]
 fn test_pipeline_join_creates_edges() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     let left = from_vec(&p, vec![("a".to_string(), 1), ("b".to_string(), 2)]);
     let right = from_vec(&p, vec![("a".to_string(), 10), ("c".to_string(), 30)]);
@@ -104,7 +105,7 @@ mod metrics_tests {
 
     #[test]
     fn test_pipeline_metrics_set_and_get() {
-        let p = Pipeline::default();
+        let p = TestPipeline::new();
 
         let mut metrics = MetricsCollector::new();
         metrics.register(Box::new(CounterMetric::with_value("test", 42)));
@@ -120,7 +121,7 @@ mod metrics_tests {
 
     #[test]
     fn test_pipeline_metrics_take() {
-        let p = Pipeline::default();
+        let p = TestPipeline::new();
 
         let mut metrics = MetricsCollector::new();
         metrics.register(Box::new(CounterMetric::with_value("counter", 100)));
@@ -141,7 +142,7 @@ mod metrics_tests {
         use std::thread;
         use std::time::Duration;
 
-        let p = Pipeline::default();
+        let p = TestPipeline::new();
         let metrics = MetricsCollector::new();
         p.set_metrics(metrics);
 
@@ -158,14 +159,14 @@ mod metrics_tests {
 
     #[test]
     fn test_pipeline_metrics_integration() {
-        let p = Pipeline::default();
+        let p = TestPipeline::new();
         let metrics = MetricsCollector::new();
         p.set_metrics(metrics);
 
         let data = from_vec(&p, vec![1, 2, 3, 4, 5]);
         let result = data.collect_seq().unwrap();
 
-        assert_eq!(result, vec![1, 2, 3, 4, 5]);
+        assert_collections_equal(&result, &vec![1, 2, 3, 4, 5]);
 
         let metrics = p.take_metrics();
         assert!(metrics.is_some());
@@ -173,19 +174,19 @@ mod metrics_tests {
 
     #[test]
     fn test_pipeline_without_metrics() {
-        let p = Pipeline::default();
+        let p = TestPipeline::new();
 
         // Should work fine without metrics
         let data = from_vec(&p, vec![1, 2, 3]);
         let result = data.collect_seq().unwrap();
 
-        assert_eq!(result, vec![1, 2, 3]);
+        assert_collections_equal(&result, &vec![1, 2, 3]);
         assert!(p.take_metrics().is_none());
     }
 
     #[test]
     fn test_metrics_record_without_set() {
-        let p = Pipeline::default();
+        let p = TestPipeline::new();
 
         // These should not panic even if metrics are not set
         p.record_metrics_start();
@@ -196,7 +197,7 @@ mod metrics_tests {
 
     #[test]
     fn test_pipeline_metrics_clone() {
-        let p1 = Pipeline::default();
+        let p1 = TestPipeline::new();
         let mut metrics = MetricsCollector::new();
         metrics.register(Box::new(CounterMetric::with_value("shared", 999)));
         p1.set_metrics(metrics);
@@ -220,7 +221,7 @@ mod metrics_tests {
 
 #[test]
 fn test_pipeline_snapshot_is_independent() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let _data = from_vec(&p, vec![1, 2, 3]);
 
     let (nodes1, edges1) = p.snapshot();
@@ -238,7 +239,7 @@ fn test_pipeline_snapshot_is_independent() {
 
 #[test]
 fn test_pipeline_node_ids_increment() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     let d1 = from_vec(&p, vec![1]);
     let d2 = from_vec(&p, vec![2]);
@@ -252,7 +253,7 @@ fn test_pipeline_node_ids_increment() {
 
 #[test]
 fn test_pipeline_large_graph() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     let mut current = from_vec(&p, vec![1, 2, 3, 4, 5]);
 
@@ -269,7 +270,7 @@ fn test_pipeline_large_graph() {
 
 #[test]
 fn test_pipeline_parallel_branches() {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
 
     let source = from_vec(&p, vec![1, 2, 3, 4, 5]);
 

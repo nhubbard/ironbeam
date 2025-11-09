@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use rustflow::{read_jsonl_streaming, Count, Pipeline};
+use rustflow::testing::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -27,7 +28,7 @@ fn jsonl_streaming_wordcount() -> Result<()> {
         ),
     )?;
 
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input = read_jsonl_streaming::<Line>(&p, &file, 1)?; // 1 line/shard
     let words = input.flat_map(|l: &Line| {
         l.line

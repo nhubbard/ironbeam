@@ -349,6 +349,89 @@
 //! # }
 //! ```
 //!
+//! ## Testing Your Pipelines
+//!
+//! Rustflow provides comprehensive testing utilities in the [`testing`] module to help you
+//! write idiomatic Rust tests for your data pipelines.
+//!
+//! ### Basic Testing
+//! ```no_run
+//! use rustflow::*;
+//! use rustflow::testing::*;
+//!
+//! #[test]
+//! fn test_simple_pipeline() -> anyhow::Result<()> {
+//!     let p = TestPipeline::new();
+//!
+//!     let result = from_vec(&p, vec![1, 2, 3])
+//!         .map(|x: &i32| x * 2)
+//!         .collect_seq()?;
+//!
+//!     assert_collections_equal(result, vec![2, 4, 6]);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ### Testing with Assertions
+//! The testing module provides specialized assertions for collections:
+//!
+//! - [`testing::assert_collections_equal`] - Exact order-dependent comparison
+//! - [`testing::assert_collections_unordered_equal`] - Order-independent comparison
+//! - [`testing::assert_kv_collections_equal`] - Compare key-value pairs (sorted by key)
+//! - [`testing::assert_all`] / [`testing::assert_any`] / [`testing::assert_none`] - Predicate-based assertions
+//!
+//! ### Test Data Builders
+//! Create test data fluently with builders:
+//!
+//! ```
+//! use rustflow::testing::*;
+//!
+//! let data = TestDataBuilder::<i32>::new()
+//!     .add_range(1..=10)
+//!     .add_value(100)
+//!     .add_repeated(42, 3)
+//!     .build();
+//!
+//! let kvs = KVTestDataBuilder::new()
+//!     .add_kv("a", 1)
+//!     .add_key_with_values("b", vec![2, 3, 4])
+//!     .build();
+//! ```
+//!
+//! ### Debug Utilities
+//! Inspect pipelines during test execution:
+//!
+//! ```no_run
+//! use rustflow::*;
+//! use rustflow::testing::*;
+//!
+//! # fn main() -> anyhow::Result<()> {
+//! let p = TestPipeline::new();
+//! let result = from_vec(&p, vec![1, 2, 3])
+//!     .debug_inspect("after source")  // Prints elements to stderr
+//!     .map(|x: &i32| x * 2)
+//!     .debug_count("after map")       // Prints count
+//!     .debug_sample(5, "first 5")     // Prints first 5 elements
+//!     .collect_seq()?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ### Pre-built Fixtures
+//! Use common test datasets for realistic testing:
+//!
+//! ```
+//! use rustflow::testing::*;
+//!
+//! let logs = sample_log_entries();       // Web server logs
+//! let words = word_count_data();         // Text data for word counting
+//! let ts = time_series_data();           // Time-series measurements
+//! let users = user_product_interactions(); // Relational data
+//! ```
+//!
+//! For more examples, see the [`testing`] module documentation and
+//! run `cargo run --example testing_pipeline`.
+//!
 //! ## Performance Tips
 //!
 //! - Use [`map_batches`](PCollection::map_batches) for CPU-intensive operations
@@ -432,6 +515,7 @@ pub mod node_id;
 pub mod pipeline;
 pub mod planner;
 pub mod runner;
+pub mod testing;
 pub mod type_token;
 pub mod utils;
 pub mod validation;

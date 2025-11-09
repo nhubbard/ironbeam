@@ -1,9 +1,10 @@
 use anyhow::Result;
 use rustflow::*;
+use rustflow::testing::*;
 
 #[test]
 fn map_batches_matches_elementwise_seq() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u32> = (0..103).collect();
 
     // element-wise baseline
@@ -25,7 +26,7 @@ fn map_batches_matches_elementwise_seq() -> Result<()> {
 
 #[test]
 fn map_batches_tail_handling() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<usize> = (0..10).collect();
 
     let got = from_vec(&p, input.clone())
@@ -42,7 +43,7 @@ fn map_batches_tail_handling() -> Result<()> {
 
 #[test]
 fn map_batches_par_equivalence_after_sort() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<u32> = (0..10_000).collect();
 
     // elementwise baseline (seq)
@@ -63,7 +64,7 @@ fn map_batches_par_equivalence_after_sort() -> Result<()> {
 
 #[test]
 fn map_values_batches_matches_elementwise_seq() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<(String, u32)> = (0..103).map(|i| (format!("k{}", i % 5), i)).collect();
 
     // Baseline elementwise
@@ -85,7 +86,7 @@ fn map_values_batches_matches_elementwise_seq() -> Result<()> {
 
 #[test]
 fn map_values_batches_tail_handling() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<(u32, usize)> = (0..10).map(|i| ((i % 2) as u32, i as usize)).collect();
 
     // Return the size of each processed chunk (visible in values).
@@ -109,7 +110,7 @@ fn map_values_batches_tail_handling() -> Result<()> {
 
 #[test]
 fn map_values_batches_par_equivalence_after_sort() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let input: Vec<(u32, u32)> = (0..10_000).map(|i| (i % 17, i)).collect();
 
     // Elementwise (seq) baseline

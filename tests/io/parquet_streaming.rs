@@ -1,5 +1,6 @@
 #![cfg(feature = "io-parquet")]
 use rustflow::{from_vec, read_parquet_streaming, Count, Pipeline};
+use rustflow::testing::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -14,7 +15,7 @@ fn parquet_streaming_roundtrip() -> anyhow::Result<()> {
     let path = tmp.path().join("rows.parquet");
 
     // seed a file via pipeline
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let rows: Vec<Rec> = (0..1000)
         .map(|i| Rec {
             id: i,
@@ -25,7 +26,7 @@ fn parquet_streaming_roundtrip() -> anyhow::Result<()> {
     let _ = col.write_parquet(&path)?;
 
     // read in streaming mode (1 row group per shard)
-    let p2 = Pipeline::default();
+    let p2 = TestPipeline::new();
     let s = read_parquet_streaming::<Rec>(&p2, &path, 1)?;
     let words = s
         .key_by(|r: &Rec| r.word.clone())

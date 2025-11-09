@@ -1,6 +1,7 @@
 // tests/joins.rs
 use anyhow::Result;
 use rustflow::*;
+use rustflow::testing::*;
 
 fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
     v.sort();
@@ -9,7 +10,7 @@ fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
 
 #[test]
 fn inner_join_basic_seq_par() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let left = from_vec(
         &p,
         vec![
@@ -46,7 +47,7 @@ fn inner_join_basic_seq_par() -> Result<()> {
 
 #[test]
 fn left_right_full_outer() -> Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let left = from_vec(
         &p,
         vec![

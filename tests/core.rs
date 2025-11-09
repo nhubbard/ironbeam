@@ -1,10 +1,11 @@
 use rustflow::collection::Count;
-use rustflow::{from_vec, Pipeline};
+use rustflow::testing::*;
+use rustflow::from_vec;
 use std::collections::HashMap;
 
 #[test]
 fn map_filter_flatmap_chain() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let lines = from_vec(
         &p,
         vec![
@@ -20,12 +21,11 @@ fn map_filter_flatmap_chain() -> anyhow::Result<()> {
     });
     let filtered = words.filter(|w: &String| w.len() >= 4);
 
-    // either .collect() if you added the shim, or .collect_seq()
     let out = filtered.collect_seq()?;
 
-    assert_eq!(
-        out,
-        vec![
+    assert_collections_equal(
+        &out,
+        &vec![
             "quick".to_string(),
             "brown".to_string(),
             "jumps".to_string(),
@@ -38,7 +38,7 @@ fn map_filter_flatmap_chain() -> anyhow::Result<()> {
 
 #[test]
 fn key_by_and_group_by_key_counts_words() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let words = from_vec(
         &p,
         vec![
@@ -49,11 +49,10 @@ fn key_by_and_group_by_key_counts_words() -> anyhow::Result<()> {
             "b".to_string(),
         ],
     );
-    let keyed = words.key_by(|w: &String| w.clone()); // (word, word)
-    let grouped = keyed.group_by_key(); // (word, Vec<word>)
+    let keyed = words.key_by(|w: &String| w.clone());
+    let grouped = keyed.group_by_key();
     let out = grouped.collect_seq()?;
 
-    // Explicit map type to satisfy inference on v.len()
     let mut m: HashMap<String, usize> = HashMap::new();
     for (k, v) in out {
         m.insert(k, v.len());
@@ -66,7 +65,7 @@ fn key_by_and_group_by_key_counts_words() -> anyhow::Result<()> {
 
 #[test]
 fn combine_values_count() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let words = from_vec(
         &p,
         vec![
@@ -79,14 +78,14 @@ fn combine_values_count() -> anyhow::Result<()> {
     );
 
     let counts = words
-        .flat_map(|w: &String| vec![w.clone()]) // keep as Vec<String>
-        .key_by(|w: &String| w.clone()) // (String, String)
-        .map_values(|_v: &String| 1u64) // (String, u64)
-        .combine_values(Count); // (String, u64)
+        .flat_map(|w: &String| vec![w.clone()])
+        .key_by(|w: &String| w.clone())
+        .map_values(|_v: &String| 1u64)
+        .combine_values(Count);
 
-    // either .collect() if shim exists, or .collect_seq()
+    let out = counts.collect_seq()?;
     let mut m: HashMap<String, u64> = HashMap::new();
-    for (k, v) in counts.collect_seq()? {
+    for (k, v) in out {
         m.insert(k, v);
     }
     assert_eq!(m.get("a"), Some(&2u64));
@@ -97,7 +96,7 @@ fn combine_values_count() -> anyhow::Result<()> {
 
 #[test]
 fn map_values_transforms_payloads() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let nums = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
 
     let kv = nums.key_by(|n: &u32| {
@@ -110,19 +109,16 @@ fn map_values_transforms_payloads() -> anyhow::Result<()> {
     });
     let doubled = kv.map_values(|v: &u32| v * 2);
 
-    // either .collect() if shim exists, or .collect_seq()
     let out = doubled.collect_seq()?;
 
-    assert_eq!(out.len(), 5);
-    for (_k, v) in out {
-        assert_eq!(v % 2, 0);
-    }
+    assert_collection_size(&out, 5);
+    assert_all(&out, |(_k, v)| *v % 2 == 0);
     Ok(())
 }
 
 #[test]
 fn stateless_seq_vs_par_equivalent() -> anyhow::Result<()> {
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let lines = from_vec(
         &p,
         (0..1000).map(|i| format!("w{i} w{i}")).collect::<Vec<_>>(),
@@ -136,6 +132,6 @@ fn stateless_seq_vs_par_equivalent() -> anyhow::Result<()> {
 
     let a = filtered.clone().collect_seq()?;
     let b = filtered.collect_par(Some(4), Some(8))?;
-    assert_eq!(a, b);
+    assert_collections_equal(&a, &b);
     Ok(())
 }

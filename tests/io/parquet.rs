@@ -1,7 +1,9 @@
 #![cfg(feature = "io-parquet")]
 
 use rustflow::io::parquet::*;
+use rustflow::testing::*;
 use rustflow::{from_vec, Pipeline};
+use rustflow::testing::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -41,7 +43,7 @@ fn parquet_roundtrip_typed() -> anyhow::Result<()> {
     assert_eq!(back, data);
 
     // Also via pipeline
-    let p = Pipeline::default();
+    let p = TestPipeline::new();
     let col = from_vec(&p, back.clone());
     let out_path = tmp.path().join("out.parquet");
     let m = col.write_parquet(&out_path)?;
