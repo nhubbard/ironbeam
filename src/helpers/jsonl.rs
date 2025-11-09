@@ -81,7 +81,7 @@ use std::sync::Arc;
 /// This is an *eager* source: the file(s) are fully read and parsed into memory
 /// before being wrapped as a `PCollection`.
 ///
-/// ### Glob Pattern Support
+/// # Glob Pattern Support
 ///
 /// The `path` parameter can be either:
 /// - A single file path: `"data/input.jsonl"`
@@ -90,10 +90,13 @@ use std::sync::Arc;
 /// When a glob pattern is provided, all matching files are read and concatenated
 /// in sorted (lexicographic) order for deterministic results.
 ///
-/// ### Errors
+/// # Errors
 /// Propagates I/O and JSON parsing errors with line context.
 ///
-/// ### Examples
+/// # Panics
+/// Propagates I/O and JSON parsing errors with line context.
+///
+/// # Examples
 ///
 /// Single file:
 /// ```no_run

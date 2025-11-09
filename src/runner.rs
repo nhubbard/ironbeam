@@ -187,7 +187,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
 
     let run_subplan_seq = |chain: Vec<Node>| -> Result<Vec<Partition>> {
         let mut curr: Option<Partition> = None;
-        for node in chain.into_iter() {
+        for node in chain {
             curr = Some(match node {
                 Node::Source {
                     payload, vec_ops, ..

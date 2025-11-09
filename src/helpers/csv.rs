@@ -91,6 +91,9 @@ use std::sync::Arc;
 /// # Errors
 /// An error is returned if the file cannot be opened or if any row fails to deserialize.
 ///
+/// # Panics
+/// Panics if the `path` parameter is invalid UTF-8 or the regex engine fails.
+///
 /// # Examples
 ///
 /// Single file:

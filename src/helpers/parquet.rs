@@ -148,6 +148,10 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 /// # Errors
 ///
 /// If an error occurs while streaming the Parquet input data, then a [`Result`] is returned.
+///
+/// # Panics
+///
+/// Panics if the regex engine fails.
 #[cfg(feature = "io-parquet")]
 pub fn read_parquet_streaming<T>(
     p: &Pipeline,

@@ -449,6 +449,9 @@ pub use combiners::{AverageF64, DistinctCount, Max, Min, Sum, TopK};
 pub use helpers::*;
 pub use node_id::NodeId;
 pub use pipeline::Pipeline;
+pub use planner::{
+    build_plan, CostEstimate, ExecutionExplanation, ExplainStep, OptimizationDecision, Plan,
+};
 pub use runner::{ExecMode, Runner};
 pub use type_token::Partition;
 pub use utils::OrdF64;
