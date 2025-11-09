@@ -190,5 +190,5 @@ $RECYCLE.BIN/
 test_out.csv
 path_stats.csv
 path_stats.jsonl
-pipeline_metrics.jsonl
+pipeline_metrics.json
 *.info
