@@ -40,7 +40,7 @@ impl Ord for OrdF64 {
 
 impl From<f64> for OrdF64 {
     fn from(value: f64) -> Self {
-        OrdF64(value)
+        Self(value)
     }
 }
 

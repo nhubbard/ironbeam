@@ -17,12 +17,12 @@ struct SplitMix64 {
 }
 
 impl SplitMix64 {
-    fn new(seed: u64) -> Self {
+    const fn new(seed: u64) -> Self {
         Self { state: seed }
     }
 
     #[inline]
-    fn next_u64(&mut self) -> u64 {
+    const fn next_u64(&mut self) -> u64 {
         let mut z = {
             self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
             self.state
@@ -53,9 +53,7 @@ pub struct PRAcc<T> {
     alive: usize,
 }
 
-/// ======================================================================
 /// Reservoir / Priority Sampling (Efraimidis–Spirakis A-ExpJ, unit weight)
-/// ======================================================================
 ///
 /// We sample k items by assigning each element an i.i.d. priority key u ~ U(0,1),
 /// and keeping the top-k by key. This is mergeable: to combine two reservoirs,
@@ -76,7 +74,7 @@ pub struct PriorityReservoir<T> {
 
 impl<T> PriorityReservoir<T> {
     #[must_use]
-    pub fn new(k: usize, seed: u64) -> Self {
+    pub const fn new(k: usize, seed: u64) -> Self {
         Self {
             k,
             seed,

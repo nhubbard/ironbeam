@@ -186,7 +186,7 @@ impl ErrorCollector {
 
     /// Get the total number of failed records.
     #[must_use]
-    pub fn error_count(&self) -> usize {
+    pub const fn error_count(&self) -> usize {
         self.errors.len()
     }
 

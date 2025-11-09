@@ -28,7 +28,7 @@ pub struct TopK<T> {
 impl<T> TopK<T> {
     /// Create a new `TopK` with the given `k`.
     #[must_use]
-    pub fn new(k: usize) -> Self {
+    pub const fn new(k: usize) -> Self {
         Self { k, _m: PhantomData }
     }
 }

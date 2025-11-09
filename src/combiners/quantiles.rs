@@ -18,7 +18,7 @@ struct Centroid {
 
 impl Centroid {
     #[must_use]
-    fn new(mean: f64, weight: f64) -> Self {
+    const fn new(mean: f64, weight: f64) -> Self {
         Self { mean, weight }
     }
 }
@@ -53,7 +53,7 @@ impl TDigest {
     /// * `compression` - Controls accuracy vs. memory. Higher = more accurate but more memory.
     ///   Typical values: 20-1000. Default recommendation: 100.
     #[must_use]
-    pub fn new(compression: f64) -> Self {
+    pub const fn new(compression: f64) -> Self {
         Self {
             compression,
             centroids: Vec::new(),
@@ -88,7 +88,7 @@ impl TDigest {
     }
 
     /// Merge another t-digest into this one.
-    pub fn merge(&mut self, other: &TDigest) {
+    pub fn merge(&mut self, other: &Self) {
         if other.total_weight == 0.0 {
             return;
         }
@@ -129,7 +129,7 @@ impl TDigest {
 
             if proposed_weight <= k_limit {
                 // Merge centroid into current
-                current.mean = (current.mean * current.weight + centroid.mean * centroid.weight)
+                current.mean = current.mean.mul_add(current.weight, centroid.mean * centroid.weight)
                     / proposed_weight;
                 current.weight = proposed_weight;
             } else {
@@ -254,7 +254,7 @@ impl TDigest {
             if value < c.mean {
                 // Interpolate between prev_mean and c.mean
                 let fraction = (value - prev_mean) / (c.mean - prev_mean).max(f64::EPSILON);
-                return (cumulative + fraction * c.weight) / self.total_weight;
+                return fraction.mul_add(c.weight, cumulative) / self.total_weight;
             }
             cumulative += c.weight;
             prev_mean = c.mean;
@@ -265,7 +265,7 @@ impl TDigest {
 
     /// Get the total count of values added.
     #[must_use]
-    pub fn count(&self) -> f64 {
+    pub const fn count(&self) -> f64 {
         self.total_weight
     }
 
@@ -324,7 +324,7 @@ impl<V> ApproxQuantiles<V> {
     ///   `vec![0.25, 0.5, 0.75]` for quartiles)
     /// * `compression` - T-digest compression parameter (typical: 20-1000, recommended: 100)
     #[must_use]
-    pub fn new(quantiles: Vec<f64>, compression: f64) -> Self {
+    pub const fn new(quantiles: Vec<f64>, compression: f64) -> Self {
         Self {
             quantiles,
             compression,
@@ -414,7 +414,7 @@ impl<V> ApproxMedian<V> {
     /// # Arguments
     /// * `compression` - T-digest compression parameter (typical: 20-1000, recommended: 100)
     #[must_use]
-    pub fn new(compression: f64) -> Self {
+    pub const fn new(compression: f64) -> Self {
         Self {
             compression,
             _phantom: std::marker::PhantomData,

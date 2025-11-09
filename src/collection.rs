@@ -86,7 +86,7 @@ impl<T: RFBound> PCollection<T> {
     /// Most users should use the helper methods like `collect_seq()` or `collect_par()`
     /// instead of directly accessing the node ID.
     #[must_use]
-    pub fn node_id(&self) -> NodeId {
+    pub const fn node_id(&self) -> NodeId {
         self.id
     }
 

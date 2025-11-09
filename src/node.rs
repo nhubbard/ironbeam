@@ -131,8 +131,8 @@ pub enum Node {
     /// - Inner join: `Vec<(K, (V, W))>`
     /// - Left/Right/Full outer: `Vec<(K, (Option<V>, Option<W>))>` with appropriate `None`s.
     CoGroup {
-        left_chain: Arc<Vec<Node>>,
-        right_chain: Arc<Vec<Node>>,
+        left_chain: Arc<Vec<Self>>,
+        right_chain: Arc<Vec<Self>>,
         coalesce_left: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
         coalesce_right: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
         exec: Arc<dyn Fn(Partition, Partition) -> Partition + Send + Sync>,

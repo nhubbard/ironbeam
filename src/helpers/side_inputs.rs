@@ -102,7 +102,7 @@ impl<T: RFBound> PCollection<T> {
     /// let even_whitelist = nums.filter_with_side(&allow, |n, allow| allow.contains(n));
     /// ```
     #[must_use]
-    pub fn filter_with_side<S, F>(self, side: &SideInput<S>, pred: F) -> PCollection<T>
+    pub fn filter_with_side<S, F>(self, side: &SideInput<S>, pred: F) -> Self
     where
         S: RFBound,
         F: 'static + Send + Sync + Fn(&T, &[S]) -> bool,

@@ -67,7 +67,7 @@ impl<T: RFBound + Validate> PCollection<T> {
         &self,
         mode: ValidationMode,
         collector: Option<Arc<Mutex<ErrorCollector>>>,
-    ) -> PCollection<T> {
+    ) -> Self {
         self.apply_transform(Arc::new(ValidateOp {
             mode,
             collector,
@@ -99,7 +99,7 @@ impl<T: RFBound + Validate> PCollection<T> {
     /// # }
     /// ```
     #[must_use]
-    pub fn validate_skip_invalid(&self) -> PCollection<T> {
+    pub fn validate_skip_invalid(&self) -> Self {
         self.apply_transform(Arc::new(ValidateOp::<T> {
             mode: ValidationMode::SkipInvalid,
             collector: None,
@@ -132,7 +132,7 @@ impl<T: RFBound + Validate> PCollection<T> {
     /// # }
     /// ```
     #[must_use]
-    pub fn validate_fail_fast(&self) -> PCollection<T> {
+    pub fn validate_fail_fast(&self) -> Self {
         self.apply_transform(Arc::new(ValidateOp::<T> {
             mode: ValidationMode::FailFast,
             collector: None,
@@ -168,8 +168,10 @@ impl<T: RFBound + Validate> DynOp for ValidateOp<T> {
                         }
                         ValidationMode::LogAndContinue => {
                             if let Some(ref collector) = self.collector {
-                                let mut c = collector.lock().unwrap();
-                                c.add_error(Some(format!("record_{idx}")), errors);
+                                collector
+                                    .lock()
+                                    .unwrap()
+                                    .add_error(Some(format!("record_{idx}")), errors);
                             }
                         }
                         ValidationMode::FailFast => {
@@ -231,7 +233,7 @@ where
     /// # }
     /// ```
     #[must_use]
-    pub fn validate_values_skip_invalid(&self) -> PCollection<(K, V)> {
+    pub fn validate_values_skip_invalid(&self) -> Self {
         self.apply_transform(Arc::new(ValidateValuesOp::<K, V> {
             mode: ValidationMode::SkipInvalid,
             collector: None,
@@ -245,7 +247,7 @@ where
         &self,
         mode: ValidationMode,
         collector: Option<Arc<Mutex<ErrorCollector>>>,
-    ) -> PCollection<(K, V)> {
+    ) -> Self {
         self.apply_transform(Arc::new(ValidateValuesOp::<K, V> {
             mode,
             collector,
@@ -281,8 +283,10 @@ impl<K: RFBound, V: RFBound + Validate> DynOp for ValidateValuesOp<K, V> {
                         }
                         ValidationMode::LogAndContinue => {
                             if let Some(ref collector) = self.collector {
-                                let mut c = collector.lock().unwrap();
-                                c.add_error(Some(format!("pair_{idx}")), errors);
+                                collector
+                                    .lock()
+                                    .unwrap()
+                                    .add_error(Some(format!("pair_{idx}")), errors);
                             }
                         }
                         ValidationMode::FailFast => {

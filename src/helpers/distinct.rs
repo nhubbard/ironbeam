@@ -30,7 +30,7 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     /// assert_eq!(v.len(), 3);
     /// ```
     #[must_use]
-    pub fn distinct(self) -> PCollection<T> {
+    pub fn distinct(self) -> Self {
         // CombineGlobally produces Vec<T> (single element in the stream), then expand.
         let vecs = self.combine_globally(DistinctSet::<T>::default(), None);
         vecs.flat_map(|vs: &Vec<T>| vs.clone())
@@ -84,7 +84,7 @@ where
     /// ]);
     /// ```
     #[must_use]
-    pub fn distinct_per_key(self) -> PCollection<(K, V)> {
+    pub fn distinct_per_key(self) -> Self {
         // (K,V) -> group_by_key -> (K, Vec<V>) -> combine_values_lifted(DistinctSet) -> (K, Vec<V>)
         // -> flat_map to (K,V)
         self.group_by_key()

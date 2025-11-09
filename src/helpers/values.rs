@@ -100,14 +100,14 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// # anyhow::Result::<()>::Ok(())
     /// ```
     #[must_use]
-    pub fn filter_values<F>(self, pred: F) -> PCollection<(K, V)>
+    pub fn filter_values<F>(self, pred: F) -> Self
     where
         F: 'static + Send + Sync + Fn(&V) -> bool,
     {
         let op: Arc<dyn DynOp> = Arc::new(FilterValuesOp::<K, V, F>(pred, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
-        PCollection {
+        Self {
             pipeline: self.pipeline,
             id,
             _t: PhantomData,

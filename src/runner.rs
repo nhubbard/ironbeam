@@ -188,9 +188,9 @@ impl Runner {
 fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>> {
     let mut buf: Option<Partition> = None;
 
-    let run_subplan_seq = |mut chain: Vec<Node>| -> Result<Vec<Partition>> {
+    let run_subplan_seq = |chain: Vec<Node>| -> Result<Vec<Partition>> {
         let mut curr: Option<Partition> = None;
-        for node in chain.drain(..) {
+        for node in chain.into_iter() {
             curr = Some(match node {
                 Node::Source {
                     payload, vec_ops, ..
@@ -210,11 +210,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                     merge,
                 } => {
                     // choose which local to run based on the presence of local_groups
-                    let local = if let Some(lg) = local_groups {
-                        lg
-                    } else {
-                        local_pairs
-                    };
+                    let local = local_groups.map_or(local_pairs, |lg| lg);
                     let mid = local(curr.take().unwrap());
                     merge(vec![mid])
                 }
@@ -281,11 +277,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 local_groups,
                 merge,
             } => {
-                let local = if let Some(lg) = local_groups {
-                    lg
-                } else {
-                    local_pairs
-                };
+                let local = local_groups.map_or(local_pairs, |lg| lg);
                 let mid = local(buf.take().unwrap());
                 merge(vec![mid])
             }
@@ -377,11 +369,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                     local_groups,
                     merge,
                 } => {
-                    let local = if let Some(lg) = local_groups {
-                        lg.clone()
-                    } else {
-                        local_pairs.clone()
-                    };
+                    let local = local_groups.as_ref().map_or_else(|| local_pairs.clone(), |lg| lg.clone());
                     let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
                     curr = vec![merge(mids)];
                     i += 1;
@@ -484,11 +472,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                 local_groups,
                 merge,
             } => {
-                let local = if let Some(lg) = local_groups {
-                    lg.clone()
-                } else {
-                    local_pairs.clone()
-                };
+                let local = local_groups.as_ref().map_or_else(|| local_pairs.clone(), |lg| lg.clone());
                 let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
                 curr = vec![merge(mids)];
                 i += 1;
@@ -667,11 +651,7 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
                 local_groups,
                 merge,
             } => {
-                let local = if let Some(lg) = local_groups {
-                    lg
-                } else {
-                    local_pairs
-                };
+                let local = local_groups.map_or(local_pairs, |lg| lg);
                 let mid = local(buf.take().unwrap());
                 merge(vec![mid])
             }
@@ -792,7 +772,7 @@ fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
         let metadata_str = format!("{pipeline_id}:0:{timestamp}:{partitions}");
         let checksum = compute_checksum(metadata_str.as_bytes());
         let state = CheckpointState {
-            pipeline_id: pipeline_id.clone(),
+            pipeline_id,
             completed_node_index: 0,
             timestamp,
             partition_count: partitions,

@@ -14,7 +14,7 @@ pub struct NodeId(u64);
 impl NodeId {
     /// Create a new `NodeId` (used internally by the pipeline).
     #[must_use]
-    pub fn new(v: u64) -> Self {
+    pub const fn new(v: u64) -> Self {
         Self(v)
     }
 
@@ -22,7 +22,7 @@ impl NodeId {
     ///
     /// Useful mainly for debugging or serialization.
     #[must_use]
-    pub fn raw(&self) -> u64 {
+    pub const fn raw(&self) -> u64 {
         self.0
     }
 }

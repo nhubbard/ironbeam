@@ -32,7 +32,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// Useful when you want to continue processing the sampled elements as a normal collection.
     #[must_use]
-    pub fn sample_reservoir(self, k: usize, seed: u64) -> PCollection<T> {
+    pub fn sample_reservoir(self, k: usize, seed: u64) -> Self {
         self.sample_reservoir_vec(k, seed)
             .flat_map(|v: &Vec<T>| v.clone())
     }
@@ -52,7 +52,7 @@ impl<K: RFBound + Eq + core::hash::Hash, V: RFBound> PCollection<(K, V)> {
 
     /// Per-key reservoir sample of values and **flatten** back to `(K, V)`.
     #[must_use]
-    pub fn sample_values_reservoir(self, k: usize, seed: u64) -> PCollection<(K, V)> {
+    pub fn sample_values_reservoir(self, k: usize, seed: u64) -> Self {
         self.sample_values_reservoir_vec(k, seed)
             .flat_map(|kv: &(K, Vec<V>)| {
                 let (k, vs) = kv;

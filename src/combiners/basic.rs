@@ -20,7 +20,7 @@ pub struct Sum<T>(pub PhantomData<T>);
 impl<T> Sum<T> {
     /// Convenience constructor (same as `Default`).
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(PhantomData)
     }
 }
@@ -66,7 +66,7 @@ pub struct Min<T>(pub PhantomData<T>);
 impl<T> Min<T> {
     /// Convenience constructor (same as `Default`).
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(PhantomData)
     }
 }
@@ -128,7 +128,7 @@ pub struct Max<T>(pub PhantomData<T>);
 impl<T> Max<T> {
     /// Convenience constructor (same as `Default`).
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(PhantomData)
     }
 }

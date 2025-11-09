@@ -48,9 +48,9 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "checkpointing")]
 use sha2::{Digest, Sha256};
+use std::fs::DirEntry;
 #[cfg(feature = "checkpointing")]
 use std::fs::{self, File};
-use std::fs::DirEntry;
 #[cfg(feature = "checkpointing")]
 use std::io::{Read, Write};
 #[cfg(feature = "checkpointing")]
@@ -183,15 +183,9 @@ impl CheckpointManager {
             CheckpointPolicy::EveryNNodes(n) => node_index > 0 && node_index.is_multiple_of(n),
             CheckpointPolicy::TimeInterval(secs) => {
                 let now = SystemTime::now();
-                if let Some(last) = self.last_checkpoint_time {
-                    if let Ok(elapsed) = now.duration_since(last) {
-                        elapsed >= Duration::from_secs(secs)
-                    } else {
-                        false
-                    }
-                } else {
-                    true // First checkpoint
-                }
+                self.last_checkpoint_time.is_none_or(|last| {
+                    now.duration_since(last).is_ok_and(|elapsed| elapsed >= Duration::from_secs(secs))
+                })
             }
             CheckpointPolicy::Hybrid {
                 barriers,
@@ -200,15 +194,9 @@ impl CheckpointManager {
                 let should_by_barrier = barriers && is_barrier;
                 let should_by_time = {
                     let now = SystemTime::now();
-                    if let Some(last) = self.last_checkpoint_time {
-                        if let Ok(elapsed) = now.duration_since(last) {
-                            elapsed >= Duration::from_secs(interval_secs)
-                        } else {
-                            false
-                        }
-                    } else {
-                        true
-                    }
+                    self.last_checkpoint_time.is_none_or(|last| {
+                        now.duration_since(last).is_ok_and(|elapsed| elapsed >= Duration::from_secs(interval_secs))
+                    })
                 };
                 should_by_barrier || should_by_time
             }
@@ -259,10 +247,12 @@ impl CheckpointManager {
             .context("Failed to read checkpoint directory")?
             .filter_map(Result::ok)
             .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| name.starts_with(&prefix) && Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("bin")))
+                entry.file_name().to_str().is_some_and(|name| {
+                    name.starts_with(&prefix)
+                        && Path::new(name)
+                            .extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("bin"))
+                })
             })
             .collect();
 
@@ -317,17 +307,21 @@ impl CheckpointManager {
 
     /// Delete old checkpoints beyond the retention limit.
     fn cleanup_old_checkpoints(&self, pipeline_id: &str) -> Result<()> {
-        let Some(max_checkpoints) = self.config.max_checkpoints else { return Ok(()) };
+        let Some(max_checkpoints) = self.config.max_checkpoints else {
+            return Ok(());
+        };
 
         let prefix = format!("checkpoint_{pipeline_id}_");
         let mut checkpoints: Vec<_> = fs::read_dir(&self.config.directory)
             .context("Failed to read checkpoint directory")?
             .filter_map(Result::ok)
             .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| name.starts_with(&prefix) && Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("bin")))
+                entry.file_name().to_str().is_some_and(|name| {
+                    name.starts_with(&prefix)
+                        && Path::new(name)
+                            .extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("bin"))
+                })
             })
             .collect();
 
@@ -368,10 +362,12 @@ impl CheckpointManager {
             .context("Failed to read checkpoint directory")?
             .filter_map(Result::ok)
             .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| name.starts_with(&prefix) && Path::new(name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("bin")))
+                entry.file_name().to_str().is_some_and(|name| {
+                    name.starts_with(&prefix)
+                        && Path::new(name)
+                            .extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("bin"))
+                })
             })
             .collect();
 

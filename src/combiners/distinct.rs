@@ -20,7 +20,7 @@ pub struct DistinctCount<T>(pub PhantomData<T>);
 impl<T> DistinctCount<T> {
     /// Convenience constructor (same as `Default`).
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(PhantomData)
     }
 }
@@ -70,7 +70,7 @@ where
 pub struct DistinctSet<T>(pub PhantomData<T>);
 impl<T> DistinctSet<T> {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(PhantomData)
     }
 }
@@ -114,6 +114,7 @@ where
 /* ===================== KMVApproxDistinctCount<T> (approximate count) ===================== */
 
 /// Approximate distinct count via the KMV (K-Minimum Values) estimator.
+///
 /// Keeps the smallest `k` hash ranks in a max-heap; estimate is `(k-1)/r_k` where
 /// `r_k` is the largest (i.e., k-th smallest) retained rank. For small `n < k`,
 /// returns the exact count (`heap.len()`).
@@ -134,7 +135,7 @@ impl<T> KMVApproxDistinctCount<T> {
 
 /// Accumulator keeps k smallest **distinct** ranks.
 #[derive(Default)]
-pub(crate) struct KMVAcc {
+pub struct KMVAcc {
     heap: BinaryHeap<NotNan<f64>>, // max-heap of the kept k smallest
     set: HashSet<NotNan<f64>>,     // membership test to prevent duplicates
     k: usize,
@@ -175,7 +176,7 @@ impl KMVAcc {
     }
 
     #[inline]
-    fn merge_from(&mut self, mut other: KMVAcc) {
+    fn merge_from(&mut self, mut other: Self) {
         // Move 'better' (smaller) ranks across, deduping
         while let Some(r) = other.heap.pop() {
             // Remove from other's set as we pop; not strictly needed, but neat

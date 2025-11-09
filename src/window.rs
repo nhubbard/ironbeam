@@ -101,7 +101,7 @@ impl Window {
 /// For unsigned integers this is just integer division; this function exists
 /// for readability and symmetry with potential signed variants.
 #[inline]
-fn div_floor(a: u64, b: u64) -> u64 {
+const fn div_floor(a: u64, b: u64) -> u64 {
     let q = a / b;
     let r = a % b;
     if (r != 0) && ((r > 0) != (b > 0)) {
@@ -160,7 +160,7 @@ impl<T> Timestamped<T> {
     /// assert_eq!(ev.value, "payload");
     /// ```
     #[inline]
-    pub fn new(ts: TimestampMs, value: T) -> Self {
+    pub const fn new(ts: TimestampMs, value: T) -> Self {
         Self { ts, value }
     }
 }

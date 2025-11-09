@@ -250,7 +250,7 @@ impl MetricsCollector {
             );
             metrics_json.insert("execution_time_ms".to_string(), Value::Object(time_obj));
         }
-
+        drop(inner);
         json!(metrics_json)
     }
 
@@ -278,7 +278,6 @@ impl MetricsCollector {
         // Print all metrics
         let mut sorted_metrics: Vec<_> = inner.metrics.iter().collect();
         sorted_metrics.sort_by_key(|(name, _)| *name);
-
         for (name, metric) in sorted_metrics {
             if let Some(desc) = metric.description() {
                 println!("{}: {} ({})", name, metric.value(), desc);
@@ -286,7 +285,7 @@ impl MetricsCollector {
                 println!("{}: {}", name, metric.value());
             }
         }
-
+        drop(inner);
         println!("======================================\n");
     }
 

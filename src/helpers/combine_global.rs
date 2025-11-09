@@ -75,13 +75,9 @@ impl<T: RFBound> PCollection<T> {
             let comb = Arc::clone(&comb);
             Arc::new(move |parts: Vec<Partition>| -> Partition {
                 let mut it = parts.into_iter();
-                let mut acc = if let Some(first) = it.next() {
-                    *first
-                        .downcast::<A>()
-                        .expect("CombineGlobally merge: bad part")
-                } else {
-                    comb.create()
-                };
+                let mut acc = it.next().map_or_else(|| comb.create(), |first| *first
+                    .downcast::<A>()
+                    .expect("CombineGlobally merge: bad part"));
                 for p in it {
                     let a = *p.downcast::<A>().expect("CombineGlobally merge: bad part");
                     comb.merge(&mut acc, a);
@@ -152,13 +148,9 @@ impl<T: RFBound> PCollection<T> {
             let comb = Arc::clone(&comb);
             Arc::new(move |parts: Vec<Partition>| -> Partition {
                 let mut it = parts.into_iter();
-                let mut acc = if let Some(first) = it.next() {
-                    *first
-                        .downcast::<A>()
-                        .expect("CombineGlobally(lifted) merge: bad part")
-                } else {
-                    comb.create()
-                };
+                let mut acc = it.next().map_or_else(|| comb.create(), |first| *first
+                    .downcast::<A>()
+                    .expect("CombineGlobally(lifted) merge: bad part"));
                 for p in it {
                     let a = *p
                         .downcast::<A>()

@@ -71,14 +71,14 @@ impl<T: RFBound> PCollection<T> {
     /// assert_eq!(evens, vec![2, 4]);
     /// ```
     #[must_use]
-    pub fn filter<F>(self, pred: F) -> PCollection<T>
+    pub fn filter<F>(self, pred: F) -> Self
     where
         F: 'static + Send + Sync + Fn(&T) -> bool,
     {
         let op: Arc<dyn DynOp> = Arc::new(FilterOp::<T, F>(pred, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
-        PCollection {
+        Self {
             pipeline: self.pipeline,
             id,
             _t: PhantomData,
