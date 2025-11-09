@@ -152,9 +152,7 @@ fn main() -> Result<()> {
         &pipeline,
         step1_results
             .into_iter()
-            .map(|(_user_id, ((order_id, product), name))| {
-                (product, (order_id, name))
-            })
+            .map(|(_user_id, ((order_id, product), name))| (product, (order_id, name)))
             .collect::<Vec<_>>(),
     );
 

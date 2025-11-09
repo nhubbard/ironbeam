@@ -184,7 +184,8 @@ impl CheckpointManager {
             CheckpointPolicy::TimeInterval(secs) => {
                 let now = SystemTime::now();
                 self.last_checkpoint_time.is_none_or(|last| {
-                    now.duration_since(last).is_ok_and(|elapsed| elapsed >= Duration::from_secs(secs))
+                    now.duration_since(last)
+                        .is_ok_and(|elapsed| elapsed >= Duration::from_secs(secs))
                 })
             }
             CheckpointPolicy::Hybrid {
@@ -195,7 +196,8 @@ impl CheckpointManager {
                 let should_by_time = {
                     let now = SystemTime::now();
                     self.last_checkpoint_time.is_none_or(|last| {
-                        now.duration_since(last).is_ok_and(|elapsed| elapsed >= Duration::from_secs(interval_secs))
+                        now.duration_since(last)
+                            .is_ok_and(|elapsed| elapsed >= Duration::from_secs(interval_secs))
                     })
                 };
                 should_by_barrier || should_by_time

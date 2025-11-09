@@ -111,10 +111,7 @@ impl Runner {
         let suggested_parts = plan.suggested_partitions;
 
         #[cfg(feature = "checkpointing")]
-        let checkpoint_enabled = self
-            .checkpoint_config
-            .as_ref()
-            .is_some_and(|c| c.enabled);
+        let checkpoint_enabled = self.checkpoint_config.as_ref().is_some_and(|c| c.enabled);
 
         #[cfg(feature = "checkpointing")]
         let result = if checkpoint_enabled {
@@ -316,10 +313,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
 /// and applies stateless runs with rayon. Barriers (`GroupByKey`, `CombineValues`,
 /// `CoGroup`) perform a parallel local phase followed by a global merge.
 #[allow(clippy::too_many_lines)]
-fn exec_par<T: 'static + Send + Sync + Clone>(
-    chain: &[Node],
-    partitions: usize,
-) -> Result<Vec<T>> {
+fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize) -> Result<Vec<T>> {
     /// Run a nested subplan (used by `CoGroup`) in parallel, returning a vector
     /// of partitions. The subplan must start with a `Source`. Nested `CoGroup`
     /// inside a subplan is not supported.
@@ -369,7 +363,9 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                     local_groups,
                     merge,
                 } => {
-                    let local = local_groups.as_ref().map_or_else(|| local_pairs.clone(), |lg| lg.clone());
+                    let local = local_groups
+                        .as_ref()
+                        .map_or_else(|| local_pairs.clone(), |lg| lg.clone());
                     let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
                     curr = vec![merge(mids)];
                     i += 1;
@@ -394,8 +390,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                             accs = vec![merge(accs)];
                             break;
                         }
-                        let mut next: Vec<Partition> =
-                            Vec::with_capacity(accs.len().div_ceil(f));
+                        let mut next: Vec<Partition> = Vec::with_capacity(accs.len().div_ceil(f));
                         let mut it = accs.into_iter(); // take ownership to avoid clones
                         loop {
                             let mut group: Vec<Partition> = Vec::with_capacity(f);
@@ -472,7 +467,9 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                 local_groups,
                 merge,
             } => {
-                let local = local_groups.as_ref().map_or_else(|| local_pairs.clone(), |lg| lg.clone());
+                let local = local_groups
+                    .as_ref()
+                    .map_or_else(|| local_pairs.clone(), |lg| lg.clone());
                 let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
                 curr = vec![merge(mids)];
                 i += 1;
@@ -676,7 +673,11 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
         // Check if we should create a checkpoint
         if manager.should_checkpoint(idx, is_barrier, total_nodes) {
             let timestamp = current_timestamp_ms();
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss
+            )]
             let progress_percent = ((idx as f64 / total_nodes as f64) * 100.0) as u8;
             let metadata_str = format!("{pipeline_id}:{idx}:{timestamp}:1");
             let checksum = compute_checksum(metadata_str.as_bytes());
@@ -699,7 +700,8 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
                 Ok(path) => {
                     eprintln!(
                         "[Checkpoint] Saved checkpoint at node {idx} ({:.0}% complete) to {:?}",
-                        progress_percent, path.display()
+                        progress_percent,
+                        path.display()
                     );
                 }
                 Err(e) => {

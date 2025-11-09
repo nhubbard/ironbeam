@@ -179,7 +179,7 @@ fn test_validation_helpers() {
     // Test in_range
     assert!(in_range("age", &25, &0, &150).is_ok());
     assert!(in_range("age", &-5, &0, &150).is_err());
-    assert!(in_range("age", &200,&0, &150).is_err());
+    assert!(in_range("age", &200, &0, &150).is_err());
 
     // Test is_email
     assert!(is_email("email", "alice@example.com").is_ok());

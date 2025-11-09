@@ -162,7 +162,7 @@ impl Pipeline {
     }
 
     /// Record the end of pipeline execution in metrics.
-    /// 
+    ///
     /// # Panics
     ///
     /// If the pipeline is in an inconsistent state, such as during concurrent modifications.

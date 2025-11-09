@@ -1109,6 +1109,7 @@ dependencies = [
  "ordered-float 5.1.0",
  "parquet",
  "rayon",
+ "regex",
  "serde",
  "serde_arrow",
  "serde_json",

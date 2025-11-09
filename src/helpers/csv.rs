@@ -60,6 +60,7 @@ use crate::node::Node;
 use crate::type_token::TypeTag;
 use crate::{from_vec, PCollection, Pipeline, RFBound};
 use anyhow::{Context, Result};
+use regex::Regex;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::marker::PhantomData;
@@ -137,10 +138,11 @@ where
         .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
 
     // Check if path contains glob patterns
-    if path_str.contains('*') || path_str.contains('?') || path_str.contains('[') {
+    let glob_regex = Regex::new(r"[*?\[]").expect("valid glob regex");
+    if glob_regex.is_match(path_str) {
         // Glob pattern - expand and read all matching files
-        let files = expand_glob(path_str)
-            .with_context(|| format!("expanding glob pattern: {path_str}"))?;
+        let files =
+            expand_glob(path_str).with_context(|| format!("expanding glob pattern: {path_str}"))?;
 
         if files.is_empty() {
             anyhow::bail!("no files found matching pattern: {path_str}");

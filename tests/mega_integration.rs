@@ -46,10 +46,22 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     // flat_map
     let repeated = numbers.clone().flat_map(|n: &u32| vec![*n, *n]);
 
-    // Verify
-    assert_eq!(doubled.clone().collect_seq()?.len(), 100);
-    assert_eq!(evens.clone().collect_seq()?.len(), 50);
-    assert_eq!(repeated.clone().collect_seq()?.len(), 200);
+    // Verify actual outputs
+    let doubled_result = doubled.clone().collect_seq_sorted()?;
+    assert_eq!(doubled_result.len(), 100);
+    assert_eq!(doubled_result[0], 2); // 1*2
+    assert_eq!(doubled_result[99], 200); // 100*2
+
+    let evens_result = evens.clone().collect_seq_sorted()?;
+    assert_eq!(evens_result.len(), 50);
+    assert_eq!(evens_result[0], 2);
+    assert_eq!(evens_result[49], 100);
+
+    let repeated_result = repeated.clone().collect_seq_sorted()?;
+    assert_eq!(repeated_result.len(), 200);
+    // Each number appears twice
+    assert_eq!(repeated_result[0], 1);
+    assert_eq!(repeated_result[1], 1);
 
     println!("  ✅ map, filter, flat_map work correctly\n");
 
@@ -66,7 +78,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     ]);
 
     // map_with_side
-    let _marked_primes = numbers
+    let marked_primes = numbers
         .clone()
         .map_with_side(&primes_vec.clone(), |n: &u32, primes| {
             if primes.contains(n) {
@@ -75,6 +87,11 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
                 format!("{n}:COMPOSITE")
             }
         });
+
+    let marked_result = marked_primes.clone().collect_seq_sorted()?;
+    assert_eq!(marked_result.len(), 100);
+    assert!(marked_result.iter().any(|s| s.contains("PRIME")));
+    assert!(marked_result.iter().any(|s| s.contains("COMPOSITE")));
 
     // filter_with_side
     let only_primes = numbers
@@ -89,8 +106,15 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         },
     );
 
-    assert_eq!(only_primes.clone().collect_seq()?.len(), 11);
-    assert_eq!(enriched.clone().collect_seq()?.len(), 3);
+    let primes_result = only_primes.clone().collect_seq_sorted()?;
+    assert_eq!(primes_result.len(), 11);
+    assert_eq!(primes_result, vec![2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31]);
+
+    let enriched_result = enriched.clone().collect_seq_sorted()?;
+    assert_eq!(enriched_result.len(), 3);
+    assert!(enriched_result[0].contains("1: one"));
+    assert!(enriched_result[1].contains("2: two"));
+    assert!(enriched_result[2].contains("3: three"));
 
     println!("  ✅ Side inputs (vec and hashmap) work correctly\n");
 
@@ -103,16 +127,35 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     let keyed_nums = numbers.clone().key_by(|n: &u32| format!("k{}", n % 5));
 
     // map_values
-    let _squared_values = keyed_nums.clone().map_values(|n: &u32| n * n);
+    let squared_values = keyed_nums.clone().map_values(|n: &u32| n * n);
+
+    let squared_result = squared_values.clone().collect_seq_sorted()?;
+    assert_eq!(squared_result.len(), 100);
+    // Verify some squared values exist (not checking specific indices due to key sorting)
+    assert!(squared_result.iter().any(|(_, v)| *v == 1)); // 1^2 = 1
+    assert!(squared_result.iter().any(|(_, v)| *v == 10000)); // 100^2 = 10000
 
     // filter_values
-    let _large_values = keyed_nums.clone().filter_values(|n: &u32| *n > 50);
+    let large_values = keyed_nums.clone().filter_values(|n: &u32| *n > 50);
+
+    let large_result = large_values.clone().collect_seq_sorted()?;
+    assert_eq!(large_result.len(), 50);
+    assert!(large_result.iter().all(|(_, v)| *v > 50));
 
     // group_by_key
     let grouped = keyed_nums.clone().group_by_key();
 
-    let grouped_results = grouped.clone().collect_seq()?;
-    assert!(grouped_results.len() <= 5); // At most 5 keys (k0-k4)
+    let grouped_results = grouped.clone().collect_seq_sorted()?;
+    assert_eq!(grouped_results.len(), 5); // Exactly 5 keys (k0-k4)
+    // Verify each key has the right values
+    for (key, values) in &grouped_results {
+        assert!(key.starts_with('k'));
+        assert!(!values.is_empty());
+        // All values for key "k0" should be divisible by 5
+        if key == "k0" {
+            assert!(values.iter().all(|v| v.is_multiple_of(5)));
+        }
+    }
 
     println!("  ✅ key_by, map_values, filter_values, group_by_key work\n");
 
@@ -134,17 +177,39 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         .map_values(|n| *n as u64)
         .combine_values(Sum::<u64>::default());
 
-    let _min_per_key = keyed_nums
+    let min_per_key = keyed_nums
         .clone()
         .map_values(|n| *n)
         .combine_values(Min::<u32>::default());
 
-    let _max_per_key = keyed_nums
+    let min_results = min_per_key.clone().collect_seq_sorted()?;
+    assert_eq!(min_results.len(), 5);
+    // For k0 (multiples of 5), min should be 5
+    let k0_min = min_results.iter().find(|(k, _)| k == "k0").unwrap();
+    assert_eq!(k0_min.1, 5);
+
+    let max_per_key = keyed_nums
         .clone()
         .map_values(|n| *n)
         .combine_values(Max::<u32>::default());
 
-    assert_eq!(count_per_key.clone().collect_seq()?.len(), 5);
+    let max_results = max_per_key.clone().collect_seq_sorted()?;
+    assert_eq!(max_results.len(), 5);
+    // For k0 (multiples of 5), max should be 100
+    let k0_max = max_results.iter().find(|(k, _)| k == "k0").unwrap();
+    assert_eq!(k0_max.1, 100);
+
+    let count_results = count_per_key.clone().collect_seq_sorted()?;
+    assert_eq!(count_results.len(), 5);
+    // Verify counts sum to 100
+    let total_count: u64 = count_results.iter().map(|(_, c)| c).sum();
+    assert_eq!(total_count, 100);
+
+    let sum_results = sum_per_key.clone().collect_seq_sorted()?;
+    assert_eq!(sum_results.len(), 5);
+    // Sum of 1..=100 is 5050
+    let total_sum: u64 = sum_results.iter().map(|(_, s)| s).sum();
+    assert_eq!(total_sum, 5050);
 
     println!("  ✅ Count, Sum, Min, Max combiners work");
 
@@ -154,7 +219,15 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         .map_values(|n| *n as f64)
         .combine_values(AverageF64);
 
-    assert_eq!(avg_per_key.clone().collect_seq()?.len(), 5);
+    let avg_results = avg_per_key.clone().collect_seq()?;
+    assert_eq!(avg_results.len(), 5);
+    // Each bucket has 20 numbers, verify averages make sense
+    for (_, avg) in &avg_results {
+        assert!(*avg > 0.0 && *avg <= 100.0);
+    }
+    // Total average should be close to 50.5
+    let total_avg: f64 = avg_results.iter().map(|(_, a)| a).sum::<f64>() / 5.0;
+    assert!((total_avg - 50.5).abs() < 1.0);
 
     println!("  ✅ AverageF64 combiner works");
 
@@ -164,17 +237,30 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         .map_values(|n| n % 10)
         .combine_values(DistinctCount::<u32>::default());
 
-    assert_eq!(distinct_per_key.clone().collect_seq()?.len(), 5);
+    let distinct_results = distinct_per_key.clone().collect_seq_sorted()?;
+    assert_eq!(distinct_results.len(), 5);
+    // Each key should have some distinct values (n % 10 gives 0-9)
+    for (_, count) in &distinct_results {
+        assert!(*count > 0 && *count <= 10);
+    }
 
     println!("  ✅ DistinctCount combiner works");
 
     // 4d. TopK
     let top3_per_key = keyed_nums.clone().top_k_per_key(3);
 
-    let top3_results = top3_per_key.clone().collect_seq()?;
+    let top3_results = top3_per_key.clone().collect_seq_sorted()?;
     assert_eq!(top3_results.len(), 5);
-    for (_, vals) in top3_results {
+    for (key, vals) in &top3_results {
         assert!(vals.len() <= 3);
+        // Verify values are sorted descending
+        for i in 0..vals.len().saturating_sub(1) {
+            assert!(vals[i] >= vals[i + 1]);
+        }
+        // For k0, highest should be 100 (or close)
+        if key == "k0" {
+            assert!(*vals.first().unwrap() >= 95);
+        }
     }
 
     println!("  ✅ TopK combiner works");
@@ -185,16 +271,28 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         .map_values(|n| *n as f64)
         .combine_values(ApproxQuantiles::new(vec![0.25, 0.5, 0.75], 100.0));
 
-    assert_eq!(quantiles_per_key.clone().collect_seq()?.len(), 5);
+    let quantiles_results = quantiles_per_key.clone().collect_seq()?;
+    assert_eq!(quantiles_results.len(), 5);
+    // Verify quantiles are in ascending order
+    for (_, quantiles) in &quantiles_results {
+        assert_eq!(quantiles.len(), 3); // 0.25, 0.5, 0.75
+        assert!(quantiles[0] <= quantiles[1]);
+        assert!(quantiles[1] <= quantiles[2]);
+    }
 
     println!("  ✅ ApproxQuantiles (TDigest) combiner works");
 
     // 4f. Sampling (reservoir)
     let sampled_per_key = keyed_nums.clone().sample_values_reservoir_vec(5, 42);
 
-    let sampled_results = sampled_per_key.clone().collect_seq()?;
-    for (_, sample) in sampled_results {
+    let sampled_results = sampled_per_key.clone().collect_seq_sorted()?;
+    assert_eq!(sampled_results.len(), 5);
+    for (_, sample) in &sampled_results {
         assert!(sample.len() <= 5);
+        // Verify all sampled values are in valid range
+        for val in sample {
+            assert!(*val >= 1 && *val <= 100);
+        }
     }
 
     println!("  ✅ Reservoir sampling combiner works");
@@ -206,8 +304,13 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         .map(|n| *n as u64)
         .combine_globally(Sum::<u64>::default(), None);
 
-    assert_eq!(global_count.clone().collect_seq()?.len(), 1);
-    assert_eq!(global_sum.clone().collect_seq()?.len(), 1);
+    let gc_result = global_count.clone().collect_seq()?;
+    assert_eq!(gc_result.len(), 1);
+    assert_eq!(gc_result[0], 100); // 100 numbers
+
+    let gs_result = global_sum.clone().collect_seq()?;
+    assert_eq!(gs_result.len(), 1);
+    assert_eq!(gs_result[0], 5050); // Sum of 1..=100
 
     println!("  ✅ Global combiners (Count, Sum) work\n");
 
@@ -221,11 +324,16 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     let lifted_sum = grouped_for_lifted
         .clone()
         .combine_values_lifted(Sum::<u64>::default());
-    let _lifted_count = keyed_nums
+    let lifted_count = keyed_nums
         .clone()
         .map_values(|_| 1u64)
         .group_by_key()
         .combine_values_lifted(Count);
+
+    let lifted_count_result = lifted_count.clone().collect_seq_sorted()?;
+    assert_eq!(lifted_count_result.len(), 5);
+    let total_lifted_count: u64 = lifted_count_result.iter().map(|(_, c)| c).sum();
+    assert_eq!(total_lifted_count, 100);
 
     // Verify lifted == non-lifted
     let sum_seq = sum_per_key.clone().collect_seq_sorted()?;
@@ -258,26 +366,42 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         ],
     );
 
-    // Inner join
+    // Inner join - only matching keys
     let j_inner = left_data.clone().join_inner(&right_data);
-    let inner_results = j_inner.clone().collect_seq()?;
-    // "a" and "b" match
-    assert!(inner_results.len() >= 3); // a-x, a-x (twice), b-y
+    let inner_results = j_inner.clone().collect_seq_sorted()?;
+    // "a" matches twice (left) * once (right) = 2, "b" = 1 => 3 total
+    assert_eq!(inner_results.len(), 3);
+    assert!(inner_results.iter().all(|(k, _)| k == "a" || k == "b"));
 
-    // Left join
+    // Left join - all left records preserved
     let j_left = left_data.clone().join_left(&right_data);
-    let left_results = j_left.clone().collect_seq()?;
+    let left_results = j_left.clone().collect_seq_sorted()?;
     assert_eq!(left_results.len(), 4); // All left records
+    // "d" should have None for right value
+    assert!(
+        left_results
+            .iter()
+            .any(|(k, (_, r))| k == "d" && r.is_none())
+    );
 
-    // Right join
+    // Right join - all right records preserved
     let j_right = left_data.clone().join_right(&right_data);
-    let right_results = j_right.clone().collect_seq()?;
+    let right_results = j_right.clone().collect_seq_sorted()?;
     assert_eq!(right_results.len(), 4); // a-x twice, b-y, c-z
+    // "c" should have None for left value
+    assert!(
+        right_results
+            .iter()
+            .any(|(k, (l, _))| k == "c" && l.is_none())
+    );
 
-    // Full outer join
+    // Full outer join - all combinations
     let j_full = left_data.clone().join_full(&right_data);
-    let full_results = j_full.clone().collect_seq()?;
-    assert!(full_results.len() >= 5); // All combinations
+    let full_results = j_full.clone().collect_seq_sorted()?;
+    assert_eq!(full_results.len(), 5); // All unique combinations
+    // Should include both "c" (right only) and "d" (left only)
+    assert!(full_results.iter().any(|(k, _)| k == "c"));
+    assert!(full_results.iter().any(|(k, _)| k == "d"));
 
     println!("  ✅ All join types (inner, left, right, full) work\n");
 
@@ -299,8 +423,17 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
 
     // Group by window (unkeyed)
     let windowed = timestamped_events.clone().group_by_window(10_000, 0);
-    let windowed_results = windowed.clone().collect_seq()?;
-    assert!(windowed_results.len() >= 2); // At least 2 windows
+    let windowed_results = windowed.clone().collect_seq_sorted()?;
+    assert!(windowed_results.len() >= 3); // At least 3 windows
+    // First window should have events a and b
+    let first_window = &windowed_results[0].1;
+    assert_eq!(first_window.len(), 2);
+    // Verify all events are accounted for
+    let total_events: usize = windowed_results
+        .iter()
+        .map(|(_, events)| events.len())
+        .sum();
+    assert_eq!(total_events, 5);
 
     // Keyed windowing
     let keyed_timestamped = from_vec(
@@ -315,8 +448,18 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     );
 
     let keyed_windowed = keyed_timestamped.clone().group_by_key_and_window(10_000, 0);
-    let keyed_windowed_results = keyed_windowed.clone().collect_seq()?;
-    assert!(keyed_windowed_results.len() >= 3); // Multiple (key, window) pairs
+    let keyed_windowed_results = keyed_windowed.clone().collect_seq_sorted()?;
+    assert!(keyed_windowed_results.len() >= 3); // At least 3 (key, window) pairs
+    // Verify structure and total events
+    let total_keyed_events: usize = keyed_windowed_results
+        .iter()
+        .map(|(_, events)| events.len())
+        .sum();
+    assert_eq!(total_keyed_events, 5);
+    for ((key, _window), values) in &keyed_windowed_results {
+        assert!(key == "user1" || key == "user2");
+        assert!(!values.is_empty());
+    }
 
     println!("  ✅ Tumbling windows (unkeyed and keyed) work\n");
 
@@ -330,16 +473,23 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         batch.iter().map(|n| n + 1000).collect::<Vec<u32>>()
     });
 
-    let batch_results = batch_processed.clone().collect_seq()?;
+    let batch_results = batch_processed.clone().collect_seq_sorted()?;
     assert_eq!(batch_results.len(), 100);
+    // Verify transformation applied
+    assert_eq!(batch_results[0], 1001); // 1 + 1000
+    assert_eq!(batch_results[99], 1100); // 100 + 1000
 
     // map_values_batches (keyed)
     let keyed_batch = keyed_nums.clone().map_values_batches(10, |batch: &[u32]| {
         batch.iter().map(|n| n * 2).collect::<Vec<u32>>()
     });
 
-    let keyed_batch_results = keyed_batch.clone().collect_seq()?;
+    let keyed_batch_results = keyed_batch.clone().collect_seq_sorted()?;
     assert_eq!(keyed_batch_results.len(), 100);
+    // Verify values are doubled
+    for (_, val) in &keyed_batch_results {
+        assert!(val.is_multiple_of(2));
+    }
 
     println!("  ✅ Batching (map_batches, map_values_batches) works\n");
 
@@ -355,8 +505,11 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         .clone()
         .try_map::<String, String, _>(|n: &u32| Ok(format!("value_{n}")));
 
-    let try_results: Vec<String> = try_mapped.collect_fail_fast()?;
+    let mut try_results: Vec<String> = try_mapped.collect_fail_fast()?;
+    try_results.sort();
     assert_eq!(try_results.len(), 5);
+    assert_eq!(try_results[0], "value_1");
+    assert_eq!(try_results[4], "value_5");
 
     // try_flat_map (success case) - creates multiple outputs per input
     let try_flat = fallible_data
@@ -364,7 +517,26 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         .try_flat_map::<u32, String, _>(|n| Ok(vec![*n, n * 2]));
 
     let flat_results: Vec<Vec<u32>> = try_flat.collect_fail_fast()?;
-    assert_eq!(flat_results.len(), 5); // 5 inputs * 2 outputs each
+    assert_eq!(flat_results.len(), 5); // 5 inputs
+    // Each input produces 2 outputs
+    for (i, pair) in flat_results.iter().enumerate() {
+        let expected = (i + 1) as u32;
+        assert!(pair.contains(&expected) && pair.contains(&(expected * 2)));
+    }
+
+    // Test error case - should fail fast on error
+    let error_data = from_vec(&p, vec![1u32, 2, 3, 0, 4]); // 0 will cause division error
+    let try_divide = error_data.try_map::<u32, String, _>(|n: &u32| -> Result<u32, String> {
+        if *n == 0 {
+            Err("Division by zero".to_string())
+        } else {
+            Ok(100 / n)
+        }
+    });
+
+    // This should error when it hits 0
+    let error_result = try_divide.collect_fail_fast();
+    assert!(error_result.is_err());
 
     println!("  ✅ Try operations (try_map, try_flat_map, collect_fail_fast) work\n");
 
@@ -384,6 +556,9 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     let approx_count = duplicates.clone().approx_distinct_count(1000);
     let count_result = approx_count.clone().collect_seq()?;
     assert_eq!(count_result.len(), 1);
+    // Should be approximately 4 distinct values
+    let approx = count_result[0];
+    assert!(approx >= 3.0 && approx <= 5.0); // Allow some error margin
 
     // distinct_per_key
     let keyed_dups = from_vec(
@@ -400,6 +575,10 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     let distinct_vals = keyed_dups.clone().distinct_per_key();
     let distinct_results = distinct_vals.clone().collect_seq_sorted()?;
     assert_eq!(distinct_results.len(), 3); // (k1,1), (k1,2), (k2,5)
+    // Verify actual values
+    assert_eq!(distinct_results[0], ("k1".to_string(), 1));
+    assert_eq!(distinct_results[1], ("k1".to_string(), 2));
+    assert_eq!(distinct_results[2], ("k2".to_string(), 5));
 
     println!("  ✅ Distinct operations (distinct, distinct_per_key, approx_distinct_count) work\n");
 
@@ -415,11 +594,21 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     let sample_results = sampled_vec.clone().collect_seq()?;
     assert_eq!(sample_results.len(), 1); // One vec
     assert_eq!(sample_results[0].len(), 50);
+    // Verify all sampled values are in range
+    for &val in &sample_results[0] {
+        assert!(val >= 1 && val <= 1000);
+    }
 
     // sample_reservoir (flattened)
     let sampled_flat = large_dataset.clone().sample_reservoir(50, 123);
-    let flat_sample = sampled_flat.clone().collect_seq()?;
+    let mut flat_sample = sampled_flat.clone().collect_seq()?;
     assert_eq!(flat_sample.len(), 50);
+    flat_sample.sort();
+    // Verify values are unique and in range
+    for i in 0..flat_sample.len() - 1 {
+        assert!(flat_sample[i] < flat_sample[i + 1]); // Unique
+        assert!(flat_sample[i] >= 1 && flat_sample[i] <= 1000);
+    }
 
     println!("  ✅ Global sampling (reservoir) works\n");
 
@@ -472,10 +661,13 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         }
     }
 
-    let custom_result = from_vec(&p, vec![5u32, 10, 15, 20])
+    let mut custom_result = from_vec(&p, vec![5u32, 10, 15, 20])
         .apply_composite(&DoubleAndFilter)
         .collect_seq()?;
 
+    custom_result.sort();
+    assert_eq!(custom_result.len(), 2); // 15*2=30, 20*2=40
+    assert_eq!(custom_result, vec![30, 40]);
     assert!(custom_result.iter().all(|n| *n > 20));
 
     println!("  ✅ Custom composite transforms work\n");
@@ -622,6 +814,17 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
 
     let ts_results = with_timestamps.clone().collect_seq()?;
     assert_eq!(ts_results.len(), 2);
+    // Verify timestamps are correct
+    assert!(
+        ts_results
+            .iter()
+            .any(|t| t.ts == 1000 && t.value == "event1")
+    );
+    assert!(
+        ts_results
+            .iter()
+            .any(|t| t.ts == 2000 && t.value == "event2")
+    );
 
     // Convert from (timestamp, value) tuples
     let tuple_events = from_vec(
@@ -629,7 +832,10 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         vec![(1000u64, "a".to_string()), (2000u64, "b".to_string())],
     );
     let converted = tuple_events.to_timestamped();
-    assert_eq!(converted.collect_seq()?.len(), 2);
+    let converted_results = converted.collect_seq()?;
+    assert_eq!(converted_results.len(), 2);
+    assert_eq!(converted_results[0].ts, 1000);
+    assert_eq!(converted_results[0].value, "a");
 
     println!("  ✅ Timestamped operations (attach, convert) work\n");
 

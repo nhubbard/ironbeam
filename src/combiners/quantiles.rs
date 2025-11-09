@@ -129,7 +129,9 @@ impl TDigest {
 
             if proposed_weight <= k_limit {
                 // Merge centroid into current
-                current.mean = current.mean.mul_add(current.weight, centroid.mean * centroid.weight)
+                current.mean = current
+                    .mean
+                    .mul_add(current.weight, centroid.mean * centroid.weight)
                     / proposed_weight;
                 current.weight = proposed_weight;
             } else {

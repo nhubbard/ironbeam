@@ -235,12 +235,9 @@ where
 
     fn clone_any(&self, data: &dyn Any) -> Option<Partition> {
         let s = data.downcast_ref::<ParquetShards>()?;
-        let v: Vec<T> = read_parquet_row_group_range::<T>(
-            s,
-            0,
-            s.group_ranges.last().map_or(0, |&(_, e)| e),
-        )
-        .ok()?;
+        let v: Vec<T> =
+            read_parquet_row_group_range::<T>(s, 0, s.group_ranges.last().map_or(0, |&(_, e)| e))
+                .ok()?;
         Some(Box::new(v) as Partition)
     }
 }

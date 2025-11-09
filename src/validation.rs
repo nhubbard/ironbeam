@@ -318,9 +318,10 @@ pub mod validators {
                 && !domain.is_empty()
                 && domain.contains('.')
                 && let Some(dot_pos) = domain.rfind('.')
-                && dot_pos < domain.len() - 1 {
-                    return Ok(());
-                }
+                && dot_pos < domain.len() - 1
+            {
+                return Ok(());
+            }
         }
         Err(vec![ValidationError::field(field, "invalid email format")])
     }
