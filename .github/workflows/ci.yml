@@ -63,7 +63,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: llvm-tools-preview
 
@@ -132,7 +132,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build all examples
-        run: cargo build --examples --all-features --verbose
+        run: cargo build --examples --all-features
 
       - name: Run all examples
         run: |
@@ -141,3 +141,77 @@ jobs:
             echo "Running example: $example_name"
             cargo run --example "$example_name" --all-features || exit 1
           done
+
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    needs: [clippy, test, examples]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: main
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build package
+        run: cargo build --release --all-features
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+
+      - name: Install semantic-release and plugins
+        run: |
+          npm install -g \
+            semantic-release@latest \
+            @semantic-release/git@latest \
+            @semantic-release/changelog@latest \
+            @semantic-release/exec@latest \
+            conventional-changelog-conventionalcommits@latest
+
+      - name: Semantic Release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+        run: |
+          npx semantic-release
+          echo "new_release_published=$([ -f .semanticRelease ])" >> $GITHUB_OUTPUT
+
+      - name: Publish to crates.io
+        if: always()
+        run: |
+          if cargo publish --token ${{ secrets.CARGO_TOKEN }} --allow-dirty 2>&1 | grep -q "crate version .* is already uploaded"; then
+            echo "Version already published, skipping"
+            exit 0
+          fi
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
