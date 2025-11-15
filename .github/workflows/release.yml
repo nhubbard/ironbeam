@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    environment: main
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run Clippy with pedantic and nursery
+        run: |
+          cargo clippy --all-targets --all-features -- \
+            -W clippy::pedantic \
+            -W clippy::nursery \
+            -D warnings
+
+      - name: Run tests
+        run: cargo test --all-features --verbose
+
+      - name: Build all examples
+        run: cargo build --examples --all-features --verbose
+
+      - name: Run all examples
+        run: |
+          for example in examples/*.rs; do
+            example_name=$(basename "$example" .rs)
+            echo "Running example: $example_name"
+            cargo run --example "$example_name" --all-features || exit 1
+          done
+
+      - name: Build package
+        run: cargo build --release --all-features
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install semantic-release and plugins
+        run: |
+          npm install -g \
+            semantic-release@latest \
+            @semantic-release/git@latest \
+            @semantic-release/changelog@latest \
+            @semantic-release/exec@latest \
+            conventional-changelog-conventionalcommits@latest
+
+      - name: Semantic Release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+        run: npx semantic-release
+
+      - name: Publish to crates.io
+        if: steps.semantic.outputs.new_release_published == 'true'
+        run: cargo publish --token ${{ secrets.CARGO_TOKEN }} --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
