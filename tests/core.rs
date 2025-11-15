@@ -1,6 +1,6 @@
 use rustflow::collection::Count;
-use rustflow::testing::*;
 use rustflow::from_vec;
+use rustflow::testing::*;
 use std::collections::HashMap;
 
 #[test]
@@ -16,7 +16,7 @@ fn map_filter_flatmap_chain() -> anyhow::Result<()> {
 
     let words = lines.flat_map(|s: &String| {
         s.split_whitespace()
-            .map(|w| w.to_lowercase())
+            .map(str::to_lowercase)
             .collect::<Vec<_>>()
     });
     let filtered = words.filter(|w: &String| w.len() >= 4);
@@ -25,13 +25,13 @@ fn map_filter_flatmap_chain() -> anyhow::Result<()> {
 
     assert_collections_equal(
         &out,
-        &vec![
+        &[
             "quick".to_string(),
             "brown".to_string(),
             "jumps".to_string(),
             "over".to_string(),
-            "lazy".to_string()
-        ]
+            "lazy".to_string(),
+        ],
     );
     Ok(())
 }
@@ -125,7 +125,7 @@ fn stateless_seq_vs_par_equivalent() -> anyhow::Result<()> {
     );
     let words = lines.flat_map(|s: &String| {
         s.split_whitespace()
-            .map(|w| w.to_string())
+            .map(str::to_string)
             .collect::<Vec<_>>()
     });
     let filtered = words.filter(|w: &String| w.len() >= 2);

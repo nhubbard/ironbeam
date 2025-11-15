@@ -1,12 +1,12 @@
-use rustflow::*;
 use rustflow::testing::*;
+use rustflow::*;
 
 #[test]
 fn distinct_global_exact() -> anyhow::Result<()> {
     let p = TestPipeline::new();
     let out = from_vec(&p, vec![1, 1, 2, 3, 3, 3]).distinct();
     let mut v = out.collect_seq()?;
-    v.sort();
+    v.sort_unstable();
     assert_eq!(v, vec![1, 2, 3]);
     Ok(())
 }
@@ -41,7 +41,7 @@ fn approx_distinct_global_kmv() -> anyhow::Result<()> {
     // 10_000 values with ~1234 uniques
     let pc = from_vec(&p, (0..10_000u64).map(|n| n % 1234).collect::<Vec<_>>());
     let est = pc.approx_distinct_count(256).collect_seq()?[0];
-    println!("est={:?}", est);
+    println!("est={est:?}");
     assert!(est > 1150.0 && est < 1320.0);
     Ok(())
 }
@@ -60,7 +60,7 @@ fn approx_distinct_per_key_kmv() -> anyhow::Result<()> {
     v.sort_by(|a, b| a.0.cmp(&b.0));
     let (ka, ea) = (&v[0].0, v[0].1);
     let (kb, eb) = (&v[1].0, v[1].1);
-    println!("ea={:?},eb={:?}", ea, eb);
+    println!("ea={ea:?},eb={eb:?}");
     assert_eq!(ka, "a");
     assert!(ea > 30.0 && ea < 45.0);
     assert_eq!(kb, "b");

@@ -1,7 +1,7 @@
 #![cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
 
-use rustflow::testing::*;
 use rustflow::from_vec;
+use rustflow::testing::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]

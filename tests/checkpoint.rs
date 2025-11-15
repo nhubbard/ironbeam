@@ -6,7 +6,6 @@ mod checkpoint_tests {
         compute_checksum, current_timestamp_ms, CheckpointConfig, CheckpointManager, CheckpointMetadata,
         CheckpointPolicy, CheckpointState,
     };
-    use rustflow::testing::*;
     use std::fs::{self, File};
     use std::io::{Read, Write};
     use tempfile::TempDir;
@@ -74,7 +73,7 @@ mod checkpoint_tests {
         let mut manager = CheckpointManager::new(config).unwrap();
 
         let timestamp = current_timestamp_ms();
-        let metadata_str = format!("test_pipeline:5:{}:4", timestamp);
+        let metadata_str = format!("test_pipeline:5:{timestamp}:4");
         let checksum = compute_checksum(metadata_str.as_bytes());
         let state = CheckpointState {
             pipeline_id: "test_pipeline".to_string(),
@@ -100,6 +99,7 @@ mod checkpoint_tests {
     }
 
     #[test]
+    #[allow(clippy::cast_possible_truncation)]
     fn test_find_latest_checkpoint() {
         let tmp = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -115,7 +115,7 @@ mod checkpoint_tests {
         // Create multiple checkpoints
         for i in 0..3 {
             let timestamp = current_timestamp_ms() + i * 1000;
-            let metadata_str = format!("test:{}:{}:1", i, timestamp);
+            let metadata_str = format!("test:{i}:{timestamp}:1");
             let checksum = compute_checksum(metadata_str.as_bytes());
             let state = CheckpointState {
                 pipeline_id: "test".to_string(),
@@ -141,6 +141,7 @@ mod checkpoint_tests {
     }
 
     #[test]
+    #[allow(clippy::cast_possible_truncation)]
     fn test_cleanup_old_checkpoints() {
         let tmp = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -154,7 +155,7 @@ mod checkpoint_tests {
         // Create 4 checkpoints
         for i in 0..4 {
             let timestamp = current_timestamp_ms() + i * 1000;
-            let metadata_str = format!("test:{}:{}:1", i, timestamp);
+            let metadata_str = format!("test:{i}:{timestamp}:1");
             let checksum = compute_checksum(metadata_str.as_bytes());
             let state = CheckpointState {
                 pipeline_id: "test".to_string(),
@@ -176,7 +177,7 @@ mod checkpoint_tests {
         // Should only have 2 checkpoints left
         let checkpoints: Vec<_> = fs::read_dir(tmp.path())
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(Result::ok)
             .collect();
         assert_eq!(checkpoints.len(), 2);
     }
@@ -192,7 +193,7 @@ mod checkpoint_tests {
         let mut manager = CheckpointManager::new(config).unwrap();
 
         let timestamp = current_timestamp_ms();
-        let metadata_str = format!("test:0:{}:1", timestamp);
+        let metadata_str = format!("test:0:{timestamp}:1");
         let checksum = compute_checksum(metadata_str.as_bytes());
         let state = CheckpointState {
             pipeline_id: "test".to_string(),

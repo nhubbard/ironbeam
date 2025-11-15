@@ -1,7 +1,7 @@
 //! Integration tests for glob pattern support in file readers.
 
-use rustflow::*;
 use rustflow::testing::*;
+use rustflow::*;
 use serde::{Deserialize, Serialize};
 use std::fs::create_dir_all;
 use tempfile::TempDir;

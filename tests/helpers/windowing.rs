@@ -1,12 +1,18 @@
 // tests/windowing.rs
+use rustflow::testing::*;
 use rustflow::window::{Timestamped, Window};
-use rustflow::testing::*;
 use rustflow::*;
-use rustflow::testing::*;
 
-fn mk_ts(i: u64) -> u64 {
+const fn mk_ts(i: u64) -> u64 {
     i
 } // convenience: using raw millis in tests
+
+// Start from raw payloads + separate timestamp field
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct Row {
+    ts: u64,
+    val: u32,
+}
 
 #[test]
 fn tumbling_non_keyed_counts() -> anyhow::Result<()> {
@@ -50,7 +56,7 @@ fn tumbling_keyed_counts() -> anyhow::Result<()> {
     let out = from_vec(&p, rows)
         .key_by_window(10, 0) // ((K, Window), V)
         .group_by_key() // → ((K, Window), Vec<V>)
-        .map_values(|vs| vs.len() as u32)
+        .map_values(|vs| u32::try_from(vs.len()).unwrap())
         .collect_par_sorted_by_key(None, None)?;
 
     // Expected bucket counts:
@@ -73,13 +79,6 @@ fn tumbling_keyed_counts() -> anyhow::Result<()> {
 fn attach_timestamps_then_window() -> anyhow::Result<()> {
     let p = TestPipeline::new();
 
-    // Start from raw payloads + separate timestamp field
-    #[derive(Clone, serde::Serialize, serde::Deserialize)]
-    struct Row {
-        ts: u64,
-        val: u32,
-    }
-
     let rows: Vec<Row> = vec![
         Row { ts: 5, val: 1 },
         Row { ts: 8, val: 1 },
@@ -91,7 +90,7 @@ fn attach_timestamps_then_window() -> anyhow::Result<()> {
         .attach_timestamps(|r| r.ts) // Timestamped<Row>
         .key_by_window(10, 0) // (Window, Row)
         .group_by_key()
-        .map_values(|vs| vs.len() as u8) // counts per window
+        .map_values(|vs| u8::try_from(vs.len()).unwrap()) // counts per window
         .collect_par_sorted_by_key(None, None)?;
 
     let expected = vec![

@@ -6,11 +6,12 @@
 //! - Keyed windowing (per-user, per-window)
 //! - Statistical combiners on windowed data
 //!
-//! Run with: cargo run --example windowing_aggregations
+//! Run with: `cargo run --example windowing_aggregations`
 
 use anyhow::Result;
-use rustflow::*;
+use rustflow::{Pipeline, from_vec, Timestamped, OrdF64, Min, Max, AverageF64};
 
+#[allow(clippy::cast_precision_loss)]
 fn main() -> Result<()> {
     println!("⏰ Windowing and Aggregations Example\n");
 
@@ -49,10 +50,10 @@ fn main() -> Result<()> {
 
     let window_stats = global_windows.map(|(window, temps)| {
         let count = temps.len();
-        let sum: f64 = temps.iter().map(|t| *t).sum();
+        let sum: f64 = temps.iter().copied().sum();
         let avg = sum / count as f64;
-        let max = temps.iter().map(|t| *t).fold(f64::NEG_INFINITY, f64::max);
-        let min = temps.iter().map(|t| *t).fold(f64::INFINITY, f64::min);
+        let max = temps.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let min = temps.iter().copied().fold(f64::INFINITY, f64::min);
 
         (*window, count, avg, min, max)
     });
@@ -63,8 +64,7 @@ fn main() -> Result<()> {
     println!("{:-<50}", "");
     for (win, count, avg, min, max) in results {
         println!(
-            "{:?} | {} | {:.2}°C | {:.2}°C | {:.2}°C",
-            win, count, avg, min, max
+            "{win:?} | {count} | {avg:.2}°C | {min:.2}°C | {max:.2}°C"
         );
     }
 
@@ -76,7 +76,7 @@ fn main() -> Result<()> {
     let per_sensor_windows = events.clone().group_by_key_and_window(10_000, 0);
 
     let sensor_window_avgs = per_sensor_windows.map(|((sensor, window), temps)| {
-        let avg: f64 = temps.iter().map(|t| *t).sum::<f64>() / temps.len() as f64;
+        let avg: f64 = temps.iter().copied().sum::<f64>() / temps.len() as f64;
         (sensor.clone(), *window, avg)
     });
 
@@ -85,7 +85,7 @@ fn main() -> Result<()> {
     println!("\nSensor | Window | Avg Temp");
     println!("{:-<45}", "");
     for (sensor, win, avg) in sensor_results {
-        println!("{} | {:?} | {:.2}°C", sensor, win, avg);
+        println!("{sensor} | {win:?} | {avg:.2}°C");
     }
 
     // =============================================================================
@@ -104,7 +104,7 @@ fn main() -> Result<()> {
         .clone()
         .map_values(|&v| OrdF64(v))
         .combine_values(Max::<OrdF64>::new());
-    let avg_temps = sensor_temps.clone().combine_values(AverageF64);
+    let avg_temps = sensor_temps.combine_values(AverageF64);
 
     println!("\nSensor Statistics:");
     println!("{:-<40}", "");

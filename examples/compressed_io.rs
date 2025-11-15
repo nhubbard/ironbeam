@@ -5,7 +5,7 @@
 //! - Custom codec implementation and registration
 //! - Working with compressed data in pipelines
 //!
-//! Run with: cargo run --example compressed_io --features compression-gzip
+//! Run with: `cargo run --example compressed_io --features compression-gzip`
 
 use anyhow::Result as AnyhowResult;
 use rustflow::io::compression::{
@@ -29,7 +29,7 @@ struct LogEntry {
 struct CustomCodec;
 
 impl CompressionCodec for CustomCodec {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "custom"
     }
 
@@ -58,17 +58,17 @@ fn main() -> AnyhowResult<()> {
     // Sample data
     let logs = vec![
         LogEntry {
-            timestamp: 1234567890,
+            timestamp: 1_234_567_890,
             level: "INFO".to_string(),
             message: "Application started".to_string(),
         },
         LogEntry {
-            timestamp: 1234567891,
+            timestamp: 1_234_567_891,
             level: "WARN".to_string(),
             message: "High memory usage detected".to_string(),
         },
         LogEntry {
-            timestamp: 1234567892,
+            timestamp: 1_234_567_892,
             level: "ERROR".to_string(),
             message: "Connection timeout".to_string(),
         },
@@ -89,7 +89,7 @@ fn main() -> AnyhowResult<()> {
         drop(writer); // Ensure encoder finishes before reading
 
         let size = metadata("logs.jsonl.gz")?.len();
-        println!("✅ Compressed file size: {} bytes\n", size);
+        println!("✅ Compressed file size: {size} bytes\n");
 
         // 2. Read compressed data (automatic detection)
         println!("📖 Reading compressed data from logs.jsonl.gz...");

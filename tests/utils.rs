@@ -1,10 +1,13 @@
+#[macro_use]
+mod macros;
+
 use rustflow::utils::OrdF64;
 
 #[test]
 fn test_ordf64_from_f64() {
-    let val: f64 = 3.14;
+    let val: f64 = std::f64::consts::PI;
     let ord: OrdF64 = val.into();
-    assert_eq!(ord.0, 3.14);
+    assert_approx_eq!(ord.0, std::f64::consts::PI);
 
     // Test with special values
     let nan: OrdF64 = f64::NAN.into();
@@ -21,7 +24,7 @@ fn test_ordf64_from_f64() {
 fn test_f64_from_ordf64() {
     let ord = OrdF64(2.71);
     let val: f64 = ord.into();
-    assert_eq!(val, 2.71);
+    assert_approx_eq!(val, 2.71);
 
     // Test with special values
     let nan_ord = OrdF64(f64::NAN);
@@ -63,21 +66,21 @@ fn test_ordf64_in_collections() {
     use std::collections::BinaryHeap;
 
     let mut heap = BinaryHeap::new();
-    heap.push(OrdF64(3.14));
+    heap.push(OrdF64(std::f64::consts::PI));
     heap.push(OrdF64(2.71));
     heap.push(OrdF64(1.41));
     heap.push(OrdF64(0.57));
 
     // Should pop in descending order
-    assert_eq!(heap.pop().unwrap().0, 3.14);
-    assert_eq!(heap.pop().unwrap().0, 2.71);
-    assert_eq!(heap.pop().unwrap().0, 1.41);
-    assert_eq!(heap.pop().unwrap().0, 0.57);
+    assert_approx_eq!(heap.pop().unwrap().0, std::f64::consts::PI);
+    assert_approx_eq!(heap.pop().unwrap().0, 2.71);
+    assert_approx_eq!(heap.pop().unwrap().0, 1.41);
+    assert_approx_eq!(heap.pop().unwrap().0, 0.57);
 }
 
 #[test]
 fn test_ordf64_sorting() {
-    let mut values = vec![
+    let mut values = [
         OrdF64(5.0),
         OrdF64(2.0),
         OrdF64(8.0),
@@ -87,11 +90,11 @@ fn test_ordf64_sorting() {
 
     values.sort();
 
-    assert_eq!(values[0].0, 1.0);
-    assert_eq!(values[1].0, 2.0);
-    assert_eq!(values[2].0, 5.0);
-    assert_eq!(values[3].0, 8.0);
-    assert_eq!(values[4].0, 9.0);
+    assert_approx_eq!(values[0].0, 1.0);
+    assert_approx_eq!(values[1].0, 2.0);
+    assert_approx_eq!(values[2].0, 5.0);
+    assert_approx_eq!(values[3].0, 8.0);
+    assert_approx_eq!(values[4].0, 9.0);
 }
 
 #[test]

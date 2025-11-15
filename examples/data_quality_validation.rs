@@ -7,14 +7,14 @@
 //! - Use built-in validators for common patterns
 //! - Integrate validation into a production ETL pipeline
 
-use rustflow::validation::*;
-use rustflow::*;
+use rustflow::validation::{Validate, ValidationResult, combine_validations, validators, ErrorCollector, ValidationMode};
+use rustflow::{Pipeline, from_vec, Sum};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Transaction {
-    transaction_id: String,
+    id: String,
     customer_id: u32,
     amount: f64,
     currency: String,
@@ -26,7 +26,7 @@ impl Validate for Transaction {
     fn validate(&self) -> ValidationResult {
         // Combine multiple validation checks
         combine_validations(vec![
-            validators::not_empty("transaction_id", &self.transaction_id),
+            validators::not_empty("transaction_id", &self.id),
             validators::not_empty("currency", &self.currency),
             validators::in_range("amount", &self.amount, &0.0, &1_000_000.0),
             validators::is_email("email", &self.email),
@@ -65,44 +65,44 @@ fn skip_invalid_example() -> anyhow::Result<()> {
         &p,
         vec![
             Transaction {
-                transaction_id: "tx001".into(),
+                id: "tx001".into(),
                 customer_id: 1,
                 amount: 100.50,
                 currency: "USD".into(),
                 email: "alice@example.com".into(),
-                timestamp: 1234567890,
+                timestamp: 1_234_567_890,
             },
             Transaction {
-                transaction_id: "".into(), // Invalid: empty ID
+                id: String::new(), // Invalid: empty ID
                 customer_id: 2,
                 amount: 200.00,
                 currency: "EUR".into(),
                 email: "bob@example.com".into(),
-                timestamp: 1234567891,
+                timestamp: 1_234_567_891,
             },
             Transaction {
-                transaction_id: "tx003".into(),
+                id: "tx003".into(),
                 customer_id: 3,
                 amount: -50.00, // Invalid: negative amount
                 currency: "GBP".into(),
                 email: "charlie@example.com".into(),
-                timestamp: 1234567892,
+                timestamp: 1_234_567_892,
             },
             Transaction {
-                transaction_id: "tx004".into(),
+                id: "tx004".into(),
                 customer_id: 4,
                 amount: 300.00,
                 currency: "USD".into(),
                 email: "invalid-email".into(), // Invalid: bad email
-                timestamp: 1234567893,
+                timestamp: 1_234_567_893,
             },
             Transaction {
-                transaction_id: "tx005".into(),
+                id: "tx005".into(),
                 customer_id: 5,
                 amount: 150.75,
                 currency: "USD".into(),
                 email: "eve@example.com".into(),
-                timestamp: 1234567894,
+                timestamp: 1_234_567_894,
             },
         ],
     );
@@ -115,7 +115,7 @@ fn skip_invalid_example() -> anyhow::Result<()> {
     println!("  Skipped records: {}", 5 - results.len());
 
     for tx in results {
-        println!("    ✓ {} - ${:.2}", tx.transaction_id, tx.amount);
+        println!("    ✓ {} - ${:.2}", tx.id, tx.amount);
     }
 
     Ok(())
@@ -128,28 +128,28 @@ fn log_and_continue_example() -> anyhow::Result<()> {
         &p,
         vec![
             Transaction {
-                transaction_id: "tx001".into(),
+                id: "tx001".into(),
                 customer_id: 1,
                 amount: 100.50,
                 currency: "USD".into(),
                 email: "alice@example.com".into(),
-                timestamp: 1234567890,
+                timestamp: 1_234_567_890,
             },
             Transaction {
-                transaction_id: "".into(),
+                id: String::new(),
                 customer_id: 2,
                 amount: 200.00,
                 currency: "EUR".into(),
                 email: "bob@example.com".into(),
-                timestamp: 1234567891,
+                timestamp: 1_234_567_891,
             },
             Transaction {
-                transaction_id: "tx003".into(),
+                id: "tx003".into(),
                 customer_id: 3,
                 amount: -50.00,
                 currency: "GBP".into(),
                 email: "charlie@example.com".into(),
-                timestamp: 1234567892,
+                timestamp: 1_234_567_892,
             },
         ],
     );
@@ -172,15 +172,15 @@ fn log_and_continue_example() -> anyhow::Result<()> {
             error.record_id.as_ref().unwrap()
         );
         for e in &error.errors {
-            println!("      - {}", e);
+            println!("      - {e}");
         }
     }
 
     // Export errors to JSON
     println!("\n  Exporting errors to JSON:");
     let json = errors.to_json()?;
-    println!("{}", json);
-
+    println!("{json}");
+    drop(errors);
     Ok(())
 }
 
@@ -192,28 +192,28 @@ fn production_etl_example() -> anyhow::Result<()> {
         &p,
         vec![
             Transaction {
-                transaction_id: "tx001".into(),
+                id: "tx001".into(),
                 customer_id: 1,
                 amount: 100.50,
                 currency: "USD".into(),
                 email: "alice@example.com".into(),
-                timestamp: 1234567890,
+                timestamp: 1_234_567_890,
             },
             Transaction {
-                transaction_id: "tx002".into(),
+                id: "tx002".into(),
                 customer_id: 2,
-                amount: 5000000.00, // Invalid: exceeds limit
+                amount: 5_000_000.00, // Invalid: exceeds limit
                 currency: "USD".into(),
                 email: "bob@example.com".into(),
-                timestamp: 1234567891,
+                timestamp: 1_234_567_891,
             },
             Transaction {
-                transaction_id: "tx003".into(),
+                id: "tx003".into(),
                 customer_id: 3,
                 amount: 75.25,
                 currency: "EUR".into(),
                 email: "charlie@example.com".into(),
-                timestamp: 1234567892,
+                timestamp: 1_234_567_892,
             },
         ],
     );
@@ -237,7 +237,7 @@ fn production_etl_example() -> anyhow::Result<()> {
 
     println!("  Total by Currency:");
     for (currency, total) in results {
-        println!("    {}: ${:.2}", currency, total);
+        println!("    {currency}: ${total:.2}");
     }
 
     let errors = validation_errors.lock().unwrap();
@@ -250,7 +250,7 @@ fn production_etl_example() -> anyhow::Result<()> {
         println!("\n  Validation Errors:");
         errors.print_errors();
     }
-
+    drop(errors);
     Ok(())
 }
 
@@ -264,34 +264,34 @@ fn validate_keyed_example() -> anyhow::Result<()> {
             (
                 1u32,
                 Transaction {
-                    transaction_id: "tx001".into(),
+                    id: "tx001".into(),
                     customer_id: 1,
                     amount: 100.50,
                     currency: "USD".into(),
                     email: "alice@example.com".into(),
-                    timestamp: 1234567890,
+                    timestamp: 1_234_567_890,
                 },
             ),
             (
                 2u32,
                 Transaction {
-                    transaction_id: "".into(), // Invalid
+                    id: String::new(), // Invalid
                     customer_id: 2,
                     amount: 200.00,
                     currency: "EUR".into(),
                     email: "bob@example.com".into(),
-                    timestamp: 1234567891,
+                    timestamp: 1_234_567_891,
                 },
             ),
             (
                 1u32,
                 Transaction {
-                    transaction_id: "tx003".into(),
+                    id: "tx003".into(),
                     customer_id: 1,
                     amount: 50.00,
                     currency: "USD".into(),
                     email: "alice@example.com".into(),
-                    timestamp: 1234567892,
+                    timestamp: 1_234_567_892,
                 },
             ),
         ],
@@ -309,7 +309,7 @@ fn validate_keyed_example() -> anyhow::Result<()> {
 
     println!("  Customer Totals (after validation):");
     for (customer_id, total) in results {
-        println!("    Customer {}: ${:.2}", customer_id, total);
+        println!("    Customer {customer_id}: ${total:.2}");
     }
 
     Ok(())

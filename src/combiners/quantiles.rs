@@ -177,7 +177,6 @@ impl TDigest {
     /// assert!((p95 - 95.0).abs() < 5.0);
     /// ```
     #[must_use]
-    #[allow(clippy::float_cmp)]
     pub fn quantile(&self, q: f64) -> f64 {
         if self.centroids.is_empty() {
             return f64::NAN;
@@ -186,11 +185,10 @@ impl TDigest {
         let q = q.clamp(0.0, 1.0);
 
         // Handle edge cases
-        if q == 0.0 || self.centroids.len() == 1 {
+        if (q - 0.0).abs() <= f64::EPSILON || self.centroids.len() == 1 {
             return self.min;
         }
-        // clippy::float_cmp is disabled because we already clamp to [0.0, 1.0]
-        if q == 1.0 {
+        if (q - 1.0).abs() <= f64::EPSILON {
             return self.max;
         }
 
@@ -203,7 +201,7 @@ impl TDigest {
 
             if next_cumulative >= target {
                 // Interpolate within this centroid
-                if next_cumulative == cumulative {
+                if (next_cumulative - cumulative).abs() < f64::EPSILON {
                     return c.mean;
                 }
 

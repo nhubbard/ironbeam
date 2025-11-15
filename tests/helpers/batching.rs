@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rustflow::*;
 use rustflow::testing::*;
+use rustflow::*;
 
 #[test]
 fn map_batches_matches_elementwise_seq() -> Result<()> {
@@ -19,7 +19,7 @@ fn map_batches_matches_elementwise_seq() -> Result<()> {
             })
             .collect_seq()?;
 
-        assert_eq!(got, baseline, "batch_size={}", bs);
+        assert_eq!(got, baseline, "batch_size={bs}");
     }
     Ok(())
 }
@@ -29,7 +29,7 @@ fn map_batches_tail_handling() -> Result<()> {
     let p = TestPipeline::new();
     let input: Vec<usize> = (0..10).collect();
 
-    let got = from_vec(&p, input.clone())
+    let got = from_vec(&p, input)
         .map_batches(4, |chunk: &[usize]| {
             // emit chunk length (so the tail is visible as 2)
             vec![chunk.len()]
@@ -48,16 +48,16 @@ fn map_batches_par_equivalence_after_sort() -> Result<()> {
 
     // elementwise baseline (seq)
     let mut baseline = from_vec(&p, input.clone()).map(|x| x + 1).collect_seq()?;
-    baseline.sort();
+    baseline.sort_unstable();
 
     // batched (par). Note: collect_par may interleave partitions, so sort before comparing.
-    let mut got = from_vec(&p, input.clone())
+    let mut got = from_vec(&p, input)
         .map_batches(256, |chunk: &[u32]| {
             chunk.iter().map(|x| x + 1).collect::<Vec<u32>>()
         })
         .collect_par(None, None)?;
 
-    got.sort();
+    got.sort_unstable();
     assert_eq!(got, baseline);
     Ok(())
 }
@@ -79,15 +79,16 @@ fn map_values_batches_matches_elementwise_seq() -> Result<()> {
                 chunk.iter().map(|x| x * 3).collect::<Vec<u32>>()
             })
             .collect_seq()?;
-        assert_eq!(got, baseline, "batch_size={}", bs);
+        assert_eq!(got, baseline, "batch_size={bs}");
     }
     Ok(())
 }
 
 #[test]
+#[allow(clippy::cast_sign_loss)]
 fn map_values_batches_tail_handling() -> Result<()> {
     let p = TestPipeline::new();
-    let input: Vec<(u32, usize)> = (0..10).map(|i| ((i % 2) as u32, i as usize)).collect();
+    let input: Vec<(u32, usize)> = (0..10u32).map(|i| (i % 2, i as usize)).collect();
 
     // Return the size of each processed chunk (visible in values).
     let got = from_vec(&p, input.clone())
@@ -120,7 +121,7 @@ fn map_values_batches_par_equivalence_after_sort() -> Result<()> {
     baseline.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
 
     // Batched (par)
-    let mut got = from_vec(&p, input.clone())
+    let mut got = from_vec(&p, input)
         .map_values_batches(256, |chunk: &[u32]| {
             chunk.iter().map(|x| x + 1).collect::<Vec<u32>>()
         })

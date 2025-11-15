@@ -25,7 +25,7 @@ mod compression_tests {
             TestRecord {
                 id: 1,
                 name: "Alice".to_string(),
-                value: 3.14,
+                value: std::f64::consts::PI,
             },
             TestRecord {
                 id: 2,
@@ -162,7 +162,7 @@ mod compression_tests {
         struct NoOpCodec;
 
         impl CompressionCodec for NoOpCodec {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "noop"
             }
 
@@ -202,6 +202,7 @@ mod compression_tests {
 
     #[cfg(feature = "compression-gzip")]
     #[test]
+    #[allow(clippy::items_after_statements)]
     fn test_magic_byte_detection() -> anyhow::Result<()> {
         // Write gzip data but with wrong extension to test magic byte fallback
         let temp = NamedTempFile::new()?;
@@ -315,7 +316,7 @@ mod compression_tests {
         let result = auto_detect_reader(cursor, "test.gz");
         // The error context should mention the codec name
         if let Err(e) = result {
-            let error_msg = format!("{:?}", e);
+            let error_msg = format!("{e:?}");
             assert!(error_msg.contains("gzip") || error_msg.contains("wrap reader"));
         }
     }

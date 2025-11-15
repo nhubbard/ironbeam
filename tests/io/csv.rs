@@ -1,5 +1,4 @@
 use rustflow::io::csv::*;
-use rustflow::testing::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -24,7 +23,7 @@ fn write_csv_roundtrip() -> anyhow::Result<()> {
         },
     ];
 
-    rustflow::write_csv(&path, true, &data)?;
+    write_csv(&path, true, &data)?;
     let contents = fs::read_to_string(&path)?;
     assert!(contents.contains("id,name"));
     assert!(contents.contains("1,A"));
@@ -189,7 +188,7 @@ fn write_csv_par_auto_shards() -> anyhow::Result<()> {
     for i in 0..100 {
         data.push(Record {
             id: i,
-            name: format!("name{}", i),
+            name: format!("name{i}"),
         });
     }
 

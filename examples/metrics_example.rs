@@ -7,7 +7,7 @@
 //! - Print metrics to stdout
 //! - Save metrics to a JSON file
 
-use rustflow::*;
+use rustflow::{Pipeline, from_vec};
 use serde_json::Value;
 
 #[cfg(feature = "metrics")]
@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
             let snapshot = metrics.snapshot();
             println!("Metrics snapshot:");
             for (name, value) in snapshot {
-                println!("  {}: {}", name, value);
+                println!("  {name}: {value}");
             }
         }
     }

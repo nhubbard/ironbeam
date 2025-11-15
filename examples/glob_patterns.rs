@@ -3,7 +3,7 @@
 //! This example shows how to use glob patterns to read multiple files at once,
 //! which is essential for real-world ETL scenarios with date-based partitions.
 
-use rustflow::*;
+use rustflow::{write_jsonl_vec, Pipeline, PCollection, read_jsonl};
 use serde::{Deserialize, Serialize};
 use std::fs::create_dir_all;
 use tempfile::TempDir;
@@ -24,20 +24,20 @@ fn main() -> anyhow::Result<()> {
 
     // Create date-partitioned directory structure
     for day in 1..=3 {
-        let day_dir = base.join(format!("logs/year=2024/month=01/day={:02}", day));
+        let day_dir = base.join(format!("logs/year=2024/month=01/day={day:02}"));
         create_dir_all(&day_dir)?;
 
         let log_file = day_dir.join("events.jsonl");
         let entries = vec![
             LogEntry {
-                timestamp: format!("2024-01-{:02}T10:00:00", day),
+                timestamp: format!("2024-01-{day:02}T10:00:00"),
                 level: "INFO".to_string(),
-                message: format!("Day {} event 1", day),
+                message: format!("Day {day} event 1"),
             },
             LogEntry {
-                timestamp: format!("2024-01-{:02}T11:00:00", day),
+                timestamp: format!("2024-01-{day:02}T11:00:00"),
                 level: "ERROR".to_string(),
-                message: format!("Day {} event 2", day),
+                message: format!("Day {day} event 2"),
             },
         ];
 
@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
     println!("\n=== Example 1: Read all logs with glob pattern ===");
     let p = Pipeline::default();
     let pattern = format!("{}/logs/year=*/month=*/day=*/events.jsonl", base.display());
-    println!("Pattern: {}", pattern);
+    println!("Pattern: {pattern}");
 
     let logs: PCollection<LogEntry> = read_jsonl(&p, &pattern)?;
     let all_logs = logs.collect_seq()?;
@@ -62,7 +62,7 @@ fn main() -> anyhow::Result<()> {
         "{}/logs/year=2024/month=01/day=01/events.jsonl",
         base.display()
     );
-    println!("Pattern: {}", pattern2);
+    println!("Pattern: {pattern2}");
 
     let day1_logs: PCollection<LogEntry> = read_jsonl(&p2, &pattern2)?;
     let day1_entries = day1_logs.collect_seq()?;
@@ -87,18 +87,18 @@ fn main() -> anyhow::Result<()> {
     create_dir_all(&data_dir)?;
 
     for i in 1..=3 {
-        let file = data_dir.join(format!("batch_{}.jsonl", i));
+        let file = data_dir.join(format!("batch_{i}.jsonl"));
         let entries = vec![LogEntry {
-            timestamp: format!("2024-01-01T{:02}:00:00", i),
+            timestamp: format!("2024-01-01T{i:02}:00:00"),
             level: "INFO".to_string(),
-            message: format!("Batch {} processing", i),
+            message: format!("Batch {i} processing"),
         }];
         write_jsonl_vec(&file, &entries)?;
     }
 
     let p4 = Pipeline::default();
     let pattern4 = format!("{}/data/*.jsonl", base.display());
-    println!("Pattern: {}", pattern4);
+    println!("Pattern: {pattern4}");
 
     let batch_logs: PCollection<LogEntry> = read_jsonl(&p4, &pattern4)?;
     let batches = batch_logs.collect_seq()?;

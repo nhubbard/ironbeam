@@ -1,8 +1,8 @@
 #![cfg(feature = "io-csv")]
 
 use anyhow::Result;
-use rustflow::{read_csv, read_csv_streaming, Pipeline};
 use rustflow::testing::*;
+use rustflow::{read_csv, read_csv_streaming};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]

@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rustflow::testing::*;
 use rustflow::from_vec;
+use rustflow::testing::*;
 
 #[test]
 fn planner_fuses_stateless_equivalence() -> Result<()> {
@@ -8,7 +8,7 @@ fn planner_fuses_stateless_equivalence() -> Result<()> {
     let input: Vec<u32> = (0..10_000).collect();
 
     // Build with many tiny stateless ops
-    let many = from_vec(&p, input.clone())
+    let many = from_vec(&p, input)
         .map(|x: &u32| x + 1)
         .filter(|x: &u32| x.is_multiple_of(2))
         .flat_map(|x: &u32| vec![*x, *x]) // duplicate
@@ -17,7 +17,7 @@ fn planner_fuses_stateless_equivalence() -> Result<()> {
 
     // Collect seq and par to ensure planner changes don't affect results
     let seq = many.clone().collect_seq_sorted()?;
-    let par = many.clone().collect_par_sorted(Some(8), None)?;
+    let par = many.collect_par_sorted(Some(8), None)?;
     assert_collections_equal(&seq, &par);
     Ok(())
 }
@@ -28,7 +28,7 @@ fn planner_drops_mid_materialized_equivalence() -> Result<()> {
     let v: Vec<String> = (0..1000).map(|i| format!("w{i}")).collect();
 
     // Force a mid-chain materialized by collecting and re-inserting (simulating a checkpoint)
-    let col = from_vec(&p, v.clone())
+    let col = from_vec(&p, v)
         .map(|s: &String| s.to_uppercase())
         .filter(|s: &String| s.len() > 1);
 
@@ -36,7 +36,7 @@ fn planner_drops_mid_materialized_equivalence() -> Result<()> {
     // but if you have tests that insert Node::Materialized, the planner will drop it mid-chain.
     // We just ensure the runner still yields stable results:
     let seq = col.clone().collect_seq_sorted()?;
-    let par = col.clone().collect_par_sorted(Some(6), None)?;
+    let par = col.collect_par_sorted(Some(6), None)?;
     assert_collections_equal(&seq, &par);
 
     Ok(())

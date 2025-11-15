@@ -1,5 +1,5 @@
-use rustflow::testing::*;
 use rustflow::from_vec;
+use rustflow::testing::*;
 
 #[test]
 fn par_equals_seq_after_sort() -> anyhow::Result<()> {

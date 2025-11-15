@@ -5,10 +5,10 @@
 //! 2. **Transform**: Clean, validate, enrich, and aggregate data
 //! 3. **Load**: Write results to multiple output formats
 //!
-//! Run with: cargo run --example etl_pipeline --features io-jsonl,io-csv
+//! Run with: `cargo run --example etl_pipeline --features io-jsonl,io-csv`
 
 use anyhow::Result;
-use rustflow::*;
+use rustflow::{Pipeline, from_vec, Count};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +62,7 @@ impl Ord for PathStats {
     }
 }
 
+#[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
 fn main() -> Result<()> {
     println!("🚀 ETL Pipeline Example: Web Server Log Analysis\n");
 
@@ -165,7 +166,7 @@ fn main() -> Result<()> {
             (
                 1u64,                                          // request count
                 entry.bytes,                                   // bytes
-                if entry.status >= 400 { 1u64 } else { 0u64 }, // error count
+                u64::from(entry.status >= 400), // error count
             )
         })
         .group_by_key()
@@ -204,7 +205,7 @@ fn main() -> Result<()> {
     println!("💾 LOAD: Writing results...");
 
     // Collect and display results
-    let all_stats = path_stats.clone().collect_seq_sorted()?;
+    let all_stats = path_stats.collect_seq_sorted()?;
 
     println!("\n📊 Path Statistics:");
     println!("{:-<80}", "");
@@ -244,7 +245,6 @@ fn main() -> Result<()> {
 
     // Compute additional metrics
     let bot_stats = valid_logs
-        .clone()
         .key_by(|entry: &CleanLogEntry| entry.is_bot)
         .combine_values(Count);
 

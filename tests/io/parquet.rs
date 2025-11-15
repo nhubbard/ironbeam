@@ -1,8 +1,7 @@
 #![cfg(feature = "io-parquet")]
 
+use rustflow::from_vec;
 use rustflow::io::parquet::*;
-use rustflow::testing::*;
-use rustflow::{from_vec, Pipeline};
 use rustflow::testing::*;
 use serde::{Deserialize, Serialize};
 
@@ -35,20 +34,20 @@ fn parquet_roundtrip_typed() -> anyhow::Result<()> {
     ];
 
     // Write directly
-    let n = rustflow::write_parquet_vec(&path, &data)?;
+    let n = write_parquet_vec(&path, &data)?;
     assert_eq!(n, 2);
 
     // Read back
-    let back: Vec<Row> = rustflow::read_parquet_vec(&path)?;
+    let back: Vec<Row> = read_parquet_vec(&path)?;
     assert_eq!(back, data);
 
     // Also via pipeline
     let p = TestPipeline::new();
-    let col = from_vec(&p, back.clone());
+    let col = from_vec(&p, back);
     let out_path = tmp.path().join("out.parquet");
     let m = col.write_parquet(&out_path)?;
     assert_eq!(m, 2);
-    let back2: Vec<Row> = rustflow::read_parquet_vec(&out_path)?;
+    let back2: Vec<Row> = read_parquet_vec(&out_path)?;
     assert_eq!(back2, data);
     Ok(())
 }
@@ -91,8 +90,8 @@ fn build_parquet_shards_multiple_groups() -> anyhow::Result<()> {
     for i in 0..100 {
         data.push(Row {
             id: i,
-            name: format!("name{}", i),
-            score: Some(i as f64),
+            name: format!("name{i}"),
+            score: Some(f64::from(i)),
             tags: vec!["tag".into()],
         });
     }
@@ -101,7 +100,7 @@ fn build_parquet_shards_multiple_groups() -> anyhow::Result<()> {
 
     let shards = build_parquet_shards(&path, 2)?;
     assert_eq!(shards.total_rows, 100);
-    assert!(shards.group_ranges.len() > 0);
+    assert!(!shards.group_ranges.is_empty());
     Ok(())
 }
 
@@ -113,8 +112,8 @@ fn read_parquet_row_group_range_test() -> anyhow::Result<()> {
     for i in 0..50 {
         data.push(Row {
             id: i,
-            name: format!("name{}", i),
-            score: Some(i as f64),
+            name: format!("name{i}"),
+            score: Some(f64::from(i)),
             tags: vec!["tag".into()],
         });
     }
@@ -122,12 +121,12 @@ fn read_parquet_row_group_range_test() -> anyhow::Result<()> {
     write_parquet_vec(&path, &data)?;
 
     let shards = build_parquet_shards(&path, 1)?;
-    assert!(shards.group_ranges.len() >= 1);
+    assert!(!shards.group_ranges.is_empty());
 
     // Read first group
     let (start, end) = shards.group_ranges[0];
     let subset: Vec<Row> = read_parquet_row_group_range(&shards, start, end)?;
-    assert!(subset.len() > 0);
+    assert!(!subset.is_empty());
     Ok(())
 }
 
@@ -144,7 +143,7 @@ fn build_parquet_shards_file_not_found() {
     let result = build_parquet_shards("nonexistent_file.parquet", 10);
     assert!(result.is_err());
     if let Err(e) = result {
-        let err_msg = format!("{:?}", e);
+        let err_msg = format!("{e:?}");
         assert!(err_msg.contains("open") || err_msg.contains("No such file"));
     }
 }

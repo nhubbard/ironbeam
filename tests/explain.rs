@@ -20,7 +20,7 @@ fn test_explain_simple_pipeline() -> Result<()> {
     assert!(explanation.cost_estimate.total_ops > 0);
 
     // Print the explanation for manual inspection
-    println!("{}", explanation);
+    println!("{explanation}");
 
     Ok(())
 }
@@ -40,7 +40,7 @@ fn test_explain_with_grouping() -> Result<()> {
     assert!(explanation.steps.iter().any(|s| s.is_barrier));
 
     // Print the explanation for manual inspection
-    println!("{}", explanation);
+    println!("{explanation}");
 
     Ok(())
 }
@@ -62,16 +62,22 @@ fn test_explain_with_optimizations() -> Result<()> {
     let explanation = plan.explain();
 
     // Verify optimizations were applied
-    assert!(!explanation.optimizations.is_empty(), "Expected optimizations to be applied");
+    assert!(
+        !explanation.optimizations.is_empty(),
+        "Expected optimizations to be applied"
+    );
 
     // Check for stateless fusion optimization
     let has_fusion = explanation.optimizations.iter().any(|opt| {
-        matches!(opt, rustflow::planner::OptimizationDecision::FusedStateless { .. })
+        matches!(
+            opt,
+            rustflow::planner::OptimizationDecision::FusedStateless { .. }
+        )
     });
     assert!(has_fusion, "Expected stateless fusion optimization");
 
     // Print the explanation for manual inspection
-    println!("{}", explanation);
+    println!("{explanation}");
 
     Ok(())
 }
@@ -80,9 +86,7 @@ fn test_explain_with_optimizations() -> Result<()> {
 fn test_explain_cost_estimates() -> Result<()> {
     let p = TestPipeline::new();
     let data = from_vec(&p, (1..=1000).collect::<Vec<_>>());
-    let result = data
-        .map(|x| (*x % 10, *x))
-        .group_by_key();
+    let result = data.map(|x| (*x % 10, *x)).group_by_key();
 
     // Build the plan and explain it
     let plan = rustflow::planner::build_plan(&p, result.node_id())?;
@@ -95,7 +99,7 @@ fn test_explain_cost_estimates() -> Result<()> {
     assert!(explanation.suggested_partitions.is_some());
 
     // Print the explanation for manual inspection
-    println!("{}", explanation);
+    println!("{explanation}");
 
     Ok(())
 }
@@ -111,7 +115,7 @@ fn test_explain_display_format() -> Result<()> {
     let explanation = plan.explain();
 
     // Convert to string and verify it contains expected sections
-    let output = format!("{}", explanation);
+    let output = format!("{explanation}");
 
     assert!(output.contains("EXECUTION PLAN EXPLANATION"));
     assert!(output.contains("COST ESTIMATES"));
@@ -119,7 +123,7 @@ fn test_explain_display_format() -> Result<()> {
     assert!(output.contains("Source Size"));
     assert!(output.contains("Total Operations"));
 
-    println!("{}", output);
+    println!("{output}");
 
     Ok(())
 }

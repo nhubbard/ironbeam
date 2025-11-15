@@ -1,8 +1,7 @@
 use anyhow::Result;
 use rustflow::io::jsonl::*;
 use rustflow::testing::*;
-use rustflow::{from_vec, read_jsonl, Count, Pipeline};
-use rustflow::testing::*;
+use rustflow::{from_vec, read_jsonl, Count};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -10,6 +9,11 @@ use std::fs;
 struct Rec {
     id: u32,
     word: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct Line {
+    line: String,
 }
 
 #[cfg(feature = "io-jsonl")]
@@ -37,7 +41,7 @@ fn jsonl_roundtrip_stateless() -> Result<()> {
         id: r.id,
         word: r.word.to_uppercase(),
     });
-    let n = upper.clone().write_jsonl(&file)?;
+    let n = upper.write_jsonl(&file)?;
     assert_eq!(n, 2);
 
     // Read back and check
@@ -73,17 +77,12 @@ fn jsonl_wordcount_end_to_end() -> Result<()> {
 {"line":"jumps over the lazy dog"}"#,
     )?;
 
-    #[derive(Clone, Serialize, Deserialize, Debug)]
-    struct Line {
-        line: String,
-    }
-
     let p = TestPipeline::new();
     let input = read_jsonl::<Line>(&p, &file)?;
     let words = input.flat_map(|l: &Line| {
         l.line
             .split_whitespace()
-            .map(|w| w.to_lowercase())
+            .map(str::to_lowercase)
             .collect::<Vec<_>>()
     });
     let counts = words
@@ -134,7 +133,7 @@ not valid json
 "#,
     )?;
 
-    let result: anyhow::Result<Vec<Rec>> = read_jsonl_vec(&path);
+    let result: Result<Vec<Rec>> = read_jsonl_vec(&path);
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(err_msg.contains("parse JSONL line"));
@@ -201,7 +200,7 @@ fn write_jsonl_par_multiple_shards() -> Result<()> {
     for i in 0..50 {
         data.push(Rec {
             id: i,
-            word: format!("word{}", i),
+            word: format!("word{i}"),
         });
     }
 
@@ -222,7 +221,7 @@ fn write_jsonl_par_auto_shards() -> Result<()> {
     for i in 0..100 {
         data.push(Rec {
             id: i,
-            word: format!("word{}", i),
+            word: format!("word{i}"),
         });
     }
 
@@ -259,7 +258,7 @@ fn read_jsonl_range_with_empty_lines() -> Result<()> {
 
 #[test]
 fn read_jsonl_vec_file_not_found() {
-    let result: anyhow::Result<Vec<Rec>> = read_jsonl_vec("nonexistent_file.jsonl");
+    let result: Result<Vec<Rec>> = read_jsonl_vec("nonexistent_file.jsonl");
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(err_msg.contains("open") || err_msg.contains("No such file"));
@@ -305,7 +304,7 @@ invalid json line
     )?;
 
     let shards = build_jsonl_shards(&path, 10)?;
-    let result: anyhow::Result<Vec<Rec>> = read_jsonl_range(&shards, 0, 2);
+    let result: Result<Vec<Rec>> = read_jsonl_range(&shards, 0, 2);
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(err_msg.contains("parse JSONL line"));

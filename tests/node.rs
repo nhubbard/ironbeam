@@ -2,7 +2,7 @@ use rustflow::node::DynOp;
 use rustflow::Partition;
 use std::sync::Arc;
 
-/// Test implementation of DynOp for testing trait defaults
+/// Test implementation of `DynOp` for testing trait defaults
 struct TestDynOp;
 
 impl DynOp for TestDynOp {

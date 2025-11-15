@@ -1,7 +1,6 @@
 use rustflow::combiners::{AverageF64, DistinctCount, Sum};
 use rustflow::testing::*;
 use rustflow::*;
-use rustflow::testing::*;
 
 #[test]
 fn combine_globally_sum_basic() -> anyhow::Result<()> {
@@ -132,7 +131,7 @@ fn combine_globally_lifted_empty() -> anyhow::Result<()> {
     let out: Vec<f64> = avg.collect_seq()?;
 
     assert_eq!(out.len(), 1);
-    assert_eq!(out[0], 0.0); // Empty average returns 0.0
+    assert_approx_eq!(out[0], 0.0); // Empty average returns 0.0
     Ok(())
 }
 

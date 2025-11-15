@@ -39,7 +39,7 @@ fn sum_min_max_average_basic_and_lifted() -> Result<()> {
         .key_by(|x| x % 9)
         .combine_values(Max::<i32>::new())
         .collect_par_sorted_by_key(Some(4), None)?;
-    let max_lifted = from_vec(&p, vals.clone())
+    let max_lifted = from_vec(&p, vals)
         .key_by(|x| x % 9)
         .group_by_key()
         .combine_values_lifted(Max::<i32>::new())
@@ -65,14 +65,14 @@ fn sum_min_max_average_basic_and_lifted() -> Result<()> {
 fn distinct_count_basic_and_lifted() -> Result<()> {
     let p = TestPipeline::new();
     // keys: 0..5, values: repeated pattern to ensure duplicates
-    let vals: Vec<u32> = (0..500).map(|i| (i % 25) as u32).collect();
+    let vals: Vec<u32> = (0..500u32).map(|i| i % 25).collect();
 
     let dc_direct = from_vec(&p, vals.clone())
         .key_by(|x| x % 5) // 5 buckets
         .combine_values(DistinctCount::<u32>::new())
         .collect_par_sorted_by_key(Some(6), None)?;
 
-    let dc_lifted = from_vec(&p, vals.clone())
+    let dc_lifted = from_vec(&p, vals)
         .key_by(|x| x % 5)
         .group_by_key()
         .combine_values_lifted(DistinctCount::<u32>::new())
@@ -95,7 +95,7 @@ fn topk_basic_and_lifted() -> Result<()> {
         .combine_values(TopK::<i32>::new(k))
         .collect_par_sorted_by_key(Some(6), None)?;
 
-    let top_lifted = from_vec(&p, vals.clone())
+    let top_lifted = from_vec(&p, vals)
         .key_by(|x| x % 7)
         .group_by_key()
         .combine_values_lifted(TopK::<i32>::new(k))
@@ -236,7 +236,7 @@ fn topk_edge_cases() -> Result<()> {
 
     // K larger than data
     let data = vec![("a".to_string(), 5), ("a".to_string(), 3)];
-    let result = from_vec(&p, data.clone())
+    let result = from_vec(&p, data)
         .combine_values(TopK::<i32>::new(10))
         .collect_seq()?;
     assert_eq!(result[0].1.len(), 2);
@@ -306,7 +306,7 @@ fn topk_partial_order_merge() -> Result<()> {
 
     // Test that partial-order merge produces correct results
     // with large dataset across multiple partitions
-    let data: Vec<(u8, u64)> = (0..1000).map(|i| ((i % 5) as u8, i as u64)).collect();
+    let data: Vec<(u8, u64)> = (0..1000u32).map(|i| ((i % 5) as u8, u64::from(i))).collect();
 
     let top10 = from_vec(&p, data)
         .top_k_per_key(10)
@@ -318,7 +318,7 @@ fn topk_partial_order_merge() -> Result<()> {
         // Values should be descending
         assert!(values.windows(2).all(|w| w[0] >= w[1]));
         // Check that we got the actual top 10 for this key
-        let expected_max = 995 + *key as u64;
+        let expected_max = 995 + u64::from(*key);
         assert_eq!(values[0], expected_max);
     }
 

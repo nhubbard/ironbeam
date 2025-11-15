@@ -1,8 +1,8 @@
 #![cfg(feature = "io-jsonl")]
 
 use anyhow::Result;
-use rustflow::{read_jsonl_streaming, Count, Pipeline};
 use rustflow::testing::*;
+use rustflow::{read_jsonl_streaming, Count};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -33,7 +33,7 @@ fn jsonl_streaming_wordcount() -> Result<()> {
     let words = input.flat_map(|l: &Line| {
         l.line
             .split_whitespace()
-            .map(|w| w.to_string())
+            .map(str::to_lowercase)
             .collect::<Vec<_>>()
     });
     let counts = words

@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rustflow::*;
 use rustflow::testing::*;
+use rustflow::*;
 
 #[test]
 fn reservoir_global_vec_and_flatten() -> Result<()> {

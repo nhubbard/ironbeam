@@ -1,14 +1,13 @@
 use anyhow::Result;
 use rustflow::combiners::{ApproxMedian, ApproxQuantiles, TDigest};
-use rustflow::testing::*;
-use rustflow::{from_vec, Pipeline};
+use rustflow::from_vec;
 use rustflow::testing::*;
 
 #[test]
 fn test_tdigest_basic() {
     let mut digest = TDigest::new(100.0);
     for i in 1..=100 {
-        digest.add(i as f64);
+        digest.add(f64::from(i));
     }
 
     // Test known quantiles
@@ -25,15 +24,15 @@ fn test_tdigest_merge() {
     let mut d2 = TDigest::new(100.0);
 
     for i in 1..=50 {
-        d1.add(i as f64);
+        d1.add(f64::from(i));
     }
     for i in 51..=100 {
-        d2.add(i as f64);
+        d2.add(f64::from(i));
     }
 
     d1.merge(&d2);
     assert!((d1.quantile(0.5) - 50.0).abs() < 5.0);
-    assert_eq!(d1.count(), 100.0);
+    assert_approx_eq!(d1.count(), 100.0);
 }
 
 #[test]
@@ -47,7 +46,7 @@ fn test_tdigest_empty() {
 fn test_tdigest_cdf() {
     let mut digest = TDigest::new(100.0);
     for i in 1..=100 {
-        digest.add(i as f64);
+        digest.add(f64::from(i));
     }
 
     assert!((digest.cdf(50.0) - 0.5).abs() < 0.1);
@@ -58,7 +57,7 @@ fn test_tdigest_cdf() {
 #[test]
 fn approx_quantiles_basic() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), f64::from(i))).collect();
 
     let result = from_vec(&p, data)
         .combine_values(ApproxQuantiles::new(vec![0.0, 0.25, 0.5, 0.75, 1.0], 100.0))
@@ -82,7 +81,7 @@ fn approx_quantiles_basic() -> Result<()> {
 #[test]
 fn approx_quantiles_lifted() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), f64::from(i))).collect();
 
     let result_direct = from_vec(&p, data.clone())
         .combine_values(ApproxQuantiles::new(vec![0.5], 100.0))
@@ -113,11 +112,11 @@ fn approx_quantiles_multiple_keys() -> Result<()> {
 
     // Key "a": values 1-50
     for i in 1..=50 {
-        data.push(("a".to_string(), i as f64));
+        data.push(("a".to_string(), f64::from(i)));
     }
     // Key "b": values 51-100
     for i in 51..=100 {
-        data.push(("b".to_string(), i as f64));
+        data.push(("b".to_string(), f64::from(i)));
     }
 
     let result = from_vec(&p, data)
@@ -145,7 +144,7 @@ fn approx_quantiles_multiple_keys() -> Result<()> {
 #[test]
 fn approx_median_basic() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), f64::from(i))).collect();
 
     let result = from_vec(&p, data)
         .combine_values(ApproxMedian::default())
@@ -164,7 +163,7 @@ fn approx_median_basic() -> Result<()> {
 #[test]
 fn approx_median_lifted() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), f64::from(i))).collect();
 
     let result_direct = from_vec(&p, data.clone())
         .combine_values(ApproxMedian::default())
@@ -191,7 +190,7 @@ fn approx_median_lifted() -> Result<()> {
 #[test]
 fn approx_quantiles_percentiles() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=1000).map(|i| ("key".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=1000).map(|i| ("key".to_string(), f64::from(i))).collect();
 
     let result = from_vec(&p, data)
         .combine_values(ApproxQuantiles::percentiles(200.0))
@@ -208,9 +207,7 @@ fn approx_quantiles_percentiles() -> Result<()> {
     for (actual, exp) in percentiles.iter().zip(expected.iter()) {
         assert!(
             (actual - exp).abs() < 20.0,
-            "Expected ~{}, got {}",
-            exp,
-            actual
+            "Expected ~{exp}, got {actual}"
         );
     }
 
@@ -220,7 +217,7 @@ fn approx_quantiles_percentiles() -> Result<()> {
 #[test]
 fn approx_quantiles_five_number_summary() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("key".to_string(), f64::from(i))).collect();
 
     let result = from_vec(&p, data)
         .combine_values(ApproxQuantiles::five_number_summary(100.0))
@@ -267,11 +264,11 @@ fn approx_quantiles_skewed_distribution() -> Result<()> {
     // Skewed distribution: many low values, and few high values
     // 90 values between 1-10
     for i in 1..=90 {
-        data.push(("key".to_string(), (i % 10 + 1) as f64));
+        data.push(("key".to_string(), f64::from(i % 10 + 1)));
     }
     // 10 values between 91-100
     for i in 91..=100 {
-        data.push(("key".to_string(), i as f64));
+        data.push(("key".to_string(), f64::from(i)));
     }
 
     let result = from_vec(&p, data)
@@ -298,7 +295,7 @@ fn approx_quantiles_skewed_distribution() -> Result<()> {
 fn approx_quantiles_parallel_execution() -> Result<()> {
     let p = TestPipeline::new();
     let data: Vec<(i32, f64)> = (0..1000)
-        .flat_map(|i| (1..=100).map(move |v| (i % 10, v as f64)))
+        .flat_map(|i| (1..=100).map(move |v| (i % 10, f64::from(v))))
         .collect();
 
     let result = from_vec(&p, data)
@@ -386,7 +383,7 @@ fn approx_quantiles_two_values() -> Result<()> {
     let median = result[0].1[0];
 
     // Median should be between the two values (t-digest approximation)
-    assert!(median >= 10.0 && median <= 20.0);
+    assert!((10.0..=20.0).contains(&median));
 
     Ok(())
 }
@@ -417,7 +414,7 @@ fn approx_quantiles_extreme_values() -> Result<()> {
 #[test]
 fn approx_quantiles_with_negatives() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (-50..=50).map(|i| ("a".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (-50..=50).map(|i| ("a".to_string(), f64::from(i))).collect();
 
     let result = from_vec(&p, data)
         .combine_values(ApproxQuantiles::new(vec![0.0, 0.5, 1.0], 100.0))
@@ -436,7 +433,7 @@ fn approx_quantiles_with_negatives() -> Result<()> {
 #[test]
 fn approx_quantiles_different_compression() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=1000).map(|i| ("a".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=1000).map(|i| ("a".to_string(), f64::from(i))).collect();
 
     // Test with different compression parameters
     for compression in [20.0, 50.0, 100.0, 200.0] {
@@ -450,9 +447,7 @@ fn approx_quantiles_different_compression() -> Result<()> {
         // All should give reasonable median estimates
         assert!(
             (median - 500.0).abs() < 50.0,
-            "Compression {} gave median {}",
-            compression,
-            median
+            "Compression {compression} gave median {median}"
         );
     }
 
@@ -462,7 +457,7 @@ fn approx_quantiles_different_compression() -> Result<()> {
 #[test]
 fn approx_median_large_dataset() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=10_000).map(|i| ("a".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=10_000).map(|i| ("a".to_string(), f64::from(i))).collect();
 
     let result = from_vec(&p, data)
         .combine_values(ApproxMedian::new(200.0))
@@ -480,13 +475,13 @@ fn approx_median_large_dataset() -> Result<()> {
 #[test]
 fn approx_quantiles_multiple_quantiles() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=100).map(|i| ("a".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("a".to_string(), f64::from(i))).collect();
 
     // Request many quantiles
-    let quantiles_requested: Vec<f64> = (0..=10).map(|i| i as f64 / 10.0).collect();
+    let quantiles_requested: Vec<f64> = (0..=10).map(|i| f64::from(i) / 10.0).collect();
 
     let result = from_vec(&p, data)
-        .combine_values(ApproxQuantiles::new(quantiles_requested.clone(), 100.0))
+        .combine_values(ApproxQuantiles::new(quantiles_requested, 100.0))
         .collect_seq()?;
 
     assert_eq!(result.len(), 1);
@@ -499,8 +494,7 @@ fn approx_quantiles_multiple_quantiles() -> Result<()> {
     for i in 0..quantiles.len() - 1 {
         assert!(
             quantiles[i] <= quantiles[i + 1],
-            "Quantiles not monotonic at index {}",
-            i
+            "Quantiles not monotonic at index {i}"
         );
     }
 
@@ -510,7 +504,7 @@ fn approx_quantiles_multiple_quantiles() -> Result<()> {
 #[test]
 fn approx_quantiles_boundary_values() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(String, f64)> = (1..=100).map(|i| ("a".to_string(), i as f64)).collect();
+    let data: Vec<(String, f64)> = (1..=100).map(|i| ("a".to_string(), f64::from(i))).collect();
 
     // Test exact boundary quantiles
     let result = from_vec(&p, data)

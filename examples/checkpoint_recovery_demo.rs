@@ -1,7 +1,7 @@
 //! Advanced checkpointing demo showing different policies and recovery scenarios.
 //!
 //! This example demonstrates:
-//! - Different checkpoint policies (AfterEveryBarrier, EveryNNodes, TimeInterval)
+//! - Different checkpoint policies (`AfterEveryBarrier`, `EveryNNodes`, `TimeInterval`)
 //! - Checkpoint recovery on failure
 //! - Checkpoint management and cleanup
 //!
@@ -10,7 +10,7 @@
 //! cargo run --example checkpoint_recovery_demo --features checkpointing
 //! ```
 
-use rustflow::*;
+use rustflow::{Pipeline, from_vec, Count, Runner, ExecMode, AverageF64, Sum};
 use std::env;
 
 #[cfg(feature = "checkpointing")]
@@ -64,8 +64,8 @@ fn run_with_node_based_checkpoints() -> anyhow::Result<()> {
         .map(|x: &i32| x * 3)
         .filter(|x: &i32| *x > 100)
         .key_by(|x: &i32| x % 20)
-        .map_values(|x: &i32| *x as f64)
-        .combine_values(AverageF64::default());
+        .map_values(|x: &i32| f64::from(*x))
+        .combine_values(AverageF64);
 
     let checkpoint_config = CheckpointConfig {
         enabled: true,
@@ -89,7 +89,7 @@ fn run_with_node_based_checkpoints() -> anyhow::Result<()> {
     println!("\nCompleted! Results: {} groups", result.len());
     println!("Sample averages:");
     for (k, v) in result.iter().take(5) {
-        println!("  Key {}: Average = {:.2}", k, v);
+        println!("  Key {k}: Average = {v:.2}");
     }
     Ok(())
 }

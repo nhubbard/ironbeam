@@ -1,17 +1,18 @@
 //! Comprehensive combiners showcase.
 //!
 //! Demonstrates all built-in combiners:
-//! - Basic: Count, Sum, Min, Max, Average
-//! - Statistical: Quantiles (TDigest), DistinctCount
-//! - TopK: Finding top N items
+//! - Basic: `Count`, `Sum`, `Min`, `Max`, `Average`
+//! - Statistical: Quantiles (`TDigest`), `DistinctCount`
+//! - `TopK`: Finding top N items
 //! - Sampling: Reservoir sampling
 //!
-//! Run with: cargo run --example combiners_showcase
+//! Run with: `cargo run --example combiners_showcase`
 
 use anyhow::Result;
-use rustflow::combiners::*;
-use rustflow::*;
+use rustflow::combiners::{Sum, Min, Max, AverageF64, DistinctCount, ApproxQuantiles};
+use rustflow::{Pipeline, from_vec, Count, OrdF64};
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     println!("🎯 Combiners Showcase Example\n");
 
@@ -48,7 +49,7 @@ fn main() -> Result<()> {
     let counts = data.clone().combine_values(Count);
     println!("Transaction Counts by Category:");
     for (category, count) in counts.collect_seq_sorted()? {
-        println!("  {}: {} transactions", category, count);
+        println!("  {category}: {count} transactions");
     }
 
     // Sum (total revenue) per category
@@ -57,7 +58,7 @@ fn main() -> Result<()> {
     let mut total_results = totals.collect_seq()?;
     total_results.sort_by_key(|(cat, _)| cat.clone());
     for (category, total) in total_results {
-        println!("  {}: ${:.2}", category, total);
+        println!("  {category}: ${total:.2}");
     }
 
     // Min price per category
@@ -69,7 +70,7 @@ fn main() -> Result<()> {
     let mut min_results = mins.collect_seq()?;
     min_results.sort_by_key(|(cat, _)| cat.clone());
     for (category, min) in min_results {
-        println!("  {}: ${:.2}", category, min.0);
+        println!("  {category}: ${:.2}", min.0);
     }
 
     // Max price per category
@@ -90,7 +91,7 @@ fn main() -> Result<()> {
     let mut avg_results = avgs.collect_seq()?;
     avg_results.sort_by_key(|(cat, _)| cat.clone());
     for (category, avg) in avg_results {
-        println!("  {}: ${:.2}", category, avg);
+        println!("  {category}: ${avg:.2}");
     }
 
     // =============================================================================
@@ -123,6 +124,7 @@ fn main() -> Result<()> {
     println!("\n📊 DISTINCT COUNT\n");
 
     // Count distinct price points per category
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let distinct_prices = data
         .clone()
         .map_values(|price| (price * 100.0) as u64) // Convert to cents for Ord
@@ -130,7 +132,7 @@ fn main() -> Result<()> {
 
     println!("Distinct Price Points by Category:");
     for (category, count) in distinct_prices.collect_seq_sorted()? {
-        println!("  {}: {} unique prices", category, count);
+        println!("  {category}: {count} unique prices");
     }
 
     // =============================================================================
@@ -146,7 +148,7 @@ fn main() -> Result<()> {
     let mut quantile_results = quantiles.collect_seq()?;
     quantile_results.sort_by_key(|(cat, _)| cat.clone());
     for (category, qs) in quantile_results {
-        println!("  {}:", category);
+        println!("  {category}:");
         println!("    25th percentile: ${:.2}", qs[0]);
         println!("    50th percentile (median): ${:.2}", qs[1]);
         println!("    75th percentile: ${:.2}", qs[2]);
@@ -170,7 +172,7 @@ fn main() -> Result<()> {
             category,
             sampled_prices
                 .iter()
-                .map(|p: &f64| format!("${:.2}", p))
+                .map(|p: &f64| format!("${p:.2}"))
                 .collect::<Vec<_>>()
         );
     }
@@ -192,7 +194,6 @@ fn main() -> Result<()> {
         .map(|&p| OrdF64(p))
         .combine_globally(Min::<OrdF64>::new(), None);
     let global_max = all_prices
-        .clone()
         .map(|&p| OrdF64(p))
         .combine_globally(Max::<OrdF64>::new(), None);
 

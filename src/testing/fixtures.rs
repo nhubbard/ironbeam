@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn test_numeric_data_with_outliers() {
         let data = numeric_data_with_outliers();
-        let has_outliers = data.iter().any(|&x| x > 100.0 || x < 0.0);
+        let has_outliers = data.iter().any(|&x| !(0.0..=100.0).contains(&x));
         assert!(has_outliers);
     }
 

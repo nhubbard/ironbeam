@@ -1,7 +1,7 @@
 // tests/joins.rs
 use anyhow::Result;
-use rustflow::*;
 use rustflow::testing::*;
+use rustflow::*;
 
 fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
     v.sort();
@@ -59,7 +59,7 @@ fn left_right_full_outer() -> Result<()> {
     let right = from_vec(&p, vec![(1u32, "R1".to_string()), (3, "R3".to_string())]);
 
     // left
-    let leftj = left.clone().join_left(&right);
+    let leftj = left.join_left(&right);
     let mut left_out = leftj.collect_par(None, None)?;
     left_out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.0.cmp(&b.1.0)));
     assert_eq!(
@@ -72,7 +72,7 @@ fn left_right_full_outer() -> Result<()> {
     );
 
     // right
-    let rightj = left.clone().join_right(&right);
+    let rightj = left.join_right(&right);
     let mut right_out = rightj.collect_seq()?;
     right_out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.1.cmp(&b.1.1)));
     assert_eq!(

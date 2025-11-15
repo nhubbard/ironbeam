@@ -1,8 +1,7 @@
 use anyhow::Result;
 use rustflow::combiners::{Max, Min, Sum};
 use rustflow::testing::*;
-use rustflow::{from_vec, Count, Pipeline};
-use rustflow::testing::*;
+use rustflow::{from_vec, Count};
 
 #[test]
 fn gbk_then_combine_lifted_equals_classic_combine() -> Result<()> {
@@ -27,7 +26,7 @@ fn gbk_then_combine_lifted_equals_classic_combine() -> Result<()> {
 }
 
 #[test]
-fn test_sum_liftable_combiner() -> Result<()> {
+fn test_sum_liftable_combiner() {
     use rustflow::collection::LiftableCombiner;
 
     let sum_combiner = Sum::<i32>::new();
@@ -39,12 +38,10 @@ fn test_sum_liftable_combiner() -> Result<()> {
     let empty: Vec<i32> = vec![];
     let result = sum_combiner.build_from_group(&empty);
     assert_eq!(result, 0);
-
-    Ok(())
 }
 
 #[test]
-fn test_min_liftable_combiner() -> Result<()> {
+fn test_min_liftable_combiner() {
     use rustflow::collection::LiftableCombiner;
 
     let min_combiner = Min::<i32>::new();
@@ -56,12 +53,10 @@ fn test_min_liftable_combiner() -> Result<()> {
     let empty: Vec<i32> = vec![];
     let result = min_combiner.build_from_group(&empty);
     assert_eq!(result, None);
-
-    Ok(())
 }
 
 #[test]
-fn test_max_liftable_combiner() -> Result<()> {
+fn test_max_liftable_combiner() {
     use rustflow::collection::LiftableCombiner;
 
     let max_combiner = Max::<i32>::new();
@@ -73,6 +68,4 @@ fn test_max_liftable_combiner() -> Result<()> {
     let empty: Vec<i32> = vec![];
     let result = max_combiner.build_from_group(&empty);
     assert_eq!(result, None);
-
-    Ok(())
 }

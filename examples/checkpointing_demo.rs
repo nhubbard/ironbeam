@@ -10,7 +10,7 @@
 //! cargo run --example checkpointing_demo --features checkpointing
 //! ```
 
-use rustflow::*;
+use rustflow::{Pipeline, from_vec, Sum, Runner, ExecMode};
 
 #[cfg(feature = "checkpointing")]
 use rustflow::checkpoint::{CheckpointConfig, CheckpointPolicy};
@@ -43,7 +43,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     println!("\nCheckpoint Configuration:");
-    println!("  Directory: {:?}", checkpoint_config.directory);
+    println!("  Directory: {:?}", checkpoint_config.directory.display());
     println!("  Policy: AfterEveryBarrier");
     println!("  Auto-recovery: enabled");
     println!("  Max checkpoints: 5");
@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
     println!("Total results: {}", result.len());
     println!("Sample results (first 10):");
     for (k, v) in result.iter().take(10) {
-        println!("  Key {}: Sum = {}", k, v);
+        println!("  Key {k}: Sum = {v}");
     }
 
     println!("\n=== Checkpointing Summary ===");

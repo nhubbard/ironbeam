@@ -549,10 +549,11 @@ fn test_record_error_structure() {
 
 #[test]
 fn test_multiple_field_errors() {
-    let mut errors = Vec::new();
-    errors.push(ValidationError::field("email", "Invalid format"));
-    errors.push(ValidationError::field("age", "Out of range"));
-    errors.push(ValidationError::field("name", "Too short"));
+    let errors = [
+        ValidationError::field("email", "Invalid format"),
+        ValidationError::field("age", "Out of range"),
+        ValidationError::field("name", "Too short"),
+    ];
 
     assert_eq!(errors.len(), 3);
     assert!(errors.iter().any(|e| e.field == Some("email".to_string())));

@@ -28,7 +28,7 @@ fn apply_transform_custom_op() -> Result<()> {
     let reversed: PCollection<String> = words.apply_transform(Arc::new(ReverseStringOp));
     let result = reversed.collect_seq()?;
 
-    assert_collections_equal(&result, &vec!["olleh".to_string(), "dlrow".to_string()]);
+    assert_collections_equal(&result, &["olleh".to_string(), "dlrow".to_string()]);
     Ok(())
 }
 
@@ -53,7 +53,7 @@ fn apply_transform_with_numbers() -> Result<()> {
     let doubled: PCollection<i32> = nums.apply_transform(Arc::new(DoubleOp));
     let result = doubled.collect_seq()?;
 
-    assert_collections_equal(&result, &vec![2, 4, 6, 8, 10]);
+    assert_collections_equal(&result, &[2, 4, 6, 8, 10]);
     Ok(())
 }
 
@@ -97,8 +97,8 @@ fn apply_transform_key_preserving() -> Result<()> {
         result,
         vec![
             ("a".to_string(), "HELLO".to_string()),
-            ("b".to_string(), "WORLD".to_string())
-        ]
+            ("b".to_string(), "WORLD".to_string()),
+        ],
     );
     Ok(())
 }
@@ -121,7 +121,7 @@ fn composite_transform_basic() -> Result<()> {
         &p,
         vec![
             "  hello  ".to_string(),
-            "".to_string(),
+            String::new(),
             "world".to_string(),
             "   ".to_string(),
         ],
@@ -130,7 +130,7 @@ fn composite_transform_basic() -> Result<()> {
     let cleaned = data.apply_composite(&TrimAndFilter);
     let result = cleaned.collect_seq()?;
 
-    assert_collections_equal(&result, &vec!["hello".to_string(), "world".to_string()]);
+    assert_collections_equal(&result, &["hello".to_string(), "world".to_string()]);
     Ok(())
 }
 
@@ -160,7 +160,7 @@ fn composite_transform_type_change() -> Result<()> {
     let parsed = data.apply_composite(&ParseInts);
     let result = parsed.collect_seq()?;
 
-    assert_collections_equal(&result, &vec![123, 456]);
+    assert_collections_equal(&result, &[123, 456]);
     Ok(())
 }
 
@@ -175,7 +175,7 @@ struct SimpleShardsVecOps;
 impl VecOps for SimpleShardsVecOps {
     fn len(&self, data: &dyn Any) -> Option<usize> {
         data.downcast_ref::<SimpleShards>()
-            .map(|s| s.chunks.iter().map(|c| c.len()).sum())
+            .map(|s| s.chunks.iter().map(Vec::len).sum())
     }
 
     fn split(&self, data: &dyn Any, _n: usize) -> Option<Vec<Partition>> {
@@ -190,7 +190,7 @@ impl VecOps for SimpleShardsVecOps {
 
     fn clone_any(&self, data: &dyn Any) -> Option<Partition> {
         let shards = data.downcast_ref::<SimpleShards>()?;
-        let all: Vec<i32> = shards.chunks.iter().flatten().cloned().collect();
+        let all: Vec<i32> = shards.chunks.iter().flatten().copied().collect();
         Some(Box::new(all))
     }
 }
@@ -205,7 +205,7 @@ fn custom_source_with_vec_ops() -> Result<()> {
     let data: PCollection<i32> = from_custom_source(&p, shards, Arc::new(SimpleShardsVecOps));
 
     let result = data.collect_seq()?;
-    assert_collections_equal(&result, &vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert_collections_equal(&result, &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
     Ok(())
 }
 
@@ -221,9 +221,9 @@ fn custom_source_with_parallel_execution() -> Result<()> {
     // Transform and collect in parallel
     let doubled = data.map(|n: &i32| n * 2);
     let mut result = doubled.collect_par(None, None)?;
-    result.sort();
+    result.sort_unstable();
 
-    assert_collections_equal(&result, &vec![2, 4, 6, 8, 10, 12]);
+    assert_collections_equal(&result, &[2, 4, 6, 8, 10, 12]);
     Ok(())
 }
 
@@ -237,7 +237,7 @@ fn chain_multiple_custom_ops() -> Result<()> {
     let quadrupled: PCollection<i32> = doubled.apply_transform(Arc::new(DoubleOp));
 
     let result = quadrupled.collect_seq()?;
-    assert_collections_equal(&result, &vec![4, 8, 12]);
+    assert_collections_equal(&result, &[4, 8, 12]);
     Ok(())
 }
 
@@ -249,7 +249,7 @@ impl CompositeTransform<String, (String, u64)> for WordCount {
         input
             .flat_map(|line: &String| {
                 line.split_whitespace()
-                    .map(|w| w.to_lowercase())
+                    .map(str::to_lowercase)
                     .collect::<Vec<_>>()
             })
             .key_by(|word: &String| word.clone())

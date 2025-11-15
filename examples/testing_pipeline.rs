@@ -3,11 +3,16 @@
 //! This example shows how to use Rustflow's testing facilities to write
 //! idiomatic Rust tests for data pipelines.
 //!
-//! Run with: cargo run --example testing_pipeline
+//! Run with: `cargo run --example testing_pipeline`
 
 use anyhow::Result;
-use rustflow::testing::*;
-use rustflow::*;
+use rustflow::testing::{
+    assert_all, assert_any, assert_collection_size, assert_collections_equal, assert_contains, assert_grouped_kv_equal,
+    assert_kv_collections_equal, product_metadata, sample_log_entries, sequential_data,
+    skewed_key_value_data, time_series_data, user_product_interactions, word_count_data,
+    KVTestDataBuilder, PCollectionDebugExt, TestDataBuilder, TestPipeline,
+};
+use rustflow::{from_vec, Count, Sum};
 
 fn main() -> Result<()> {
     println!("🧪 Rustflow Pipeline Testing Examples\n");
@@ -49,7 +54,7 @@ fn example_basic_assertions() -> Result<()> {
         .collect_seq()?;
 
     // Use assertion utilities
-    assert_collections_equal(&result, &vec![2, 4, 6, 8, 10]);
+    assert_collections_equal(&result, &[2, 4, 6, 8, 10]);
     println!("  ✓ Map transformation test passed");
 
     // Test filtering
@@ -57,7 +62,7 @@ fn example_basic_assertions() -> Result<()> {
         .filter(|x: &i32| *x % 2 == 0)
         .collect_seq()?;
 
-    assert_collections_equal(&result, &vec![2, 4]);
+    assert_collections_equal(&result, &[2, 4]);
     println!("  ✓ Filter transformation test passed");
 
     // Test with predicates
@@ -104,7 +109,7 @@ fn example_test_data_builders() -> Result<()> {
 
     // Use helper functions
     let seq_data = sequential_data(1, 10);
-    assert_collections_equal(&seq_data, &vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert_collections_equal(&seq_data, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     println!("  ✓ Sequential data helper test passed\n");
 
     Ok(())
@@ -177,14 +182,14 @@ fn example_fixtures() -> Result<()> {
     let result = from_vec(&p, words)
         .flat_map(|line: &String| {
             line.split_whitespace()
-                .map(|w| w.to_string())
+                .map(ToString::to_string)
                 .collect::<Vec<_>>()
         })
         .key_by(|word: &String| word.clone())
         .combine_values(Count)
         .collect_seq()?;
 
-    assert_any(&result.clone(), |(word, _count)| word == "hello");
+    assert_any(&result, |(word, _count)| word == "hello");
     assert_any(&result, |(word, _count)| word == "world");
     println!("  ✓ Word count fixture test passed");
 
@@ -230,8 +235,7 @@ fn example_aggregations() -> Result<()> {
     let hot_key_count = counts
         .iter()
         .find(|(k, _)| k == "hot_key")
-        .map(|(_, count)| *count)
-        .unwrap_or(0);
+        .map_or(0, |(_, count)| *count);
 
     assert!(hot_key_count >= 50);
     println!("  ✓ Count combiner test passed");
@@ -279,11 +283,17 @@ fn example_joins() -> Result<()> {
     let products = product_metadata();
 
     let user_products = from_vec(&p, interactions)
-        .map(|(user, product, rating): &(String, String, u8)| (product.clone(), (user.clone(), *rating)))
+        .map(|(user, product, rating): &(String, String, u8)| {
+            (product.clone(), (user.clone(), *rating))
+        })
         .collect_seq()?;
 
     let product_info = from_vec(&p, products)
-        .map(|(pid, name, _category, _price): &(String, String, String, f64)| (pid.clone(), name.clone()))
+        .map(
+            |(pid, name, _category, _price): &(String, String, String, f64)| {
+                (pid.clone(), name.clone())
+            },
+        )
         .collect_seq()?;
 
     let user_products_pc = from_vec(&p, user_products);

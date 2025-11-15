@@ -6,11 +6,12 @@
 //! - Data enrichment patterns
 //! - Handling mismatched keys
 //!
-//! Run with: cargo run --example advanced_joins
+//! Run with: `cargo run --example advanced_joins`
 
 use anyhow::Result;
-use rustflow::*;
+use rustflow::{Pipeline, from_vec};
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     println!("🔗 Advanced Joins and Co-Grouping Example\n");
 
@@ -28,7 +29,7 @@ fn main() -> Result<()> {
     );
 
     // Orders stored as 3-tuples for demonstration
-    let orders_raw = vec![
+    let orders_raw = [
         (101u32, 1u32, "Product_A".to_string()), // Alice's order
         (102u32, 1u32, "Product_B".to_string()), // Alice's another order
         (103u32, 2u32, "Product_A".to_string()), // Bob's order
@@ -60,11 +61,11 @@ fn main() -> Result<()> {
             .collect::<Vec<_>>(),
     );
 
-    let user_orders = orders_by_user.clone().join_inner(&users.clone());
+    let user_orders = orders_by_user.join_inner(&users);
 
     let results = user_orders.collect_seq_sorted()?;
     for (_user_id, ((order_id, product), name)) in results {
-        println!("  Order #{}: {} ordered {}", order_id, name, product);
+        println!("  Order #{order_id}: {name} ordered {product}");
     }
 
     // =============================================================================
@@ -73,15 +74,14 @@ fn main() -> Result<()> {
     println!("\n📊 Example 2: Left Join (Orders ⟕ Users)");
     println!("Shows all orders, even if user doesn't exist\n");
 
-    let all_orders_with_users = orders_by_user.clone().join_left(&users.clone());
+    let all_orders_with_users = orders_by_user.join_left(&users);
 
     let left_results = all_orders_with_users.collect_seq_sorted()?;
     for (user_id, ((order_id, product), maybe_name)) in left_results {
         match maybe_name {
-            Some(name) => println!("  Order #{}: {} ordered {}", order_id, name, product),
+            Some(name) => println!("  Order #{order_id}: {name} ordered {product}"),
             None => println!(
-                "  Order #{}: Unknown user {} ordered {}",
-                order_id, user_id, product
+                "  Order #{order_id}: Unknown user {user_id} ordered {product}"
             ),
         }
     }
@@ -92,15 +92,15 @@ fn main() -> Result<()> {
     println!("\n📊 Example 3: Right Join (Orders ⟖ Users)");
     println!("Shows all users, even those without orders\n");
 
-    let users_with_maybe_orders = orders_by_user.clone().join_right(&users.clone());
+    let users_with_maybe_orders = orders_by_user.join_right(&users);
 
     let right_results = users_with_maybe_orders.collect_seq_sorted()?;
     for (_user_id, (maybe_order, name)) in right_results {
         match maybe_order {
             Some((order_id, product)) => {
-                println!("  {}: Order #{} for {}", name, order_id, product)
+                println!("  {name}: Order #{order_id} for {product}");
             }
-            None => println!("  {}: No orders", name),
+            None => println!("  {name}: No orders"),
         }
     }
 
@@ -110,25 +110,23 @@ fn main() -> Result<()> {
     println!("\n📊 Example 4: Full Outer Join (Orders ⟗ Users)");
     println!("Shows all orders and all users\n");
 
-    let full_join = orders_by_user.clone().join_full(&users.clone());
+    let full_join = orders_by_user.join_full(&users);
 
     let full_results = full_join.collect_seq_sorted()?;
     for (user_id, (maybe_order, maybe_name)) in full_results {
         match (maybe_order, maybe_name) {
             (Some((order_id, product)), Some(name)) => {
                 println!(
-                    "  User {}: {} ordered {} (Order #{})",
-                    user_id, name, product, order_id
-                )
+                    "  User {user_id}: {name} ordered {product} (Order #{order_id})"
+                );
             }
             (Some((order_id, product)), None) => {
                 println!(
-                    "  User {}: Unknown user ordered {} (Order #{})",
-                    user_id, product, order_id
-                )
+                    "  User {user_id}: Unknown user ordered {product} (Order #{order_id})"
+                );
             }
             (None, Some(name)) => {
-                println!("  User {}: {} has no orders", user_id, name)
+                println!("  User {user_id}: {name} has no orders");
             }
             (None, None) => unreachable!("Full join can't have both None"),
         }
@@ -144,7 +142,7 @@ fn main() -> Result<()> {
     // collect intermediate results and rejoin
 
     // Step 1: Join orders with users
-    let orders_with_users = orders_by_user.clone().join_inner(&users);
+    let orders_with_users = orders_by_user.join_inner(&users);
     let step1_results = orders_with_users.collect_seq()?;
 
     // Step 2: Transform to (product, (order_id, user_id, name))
@@ -165,8 +163,7 @@ fn main() -> Result<()> {
     println!("{:-<50}", "");
     for (product, ((order_id, name), price)) in enriched {
         println!(
-            "{:<7}| {:<9}| {:<10}| ${:.2}",
-            order_id, name, product, price
+            "{order_id:<7}| {name:<9}| {product:<10}| ${price:.2}"
         );
     }
 

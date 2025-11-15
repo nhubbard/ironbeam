@@ -1,15 +1,15 @@
 use anyhow::Result;
 use rustflow::collection::Count;
+use rustflow::from_vec;
 use rustflow::runner::{ExecMode, Runner};
 use rustflow::testing::*;
-use rustflow::from_vec;
 
 fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
     v.sort();
     v
 }
 
-/// Test CoGroup operations in sequential mode - this exercises the run_subplan_seq closure
+/// Test `CoGroup` operations in sequential mode - this exercises the `run_subplan_seq` closure
 #[test]
 fn cogroup_sequential_mode() -> Result<()> {
     let p = TestPipeline::new();
@@ -47,7 +47,7 @@ fn cogroup_sequential_mode() -> Result<()> {
     Ok(())
 }
 
-/// Test CoGroup with stateless operations in the subplan (sequential)
+/// Test `CoGroup` with stateless operations in the subplan (sequential)
 #[test]
 fn cogroup_with_stateless_ops_sequential() -> Result<()> {
     let p = TestPipeline::new();
@@ -66,7 +66,7 @@ fn cogroup_with_stateless_ops_sequential() -> Result<()> {
     Ok(())
 }
 
-/// Test join with GroupByKey in the subplan (sequential)
+/// Test join with `GroupByKey` in the subplan (sequential)
 #[test]
 fn join_with_groupby_in_subplan_sequential() -> Result<()> {
     let p = TestPipeline::new();
@@ -91,7 +91,7 @@ fn join_with_groupby_in_subplan_sequential() -> Result<()> {
     Ok(())
 }
 
-/// Test join with CombineValues in the subplan (sequential)
+/// Test join with `CombineValues` in the subplan (sequential)
 #[test]
 fn join_with_combine_values_in_subplan_sequential() -> Result<()> {
     let p = TestPipeline::new();
@@ -118,7 +118,7 @@ fn join_with_combine_values_in_subplan_sequential() -> Result<()> {
     Ok(())
 }
 
-/// Test CoGroup operations in parallel mode - exercises run_subplan_par
+/// Test `CoGroup` operations in parallel mode - exercises `run_subplan_par`
 #[test]
 fn cogroup_parallel_mode() -> Result<()> {
     let p = TestPipeline::new();
@@ -157,7 +157,7 @@ fn cogroup_parallel_mode() -> Result<()> {
     Ok(())
 }
 
-/// Test CoGroup with stateless operations in parallel subplan
+/// Test `CoGroup` with stateless operations in parallel subplan
 #[test]
 fn cogroup_with_stateless_ops_parallel() -> Result<()> {
     let p = TestPipeline::new();
@@ -177,7 +177,7 @@ fn cogroup_with_stateless_ops_parallel() -> Result<()> {
     Ok(())
 }
 
-/// Test join with GroupByKey in parallel subplan
+/// Test join with `GroupByKey` in parallel subplan
 #[test]
 fn join_with_groupby_in_subplan_parallel() -> Result<()> {
     let p = TestPipeline::new();
@@ -192,7 +192,7 @@ fn join_with_groupby_in_subplan_parallel() -> Result<()> {
         ],
     )
     .group_by_key()
-    .map_values(|v: &Vec<u32>| v.len() as u32);
+    .map_values(|v: &Vec<u32>| u32::try_from(v.len()).unwrap());
 
     let right = from_vec(
         &p,
@@ -209,7 +209,7 @@ fn join_with_groupby_in_subplan_parallel() -> Result<()> {
     Ok(())
 }
 
-/// Test join with CombineValues in parallel subplan
+/// Test join with `CombineValues` in parallel subplan
 #[test]
 fn join_with_combine_values_in_subplan_parallel() -> Result<()> {
     let p = TestPipeline::new();
@@ -253,7 +253,7 @@ fn explicit_sequential_mode() -> Result<()> {
     Ok(())
 }
 
-/// Test sequential mode with GroupByKey
+/// Test sequential mode with `GroupByKey`
 #[test]
 fn sequential_mode_with_groupby() -> Result<()> {
     let p = TestPipeline::new();
@@ -274,7 +274,7 @@ fn sequential_mode_with_groupby() -> Result<()> {
     Ok(())
 }
 
-/// Test sequential mode with CombineValues
+/// Test sequential mode with `CombineValues`
 #[test]
 fn sequential_mode_with_combine_values() -> Result<()> {
     let p = TestPipeline::new();
@@ -295,7 +295,7 @@ fn sequential_mode_with_combine_values() -> Result<()> {
     Ok(())
 }
 
-/// Test CombineGlobal with custom fanout in parallel mode
+/// Test `CombineGlobal` with custom fanout in parallel mode
 #[test]
 fn combine_global_with_custom_fanout() -> Result<()> {
     let p = TestPipeline::new();
@@ -312,7 +312,7 @@ fn combine_global_with_custom_fanout() -> Result<()> {
     Ok(())
 }
 
-/// Test CombineGlobal with fanout=2 (binary merge tree)
+/// Test `CombineGlobal` with fanout=2 (binary merge tree)
 #[test]
 fn combine_global_with_fanout_two() -> Result<()> {
     let p = TestPipeline::new();
@@ -326,7 +326,7 @@ fn combine_global_with_fanout_two() -> Result<()> {
     Ok(())
 }
 
-/// Test CombineGlobal with larger fanout
+/// Test `CombineGlobal` with larger fanout
 #[test]
 fn combine_global_with_large_fanout() -> Result<()> {
     let p = TestPipeline::new();
@@ -354,19 +354,19 @@ fn parallel_multi_partition_collection() -> Result<()> {
 
     // Verify all values are doubled
     let mut sorted_result = result;
-    sorted_result.sort();
+    sorted_result.sort_unstable();
     assert_eq!(sorted_result[0], 2);
     assert_eq!(sorted_result[99], 200);
     Ok(())
 }
 
-/// Test Runner::default() uses parallel mode
+/// Test `Runner::default()` uses parallel mode
 #[test]
 fn runner_default_is_parallel() {
     let runner = Runner::default();
     match runner.mode {
         ExecMode::Parallel { .. } => (),
-        _ => panic!("Default runner should use parallel mode"),
+        ExecMode::Sequential => panic!("Default runner should use parallel mode"),
     }
     assert!(runner.default_partitions >= 2);
 }
@@ -379,7 +379,7 @@ fn parallel_with_explicit_threads() -> Result<()> {
     let mapped = data.map(|x: &u32| x * 3);
 
     let mut result = mapped.collect_par(Some(2), Some(2))?;
-    result.sort();
+    result.sort_unstable();
     assert_eq!(result, vec![3, 6, 9, 12, 15]);
     Ok(())
 }
@@ -393,7 +393,7 @@ fn honors_planner_suggested_partitions() -> Result<()> {
 
     // Use None for partitions to let planner suggest or use default
     let mut result = mapped.collect_par(None, None)?;
-    result.sort();
+    result.sort_unstable();
     assert_eq!(result, vec![2, 3, 4, 5, 6]);
     Ok(())
 }
@@ -429,11 +429,11 @@ fn complex_pipeline_sequential() -> Result<()> {
 
     let data = from_vec(&p, vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     let result = data
-        .filter(|x: &u32| *x % 2 == 0)
+        .filter(|x: &u32| (*x).is_multiple_of(2))
         .map(|x: &u32| x * 2)
         .key_by(|x: &u32| format!("group_{}", x % 3))
         .group_by_key()
-        .map_values(|v: &Vec<u32>| v.len() as u32);
+        .map_values(|v: &Vec<u32>| u32::try_from(v.len()).unwrap());
 
     let output = result.collect_seq()?;
     assert!(!output.is_empty());
@@ -447,7 +447,7 @@ fn complex_pipeline_parallel() -> Result<()> {
 
     let data = from_vec(&p, vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     let result = data
-        .filter(|x: &u32| *x % 2 == 0)
+        .filter(|x: &u32| (*x).is_multiple_of(2))
         .map(|x: &u32| x * 2)
         .key_by(|x: &u32| format!("group_{}", x % 3))
         .combine_values(Count);
@@ -468,7 +468,7 @@ fn single_element_source() -> Result<()> {
     Ok(())
 }
 
-/// Test CombineGlobal in sequential mode
+/// Test `CombineGlobal` in sequential mode
 #[test]
 fn combine_global_sequential() -> Result<()> {
     let p = TestPipeline::new();
@@ -481,7 +481,7 @@ fn combine_global_sequential() -> Result<()> {
     Ok(())
 }
 
-/// Test CombineGlobal with fanout in sequential mode
+/// Test `CombineGlobal` with fanout in sequential mode
 #[test]
 fn combine_global_sequential_with_fanout() -> Result<()> {
     let p = TestPipeline::new();
@@ -494,7 +494,7 @@ fn combine_global_sequential_with_fanout() -> Result<()> {
     Ok(())
 }
 
-/// Test CombineGlobal with unlimited fanout (usize::MAX)
+/// Test `CombineGlobal` with unlimited fanout (`usize::MAX`)
 #[test]
 fn combine_global_unlimited_fanout() -> Result<()> {
     let p = TestPipeline::new();
@@ -542,7 +542,7 @@ fn parallel_minimal_partitions() -> Result<()> {
     Ok(())
 }
 
-/// Test empty CoGroup in sequential mode
+/// Test empty `CoGroup` in sequential mode
 #[test]
 fn empty_cogroup_sequential() -> Result<()> {
     let p = TestPipeline::new();
@@ -557,7 +557,7 @@ fn empty_cogroup_sequential() -> Result<()> {
     Ok(())
 }
 
-/// Test empty CoGroup in parallel mode
+/// Test empty `CoGroup` in parallel mode
 #[test]
 fn empty_cogroup_parallel() -> Result<()> {
     let p = TestPipeline::new();
@@ -589,7 +589,7 @@ fn materialized_terminal() -> Result<()> {
 fn large_dataset_many_partitions() -> Result<()> {
     let p = TestPipeline::new();
     let data: Vec<u32> = (1..=10000).collect();
-    let pcoll = from_vec(&p, data).filter(|x: &u32| *x % 2 == 0);
+    let pcoll = from_vec(&p, data).filter(|x: &u32| (*x).is_multiple_of(2));
 
     let result = pcoll.collect_par(None, Some(32))?;
     assert_eq!(result.len(), 5000);
@@ -731,7 +731,7 @@ mod checkpointing_tests {
         let p = TestPipeline::new();
         let data: Vec<u32> = (1..=50).collect();
         let pcoll = from_vec(&p, data)
-            .filter(|x: &u32| *x % 2 == 0)
+            .filter(|x: &u32| (*x).is_multiple_of(2))
             .map(|x: &u32| x * 3);
 
         let config = CheckpointConfig {
@@ -769,7 +769,7 @@ mod checkpointing_tests {
         // First run with checkpointing
         let config = CheckpointConfig {
             enabled: true,
-            directory: checkpoint_dir.clone(),
+            directory: checkpoint_dir,
             policy: CheckpointPolicy::EveryNNodes(1),
             auto_recover: true,
             max_checkpoints: Some(5),
@@ -836,7 +836,7 @@ mod checkpointing_tests {
         Ok(())
     }
 
-    /// Test checkpointing with CombineGlobal
+    /// Test checkpointing with `CombineGlobal`
     #[test]
     fn checkpoint_with_combine_global() -> Result<()> {
         let temp_dir = TempDir::new()?;

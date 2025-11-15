@@ -1,4 +1,3 @@
-use rustflow::testing::*;
 use rustflow::NodeId;
 use std::collections::{HashMap, HashSet};
 
@@ -13,12 +12,12 @@ fn test_node_id_creation() {
 
 #[test]
 fn test_node_id_equality() {
-    let id1a = NodeId::new(1);
-    let id1b = NodeId::new(1);
-    let id2 = NodeId::new(2);
+    let id_1 = NodeId::new(1);
+    let id_2 = NodeId::new(1);
+    let id_3 = NodeId::new(2);
 
-    assert_eq!(id1a, id1b);
-    assert_ne!(id1a, id2);
+    assert_eq!(id_1, id_2);
+    assert_ne!(id_1, id_3);
 }
 
 #[test]
@@ -43,7 +42,7 @@ fn test_node_id_copy() {
 #[test]
 fn test_node_id_debug() {
     let id = NodeId::new(123);
-    let debug_str = format!("{:?}", id);
+    let debug_str = format!("{id:?}");
 
     assert!(debug_str.contains("NodeId"));
     assert!(debug_str.contains("123"));

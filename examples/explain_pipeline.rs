@@ -4,7 +4,7 @@
 //! what the query planner is doing with your pipeline.
 
 use anyhow::Result;
-use rustflow::*;
+use rustflow::{Pipeline, from_vec, build_plan, OptimizationDecision};
 
 fn main() -> Result<()> {
     println!("=== Example 1: Simple Pipeline ===\n");
@@ -31,7 +31,7 @@ fn example_simple_pipeline() -> Result<()> {
     let plan = build_plan(&p, result.node_id())?;
     let explanation = plan.explain();
 
-    println!("{}", explanation);
+    println!("{explanation}");
     Ok(())
 }
 
@@ -51,7 +51,7 @@ fn example_with_grouping() -> Result<()> {
     let plan = build_plan(&p, result.node_id())?;
     let explanation = plan.explain();
 
-    println!("{}", explanation);
+    println!("{explanation}");
     Ok(())
 }
 
@@ -72,7 +72,7 @@ fn example_with_optimizations() -> Result<()> {
     let plan = build_plan(&p, result.node_id())?;
     let explanation = plan.explain();
 
-    println!("{}", explanation);
+    println!("{explanation}");
 
     // You can also access individual components
     println!("\n=== Detailed Breakdown ===");
@@ -86,25 +86,22 @@ fn example_with_optimizations() -> Result<()> {
     for opt in &explanation.optimizations {
         match opt {
             OptimizationDecision::FusedStateless { blocks_before, blocks_after, ops_count } => {
-                println!("✓ Fused {} stateless blocks into {} ({} ops total)",
-                    blocks_before, blocks_after, ops_count);
+                println!("✓ Fused {blocks_before} stateless blocks into {blocks_after} ({ops_count} ops total)");
             }
             OptimizationDecision::ReorderedValueOps { ops_count, by_cost } => {
-                println!("✓ Reordered {} value-only operations (by_cost={})",
-                    ops_count, by_cost);
+                println!("✓ Reordered {ops_count} value-only operations (by_cost={by_cost})");
             }
             OptimizationDecision::LiftedGBKCombine { removed_barrier } => {
-                println!("✓ Lifted GroupByKey→CombineValues (removed_barrier={})",
-                    removed_barrier);
+                println!("✓ Lifted GroupByKey→CombineValues (removed_barrier={removed_barrier})");
             }
             OptimizationDecision::DroppedMidMaterialized { count } => {
-                println!("✓ Dropped {} mid-pipeline materialized nodes", count);
+                println!("✓ Dropped {count} mid-pipeline materialized nodes");
             }
             OptimizationDecision::PartitionSuggestion { source_len, partitions } => {
                 if let Some(len) = source_len {
-                    println!("✓ Suggested {} partitions for {} elements", partitions, len);
+                    println!("✓ Suggested {partitions} partitions for {len} elements");
                 } else {
-                    println!("✓ Suggested {} partitions", partitions);
+                    println!("✓ Suggested {partitions} partitions");
                 }
             }
         }

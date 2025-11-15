@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rustflow::{from_vec, Pipeline, Sum};
 use rustflow::testing::*;
+use rustflow::{from_vec, Sum};
 
 #[test]
 fn map_values_and_filter_values_work_and_reorder_safely() -> Result<()> {

@@ -403,7 +403,7 @@ mod tests {
     fn test_pseudo_random_data_range() {
         let data = pseudo_random_data(100, 10, 20);
         for val in data {
-            assert!(val >= 10 && val < 20);
+            assert!((10..20).contains(&val));
         }
     }
 

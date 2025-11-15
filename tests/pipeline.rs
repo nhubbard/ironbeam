@@ -166,7 +166,7 @@ mod metrics_tests {
         let data = from_vec(&p, vec![1, 2, 3, 4, 5]);
         let result = data.collect_seq().unwrap();
 
-        assert_collections_equal(&result, &vec![1, 2, 3, 4, 5]);
+        assert_collections_equal(&result, &[1, 2, 3, 4, 5]);
 
         let metrics = p.take_metrics();
         assert!(metrics.is_some());
@@ -180,7 +180,7 @@ mod metrics_tests {
         let data = from_vec(&p, vec![1, 2, 3]);
         let result = data.collect_seq().unwrap();
 
-        assert_collections_equal(&result, &vec![1, 2, 3]);
+        assert_collections_equal(&result, &[1, 2, 3]);
         assert!(p.take_metrics().is_none());
     }
 

@@ -3,6 +3,9 @@
 use rustflow::metrics::{CounterMetric, GaugeMetric, HistogramMetric, Metric, MetricsCollector};
 use serde_json::json;
 
+#[macro_use]
+mod macros;
+
 #[test]
 fn test_counter_metric() {
     let mut collector = MetricsCollector::new();
@@ -62,10 +65,10 @@ fn test_set_counter() {
 #[test]
 fn test_register_all() {
     let mut collector = MetricsCollector::new();
-    let metrics: Vec<Box<dyn rustflow::metrics::Metric>> = vec![
+    let metrics: Vec<Box<dyn Metric>> = vec![
         Box::new(CounterMetric::with_value("counter1", 10)),
         Box::new(CounterMetric::with_value("counter2", 20)),
-        Box::new(GaugeMetric::new("gauge1", 3.14)),
+        Box::new(GaugeMetric::new("gauge1", std::f64::consts::PI)),
     ];
 
     collector.register_all(metrics);
@@ -73,7 +76,7 @@ fn test_register_all() {
     let snapshot = collector.snapshot();
     assert_eq!(snapshot.get("counter1").unwrap(), &json!(10));
     assert_eq!(snapshot.get("counter2").unwrap(), &json!(20));
-    assert_eq!(snapshot.get("gauge1").unwrap(), &json!(3.14));
+    assert_eq!(snapshot.get("gauge1").unwrap(), &json!(std::f64::consts::PI));
 }
 
 #[test]
@@ -124,7 +127,7 @@ fn test_to_json_with_execution_time() {
     collector.record_end();
 
     let json = collector.to_json();
-    assert!(json["test"]["value"] == json!(42));
+    assert_eq!(json["test"]["value"], json!(42));
     assert!(json["execution_time_ms"]["value"].is_number());
     assert!(
         json["execution_time_ms"]["description"]
@@ -140,7 +143,7 @@ fn test_to_json_without_execution_time() {
     collector.register(Box::new(CounterMetric::with_value("count", 100)));
 
     let json = collector.to_json();
-    assert!(json["count"]["value"] == json!(100));
+    assert_eq!(json["count"]["value"], json!(100));
     assert!(json.get("execution_time_ms").is_none());
 }
 
@@ -168,7 +171,7 @@ fn test_save_to_file() {
 
     collector.save_to_file(file_path.to_str().unwrap()).unwrap();
 
-    // Verify file exists and contains valid JSON
+    // Verify the file exists and contains valid JSON
     let contents = fs::read_to_string(&file_path).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
     assert_eq!(parsed["saved"]["value"], json!(123));
@@ -211,7 +214,7 @@ fn test_histogram_metric_new() {
 
     let stats = hist.stats();
     assert_eq!(stats.count, 0);
-    assert_eq!(stats.sum, 0.0);
+    assert_approx_eq!(stats.sum, 0.0);
 }
 
 #[test]
@@ -221,11 +224,11 @@ fn test_histogram_metric_with_values() {
 
     let stats = hist.stats();
     assert_eq!(stats.count, 5);
-    assert_eq!(stats.sum, 150.0);
-    assert_eq!(stats.mean, 30.0);
-    assert_eq!(stats.min, 10.0);
-    assert_eq!(stats.max, 50.0);
-    assert_eq!(stats.p50, 30.0);
+    assert_approx_eq!(stats.sum, 150.0);
+    assert_approx_eq!(stats.mean, 30.0);
+    assert_approx_eq!(stats.min, 10.0);
+    assert_approx_eq!(stats.max, 50.0);
+    assert_approx_eq!(stats.p50, 30.0);
 }
 
 #[test]
@@ -237,18 +240,18 @@ fn test_histogram_record() {
 
     let stats = hist.stats();
     assert_eq!(stats.count, 3);
-    assert_eq!(stats.mean, 2.0);
+    assert_approx_eq!(stats.mean, 2.0);
 }
 
 #[test]
 fn test_histogram_percentiles() {
-    let values: Vec<f64> = (1..=100).map(|x| x as f64).collect();
+    let values: Vec<f64> = (1..=100).map(f64::from).collect();
     let hist = HistogramMetric::with_values("percentile_test", values);
 
     let stats = hist.stats();
     assert_eq!(stats.count, 100);
-    assert_eq!(stats.min, 1.0);
-    assert_eq!(stats.max, 100.0);
+    assert_approx_eq!(stats.min, 1.0);
+    assert_approx_eq!(stats.max, 100.0);
     assert!(stats.p50 >= 49.0 && stats.p50 <= 51.0);
     assert!(stats.p95 >= 94.0 && stats.p95 <= 96.0);
     assert!(stats.p99 >= 98.0 && stats.p99 <= 100.0);
@@ -265,8 +268,8 @@ fn test_histogram_with_description() {
 fn test_histogram_stats_default() {
     let stats = rustflow::metrics::HistogramStats::default();
     assert_eq!(stats.count, 0);
-    assert_eq!(stats.sum, 0.0);
-    assert_eq!(stats.mean, 0.0);
+    assert_approx_eq!(stats.sum, 0.0);
+    assert_approx_eq!(stats.mean, 0.0);
 }
 
 #[test]
@@ -289,7 +292,7 @@ fn test_metric_replacement() {
     let snapshot1 = collector.snapshot();
     assert_eq!(snapshot1.get("metric").unwrap(), &json!(10));
 
-    // Replace with a gauge of the same name
+    // Replace counter with a gauge of the same name
     collector.register(Box::new(GaugeMetric::new("metric", 99.9)));
     let snapshot2 = collector.snapshot();
     assert_eq!(snapshot2.get("metric").unwrap(), &json!(99.9));
@@ -321,13 +324,13 @@ fn test_histogram_single_value() {
 
     let stats = hist.stats();
     assert_eq!(stats.count, 1);
-    assert_eq!(stats.sum, 42.0);
-    assert_eq!(stats.mean, 42.0);
-    assert_eq!(stats.min, 42.0);
-    assert_eq!(stats.max, 42.0);
-    assert_eq!(stats.p50, 42.0);
-    assert_eq!(stats.p95, 42.0);
-    assert_eq!(stats.p99, 42.0);
+    assert_approx_eq!(stats.sum, 42.0);
+    assert_approx_eq!(stats.mean, 42.0);
+    assert_approx_eq!(stats.min, 42.0);
+    assert_approx_eq!(stats.max, 42.0);
+    assert_approx_eq!(stats.p50, 42.0);
+    assert_approx_eq!(stats.p95, 42.0);
+    assert_approx_eq!(stats.p99, 42.0);
 }
 
 #[test]
@@ -337,9 +340,9 @@ fn test_histogram_unsorted_values() {
 
     let stats = hist.stats();
     assert_eq!(stats.count, 5);
-    assert_eq!(stats.min, 10.0);
-    assert_eq!(stats.max, 50.0);
-    assert_eq!(stats.mean, 30.0);
+    assert_approx_eq!(stats.min, 10.0);
+    assert_approx_eq!(stats.max, 50.0);
+    assert_approx_eq!(stats.mean, 30.0);
 }
 
 #[test]
@@ -370,7 +373,7 @@ fn test_json_sorted_metrics() {
 
     // Just verify all metrics are present in JSON
     let json = collector.to_json();
-    assert!(json["z_last"]["value"] == json!(1));
-    assert!(json["a_first"]["value"] == json!(2));
-    assert!(json["m_middle"]["value"] == json!(3));
+    assert_eq!(json["z_last"]["value"], json!(1));
+    assert_eq!(json["a_first"]["value"], json!(2));
+    assert_eq!(json["m_middle"]["value"], json!(3));
 }
