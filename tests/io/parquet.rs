@@ -1,5 +1,6 @@
 #![cfg(feature = "io-parquet")]
 
+use anyhow::Result;
 use ironbeam::from_vec;
 use ironbeam::io::parquet::*;
 use ironbeam::testing::*;
@@ -14,7 +15,7 @@ struct Row {
 }
 
 #[test]
-fn parquet_roundtrip_typed() -> anyhow::Result<()> {
+fn parquet_roundtrip_typed() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("rows.parquet");
 
@@ -53,7 +54,7 @@ fn parquet_roundtrip_typed() -> anyhow::Result<()> {
 }
 
 #[test]
-fn write_parquet_vec_empty() -> anyhow::Result<()> {
+fn write_parquet_vec_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("empty.parquet");
     let data: Vec<Row> = vec![];
@@ -69,7 +70,7 @@ fn write_parquet_vec_empty() -> anyhow::Result<()> {
 }
 
 #[test]
-fn build_parquet_shards_empty() -> anyhow::Result<()> {
+fn build_parquet_shards_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("empty.parquet");
     let data: Vec<Row> = vec![];
@@ -83,7 +84,7 @@ fn build_parquet_shards_empty() -> anyhow::Result<()> {
 }
 
 #[test]
-fn build_parquet_shards_multiple_groups() -> anyhow::Result<()> {
+fn build_parquet_shards_multiple_groups() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("multi_group.parquet");
     let mut data = vec![];
@@ -105,7 +106,7 @@ fn build_parquet_shards_multiple_groups() -> anyhow::Result<()> {
 }
 
 #[test]
-fn read_parquet_row_group_range_test() -> anyhow::Result<()> {
+fn read_parquet_row_group_range_test() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("range_test.parquet");
     let mut data = vec![];
@@ -132,7 +133,7 @@ fn read_parquet_row_group_range_test() -> anyhow::Result<()> {
 
 #[test]
 fn read_parquet_vec_file_not_found() {
-    let result: anyhow::Result<Vec<Row>> = read_parquet_vec("nonexistent_file.parquet");
+    let result: Result<Vec<Row>> = read_parquet_vec("nonexistent_file.parquet");
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(err_msg.contains("open") || err_msg.contains("No such file"));
@@ -149,7 +150,7 @@ fn build_parquet_shards_file_not_found() {
 }
 
 #[test]
-fn read_parquet_row_group_range_file_error() -> anyhow::Result<()> {
+fn read_parquet_row_group_range_file_error() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("test.parquet");
     let data = vec![Row {
@@ -165,7 +166,7 @@ fn read_parquet_row_group_range_file_error() -> anyhow::Result<()> {
     // Delete the file before reading
     std::fs::remove_file(&path)?;
 
-    let result: anyhow::Result<Vec<Row>> = read_parquet_row_group_range(&shards, 0, 1);
+    let result: Result<Vec<Row>> = read_parquet_row_group_range(&shards, 0, 1);
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(err_msg.contains("open") || err_msg.contains("No such file"));

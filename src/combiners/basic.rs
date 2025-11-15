@@ -1,7 +1,7 @@
 //! Basic arithmetic combiners: Sum, Min, Max
 
-use crate::collection::{CombineFn, LiftableCombiner};
 use crate::RFBound;
+use crate::collection::{CombineFn, LiftableCombiner};
 use std::cmp::Ord;
 use std::marker::PhantomData;
 use std::mem::take;

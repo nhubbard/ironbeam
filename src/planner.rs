@@ -18,9 +18,9 @@
 
 use crate::node::{DynOp, Node};
 use crate::{NodeId, Pipeline};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{Display, Formatter, Result as FormatResult};
 use std::sync::Arc;
 
 /// A finalized execution plan: a linearized chain and an optional partition hint.
@@ -84,52 +84,113 @@ pub struct ExecutionExplanation {
     pub suggested_partitions: Option<usize>,
 }
 
-impl fmt::Display for ExecutionExplanation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "╔═══════════════════════════════════════════════════════════════╗")?;
-        writeln!(f, "║              EXECUTION PLAN EXPLANATION                       ║")?;
-        writeln!(f, "╚═══════════════════════════════════════════════════════════════╝")?;
+impl Display for ExecutionExplanation {
+    #[allow(clippy::too_many_lines)]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
+        writeln!(
+            f,
+            "╔═══════════════════════════════════════════════════════════════╗"
+        )?;
+        writeln!(
+            f,
+            "║              EXECUTION PLAN EXPLANATION                       ║"
+        )?;
+        writeln!(
+            f,
+            "╚═══════════════════════════════════════════════════════════════╝"
+        )?;
         writeln!(f)?;
 
         // Cost Summary
-        writeln!(f, "┌─ COST ESTIMATES ─────────────────────────────────────────────┐")?;
-        writeln!(f, "│ Source Size:       {:>10}",
-            self.cost_estimate.source_size.map_or_else(|| "Unknown".to_string(), |s| s.to_string()))?;
-        writeln!(f, "│ Total Operations:  {:>10}", self.cost_estimate.total_ops)?;
-        writeln!(f, "│ Stateless Ops:     {:>10}", self.cost_estimate.stateless_ops)?;
-        writeln!(f, "│ Barrier Ops:       {:>10}", self.cost_estimate.barriers)?;
+        writeln!(
+            f,
+            "┌─ COST ESTIMATES ─────────────────────────────────────────────┐"
+        )?;
+        writeln!(
+            f,
+            "│ Source Size:       {:>10}",
+            self.cost_estimate
+                .source_size
+                .map_or_else(|| "Unknown".to_string(), |s| s.to_string())
+        )?;
+        writeln!(
+            f,
+            "│ Total Operations:  {:>10}",
+            self.cost_estimate.total_ops
+        )?;
+        writeln!(
+            f,
+            "│ Stateless Ops:     {:>10}",
+            self.cost_estimate.stateless_ops
+        )?;
+        writeln!(
+            f,
+            "│ Barrier Ops:       {:>10}",
+            self.cost_estimate.barriers
+        )?;
         if let Some(parts) = self.suggested_partitions {
             writeln!(f, "│ Suggested Parts:   {parts:>10}")?;
         }
-        writeln!(f, "└──────────────────────────────────────────────────────────────┘")?;
+        writeln!(
+            f,
+            "└──────────────────────────────────────────────────────────────┘"
+        )?;
         writeln!(f)?;
 
         // Execution Steps
-        writeln!(f, "┌─ EXECUTION STEPS ────────────────────────────────────────────┐")?;
+        writeln!(
+            f,
+            "┌─ EXECUTION STEPS ────────────────────────────────────────────┐"
+        )?;
         for step in &self.steps {
             let barrier_marker = if step.is_barrier { " [BARRIER]" } else { "" };
             writeln!(f, "│")?;
-            writeln!(f, "│ Step {}: {}{}", step.step, step.node_type, barrier_marker)?;
+            writeln!(
+                f,
+                "│ Step {}: {}{}",
+                step.step, step.node_type, barrier_marker
+            )?;
             writeln!(f, "│   {}", step.description)?;
             writeln!(f, "│   Cost: {}", step.cost_hint)?;
         }
         writeln!(f, "│")?;
-        writeln!(f, "└──────────────────────────────────────────────────────────────┘")?;
+        writeln!(
+            f,
+            "└──────────────────────────────────────────────────────────────┘"
+        )?;
 
         // Optimizations
         if !self.optimizations.is_empty() {
             writeln!(f)?;
-            writeln!(f, "┌─ OPTIMIZATIONS APPLIED ──────────────────────────────────────┐")?;
+            writeln!(
+                f,
+                "┌─ OPTIMIZATIONS APPLIED ──────────────────────────────────────┐"
+            )?;
             for opt in &self.optimizations {
                 match opt {
-                    OptimizationDecision::FusedStateless { blocks_before, blocks_after, ops_count } => {
+                    OptimizationDecision::FusedStateless {
+                        blocks_before,
+                        blocks_after,
+                        ops_count,
+                    } => {
                         writeln!(f, "│ • Fused Stateless Operations")?;
-                        writeln!(f, "│   Reduced {blocks_before} blocks → {blocks_after} blocks ({ops_count} ops total)")?;
+                        writeln!(
+                            f,
+                            "│   Reduced {blocks_before} blocks → {blocks_after} blocks ({ops_count} ops total)"
+                        )?;
                     }
                     OptimizationDecision::ReorderedValueOps { ops_count, by_cost } => {
                         writeln!(f, "│ • Reordered Value-Only Operations")?;
-                        writeln!(f, "│   {} operations sorted by {}",
-                            ops_count, if *by_cost { "cost hint" } else { "default order" })?;
+                        writeln!(
+                            f,
+                            "│   {} operations sorted by {}",
+                            ops_count,
+                            if *by_cost {
+                                "cost hint"
+                            } else {
+                                "default order"
+                            }
+                        )?;
                     }
                     OptimizationDecision::LiftedGBKCombine { removed_barrier } => {
                         writeln!(f, "│ • Lifted GroupByKey→CombineValues")?;
@@ -141,17 +202,26 @@ impl fmt::Display for ExecutionExplanation {
                         writeln!(f, "│ • Dropped Mid-Pipeline Materialization")?;
                         writeln!(f, "│   Removed {count} unnecessary materialized node(s)")?;
                     }
-                    OptimizationDecision::PartitionSuggestion { source_len, partitions } => {
+                    OptimizationDecision::PartitionSuggestion {
+                        source_len,
+                        partitions,
+                    } => {
                         writeln!(f, "│ • Partition Count Suggestion")?;
                         if let Some(len) = source_len {
-                            writeln!(f, "│   Based on source size {len}, suggest {partitions} partitions")?;
+                            writeln!(
+                                f,
+                                "│   Based on source size {len}, suggest {partitions} partitions"
+                            )?;
                         } else {
                             writeln!(f, "│   Suggest {partitions} partitions")?;
                         }
                     }
                 }
             }
-            writeln!(f, "└──────────────────────────────────────────────────────────────┘")?;
+            writeln!(
+                f,
+                "└──────────────────────────────────────────────────────────────┘"
+            )?;
         }
 
         Ok(())
@@ -195,6 +265,7 @@ impl Plan {
     /// - Optimization decisions made by the planner
     /// - Suggested partition count
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub fn explain(&self) -> ExecutionExplanation {
         let mut steps = Vec::new();
         let mut barriers = 0;
@@ -204,28 +275,39 @@ impl Plan {
 
         for (idx, node) in self.chain.iter().enumerate() {
             let (node_type, description, is_barrier, cost) = match node {
-                Node::Source { vec_ops, payload, .. } => {
+                Node::Source {
+                    vec_ops, payload, ..
+                } => {
                     source_size = vec_ops.len(payload.as_ref());
-                    let size_str = source_size.map_or_else(
-                        || "unknown size".to_string(),
-                        |s| format!("{s} elements"),
-                    );
+                    let size_str = source_size
+                        .map_or_else(|| "unknown size".to_string(), |s| format!("{s} elements"));
                     ("Source", format!("Read data source ({size_str})"), false, 1)
                 }
                 Node::Stateless(ops) => {
                     stateless_ops += ops.len();
                     total_ops += ops.len();
-                    let ops_list = ops.iter()
+                    let ops_list = ops
+                        .iter()
                         .map(|op| format!("op(cost={})", op.cost_hint()))
                         .collect::<Vec<_>>()
                         .join(", ");
                     let total_cost: u64 = ops.iter().map(|op| u64::from(op.cost_hint())).sum();
-                    ("Stateless", format!("Apply {} operations: [{}]", ops.len(), ops_list), false, total_cost)
+                    (
+                        "Stateless",
+                        format!("Apply {} operations: [{}]", ops.len(), ops_list),
+                        false,
+                        total_cost,
+                    )
                 }
                 Node::GroupByKey { .. } => {
                     barriers += 1;
                     total_ops += 1;
-                    ("GroupByKey", "Group elements by key (BARRIER)".to_string(), true, 100)
+                    (
+                        "GroupByKey",
+                        "Group elements by key (BARRIER)".to_string(),
+                        true,
+                        100,
+                    )
                 }
                 Node::CombineValues { local_groups, .. } => {
                     barriers += 1;
@@ -235,21 +317,34 @@ impl Plan {
                     } else {
                         "on pairs"
                     };
-                    ("CombineValues", format!("Combine values per key {mode} (BARRIER)"), true, 80)
+                    (
+                        "CombineValues",
+                        format!("Combine values per key {mode} (BARRIER)"),
+                        true,
+                        80,
+                    )
                 }
                 Node::CoGroup { .. } => {
                     barriers += 1;
                     total_ops += 1;
-                    ("CoGroup", "Co-group two collections (BARRIER)".to_string(), true, 150)
+                    (
+                        "CoGroup",
+                        "Co-group two collections (BARRIER)".to_string(),
+                        true,
+                        150,
+                    )
                 }
                 Node::CombineGlobal { fanout, .. } => {
                     barriers += 1;
                     total_ops += 1;
-                    let fanout_str = fanout.map_or_else(
-                        || "unbounded".to_string(),
-                        |f| f.to_string(),
-                    );
-                    ("CombineGlobal", format!("Global aggregation with fanout={fanout_str} (BARRIER)"), true, 90)
+                    let fanout_str =
+                        fanout.map_or_else(|| "unbounded".to_string(), |f| f.to_string());
+                    (
+                        "CombineGlobal",
+                        format!("Global aggregation with fanout={fanout_str} (BARRIER)"),
+                        true,
+                        90,
+                    )
                 }
                 Node::Materialized(_) => {
                     total_ops += 1;
@@ -405,7 +500,10 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
         }
     }
 
-    let blocks_after = out.iter().filter(|n| matches!(n, Node::Stateless(_))).count();
+    let blocks_after = out
+        .iter()
+        .filter(|n| matches!(n, Node::Stateless(_)))
+        .count();
     let optimization = if blocks_before > blocks_after {
         Some(OptimizationDecision::FusedStateless {
             blocks_before,

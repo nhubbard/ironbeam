@@ -19,6 +19,7 @@
 //! use ironbeam::*;
 //! use ironbeam::validation::*;
 //! use serde::{Deserialize, Serialize};
+//! # use anyhow::Result;
 //!
 //! #[derive(Clone, Debug, Serialize, Deserialize)]
 //! struct UserRecord {
@@ -47,7 +48,7 @@
 //!     }
 //! }
 //!
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> Result<()> {
 //! use std::sync::{Arc, Mutex};
 //! let p = Pipeline::default();
 //! let records = from_vec(&p, vec![
@@ -71,9 +72,13 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Error as JsonError, to_string_pretty};
+use std::error::Error as StdError;
+use std::fmt::{Display, Formatter, Result as FormatResult};
+use std::fs::write;
 use std::io::Error;
+use std::io::Result as IoResult;
 use std::path::Path;
-use std::{fmt, io};
 
 /// Result type for validation operations.
 pub type ValidationResult = Result<(), Vec<ValidationError>>;
@@ -128,8 +133,8 @@ impl ValidationError {
     }
 }
 
-impl fmt::Display for ValidationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for ValidationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
         if let Some(ref field) = self.field {
             write!(f, "[{field}] {}", self.message)?;
         } else {
@@ -142,7 +147,7 @@ impl fmt::Display for ValidationError {
     }
 }
 
-impl std::error::Error for ValidationError {}
+impl StdError for ValidationError {}
 
 /// Defines how to handle validation failures in a pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,8 +222,8 @@ impl ErrorCollector {
     /// # Errors
     ///
     /// If there is an issue serializing the errors to JSON, a `serde_json::Error` will be returned.
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(&self.errors)
+    pub fn to_json(&self) -> Result<String, JsonError> {
+        to_string_pretty(&self.errors)
     }
 
     /// Write errors to a file in JSON format.
@@ -226,14 +231,14 @@ impl ErrorCollector {
     /// # Errors
     ///
     /// If there is an issue writing to the file, an `io::Error` will be returned.
-    pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+    pub fn write_to_file<P: AsRef<Path>>(&self, path: P) -> IoResult<()> {
         let json = self.to_json().map_err(Error::other)?;
-        std::fs::write(path, json)
+        write(path, json)
     }
 }
 
-impl fmt::Display for ErrorCollector {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for ErrorCollector {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FormatResult {
         write!(f, "ErrorCollector({} errors)", self.error_count())
     }
 }
@@ -249,6 +254,7 @@ fn format_errors(errors: &[ValidationError]) -> String {
 /// Validation helper for common patterns.
 pub mod validators {
     use super::{ValidationError, ValidationResult};
+    use std::fmt::Display;
 
     /// Validate that a string is not empty.
     ///
@@ -284,7 +290,7 @@ pub mod validators {
     /// # Errors
     ///
     /// Returns a `ValidationError` with a message about a value outside the range.
-    pub fn in_range<T: PartialOrd + std::fmt::Display>(
+    pub fn in_range<T: PartialOrd + Display>(
         field: &str,
         value: &T,
         min: &T,

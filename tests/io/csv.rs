@@ -1,3 +1,4 @@
+use anyhow::Result;
 use ironbeam::io::csv::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -9,7 +10,7 @@ struct Record {
 }
 
 #[test]
-fn write_csv_roundtrip() -> anyhow::Result<()> {
+fn write_csv_roundtrip() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("test_out.csv");
     let data = vec![
@@ -31,7 +32,7 @@ fn write_csv_roundtrip() -> anyhow::Result<()> {
 }
 
 #[test]
-fn read_csv_vec_with_headers() -> anyhow::Result<()> {
+fn read_csv_vec_with_headers() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("read_test.csv");
     fs::write(&path, "id,name\n10,Alice\n20,Bob\n")?;
@@ -46,7 +47,7 @@ fn read_csv_vec_with_headers() -> anyhow::Result<()> {
 }
 
 #[test]
-fn read_csv_vec_without_headers() -> anyhow::Result<()> {
+fn read_csv_vec_without_headers() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("no_header.csv");
     fs::write(&path, "10,Alice\n20,Bob\n")?;
@@ -58,12 +59,12 @@ fn read_csv_vec_without_headers() -> anyhow::Result<()> {
 }
 
 #[test]
-fn read_csv_vec_parse_error() -> anyhow::Result<()> {
+fn read_csv_vec_parse_error() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("bad.csv");
     fs::write(&path, "id,name\nbad,Alice\n")?;
 
-    let result: anyhow::Result<Vec<Record>> = read_csv_vec(&path, true);
+    let result: Result<Vec<Record>> = read_csv_vec(&path, true);
     assert!(result.is_err());
     let err_msg = format!("{:?}", result.unwrap_err());
     assert!(err_msg.contains("parse CSV record"));
@@ -71,7 +72,7 @@ fn read_csv_vec_parse_error() -> anyhow::Result<()> {
 }
 
 #[test]
-fn write_csv_vec_creates_parent_dirs() -> anyhow::Result<()> {
+fn write_csv_vec_creates_parent_dirs() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("sub").join("dir").join("out.csv");
     let data = vec![Record {
@@ -86,7 +87,7 @@ fn write_csv_vec_creates_parent_dirs() -> anyhow::Result<()> {
 
 #[cfg(feature = "parallel-io")]
 #[test]
-fn write_csv_par_empty() -> anyhow::Result<()> {
+fn write_csv_par_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("empty.csv");
     let data: Vec<Record> = vec![];
@@ -101,7 +102,7 @@ fn write_csv_par_empty() -> anyhow::Result<()> {
 
 #[cfg(feature = "parallel-io")]
 #[test]
-fn write_csv_par_single_shard() -> anyhow::Result<()> {
+fn write_csv_par_single_shard() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("single.csv");
     let data = vec![
@@ -125,7 +126,7 @@ fn write_csv_par_single_shard() -> anyhow::Result<()> {
 
 #[cfg(feature = "parallel-io")]
 #[test]
-fn write_csv_par_multiple_shards() -> anyhow::Result<()> {
+fn write_csv_par_multiple_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("multi.csv");
     let data = vec![
@@ -157,7 +158,7 @@ fn write_csv_par_multiple_shards() -> anyhow::Result<()> {
 
 #[cfg(feature = "parallel-io")]
 #[test]
-fn write_csv_par_no_headers() -> anyhow::Result<()> {
+fn write_csv_par_no_headers() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("no_header_par.csv");
     let data = vec![
@@ -181,7 +182,7 @@ fn write_csv_par_no_headers() -> anyhow::Result<()> {
 
 #[cfg(feature = "parallel-io")]
 #[test]
-fn write_csv_par_auto_shards() -> anyhow::Result<()> {
+fn write_csv_par_auto_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("auto.csv");
     let mut data = vec![];

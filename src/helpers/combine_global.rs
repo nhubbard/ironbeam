@@ -35,13 +35,15 @@ impl<T: RFBound> PCollection<T> {
     /// ```no_run
     /// use ironbeam::*;
     /// use ironbeam::combiners::Sum;
+    /// use anyhow::{Result, Ok};
     ///
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let coll = from_vec(&p, vec![1u64, 2, 3, 4]);
     /// let out = coll.combine_globally(Sum::<u64>::default(), Some(8))
     ///               .collect_seq()?;
     /// assert_eq!(out, vec![10u64]);
-    /// # Ok::<_, anyhow::Error>(())
+    /// # Ok(()) }
     /// ```
     ///
     /// # Panics
@@ -123,7 +125,7 @@ impl<T: RFBound> PCollection<T> {
     /// accumulator directly from `&[T]`, skipping per-element calls when
     /// profitable (e.g., `Count`, `TopK`, etc.).
     ///
-    /// See [`combine_globally`] for fanout semantics and example usage.
+    /// See [`Self::combine_globally`] for fanout semantics and example usage.
     ///
     /// # Panics
     ///

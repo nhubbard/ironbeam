@@ -27,6 +27,7 @@ use crate::{PCollection, RFBound};
 /// ```
 /// use ironbeam::*;
 /// use ironbeam::extensions::CompositeTransform;
+/// use anyhow::Result;
 ///
 /// struct NormalizeEmails;
 ///
@@ -39,7 +40,7 @@ use crate::{PCollection, RFBound};
 ///     }
 /// }
 ///
-/// # fn main() -> anyhow::Result<()> {
+/// # fn main() -> Result<()> {
 /// let p = Pipeline::default();
 /// let emails = from_vec(&p, vec![
 ///     "  Alice@EXAMPLE.com  ".to_string(),
@@ -58,6 +59,7 @@ use crate::{PCollection, RFBound};
 /// ```
 /// use ironbeam::*;
 /// use ironbeam::extensions::CompositeTransform;
+/// use anyhow::Result;
 ///
 /// struct WordLengths;
 ///
@@ -71,7 +73,7 @@ use crate::{PCollection, RFBound};
 ///     }
 /// }
 ///
-/// # fn main() -> anyhow::Result<()> {
+/// # fn main() -> Result<()> {
 /// let p = Pipeline::default();
 /// let words = from_vec(&p, vec![
 ///     "hello".to_string(),
@@ -121,6 +123,7 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     /// use ironbeam::*;
     /// use ironbeam::extensions::CompositeTransform;
+    /// use anyhow::Result;
     ///
     /// struct TrimAndFilter;
     ///
@@ -132,7 +135,7 @@ impl<T: RFBound> PCollection<T> {
     ///     }
     /// }
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec!["  hello  ".into(), "".into(), "world".into()]);
     /// let cleaned = data.apply_composite(&TrimAndFilter);

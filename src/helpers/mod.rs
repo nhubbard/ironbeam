@@ -1,6 +1,6 @@
-//! High-level convenience helpers and extension methods for [`PCollection`].
+//! High-level convenience helpers and extension methods for [`crate::collection::PCollection`].
 //!
-//! This module extends the core [`PCollection`] API with specialized transformations
+//! This module extends the core [`crate::collection::PCollection`] API with specialized transformations
 //! and utilities that build on top of the fundamental operations. These helpers provide
 //! more ergonomic and domain-specific ways to work with collections.
 //!
@@ -25,7 +25,7 @@
 //!   - [`PCollection::combine_values`](crate::PCollection::combine_values)
 //!   - [`PCollection::combine_values_lifted`](crate::PCollection::combine_values_lifted)
 //! - [`combine_global`] - Global aggregations across the entire collection
-//!   - [`PCollection::combine_global`](crate::PCollection::combine_global)
+//!   - [`PCollection::combine_globally`](crate::PCollection::combine_globally)
 //!
 //! ### Joins
 //! - [`joins`] - Join operations for keyed collections
@@ -36,8 +36,8 @@
 //!
 //! ### Side Inputs
 //! - [`side_inputs`] - Enrich streams with auxiliary data
-//!   - [`side_vec`](side_vec) - Create a side input from a vector
-//!   - [`side_hashmap`](side_hashmap) - Create a side input from a hash map
+//!   - [`side_vec`] - Create a side input from a vector
+//!   - [`side_hashmap`] - Create a side input from a hash map
 //!   - [`PCollection::map_with_side`](crate::PCollection::map_with_side)
 //!   - [`PCollection::filter_with_side`](crate::PCollection::filter_with_side)
 //!
@@ -48,7 +48,10 @@
 //!
 //! ### Sampling
 //! - [`sampling`] - Random sampling operations
-//!   - [`PCollection::sample`](crate::PCollection::sample)
+//!   - [`PCollection::sample_reservoir_vec`](crate::PCollection::sample_reservoir_vec)
+//!   - [`PCollection::sample_reservoir`](crate::PCollection::sample_reservoir)
+//!   - [`PCollection::sample_values_reservoir_vec`](crate::PCollection::sample_values_reservoir_vec)
+//!   - [`PCollection::sample_values_reservoir`](crate::PCollection::sample_values_reservoir)
 //!
 //! ### Top-K Operations
 //! - [`topk`] - Convenience API for selecting top K values per key
@@ -68,26 +71,28 @@
 //!
 //! ### I/O Helpers
 //! - [`jsonl`] - JSON Lines I/O utilities (feature: `io-jsonl`)
-//!   - [`read_jsonl`](read_jsonl)
-//!   - [`read_jsonl_streaming`](read_jsonl_streaming)
+//!   - [`read_jsonl`]
+//!   - [`read_jsonl_streaming`]
 //!   - [`PCollection::write_jsonl`](crate::PCollection::write_jsonl)
 //! - [`csv`] - CSV I/O utilities (feature: `io-csv`)
-//!   - [`read_csv`](read_csv)
-//!   - [`read_csv_streaming`](read_csv_streaming)
+//!   - [`read_csv`]
+//!   - [`read_csv_streaming`]
 //!   - [`PCollection::write_csv`](crate::PCollection::write_csv)
 //! - [`parquet`] - Parquet I/O utilities (feature: `io-parquet`)
-//!   - [`read_parquet_streaming`](read_parquet_streaming)
+//!   - [`read_parquet_streaming`]
 //!   - [`PCollection::write_parquet`](crate::PCollection::write_parquet)
 //!
 //! ### Windowing
 //! - [`tumbling`] - Tumbling window operations
-//!   - [`PCollection::window_tumbling`](crate::PCollection::window_tumbling)
+//!   - [`PCollection::key_by_window`](crate::PCollection::key_by_window)
+//!   - [`PCollection::group_by_window`](crate::PCollection::group_by_window)
+//!   - [`PCollection::group_by_key_and_window`](crate::PCollection::group_by_key_and_window)
 //! - [`timestamped`] - Timestamp utilities for windowed data
 //!
 //! ### Standard Library Integration
 //! - [`stdlib`] - Convenience constructors for common sources
-//!   - [`from_vec`](from_vec) - Create a collection from a vector
-//!   - [`from_iter`](from_iter) - Create a collection from an iterator
+//!   - [`from_vec`] - Create a collection from a vector
+//!   - [`from_iter`] - Create a collection from an iterator
 //!
 //! ### Internal Utilities
 //! - [`common`] - Shared internal utilities used by other helpers
@@ -97,7 +102,7 @@
 //! Helpers in this module follow these principles:
 //!
 //! 1. **Build on core primitives** - All helpers are implemented using the fundamental
-//!    operations from [`PCollection`].
+//!    operations from [`crate::PCollection`].
 //!
 //! 2. **Ergonomic APIs** - Provide convenient, type-safe interfaces that reduce boilerplate.
 //!
@@ -107,7 +112,7 @@
 //!    dependencies.
 //!
 //! 5. **Extension traits** - Many helpers are implemented as extension methods on
-//!    [`PCollection`] for discoverability.
+//!    [`crate::PCollection`] for discoverability.
 //!
 //! ## Example Usage
 //!

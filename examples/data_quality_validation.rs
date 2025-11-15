@@ -7,8 +7,12 @@
 //! - Use built-in validators for common patterns
 //! - Integrate validation into a production ETL pipeline
 
-use ironbeam::validation::{Validate, ValidationResult, combine_validations, validators, ErrorCollector, ValidationMode};
-use ironbeam::{Pipeline, from_vec, Sum};
+use anyhow::Result;
+use ironbeam::validation::validators::{in_range, is_email, max_length, min_length, not_empty};
+use ironbeam::validation::{
+    ErrorCollector, Validate, ValidationMode, ValidationResult, combine_validations,
+};
+use ironbeam::{Pipeline, Sum, from_vec};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -26,17 +30,17 @@ impl Validate for Transaction {
     fn validate(&self) -> ValidationResult {
         // Combine multiple validation checks
         combine_validations(vec![
-            validators::not_empty("transaction_id", &self.id),
-            validators::not_empty("currency", &self.currency),
-            validators::in_range("amount", &self.amount, &0.0, &1_000_000.0),
-            validators::is_email("email", &self.email),
-            validators::min_length("currency", &self.currency, 3),
-            validators::max_length("currency", &self.currency, 3),
+            not_empty("transaction_id", &self.id),
+            not_empty("currency", &self.currency),
+            in_range("amount", &self.amount, &0.0, &1_000_000.0),
+            is_email("email", &self.email),
+            min_length("currency", &self.currency, 3),
+            max_length("currency", &self.currency, 3),
         ])
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     println!("=== Data Quality & Validation Example ===\n");
 
     // Example 1: Skip invalid records silently
@@ -58,7 +62,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn skip_invalid_example() -> anyhow::Result<()> {
+fn skip_invalid_example() -> Result<()> {
     let p = Pipeline::default();
 
     let transactions = from_vec(
@@ -121,7 +125,7 @@ fn skip_invalid_example() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn log_and_continue_example() -> anyhow::Result<()> {
+fn log_and_continue_example() -> Result<()> {
     let p = Pipeline::default();
 
     let transactions = from_vec(
@@ -184,7 +188,7 @@ fn log_and_continue_example() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn production_etl_example() -> anyhow::Result<()> {
+fn production_etl_example() -> Result<()> {
     let p = Pipeline::default();
 
     // Simulate reading from a data source with mixed quality data
@@ -254,7 +258,7 @@ fn production_etl_example() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_keyed_example() -> anyhow::Result<()> {
+fn validate_keyed_example() -> Result<()> {
     let p = Pipeline::default();
 
     // Customer transactions keyed by customer ID

@@ -20,10 +20,11 @@
 //!
 //! // Match files with date-based partitions
 //! let partitions = expand_glob("data/events/year=2024/month=*/day=*/*.parquet")?;
-//! # Ok::<(), anyhow::Error>(())
+//! # use anyhow::Error; Ok::<(), Error>(())
 //! ```
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use glob::glob;
 use std::path::PathBuf;
 
 /// Expand a glob pattern into a sorted vector of matching file paths.
@@ -54,7 +55,7 @@ use std::path::PathBuf;
 ///
 /// // Date-based partitions
 /// let files = expand_glob("events/year=2024/month=01/day=*/data.parquet")?;
-/// # Ok::<(), anyhow::Error>(())
+/// # use anyhow::Error; Ok::<(), Error>(())
 /// ```
 ///
 /// # Errors
@@ -68,7 +69,7 @@ use std::path::PathBuf;
 ///
 /// A sorted vector of absolute file paths matching the pattern.
 pub fn expand_glob(pattern: &str) -> Result<Vec<PathBuf>> {
-    let paths = glob::glob(pattern).with_context(|| format!("invalid glob pattern: {pattern}"))?;
+    let paths = glob(pattern).with_context(|| format!("invalid glob pattern: {pattern}"))?;
 
     let mut result = Vec::new();
     for entry in paths {
@@ -98,7 +99,7 @@ pub fn expand_glob(pattern: &str) -> Result<Vec<PathBuf>> {
 ///
 /// // Will error if no files match
 /// let files = expand_glob_required("logs/*.jsonl")?;
-/// # Ok::<(), anyhow::Error>(())
+/// # use anyhow::Error; Ok::<(), Error>(())
 /// ```
 ///
 /// # Errors
@@ -110,7 +111,7 @@ pub fn expand_glob(pattern: &str) -> Result<Vec<PathBuf>> {
 pub fn expand_glob_required(pattern: &str) -> Result<Vec<PathBuf>> {
     let files = expand_glob(pattern)?;
     if files.is_empty() {
-        anyhow::bail!("no files found matching pattern: {pattern}");
+        bail!("no files found matching pattern: {pattern}");
     }
     Ok(files)
 }

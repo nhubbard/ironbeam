@@ -21,7 +21,8 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
-//! # fn main() -> anyhow::Result<()> {
+//! use anyhow::Result;
+//! # fn main() -> Result<()> {
 //! #[derive(Serialize, Deserialize, Clone)]
 //! struct Row { k: String, v: u64 }
 //!
@@ -36,7 +37,8 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
-//! # fn main() -> anyhow::Result<()> {
+//! use anyhow::Result;
+//! # fn main() -> Result<()> {
 //! #[derive(Serialize, Deserialize, Clone, Eq, Ord, PartialEq, PartialOrd)]
 //! struct Row { k: String, v: u64 }
 //!
@@ -51,7 +53,8 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
-//! # fn main() -> anyhow::Result<()> {
+//! use anyhow::Result;
+//! # fn main() -> Result<()> {
 //! #[derive(Serialize, Deserialize, Clone)]
 //! struct Row { k: String, v: u64 }
 //!
@@ -64,14 +67,14 @@
 //! ```
 
 use crate::io::glob::expand_glob;
-pub use crate::io::jsonl::{build_jsonl_shards, write_jsonl_vec, JsonlShards, JsonlVecOps};
+pub use crate::io::jsonl::{JsonlShards, JsonlVecOps, build_jsonl_shards, write_jsonl_vec};
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{from_vec, read_jsonl_vec, write_jsonl_par, PCollection, Pipeline, RFBound};
-use anyhow::{Context, Result};
+use crate::{PCollection, Pipeline, RFBound, from_vec, read_jsonl_vec, write_jsonl_par};
+use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
@@ -102,7 +105,8 @@ use std::sync::Arc;
 /// ```no_run
 /// use ironbeam::*;
 /// use serde::{Deserialize, Serialize};
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 /// #[derive(Serialize, Deserialize, Clone)]
 /// struct Row { k: String, v: u64 }
 ///
@@ -116,7 +120,8 @@ use std::sync::Arc;
 /// ```no_run
 /// use ironbeam::*;
 /// use serde::{Deserialize, Serialize};
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 /// #[derive(Serialize, Deserialize, Clone)]
 /// struct Row { k: String, v: u64 }
 ///
@@ -131,7 +136,8 @@ use std::sync::Arc;
 /// ```no_run
 /// use ironbeam::*;
 /// use serde::{Deserialize, Serialize};
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 /// #[derive(Serialize, Deserialize, Clone)]
 /// struct Row { k: String, v: u64 }
 ///
@@ -149,7 +155,7 @@ where
     let path_str = path
         .as_ref()
         .to_str()
-        .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
+        .ok_or_else(|| anyhow!("path contains invalid UTF-8"))?;
 
     // Check if path contains glob patterns
     let glob_regex = Regex::new(r"[*?\[]").expect("valid glob regex");
@@ -159,7 +165,7 @@ where
             expand_glob(path_str).with_context(|| format!("expanding glob pattern: {path_str}"))?;
 
         if files.is_empty() {
-            anyhow::bail!("no files found matching pattern: {path_str}");
+            bail!("no files found matching pattern: {path_str}");
         }
 
         let mut all_data = Vec::new();
@@ -205,7 +211,8 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// ```no_run
 /// use ironbeam::*;
 /// use serde::{Deserialize, Serialize};
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 /// #[derive(Serialize, Deserialize, Clone, Eq, Ord, PartialEq, PartialOrd)]
 /// struct Row { k: String, v: u64 }
 ///

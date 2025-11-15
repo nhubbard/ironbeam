@@ -18,11 +18,11 @@
 //! - Sequential and parallel execution equivalence
 
 use anyhow::Result;
-use ironbeam::*;
 use ironbeam::combiners::*;
+use ironbeam::*;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::f64::consts::PI;
-use serde::Serialize;
 #[cfg(any(feature = "io-jsonl", feature = "io-csv", feature = "io-parquet"))]
 use tempfile::tempdir;
 
@@ -125,13 +125,13 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         .filter_with_side(&primes_vec, |n: &u32, primes| primes.contains(n));
 
     // map_with_side_map
-    let enriched = numbers
-        .clone()
-        .filter(|n| *n <= 3)
-        .map_with_side_map(&lookup_map, |n: &u32, map: &HashMap<u32, String>| {
+    let enriched = numbers.clone().filter(|n| *n <= 3).map_with_side_map(
+        &lookup_map,
+        |n: &u32, map: &HashMap<u32, String>| {
             let name = map.get(n).cloned().unwrap_or_else(|| "unknown".to_string());
             format!("{n}: {name}")
-        });
+        },
+    );
 
     let primes_result = only_primes.collect_seq_sorted()?;
     assert_eq!(primes_result.len(), 11);
@@ -344,10 +344,12 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     // =============================================================================
     println!("📦 Section 5: Lifted Combiners");
 
-    let grouped_for_lifted = keyed_nums.clone().map_values(|n| u64::from(*n)).group_by_key();
+    let grouped_for_lifted = keyed_nums
+        .clone()
+        .map_values(|n| u64::from(*n))
+        .group_by_key();
 
-    let lifted_sum = grouped_for_lifted
-        .combine_values_lifted(Sum::<u64>::default());
+    let lifted_sum = grouped_for_lifted.combine_values_lifted(Sum::<u64>::default());
     let lifted_count = keyed_nums
         .clone()
         .map_values(|_| 1u64)
@@ -536,8 +538,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     assert_eq!(try_results[4], "value_5");
 
     // try_flat_map (success case) - creates multiple outputs per input
-    let try_flat = fallible_data
-        .try_flat_map::<u32, String, _>(|n| Ok(vec![*n, n * 2]));
+    let try_flat = fallible_data.try_flat_map::<u32, String, _>(|n| Ok(vec![*n, n * 2]));
 
     let flat_results: Vec<Vec<u32>> = try_flat.collect_fail_fast()?;
     assert_eq!(flat_results.len(), 5); // 5 inputs
@@ -805,8 +806,8 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     let plain_events = from_vec(&p, vec!["event1".to_string(), "event2".to_string()]);
 
     // Attach timestamps
-    let with_timestamps = plain_events
-        .attach_timestamps(|s: &String| if s == "event1" { 1000 } else { 2000 });
+    let with_timestamps =
+        plain_events.attach_timestamps(|s: &String| if s == "event1" { 1000 } else { 2000 });
 
     let ts_results = with_timestamps.collect_seq()?;
     assert_eq!(ts_results.len(), 2);

@@ -19,7 +19,8 @@
 //! ## Examples
 //! ```
 //! use ironbeam::*;
-//! # fn main() -> anyhow::Result<()> {
+//! use anyhow::Result;
+//! # fn main() -> Result<()> {
 //! let p = Pipeline::default();
 //!
 //! // Unkeyed: Timestamped<String> -> (Window, String) -> (Window, Vec<String>)
@@ -64,7 +65,8 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
     /// ### Example
     /// ```
     /// use ironbeam::*;
-    /// # fn main() -> anyhow::Result<()> {
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let events = from_vec(&p, vec![
     ///     Timestamped::new(1_500, "e1".to_string()),
@@ -95,7 +97,8 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
     /// ### Example
     /// ```
     /// use ironbeam::*;
-    /// # fn main() -> anyhow::Result<()> {
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let events = from_vec(&p, vec![
     ///     Timestamped::new(1_000,  "a".to_string()),
@@ -125,7 +128,8 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
     /// ### Example
     /// ```
     /// use ironbeam::*;
-    /// # fn main() -> anyhow::Result<()> {
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let keyed = from_vec(&p, vec![
     ///     ("k1".to_string(), Timestamped::new(1_000, 1u32)),
@@ -155,7 +159,8 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
     /// ### Example
     /// ```
     /// use ironbeam::*;
-    /// # fn main() -> anyhow::Result<()> {
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let keyed = from_vec(&p, vec![
     ///     ("k1".to_string(), Timestamped::new(1_000,  1u32)),

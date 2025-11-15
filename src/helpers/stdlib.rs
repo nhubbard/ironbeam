@@ -30,7 +30,7 @@
 //! ```
 
 use crate::node::Node;
-use crate::type_token::{vec_ops_for, TypeTag};
+use crate::type_token::{TypeTag, VecOps, vec_ops_for};
 use crate::{PCollection, Pipeline, RFBound};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -128,7 +128,7 @@ where
 ///
 /// ### Example
 ///
-/// See [`tests/extensions.rs`] in the source code for a complete working example
+/// See `tests/extensions.rs` in the source code for a complete working example
 /// of implementing a custom data source with `VecOps`.
 ///
 /// ```
@@ -136,7 +136,8 @@ where
 /// use ironbeam::type_token::VecOps;
 /// use std::any::Any;
 /// use std::sync::Arc;
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 /// // Simple example: source from a pre-computed Vec
 /// let p = Pipeline::default();
 /// let data = vec![1, 2, 3, 4, 5];
@@ -156,7 +157,7 @@ where
 pub fn from_custom_source<T, P>(
     p: &Pipeline,
     payload: P,
-    vec_ops: Arc<dyn crate::type_token::VecOps>,
+    vec_ops: Arc<dyn VecOps>,
 ) -> PCollection<T>
 where
     T: RFBound,

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ironbeam::combiners::{Max, Min, Sum};
 use ironbeam::testing::*;
-use ironbeam::{from_vec, Count};
+use ironbeam::{Count, from_vec};
 
 #[test]
 fn gbk_then_combine_lifted_equals_classic_combine() -> Result<()> {

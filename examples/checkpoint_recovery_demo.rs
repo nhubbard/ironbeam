@@ -10,14 +10,15 @@
 //! cargo run --example checkpoint_recovery_demo --features checkpointing
 //! ```
 
-use ironbeam::{Pipeline, from_vec, Count, Runner, ExecMode, AverageF64, Sum};
-use std::env;
+use anyhow::Result;
+use ironbeam::{AverageF64, Count, ExecMode, Pipeline, Runner, Sum, from_vec};
+use std::env::args;
 
 #[cfg(feature = "checkpointing")]
 use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
 
 #[cfg(feature = "checkpointing")]
-fn run_with_time_based_checkpoints() -> anyhow::Result<()> {
+fn run_with_time_based_checkpoints() -> Result<()> {
     println!("=== Time-Based Checkpointing ===\n");
 
     let p = Pipeline::default();
@@ -53,7 +54,7 @@ fn run_with_time_based_checkpoints() -> anyhow::Result<()> {
 }
 
 #[cfg(feature = "checkpointing")]
-fn run_with_node_based_checkpoints() -> anyhow::Result<()> {
+fn run_with_node_based_checkpoints() -> Result<()> {
     println!("=== Node-Based Checkpointing ===\n");
 
     let p = Pipeline::default();
@@ -95,7 +96,7 @@ fn run_with_node_based_checkpoints() -> anyhow::Result<()> {
 }
 
 #[cfg(feature = "checkpointing")]
-fn run_with_hybrid_checkpoints() -> anyhow::Result<()> {
+fn run_with_hybrid_checkpoints() -> Result<()> {
     println!("=== Hybrid Checkpointing ===\n");
 
     let p = Pipeline::default();
@@ -138,8 +139,8 @@ fn run_with_hybrid_checkpoints() -> anyhow::Result<()> {
 }
 
 #[cfg(feature = "checkpointing")]
-fn main() -> anyhow::Result<()> {
-    let args: Vec<String> = env::args().collect();
+fn main() -> Result<()> {
+    let args: Vec<String> = args().collect();
 
     if args.len() > 1 {
         match args[1].as_str() {

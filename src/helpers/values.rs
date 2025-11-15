@@ -2,16 +2,17 @@
 //!
 //! This module provides ergonomic helpers to manipulate only the *values* of
 //! key–value pairs while preserving their keys. They're direct analogs to
-//! [`map`] and [`filter`], but operating over `(K, V)` pairs instead of single
+//! [`crate::PCollection::map`] and [`crate::PCollection::filter`], but operating over `(K, V)` pairs instead of single
 //! values.
 //!
 //! ## Provided methods
-//! - [`map_values`] -- apply a function `&V -> O`, producing `(K, O)`
-//! - [`filter_values`] -- retain only entries where `pred(&V)` is true
+//! - [`crate::PCollection::map_values`] -- apply a function `&V -> O`, producing `(K, O)`
+//! - [`crate::PCollection::filter_values`] -- retain only entries where `pred(&V)` is true
 //!
 //! ## Example
 //! ```no_run
 //! use ironbeam::*;
+//! use anyhow::{Result, Ok};
 //!
 //! let p = Pipeline::default();
 //!
@@ -29,7 +30,7 @@
 //!
 //! let out = evens.collect_seq()?;
 //! assert_eq!(out, vec![("a", 2u32), ("c", 16u32)]);
-//! # anyhow::Result::<()>::Ok(())
+//! # Ok::<()>(())
 //! ```
 
 use crate::collection::{FilterValuesOp, MapValuesOp};
@@ -60,7 +61,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     ///
     /// let out = kv.map_values(|v| v + 1).collect_seq()?;
     /// assert_eq!(out, vec![("x", 2u32), ("y", 3u32)]);
-    /// # anyhow::Result::<()>::Ok(())
+    /// # use anyhow::Ok; Ok::<()>(())
     /// ```
     #[must_use]
     pub fn map_values<O, F>(self, f: F) -> PCollection<(K, O)>
@@ -97,7 +98,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     ///
     /// let out = kv.filter_values(|v| *v > 5).collect_seq()?;
     /// assert_eq!(out, vec![("y", 8u32)]);
-    /// # anyhow::Result::<()>::Ok(())
+    /// # use anyhow::Ok; Ok::<()>(())
     /// ```
     #[must_use]
     pub fn filter_values<F>(self, pred: F) -> Self

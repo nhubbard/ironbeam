@@ -3,8 +3,8 @@
 #[cfg(feature = "checkpointing")]
 mod checkpoint_tests {
     use ironbeam::checkpoint::{
-        compute_checksum, current_timestamp_ms, CheckpointConfig, CheckpointManager, CheckpointMetadata,
-        CheckpointPolicy, CheckpointState,
+        CheckpointConfig, CheckpointManager, CheckpointMetadata, CheckpointPolicy, CheckpointState,
+        compute_checksum, current_timestamp_ms,
     };
     use std::fs::{self, File};
     use std::io::{Read, Write};
@@ -217,9 +217,11 @@ mod checkpoint_tests {
         file.read_to_end(&mut data).unwrap();
         drop(file);
 
-        let mut corrupted_state: CheckpointState = bincode::deserialize(&data).unwrap();
+        let (mut corrupted_state, _): (CheckpointState, usize) =
+            bincode::serde::decode_from_slice(&data, bincode::config::standard()).unwrap();
         corrupted_state.completed_node_index = 999; // Corrupt data
-        let corrupted_data = bincode::serialize(&corrupted_state).unwrap();
+        let corrupted_data =
+            bincode::serde::encode_to_vec(&corrupted_state, bincode::config::standard()).unwrap();
 
         let mut file = File::create(&path).unwrap();
         file.write_all(&corrupted_data).unwrap();

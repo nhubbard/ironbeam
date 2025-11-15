@@ -1,5 +1,5 @@
-use ironbeam::node::DynOp;
 use ironbeam::Partition;
+use ironbeam::node::DynOp;
 use std::sync::Arc;
 
 /// Test implementation of `DynOp` for testing trait defaults

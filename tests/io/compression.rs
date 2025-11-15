@@ -5,8 +5,9 @@
     feature = "compression-xz"
 ))]
 mod compression_tests {
+    use anyhow::Result;
     use ironbeam::io::compression::{
-        auto_detect_reader, auto_detect_writer, register_codec, CompressionCodec,
+        CompressionCodec, auto_detect_reader, auto_detect_writer, register_codec,
     };
     use serde::{Deserialize, Serialize};
     use std::io::{Read, Write};
@@ -40,7 +41,7 @@ mod compression_tests {
         ]
     }
 
-    fn write_jsonl_compressed(path: &str, data: &[TestRecord]) -> anyhow::Result<()> {
+    fn write_jsonl_compressed(path: &str, data: &[TestRecord]) -> Result<()> {
         let file = std::fs::File::create(path)?;
         let mut writer = auto_detect_writer(file, path)?;
         for record in data {
@@ -51,7 +52,7 @@ mod compression_tests {
         Ok(())
     }
 
-    fn read_jsonl_compressed(path: &str) -> anyhow::Result<Vec<TestRecord>> {
+    fn read_jsonl_compressed(path: &str) -> Result<Vec<TestRecord>> {
         let file = std::fs::File::open(path)?;
         let reader = auto_detect_reader(file, path)?;
         let buf_reader = std::io::BufReader::new(reader);
@@ -69,7 +70,7 @@ mod compression_tests {
 
     #[cfg(feature = "compression-gzip")]
     #[test]
-    fn test_gzip_roundtrip() -> anyhow::Result<()> {
+    fn test_gzip_roundtrip() -> Result<()> {
         let temp = NamedTempFile::new()?;
         let path = temp.path().with_extension("jsonl.gz");
         let path_str = path.to_str().unwrap();
@@ -91,7 +92,7 @@ mod compression_tests {
 
     #[cfg(feature = "compression-zstd")]
     #[test]
-    fn test_zstd_roundtrip() -> anyhow::Result<()> {
+    fn test_zstd_roundtrip() -> Result<()> {
         let temp = NamedTempFile::new()?;
         let path = temp.path().with_extension("jsonl.zst");
         let path_str = path.to_str().unwrap();
@@ -108,7 +109,7 @@ mod compression_tests {
 
     #[cfg(feature = "compression-bzip2")]
     #[test]
-    fn test_bzip2_roundtrip() -> anyhow::Result<()> {
+    fn test_bzip2_roundtrip() -> Result<()> {
         let temp = NamedTempFile::new()?;
         let path = temp.path().with_extension("jsonl.bz2");
         let path_str = path.to_str().unwrap();
@@ -125,7 +126,7 @@ mod compression_tests {
 
     #[cfg(feature = "compression-xz")]
     #[test]
-    fn test_xz_roundtrip() -> anyhow::Result<()> {
+    fn test_xz_roundtrip() -> Result<()> {
         let temp = NamedTempFile::new()?;
         let path = temp.path().with_extension("jsonl.xz");
         let path_str = path.to_str().unwrap();
@@ -141,7 +142,7 @@ mod compression_tests {
     }
 
     #[test]
-    fn test_uncompressed_passthrough() -> anyhow::Result<()> {
+    fn test_uncompressed_passthrough() -> Result<()> {
         let temp = NamedTempFile::new()?;
         let path = temp.path().with_extension("jsonl");
         let path_str = path.to_str().unwrap();
@@ -157,7 +158,7 @@ mod compression_tests {
     }
 
     #[test]
-    fn test_custom_codec() -> anyhow::Result<()> {
+    fn test_custom_codec() -> Result<()> {
         // Custom no-op codec for testing pluggability
         struct NoOpCodec;
 
@@ -203,7 +204,7 @@ mod compression_tests {
     #[cfg(feature = "compression-gzip")]
     #[test]
     #[allow(clippy::items_after_statements)]
-    fn test_magic_byte_detection() -> anyhow::Result<()> {
+    fn test_magic_byte_detection() -> Result<()> {
         // Write gzip data but with wrong extension to test magic byte fallback
         let temp = NamedTempFile::new()?;
         let gz_path = temp.path().with_extension("dat"); // intentionally wrong extension

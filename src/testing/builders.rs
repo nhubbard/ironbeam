@@ -1,5 +1,7 @@
 //! Test data builders for creating test datasets fluently.
 
+use std::ops::{Add, RangeInclusive};
+
 /// A fluent builder for creating test data.
 ///
 /// `TestDataBuilder` provides a convenient API for constructing test datasets
@@ -38,7 +40,7 @@ impl<T> TestDataBuilder<T> {
     }
 
     /// Add multiple values to the dataset.
-    #[must_use] 
+    #[must_use]
     pub fn add_values(mut self, values: Vec<T>) -> Self {
         self.data.extend(values);
         self
@@ -90,7 +92,7 @@ impl<T> TestDataBuilder<T> {
 // Specialized methods for numeric types
 impl<T> TestDataBuilder<T>
 where
-    T: Copy + From<i32> + std::ops::Add<Output = T> + PartialOrd,
+    T: Copy + From<i32> + Add<Output = T> + PartialOrd,
 {
     /// Add a range of values to the dataset.
     ///
@@ -105,8 +107,8 @@ where
     ///
     /// assert_eq!(data, vec![1, 2, 3, 4, 5]);
     /// ```
-    #[must_use] 
-    pub fn add_range(mut self, range: std::ops::RangeInclusive<i32>) -> Self {
+    #[must_use]
+    pub fn add_range(mut self, range: RangeInclusive<i32>) -> Self {
         for i in range {
             self.data.push(T::from(i));
         }
@@ -152,7 +154,7 @@ impl<K, V> KVTestDataBuilder<K, V> {
     }
 
     /// Add multiple key-value pairs.
-    #[must_use] 
+    #[must_use]
     pub fn add_kvs(mut self, kvs: Vec<(K, V)>) -> Self {
         self.data.extend(kvs);
         self
@@ -211,7 +213,7 @@ impl<K, V> KVTestDataBuilder<K, V> {
 /// let data = sequential_data(1, 5);
 /// assert_eq!(data, vec![1, 2, 3, 4, 5]);
 /// ```
-#[must_use] 
+#[must_use]
 pub fn sequential_data(start: i32, end: i32) -> Vec<i32> {
     (start..=end).collect()
 }
@@ -230,7 +232,7 @@ pub fn sequential_data(start: i32, end: i32) -> Vec<i32> {
 ///     ("key_3".to_string(), 3),
 /// ]);
 /// ```
-#[must_use] 
+#[must_use]
 pub fn sequential_kvs(key_prefix: &str, start: i32, end: i32) -> Vec<(String, i32)> {
     (start..=end)
         .map(|i| (format!("{key_prefix}_{i}"), i))
@@ -253,7 +255,7 @@ pub fn sequential_kvs(key_prefix: &str, start: i32, end: i32) -> Vec<(String, i3
 /// // "cold_key_X" will appear ~20% of the time
 /// assert_eq!(data.len(), 100);
 /// ```
-#[must_use] 
+#[must_use]
 pub fn skewed_kvs(count: usize) -> Vec<(String, i32)> {
     let mut data = Vec::with_capacity(count);
     for i in 0..count {
@@ -264,7 +266,11 @@ pub fn skewed_kvs(count: usize) -> Vec<(String, i32)> {
         } else {
             format!("cold_key_{i}") // rest are unique cold keys
         };
-        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_possible_wrap,
+            clippy::cast_sign_loss
+        )]
         data.push((key, i as i32));
     }
     data
@@ -287,7 +293,7 @@ pub fn skewed_kvs(count: usize) -> Vec<(String, i32)> {
 ///     assert!(val >= 0 && val < 100);
 /// }
 /// ```
-#[must_use] 
+#[must_use]
 pub fn pseudo_random_data(count: usize, min: i32, max: i32) -> Vec<i32> {
     let mut data = Vec::with_capacity(count);
     let mut seed: u32 = 12345; // Fixed seed for reproducibility
@@ -314,7 +320,7 @@ pub fn pseudo_random_data(count: usize, min: i32, max: i32) -> Vec<i32> {
 /// let data = pseudo_random_kvs(5, 3, 0, 100);
 /// // Creates ~5 keys with ~3 values each, values in range [0, 100)
 /// ```
-#[must_use] 
+#[must_use]
 pub fn pseudo_random_kvs(
     num_keys: usize,
     values_per_key: usize,

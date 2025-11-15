@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ironbeam::io::jsonl::*;
 use ironbeam::testing::*;
-use ironbeam::{from_vec, read_jsonl, Count};
+use ironbeam::{Count, from_vec, read_jsonl};
 use serde::{Deserialize, Serialize};
 use std::fs;
 

@@ -3,10 +3,10 @@
 //! Provides memory-efficient approximate quantile estimation suitable for large-scale
 //! distributed streaming data processing.
 
-use crate::collection::{CombineFn, LiftableCombiner};
 use crate::RFBound;
+use crate::collection::{CombineFn, LiftableCombiner};
 use std::cmp::Ordering;
-
+use std::marker::PhantomData;
 /* ===================== TDigest ===================== */
 
 /// A centroid in the t-digest: a weighted point representing a cluster of values.
@@ -292,9 +292,10 @@ impl TDigest {
 ///
 /// # Examples
 /// ```
+/// # use anyhow::Result;
 /// use ironbeam::*;
 /// use ironbeam::combiners::ApproxQuantiles;
-/// # fn main() -> anyhow::Result<()> {
+/// # fn main() -> Result<()> {
 /// let p = Pipeline::default();
 ///
 /// // Compute median and quartiles per key
@@ -313,7 +314,7 @@ pub struct ApproxQuantiles<V> {
     quantiles: Vec<f64>,
     /// Compression parameter for t-digest
     compression: f64,
-    _phantom: std::marker::PhantomData<V>,
+    _phantom: PhantomData<V>,
 }
 
 impl<V> ApproxQuantiles<V> {
@@ -328,7 +329,7 @@ impl<V> ApproxQuantiles<V> {
         Self {
             quantiles,
             compression,
-            _phantom: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -405,7 +406,7 @@ where
 #[derive(Clone, Debug)]
 pub struct ApproxMedian<V> {
     compression: f64,
-    _phantom: std::marker::PhantomData<V>,
+    _phantom: PhantomData<V>,
 }
 
 impl<V> ApproxMedian<V> {
@@ -417,7 +418,7 @@ impl<V> ApproxMedian<V> {
     pub const fn new(compression: f64) -> Self {
         Self {
             compression,
-            _phantom: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 }

@@ -129,7 +129,8 @@
 //! ```no_run
 //! use ironbeam::io::jsonl::{read_jsonl_vec, write_jsonl_vec};
 //! use serde::{Deserialize, Serialize};
-//! # fn main() -> anyhow::Result<()> {
+//! use anyhow::Result;
+//! # fn main() -> Result<()> {
 //! #[derive(Serialize, Deserialize)]
 //! struct Record { id: u32, name: String }
 //!
@@ -151,7 +152,8 @@
 //! ```no_run
 //! use ironbeam::io::csv::{build_csv_shards, read_csv_range};
 //! use serde::Deserialize;
-//! # fn main() -> anyhow::Result<()> {
+//! use anyhow::Result;
+//! # fn main() -> Result<()> {
 //! #[derive(Deserialize)]
 //! struct Row { k: String, v: u64 }
 //!
@@ -171,7 +173,8 @@
 //! ```no_run
 //! use ironbeam::io::jsonl::write_jsonl_par;
 //! use serde::Serialize;
-//! # fn main() -> anyhow::Result<()> {
+//! use anyhow::Result;
+//! # fn main() -> Result<()> {
 //! #[derive(Serialize)]
 //! struct Record { id: u32 }
 //!

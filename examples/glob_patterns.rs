@@ -3,7 +3,8 @@
 //! This example shows how to use glob patterns to read multiple files at once,
 //! which is essential for real-world ETL scenarios with date-based partitions.
 
-use ironbeam::{write_jsonl_vec, Pipeline, PCollection, read_jsonl};
+use anyhow::Result;
+use ironbeam::{PCollection, Pipeline, read_jsonl, write_jsonl_vec};
 use serde::{Deserialize, Serialize};
 use std::fs::create_dir_all;
 use tempfile::TempDir;
@@ -15,7 +16,7 @@ struct LogEntry {
     message: String,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     // Set up a temporary directory with partitioned log files
     let temp = TempDir::new()?;
     let base = temp.path();

@@ -7,12 +7,12 @@
 
 use anyhow::Result;
 use ironbeam::testing::{
-    assert_all, assert_any, assert_collection_size, assert_collections_equal, assert_contains, assert_grouped_kv_equal,
+    KVTestDataBuilder, PCollectionDebugExt, TestDataBuilder, TestPipeline, assert_all, assert_any,
+    assert_collection_size, assert_collections_equal, assert_contains, assert_grouped_kv_equal,
     assert_kv_collections_equal, product_metadata, sample_log_entries, sequential_data,
     skewed_key_value_data, time_series_data, user_product_interactions, word_count_data,
-    KVTestDataBuilder, PCollectionDebugExt, TestDataBuilder, TestPipeline,
 };
-use ironbeam::{from_vec, Count, Sum};
+use ironbeam::{Count, Sum, from_vec};
 
 fn main() -> Result<()> {
     println!("🧪 Ironbeam Pipeline Testing Examples\n");

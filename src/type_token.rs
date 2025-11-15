@@ -12,7 +12,7 @@
 //! execution. All operations are safe and return `None` if the dynamic type does not
 //! match the expected `Vec<T>`.
 
-use std::any::{type_name, Any, TypeId};
+use std::any::{Any, TypeId, type_name};
 use std::marker::PhantomData;
 use std::sync::Arc;
 

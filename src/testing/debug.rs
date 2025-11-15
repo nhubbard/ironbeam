@@ -6,6 +6,7 @@
 use crate::collection::{PCollection, RFBound};
 use crate::node::{DynOp, Node};
 use crate::type_token::Partition;
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -28,7 +29,7 @@ impl<T, F> DebugInspectOp<T, F> {
 
 impl<T, F> DynOp for DebugInspectOp<T, F>
 where
-    T: RFBound + std::fmt::Debug,
+    T: RFBound + Debug,
     F: Fn(&T) + Send + Sync + 'static,
 {
     fn apply(&self, input: Partition) -> Partition {
@@ -47,7 +48,11 @@ where
         }
 
         if v.len() > 10 {
-            eprintln!("[Debug: {}] ... ({} more elements)", self.label, v.len() - 10);
+            eprintln!(
+                "[Debug: {}] ... ({} more elements)",
+                self.label,
+                v.len() - 10
+            );
         }
 
         Box::new(*v) as Partition
@@ -71,9 +76,7 @@ impl<T> DebugCountOp<T> {
 
 impl<T: RFBound> DynOp for DebugCountOp<T> {
     fn apply(&self, input: Partition) -> Partition {
-        let v = input
-            .downcast::<Vec<T>>()
-            .expect("DebugCountOp input type");
+        let v = input.downcast::<Vec<T>>().expect("DebugCountOp input type");
 
         eprintln!("[Debug: {}] Count: {} elements", self.label, v.len());
 
@@ -98,7 +101,7 @@ impl<T> DebugSampleOp<T> {
     }
 }
 
-impl<T: RFBound + std::fmt::Debug> DynOp for DebugSampleOp<T> {
+impl<T: RFBound + Debug> DynOp for DebugSampleOp<T> {
     fn apply(&self, input: Partition) -> Partition {
         let v = input
             .downcast::<Vec<T>>()
@@ -134,8 +137,9 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// ```no_run
     /// use ironbeam::*;
     /// use ironbeam::testing::PCollectionDebugExt;
+    /// use anyhow::Result;
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let result = from_vec(&p, vec![1, 2, 3])
     ///     .debug_inspect("after source")
@@ -147,7 +151,7 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// ```
     fn debug_inspect(&self, label: &str) -> PCollection<T>
     where
-        T: std::fmt::Debug;
+        T: Debug;
 
     /// Insert a debug inspection point with a custom inspector function.
     ///
@@ -159,8 +163,9 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// ```no_run
     /// use ironbeam::*;
     /// use ironbeam::testing::PCollectionDebugExt;
+    /// use anyhow::Result;
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let result = from_vec(&p, vec![1, 2, 3])
     ///     .debug_inspect_with("custom", |x: &i32| {
@@ -172,7 +177,7 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// ```
     fn debug_inspect_with<F>(&self, label: &str, inspector: F) -> PCollection<T>
     where
-        T: std::fmt::Debug,
+        T: Debug,
         F: Fn(&T) + Send + Sync + 'static;
 
     /// Insert a debug count point that prints the number of elements.
@@ -182,8 +187,9 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// ```no_run
     /// use ironbeam::*;
     /// use ironbeam::testing::PCollectionDebugExt;
+    /// use anyhow::Result;
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let result = from_vec(&p, vec![1, 2, 3, 4, 5])
     ///     .filter(|x: &i32| x % 2 == 0)
@@ -201,8 +207,9 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// ```no_run
     /// use ironbeam::*;
     /// use ironbeam::testing::PCollectionDebugExt;
+    /// use anyhow::Result;
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let result = from_vec(&p, (1..=100).collect::<Vec<_>>())
     ///     .debug_sample(5, "first 5 elements")
@@ -212,20 +219,20 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// ```
     fn debug_sample(&self, n: usize, label: &str) -> PCollection<T>
     where
-        T: std::fmt::Debug;
+        T: Debug;
 }
 
 impl<T: RFBound> PCollectionDebugExt<T> for PCollection<T> {
     fn debug_inspect(&self, label: &str) -> Self
     where
-        T: std::fmt::Debug,
+        T: Debug,
     {
         self.debug_inspect_with(label, |_| {})
     }
 
     fn debug_inspect_with<F>(&self, label: &str, inspector: F) -> Self
     where
-        T: std::fmt::Debug,
+        T: Debug,
         F: Fn(&T) + Send + Sync + 'static,
     {
         let op = DebugInspectOp::new(label.to_string(), inspector);
@@ -257,7 +264,7 @@ impl<T: RFBound> PCollectionDebugExt<T> for PCollection<T> {
 
     fn debug_sample(&self, n: usize, label: &str) -> Self
     where
-        T: std::fmt::Debug,
+        T: Debug,
     {
         let op: DebugSampleOp<T> = DebugSampleOp::new(label.to_string(), n);
         let id = self

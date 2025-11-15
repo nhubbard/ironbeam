@@ -1,5 +1,6 @@
 //! Integration tests for glob pattern support in file readers.
 
+use anyhow::Result;
 use ironbeam::testing::*;
 use ironbeam::*;
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,7 @@ struct Record {
 
 #[cfg(feature = "io-jsonl")]
 #[test]
-fn test_jsonl_glob_pattern() -> anyhow::Result<()> {
+fn test_jsonl_glob_pattern() -> Result<()> {
     let dir = TempDir::new()?;
     let base = dir.path();
 
@@ -65,7 +66,7 @@ fn test_jsonl_glob_pattern() -> anyhow::Result<()> {
 
 #[cfg(feature = "io-jsonl")]
 #[test]
-fn test_jsonl_single_file() -> anyhow::Result<()> {
+fn test_jsonl_single_file() -> Result<()> {
     let dir = TempDir::new()?;
     let file = dir.path().join("data.jsonl");
 
@@ -111,7 +112,7 @@ fn test_jsonl_no_matches() {
 
 #[cfg(feature = "io-csv")]
 #[test]
-fn test_csv_glob_pattern() -> anyhow::Result<()> {
+fn test_csv_glob_pattern() -> Result<()> {
     let dir = TempDir::new()?;
     let base = dir.path();
 
@@ -162,7 +163,7 @@ fn test_csv_glob_pattern() -> anyhow::Result<()> {
 
 #[cfg(feature = "io-csv")]
 #[test]
-fn test_csv_single_file() -> anyhow::Result<()> {
+fn test_csv_single_file() -> Result<()> {
     let dir = TempDir::new()?;
     let file = dir.path().join("data.csv");
 
@@ -194,7 +195,7 @@ fn test_csv_single_file() -> anyhow::Result<()> {
 
 #[cfg(feature = "io-parquet")]
 #[test]
-fn test_parquet_glob_pattern() -> anyhow::Result<()> {
+fn test_parquet_glob_pattern() -> Result<()> {
     let dir = TempDir::new()?;
     let base = dir.path();
 
@@ -245,7 +246,7 @@ fn test_parquet_glob_pattern() -> anyhow::Result<()> {
 
 #[cfg(feature = "io-parquet")]
 #[test]
-fn test_parquet_single_file() -> anyhow::Result<()> {
+fn test_parquet_single_file() -> Result<()> {
     let dir = TempDir::new()?;
     let file = dir.path().join("data.parquet");
 
@@ -277,7 +278,7 @@ fn test_parquet_single_file() -> anyhow::Result<()> {
 
 #[cfg(feature = "io-jsonl")]
 #[test]
-fn test_jsonl_date_partitions() -> anyhow::Result<()> {
+fn test_jsonl_date_partitions() -> Result<()> {
     let dir = TempDir::new()?;
     let base = dir.path();
 
@@ -319,7 +320,7 @@ fn test_jsonl_date_partitions() -> anyhow::Result<()> {
 
 #[cfg(feature = "io-csv")]
 #[test]
-fn test_csv_deterministic_order() -> anyhow::Result<()> {
+fn test_csv_deterministic_order() -> Result<()> {
     let dir = TempDir::new()?;
     let base = dir.path();
 
@@ -368,7 +369,7 @@ fn test_csv_deterministic_order() -> anyhow::Result<()> {
 mod glob_unit_tests {
     use anyhow::Result;
     use ironbeam::io::glob::{expand_glob, expand_glob_required};
-    use std::fs::{create_dir_all, File};
+    use std::fs::{File, create_dir_all};
     use tempfile::TempDir;
 
     #[test]

@@ -1,7 +1,7 @@
 //! Distinct value combiners: `DistinctCount`, `DistinctSet`, `KMVApproxDistinctCount`
 
-use crate::collection::{CombineFn, LiftableCombiner};
 use crate::RFBound;
+use crate::collection::{CombineFn, LiftableCombiner};
 use ordered_float::NotNan;
 use std::collections::{BinaryHeap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};

@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use ironbeam::testing::*;
-use ironbeam::{read_jsonl_streaming, Count};
+use ironbeam::{Count, read_jsonl_streaming};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

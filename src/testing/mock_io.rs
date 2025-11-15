@@ -4,8 +4,12 @@
 //! temporary files and in-memory data.
 
 use serde::Serialize;
+use serde::de::DeserializeOwned;
+use serde_json::{from_str, to_string};
+use std::fs::File;
+use std::io::Result as IoResult;
 use std::path::{Path, PathBuf};
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::{Builder, NamedTempFile, TempDir};
 
 /// A temporary file that is automatically deleted when dropped.
 ///
@@ -23,7 +27,7 @@ impl TempFilePath {
     /// # Errors
     ///
     /// Returns an error if the temporary file cannot be created.
-    pub fn new() -> std::io::Result<Self> {
+    pub fn new() -> IoResult<Self> {
         let temp_file = NamedTempFile::new()?;
         let path = temp_file.path().to_path_buf();
         Ok(Self { temp_file, path })
@@ -34,10 +38,8 @@ impl TempFilePath {
     /// # Errors
     ///
     /// Returns an error if the temporary file cannot be created.
-    pub fn with_extension(extension: &str) -> std::io::Result<Self> {
-        let temp_file = tempfile::Builder::new()
-            .suffix(&format!(".{extension}"))
-            .tempfile()?;
+    pub fn with_extension(extension: &str) -> IoResult<Self> {
+        let temp_file = Builder::new().suffix(&format!(".{extension}")).tempfile()?;
         let path = temp_file.path().to_path_buf();
         Ok(Self { temp_file, path })
     }
@@ -68,7 +70,7 @@ impl TempDirPath {
     /// # Errors
     ///
     /// Returns an error if the temporary directory cannot be created.
-    pub fn new() -> std::io::Result<Self> {
+    pub fn new() -> IoResult<Self> {
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path().to_path_buf();
         Ok(Self { temp_dir, path })
@@ -120,14 +122,14 @@ impl Default for TempDirPath {
 /// // Use temp_file.path() for testing
 /// ```
 #[cfg(feature = "io-csv")]
-pub fn mock_csv_file<T: Serialize>(data: &[T], with_header: bool) -> std::io::Result<TempFilePath> {
+pub fn mock_csv_file<T: Serialize>(data: &[T], with_header: bool) -> IoResult<TempFilePath> {
     use csv::Writer;
 
     let temp = TempFilePath::with_extension("csv")?;
     let mut writer = if with_header {
         Writer::from_path(temp.path())?
     } else {
-        Writer::from_writer(std::fs::File::create(temp.path())?)
+        Writer::from_writer(File::create(temp.path())?)
     };
 
     for record in data {
@@ -165,14 +167,14 @@ pub fn mock_csv_file<T: Serialize>(data: &[T], with_header: bool) -> std::io::Re
 /// // Use temp_file.path() for testing
 /// ```
 #[cfg(feature = "io-jsonl")]
-pub fn mock_jsonl_file<T: Serialize>(data: &[T]) -> std::io::Result<TempFilePath> {
+pub fn mock_jsonl_file<T: Serialize>(data: &[T]) -> IoResult<TempFilePath> {
     use std::io::Write;
 
     let temp = TempFilePath::with_extension("jsonl")?;
-    let mut file = std::fs::File::create(temp.path())?;
+    let mut file = File::create(temp.path())?;
 
     for record in data {
-        let json = serde_json::to_string(record)?;
+        let json = to_string(record)?;
         writeln!(file, "{json}")?;
     }
 
@@ -202,9 +204,7 @@ pub fn mock_jsonl_file<T: Serialize>(data: &[T]) -> std::io::Result<TempFilePath
 /// assert_eq!(records.len(), 2);
 /// ```
 #[cfg(feature = "io-csv")]
-pub fn read_csv_output<T: serde::de::DeserializeOwned, P: AsRef<Path>>(
-    path: P,
-) -> std::io::Result<Vec<T>> {
+pub fn read_csv_output<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> IoResult<Vec<T>> {
     use csv::Reader;
 
     let mut reader = Reader::from_path(path)?;
@@ -239,19 +239,17 @@ pub fn read_csv_output<T: serde::de::DeserializeOwned, P: AsRef<Path>>(
 /// assert_eq!(records.len(), 2);
 /// ```
 #[cfg(feature = "io-jsonl")]
-pub fn read_jsonl_output<T: serde::de::DeserializeOwned, P: AsRef<Path>>(
-    path: P,
-) -> std::io::Result<Vec<T>> {
+pub fn read_jsonl_output<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> IoResult<Vec<T>> {
     use std::io::{BufRead, BufReader};
 
-    let file = std::fs::File::open(path)?;
+    let file = File::open(path)?;
     let reader = BufReader::new(file);
     let mut records = Vec::new();
 
     for line in reader.lines() {
         let line = line?;
         if !line.trim().is_empty() {
-            let record: T = serde_json::from_str(&line)?;
+            let record: T = from_str(&line)?;
             records.push(record);
         }
     }
@@ -287,15 +285,24 @@ pub fn read_jsonl_output<T: serde::de::DeserializeOwned, P: AsRef<Path>>(
 #[cfg(feature = "io-csv")]
 pub fn assert_csv_equals<T, P>(path: P, expected: &[T])
 where
-    T: serde::de::DeserializeOwned + std::fmt::Debug + PartialEq,
+    T: DeserializeOwned + std::fmt::Debug + PartialEq,
     P: AsRef<Path>,
 {
     let actual: Vec<T> = read_csv_output(path).expect("Failed to read CSV file");
 
-    assert_eq!(actual.len(), expected.len(), "CSV record count mismatch:\n  Expected: {} records\n  Actual: {} records", expected.len(), actual.len());
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "CSV record count mismatch:\n  Expected: {} records\n  Actual: {} records",
+        expected.len(),
+        actual.len()
+    );
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
-        assert_eq!(a, e, "CSV record mismatch at index {i}:\n  Expected: {e:?}\n  Actual: {a:?}");
+        assert_eq!(
+            a, e,
+            "CSV record mismatch at index {i}:\n  Expected: {e:?}\n  Actual: {a:?}"
+        );
     }
 }
 
@@ -327,15 +334,24 @@ where
 #[cfg(feature = "io-jsonl")]
 pub fn assert_jsonl_equals<T, P>(path: P, expected: &[T])
 where
-    T: serde::de::DeserializeOwned + std::fmt::Debug + PartialEq,
+    T: DeserializeOwned + std::fmt::Debug + PartialEq,
     P: AsRef<Path>,
 {
     let actual: Vec<T> = read_jsonl_output(path).expect("Failed to read JSONL file");
 
-    assert_eq!(actual.len(), expected.len(), "JSONL record count mismatch:\n  Expected: {} records\n  Actual: {} records", expected.len(), actual.len());
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "JSONL record count mismatch:\n  Expected: {} records\n  Actual: {} records",
+        expected.len(),
+        actual.len()
+    );
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
-        assert_eq!(a, e, "JSONL record mismatch at index {i}:\n  Expected: {e:?}\n  Actual: {a:?}");
+        assert_eq!(
+            a, e,
+            "JSONL record mismatch at index {i}:\n  Expected: {e:?}\n  Actual: {a:?}"
+        );
     }
 }
 

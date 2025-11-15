@@ -14,6 +14,7 @@
 //! # Example
 //!
 //! ```no_run
+//! # use anyhow::Result;
 //! use ironbeam::*;
 //! use ironbeam::metrics::{MetricsCollector, Metric};
 //! use serde_json::Value;
@@ -37,7 +38,7 @@
 //!     }
 //! }
 //!
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> Result<()> {
 //! let p = Pipeline::default();
 //!
 //! // Enable metrics collection
@@ -60,8 +61,9 @@
 //! ```
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Map, Value, json, to_string_pretty};
 use std::any::Any;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -228,10 +230,10 @@ impl MetricsCollector {
     #[must_use]
     pub fn to_json(&self) -> Value {
         let inner = self.inner.lock().unwrap();
-        let mut metrics_json = serde_json::Map::new();
+        let mut metrics_json = Map::new();
 
         for (name, metric) in &inner.metrics {
-            let mut metric_obj = serde_json::Map::new();
+            let mut metric_obj = Map::new();
             metric_obj.insert("value".to_string(), metric.value());
             if let Some(desc) = metric.description() {
                 metric_obj.insert("description".to_string(), json!(desc));
@@ -242,7 +244,7 @@ impl MetricsCollector {
         // Add execution time if available
         if let (Some(start), Some(end)) = (inner.start_time, inner.end_time) {
             let elapsed_ms = end.duration_since(start).as_millis();
-            let mut time_obj = serde_json::Map::new();
+            let mut time_obj = Map::new();
             time_obj.insert("value".to_string(), json!(elapsed_ms));
             time_obj.insert(
                 "description".to_string(),
@@ -297,7 +299,7 @@ impl MetricsCollector {
     pub fn save_to_file(&self, path: &str) -> Result<()> {
         let json = self.to_json();
         let mut file = File::create(path)?;
-        let formatted = serde_json::to_string_pretty(&json)?;
+        let formatted = to_string_pretty(&json)?;
         file.write_all(formatted.as_bytes())?;
         Ok(())
     }
@@ -454,7 +456,7 @@ impl HistogramMetric {
         }
 
         let mut sorted = self.values.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
         let count = sorted.len();
         let sum: f64 = sorted.iter().sum();

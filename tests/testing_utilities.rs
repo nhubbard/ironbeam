@@ -1,10 +1,11 @@
 //! Integration tests demonstrating the testing utilities.
 
+use anyhow::Result;
 use ironbeam::testing::*;
 use ironbeam::*;
 
 #[test]
-fn test_basic_pipeline_with_assertions() -> anyhow::Result<()> {
+fn test_basic_pipeline_with_assertions() -> Result<()> {
     let p = TestPipeline::new();
 
     let result = from_vec(&p, vec![1, 2, 3])
@@ -16,7 +17,7 @@ fn test_basic_pipeline_with_assertions() -> anyhow::Result<()> {
 }
 
 #[test]
-fn test_unordered_comparison() -> anyhow::Result<()> {
+fn test_unordered_comparison() -> Result<()> {
     let p = TestPipeline::new();
 
     let result = from_vec(&p, vec![3, 1, 2])
@@ -28,7 +29,7 @@ fn test_unordered_comparison() -> anyhow::Result<()> {
 }
 
 #[test]
-fn test_kv_operations() -> anyhow::Result<()> {
+fn test_kv_operations() -> Result<()> {
     let p = TestPipeline::new();
 
     let kvs = KVTestDataBuilder::new()
@@ -44,7 +45,7 @@ fn test_kv_operations() -> anyhow::Result<()> {
 }
 
 #[test]
-fn test_with_fixtures() -> anyhow::Result<()> {
+fn test_with_fixtures() -> Result<()> {
     let p = TestPipeline::new();
 
     let logs = sample_log_entries();
@@ -58,7 +59,7 @@ fn test_with_fixtures() -> anyhow::Result<()> {
 }
 
 #[test]
-fn test_predicate_assertions() -> anyhow::Result<()> {
+fn test_predicate_assertions() -> Result<()> {
     let p = TestPipeline::new();
 
     let result = from_vec(&p, vec![2, 4, 6, 8])
@@ -72,7 +73,7 @@ fn test_predicate_assertions() -> anyhow::Result<()> {
 }
 
 #[test]
-fn test_pipeline_graph_inspection() -> anyhow::Result<()> {
+fn test_pipeline_graph_inspection() -> Result<()> {
     let p = TestPipeline::new();
 
     let _result = from_vec(&p, vec![1, 2, 3])
@@ -111,7 +112,7 @@ fn test_pseudo_random_determinism() {
 }
 
 #[test]
-fn test_word_count_with_fixtures() -> anyhow::Result<()> {
+fn test_word_count_with_fixtures() -> Result<()> {
     let p = TestPipeline::new();
 
     let words = word_count_data();
@@ -131,7 +132,7 @@ fn test_word_count_with_fixtures() -> anyhow::Result<()> {
 }
 
 #[test]
-fn test_aggregation_with_sum() -> anyhow::Result<()> {
+fn test_aggregation_with_sum() -> Result<()> {
     let p = TestPipeline::new();
 
     let kvs = vec![("a", 10), ("b", 20), ("a", 30), ("b", 40)];
@@ -152,7 +153,7 @@ fn test_contains_assertion() {
 }
 
 #[test]
-fn test_collection_size_assertion() -> anyhow::Result<()> {
+fn test_collection_size_assertion() -> Result<()> {
     let p = TestPipeline::new();
 
     let result = from_vec(&p, vec![1, 2, 3, 4, 5])

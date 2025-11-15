@@ -1,8 +1,9 @@
+use anyhow::Result;
 use ironbeam::from_vec;
 use ironbeam::testing::*;
 
 #[test]
-fn par_equals_seq_after_sort() -> anyhow::Result<()> {
+fn par_equals_seq_after_sort() -> Result<()> {
     let p = TestPipeline::new();
     let col = from_vec(
         &p,

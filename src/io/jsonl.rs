@@ -12,14 +12,16 @@
 //! - The parallel writer preserves **deterministic file order** by joining shard
 //!   outputs in index order.
 
+use crate::Partition;
 use crate::io::compression::{auto_detect_reader, auto_detect_writer};
 use crate::type_token::VecOps;
-use crate::Partition;
 use anyhow::{Context, Result};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::{from_str, to_writer};
 use std::any::Any;
-use std::fs::{create_dir_all, File};
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::fs::{File, create_dir_all, remove_file};
+use std::io::{BufRead, BufReader, BufWriter, Write, copy};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -45,7 +47,7 @@ pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec
         if line.trim().is_empty() {
             continue;
         }
-        let v: T = serde_json::from_str(&line).with_context(|| {
+        let v: T = from_str(&line).with_context(|| {
             format!("parse JSONL line {} in {}: {}", i + 1, path.display(), line)
         })?;
         out.push(v);
@@ -78,7 +80,7 @@ pub fn write_jsonl_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Resu
     let mut w = auto_detect_writer(f, path)
         .with_context(|| format!("setup compression for {}", path.display()))?;
     for (i, item) in data.iter().enumerate() {
-        serde_json::to_writer(&mut w, item)
+        to_writer(&mut w, item)
             .with_context(|| format!("serialize item #{} to {}", i, path.display()))?;
         w.write_all(b"\n")?;
     }
@@ -136,7 +138,7 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
             let f = File::create(p).with_context(|| format!("create {}", p.display()))?;
             let mut w = BufWriter::new(f);
             for item in &data[start..end] {
-                serde_json::to_writer(&mut w, item)?;
+                to_writer(&mut w, item)?;
                 w.write_all(b"\n")?;
             }
             w.flush()?;
@@ -147,11 +149,11 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
     let mut out = BufWriter::new(File::create(path)?);
     for p in &shard_paths {
         let mut r = BufReader::new(File::open(p)?);
-        std::io::copy(&mut r, &mut out)?;
+        copy(&mut r, &mut out)?;
     }
     out.flush()?;
     for p in shard_paths {
-        let _ = std::fs::remove_file(p);
+        let _ = remove_file(p);
     }
     Ok(n)
 }
@@ -251,7 +253,7 @@ pub fn read_jsonl_range<T: DeserializeOwned>(
         if line.trim().is_empty() {
             continue;
         }
-        let v: T = serde_json::from_str(&line)
+        let v: T = from_str(&line)
             .with_context(|| format!("parse JSONL line {} in {}", i + 1, src.path.display()))?;
         out.push(v);
     }
@@ -265,13 +267,13 @@ pub fn read_jsonl_range<T: DeserializeOwned>(
 /// (`clone_any`) for sequential paths.
 ///
 /// Requires `T: DeserializeOwned + Clone + Send + Sync + 'static`.
-pub struct JsonlVecOps<T>(std::marker::PhantomData<T>);
+pub struct JsonlVecOps<T>(PhantomData<T>);
 
 impl<T> JsonlVecOps<T> {
     /// Construct an `Arc` to the adapter.
     #[must_use]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self(std::marker::PhantomData))
+        Arc::new(Self(PhantomData))
     }
 }
 

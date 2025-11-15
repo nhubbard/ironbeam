@@ -14,9 +14,10 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use ironbeam::testing::*;
+//! # use anyhow::Result;
 //!
 //! #[test]
-//! fn test_simple_pipeline() -> anyhow::Result<()> {
+//! fn test_simple_pipeline() -> Result<()> {
 //!     let p = TestPipeline::new();
 //!
 //!     let result = from_vec(&p, vec![1, 2, 3])
@@ -59,8 +60,9 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use ironbeam::testing::*;
+//! # use anyhow::Result;
 //!
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> Result<()> {
 //! let p = TestPipeline::new();
 //! let result = from_vec(&p, vec![1, 2, 3])
 //!     .debug_inspect("after source")
@@ -79,6 +81,7 @@ pub mod fixtures;
 #[cfg(any(feature = "io-csv", feature = "io-jsonl", feature = "io-parquet"))]
 pub mod mock_io;
 
+use std::ops::Deref;
 // Re-export commonly used items
 pub use assertions::*;
 pub use builders::*;
@@ -160,7 +163,7 @@ impl Default for TestPipeline {
 }
 
 // Allow TestPipeline to be used wherever Pipeline is expected
-impl std::ops::Deref for TestPipeline {
+impl Deref for TestPipeline {
     type Target = Pipeline;
 
     fn deref(&self) -> &Self::Target {

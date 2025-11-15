@@ -124,11 +124,12 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
+//! # use anyhow::Result;
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
 //! struct Record { id: u32, name: String }
 //!
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> Result<()> {
 //! let p = Pipeline::default();
 //!
 //! // Read entire file into memory
@@ -147,11 +148,12 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
+//! # use anyhow::Result;
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
 //! struct Row { k: String, v: u64 }
 //!
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> Result<()> {
 //! let p = Pipeline::default();
 //! let data = read_csv::<Row>(&p, "data.csv", true)?; // true = has headers
 //! data.write_csv("output.csv", true)?;
@@ -163,11 +165,12 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
+//! # use anyhow::Result;
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
 //! struct Record { id: u32, score: f64 }
 //!
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> Result<()> {
 //! let p = Pipeline::default();
 //! let data = read_parquet_streaming::<Record>(&p, "data.parquet", 1)?;
 //! data.write_parquet("output.parquet")?;
@@ -358,9 +361,10 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use ironbeam::testing::*;
+//! use anyhow::Result;
 //!
 //! #[test]
-//! fn test_simple_pipeline() -> anyhow::Result<()> {
+//! fn test_simple_pipeline() -> Result<()> {
 //!     let p = TestPipeline::new();
 //!
 //!     let result = from_vec(&p, vec![1, 2, 3])
@@ -404,8 +408,9 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use ironbeam::testing::*;
+//! # use anyhow::Result;
 //!
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> Result<()> {
 //! let p = TestPipeline::new();
 //! let result = from_vec(&p, vec![1, 2, 3])
 //!     .debug_inspect("after source")  // Prints elements to stderr
@@ -466,7 +471,7 @@
 //! Ironbeam provides several extension points for adding custom functionality:
 //!
 //! ### Custom Transforms
-//! Implement [`node::DynOp`] to create custom stateless transformations:
+//! Implement [`DynOp`] to create custom stateless transformations:
 //! ```no_run
 //! use ironbeam::*;
 //! use ironbeam::node::DynOp;
@@ -487,11 +492,11 @@
 //! ```
 //!
 //! ### Custom I/O Sources
-//! Implement [`type_token::VecOps`] to integrate custom data sources.
+//! Implement [`VecOps`] to integrate custom data sources.
 //! See [`from_custom_source`] for a complete example.
 //!
 //! ### Composite Transforms
-//! Use [`extensions::CompositeTransform`] to package reusable pipelines:
+//! Use [`CompositeTransform`] to package reusable pipelines:
 //! ```no_run
 //! use ironbeam::*;
 //! use ironbeam::extensions::CompositeTransform;
@@ -534,7 +539,7 @@ pub use helpers::*;
 pub use node_id::NodeId;
 pub use pipeline::Pipeline;
 pub use planner::{
-    build_plan, CostEstimate, ExecutionExplanation, ExplainStep, OptimizationDecision, Plan,
+    CostEstimate, ExecutionExplanation, ExplainStep, OptimizationDecision, Plan, build_plan,
 };
 pub use runner::{ExecMode, Runner};
 pub use type_token::Partition;

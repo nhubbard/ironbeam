@@ -1,7 +1,7 @@
 //! Top-K combiner for selecting the largest values
 
-use crate::collection::{CombineFn, LiftableCombiner};
 use crate::RFBound;
+use crate::collection::{CombineFn, LiftableCombiner};
 use std::cmp::{Ord, Reverse};
 use std::collections::BinaryHeap;
 use std::marker::PhantomData;

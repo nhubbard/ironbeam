@@ -1,8 +1,9 @@
+use anyhow::Result;
 use ironbeam::testing::*;
 use ironbeam::*;
 
 #[test]
-fn distinct_global_exact() -> anyhow::Result<()> {
+fn distinct_global_exact() -> Result<()> {
     let p = TestPipeline::new();
     let out = from_vec(&p, vec![1, 1, 2, 3, 3, 3]).distinct();
     let mut v = out.collect_seq()?;
@@ -12,7 +13,7 @@ fn distinct_global_exact() -> anyhow::Result<()> {
 }
 
 #[test]
-fn distinct_per_key_exact() -> anyhow::Result<()> {
+fn distinct_per_key_exact() -> Result<()> {
     let p = TestPipeline::new();
     let kv = vec![
         ("a".to_string(), 1),
@@ -36,7 +37,7 @@ fn distinct_per_key_exact() -> anyhow::Result<()> {
 }
 
 #[test]
-fn approx_distinct_global_kmv() -> anyhow::Result<()> {
+fn approx_distinct_global_kmv() -> Result<()> {
     let p = TestPipeline::new();
     // 10_000 values with ~1234 uniques
     let pc = from_vec(&p, (0..10_000u64).map(|n| n % 1234).collect::<Vec<_>>());
@@ -47,7 +48,7 @@ fn approx_distinct_global_kmv() -> anyhow::Result<()> {
 }
 
 #[test]
-fn approx_distinct_per_key_kmv() -> anyhow::Result<()> {
+fn approx_distinct_per_key_kmv() -> Result<()> {
     let p = TestPipeline::new();
     // Two keys with different cardinalities
     let mut data = Vec::new();

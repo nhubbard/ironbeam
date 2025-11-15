@@ -68,12 +68,10 @@ fn test_explain_with_optimizations() -> Result<()> {
     );
 
     // Check for stateless fusion optimization
-    let has_fusion = explanation.optimizations.iter().any(|opt| {
-        matches!(
-            opt,
-            OptimizationDecision::FusedStateless { .. }
-        )
-    });
+    let has_fusion = explanation
+        .optimizations
+        .iter()
+        .any(|opt| matches!(opt, OptimizationDecision::FusedStateless { .. }));
     assert!(has_fusion, "Expected stateless fusion optimization");
 
     // Print the explanation for manual inspection

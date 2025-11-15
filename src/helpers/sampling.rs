@@ -17,6 +17,7 @@
 
 use crate::combiners::PriorityReservoir;
 use crate::{PCollection, RFBound};
+use core::hash::Hash;
 
 impl<T: RFBound> PCollection<T> {
     /// Sample **k** elements globally using a priority reservoir and return a single `Vec<T>`.
@@ -38,7 +39,7 @@ impl<T: RFBound> PCollection<T> {
     }
 }
 
-impl<K: RFBound + Eq + core::hash::Hash, V: RFBound> PCollection<(K, V)> {
+impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// Per-key reservoir sample of values (size **k** per key), returns `(K, Vec<V>)`.
     ///
     /// Implemented via **lifted** combine so it can skip an explicit `group_by_key`

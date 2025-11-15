@@ -3,7 +3,7 @@
 //! These helpers let you express transformations that may fail on a per-element
 //! basis while keeping the pipeline type-safe. Results are wrapped in
 //! `Result<_, E>` and can be surfaced or short-circuited at the end with
-//! [`collect_fail_fast`].
+//! [`crate::PCollection::collect_fail_fast`].
 //!
 //! ## When to use
 //! - You have parsing/validation/IO-lite logic that can fail per record, and you
@@ -31,7 +31,7 @@
 //! ```
 
 use crate::{PCollection, RFBound};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::fmt::Display;
 
 impl<T: RFBound> PCollection<T> {

@@ -13,8 +13,8 @@
 //! The graph is intentionally simple--no complex dependency tracking--since
 //! execution occurs in topologically sorted linear chains rather than arbitrary DAGs.
 
-use crate::node::Node;
 use crate::NodeId;
+use crate::node::Node;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

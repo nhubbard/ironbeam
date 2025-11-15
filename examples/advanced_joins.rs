@@ -80,9 +80,7 @@ fn main() -> Result<()> {
     for (user_id, ((order_id, product), maybe_name)) in left_results {
         match maybe_name {
             Some(name) => println!("  Order #{order_id}: {name} ordered {product}"),
-            None => println!(
-                "  Order #{order_id}: Unknown user {user_id} ordered {product}"
-            ),
+            None => println!("  Order #{order_id}: Unknown user {user_id} ordered {product}"),
         }
     }
 
@@ -116,14 +114,10 @@ fn main() -> Result<()> {
     for (user_id, (maybe_order, maybe_name)) in full_results {
         match (maybe_order, maybe_name) {
             (Some((order_id, product)), Some(name)) => {
-                println!(
-                    "  User {user_id}: {name} ordered {product} (Order #{order_id})"
-                );
+                println!("  User {user_id}: {name} ordered {product} (Order #{order_id})");
             }
             (Some((order_id, product)), None) => {
-                println!(
-                    "  User {user_id}: Unknown user ordered {product} (Order #{order_id})"
-                );
+                println!("  User {user_id}: Unknown user ordered {product} (Order #{order_id})");
             }
             (None, Some(name)) => {
                 println!("  User {user_id}: {name} has no orders");
@@ -162,9 +156,7 @@ fn main() -> Result<()> {
     println!("Order# | Customer | Product   | Price");
     println!("{:-<50}", "");
     for (product, ((order_id, name), price)) in enriched {
-        println!(
-            "{order_id:<7}| {name:<9}| {product:<10}| ${price:.2}"
-        );
+        println!("{order_id:<7}| {name:<9}| {product:<10}| ${price:.2}");
     }
 
     println!("\n✅ Joins Complete!");

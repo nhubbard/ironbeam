@@ -21,8 +21,9 @@
 //! Inner / left / right / full joins:
 //! ```no_run
 //! use ironbeam::*;
+//! use anyhow::Result;
 //!
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> Result<()> {
 //! let p = Pipeline::default();
 //! let left  = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 2), ("b".to_string(), 3)]);
 //! let right = from_vec(&p, vec![("a".to_string(), "x".to_string()), ("c".to_string(), "y".to_string())]);
@@ -41,9 +42,9 @@
 //! ```
 
 use crate::node::Node;
-use crate::type_token::{vec_ops_for, TypeTag};
+use crate::type_token::{TypeTag, vec_ops_for};
 use crate::{NodeId, PCollection, Partition, Pipeline, RFBound};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -101,8 +102,9 @@ where
     /// # Example
     /// ```no_run
     /// use ironbeam::*;
+    /// use anyhow::Result;
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let left  = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 3u32)]);
     /// let right = from_vec(&p, vec![("a".to_string(), "x".to_string())]);
@@ -201,8 +203,9 @@ where
     /// # Example
     /// ```no_run
     /// use ironbeam::*;
+    /// use anyhow::Result;
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let left  = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 3u32)]);
     /// let right = from_vec(&p, vec![("a".to_string(), "x".to_string())]);
@@ -305,8 +308,9 @@ where
     /// # Example
     /// ```no_run
     /// use ironbeam::*;
+    /// use anyhow::Result;
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let left  = from_vec(&p, vec![("a".to_string(), 1u32)]);
     /// let right = from_vec(&p, vec![("a".to_string(), "x".to_string()), ("c".to_string(), "y".to_string())]);
@@ -410,8 +414,9 @@ where
     /// # Example
     /// ```no_run
     /// use ironbeam::*;
+    /// use anyhow::Result;
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let left  = from_vec(&p, vec![("a".to_string(), 1u32)]);
     /// let right = from_vec(&p, vec![("a".to_string(), "x".to_string()), ("c".to_string(), "y".to_string())]);

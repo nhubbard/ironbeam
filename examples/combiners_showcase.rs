@@ -9,8 +9,8 @@
 //! Run with: `cargo run --example combiners_showcase`
 
 use anyhow::Result;
-use ironbeam::combiners::{Sum, Min, Max, AverageF64, DistinctCount, ApproxQuantiles};
-use ironbeam::{Pipeline, from_vec, Count, OrdF64};
+use ironbeam::combiners::{ApproxQuantiles, AverageF64, DistinctCount, Max, Min, Sum};
+use ironbeam::{Count, OrdF64, Pipeline, from_vec};
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {

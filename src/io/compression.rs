@@ -23,7 +23,8 @@
 //! ```no_run
 //! use ironbeam::io::compression::{auto_detect_reader, auto_detect_writer};
 //! use std::fs::File;
-//! # fn main() -> anyhow::Result<()> {
+//! use anyhow::Result;
+//! # fn main() -> Result<()> {
 //!
 //! // Automatically detects .gz and wraps with decompressor
 //! let file = File::open("data.json.gz")?;
@@ -82,9 +83,14 @@
 //! simple pass-throughs with minimal overhead.
 
 use anyhow::{Context, Result};
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Result as IoResult, Write};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+
+#[cfg(feature = "compression-zstd")]
+use zstd::stream::read::Decoder;
+#[cfg(feature = "compression-zstd")]
+use zstd::stream::write::Encoder;
 
 /// Global codec registry for pluggable compression support.
 static CODEC_REGISTRY: RwLock<Option<Vec<Arc<dyn CompressionCodec>>>> = RwLock::new(None);
@@ -181,7 +187,7 @@ pub trait CompressionCodec: Send + Sync {
     /// # Errors
     ///
     /// You must handle errors appropriately and return an [`std::io::Result`] accordingly.
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> std::io::Result<Box<dyn Read>>;
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>>;
 
     /// Wrap a writer with compression.
     ///
@@ -191,7 +197,7 @@ pub trait CompressionCodec: Send + Sync {
     /// # Errors
     ///
     /// You must handle errors appropriately and return an [`std::io::Result`] accordingly.
-    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>>;
+    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> IoResult<Box<dyn Write>>;
 }
 
 /// Detect compression codec from file path extension.
@@ -245,7 +251,8 @@ fn detect_from_magic<R: BufRead>(reader: &mut R) -> Option<Arc<dyn CompressionCo
 /// ```no_run
 /// use ironbeam::io::compression::auto_detect_reader;
 /// use std::fs::File;
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 ///
 /// let file = File::open("data.json.gz")?;
 /// let reader = auto_detect_reader(file, "data.json.gz")?;
@@ -289,7 +296,8 @@ pub fn auto_detect_reader<R: Read + 'static>(
 /// ```no_run
 /// use ironbeam::io::compression::auto_detect_writer;
 /// use std::fs::File;
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 ///
 /// let file = File::create("output.csv.zst")?;
 /// let writer = auto_detect_writer(file, "output.csv.zst")?;
@@ -336,12 +344,12 @@ impl CompressionCodec for GzipCodec {
         Some(&[0x1f, 0x8b])
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> std::io::Result<Box<dyn Read>> {
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>> {
         use flate2::read::GzDecoder;
         Ok(Box::new(GzDecoder::new(reader)))
     }
 
-    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
+    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> IoResult<Box<dyn Write>> {
         use flate2::Compression;
         use flate2::write::GzEncoder;
         Ok(Box::new(GzEncoder::new(writer, Compression::default())))
@@ -365,13 +373,12 @@ impl CompressionCodec for ZstdCodec {
         Some(&[0x28, 0xb5, 0x2f, 0xfd])
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> std::io::Result<Box<dyn Read>> {
-        zstd::stream::read::Decoder::new(reader).map(|d| Box::new(d) as Box<dyn Read>)
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>> {
+        Decoder::new(reader).map(|d| Box::new(d) as Box<dyn Read>)
     }
 
-    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
-        zstd::stream::write::Encoder::new(writer, 3)
-            .map(|e| Box::new(e.auto_finish()) as Box<dyn Write>)
+    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> IoResult<Box<dyn Write>> {
+        Encoder::new(writer, 3).map(|e| Box::new(e.auto_finish()) as Box<dyn Write>)
     }
 }
 
@@ -392,12 +399,12 @@ impl CompressionCodec for Bzip2Codec {
         Some(&[0x42, 0x5a])
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> std::io::Result<Box<dyn Read>> {
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>> {
         use bzip2::read::BzDecoder;
         Ok(Box::new(BzDecoder::new(reader)))
     }
 
-    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
+    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> IoResult<Box<dyn Write>> {
         use bzip2::Compression;
         use bzip2::write::BzEncoder;
         Ok(Box::new(BzEncoder::new(writer, Compression::default())))
@@ -421,12 +428,12 @@ impl CompressionCodec for XzCodec {
         Some(&[0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00])
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> std::io::Result<Box<dyn Read>> {
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>> {
         use xz2::read::XzDecoder;
         Ok(Box::new(XzDecoder::new(reader)))
     }
 
-    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
+    fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> IoResult<Box<dyn Write>> {
         use xz2::write::XzEncoder;
         Ok(Box::new(XzEncoder::new(writer, 6)))
     }

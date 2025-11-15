@@ -7,8 +7,10 @@
 //! - Print metrics to stdout
 //! - Save metrics to a JSON file
 
+use anyhow::Result;
 use ironbeam::{Pipeline, from_vec};
-use serde_json::Value;
+use serde_json::{Value, json};
+use std::any::Any;
 
 #[cfg(feature = "metrics")]
 use ironbeam::metrics::{CounterMetric, GaugeMetric, HistogramMetric, Metric, MetricsCollector};
@@ -26,7 +28,7 @@ impl Metric for CustomMetric {
     }
 
     fn value(&self) -> Value {
-        serde_json::json!({
+        json!({
             "items_processed": self.items_processed,
             "status": "completed"
         })
@@ -36,12 +38,12 @@ impl Metric for CustomMetric {
         Some("Custom processing metric")
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     #[cfg(feature = "metrics")]
     {
         println!("=== Ironbeam Metrics Example ===\n");

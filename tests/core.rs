@@ -1,10 +1,11 @@
+use anyhow::Result;
 use ironbeam::collection::Count;
 use ironbeam::from_vec;
 use ironbeam::testing::*;
 use std::collections::HashMap;
 
 #[test]
-fn map_filter_flatmap_chain() -> anyhow::Result<()> {
+fn map_filter_flatmap_chain() -> Result<()> {
     let p = TestPipeline::new();
     let lines = from_vec(
         &p,
@@ -37,7 +38,7 @@ fn map_filter_flatmap_chain() -> anyhow::Result<()> {
 }
 
 #[test]
-fn key_by_and_group_by_key_counts_words() -> anyhow::Result<()> {
+fn key_by_and_group_by_key_counts_words() -> Result<()> {
     let p = TestPipeline::new();
     let words = from_vec(
         &p,
@@ -64,7 +65,7 @@ fn key_by_and_group_by_key_counts_words() -> anyhow::Result<()> {
 }
 
 #[test]
-fn combine_values_count() -> anyhow::Result<()> {
+fn combine_values_count() -> Result<()> {
     let p = TestPipeline::new();
     let words = from_vec(
         &p,
@@ -95,7 +96,7 @@ fn combine_values_count() -> anyhow::Result<()> {
 }
 
 #[test]
-fn map_values_transforms_payloads() -> anyhow::Result<()> {
+fn map_values_transforms_payloads() -> Result<()> {
     let p = TestPipeline::new();
     let nums = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
 
@@ -117,17 +118,14 @@ fn map_values_transforms_payloads() -> anyhow::Result<()> {
 }
 
 #[test]
-fn stateless_seq_vs_par_equivalent() -> anyhow::Result<()> {
+fn stateless_seq_vs_par_equivalent() -> Result<()> {
     let p = TestPipeline::new();
     let lines = from_vec(
         &p,
         (0..1000).map(|i| format!("w{i} w{i}")).collect::<Vec<_>>(),
     );
-    let words = lines.flat_map(|s: &String| {
-        s.split_whitespace()
-            .map(str::to_string)
-            .collect::<Vec<_>>()
-    });
+    let words =
+        lines.flat_map(|s: &String| s.split_whitespace().map(str::to_string).collect::<Vec<_>>());
     let filtered = words.filter(|w: &String| w.len() >= 2);
 
     let a = filtered.clone().collect_seq()?;

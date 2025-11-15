@@ -10,13 +10,14 @@
 //! cargo run --example checkpointing_demo --features checkpointing
 //! ```
 
-use ironbeam::{Pipeline, from_vec, Sum, Runner, ExecMode};
+use anyhow::Result;
+use ironbeam::{ExecMode, Pipeline, Runner, Sum, from_vec};
 
 #[cfg(feature = "checkpointing")]
 use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
 
 #[cfg(feature = "checkpointing")]
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     println!("=== Ironbeam Checkpointing Demo ===\n");
 
     // Create a pipeline with a large dataset to simulate long-running job

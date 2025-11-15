@@ -8,7 +8,7 @@
 //! Run with: `cargo run --example etl_pipeline --features io-jsonl,io-csv`
 
 use anyhow::Result;
-use ironbeam::{Pipeline, from_vec, Count};
+use ironbeam::{Count, Pipeline, from_vec};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,8 +164,8 @@ fn main() -> Result<()> {
         .key_by(|entry: &CleanLogEntry| entry.path.clone())
         .map_values(|entry| {
             (
-                1u64,                                          // request count
-                entry.bytes,                                   // bytes
+                1u64,                           // request count
+                entry.bytes,                    // bytes
                 u64::from(entry.status >= 400), // error count
             )
         })

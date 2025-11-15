@@ -9,11 +9,11 @@
 
 use anyhow::Result as AnyhowResult;
 use ironbeam::io::compression::{
-    auto_detect_reader, auto_detect_writer, register_codec, CompressionCodec,
+    CompressionCodec, auto_detect_reader, auto_detect_writer, register_codec,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_writer};
-use std::fs::{metadata, remove_file, File};
+use std::fs::{File, metadata, remove_file};
 use std::io::Result as IOResult;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::Arc;

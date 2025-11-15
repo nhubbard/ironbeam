@@ -19,15 +19,15 @@
 
 use crate::io::glob::expand_glob;
 use crate::io::parquet::{
-    build_parquet_shards, read_parquet_vec, write_parquet_vec, ParquetShards, ParquetVecOps,
+    ParquetShards, ParquetVecOps, build_parquet_shards, read_parquet_vec, write_parquet_vec,
 };
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{from_vec, PCollection, Pipeline, RFBound};
-use anyhow::{Context, Result};
+use crate::{PCollection, Pipeline, RFBound, from_vec};
+use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
@@ -45,7 +45,8 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     /// ### Example
     /// ```no_run
     /// use ironbeam::*;
-    /// # fn main() -> anyhow::Result<()> {
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
     /// #[cfg(feature = "io-parquet")]
     /// {
     ///     #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -95,7 +96,8 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 /// Single file (streaming):
 /// ```no_run
 /// use ironbeam::*;
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 /// #[cfg(feature = "io-parquet")]
 /// {
 ///     #[derive(serde::Serialize, serde::Deserialize, Clone, Eq, Ord, PartialEq, PartialOrd, Debug)]
@@ -114,7 +116,8 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 /// Glob pattern:
 /// ```no_run
 /// use ironbeam::*;
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 /// #[cfg(feature = "io-parquet")]
 /// {
 ///     #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -131,7 +134,8 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 /// Glob pattern:
 /// ```no_run
 /// use ironbeam::*;
-/// # fn main() -> anyhow::Result<()> {
+/// use anyhow::Result;
+/// # fn main() -> Result<()> {
 /// #[cfg(feature = "io-parquet")]
 /// {
 ///     #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -164,7 +168,7 @@ where
     let path_str = path
         .as_ref()
         .to_str()
-        .ok_or_else(|| anyhow::anyhow!("path contains invalid UTF-8"))?;
+        .ok_or_else(|| anyhow!("path contains invalid UTF-8"))?;
 
     // Check if the path contains glob patterns
     let glob_regex = Regex::new(r"[*?\[]").expect("valid glob regex");
@@ -174,7 +178,7 @@ where
             expand_glob(path_str).with_context(|| format!("expanding glob pattern: {path_str}"))?;
 
         if files.is_empty() {
-            anyhow::bail!("no files found matching pattern: {path_str}");
+            bail!("no files found matching pattern: {path_str}");
         }
 
         // For glob patterns, we use eager loading since streaming multiple

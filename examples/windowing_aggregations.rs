@@ -9,7 +9,7 @@
 //! Run with: `cargo run --example windowing_aggregations`
 
 use anyhow::Result;
-use ironbeam::{Pipeline, from_vec, Timestamped, OrdF64, Min, Max, AverageF64};
+use ironbeam::{AverageF64, Max, Min, OrdF64, Pipeline, Timestamped, from_vec};
 
 #[allow(clippy::cast_precision_loss)]
 fn main() -> Result<()> {
@@ -63,9 +63,7 @@ fn main() -> Result<()> {
     println!("\nWindow | Count | Avg Temp | Min | Max");
     println!("{:-<50}", "");
     for (win, count, avg, min, max) in results {
-        println!(
-            "{win:?} | {count} | {avg:.2}°C | {min:.2}°C | {max:.2}°C"
-        );
+        println!("{win:?} | {count} | {avg:.2}°C | {min:.2}°C | {max:.2}°C");
     }
 
     // =============================================================================

@@ -13,15 +13,15 @@
 //! stable final order can use the `collect_*_sorted` helpers after the collection
 //! is complete.
 
+use crate::NodeId;
 use crate::node::Node;
 use crate::pipeline::Pipeline;
 use crate::planner::build_plan;
 use crate::type_token::Partition;
-use crate::NodeId;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use ordered_float::NotNan;
-use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
+use rayon::prelude::*;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 
@@ -577,8 +577,8 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
     config: CheckpointConfig,
 ) -> Result<Vec<T>> {
     use crate::checkpoint::{
-        compute_checksum, current_timestamp_ms, generate_pipeline_id, CheckpointManager,
-        CheckpointMetadata, CheckpointState,
+        CheckpointManager, CheckpointMetadata, CheckpointState, compute_checksum,
+        current_timestamp_ms, generate_pipeline_id,
     };
 
     let total_nodes = chain.len();
@@ -731,8 +731,8 @@ fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
     config: CheckpointConfig,
 ) -> Result<Vec<T>> {
     use crate::checkpoint::{
-        compute_checksum, current_timestamp_ms, generate_pipeline_id, CheckpointManager,
-        CheckpointMetadata, CheckpointState,
+        CheckpointManager, CheckpointMetadata, CheckpointState, compute_checksum,
+        current_timestamp_ms, generate_pipeline_id,
     };
 
     let total_nodes = chain.len();

@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 impl<T: RFBound + Validate> PCollection<T> {
     /// Validate elements in the collection using the provided validation mode.
     ///
-    /// This method applies validation rules defined by the [`Validate`](crate::validation::Validate) trait
+    /// This method applies validation rules defined by the [`Validate`] trait
     /// implementation for type `T`. Depending on the mode, invalid records are either:
     /// - Skipped silently ([`ValidationMode::SkipInvalid`])
     /// - Logged to the error collector and skipped ([`ValidationMode::LogAndContinue`])
@@ -29,6 +29,7 @@ impl<T: RFBound + Validate> PCollection<T> {
     /// use ironbeam::validation::*;
     /// use serde::{Deserialize, Serialize};
     /// use std::sync::{Arc, Mutex};
+    /// use anyhow::Result;
     ///
     /// #[derive(Clone, Serialize, Deserialize)]
     /// struct User {
@@ -46,7 +47,7 @@ impl<T: RFBound + Validate> PCollection<T> {
     ///     }
     /// }
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let users = from_vec(&p, vec![
     ///     User { id: 1, email: "alice@example.com".into() },
@@ -85,13 +86,14 @@ impl<T: RFBound + Validate> PCollection<T> {
     /// use ironbeam::*;
     /// use ironbeam::validation::*;
     /// use serde::{Deserialize, Serialize};
+    /// use anyhow::Result;
     ///
     /// #[derive(Clone, Serialize, Deserialize)]
     /// struct User { id: u32, email: String }
     /// impl Validate for User {
     ///     fn validate(&self) -> ValidationResult { Ok(()) }
     /// }
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let users = from_vec(&p, vec![User { id: 1, email: "alice@example.com".into() }]);
     /// let valid = users.validate_skip_invalid();
@@ -117,13 +119,14 @@ impl<T: RFBound + Validate> PCollection<T> {
     /// use ironbeam::*;
     /// use ironbeam::validation::*;
     /// use serde::{Deserialize, Serialize};
+    /// use anyhow::Result;
     ///
     /// #[derive(Clone, Serialize, Deserialize)]
     /// struct User { id: u32, email: String }
     /// impl Validate for User {
     ///     fn validate(&self) -> ValidationResult { Ok(()) }
     /// }
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let users = from_vec(&p, vec![User { id: 1, email: "alice@example.com".into() }]);
     /// let valid = users.validate_fail_fast();
@@ -211,6 +214,7 @@ where
     /// use ironbeam::*;
     /// use ironbeam::validation::*;
     /// # use serde::{Deserialize, Serialize};
+    /// use anyhow::Result;
     ///
     /// # #[derive(Clone, Serialize, Deserialize)]
     /// # struct Order { amount: f64 }
@@ -219,7 +223,7 @@ where
     /// #         if self.amount >= 0.0 { Ok(()) } else { Err(vec![]) }
     /// #     }
     /// # }
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let orders = from_vec(&p, vec![
     ///     ("order_1".to_string(), Order { amount: 100.0 }),

@@ -1,14 +1,15 @@
 #![cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
 
-use ironbeam::{from_vec, read_jsonl_vec};
+use anyhow::Result;
 use ironbeam::testing::*;
+use ironbeam::{from_vec, read_jsonl_vec};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 struct R(u32);
 
 #[test]
-fn write_jsonl_par_is_stable() -> anyhow::Result<()> {
+fn write_jsonl_par_is_stable() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let file = tmp.path().join("out.jsonl");
 

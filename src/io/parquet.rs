@@ -14,8 +14,8 @@
 //! Uses Arrow 56 and `serde_arrow` 0.13 (`SchemaLike::from_type` and
 //! `to_record_batch`/`from_record_batch`).
 
-use crate::type_token::VecOps;
 use crate::Partition;
+use crate::type_token::VecOps;
 use anyhow::{Context, Result};
 use arrow::datatypes::FieldRef;
 use arrow::record_batch::RecordBatch;
@@ -23,11 +23,12 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 use parquet::file::reader::{FileReader, SerializedFileReader};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use serde_arrow::{from_record_batch, to_record_batch};
 use std::any::Any;
 use std::fs::File;
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -48,7 +49,7 @@ use std::sync::Arc;
 ///
 /// # Errors
 /// An error is returned if the schema inference, conversion, file creation, or writing fails.
-pub fn write_parquet_vec<T: Serialize + serde::Deserialize<'static>>(
+pub fn write_parquet_vec<T: Serialize + Deserialize<'static>>(
     path: impl AsRef<Path>,
     data: &Vec<T>,
 ) -> Result<usize> {
@@ -202,14 +203,14 @@ pub fn read_parquet_row_group_range<T: DeserializeOwned>(
 /// - split into partitions by row-group ranges (`split`)
 /// - read the entire dataset for sequential paths (`clone_any`)
 #[cfg(feature = "io-parquet")]
-pub struct ParquetVecOps<T>(std::marker::PhantomData<T>);
+pub struct ParquetVecOps<T>(PhantomData<T>);
 
 #[cfg(feature = "io-parquet")]
 impl<T> ParquetVecOps<T> {
     /// Construct an `Arc` to the adapter.
     #[must_use]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self(std::marker::PhantomData))
+        Arc::new(Self(PhantomData))
     }
 }
 

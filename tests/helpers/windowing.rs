@@ -1,4 +1,4 @@
-// tests/windowing.rs
+use anyhow::Result;
 use ironbeam::testing::*;
 use ironbeam::window::{Timestamped, Window};
 use ironbeam::*;
@@ -15,7 +15,7 @@ struct Row {
 }
 
 #[test]
-fn tumbling_non_keyed_counts() -> anyhow::Result<()> {
+fn tumbling_non_keyed_counts() -> Result<()> {
     let p = TestPipeline::new();
 
     // Create events at timestamps 0..30 step 5; window size 10 → windows [0,10), [10,20), [20,30)
@@ -41,7 +41,7 @@ fn tumbling_non_keyed_counts() -> anyhow::Result<()> {
 }
 
 #[test]
-fn tumbling_keyed_counts() -> anyhow::Result<()> {
+fn tumbling_keyed_counts() -> Result<()> {
     let p = TestPipeline::new();
 
     // Two keys: "a" and "b", over two windows; arrange unbalanced counts.
@@ -76,7 +76,7 @@ fn tumbling_keyed_counts() -> anyhow::Result<()> {
 }
 
 #[test]
-fn attach_timestamps_then_window() -> anyhow::Result<()> {
+fn attach_timestamps_then_window() -> Result<()> {
     let p = TestPipeline::new();
 
     let rows: Vec<Row> = vec![

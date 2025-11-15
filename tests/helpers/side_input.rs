@@ -1,3 +1,4 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -10,7 +11,7 @@ struct Product {
 }
 
 #[test]
-fn map_with_side_map_enriches_records() -> anyhow::Result<()> {
+fn map_with_side_map_enriches_records() -> Result<()> {
     let p = TestPipeline::new();
 
     // Input stream of product SKUs
@@ -50,7 +51,7 @@ fn map_with_side_map_enriches_records() -> anyhow::Result<()> {
 }
 
 #[test]
-fn filter_with_side_allows_only_whitelisted() -> anyhow::Result<()> {
+fn filter_with_side_allows_only_whitelisted() -> Result<()> {
     let p = TestPipeline::new();
 
     // Input: countries seen in events

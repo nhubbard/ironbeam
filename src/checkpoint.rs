@@ -16,8 +16,9 @@
 //! ```no_run
 //! use ironbeam::*;
 //! use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
+//! use anyhow::Result;
 //!
-//! # fn main() -> anyhow::Result<()> {
+//! # fn main() -> Result<()> {
 //! let p = Pipeline::default();
 //! let data = from_vec(&p, (0..10000).collect::<Vec<i32>>());
 //!
@@ -43,14 +44,15 @@
 //! ```
 
 #[cfg(feature = "checkpointing")]
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
+#[cfg(feature = "checkpointing")]
+use bincode::serde::{decode_from_slice, encode_to_vec};
 #[cfg(feature = "checkpointing")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "checkpointing")]
 use sha2::{Digest, Sha256};
-use std::fs::DirEntry;
 #[cfg(feature = "checkpointing")]
-use std::fs::{self, File};
+use std::fs::{DirEntry, File, create_dir_all, read_dir, remove_file};
 #[cfg(feature = "checkpointing")]
 use std::io::{Read, Write};
 #[cfg(feature = "checkpointing")]
@@ -158,8 +160,7 @@ impl CheckpointManager {
     pub fn new(config: CheckpointConfig) -> Result<Self> {
         if config.enabled {
             // Ensure checkpoint directory exists
-            fs::create_dir_all(&config.directory)
-                .context("Failed to create checkpoint directory")?;
+            create_dir_all(&config.directory).context("Failed to create checkpoint directory")?;
         }
         Ok(Self {
             config,
@@ -214,7 +215,8 @@ impl CheckpointManager {
         let filename = format!("checkpoint_{}_{}.bin", state.pipeline_id, state.timestamp);
         let path = self.config.directory.join(&filename);
 
-        let encoded = bincode::serialize(&state).context("Failed to serialize checkpoint")?;
+        let encoded = encode_to_vec(state, bincode::config::standard())
+            .context("Failed to serialize checkpoint")?;
 
         let mut file = File::create(&path).context("Failed to create checkpoint file")?;
         file.write_all(&encoded)
@@ -245,7 +247,7 @@ impl CheckpointManager {
         }
 
         let prefix = format!("checkpoint_{pipeline_id}_");
-        let mut checkpoints: Vec<_> = fs::read_dir(&self.config.directory)
+        let mut checkpoints: Vec<_> = read_dir(&self.config.directory)
             .context("Failed to read checkpoint directory")?
             .filter_map(Result::ok)
             .filter(|entry| {
@@ -289,8 +291,9 @@ impl CheckpointManager {
         file.read_to_end(&mut encoded)
             .context("Failed to read checkpoint")?;
 
-        let state: CheckpointState =
-            bincode::deserialize(&encoded).context("Failed to deserialize checkpoint")?;
+        let (state, _len): (CheckpointState, usize) =
+            decode_from_slice(&encoded, bincode::config::standard())
+                .context("Failed to deserialize checkpoint")?;
 
         // Verify checksum
         let metadata_str = format!(
@@ -314,7 +317,7 @@ impl CheckpointManager {
         };
 
         let prefix = format!("checkpoint_{pipeline_id}_");
-        let mut checkpoints: Vec<_> = fs::read_dir(&self.config.directory)
+        let mut checkpoints: Vec<_> = read_dir(&self.config.directory)
             .context("Failed to read checkpoint directory")?
             .filter_map(Result::ok)
             .filter(|entry| {
@@ -347,7 +350,7 @@ impl CheckpointManager {
         // Delete oldest checkpoints
         let to_delete = checkpoints.len() - max_checkpoints;
         for entry in checkpoints.iter().take(to_delete) {
-            fs::remove_file(entry.path()).ok(); // Ignore errors
+            remove_file(entry.path()).ok(); // Ignore errors
         }
 
         Ok(())
@@ -360,7 +363,7 @@ impl CheckpointManager {
     /// Returns an error if the checkpoint directory cannot be read or if any checkpoint file cannot be deleted.
     pub fn clear_checkpoints(&self, pipeline_id: &str) -> Result<()> {
         let prefix = format!("checkpoint_{pipeline_id}_");
-        let checkpoints: Vec<_> = fs::read_dir(&self.config.directory)
+        let checkpoints: Vec<_> = read_dir(&self.config.directory)
             .context("Failed to read checkpoint directory")?
             .filter_map(Result::ok)
             .filter(|entry| {
@@ -374,7 +377,7 @@ impl CheckpointManager {
             .collect();
 
         for entry in checkpoints {
-            fs::remove_file(entry.path()).ok();
+            remove_file(entry.path()).ok();
         }
 
         Ok(())

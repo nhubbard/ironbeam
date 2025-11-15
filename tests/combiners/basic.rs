@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ironbeam::testing::*;
-use ironbeam::{from_vec, AverageF64, DistinctCount, Max, Min, Sum, TopK};
+use ironbeam::{AverageF64, DistinctCount, Max, Min, Sum, TopK, from_vec};
 use std::collections::HashMap;
 
 #[test]
@@ -306,7 +306,9 @@ fn topk_partial_order_merge() -> Result<()> {
 
     // Test that partial-order merge produces correct results
     // with large dataset across multiple partitions
-    let data: Vec<(u8, u64)> = (0..1000u32).map(|i| ((i % 5) as u8, u64::from(i))).collect();
+    let data: Vec<(u8, u64)> = (0..1000u32)
+        .map(|i| ((i % 5) as u8, u64::from(i)))
+        .collect();
 
     let top10 = from_vec(&p, data)
         .top_k_per_key(10)

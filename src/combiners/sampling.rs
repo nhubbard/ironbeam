@@ -1,8 +1,8 @@
 //! Priority-based reservoir sampling combiner
 
+use crate::RFBound;
 use crate::collection::{CombineFn, LiftableCombiner};
 use crate::utils::OrdF64;
-use crate::RFBound;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::marker::PhantomData;

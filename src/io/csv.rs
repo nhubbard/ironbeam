@@ -12,18 +12,19 @@
 //! - The parallel writer preserves **deterministic final order** by writing shard
 //!   buffers in index order after parallel serialization.
 
+use crate::Partition;
 use crate::io::compression::{auto_detect_reader, auto_detect_writer};
 use crate::type_token::VecOps;
-use crate::Partition;
-use anyhow::{Context, Result};
-use csv::WriterBuilder;
+use anyhow::{Context, Error, Result};
+use csv::{ReaderBuilder, WriterBuilder};
 use rayon::iter::IntoParallelIterator;
 use rayon::iter::ParallelIterator;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::any::Any;
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::Write;
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -49,7 +50,7 @@ pub fn read_csv_vec<T: DeserializeOwned>(
     let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let rdr = auto_detect_reader(f, path)
         .with_context(|| format!("setup decompression for {}", path.display()))?;
-    let mut rdr = csv::ReaderBuilder::new()
+    let mut rdr = ReaderBuilder::new()
         .has_headers(has_headers)
         .from_reader(rdr);
     let mut out = Vec::<T>::new();
@@ -140,7 +141,7 @@ pub fn build_csv_shards(
     let f = File::open(&path).with_context(|| format!("open {}", path.display()))?;
     let rdr = auto_detect_reader(f, &path)
         .with_context(|| format!("setup decompression for {}", path.display()))?;
-    let mut rdr = csv::ReaderBuilder::new()
+    let mut rdr = ReaderBuilder::new()
         .has_headers(has_headers)
         .from_reader(rdr);
     let mut total: u64 = 0;
@@ -191,7 +192,7 @@ pub fn read_csv_range<T: DeserializeOwned>(
     let f = File::open(&src.path).with_context(|| format!("open {}", src.path.display()))?;
     let rdr = auto_detect_reader(f, &src.path)
         .with_context(|| format!("setup decompression for {}", src.path.display()))?;
-    let mut rdr = csv::ReaderBuilder::new()
+    let mut rdr = ReaderBuilder::new()
         .has_headers(src.has_headers)
         .from_reader(rdr);
     // skip rows
@@ -218,13 +219,13 @@ pub fn read_csv_range<T: DeserializeOwned>(
 ///   sequential execution paths.
 ///
 /// Requires `T: DeserializeOwned + Clone + Send + Sync + 'static`.
-pub struct CsvVecOps<T>(std::marker::PhantomData<T>);
+pub struct CsvVecOps<T>(PhantomData<T>);
 
 impl<T> CsvVecOps<T> {
     /// Construct an `Arc` to the adapter.
     #[must_use]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self(std::marker::PhantomData))
+        Arc::new(Self(PhantomData))
     }
 }
 
@@ -323,7 +324,7 @@ pub fn write_csv_par<T: Serialize + Sync>(
                 }
                 wtr.flush()?;
             }
-            Ok::<_, anyhow::Error>((idx, buf))
+            Ok::<_, Error>((idx, buf))
         })
         .collect::<Result<Vec<_>>>()?;
 

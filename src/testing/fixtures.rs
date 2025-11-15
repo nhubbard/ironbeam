@@ -26,7 +26,7 @@ pub struct SampleLogEntry {
 /// let logs = sample_log_entries();
 /// assert!(!logs.is_empty());
 /// ```
-#[must_use] 
+#[must_use]
 pub fn sample_log_entries() -> Vec<SampleLogEntry> {
     vec![
         SampleLogEntry {
@@ -84,7 +84,7 @@ pub fn sample_log_entries() -> Vec<SampleLogEntry> {
 /// let sentences = word_count_data();
 /// assert!(!sentences.is_empty());
 /// ```
-#[must_use] 
+#[must_use]
 pub fn word_count_data() -> Vec<String> {
     vec![
         "hello world".to_string(),
@@ -105,12 +105,12 @@ pub fn word_count_data() -> Vec<String> {
 /// let data = numeric_data_with_outliers();
 /// assert!(data.iter().any(|&x| x > 100.0)); // Has outliers
 /// ```
-#[must_use] 
+#[must_use]
 pub fn numeric_data_with_outliers() -> Vec<f64> {
     vec![
-        1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, // Normal range
+        1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0,  // Normal range
         150.0, // Outlier
-        11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, // Normal range
+        11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0,  // Normal range
         -50.0, // Outlier
     ]
 }
@@ -129,7 +129,7 @@ pub fn numeric_data_with_outliers() -> Vec<f64> {
 /// let hot_key_count = kvs.iter().filter(|(k, _)| k == "hot_key").count();
 /// assert!(hot_key_count > 10); // Hot key appears frequently
 /// ```
-#[must_use] 
+#[must_use]
 pub fn skewed_key_value_data() -> Vec<(String, i32)> {
     let mut data = Vec::new();
 
@@ -164,7 +164,7 @@ pub fn skewed_key_value_data() -> Vec<(String, i32)> {
 /// assert!(!ts.is_empty());
 /// assert!(ts.iter().all(|(t, _)| *t > 0));
 /// ```
-#[must_use] 
+#[must_use]
 pub fn time_series_data() -> Vec<(u64, f64)> {
     vec![
         (1_000, 10.5),
@@ -193,7 +193,7 @@ pub fn time_series_data() -> Vec<(u64, f64)> {
 /// let interactions = user_product_interactions();
 /// assert!(!interactions.is_empty());
 /// ```
-#[must_use] 
+#[must_use]
 pub fn user_product_interactions() -> Vec<(String, String, u8)> {
     vec![
         ("user1".to_string(), "product_a".to_string(), 5),
@@ -218,7 +218,7 @@ pub fn user_product_interactions() -> Vec<(String, String, u8)> {
 /// let products = product_metadata();
 /// assert!(!products.is_empty());
 /// ```
-#[must_use] 
+#[must_use]
 pub fn product_metadata() -> Vec<(String, String, String, f64)> {
     vec![
         (
@@ -260,7 +260,7 @@ pub fn product_metadata() -> Vec<(String, String, String, f64)> {
 /// let readings = sensor_readings();
 /// assert!(!readings.is_empty());
 /// ```
-#[must_use] 
+#[must_use]
 pub fn sensor_readings() -> Vec<(String, u64, f64, f64)> {
     vec![
         ("sensor_1".to_string(), 1000, 20.5, 45.0),
@@ -285,7 +285,7 @@ pub fn sensor_readings() -> Vec<(String, u64, f64, f64)> {
 /// let emails = sample_emails();
 /// assert!(emails.iter().all(|e| e.contains('@')));
 /// ```
-#[must_use] 
+#[must_use]
 pub fn sample_emails() -> Vec<String> {
     vec![
         "alice@example.com".to_string(),
@@ -309,7 +309,7 @@ pub fn sample_emails() -> Vec<String> {
 /// let transactions = transaction_data();
 /// assert!(!transactions.is_empty());
 /// ```
-#[must_use] 
+#[must_use]
 pub fn transaction_data() -> Vec<(String, String, f64, String)> {
     vec![
         (

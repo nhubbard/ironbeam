@@ -1,6 +1,8 @@
 //! Tests for the metrics module.
 
-use ironbeam::metrics::{CounterMetric, GaugeMetric, HistogramMetric, HistogramStats, Metric, MetricsCollector};
+use ironbeam::metrics::{
+    CounterMetric, GaugeMetric, HistogramMetric, HistogramStats, Metric, MetricsCollector,
+};
 use serde_json::json;
 
 #[macro_use]
@@ -76,7 +78,10 @@ fn test_register_all() {
     let snapshot = collector.snapshot();
     assert_eq!(snapshot.get("counter1").unwrap(), &json!(10));
     assert_eq!(snapshot.get("counter2").unwrap(), &json!(20));
-    assert_eq!(snapshot.get("gauge1").unwrap(), &json!(std::f64::consts::PI));
+    assert_eq!(
+        snapshot.get("gauge1").unwrap(),
+        &json!(std::f64::consts::PI)
+    );
 }
 
 #[test]

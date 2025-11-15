@@ -1,7 +1,7 @@
 //! Statistical combiners: `AverageF64`
 
-use crate::collection::{CombineFn, LiftableCombiner};
 use crate::RFBound;
+use crate::collection::{CombineFn, LiftableCombiner};
 
 /* ===================== AverageF64 ===================== */
 

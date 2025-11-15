@@ -15,10 +15,10 @@
 //! `helpers/*` (e.g., `map`, `filter`, `group_by_key`, `combine_values`, joins,
 //! windowing). This module provides the core types those helpers build upon.
 
+use crate::NodeId;
 use crate::node::DynOp;
 use crate::pipeline::Pipeline;
 use crate::type_token::Partition;
-use crate::NodeId;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -38,6 +38,7 @@ use std::sync::Arc;
 /// # Example
 /// ```no_run
 /// use ironbeam::*;
+/// use anyhow::Result;
 ///
 /// #[derive(Clone)]
 /// struct MyRow { k: String, v: u64 } // Send and Sync implied for these fields
@@ -47,7 +48,7 @@ use std::sync::Arc;
 ///     MyRow { k: "a".into(), v: 1 },
 ///     MyRow { k: "b".into(), v: 2 },
 /// ]);
-/// # anyhow::Result::<()>::Ok(())
+/// # Result::<()>::Ok(())
 /// ```
 pub trait RFBound: 'static + Send + Sync + Clone {}
 impl<T> RFBound for T where T: 'static + Send + Sync + Clone {}
@@ -64,13 +65,14 @@ impl<T> RFBound for T where T: 'static + Send + Sync + Clone {}
 /// # Example
 /// ```no_run
 /// use ironbeam::*;
+/// use anyhow::Result;
 ///
 /// let p = Pipeline::default();
 /// let words = from_vec(&p, vec!["a".to_string(), "bb".to_string()]);
 /// let lengths = words.map(|w| w.len() as u64);
 /// let out: Vec<u64> = lengths.collect_seq()?;
 /// assert_eq!(out, vec![1, 2]);
-/// # anyhow::Result::<()>::Ok(())
+/// # Result::<()>::Ok(())
 /// ```
 #[derive(Clone)]
 pub struct PCollection<T> {
@@ -93,7 +95,7 @@ impl<T: RFBound> PCollection<T> {
     /// Apply a custom stateless transform to this collection.
     ///
     /// This is the primary extension point for adding custom operations to the pipeline.
-    /// Your operator must implement the [`DynOp`](DynOp) trait, which
+    /// Your operator must implement the [`DynOp`] trait, which
     /// processes a single partition (typically `Vec<T>`) and returns a transformed partition.
     ///
     /// # Type Safety
@@ -107,6 +109,7 @@ impl<T: RFBound> PCollection<T> {
     /// use ironbeam::type_token::Partition;
     /// use std::sync::Arc;
     /// use std::marker::PhantomData;
+    /// use anyhow::Result;
     ///
     /// // Custom operator that reverses strings
     /// struct ReverseOp;
@@ -122,7 +125,7 @@ impl<T: RFBound> PCollection<T> {
     ///     }
     /// }
     ///
-    /// # fn main() -> anyhow::Result<()> {
+    /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let words = from_vec(&p, vec!["hello".to_string(), "world".to_string()]);
     /// let reversed: PCollection<String> = words.apply_transform(Arc::new(ReverseOp));
@@ -301,13 +304,14 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
 /// # Example
 /// ```no_run
 /// use ironbeam::*;
+/// use anyhow::Result;
 ///
 /// let p = Pipeline::default();
 /// let kv = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3)]);
 /// let counts = kv.combine_values(Count).collect_seq_sorted()?;
 /// // e.g., [("a", 2), ("b", 1)]
 /// # let _ = counts;
-/// # anyhow::Result::<()>::Ok(())
+/// # Result::<()>::Ok(())
 /// ```
 #[derive(Clone, Default)]
 pub struct Count;
@@ -337,13 +341,14 @@ impl<V> CombineFn<V, u64, u64> for Count {
 /// # Example
 /// ```no_run
 /// use ironbeam::*;
+/// use anyhow::Result;
 ///
 /// // Count overrides build_from_group to use values.len()
 /// let p = Pipeline::default();
 /// let grouped = from_vec(&p, vec![("a", 1u8), ("a", 2u8)]).group_by_key();
 /// let counts = grouped.combine_values_lifted(Count).collect_seq_sorted()?;
 /// # let _ = counts;
-/// # anyhow::Result::<()>::Ok(())
+/// # Result::<()>::Ok(())
 /// ```
 pub trait LiftableCombiner<V, A, O>: CombineFn<V, A, O>
 where

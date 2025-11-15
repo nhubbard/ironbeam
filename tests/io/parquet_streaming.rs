@@ -1,6 +1,8 @@
 #![cfg(feature = "io-parquet")]
+
+use anyhow::Result;
 use ironbeam::testing::*;
-use ironbeam::{from_vec, read_parquet_streaming, Count};
+use ironbeam::{Count, from_vec, read_parquet_streaming};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -10,7 +12,7 @@ struct Rec {
 }
 
 #[test]
-fn parquet_streaming_roundtrip() -> anyhow::Result<()> {
+fn parquet_streaming_roundtrip() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let path = tmp.path().join("rows.parquet");
 
