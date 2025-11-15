@@ -3,7 +3,17 @@ name: CI
 on:
   push:
     branches: ['**']
+    paths:
+      - '**.rs'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.github/workflows/ci.yml'
   pull_request:
+    paths:
+      - '**.rs'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.github/workflows/ci.yml'
 
 env:
   CARGO_TERM_COLOR: always
@@ -47,13 +57,21 @@ jobs:
             -D warnings
 
   test:
-    name: Test Suite
+    name: Test Suite with Coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Install rustfilt
+        run: cargo install rustfilt
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -73,8 +91,18 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run tests
-        run: cargo test --all-features --verbose
+      - name: Generate test coverage
+        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info --branch
+
+      - name: Demangle coverage output
+        run: rustfilt -i lcov.info -o lcov-demangled.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov-demangled.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   examples:
     name: Examples
