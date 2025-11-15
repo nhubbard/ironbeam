@@ -2,6 +2,10 @@
 name = "ironbeam"
 version = "1.0.0"
 edition = "2024"
+license = "MIT"
+description = "A batch processing clone of Apache Beam in Rust."
+license-file = "LICENSE"
+repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["io-jsonl", "io-csv", "io-parquet", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing"]
