@@ -34,7 +34,7 @@ fn main() -> Result<()> {
         &pipeline,
         sensor_data
             .iter()
-            .map(|(sensor, ts, temp)| (sensor.to_string(), Timestamped::new(*ts, *temp)))
+            .map(|(sensor, ts, temp)| ((*sensor).to_string(), Timestamped::new(*ts, *temp)))
             .collect::<Vec<_>>(),
     );
 
