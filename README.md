@@ -22,14 +22,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ironbeam = "1.0.0-alpha1"
+ironbeam = "1.0.0"
 ```
 
 By default, all features are enabled. To use a minimal configuration:
 
 ```toml
 [dependencies]
-ironbeam = { version = "1.0.0-alpha1", default-features = false }
+ironbeam = { version = "1.0.0", default-features = false }
 ```
 
 Available feature flags:
