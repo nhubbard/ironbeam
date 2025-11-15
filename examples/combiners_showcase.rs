@@ -36,7 +36,7 @@ fn main() -> Result<()> {
         &pipeline,
         transactions
             .iter()
-            .map(|(cat, price)| (cat.to_string(), *price))
+            .map(|(cat, price)| ((*cat).to_string(), *price))
             .collect(),
     );
 
