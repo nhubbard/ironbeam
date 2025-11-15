@@ -59,6 +59,7 @@ jobs:
   test:
     name: Test Suite with Coverage
     runs-on: ubuntu-latest
+    environment: main
     steps:
       - uses: actions/checkout@v5
 
