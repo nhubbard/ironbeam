@@ -7,8 +7,8 @@
 //! - Use built-in validators for common patterns
 //! - Integrate validation into a production ETL pipeline
 
-use rustflow::validation::{Validate, ValidationResult, combine_validations, validators, ErrorCollector, ValidationMode};
-use rustflow::{Pipeline, from_vec, Sum};
+use ironbeam::validation::{Validate, ValidationResult, combine_validations, validators, ErrorCollector, ValidationMode};
+use ironbeam::{Pipeline, from_vec, Sum};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 

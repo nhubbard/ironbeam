@@ -8,7 +8,7 @@
 //! Run with: `cargo run --example compressed_io --features compression-gzip`
 
 use anyhow::Result as AnyhowResult;
-use rustflow::io::compression::{
+use ironbeam::io::compression::{
     auto_detect_reader, auto_detect_writer, register_codec, CompressionCodec,
 };
 use serde::{Deserialize, Serialize};
@@ -53,7 +53,7 @@ impl CompressionCodec for CustomCodec {
 }
 
 fn main() -> AnyhowResult<()> {
-    println!("=== Rustflow Pluggable Compression Demo ===\n");
+    println!("=== Ironbeam Pluggable Compression Demo ===\n");
 
     // Sample data
     let logs = vec![

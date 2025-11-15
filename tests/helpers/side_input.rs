@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-use rustflow::testing::*;
-use rustflow::{from_vec, side_hashmap, side_vec};
+use ironbeam::testing::*;
+use ironbeam::{from_vec, side_hashmap, side_vec};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Product {

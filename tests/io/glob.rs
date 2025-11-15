@@ -1,7 +1,7 @@
 //! Integration tests for glob pattern support in file readers.
 
-use rustflow::testing::*;
-use rustflow::*;
+use ironbeam::testing::*;
+use ironbeam::*;
 use serde::{Deserialize, Serialize};
 use std::fs::create_dir_all;
 use tempfile::TempDir;
@@ -43,8 +43,8 @@ fn test_jsonl_glob_pattern() -> anyhow::Result<()> {
         },
     ];
 
-    rustflow::io::jsonl::write_jsonl_vec(&file1, &records1)?;
-    rustflow::io::jsonl::write_jsonl_vec(&file2, &records2)?;
+    write_jsonl_vec(&file1, &records1)?;
+    write_jsonl_vec(&file2, &records2)?;
 
     // Read with glob pattern
     let p = TestPipeline::new();
@@ -80,7 +80,7 @@ fn test_jsonl_single_file() -> anyhow::Result<()> {
         },
     ];
 
-    rustflow::io::jsonl::write_jsonl_vec(&file, &records)?;
+    write_jsonl_vec(&file, &records)?;
 
     // Read single file (no glob pattern)
     let p = TestPipeline::new();
@@ -140,8 +140,8 @@ fn test_csv_glob_pattern() -> anyhow::Result<()> {
         },
     ];
 
-    rustflow::io::csv::write_csv_vec(&file1, true, &records1)?;
-    rustflow::io::csv::write_csv_vec(&file2, true, &records2)?;
+    write_csv_vec(&file1, true, &records1)?;
+    write_csv_vec(&file2, true, &records2)?;
 
     // Read with glob pattern
     let p = TestPipeline::new();
@@ -177,7 +177,7 @@ fn test_csv_single_file() -> anyhow::Result<()> {
         },
     ];
 
-    rustflow::io::csv::write_csv_vec(&file, true, &records)?;
+    write_csv_vec(&file, true, &records)?;
 
     // Read single file (no glob pattern)
     let p = TestPipeline::new();
@@ -223,8 +223,8 @@ fn test_parquet_glob_pattern() -> anyhow::Result<()> {
         },
     ];
 
-    rustflow::io::parquet::write_parquet_vec(&file1, &records1)?;
-    rustflow::io::parquet::write_parquet_vec(&file2, &records2)?;
+    write_parquet_vec(&file1, &records1)?;
+    write_parquet_vec(&file2, &records2)?;
 
     // Read with glob pattern
     let p = TestPipeline::new();
@@ -260,7 +260,7 @@ fn test_parquet_single_file() -> anyhow::Result<()> {
         },
     ];
 
-    rustflow::io::parquet::write_parquet_vec(&file, &records)?;
+    write_parquet_vec(&file, &records)?;
 
     // Read single file (no glob pattern)
     let p = TestPipeline::new();
@@ -299,8 +299,8 @@ fn test_jsonl_date_partitions() -> anyhow::Result<()> {
         name: "Day2".to_string(),
     }];
 
-    rustflow::io::jsonl::write_jsonl_vec(&file1, &records1)?;
-    rustflow::io::jsonl::write_jsonl_vec(&file2, &records2)?;
+    write_jsonl_vec(&file1, &records1)?;
+    write_jsonl_vec(&file2, &records2)?;
 
     // Read with date partition glob pattern
     let p = TestPipeline::new();
@@ -341,9 +341,9 @@ fn test_csv_deterministic_order() -> anyhow::Result<()> {
         name: "C".to_string(),
     }];
 
-    rustflow::io::csv::write_csv_vec(&file1, true, &records1)?;
-    rustflow::io::csv::write_csv_vec(&file2, true, &records2)?;
-    rustflow::io::csv::write_csv_vec(&file3, true, &records3)?;
+    write_csv_vec(&file1, true, &records1)?;
+    write_csv_vec(&file2, true, &records2)?;
+    write_csv_vec(&file3, true, &records3)?;
 
     // Read with glob pattern multiple times
     let p1 = TestPipeline::new();
@@ -367,7 +367,7 @@ fn test_csv_deterministic_order() -> anyhow::Result<()> {
 // Unit tests from src/io/glob.rs
 mod glob_unit_tests {
     use anyhow::Result;
-    use rustflow::io::glob::{expand_glob, expand_glob_required};
+    use ironbeam::io::glob::{expand_glob, expand_glob_required};
     use std::fs::{create_dir_all, File};
     use tempfile::TempDir;
 

@@ -1,8 +1,8 @@
 //! Tests for the execution plan explanation feature.
 
 use anyhow::Result;
-use rustflow::testing::*;
-use rustflow::*;
+use ironbeam::testing::*;
+use ironbeam::*;
 
 #[test]
 fn test_explain_simple_pipeline() -> Result<()> {
@@ -12,7 +12,7 @@ fn test_explain_simple_pipeline() -> Result<()> {
     let filtered = doubled.filter(|x| *x > 5);
 
     // Build the plan and explain it
-    let plan = rustflow::planner::build_plan(&p, filtered.node_id())?;
+    let plan = build_plan(&p, filtered.node_id())?;
     let explanation = plan.explain();
 
     // Verify we have the expected steps
@@ -32,7 +32,7 @@ fn test_explain_with_grouping() -> Result<()> {
     let grouped = data.group_by_key();
 
     // Build the plan and explain it
-    let plan = rustflow::planner::build_plan(&p, grouped.node_id())?;
+    let plan = build_plan(&p, grouped.node_id())?;
     let explanation = plan.explain();
 
     // Verify we have barrier operations
@@ -58,7 +58,7 @@ fn test_explain_with_optimizations() -> Result<()> {
         .filter(|x| x % 2 == 0);
 
     // Build the plan and explain it
-    let plan = rustflow::planner::build_plan(&p, result.node_id())?;
+    let plan = build_plan(&p, result.node_id())?;
     let explanation = plan.explain();
 
     // Verify optimizations were applied
@@ -71,7 +71,7 @@ fn test_explain_with_optimizations() -> Result<()> {
     let has_fusion = explanation.optimizations.iter().any(|opt| {
         matches!(
             opt,
-            rustflow::planner::OptimizationDecision::FusedStateless { .. }
+            OptimizationDecision::FusedStateless { .. }
         )
     });
     assert!(has_fusion, "Expected stateless fusion optimization");
@@ -89,7 +89,7 @@ fn test_explain_cost_estimates() -> Result<()> {
     let result = data.map(|x| (*x % 10, *x)).group_by_key();
 
     // Build the plan and explain it
-    let plan = rustflow::planner::build_plan(&p, result.node_id())?;
+    let plan = build_plan(&p, result.node_id())?;
     let explanation = plan.explain();
 
     // Verify cost estimates
@@ -111,7 +111,7 @@ fn test_explain_display_format() -> Result<()> {
     let result = data.map(|x| x * 2);
 
     // Build the plan and explain it
-    let plan = rustflow::planner::build_plan(&p, result.node_id())?;
+    let plan = build_plan(&p, result.node_id())?;
     let explanation = plan.explain();
 
     // Convert to string and verify it contains expected sections

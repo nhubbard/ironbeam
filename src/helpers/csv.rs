@@ -1,7 +1,7 @@
 //! CSV sources and sinks for `PCollection`.
 //!
 //! This module provides typed, serde-backed CSV I/O that integrates with the
-//! Rustflow pipeline. You can either:
+//! Ironbeam pipeline. You can either:
 //!
 //! - **Vector I/O** -- read the whole file into memory or write an in-memory collection:
 //!   - [`read_csv`] -> `PCollection<T>`
@@ -21,7 +21,7 @@
 //! ## Examples
 //! Read a CSV file into a typed collection and write it back out (vector I/O):
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Clone, Serialize, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
@@ -41,7 +41,7 @@
 //!
 //! Streaming read shard-by-shard (useful for large files):
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
@@ -98,7 +98,7 @@ use std::sync::Arc;
 ///
 /// Single file:
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// use serde::Deserialize;
 ///
 /// #[derive(Clone, Deserialize)]
@@ -113,7 +113,7 @@ use std::sync::Arc;
 ///
 /// Glob pattern:
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// use serde::Deserialize;
 ///
 /// #[derive(Clone, Deserialize)]
@@ -181,7 +181,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// use serde::Serialize;
     ///
     /// #[derive(Clone, Serialize)]
@@ -217,7 +217,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// use serde::Serialize;
     ///
     /// #[derive(Clone, Serialize)]
@@ -259,7 +259,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 ///
 /// # Example
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// use serde::Deserialize;
 ///
 /// #[derive(Clone, Deserialize)]

@@ -1,7 +1,7 @@
 #[macro_use]
 mod macros;
 
-use rustflow::utils::OrdF64;
+use ironbeam::utils::OrdF64;
 
 #[test]
 fn test_ordf64_from_f64() {

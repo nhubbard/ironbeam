@@ -1,7 +1,7 @@
 #![cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
 
-use rustflow::from_vec;
-use rustflow::testing::*;
+use ironbeam::{from_vec, read_jsonl_vec};
+use ironbeam::testing::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -18,7 +18,7 @@ fn write_jsonl_par_is_stable() -> anyhow::Result<()> {
     let n = col.write_jsonl_par(&file, Some(8))?;
     assert_eq!(n, 1000);
 
-    let back: Vec<R> = rustflow::read_jsonl_vec(&file)?;
+    let back: Vec<R> = read_jsonl_vec(&file)?;
     assert_collections_equal(&back, &data);
     Ok(())
 }

@@ -1,5 +1,5 @@
-use rustflow::node::DynOp;
-use rustflow::Partition;
+use ironbeam::node::DynOp;
+use ironbeam::Partition;
 use std::sync::Arc;
 
 /// Test implementation of `DynOp` for testing trait defaults

@@ -22,7 +22,7 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// let p = Pipeline::default();
     /// let out = from_vec(&p, vec![1,1,2,3,3,3]).distinct();
     /// let v = out.collect_seq().unwrap();
@@ -43,7 +43,7 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// let p = Pipeline::default();
     /// let out = from_vec(&p, (0..10_000u64).map(|n| n % 1234).collect::<Vec<_>>())
     ///     .approx_distinct_count(256);
@@ -68,7 +68,7 @@ where
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// let p = Pipeline::default();
     /// let kv = vec![
     ///   ("a".to_string(), 1), ("a".to_string(), 1), ("a".to_string(), 2),

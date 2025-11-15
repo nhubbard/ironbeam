@@ -1,6 +1,6 @@
-use rustflow::collection::Count;
-use rustflow::from_vec;
-use rustflow::testing::*;
+use ironbeam::collection::Count;
+use ironbeam::from_vec;
+use ironbeam::testing::*;
 use std::collections::HashMap;
 
 #[test]

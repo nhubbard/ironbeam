@@ -16,8 +16,8 @@
 //! # Example
 //!
 //! ```no_run
-//! use rustflow::*;
-//! use rustflow::validation::*;
+//! use ironbeam::*;
+//! use ironbeam::validation::*;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Clone, Debug, Serialize, Deserialize)]

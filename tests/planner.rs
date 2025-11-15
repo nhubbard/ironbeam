@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rustflow::from_vec;
-use rustflow::testing::*;
+use ironbeam::from_vec;
+use ironbeam::testing::*;
 
 #[test]
 fn planner_fuses_stateless_equivalence() -> Result<()> {

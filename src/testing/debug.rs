@@ -132,8 +132,8 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// # Example
     ///
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::testing::PCollectionDebugExt;
+    /// use ironbeam::*;
+    /// use ironbeam::testing::PCollectionDebugExt;
     ///
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
@@ -157,8 +157,8 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// # Example
     ///
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::testing::PCollectionDebugExt;
+    /// use ironbeam::*;
+    /// use ironbeam::testing::PCollectionDebugExt;
     ///
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
@@ -180,8 +180,8 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// # Example
     ///
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::testing::PCollectionDebugExt;
+    /// use ironbeam::*;
+    /// use ironbeam::testing::PCollectionDebugExt;
     ///
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
@@ -199,8 +199,8 @@ pub trait PCollectionDebugExt<T: RFBound> {
     /// # Example
     ///
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::testing::PCollectionDebugExt;
+    /// use ironbeam::*;
+    /// use ironbeam::testing::PCollectionDebugExt;
     ///
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();

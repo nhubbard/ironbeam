@@ -25,8 +25,8 @@ impl<T: RFBound + Validate> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::validation::*;
+    /// use ironbeam::*;
+    /// use ironbeam::validation::*;
     /// use serde::{Deserialize, Serialize};
     /// use std::sync::{Arc, Mutex};
     ///
@@ -82,8 +82,8 @@ impl<T: RFBound + Validate> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::validation::*;
+    /// use ironbeam::*;
+    /// use ironbeam::validation::*;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Clone, Serialize, Deserialize)]
@@ -114,8 +114,8 @@ impl<T: RFBound + Validate> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::validation::*;
+    /// use ironbeam::*;
+    /// use ironbeam::validation::*;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Clone, Serialize, Deserialize)]
@@ -208,8 +208,8 @@ where
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::validation::*;
+    /// use ironbeam::*;
+    /// use ironbeam::validation::*;
     /// # use serde::{Deserialize, Serialize};
     ///
     /// # #[derive(Clone, Serialize, Deserialize)]

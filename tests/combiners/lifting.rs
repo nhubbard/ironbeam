@@ -1,7 +1,7 @@
 use anyhow::Result;
-use rustflow::combiners::{Max, Min, Sum};
-use rustflow::testing::*;
-use rustflow::{from_vec, Count};
+use ironbeam::combiners::{Max, Min, Sum};
+use ironbeam::testing::*;
+use ironbeam::{from_vec, Count};
 
 #[test]
 fn gbk_then_combine_lifted_equals_classic_combine() -> Result<()> {
@@ -27,7 +27,7 @@ fn gbk_then_combine_lifted_equals_classic_combine() -> Result<()> {
 
 #[test]
 fn test_sum_liftable_combiner() {
-    use rustflow::collection::LiftableCombiner;
+    use ironbeam::collection::LiftableCombiner;
 
     let sum_combiner = Sum::<i32>::new();
     let values = vec![1, 2, 3, 4, 5];
@@ -42,7 +42,7 @@ fn test_sum_liftable_combiner() {
 
 #[test]
 fn test_min_liftable_combiner() {
-    use rustflow::collection::LiftableCombiner;
+    use ironbeam::collection::LiftableCombiner;
 
     let min_combiner = Min::<i32>::new();
     let values = vec![5, 2, 8, 1, 9];
@@ -57,7 +57,7 @@ fn test_min_liftable_combiner() {
 
 #[test]
 fn test_max_liftable_combiner() {
-    use rustflow::collection::LiftableCombiner;
+    use ironbeam::collection::LiftableCombiner;
 
     let max_combiner = Max::<i32>::new();
     let values = vec![5, 2, 8, 1, 9];

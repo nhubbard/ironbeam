@@ -1,4 +1,4 @@
-//! Testing utilities for Rustflow pipelines.
+//! Testing utilities for Ironbeam pipelines.
 //!
 //! This module provides a comprehensive testing facility for end-users to write
 //! idiomatic Rust tests for their data pipelines. It includes:
@@ -12,8 +12,8 @@
 //! # Quick Start
 //!
 //! ```no_run
-//! use rustflow::*;
-//! use rustflow::testing::*;
+//! use ironbeam::*;
+//! use ironbeam::testing::*;
 //!
 //! #[test]
 //! fn test_simple_pipeline() -> anyhow::Result<()> {
@@ -44,7 +44,7 @@
 //! Use [`TestDataBuilder`] to create test data fluently:
 //!
 //! ```
-//! use rustflow::testing::*;
+//! use ironbeam::testing::*;
 //!
 //! let data = TestDataBuilder::<i32>::new()
 //!     .add_range(1..=10)
@@ -57,8 +57,8 @@
 //! Debug your pipelines during test execution:
 //!
 //! ```no_run
-//! use rustflow::*;
-//! use rustflow::testing::*;
+//! use ironbeam::*;
+//! use ironbeam::testing::*;
 //!
 //! # fn main() -> anyhow::Result<()> {
 //! let p = TestPipeline::new();
@@ -98,8 +98,8 @@ use crate::Pipeline;
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::TestPipeline;
-/// use rustflow::from_vec;
+/// use ironbeam::testing::TestPipeline;
+/// use ironbeam::from_vec;
 ///
 /// let p = TestPipeline::new();
 /// let data = from_vec(&p, vec![1, 2, 3]);

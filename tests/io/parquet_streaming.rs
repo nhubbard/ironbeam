@@ -1,6 +1,6 @@
 #![cfg(feature = "io-parquet")]
-use rustflow::testing::*;
-use rustflow::{from_vec, read_parquet_streaming, Count};
+use ironbeam::testing::*;
+use ironbeam::{from_vec, read_parquet_streaming, Count};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]

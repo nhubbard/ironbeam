@@ -10,11 +10,11 @@
 //! cargo run --example checkpoint_recovery_demo --features checkpointing
 //! ```
 
-use rustflow::{Pipeline, from_vec, Count, Runner, ExecMode, AverageF64, Sum};
+use ironbeam::{Pipeline, from_vec, Count, Runner, ExecMode, AverageF64, Sum};
 use std::env;
 
 #[cfg(feature = "checkpointing")]
-use rustflow::checkpoint::{CheckpointConfig, CheckpointPolicy};
+use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
 
 #[cfg(feature = "checkpointing")]
 fn run_with_time_based_checkpoints() -> anyhow::Result<()> {

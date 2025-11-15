@@ -7,11 +7,11 @@
 //! - Print metrics to stdout
 //! - Save metrics to a JSON file
 
-use rustflow::{Pipeline, from_vec};
+use ironbeam::{Pipeline, from_vec};
 use serde_json::Value;
 
 #[cfg(feature = "metrics")]
-use rustflow::metrics::{CounterMetric, GaugeMetric, HistogramMetric, Metric, MetricsCollector};
+use ironbeam::metrics::{CounterMetric, GaugeMetric, HistogramMetric, Metric, MetricsCollector};
 
 #[cfg(feature = "metrics")]
 struct CustomMetric {
@@ -44,7 +44,7 @@ impl Metric for CustomMetric {
 fn main() -> anyhow::Result<()> {
     #[cfg(feature = "metrics")]
     {
-        println!("=== Rustflow Metrics Example ===\n");
+        println!("=== Ironbeam Metrics Example ===\n");
 
         // Create a pipeline
         let p = Pipeline::default();

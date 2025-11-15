@@ -19,7 +19,7 @@
 //! ### Examples
 //! Read and write (sequential):
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
 //! # fn main() -> anyhow::Result<()> {
 //! #[derive(Serialize, Deserialize, Clone)]
@@ -34,7 +34,7 @@
 //!
 //! Streaming read:
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
 //! # fn main() -> anyhow::Result<()> {
 //! #[derive(Serialize, Deserialize, Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -49,7 +49,7 @@
 //!
 //! Parallel write with stable order:
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
 //! # fn main() -> anyhow::Result<()> {
 //! #[derive(Serialize, Deserialize, Clone)]
@@ -100,7 +100,7 @@ use std::sync::Arc;
 ///
 /// Single file:
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// use serde::{Deserialize, Serialize};
 /// # fn main() -> anyhow::Result<()> {
 /// #[derive(Serialize, Deserialize, Clone)]
@@ -114,7 +114,7 @@ use std::sync::Arc;
 ///
 /// Glob pattern:
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// use serde::{Deserialize, Serialize};
 /// # fn main() -> anyhow::Result<()> {
 /// #[derive(Serialize, Deserialize, Clone)]
@@ -129,7 +129,7 @@ use std::sync::Arc;
 ///
 /// Glob pattern:
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// use serde::{Deserialize, Serialize};
 /// # fn main() -> anyhow::Result<()> {
 /// #[derive(Serialize, Deserialize, Clone)]
@@ -203,7 +203,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 ///
 /// ### Example
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// use serde::{Deserialize, Serialize};
 /// # fn main() -> anyhow::Result<()> {
 /// #[derive(Serialize, Deserialize, Clone, Eq, Ord, PartialEq, PartialOrd)]

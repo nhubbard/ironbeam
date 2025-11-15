@@ -2,7 +2,7 @@
 
 #[cfg(feature = "checkpointing")]
 mod checkpoint_tests {
-    use rustflow::checkpoint::{
+    use ironbeam::checkpoint::{
         compute_checksum, current_timestamp_ms, CheckpointConfig, CheckpointManager, CheckpointMetadata,
         CheckpointPolicy, CheckpointState,
     };

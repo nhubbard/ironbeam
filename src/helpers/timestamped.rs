@@ -13,7 +13,7 @@
 //!
 //! ### Quick start
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //!
 //! let p = Pipeline::default();
 //!
@@ -54,7 +54,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// ### Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// #[derive(Clone)]
     /// struct LogLine { ts_ms: u64, msg: String }
@@ -88,7 +88,7 @@ impl<T: RFBound> PCollection<(TimestampMs, T)> {
     ///
     /// ### Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let pairs = from_vec(&p, vec![(100_u64, "x".to_string()), (180_u64, "y".to_string())]);

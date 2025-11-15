@@ -31,7 +31,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec![3, 1, 2]);
@@ -62,7 +62,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec![5, 3, 4]);
@@ -95,7 +95,7 @@ impl<K: RFBound + Ord, V: RFBound> PCollection<(K, V)> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let kvs = from_vec(&p, vec![

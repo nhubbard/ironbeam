@@ -9,7 +9,7 @@
 //! Run with: `cargo run --example advanced_joins`
 
 use anyhow::Result;
-use rustflow::{Pipeline, from_vec};
+use ironbeam::{Pipeline, from_vec};
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {

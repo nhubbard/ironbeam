@@ -4,7 +4,7 @@
 //! what the query planner is doing with your pipeline.
 
 use anyhow::Result;
-use rustflow::{Pipeline, from_vec, build_plan, OptimizationDecision};
+use ironbeam::{Pipeline, from_vec, build_plan, OptimizationDecision};
 
 fn main() -> Result<()> {
     println!("=== Example 1: Simple Pipeline ===\n");

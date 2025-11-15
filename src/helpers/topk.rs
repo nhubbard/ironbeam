@@ -5,7 +5,7 @@
 //!
 //! ## Example
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! # use anyhow::Result;
 //!
 //! # fn main() -> Result<()> {
@@ -50,7 +50,7 @@ where
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// # use anyhow::Result;
     ///
     /// # fn main() -> Result<()> {

@@ -18,7 +18,7 @@
 //!
 //! ## Examples
 //! ```
-//! use rustflow::*;
+//! use ironbeam::*;
 //! # fn main() -> anyhow::Result<()> {
 //! let p = Pipeline::default();
 //!
@@ -63,7 +63,7 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
     ///
     /// ### Example
     /// ```
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
     /// let events = from_vec(&p, vec![
@@ -94,7 +94,7 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
     ///
     /// ### Example
     /// ```
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
     /// let events = from_vec(&p, vec![
@@ -124,7 +124,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
     ///
     /// ### Example
     /// ```
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
     /// let keyed = from_vec(&p, vec![
@@ -154,7 +154,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
     ///
     /// ### Example
     /// ```
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
     /// let keyed = from_vec(&p, vec![

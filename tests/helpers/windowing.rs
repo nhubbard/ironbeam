@@ -1,7 +1,7 @@
 // tests/windowing.rs
-use rustflow::testing::*;
-use rustflow::window::{Timestamped, Window};
-use rustflow::*;
+use ironbeam::testing::*;
+use ironbeam::window::{Timestamped, Window};
+use ironbeam::*;
 
 const fn mk_ts(i: u64) -> u64 {
     i

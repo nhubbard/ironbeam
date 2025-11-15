@@ -1,4 +1,4 @@
-//! Mega comprehensive integration test covering EVERY Rustflow feature.
+//! Mega comprehensive integration test covering EVERY Ironbeam feature.
 //!
 //! This test exercises the entire API surface to ensure all features work together:
 //! - All stateless transforms (`map`, `filter`, `flat_map`, etc.)
@@ -18,8 +18,8 @@
 //! - Sequential and parallel execution equivalence
 
 use anyhow::Result;
-use rustflow::*;
-use rustflow::combiners::*;
+use ironbeam::*;
+use ironbeam::combiners::*;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use serde::Serialize;
@@ -708,7 +708,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         #[cfg(feature = "io-jsonl")]
         {
             // Vector I/O
-            use rustflow::io::jsonl::{read_jsonl_vec, write_jsonl_vec};
+            use ironbeam::io::jsonl::{read_jsonl_vec, write_jsonl_vec};
             let jsonl_path = base_path.join("test.jsonl");
             write_jsonl_vec(&jsonl_path, &test_records)?;
             let loaded: Vec<Record> = read_jsonl_vec(&jsonl_path)?;
@@ -751,7 +751,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         // 14c. CSV I/O
         #[cfg(feature = "io-csv")]
         {
-            use rustflow::io::csv::{read_csv_vec, write_csv_vec};
+            use ironbeam::io::csv::{read_csv_vec, write_csv_vec};
             let csv_path = base_path.join("test.csv");
             write_csv_vec(&csv_path, true, &test_records)?;
             let csv_loaded: Vec<Record> = read_csv_vec(&csv_path, true)?;
@@ -779,7 +779,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         // 14d. Parquet I/O
         #[cfg(feature = "io-parquet")]
         {
-            use rustflow::io::parquet::{read_parquet_vec, write_parquet_vec};
+            use ironbeam::io::parquet::{read_parquet_vec, write_parquet_vec};
             let parquet_path = base_path.join("test.parquet");
             write_parquet_vec(&parquet_path, &test_records)?;
             let parquet_loaded: Vec<Record> = read_parquet_vec(&parquet_path)?;

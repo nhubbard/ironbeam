@@ -1,7 +1,7 @@
 use anyhow::Result;
-use rustflow::combiners::{ApproxMedian, ApproxQuantiles, TDigest};
-use rustflow::from_vec;
-use rustflow::testing::*;
+use ironbeam::combiners::{ApproxMedian, ApproxQuantiles, TDigest};
+use ironbeam::from_vec;
+use ironbeam::testing::*;
 
 #[test]
 fn test_tdigest_basic() {

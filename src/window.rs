@@ -71,7 +71,7 @@ impl Window {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::window::{Window, TimestampMs};
+    /// use ironbeam::window::{Window, TimestampMs};
     /// let w = Window::tumble(27, 10, 0);
     /// assert_eq!(w.start, 20);
     /// assert_eq!(w.end, 30);
@@ -155,7 +155,7 @@ impl<T> Timestamped<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::window::{Timestamped, TimestampMs};
+    /// use ironbeam::window::{Timestamped, TimestampMs};
     /// let ev = Timestamped::new(1_700_000_000_000u64, "payload");
     /// assert_eq!(ev.value, "payload");
     /// ```

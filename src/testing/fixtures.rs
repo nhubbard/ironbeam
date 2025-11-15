@@ -21,7 +21,7 @@ pub struct SampleLogEntry {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::sample_log_entries;
+/// use ironbeam::testing::sample_log_entries;
 ///
 /// let logs = sample_log_entries();
 /// assert!(!logs.is_empty());
@@ -79,7 +79,7 @@ pub fn sample_log_entries() -> Vec<SampleLogEntry> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::word_count_data;
+/// use ironbeam::testing::word_count_data;
 ///
 /// let sentences = word_count_data();
 /// assert!(!sentences.is_empty());
@@ -100,7 +100,7 @@ pub fn word_count_data() -> Vec<String> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::numeric_data_with_outliers;
+/// use ironbeam::testing::numeric_data_with_outliers;
 ///
 /// let data = numeric_data_with_outliers();
 /// assert!(data.iter().any(|&x| x > 100.0)); // Has outliers
@@ -123,7 +123,7 @@ pub fn numeric_data_with_outliers() -> Vec<f64> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::skewed_key_value_data;
+/// use ironbeam::testing::skewed_key_value_data;
 ///
 /// let kvs = skewed_key_value_data();
 /// let hot_key_count = kvs.iter().filter(|(k, _)| k == "hot_key").count();
@@ -158,7 +158,7 @@ pub fn skewed_key_value_data() -> Vec<(String, i32)> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::time_series_data;
+/// use ironbeam::testing::time_series_data;
 ///
 /// let ts = time_series_data();
 /// assert!(!ts.is_empty());
@@ -188,7 +188,7 @@ pub fn time_series_data() -> Vec<(u64, f64)> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::user_product_interactions;
+/// use ironbeam::testing::user_product_interactions;
 ///
 /// let interactions = user_product_interactions();
 /// assert!(!interactions.is_empty());
@@ -213,7 +213,7 @@ pub fn user_product_interactions() -> Vec<(String, String, u8)> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::product_metadata;
+/// use ironbeam::testing::product_metadata;
 ///
 /// let products = product_metadata();
 /// assert!(!products.is_empty());
@@ -255,7 +255,7 @@ pub fn product_metadata() -> Vec<(String, String, String, f64)> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::sensor_readings;
+/// use ironbeam::testing::sensor_readings;
 ///
 /// let readings = sensor_readings();
 /// assert!(!readings.is_empty());
@@ -280,7 +280,7 @@ pub fn sensor_readings() -> Vec<(String, u64, f64, f64)> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::sample_emails;
+/// use ironbeam::testing::sample_emails;
 ///
 /// let emails = sample_emails();
 /// assert!(emails.iter().all(|e| e.contains('@')));
@@ -304,7 +304,7 @@ pub fn sample_emails() -> Vec<String> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::transaction_data;
+/// use ironbeam::testing::transaction_data;
 ///
 /// let transactions = transaction_data();
 /// assert!(!transactions.is_empty());

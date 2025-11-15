@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rustflow::testing::*;
-use rustflow::*;
+use ironbeam::testing::*;
+use ironbeam::*;
 
 #[test]
 fn map_batches_matches_elementwise_seq() -> Result<()> {

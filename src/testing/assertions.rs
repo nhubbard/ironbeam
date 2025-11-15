@@ -19,7 +19,7 @@ use std::hash::{BuildHasher, Hash};
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_collections_equal;
+/// use ironbeam::testing::assert_collections_equal;
 ///
 /// let actual = vec![1, 2, 3];
 /// let expected = vec![1, 2, 3];
@@ -45,7 +45,7 @@ pub fn assert_collections_equal<T: Debug + PartialEq>(actual: &[T], expected: &[
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_collections_unordered_equal;
+/// use ironbeam::testing::assert_collections_unordered_equal;
 ///
 /// let actual = vec![3, 1, 2];
 /// let expected = vec![1, 2, 3];
@@ -82,7 +82,7 @@ pub fn assert_collections_unordered_equal<T: Debug + Eq + Hash>(
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_kv_collections_equal;
+/// use ironbeam::testing::assert_kv_collections_equal;
 ///
 /// let actual = vec![("b", 2), ("a", 1)];
 /// let expected = vec![("a", 1), ("b", 2)];
@@ -118,7 +118,7 @@ where
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_grouped_kv_equal;
+/// use ironbeam::testing::assert_grouped_kv_equal;
 ///
 /// let actual = vec![("a", vec![1, 2]), ("b", vec![3])];
 /// let expected = vec![("a", vec![2, 1]), ("b", vec![3])];
@@ -155,7 +155,7 @@ pub fn assert_grouped_kv_equal<K, V>(
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_all;
+/// use ironbeam::testing::assert_all;
 ///
 /// let data = vec![2, 4, 6, 8];
 /// assert_all(&data, |x| x % 2 == 0);
@@ -177,7 +177,7 @@ pub fn assert_all<T: Debug>(collection: &[T], predicate: impl Fn(&T) -> bool) {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_any;
+/// use ironbeam::testing::assert_any;
 ///
 /// let data = vec![1, 2, 3, 4];
 /// assert_any(&data, |x| x % 2 == 0);
@@ -197,7 +197,7 @@ pub fn assert_any<T: Debug>(collection: &[T], predicate: impl Fn(&T) -> bool) {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_none;
+/// use ironbeam::testing::assert_none;
 ///
 /// let data = vec![1, 3, 5, 7];
 /// assert_none(&data, |x| x % 2 == 0);
@@ -219,7 +219,7 @@ pub fn assert_none<T: Debug>(collection: &[T], predicate: impl Fn(&T) -> bool) {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_collection_size;
+/// use ironbeam::testing::assert_collection_size;
 ///
 /// let data = vec![1, 2, 3];
 /// assert_collection_size(&data, 3);
@@ -237,7 +237,7 @@ pub fn assert_collection_size<T>(collection: &[T], expected_size: usize) {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_contains;
+/// use ironbeam::testing::assert_contains;
 ///
 /// let data = vec![1, 2, 3, 4];
 /// assert_contains(&data, &3);
@@ -257,7 +257,7 @@ pub fn assert_contains<T: Debug + PartialEq>(collection: &[T], element: &T) {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::assert_maps_equal;
+/// use ironbeam::testing::assert_maps_equal;
 /// use std::collections::HashMap;
 ///
 /// let mut actual = HashMap::new();

@@ -30,7 +30,7 @@ pub type Partition = Box<dyn Any + Send + Sync>;
 /// without a generic parameter.
 ///
 /// ```no_run
-/// use rustflow::type_token::TypeTag;
+/// use ironbeam::type_token::TypeTag;
 /// let tag = TypeTag::of::<u32>();
 /// assert_eq!(tag.name, "u32");
 /// ```
@@ -118,7 +118,7 @@ impl<T: Clone + Send + Sync + 'static> VecOps for VecOpsImpl<T> {
 /// partition splitting, and cloning at runtime.
 ///
 /// ```no_run
-/// use rustflow::type_token::{vec_ops_for, VecOps};
+/// use ironbeam::type_token::{vec_ops_for, VecOps};
 /// use std::any::Any;
 ///
 /// let ops: std::sync::Arc<dyn VecOps> = vec_ops_for::<i64>();

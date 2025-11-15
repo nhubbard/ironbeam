@@ -14,8 +14,8 @@
 //! # Example
 //!
 //! ```no_run
-//! use rustflow::*;
-//! use rustflow::metrics::{MetricsCollector, Metric};
+//! use ironbeam::*;
+//! use ironbeam::metrics::{MetricsCollector, Metric};
 //! use serde_json::Value;
 //!
 //! // Create a custom metric

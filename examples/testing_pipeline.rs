@@ -1,21 +1,21 @@
 //! Comprehensive example demonstrating pipeline testing utilities.
 //!
-//! This example shows how to use Rustflow's testing facilities to write
+//! This example shows how to use Ironbeam's testing facilities to write
 //! idiomatic Rust tests for data pipelines.
 //!
 //! Run with: `cargo run --example testing_pipeline`
 
 use anyhow::Result;
-use rustflow::testing::{
+use ironbeam::testing::{
     assert_all, assert_any, assert_collection_size, assert_collections_equal, assert_contains, assert_grouped_kv_equal,
     assert_kv_collections_equal, product_metadata, sample_log_entries, sequential_data,
     skewed_key_value_data, time_series_data, user_product_interactions, word_count_data,
     KVTestDataBuilder, PCollectionDebugExt, TestDataBuilder, TestPipeline,
 };
-use rustflow::{from_vec, Count, Sum};
+use ironbeam::{from_vec, Count, Sum};
 
 fn main() -> Result<()> {
-    println!("🧪 Rustflow Pipeline Testing Examples\n");
+    println!("🧪 Ironbeam Pipeline Testing Examples\n");
 
     // Example 1: Basic assertions
     example_basic_assertions()?;

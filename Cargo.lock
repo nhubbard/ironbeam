@@ -687,6 +687,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
 
 [[package]]
+name = "ironbeam"
+version = "1.0.0-alpha1"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "bincode",
+ "bzip2",
+ "csv",
+ "flate2",
+ "glob",
+ "num_cpus",
+ "ordered-float 5.1.0",
+ "parquet",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_arrow",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "xz2",
+ "zstd",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1092,31 +1117,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
 dependencies = [
  "semver",
-]
-
-[[package]]
-name = "rustflow"
-version = "1.0.0-alpha1"
-dependencies = [
- "anyhow",
- "arrow",
- "bincode",
- "bzip2",
- "csv",
- "flate2",
- "glob",
- "num_cpus",
- "ordered-float 5.1.0",
- "parquet",
- "rayon",
- "regex",
- "serde",
- "serde_arrow",
- "serde_json",
- "sha2",
- "tempfile",
- "xz2",
- "zstd",
 ]
 
 [[package]]

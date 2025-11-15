@@ -1,6 +1,6 @@
 //! Extension points for custom pipeline operations.
 //!
-//! This module provides traits and utilities for extending Rustflow with custom
+//! This module provides traits and utilities for extending Ironbeam with custom
 //! functionality:
 //!
 //! - [`CompositeTransform`]: Package multiple transforms into a reusable component
@@ -25,8 +25,8 @@ use crate::{PCollection, RFBound};
 ///
 /// # Example: Email Normalization
 /// ```
-/// use rustflow::*;
-/// use rustflow::extensions::CompositeTransform;
+/// use ironbeam::*;
+/// use ironbeam::extensions::CompositeTransform;
 ///
 /// struct NormalizeEmails;
 ///
@@ -56,8 +56,8 @@ use crate::{PCollection, RFBound};
 ///
 /// # Example: Word Length Analysis
 /// ```
-/// use rustflow::*;
-/// use rustflow::extensions::CompositeTransform;
+/// use ironbeam::*;
+/// use ironbeam::extensions::CompositeTransform;
 ///
 /// struct WordLengths;
 ///
@@ -119,8 +119,8 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Example
     /// ```
-    /// use rustflow::*;
-    /// use rustflow::extensions::CompositeTransform;
+    /// use ironbeam::*;
+    /// use ironbeam::extensions::CompositeTransform;
     ///
     /// struct TrimAndFilter;
     ///

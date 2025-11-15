@@ -102,7 +102,7 @@ impl Default for TempDirPath {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::mock_csv_file;
+/// use ironbeam::testing::mock_csv_file;
 /// use serde::Serialize;
 ///
 /// #[derive(Serialize)]
@@ -147,7 +147,7 @@ pub fn mock_csv_file<T: Serialize>(data: &[T], with_header: bool) -> std::io::Re
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::mock_jsonl_file;
+/// use ironbeam::testing::mock_jsonl_file;
 /// use serde::Serialize;
 ///
 /// #[derive(Serialize)]
@@ -189,7 +189,7 @@ pub fn mock_jsonl_file<T: Serialize>(data: &[T]) -> std::io::Result<TempFilePath
 /// # Example
 ///
 /// ```no_run
-/// use rustflow::testing::read_csv_output;
+/// use ironbeam::testing::read_csv_output;
 /// use serde::Deserialize;
 ///
 /// #[derive(Deserialize, Debug, PartialEq)]
@@ -226,7 +226,7 @@ pub fn read_csv_output<T: serde::de::DeserializeOwned, P: AsRef<Path>>(
 /// # Example
 ///
 /// ```no_run
-/// use rustflow::testing::read_jsonl_output;
+/// use ironbeam::testing::read_jsonl_output;
 /// use serde::Deserialize;
 ///
 /// #[derive(Deserialize, Debug, PartialEq)]
@@ -268,7 +268,7 @@ pub fn read_jsonl_output<T: serde::de::DeserializeOwned, P: AsRef<Path>>(
 /// # Example
 ///
 /// ```no_run
-/// use rustflow::testing::assert_csv_equals;
+/// use ironbeam::testing::assert_csv_equals;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -308,7 +308,7 @@ where
 /// # Example
 ///
 /// ```no_run
-/// use rustflow::testing::assert_jsonl_equals;
+/// use ironbeam::testing::assert_jsonl_equals;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, PartialEq, Serialize, Deserialize)]

@@ -1,6 +1,6 @@
-use rustflow::combiners::{AverageF64, DistinctCount, Sum};
-use rustflow::testing::*;
-use rustflow::*;
+use ironbeam::combiners::{AverageF64, DistinctCount, Sum};
+use ironbeam::testing::*;
+use ironbeam::*;
 
 #[test]
 fn combine_globally_sum_basic() -> anyhow::Result<()> {

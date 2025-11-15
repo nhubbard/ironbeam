@@ -1,7 +1,7 @@
-//! # Rustflow
+//! # Ironbeam
 //!
 //! A **data processing framework** for Rust inspired by Apache Beam and Google Cloud Dataflow.
-//! Rustflow provides a declarative API for building batch data pipelines with support for
+//! Ironbeam provides a declarative API for building batch data pipelines with support for
 //! transformations, aggregations, joins, and I/O operations.
 //!
 //! ## Key Features
@@ -19,7 +19,7 @@
 //! ## Quick Start
 //!
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! # use anyhow::Result;
 //!
 //! # fn main() -> Result<()> {
@@ -58,14 +58,14 @@
 //! ### `PCollection`
 //!
 //! A [`PCollection<T>`] represents a distributed collection with elements of type `T`.
-//! It's the fundamental abstraction for data in Rustflow. Collections are:
+//! It's the fundamental abstraction for data in Ironbeam. Collections are:
 //! - **Immutable** - transformations create new collections
 //! - **Lazy** - computation happens when you call a collect method
 //! - **Type-safe** - generic over the element type
 //!
 //! ### Transformations
 //!
-//! Rustflow provides two categories of transforms:
+//! Ironbeam provides two categories of transforms:
 //!
 //! #### Stateless (element-wise)
 //! - [`map`](PCollection::map) - transform each element
@@ -94,7 +94,7 @@
 //!
 //! ### Joins
 //!
-//! Rustflow supports all standard join types for `PCollection<(K, V)>`:
+//! Ironbeam supports all standard join types for `PCollection<(K, V)>`:
 //! - [`join_inner`](PCollection::join_inner) - inner join
 //! - [`join_left`](PCollection::join_left) - left outer join
 //! - [`join_right`](PCollection::join_right) - right outer join
@@ -118,11 +118,11 @@
 //!
 //! ## I/O Operations
 //!
-//! Rustflow supports reading and writing common data formats (all optional via feature flags):
+//! Ironbeam supports reading and writing common data formats (all optional via feature flags):
 //!
 //! ### JSON Lines (feature: `io-jsonl`)
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
@@ -145,7 +145,7 @@
 //!
 //! ### CSV (feature: `io-csv`)
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
@@ -161,7 +161,7 @@
 //!
 //! ### Parquet (feature: `io-parquet`)
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Clone, Serialize, Deserialize)]
@@ -188,7 +188,7 @@
 //!
 //! ### Word Count
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! # use anyhow::Result;
 //!
 //! # fn main() -> Result<()> {
@@ -208,7 +208,7 @@
 //!
 //! ### Group and Aggregate
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! # use anyhow::Result;
 //!
 //! # fn main() -> Result<()> {
@@ -227,7 +227,7 @@
 //!
 //! ### Join Two Collections
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! # use anyhow::Result;
 //!
 //! # fn main() -> Result<()> {
@@ -252,7 +252,7 @@
 //!
 //! ### Using Side Inputs
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use std::collections::HashMap;
 //! # use anyhow::Result;
 //!
@@ -280,7 +280,7 @@
 //! ```no_run
 //! # #[cfg(feature = "metrics")]
 //! # {
-//! use rustflow::*;
+//! use ironbeam::*;
 //! # use anyhow::Result;
 //!
 //! # fn main() -> Result<()> {
@@ -313,8 +313,8 @@
 //! ```no_run
 //! # #[cfg(feature = "checkpointing")]
 //! # {
-//! use rustflow::*;
-//! use rustflow::checkpoint::{CheckpointConfig, CheckpointPolicy};
+//! use ironbeam::*;
+//! use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
 //! # use anyhow::Result;
 //!
 //! # fn main() -> Result<()> {
@@ -351,13 +351,13 @@
 //!
 //! ## Testing Your Pipelines
 //!
-//! Rustflow provides comprehensive testing utilities in the [`testing`] module to help you
+//! Ironbeam provides comprehensive testing utilities in the [`testing`] module to help you
 //! write idiomatic Rust tests for your data pipelines.
 //!
 //! ### Basic Testing
 //! ```no_run
-//! use rustflow::*;
-//! use rustflow::testing::*;
+//! use ironbeam::*;
+//! use ironbeam::testing::*;
 //!
 //! #[test]
 //! fn test_simple_pipeline() -> anyhow::Result<()> {
@@ -384,7 +384,7 @@
 //! Create test data fluently with builders:
 //!
 //! ```
-//! use rustflow::testing::*;
+//! use ironbeam::testing::*;
 //!
 //! let data = TestDataBuilder::<i32>::new()
 //!     .add_range(1..=10)
@@ -402,8 +402,8 @@
 //! Inspect pipelines during test execution:
 //!
 //! ```no_run
-//! use rustflow::*;
-//! use rustflow::testing::*;
+//! use ironbeam::*;
+//! use ironbeam::testing::*;
 //!
 //! # fn main() -> anyhow::Result<()> {
 //! let p = TestPipeline::new();
@@ -421,7 +421,7 @@
 //! Use common test datasets for realistic testing:
 //!
 //! ```
-//! use rustflow::testing::*;
+//! use ironbeam::testing::*;
 //!
 //! let logs = sample_log_entries();       // Web server logs
 //! let words = word_count_data();         // Text data for word counting
@@ -442,7 +442,7 @@
 //!
 //! ## Architecture
 //!
-//! Rustflow uses a **deferred execution** model:
+//! Ironbeam uses a **deferred execution** model:
 //! 1. Building a pipeline creates a computation graph (DAG) of transformations
 //! 2. The [`planner`] optimizes the graph (fusion, etc.)
 //! 3. The [`runner`] executes the optimized plan when you call a collect method
@@ -463,14 +463,14 @@
 //!
 //! ## Extensibility
 //!
-//! Rustflow provides several extension points for adding custom functionality:
+//! Ironbeam provides several extension points for adding custom functionality:
 //!
 //! ### Custom Transforms
 //! Implement [`node::DynOp`] to create custom stateless transformations:
 //! ```no_run
-//! use rustflow::*;
-//! use rustflow::node::DynOp;
-//! use rustflow::type_token::Partition;
+//! use ironbeam::*;
+//! use ironbeam::node::DynOp;
+//! use ironbeam::type_token::Partition;
 //! use std::sync::Arc;
 //!
 //! struct MyCustomOp;
@@ -493,8 +493,8 @@
 //! ### Composite Transforms
 //! Use [`extensions::CompositeTransform`] to package reusable pipelines:
 //! ```no_run
-//! use rustflow::*;
-//! use rustflow::extensions::CompositeTransform;
+//! use ironbeam::*;
+//! use ironbeam::extensions::CompositeTransform;
 //!
 //! struct MyComposite;
 //! impl CompositeTransform<String, String> for MyComposite {

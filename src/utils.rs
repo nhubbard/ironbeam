@@ -1,4 +1,4 @@
-//! Utility types and functions for Rustflow.
+//! Utility types and functions for Ironbeam.
 
 use std::cmp::Ordering;
 
@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 /// # Examples
 ///
 /// ```
-/// use rustflow::utils::OrdF64;
+/// use ironbeam::utils::OrdF64;
 /// use std::collections::BinaryHeap;
 ///
 /// let mut heap = BinaryHeap::new();

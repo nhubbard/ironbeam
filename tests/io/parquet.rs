@@ -1,8 +1,8 @@
 #![cfg(feature = "io-parquet")]
 
-use rustflow::from_vec;
-use rustflow::io::parquet::*;
-use rustflow::testing::*;
+use ironbeam::from_vec;
+use ironbeam::io::parquet::*;
+use ironbeam::testing::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

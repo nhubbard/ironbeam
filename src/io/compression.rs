@@ -21,7 +21,7 @@
 //!
 //! ### Transparent Auto-Detection
 //! ```no_run
-//! use rustflow::io::compression::{auto_detect_reader, auto_detect_writer};
+//! use ironbeam::io::compression::{auto_detect_reader, auto_detect_writer};
 //! use std::fs::File;
 //! # fn main() -> anyhow::Result<()> {
 //!
@@ -38,7 +38,7 @@
 //!
 //! ### Custom Codec Implementation
 //! ```
-//! use rustflow::io::compression::CompressionCodec;
+//! use ironbeam::io::compression::CompressionCodec;
 //! use std::io::{Read, Write, Result};
 //!
 //! struct MyCodec;
@@ -70,7 +70,7 @@
 //!
 //! ### Pluggable Architecture
 //! The [`CompressionCodec`] trait allows users to implement custom codecs without
-//! modifying Rustflow's core. Codecs can be registered globally via [`register_codec`].
+//! modifying Ironbeam's core. Codecs can be registered globally via [`register_codec`].
 //!
 //! ### Streaming Compatibility
 //! Compressed streams don't support random access, which affects shard-based streaming:
@@ -119,7 +119,7 @@ fn get_registry() -> Vec<Arc<dyn CompressionCodec>> {
 ///
 /// # Examples
 /// ```
-/// use rustflow::io::compression::{register_codec, CompressionCodec};
+/// use ironbeam::io::compression::{register_codec, CompressionCodec};
 /// use std::io::{Read, Write};
 /// # use std::sync::Arc;
 ///
@@ -153,7 +153,7 @@ pub fn register_codec(codec: Arc<dyn CompressionCodec>) {
 
 /// Pluggable compression codec trait.
 ///
-/// Implement this trait to add custom compression algorithms to Rustflow's I/O system.
+/// Implement this trait to add custom compression algorithms to Ironbeam's I/O system.
 /// Codecs are detected via file extensions (fast path) or magic bytes (fallback).
 ///
 /// # Thread Safety
@@ -243,7 +243,7 @@ fn detect_from_magic<R: BufRead>(reader: &mut R) -> Option<Arc<dyn CompressionCo
 ///
 /// # Examples
 /// ```no_run
-/// use rustflow::io::compression::auto_detect_reader;
+/// use ironbeam::io::compression::auto_detect_reader;
 /// use std::fs::File;
 /// # fn main() -> anyhow::Result<()> {
 ///
@@ -287,7 +287,7 @@ pub fn auto_detect_reader<R: Read + 'static>(
 ///
 /// # Examples
 /// ```no_run
-/// use rustflow::io::compression::auto_detect_writer;
+/// use ironbeam::io::compression::auto_detect_writer;
 /// use std::fs::File;
 /// # fn main() -> anyhow::Result<()> {
 ///

@@ -8,7 +8,7 @@
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::TestDataBuilder;
+/// use ironbeam::testing::TestDataBuilder;
 ///
 /// let data = TestDataBuilder::new()
 ///     .add_range(1..=10)
@@ -49,7 +49,7 @@ impl<T> TestDataBuilder<T> {
     /// # Example
     ///
     /// ```
-    /// use rustflow::testing::TestDataBuilder;
+    /// use ironbeam::testing::TestDataBuilder;
     ///
     /// let data = TestDataBuilder::new()
     ///     .add_repeated(42, 3)
@@ -97,7 +97,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use rustflow::testing::TestDataBuilder;
+    /// use ironbeam::testing::TestDataBuilder;
     ///
     /// let data = TestDataBuilder::<i32>::new()
     ///     .add_range(1..=5)
@@ -122,7 +122,7 @@ where
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::KVTestDataBuilder;
+/// use ironbeam::testing::KVTestDataBuilder;
 ///
 /// let data = KVTestDataBuilder::new()
 ///     .add_kv("a", 1)
@@ -163,7 +163,7 @@ impl<K, V> KVTestDataBuilder<K, V> {
     /// # Example
     ///
     /// ```
-    /// use rustflow::testing::KVTestDataBuilder;
+    /// use ironbeam::testing::KVTestDataBuilder;
     ///
     /// let data = KVTestDataBuilder::new()
     ///     .add_key_with_values("a", vec![1, 2, 3])
@@ -206,7 +206,7 @@ impl<K, V> KVTestDataBuilder<K, V> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::sequential_data;
+/// use ironbeam::testing::sequential_data;
 ///
 /// let data = sequential_data(1, 5);
 /// assert_eq!(data, vec![1, 2, 3, 4, 5]);
@@ -221,7 +221,7 @@ pub fn sequential_data(start: i32, end: i32) -> Vec<i32> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::sequential_kvs;
+/// use ironbeam::testing::sequential_kvs;
 ///
 /// let data = sequential_kvs("key", 1, 3);
 /// assert_eq!(data, vec![
@@ -245,7 +245,7 @@ pub fn sequential_kvs(key_prefix: &str, start: i32, end: i32) -> Vec<(String, i3
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::skewed_kvs;
+/// use ironbeam::testing::skewed_kvs;
 ///
 /// let data = skewed_kvs(100);
 /// // "hot_key" will appear ~50% of the time
@@ -278,7 +278,7 @@ pub fn skewed_kvs(count: usize) -> Vec<(String, i32)> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::pseudo_random_data;
+/// use ironbeam::testing::pseudo_random_data;
 ///
 /// let data = pseudo_random_data(10, 0, 100);
 /// assert_eq!(data.len(), 10);
@@ -309,7 +309,7 @@ pub fn pseudo_random_data(count: usize, min: i32, max: i32) -> Vec<i32> {
 /// # Example
 ///
 /// ```
-/// use rustflow::testing::pseudo_random_kvs;
+/// use ironbeam::testing::pseudo_random_kvs;
 ///
 /// let data = pseudo_random_kvs(5, 3, 0, 100);
 /// // Creates ~5 keys with ~3 values each, values in range [0, 100)

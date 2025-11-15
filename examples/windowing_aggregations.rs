@@ -9,7 +9,7 @@
 //! Run with: `cargo run --example windowing_aggregations`
 
 use anyhow::Result;
-use rustflow::{Pipeline, from_vec, Timestamped, OrdF64, Min, Max, AverageF64};
+use ironbeam::{Pipeline, from_vec, Timestamped, OrdF64, Min, Max, AverageF64};
 
 #[allow(clippy::cast_precision_loss)]
 fn main() -> Result<()> {

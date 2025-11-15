@@ -15,7 +15,7 @@
 //! 2) at the end, call `collect_fail_fast()` to bail out on the first error.
 //!
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use anyhow::Result;
 //!
 //! let p = Pipeline::default();
@@ -48,7 +48,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// ### Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let raw = from_vec(&p, vec!["10", "oops", "42"]);
@@ -78,7 +78,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// ### Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let raw = from_vec(&p, vec!["1,2,3", "bad", "4,5"]);
@@ -114,7 +114,7 @@ where
     ///
     /// ### Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// use anyhow::Result;
     ///
     /// let p = Pipeline::default();

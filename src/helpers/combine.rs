@@ -35,7 +35,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// use std::collections::HashMap;
     ///
     /// // A tiny "sum" combiner for u64 values.
@@ -141,8 +141,8 @@ where
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::collection::LiftableCombiner;
+    /// use ironbeam::*;
+    /// use ironbeam::collection::LiftableCombiner;
     ///
     /// // A simple min combiner that can be lifted: build from an entire group.
     /// #[derive(Clone, Default)]

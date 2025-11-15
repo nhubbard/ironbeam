@@ -3,7 +3,7 @@
 //! This example shows how to use glob patterns to read multiple files at once,
 //! which is essential for real-world ETL scenarios with date-based partitions.
 
-use rustflow::{write_jsonl_vec, Pipeline, PCollection, read_jsonl};
+use ironbeam::{write_jsonl_vec, Pipeline, PCollection, read_jsonl};
 use serde::{Deserialize, Serialize};
 use std::fs::create_dir_all;
 use tempfile::TempDir;

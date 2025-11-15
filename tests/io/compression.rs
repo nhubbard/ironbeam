@@ -5,7 +5,7 @@
     feature = "compression-xz"
 ))]
 mod compression_tests {
-    use rustflow::io::compression::{
+    use ironbeam::io::compression::{
         auto_detect_reader, auto_detect_writer, register_codec, CompressionCodec,
     };
     use serde::{Deserialize, Serialize};

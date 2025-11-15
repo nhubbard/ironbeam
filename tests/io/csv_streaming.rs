@@ -1,8 +1,8 @@
 #![cfg(feature = "io-csv")]
 
 use anyhow::Result;
-use rustflow::testing::*;
-use rustflow::{read_csv, read_csv_streaming};
+use ironbeam::testing::*;
+use ironbeam::{from_vec, read_csv, read_csv_streaming, read_csv_vec, write_csv_vec};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -16,7 +16,7 @@ fn csv_streaming_roundtrip() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let file = tmp.path().join("data.csv");
     // write a small CSV with header
-    rustflow::write_csv_vec(
+    write_csv_vec(
         &file,
         true,
         &[
@@ -52,7 +52,7 @@ fn read_csv_helper_function() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let file = tmp.path().join("helper_test.csv");
     // Write test data
-    rustflow::write_csv_vec(
+    write_csv_vec(
         &file,
         true,
         &[
@@ -104,14 +104,14 @@ fn write_csv_par_helper_function() -> Result<()> {
             name: "d".into(),
         },
     ];
-    let input = rustflow::from_vec(&p, data.clone());
+    let input = from_vec(&p, data.clone());
 
     // Test write_csv_par helper
     let n = input.write_csv_par(&file, Some(2), true)?;
     assert_eq!(n, 4);
 
     // Verify data can be read back
-    let back: Vec<Rec> = rustflow::read_csv_vec(&file, true)?;
+    let back: Vec<Rec> = read_csv_vec(&file, true)?;
     assert_eq!(back, data);
     Ok(())
 }

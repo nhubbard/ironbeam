@@ -20,7 +20,7 @@
 //! ## Examples
 //! Inner / left / right / full joins:
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //!
 //! # fn main() -> anyhow::Result<()> {
 //! let p = Pipeline::default();
@@ -100,7 +100,7 @@ where
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
@@ -200,7 +200,7 @@ where
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
@@ -304,7 +304,7 @@ where
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();
@@ -409,7 +409,7 @@ where
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// # fn main() -> anyhow::Result<()> {
     /// let p = Pipeline::default();

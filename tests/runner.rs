@@ -1,8 +1,8 @@
 use anyhow::Result;
-use rustflow::collection::Count;
-use rustflow::from_vec;
-use rustflow::runner::{ExecMode, Runner};
-use rustflow::testing::*;
+use ironbeam::collection::Count;
+use ironbeam::from_vec;
+use ironbeam::runner::{ExecMode, Runner};
+use ironbeam::testing::*;
 
 fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
     v.sort();
@@ -511,7 +511,7 @@ fn combine_global_unlimited_fanout() -> Result<()> {
 /// Test runner with custom mode configuration
 #[test]
 fn custom_runner_mode() -> Result<()> {
-    use rustflow::runner::{ExecMode, Runner};
+    use ironbeam::runner::{ExecMode, Runner};
 
     let p = TestPipeline::new();
     let data = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
@@ -686,8 +686,8 @@ fn parallel_with_aggressive_filter() -> Result<()> {
 #[cfg(feature = "checkpointing")]
 mod checkpointing_tests {
     use super::*;
-    use rustflow::checkpoint::{CheckpointConfig, CheckpointPolicy};
-    use rustflow::runner::{ExecMode, Runner};
+    use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
+    use ironbeam::runner::{ExecMode, Runner};
     use tempfile::TempDir;
 
     /// Test sequential execution with checkpointing enabled

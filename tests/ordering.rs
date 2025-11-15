@@ -1,5 +1,5 @@
-use rustflow::from_vec;
-use rustflow::testing::*;
+use ironbeam::from_vec;
+use ironbeam::testing::*;
 
 #[test]
 fn par_equals_seq_after_sort() -> anyhow::Result<()> {

@@ -1,8 +1,8 @@
 #![cfg(feature = "io-jsonl")]
 
 use anyhow::Result;
-use rustflow::testing::*;
-use rustflow::{read_jsonl_streaming, Count};
+use ironbeam::testing::*;
+use ironbeam::{read_jsonl_streaming, Count};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

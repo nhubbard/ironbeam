@@ -8,7 +8,7 @@
 //! Run with: `cargo run --example etl_pipeline --features io-jsonl,io-csv`
 
 use anyhow::Result;
-use rustflow::{Pipeline, from_vec, Count};
+use ironbeam::{Pipeline, from_vec, Count};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,14 +231,14 @@ fn main() -> Result<()> {
     // Write to files
     #[cfg(feature = "io-csv")]
     {
-        use rustflow::io::csv::write_csv_vec;
+        use ironbeam::io::csv::write_csv_vec;
         write_csv_vec("path_stats.csv", true, &all_stats)?;
         println!("  ✓ Wrote path_stats.csv");
     }
 
     #[cfg(feature = "io-jsonl")]
     {
-        use rustflow::io::jsonl::write_jsonl_vec;
+        use ironbeam::io::jsonl::write_jsonl_vec;
         write_jsonl_vec("path_stats.jsonl", &all_stats)?;
         println!("  ✓ Wrote path_stats.jsonl");
     }

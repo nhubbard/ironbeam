@@ -15,7 +15,7 @@
 //!
 //! ### Example
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //! use std::collections::HashMap;
 //!
 //! let p = Pipeline::default();
@@ -41,7 +41,7 @@ use std::sync::Arc;
 ///
 /// # Examples
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 ///
 /// let p = Pipeline::default();
 /// let data = from_vec(&p, vec![1, 2, 3, 4]);
@@ -68,7 +68,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Examples
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// let p = Pipeline::default();
     /// let words = from_vec(&p, vec!["aa".to_string(), "abc".to_string()]);
     /// let lengths = side_vec::<usize>(vec![2, 3]);
@@ -94,7 +94,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Examples
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// let p = Pipeline::default();
     /// let nums = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
     /// let allow = side_vec(vec![2u32, 4]);
@@ -119,7 +119,7 @@ impl<T: RFBound> PCollection<T> {
 ///
 /// # Examples
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// use std::collections::HashMap;
 ///
 /// let p = Pipeline::default();
@@ -150,7 +150,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Examples
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// use std::collections::HashMap;
     ///
     /// let p = Pipeline::default();

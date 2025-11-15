@@ -1,5 +1,5 @@
-use rustflow::testing::*;
-use rustflow::*;
+use ironbeam::testing::*;
+use ironbeam::*;
 
 #[test]
 fn distinct_global_exact() -> anyhow::Result<()> {

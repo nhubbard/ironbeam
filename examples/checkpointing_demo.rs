@@ -1,6 +1,6 @@
 //! Demonstration of automatic checkpointing for fault tolerance.
 //!
-//! This example shows how to use rustflow's checkpointing feature to make
+//! This example shows how to use Ironbeam's checkpointing feature to make
 //! long-running batch jobs resilient to failures. Checkpoints are automatically
 //! created at configurable intervals, and the pipeline can resume from the last
 //! checkpoint on restart.
@@ -10,14 +10,14 @@
 //! cargo run --example checkpointing_demo --features checkpointing
 //! ```
 
-use rustflow::{Pipeline, from_vec, Sum, Runner, ExecMode};
+use ironbeam::{Pipeline, from_vec, Sum, Runner, ExecMode};
 
 #[cfg(feature = "checkpointing")]
-use rustflow::checkpoint::{CheckpointConfig, CheckpointPolicy};
+use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
 
 #[cfg(feature = "checkpointing")]
 fn main() -> anyhow::Result<()> {
-    println!("=== Rustflow Checkpointing Demo ===\n");
+    println!("=== Ironbeam Checkpointing Demo ===\n");
 
     // Create a pipeline with a large dataset to simulate long-running job
     let p = Pipeline::default();
@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
     // Configure checkpointing
     let checkpoint_config = CheckpointConfig {
         enabled: true,
-        directory: "./rustflow_checkpoints".into(),
+        directory: "./Ironbeam_checkpoints".into(),
         policy: CheckpointPolicy::AfterEveryBarrier,
         auto_recover: true,
         max_checkpoints: Some(5),

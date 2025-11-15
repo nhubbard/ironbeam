@@ -1,7 +1,7 @@
 //! Integration tests demonstrating the testing utilities.
 
-use rustflow::testing::*;
-use rustflow::*;
+use ironbeam::testing::*;
+use ironbeam::*;
 
 #[test]
 fn test_basic_pipeline_with_assertions() -> anyhow::Result<()> {

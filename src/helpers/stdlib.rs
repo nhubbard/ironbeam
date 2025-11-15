@@ -14,7 +14,7 @@
 //!
 //! ### Example
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //!
 //! let p = Pipeline::default();
 //!
@@ -51,7 +51,7 @@ use std::sync::Arc;
 ///
 /// ### Example
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 ///
 /// let p = Pipeline::default();
 /// let numbers = vec![10, 20, 30];
@@ -85,7 +85,7 @@ where
 ///
 /// ### Example
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 ///
 /// let p = Pipeline::default();
 ///
@@ -132,8 +132,8 @@ where
 /// of implementing a custom data source with `VecOps`.
 ///
 /// ```
-/// use rustflow::*;
-/// use rustflow::type_token::VecOps;
+/// use ironbeam::*;
+/// use ironbeam::type_token::VecOps;
 /// use std::any::Any;
 /// use std::sync::Arc;
 /// # fn main() -> anyhow::Result<()> {
@@ -145,7 +145,7 @@ where
 /// let collection: PCollection<i32> = from_custom_source(
 ///     &p,
 ///     data,
-///     rustflow::type_token::vec_ops_for::<i32>()
+///     type_token::vec_ops_for::<i32>()
 /// );
 ///
 /// let results = collection.collect_seq()?;

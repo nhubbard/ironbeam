@@ -1,6 +1,6 @@
 //! Low-level I/O primitives for data ingestion and export.
 //!
-//! This module provides the foundational I/O infrastructure for Rustflow pipelines,
+//! This module provides the foundational I/O infrastructure for Ironbeam pipelines,
 //! including:
 //! - **Type-safe vector I/O** - Read and write entire files into/from memory
 //! - **Streaming I/O** - Shard-based lazy ingestion for large files
@@ -68,7 +68,7 @@
 //! - **Partitioning** - Split into concrete partitions for parallel execution
 //! - **Sequential fallback** - Read entire dataset for sequential paths
 //!
-//! This integration allows streaming sources to work seamlessly with Rustflow's
+//! This integration allows streaming sources to work seamlessly with Ironbeam's
 //! execution engine.
 //!
 //! ## Parallel Writing
@@ -127,7 +127,7 @@
 //!
 //! ### Vector I/O (in-memory)
 //! ```no_run
-//! use rustflow::io::jsonl::{read_jsonl_vec, write_jsonl_vec};
+//! use ironbeam::io::jsonl::{read_jsonl_vec, write_jsonl_vec};
 //! use serde::{Deserialize, Serialize};
 //! # fn main() -> anyhow::Result<()> {
 //! #[derive(Serialize, Deserialize)]
@@ -149,7 +149,7 @@
 //!
 //! ### Streaming I/O
 //! ```no_run
-//! use rustflow::io::csv::{build_csv_shards, read_csv_range};
+//! use ironbeam::io::csv::{build_csv_shards, read_csv_range};
 //! use serde::Deserialize;
 //! # fn main() -> anyhow::Result<()> {
 //! #[derive(Deserialize)]
@@ -169,7 +169,7 @@
 //!
 //! ### Parallel Writing
 //! ```no_run
-//! use rustflow::io::jsonl::write_jsonl_par;
+//! use ironbeam::io::jsonl::write_jsonl_par;
 //! use serde::Serialize;
 //! # fn main() -> anyhow::Result<()> {
 //! #[derive(Serialize)]

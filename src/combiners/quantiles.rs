@@ -166,7 +166,7 @@ impl TDigest {
     ///
     /// # Examples
     /// ```
-    /// use rustflow::combiners::TDigest;
+    /// use ironbeam::combiners::TDigest;
     /// let mut digest = TDigest::new(100.0);
     /// for i in 1..=100 {
     ///     digest.add(i as f64);
@@ -292,8 +292,8 @@ impl TDigest {
 ///
 /// # Examples
 /// ```
-/// use rustflow::*;
-/// use rustflow::combiners::ApproxQuantiles;
+/// use ironbeam::*;
+/// use ironbeam::combiners::ApproxQuantiles;
 /// # fn main() -> anyhow::Result<()> {
 /// let p = Pipeline::default();
 ///

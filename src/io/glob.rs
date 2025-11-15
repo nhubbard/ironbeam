@@ -13,7 +13,7 @@
 //! # Examples
 //!
 //! ```no_run
-//! use rustflow::io::glob::expand_glob;
+//! use ironbeam::io::glob::expand_glob;
 //!
 //! // Match all JSONL files in a directory
 //! let files = expand_glob("logs/*.jsonl")?;
@@ -44,7 +44,7 @@ use std::path::PathBuf;
 /// # Examples
 ///
 /// ```no_run
-/// use rustflow::io::glob::expand_glob;
+/// use ironbeam::io::glob::expand_glob;
 ///
 /// // All JSON files in logs directory
 /// let files = expand_glob("logs/*.json")?;
@@ -94,7 +94,7 @@ pub fn expand_glob(pattern: &str) -> Result<Vec<PathBuf>> {
 /// # Examples
 ///
 /// ```no_run
-/// use rustflow::io::glob::expand_glob_required;
+/// use ironbeam::io::glob::expand_glob_required;
 ///
 /// // Will error if no files match
 /// let files = expand_glob_required("logs/*.jsonl")?;

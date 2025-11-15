@@ -1,6 +1,6 @@
 //! Tests for the metrics module.
 
-use rustflow::metrics::{CounterMetric, GaugeMetric, HistogramMetric, Metric, MetricsCollector};
+use ironbeam::metrics::{CounterMetric, GaugeMetric, HistogramMetric, HistogramStats, Metric, MetricsCollector};
 use serde_json::json;
 
 #[macro_use]
@@ -266,7 +266,7 @@ fn test_histogram_with_description() {
 
 #[test]
 fn test_histogram_stats_default() {
-    let stats = rustflow::metrics::HistogramStats::default();
+    let stats = HistogramStats::default();
     assert_eq!(stats.count, 0);
     assert_approx_eq!(stats.sum, 0.0);
     assert_approx_eq!(stats.mean, 0.0);

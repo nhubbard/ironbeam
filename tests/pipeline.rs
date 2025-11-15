@@ -1,7 +1,7 @@
 //! Tests for pipeline graph functionality.
 
-use rustflow::testing::*;
-use rustflow::*;
+use ironbeam::testing::*;
+use ironbeam::*;
 
 #[test]
 fn test_pipeline_default() {
@@ -101,7 +101,7 @@ fn test_pipeline_join_creates_edges() {
 #[cfg(feature = "metrics")]
 mod metrics_tests {
     use super::*;
-    use rustflow::metrics::{CounterMetric, MetricsCollector};
+    use ironbeam::metrics::{CounterMetric, MetricsCollector};
 
     #[test]
     fn test_pipeline_metrics_set_and_get() {

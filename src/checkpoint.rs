@@ -1,7 +1,7 @@
 //! Automatic checkpointing for fault tolerance in long-running batch jobs.
 //!
 //! The checkpoint module provides automatic state persistence and recovery
-//! for rustflow pipelines, allowing jobs to resume from the last successful
+//! for Ironbeam pipelines, allowing jobs to resume from the last successful
 //! checkpoint after failures or interruptions.
 //!
 //! # Features
@@ -14,8 +14,8 @@
 //! # Usage
 //!
 //! ```no_run
-//! use rustflow::*;
-//! use rustflow::checkpoint::{CheckpointConfig, CheckpointPolicy};
+//! use ironbeam::*;
+//! use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
 //!
 //! # fn main() -> anyhow::Result<()> {
 //! let p = Pipeline::default();
@@ -82,7 +82,7 @@ impl Default for CheckpointConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            directory: PathBuf::from("./rustflow_checkpoints"),
+            directory: PathBuf::from("./Ironbeam_checkpoints"),
             policy: CheckpointPolicy::AfterEveryBarrier,
             auto_recover: true,
             max_checkpoints: Some(10),

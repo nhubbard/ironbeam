@@ -1,4 +1,4 @@
-//! rustflow – global (non-keyed) combiners
+//! Ironbeam – global (non-keyed) combiners
 //!
 //! Adds Beam-style `CombineGlobally` with optional fanout and a lifted
 //! fast-path that can build accumulators from whole partitions.
@@ -33,8 +33,8 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Examples
     /// ```no_run
-    /// use rustflow::*;
-    /// use rustflow::combiners::Sum;
+    /// use ironbeam::*;
+    /// use ironbeam::combiners::Sum;
     ///
     /// let p = Pipeline::default();
     /// let coll = from_vec(&p, vec![1u64, 2, 3, 4]);

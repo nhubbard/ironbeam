@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rustflow::testing::*;
-use rustflow::{from_vec, Sum};
+use ironbeam::testing::*;
+use ironbeam::{from_vec, Sum};
 
 #[test]
 fn map_values_and_filter_values_work_and_reorder_safely() -> Result<()> {

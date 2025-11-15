@@ -1,6 +1,6 @@
 //! Common elementwise transforms and collection utilities for [`PCollection`].
 //!
-//! This module defines the core functional operators used throughout Rustflow:
+//! This module defines the core functional operators used throughout Ironbeam:
 //!
 //! - [`PCollection::map`] -- one-to-one element transformation.
 //! - [`PCollection::filter`] -- element selection by predicate.
@@ -34,7 +34,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let nums = from_vec(&p, vec![1, 2, 3]);
@@ -63,7 +63,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec![1, 2, 3, 4, 5]);
@@ -94,7 +94,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let words = from_vec(&p, vec!["a b", "c d"]);
@@ -125,7 +125,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let col = from_vec(&p, vec![10, 20, 30]);
@@ -146,7 +146,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let col = from_vec(&p, vec![1, 2, 3]);
@@ -177,7 +177,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec![1, 2, 3]);

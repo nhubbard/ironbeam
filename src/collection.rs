@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 /// The standard trait bound for elements carried by a `PCollection`.
 ///
-/// Rustflow's runtime may move elements across threads and partitions. To keep
+/// Ironbeam's runtime may move elements across threads and partitions. To keep
 /// this simple and predictable, all element types must be:
 ///
 /// - `'static` (no non-'static borrows inside elements),
@@ -37,7 +37,7 @@ use std::sync::Arc;
 ///
 /// # Example
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 ///
 /// #[derive(Clone)]
 /// struct MyRow { k: String, v: u64 } // Send and Sync implied for these fields
@@ -63,7 +63,7 @@ impl<T> RFBound for T where T: 'static + Send + Sync + Clone {}
 ///
 /// # Example
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 ///
 /// let p = Pipeline::default();
 /// let words = from_vec(&p, vec!["a".to_string(), "bb".to_string()]);
@@ -102,9 +102,9 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Example
     /// ```
-    /// use rustflow::*;
-    /// use rustflow::node::DynOp;
-    /// use rustflow::type_token::Partition;
+    /// use ironbeam::*;
+    /// use ironbeam::node::DynOp;
+    /// use ironbeam::type_token::Partition;
     /// use std::sync::Arc;
     /// use std::marker::PhantomData;
     ///
@@ -300,7 +300,7 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
 ///
 /// # Example
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 ///
 /// let p = Pipeline::default();
 /// let kv = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3)]);
@@ -336,7 +336,7 @@ impl<V> CombineFn<V, u64, u64> for Count {
 ///
 /// # Example
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 ///
 /// // Count overrides build_from_group to use values.len()
 /// let p = Pipeline::default();

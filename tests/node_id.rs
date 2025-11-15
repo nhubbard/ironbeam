@@ -1,4 +1,4 @@
-use rustflow::NodeId;
+use ironbeam::NodeId;
 use std::collections::{HashMap, HashSet};
 
 #[test]

@@ -11,7 +11,7 @@
 //!
 //! ## Example
 //! ```no_run
-//! use rustflow::*;
+//! use ironbeam::*;
 //!
 //! let p = Pipeline::default();
 //!
@@ -53,7 +53,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     ///
     /// ### Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let kv = from_vec(&p, vec![("x", 1u32), ("y", 2u32)]);
@@ -90,7 +90,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     ///
     /// ### Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let kv = from_vec(&p, vec![("x", 3u32), ("y", 8u32)]);

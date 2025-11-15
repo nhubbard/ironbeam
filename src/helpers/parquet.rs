@@ -44,7 +44,7 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     ///
     /// ### Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     /// # fn main() -> anyhow::Result<()> {
     /// #[cfg(feature = "io-parquet")]
     /// {
@@ -94,7 +94,7 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 ///
 /// Single file (streaming):
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// # fn main() -> anyhow::Result<()> {
 /// #[cfg(feature = "io-parquet")]
 /// {
@@ -113,7 +113,7 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 ///
 /// Glob pattern:
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// # fn main() -> anyhow::Result<()> {
 /// #[cfg(feature = "io-parquet")]
 /// {
@@ -130,7 +130,7 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 ///
 /// Glob pattern:
 /// ```no_run
-/// use rustflow::*;
+/// use ironbeam::*;
 /// # fn main() -> anyhow::Result<()> {
 /// #[cfg(feature = "io-parquet")]
 /// {

@@ -45,7 +45,7 @@ impl<T: RFBound> PCollection<T> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, (0..100).collect::<Vec<_>>());
@@ -93,7 +93,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     ///
     /// # Example
     /// ```no_run
-    /// use rustflow::*;
+    /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
     /// let kvs = from_vec(&p, vec![("a".to_string(), 1), ("a".to_string(), 2)]);
