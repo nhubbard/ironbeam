@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 //! # Ironbeam
 //!
 //! A **data processing framework** for Rust inspired by Apache Beam and Google Cloud Dataflow.
