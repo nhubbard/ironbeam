@@ -2,10 +2,10 @@
 //! unkeyed and keyed collections.
 //!
 //! # Overview
-//! - `PCollection<T>::distinct()` -> remove duplicates globally (exact).
-//! - `PCollection<(K,V)>::distinct_per_key()` -> remove duplicate values per key (exact).
-//! - `PCollection<T>::approx_distinct_count(k)` -> approximate global cardinality (f64).
-//! - `PCollection<(K,V)>::approx_distinct_count_per_key(k)` -> approximate cardinality per key.
+//! - [`PCollection::distinct`](crate::PCollection::distinct) - Remove duplicates globally (exact)
+//! - [`PCollection::distinct_per_key`](crate::PCollection::distinct_per_key) - Remove duplicate values per key (exact)
+//! - [`PCollection::approx_distinct_count`](crate::PCollection::approx_distinct_count) - Approximate global cardinality (f64)
+//! - [`PCollection::approx_distinct_count_per_key`](crate::PCollection::approx_distinct_count_per_key) - Approximate cardinality per key
 //!
 //! Exact distinct is implemented with the `DistinctSet<T>` combiner and then
 //! expanded back into an element stream via `flat_map`. Approximate counts use

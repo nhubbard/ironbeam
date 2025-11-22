@@ -5,7 +5,7 @@
 //!
 //! - **Vector I/O** -- read the whole file into memory or write an in-memory collection:
 //!   - [`read_csv`] -> `PCollection<T>`
-//!   - [`PCollection::write_csv`] / [`PCollection::write_csv_par`]
+//!   - [`PCollection::write_csv`](crate::PCollection::write_csv) / [`PCollection::write_csv_par`](crate::PCollection::write_csv_par)
 //!
 //! - **Streaming I/O** -- build a source that shards a CSV file by row count and
 //!   parses each shard lazily in the runner:

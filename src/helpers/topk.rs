@@ -3,6 +3,9 @@
 //! This module provides ergonomic helpers for selecting the top-K largest values
 //! from keyed collections without needing to explicitly instantiate combiners.
 //!
+//! ## Available operations
+//! - [`PCollection::top_k_per_key`](crate::PCollection::top_k_per_key) - Select top K largest values per key
+//!
 //! ## Example
 //! ```no_run
 //! use ironbeam::*;

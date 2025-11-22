@@ -5,6 +5,10 @@
 //! existing `(timestamp, value)` stream into the internal [`Timestamped<T>`]
 //! representation used by windowing transforms.
 //!
+//! ## Available operations
+//! - [`PCollection::attach_timestamps`](crate::PCollection::attach_timestamps) - Attach event timestamps using a function
+//! - [`PCollection::to_timestamped`](crate::PCollection::to_timestamped) - Normalize `(timestamp, value)` pairs
+//!
 //! ### What this is (and isn't)
 //! - ✅ Attaches/normalizes event timestamps, preserving data and order within a partition
 //! - ✅ Plays nicely with tumbling window helpers (e.g., `key_by_window(...)`)

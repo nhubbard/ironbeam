@@ -8,6 +8,7 @@
 //! ### Overview
 //! - [`from_vec`] -- Converts a `Vec<T>` into a `PCollection<T>` source node.
 //! - [`from_iter`] -- Builds a `PCollection<T>` from any `IntoIterator<Item = T>`.
+//! - [`from_custom_source`] -- Create a `PCollection<T>` from a custom data source.
 //!
 //! These utilities insert a [`Node::Source`] into the [`Pipeline`] graph using
 //! a type-aware vector operations handler derived from `vec_ops_for::<T>()`.

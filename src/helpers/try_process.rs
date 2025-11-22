@@ -1,9 +1,14 @@
-//! Fallible element transforms (`try_map`, `try_flat_map`) and a fail-fast terminal.
+//! Fallible element transforms and a fail-fast terminal.
 //!
 //! These helpers let you express transformations that may fail on a per-element
 //! basis while keeping the pipeline type-safe. Results are wrapped in
 //! `Result<_, E>` and can be surfaced or short-circuited at the end with
-//! [`crate::PCollection::collect_fail_fast`].
+//! [`collect_fail_fast`](crate::PCollection::collect_fail_fast).
+//!
+//! ## Available operations
+//! - [`PCollection::try_map`](crate::PCollection::try_map) - Fallible 1->1 transform
+//! - [`PCollection::try_flat_map`](crate::PCollection::try_flat_map) - Fallible 1->N transform
+//! - [`PCollection::collect_fail_fast`](crate::PCollection::collect_fail_fast) - Fail-fast terminal
 //!
 //! ## When to use
 //! - You have parsing/validation/IO-lite logic that can fail per record, and you

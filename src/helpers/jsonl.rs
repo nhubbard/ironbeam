@@ -3,14 +3,11 @@
 //! This module provides both **eager** (vector) and **streaming** JSONL sources,
 //! plus sequential and parallel writers. All APIs are serde-backed and type-safe.
 //!
-//! - `read_jsonl<T>()` reads the whole file into memory and returns a typed
-//!   `PCollection<T>`.
-//! - `read_jsonl_streaming<T>()` builds a streaming source by pre-scanning the
-//!   file into `[start,end)` line ranges; each partition parses only its own range.
-//! - `PCollection<T>::write_jsonl()` executes the collection and writes sequentially.
-//! - `PCollection<T>::write_jsonl_par()` (feature `parallel-io`) executes
-//!   sequentially for deterministic element order, then writes the file in
-//!   parallel **while preserving global order**.
+//! ## Available operations
+//! - [`read_jsonl`] - Read entire file into memory as typed `PCollection<T>`
+//! - [`read_jsonl_streaming`] - Build streaming source with pre-scanned line ranges
+//! - [`PCollection::write_jsonl`](crate::PCollection::write_jsonl) - Execute and write sequentially
+//! - [`PCollection::write_jsonl_par`](crate::PCollection::write_jsonl_par) - Execute sequentially, write in parallel (feature: `parallel-io`)
 //!
 //! ### Feature gates
 //! - All functions in this module require `io-jsonl`.

@@ -9,6 +9,12 @@
 //! types must satisfy `RFBound` as usual. The resulting collection is another `PCollection` in
 //! the same pipeline.
 //!
+//! ## Available operations
+//! - [`PCollection::join_inner`](crate::PCollection::join_inner) - Inner join on key
+//! - [`PCollection::join_left`](crate::PCollection::join_left) - Left outer join on key
+//! - [`PCollection::join_right`](crate::PCollection::join_right) - Right outer join on key
+//! - [`PCollection::join_full`](crate::PCollection::join_full) - Full outer join on key
+//!
 //! ### Notes
 //! - The co-group strategy avoids materializing the entire pipeline at once; each subplan is run
 //!   to a single partition, then joined.

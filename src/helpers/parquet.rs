@@ -3,6 +3,10 @@
 //! These helpers let you **write** a typed `PCollection<T>` to a Parquet file and
 //! **read** a Parquet file as a *streaming* source that shards by **row groups**.
 //!
+//! ## Available operations
+//! - [`read_parquet_streaming`] - Read Parquet file(s) as a streaming source
+//! - [`PCollection::write_parquet`](crate::PCollection::write_parquet) - Write collection to Parquet file
+//!
 //! ### Notes
 //! - Requires the `io-parquet` feature (Arrow/Parquet + serde-arrow integration).
 //! - Schemas are inferred from `T` via `serde` + `serde-arrow`. Your `T` should be
