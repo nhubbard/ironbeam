@@ -1,6 +1,6 @@
 [package]
 name = "ironbeam"
-version = "1.1.0"
+version = "1.0.1"
 edition = "2024"
 license = "MIT"
 description = "A batch processing clone of Apache Beam in Rust."

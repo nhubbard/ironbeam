@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/nhubbard/ironbeam/compare/v1.0.0...v1.0.1) (2025-11-27)
+
+### Bug Fixes
+
+* Clippy issues ([abdae35](https://github.com/nhubbard/ironbeam/commit/abdae359a3bb6f108823d8fd22122ffc7558b36f))
+
 ## 1.0.0 (2025-11-15)
 
 ### Features
