@@ -233,12 +233,7 @@ where
     R: Send,
     F: Fn(Vec<T>) -> Result<Vec<R>> + Send + Sync,
 {
-    if config.parallel {
-        // For parallel processing, we'd use threading (simplified here)
-        batch_in_chunks(items, config.chunk_size, processor)
-    } else {
-        batch_in_chunks(items, config.chunk_size, processor)
-    }
+    batch_in_chunks(items, config.chunk_size, processor)
 }
 
 /// Configuration for batch operations
@@ -345,7 +340,10 @@ impl OperationBuilder {
                 run_with_timeout_and_retry(&retry, timeout, operation)
             }
             (Some(retry), None) => retry_with_backoff(&retry, operation),
-            (None, Some(timeout)) => with_timeout(timeout, || operation()),
+            (None, Some(timeout)) => {
+                let op = || operation();
+                with_timeout(timeout, op)
+            },
             (None, None) => operation(),
         }
     }
@@ -389,7 +387,7 @@ impl OperationContext {
         self.start_time.elapsed()
     }
 
-    pub fn increment_retry(&mut self) {
+    pub const fn increment_retry(&mut self) {
         self.retry_count += 1;
     }
 }
