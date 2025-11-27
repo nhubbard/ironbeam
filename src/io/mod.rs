@@ -204,5 +204,6 @@ pub mod csv;
 #[cfg(feature = "io-parquet")]
 pub mod parquet;
 
+pub mod cloud;
 pub mod compression;
 pub mod glob;

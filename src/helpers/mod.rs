@@ -82,6 +82,16 @@
 //!   - [`read_parquet_streaming`]
 //!   - [`PCollection::write_parquet`](crate::PCollection::write_parquet)
 //!
+//! ### Cloud Operations
+//! - [`cloud`] - Helpers for running custom cloud operations
+//!   - [`run_with_retry`] - Execute with automatic retry logic
+//!   - [`run_parallel`] - Execute multiple operations concurrently
+//!   - [`run_with_timeout_and_retry`] - Combine timeout and retry
+//!   - [`run_batch_operation`] - Process in configurable chunks
+//!   - [`run_paginated_operation`] - Handle paginated API responses
+//!   - [`OperationBuilder`] - Fluent API for operation configuration
+//!   - [`run_with_context`] - Track execution metadata
+//!
 //! ### Windowing
 //! - [`tumbling`] - Tumbling window operations
 //!   - [`PCollection::key_by_window`](crate::PCollection::key_by_window)
@@ -152,6 +162,7 @@
 //! - [`Pipeline`](crate::Pipeline) - Pipeline construction
 
 pub mod batches;
+pub mod cloud;
 pub mod collect_sorted;
 pub mod combine;
 pub mod combine_global;
@@ -173,6 +184,7 @@ pub mod validation;
 pub mod values;
 
 // Only re-export files with top-level functions
+pub use cloud::*;
 pub use csv::*;
 pub use jsonl::*;
 pub use parquet::*;
