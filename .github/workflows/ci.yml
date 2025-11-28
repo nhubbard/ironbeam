@@ -196,6 +196,7 @@ jobs:
             @semantic-release/git@latest \
             @semantic-release/changelog@latest \
             @semantic-release/exec@latest \
+            @semantic-release-cargo/semantic-release-cargo \
             conventional-changelog-conventionalcommits@latest
 
       - name: Semantic Release
