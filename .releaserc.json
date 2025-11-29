@@ -2,6 +2,9 @@
   "branches": ["main"],
   "plugins": [
     [
+      "@semantic-release-cargo/semantic-release-cargo"
+    ],
+    [
       "@semantic-release/commit-analyzer",
       {
         "preset": "conventionalcommits",
