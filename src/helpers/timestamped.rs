@@ -6,7 +6,7 @@
 //! representation used by windowing transforms.
 //!
 //! ## Available operations
-//! - [`PCollection::attach_timestamps`](crate::PCollection::attach_timestamps) - Attach event timestamps using a function
+//! - [`PCollection::attach_timestamps`](PCollection::attach_timestamps) - Attach event timestamps using a function
 //! - [`PCollection::to_timestamped`](crate::PCollection::to_timestamped) - Normalize `(timestamp, value)` pairs
 //!
 //! ### What this is (and isn't)

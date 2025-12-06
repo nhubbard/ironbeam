@@ -99,7 +99,7 @@ fn main() -> Result<()> {
     // =============================================================================
     println!("\n📊 TOP-K COMBINER\n");
 
-    // Get top 2 highest-priced items per category
+    // Get the top 2 highest-priced items per category
     let top2 = data
         .clone()
         .map_values(|&price| OrdF64(price))

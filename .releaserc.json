@@ -9,6 +9,7 @@
       {
         "preset": "conventionalcommits",
         "releaseRules": [
+          { "type": "major", "release": "major" },
           { "type": "feature", "release": "minor" },
           { "type": "feat", "release": "minor" },
           { "type": "fix", "release": "patch" },
@@ -48,12 +49,6 @@
       "@semantic-release/changelog",
       {
         "changelogFile": "CHANGELOG.md"
-      }
-    ],
-    [
-      "@semantic-release/exec",
-      {
-        "prepareCmd": "sed -i.bak 's/^version = \".*\"/version = \"${nextRelease.version}\"/' Cargo.toml && rm Cargo.toml.bak"
       }
     ],
     [

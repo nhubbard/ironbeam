@@ -1,7 +1,6 @@
 //! Low-level I/O primitives for data ingestion and export.
 //!
-//! This module provides the foundational I/O infrastructure for Ironbeam pipelines,
-//! including:
+//! This module provides the foundational I/O infrastructure for Ironbeam pipelines:
 //! - **Type-safe vector I/O** - Read and write entire files into/from memory
 //! - **Streaming I/O** - Shard-based lazy ingestion for large files
 //! - **Parallel writers** - Deterministic parallel file writing

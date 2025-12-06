@@ -58,7 +58,7 @@ impl CloudIOError {
     }
 }
 
-pub type Result<T> = std::result::Result<T, CloudIOError>;
+pub type CloudResult<T> = Result<T, CloudIOError>;
 
 // ============================================================================
 // Credential and Configuration Traits
@@ -77,7 +77,7 @@ pub trait CloudCredentials: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the credentials are invalid, expired, or cannot be validated
-    fn validate(&self) -> Result<()>;
+    fn validate(&self) -> CloudResult<()>;
 
     /// Returns any additional metadata about the credentials
     fn metadata(&self) -> HashMap<String, String> {
@@ -92,7 +92,7 @@ pub trait CloudConfig: Send + Sync {
         None
     }
 
-    /// Returns the endpoint URL (if custom endpoint is used)
+    /// Returns the endpoint URL (if a custom endpoint is used)
     fn endpoint(&self) -> Option<&str> {
         None
     }
@@ -180,14 +180,14 @@ pub trait WarehouseIO: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the query is invalid, execution fails, or there's a connection issue
-    fn query(&self, sql: &str) -> Result<QueryResult>;
+    fn query(&self, sql: &str) -> CloudResult<QueryResult>;
 
     /// Execute a query without returning results (for DDL/DML)
     ///
     /// # Errors
     ///
     /// Returns an error if the query is invalid, execution fails, or there's a connection issue
-    fn execute(&self, sql: &str) -> Result<()>;
+    fn execute(&self, sql: &str) -> CloudResult<()>;
 
     /// Load data from a source (e.g., cloud storage) into a table
     ///
@@ -199,33 +199,33 @@ pub trait WarehouseIO: Send + Sync {
         table: &str,
         source_uri: &str,
         options: HashMap<String, String>,
-    ) -> Result<()>;
+    ) -> CloudResult<()>;
 
     /// Export data from a query to a destination
     ///
     /// # Errors
     ///
-    /// Returns an error if the query fails, the destination is inaccessible, or permissions are insufficient
+    /// Returns an error if the query fails, the destination is inaccessible, or permissions are not enough
     fn export_data(
         &self,
         sql: &str,
         destination_uri: &str,
         options: HashMap<String, String>,
-    ) -> Result<()>;
+    ) -> CloudResult<()>;
 
     /// Check if a table exists
     ///
     /// # Errors
     ///
     /// Returns an error if there's a connection issue or insufficient permissions
-    fn table_exists(&self, table: &str) -> Result<bool>;
+    fn table_exists(&self, table: &str) -> CloudResult<bool>;
 
     /// Get table schema
     ///
     /// # Errors
     ///
-    /// Returns an error if the table doesn't exist, there's a connection issue, or permissions are insufficient
-    fn get_schema(&self, table: &str) -> Result<Vec<(String, String)>>;
+    /// Returns an error if the table doesn't exist, there's a connection issue, or permissions are not enough
+    fn get_schema(&self, table: &str) -> CloudResult<Vec<(String, String)>>;
 }
 
 // ============================================================================
@@ -249,56 +249,56 @@ pub trait ObjectIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the bucket doesn't exist, permissions are insufficient, or the upload fails
-    fn put_object(&self, bucket: &str, key: &str, data: &[u8]) -> Result<()>;
+    /// Returns an error if the bucket doesn't exist, permissions are not enough, or the upload fails
+    fn put_object(&self, bucket: &str, key: &str, data: &[u8]) -> CloudResult<()>;
 
     /// Download data from object storage
     ///
     /// # Errors
     ///
-    /// Returns an error if the object doesn't exist, permissions are insufficient, or the download fails
-    fn get_object(&self, bucket: &str, key: &str) -> Result<Vec<u8>>;
+    /// Returns an error if the object doesn't exist, permissions are not enough, or the download fails
+    fn get_object(&self, bucket: &str, key: &str) -> CloudResult<Vec<u8>>;
 
     /// Delete an object
     ///
     /// # Errors
     ///
-    /// Returns an error if the object doesn't exist, permissions are insufficient, or the deletion fails
-    fn delete_object(&self, bucket: &str, key: &str) -> Result<()>;
+    /// Returns an error if the object doesn't exist, permissions are not enough, or the deletion fails
+    fn delete_object(&self, bucket: &str, key: &str) -> CloudResult<()>;
 
     /// List objects with a prefix
     ///
     /// # Errors
     ///
-    /// Returns an error if the bucket doesn't exist, permissions are insufficient, or the listing fails
-    fn list_objects(&self, bucket: &str, prefix: Option<&str>) -> Result<Vec<ObjectMetadata>>;
+    /// Returns an error if the bucket doesn't exist, permissions are not enough, or the listing fails
+    fn list_objects(&self, bucket: &str, prefix: Option<&str>) -> CloudResult<Vec<ObjectMetadata>>;
 
     /// Check if an object exists
     ///
     /// # Errors
     ///
-    /// Returns an error if the bucket doesn't exist, permissions are insufficient, or the check fails
-    fn object_exists(&self, bucket: &str, key: &str) -> Result<bool>;
+    /// Returns an error if the bucket doesn't exist, permissions are not enough, or the check fails
+    fn object_exists(&self, bucket: &str, key: &str) -> CloudResult<bool>;
 
     /// Get object metadata without downloading content
     ///
     /// # Errors
     ///
-    /// Returns an error if the object doesn't exist, permissions are insufficient, or the operation fails
-    fn get_metadata(&self, bucket: &str, key: &str) -> Result<ObjectMetadata>;
+    /// Returns an error if the object doesn't exist, permissions are not enough, or the operation fails
+    fn get_metadata(&self, bucket: &str, key: &str) -> CloudResult<ObjectMetadata>;
 
     /// Copy an object within or between buckets
     ///
     /// # Errors
     ///
-    /// Returns an error if the source doesn't exist, permissions are insufficient, or the copy fails
+    /// Returns an error if the source doesn't exist, permissions are not enough, or the copy fails
     fn copy_object(
         &self,
         src_bucket: &str,
         src_key: &str,
         dst_bucket: &str,
         dst_key: &str,
-    ) -> Result<()>;
+    ) -> CloudResult<()>;
 }
 
 // ============================================================================
@@ -320,52 +320,52 @@ pub trait PubSubIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the topic doesn't exist, permissions are insufficient, or publishing fails
+    /// Returns an error if the topic doesn't exist, permissions are not enough, or publishing fails
     fn publish(
         &self,
         topic: &str,
         data: &[u8],
         attributes: HashMap<String, String>,
-    ) -> Result<String>;
+    ) -> CloudResult<String>;
 
     /// Publish multiple messages to a topic
     ///
     /// # Errors
     ///
-    /// Returns an error if the topic doesn't exist, permissions are insufficient, or publishing fails
+    /// Returns an error if the topic doesn't exist, permissions are not enough, or publishing fails
     fn publish_batch(
         &self,
         topic: &str,
         messages: Vec<(Vec<u8>, HashMap<String, String>)>,
-    ) -> Result<Vec<String>>;
+    ) -> CloudResult<Vec<String>>;
 
     /// Subscribe to a topic (creates subscription if it doesn't exist)
     ///
     /// # Errors
     ///
-    /// Returns an error if the topic doesn't exist, permissions are insufficient, or subscription creation fails
-    fn subscribe(&self, topic: &str, subscription_name: &str) -> Result<()>;
+    /// Returns an error if the topic doesn't exist, permissions are not enough, or subscription creation fails
+    fn subscribe(&self, topic: &str, subscription_name: &str) -> CloudResult<()>;
 
     /// Pull messages from a subscription
     ///
     /// # Errors
     ///
-    /// Returns an error if the subscription doesn't exist, permissions are insufficient, or pulling fails
-    fn pull(&self, subscription: &str, max_messages: u32) -> Result<Vec<Message>>;
+    /// Returns an error if the subscription doesn't exist, permissions are not enough, or pulling fails
+    fn pull(&self, subscription: &str, max_messages: u32) -> CloudResult<Vec<Message>>;
 
     /// Acknowledge messages (mark as processed)
     ///
     /// # Errors
     ///
     /// Returns an error if the subscription doesn't exist, acknowledgment IDs are invalid, or the operation fails
-    fn acknowledge(&self, subscription: &str, ack_ids: Vec<String>) -> Result<()>;
+    fn acknowledge(&self, subscription: &str, ack_ids: Vec<String>) -> CloudResult<()>;
 
     /// Check if a topic exists
     ///
     /// # Errors
     ///
-    /// Returns an error if there's a connection issue or permissions are insufficient
-    fn topic_exists(&self, topic: &str) -> Result<bool>;
+    /// Returns an error if there's a connection issue or permissions are not enough
+    fn topic_exists(&self, topic: &str) -> CloudResult<bool>;
 }
 
 // ============================================================================
@@ -382,35 +382,35 @@ pub trait DatabaseIO: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the query is invalid, execution fails, or there's a connection issue
-    fn query(&self, sql: &str, params: Vec<String>) -> Result<Vec<Row>>;
+    fn query(&self, sql: &str, params: Vec<String>) -> CloudResult<Vec<Row>>;
 
     /// Execute a statement without returning results (INSERT, UPDATE, DELETE)
     ///
     /// # Errors
     ///
     /// Returns an error if the statement is invalid, execution fails, or there's a connection issue
-    fn execute(&self, sql: &str, params: Vec<String>) -> Result<u64>;
+    fn execute(&self, sql: &str, params: Vec<String>) -> CloudResult<u64>;
 
     /// Begin a transaction
     ///
     /// # Errors
     ///
     /// Returns an error if transaction creation fails or there's a connection issue
-    fn begin_transaction(&self) -> Result<Box<dyn Transaction>>;
+    fn begin_transaction(&self) -> CloudResult<Box<dyn Transaction>>;
 
     /// Check if a table exists
     ///
     /// # Errors
     ///
-    /// Returns an error if there's a connection issue or permissions are insufficient
-    fn table_exists(&self, table: &str) -> Result<bool>;
+    /// Returns an error if there's a connection issue or permissions are not enough
+    fn table_exists(&self, table: &str) -> CloudResult<bool>;
 
     /// Get table schema
     ///
     /// # Errors
     ///
-    /// Returns an error if the table doesn't exist, there's a connection issue, or permissions are insufficient
-    fn get_schema(&self, table: &str) -> Result<Vec<(String, String)>>;
+    /// Returns an error if the table doesn't exist, there's a connection issue, or permissions are not enough
+    fn get_schema(&self, table: &str) -> CloudResult<Vec<(String, String)>>;
 }
 
 /// Trait for database transactions
@@ -420,28 +420,28 @@ pub trait Transaction: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the query is invalid, execution fails, or the transaction has been rolled back
-    fn query(&mut self, sql: &str, params: Vec<String>) -> Result<Vec<Row>>;
+    fn query(&mut self, sql: &str, params: Vec<String>) -> CloudResult<Vec<Row>>;
 
     /// Execute a statement within the transaction
     ///
     /// # Errors
     ///
     /// Returns an error if the statement is invalid, execution fails, or the transaction has been rolled back
-    fn execute(&mut self, sql: &str, params: Vec<String>) -> Result<u64>;
+    fn execute(&mut self, sql: &str, params: Vec<String>) -> CloudResult<u64>;
 
     /// Commit the transaction
     ///
     /// # Errors
     ///
     /// Returns an error if the commit fails or there's a connection issue
-    fn commit(self: Box<Self>) -> Result<()>;
+    fn commit(self: Box<Self>) -> CloudResult<()>;
 
-    /// Rollback the transaction
+    /// Roll back the transaction
     ///
     /// # Errors
     ///
     /// Returns an error if the rollback fails or there's a connection issue
-    fn rollback(self: Box<Self>) -> Result<()>;
+    fn rollback(self: Box<Self>) -> CloudResult<()>;
 }
 
 // ============================================================================
@@ -462,54 +462,58 @@ pub trait KeyValueIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the collection doesn't exist, permissions are insufficient, or the operation fails
-    fn put(&self, collection: &str, key: &str, data: HashMap<String, String>) -> Result<()>;
+    /// Returns an error if the collection doesn't exist, permissions are not enough, or the operation fails
+    fn put(&self, collection: &str, key: &str, data: HashMap<String, String>) -> CloudResult<()>;
 
     /// Get a document
     ///
     /// # Errors
     ///
-    /// Returns an error if the collection doesn't exist, permissions are insufficient, or the operation fails
-    fn get(&self, collection: &str, key: &str) -> Result<Option<Document>>;
+    /// Returns an error if the collection doesn't exist, permissions are not enough, or the operation fails
+    fn get(&self, collection: &str, key: &str) -> CloudResult<Option<Document>>;
 
     /// Delete a document
     ///
     /// # Errors
     ///
-    /// Returns an error if the collection doesn't exist, permissions are insufficient, or the deletion fails
-    fn delete(&self, collection: &str, key: &str) -> Result<()>;
+    /// Returns an error if the collection doesn't exist, permissions are not enough, or the deletion fails
+    fn delete(&self, collection: &str, key: &str) -> CloudResult<()>;
 
     /// Query documents (simple key-value filtering)
     ///
     /// # Errors
     ///
-    /// Returns an error if the collection doesn't exist, permissions are insufficient, or the query fails
-    fn query(&self, collection: &str, filters: HashMap<String, String>) -> Result<Vec<Document>>;
+    /// Returns an error if the collection doesn't exist, permissions are not enough, or the query fails
+    fn query(
+        &self,
+        collection: &str,
+        filters: HashMap<String, String>,
+    ) -> CloudResult<Vec<Document>>;
 
-    /// Batch get multiple documents
+    /// Get multiple documents in a batch
     ///
     /// # Errors
     ///
-    /// Returns an error if the collection doesn't exist, permissions are insufficient, or the operation fails
-    fn batch_get(&self, collection: &str, keys: Vec<String>) -> Result<Vec<Option<Document>>>;
+    /// Returns an error if the collection doesn't exist, permissions are not enough, or the operation fails
+    fn batch_get(&self, collection: &str, keys: Vec<String>) -> CloudResult<Vec<Option<Document>>>;
 
     /// Batch put multiple documents
     ///
     /// # Errors
     ///
-    /// Returns an error if the collection doesn't exist, permissions are insufficient, or the operation fails
+    /// Returns an error if the collection doesn't exist, permissions are not enough, or the operation fails
     fn batch_put(
         &self,
         collection: &str,
         documents: Vec<(String, HashMap<String, String>)>,
-    ) -> Result<()>;
+    ) -> CloudResult<()>;
 
     /// Check if a document exists
     ///
     /// # Errors
     ///
-    /// Returns an error if the collection doesn't exist, permissions are insufficient, or the check fails
-    fn exists(&self, collection: &str, key: &str) -> Result<bool>;
+    /// Returns an error if the collection doesn't exist, permissions are not enough, or the check fails
+    fn exists(&self, collection: &str, key: &str) -> CloudResult<bool>;
 }
 
 // ============================================================================
@@ -539,47 +543,47 @@ pub trait SearchIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the index doesn't exist, permissions are insufficient, or indexing fails
-    fn index(&self, index: &str, id: &str, document: HashMap<String, String>) -> Result<()>;
+    /// Returns an error if the index doesn't exist, permissions are not enough, or indexing fails
+    fn index(&self, index: &str, id: &str, document: HashMap<String, String>) -> CloudResult<()>;
 
     /// Batch index documents
     ///
     /// # Errors
     ///
-    /// Returns an error if the index doesn't exist, permissions are insufficient, or indexing fails
+    /// Returns an error if the index doesn't exist, permissions are not enough, or indexing fails
     fn batch_index(
         &self,
         index: &str,
         documents: Vec<(String, HashMap<String, String>)>,
-    ) -> Result<()>;
+    ) -> CloudResult<()>;
 
     /// Search documents
     ///
     /// # Errors
     ///
     /// Returns an error if the index doesn't exist, the query is invalid, or search fails
-    fn search(&self, index: &str, query: SearchQuery) -> Result<Vec<SearchHit>>;
+    fn search(&self, index: &str, query: SearchQuery) -> CloudResult<Vec<SearchHit>>;
 
     /// Delete a document from the index
     ///
     /// # Errors
     ///
-    /// Returns an error if the index doesn't exist, permissions are insufficient, or deletion fails
-    fn delete(&self, index: &str, id: &str) -> Result<()>;
+    /// Returns an error if the index doesn't exist, permissions are not enough, or deletion fails
+    fn delete(&self, index: &str, id: &str) -> CloudResult<()>;
 
     /// Get a document by ID
     ///
     /// # Errors
     ///
-    /// Returns an error if the index doesn't exist, permissions are insufficient, or the operation fails
-    fn get(&self, index: &str, id: &str) -> Result<Option<HashMap<String, String>>>;
+    /// Returns an error if the index doesn't exist, permissions are not enough, or the operation fails
+    fn get(&self, index: &str, id: &str) -> CloudResult<Option<HashMap<String, String>>>;
 
     /// Check if an index exists
     ///
     /// # Errors
     ///
-    /// Returns an error if there's a connection issue or permissions are insufficient
-    fn index_exists(&self, index: &str) -> Result<bool>;
+    /// Returns an error if there's a connection issue or permissions are not enough
+    fn index_exists(&self, index: &str) -> CloudResult<bool>;
 }
 
 // ============================================================================
@@ -611,29 +615,29 @@ pub trait MetricIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the namespace doesn't exist, permissions are insufficient, or the operation fails
-    fn put_metric(&self, namespace: &str, metric: MetricPoint) -> Result<()>;
+    /// Returns an error if the namespace doesn't exist, permissions are not enough, or the operation fails
+    fn put_metric(&self, namespace: &str, metric: MetricPoint) -> CloudResult<()>;
 
     /// Put multiple metrics
     ///
     /// # Errors
     ///
-    /// Returns an error if the namespace doesn't exist, permissions are insufficient, or the operation fails
-    fn put_metrics(&self, namespace: &str, metrics: Vec<MetricPoint>) -> Result<()>;
+    /// Returns an error if the namespace doesn't exist, permissions are not enough, or the operation fails
+    fn put_metrics(&self, namespace: &str, metrics: Vec<MetricPoint>) -> CloudResult<()>;
 
     /// Query metrics
     ///
     /// # Errors
     ///
     /// Returns an error if the namespace doesn't exist, the query is invalid, or the operation fails
-    fn query_metrics(&self, namespace: &str, query: MetricQuery) -> Result<Vec<MetricPoint>>;
+    fn query_metrics(&self, namespace: &str, query: MetricQuery) -> CloudResult<Vec<MetricPoint>>;
 
     /// List available metrics in a namespace
     ///
     /// # Errors
     ///
-    /// Returns an error if the namespace doesn't exist, permissions are insufficient, or the listing fails
-    fn list_metrics(&self, namespace: &str) -> Result<Vec<String>>;
+    /// Returns an error if the namespace doesn't exist, permissions are not enough, or the listing fails
+    fn list_metrics(&self, namespace: &str) -> CloudResult<Vec<String>>;
 }
 
 // ============================================================================
@@ -655,36 +659,36 @@ pub trait ConfigIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the key doesn't exist, permissions are insufficient, or the operation fails
-    fn get(&self, key: &str) -> Result<ConfigValue>;
+    /// Returns an error if the key doesn't exist, permissions are not enough, or the operation fails
+    fn get(&self, key: &str) -> CloudResult<ConfigValue>;
 
     /// Set a configuration value
     ///
     /// # Errors
     ///
-    /// Returns an error if permissions are insufficient, the value is invalid, or the operation fails
-    fn set(&self, key: &str, value: &str, is_secret: bool) -> Result<()>;
+    /// Returns an error if permissions are not enough, the value is invalid, or the operation fails
+    fn set(&self, key: &str, value: &str, is_secret: bool) -> CloudResult<()>;
 
     /// Delete a configuration value
     ///
     /// # Errors
     ///
-    /// Returns an error if the key doesn't exist, permissions are insufficient, or the deletion fails
-    fn delete(&self, key: &str) -> Result<()>;
+    /// Returns an error if the key doesn't exist, permissions are not enough, or the deletion fails
+    fn delete(&self, key: &str) -> CloudResult<()>;
 
     /// List all configuration keys with a prefix
     ///
     /// # Errors
     ///
-    /// Returns an error if permissions are insufficient or the listing fails
-    fn list(&self, prefix: Option<&str>) -> Result<Vec<String>>;
+    /// Returns an error if permissions are not enough or the listing fails
+    fn list(&self, prefix: Option<&str>) -> CloudResult<Vec<String>>;
 
     /// Get multiple configuration values
     ///
     /// # Errors
     ///
-    /// Returns an error if permissions are insufficient or the operation fails
-    fn batch_get(&self, keys: Vec<String>) -> Result<Vec<Option<ConfigValue>>>;
+    /// Returns an error if permissions are not enough or the operation fails
+    fn batch_get(&self, keys: Vec<String>) -> CloudResult<Vec<Option<ConfigValue>>>;
 }
 
 // ============================================================================
@@ -707,19 +711,24 @@ pub trait QueueIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the queue doesn't exist, permissions are insufficient, or sending fails
-    fn send(&self, queue: &str, body: &str, attributes: HashMap<String, String>) -> Result<String>;
+    /// Returns an error if the queue doesn't exist, permissions are not enough, or sending fails
+    fn send(
+        &self,
+        queue: &str,
+        body: &str,
+        attributes: HashMap<String, String>,
+    ) -> CloudResult<String>;
 
     /// Send multiple messages to a queue
     ///
     /// # Errors
     ///
-    /// Returns an error if the queue doesn't exist, permissions are insufficient, or sending fails
+    /// Returns an error if the queue doesn't exist, permissions are not enough, or sending fails
     fn send_batch(
         &self,
         queue: &str,
         messages: Vec<(String, HashMap<String, String>)>,
-    ) -> Result<Vec<String>>;
+    ) -> CloudResult<Vec<String>>;
 
     /// Receive messages from a queue
     ///
@@ -731,35 +740,35 @@ pub trait QueueIO: Send + Sync {
         queue: &str,
         max_messages: u32,
         visibility_timeout_secs: u32,
-    ) -> Result<Vec<QueueMessage>>;
+    ) -> CloudResult<Vec<QueueMessage>>;
 
     /// Delete a message from the queue
     ///
     /// # Errors
     ///
     /// Returns an error if the queue doesn't exist, the receipt handle is invalid, or deletion fails
-    fn delete(&self, queue: &str, receipt_handle: &str) -> Result<()>;
+    fn delete(&self, queue: &str, receipt_handle: &str) -> CloudResult<()>;
 
     /// Delete multiple messages from the queue
     ///
     /// # Errors
     ///
     /// Returns an error if the queue doesn't exist, receipt handles are invalid, or deletion fails
-    fn delete_batch(&self, queue: &str, receipt_handles: Vec<String>) -> Result<()>;
+    fn delete_batch(&self, queue: &str, receipt_handles: Vec<String>) -> CloudResult<()>;
 
     /// Get approximate queue size
     ///
     /// # Errors
     ///
-    /// Returns an error if the queue doesn't exist, permissions are insufficient, or the operation fails
-    fn queue_size(&self, queue: &str) -> Result<u64>;
+    /// Returns an error if the queue doesn't exist, permissions are not enough, or the operation fails
+    fn queue_size(&self, queue: &str) -> CloudResult<u64>;
 
     /// Purge all messages from a queue
     ///
     /// # Errors
     ///
-    /// Returns an error if the queue doesn't exist, permissions are insufficient, or purging fails
-    fn purge(&self, queue: &str) -> Result<()>;
+    /// Returns an error if the queue doesn't exist, permissions are not enough, or purging fails
+    fn purge(&self, queue: &str) -> CloudResult<()>;
 }
 
 // ============================================================================
@@ -773,56 +782,56 @@ pub trait CacheIO: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if there's a connection issue or the operation fails
-    fn get(&self, key: &str) -> Result<Option<Vec<u8>>>;
+    fn get(&self, key: &str) -> CloudResult<Option<Vec<u8>>>;
 
     /// Set a value in the cache with optional TTL in seconds
     ///
     /// # Errors
     ///
     /// Returns an error if there's a connection issue or the operation fails
-    fn set(&self, key: &str, value: &[u8], ttl_secs: Option<u64>) -> Result<()>;
+    fn set(&self, key: &str, value: &[u8], ttl_secs: Option<u64>) -> CloudResult<()>;
 
     /// Delete a value from the cache
     ///
     /// # Errors
     ///
     /// Returns an error if there's a connection issue or the deletion fails
-    fn delete(&self, key: &str) -> Result<()>;
+    fn delete(&self, key: &str) -> CloudResult<()>;
 
     /// Check if a key exists
     ///
     /// # Errors
     ///
     /// Returns an error if there's a connection issue or the check fails
-    fn exists(&self, key: &str) -> Result<bool>;
+    fn exists(&self, key: &str) -> CloudResult<bool>;
 
     /// Get multiple values
     ///
     /// # Errors
     ///
     /// Returns an error if there's a connection issue or the operation fails
-    fn get_batch(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>>;
+    fn get_batch(&self, keys: Vec<String>) -> CloudResult<Vec<Option<Vec<u8>>>>;
 
     /// Set multiple values
     ///
     /// # Errors
     ///
     /// Returns an error if there's a connection issue or the operation fails
-    fn set_batch(&self, items: Vec<(String, Vec<u8>, Option<u64>)>) -> Result<()>;
+    fn set_batch(&self, items: Vec<(String, Vec<u8>, Option<u64>)>) -> CloudResult<()>;
 
     /// Increment a counter
     ///
     /// # Errors
     ///
     /// Returns an error if the key doesn't exist, isn't a numeric value, or there's a connection issue
-    fn increment(&self, key: &str, delta: i64) -> Result<i64>;
+    fn increment(&self, key: &str, delta: i64) -> CloudResult<i64>;
 
     /// Flush all data (use with caution!)
     ///
     /// # Errors
     ///
-    /// Returns an error if there's a connection issue or permissions are insufficient
-    fn flush(&self) -> Result<()>;
+    /// Returns an error if there's a connection issue or permissions are not enough
+    fn flush(&self) -> CloudResult<()>;
 }
 
 // ============================================================================
@@ -853,56 +862,60 @@ pub trait GraphIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if permissions are insufficient or the operation fails
-    fn add_node(&self, labels: Vec<String>, properties: HashMap<String, String>) -> Result<String>;
+    /// Returns an error if permissions are not enough or the operation fails
+    fn add_node(
+        &self,
+        labels: Vec<String>,
+        properties: HashMap<String, String>,
+    ) -> CloudResult<String>;
 
     /// Get a node by ID
     ///
     /// # Errors
     ///
-    /// Returns an error if permissions are insufficient or the operation fails
-    fn get_node(&self, id: &str) -> Result<Option<GraphNode>>;
+    /// Returns an error if permissions are not enough or the operation fails
+    fn get_node(&self, id: &str) -> CloudResult<Option<GraphNode>>;
 
     /// Update node properties
     ///
     /// # Errors
     ///
-    /// Returns an error if the node doesn't exist, permissions are insufficient, or the update fails
-    fn update_node(&self, id: &str, properties: HashMap<String, String>) -> Result<()>;
+    /// Returns an error if the node doesn't exist, permissions are not enough, or the update fails
+    fn update_node(&self, id: &str, properties: HashMap<String, String>) -> CloudResult<()>;
 
     /// Delete a node
     ///
     /// # Errors
     ///
-    /// Returns an error if the node doesn't exist, permissions are insufficient, or the deletion fails
-    fn delete_node(&self, id: &str) -> Result<()>;
+    /// Returns an error if the node doesn't exist, permissions are not enough, or the deletion fails
+    fn delete_node(&self, id: &str) -> CloudResult<()>;
 
     /// Add an edge between nodes
     ///
     /// # Errors
     ///
-    /// Returns an error if either node doesn't exist, permissions are insufficient, or the operation fails
+    /// Returns an error if either node doesn't exist, permissions are not enough, or the operation fails
     fn add_edge(
         &self,
         from: &str,
         to: &str,
         label: &str,
         properties: HashMap<String, String>,
-    ) -> Result<String>;
+    ) -> CloudResult<String>;
 
     /// Get an edge by ID
     ///
     /// # Errors
     ///
-    /// Returns an error if permissions are insufficient or the operation fails
-    fn get_edge(&self, id: &str) -> Result<Option<GraphEdge>>;
+    /// Returns an error if permissions are not enough or the operation fails
+    fn get_edge(&self, id: &str) -> CloudResult<Option<GraphEdge>>;
 
     /// Delete an edge
     ///
     /// # Errors
     ///
-    /// Returns an error if the edge doesn't exist, permissions are insufficient, or the deletion fails
-    fn delete_edge(&self, id: &str) -> Result<()>;
+    /// Returns an error if the edge doesn't exist, permissions are not enough, or the deletion fails
+    fn delete_edge(&self, id: &str) -> CloudResult<()>;
 
     /// Query the graph (using provider-specific query language)
     ///
@@ -913,14 +926,15 @@ pub trait GraphIO: Send + Sync {
         &self,
         query: &str,
         params: HashMap<String, String>,
-    ) -> Result<Vec<HashMap<String, String>>>;
+    ) -> CloudResult<Vec<HashMap<String, String>>>;
 
     /// Find neighbors of a node
     ///
     /// # Errors
     ///
-    /// Returns an error if the node doesn't exist, permissions are insufficient, or the operation fails
-    fn get_neighbors(&self, node_id: &str, direction: EdgeDirection) -> Result<Vec<GraphNode>>;
+    /// Returns an error if the node doesn't exist, permissions are not enough, or the operation fails
+    fn get_neighbors(&self, node_id: &str, direction: EdgeDirection)
+    -> CloudResult<Vec<GraphNode>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -949,29 +963,29 @@ pub trait ComputeIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the function doesn't exist, permissions are insufficient, or invocation fails
-    fn invoke(&self, function_name: &str, payload: &[u8]) -> Result<ComputeResult>;
+    /// Returns an error if the function doesn't exist, permissions are not enough, or invocation fails
+    fn invoke(&self, function_name: &str, payload: &[u8]) -> CloudResult<ComputeResult>;
 
     /// Invoke a function asynchronously (fire and forget)
     ///
     /// # Errors
     ///
-    /// Returns an error if the function doesn't exist, permissions are insufficient, or invocation fails
-    fn invoke_async(&self, function_name: &str, payload: &[u8]) -> Result<String>;
+    /// Returns an error if the function doesn't exist, permissions are not enough, or invocation fails
+    fn invoke_async(&self, function_name: &str, payload: &[u8]) -> CloudResult<String>;
 
     /// Get the status of an async invocation
     ///
     /// # Errors
     ///
-    /// Returns an error if the invocation ID is invalid, permissions are insufficient, or the operation fails
-    fn get_invocation_status(&self, invocation_id: &str) -> Result<InvocationStatus>;
+    /// Returns an error if the invocation ID is invalid, permissions are not enough, or the operation fails
+    fn get_invocation_status(&self, invocation_id: &str) -> CloudResult<InvocationStatus>;
 
-    /// List available functions
+    /// List the available functions
     ///
     /// # Errors
     ///
-    /// Returns an error if permissions are insufficient or the listing fails
-    fn list_functions(&self) -> Result<Vec<String>>;
+    /// Returns an error if permissions are not enough or the listing fails
+    fn list_functions(&self) -> CloudResult<Vec<String>>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1016,43 +1030,43 @@ pub trait NotificationIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the target is invalid, permissions are insufficient, or sending fails
-    fn send(&self, notification: Notification) -> Result<NotificationResult>;
+    /// Returns an error if the target is invalid, permissions are not enough, or sending fails
+    fn send(&self, notification: Notification) -> CloudResult<NotificationResult>;
 
     /// Send multiple notifications
     ///
     /// # Errors
     ///
-    /// Returns an error if any target is invalid, permissions are insufficient, or sending fails
-    fn send_batch(&self, notifications: Vec<Notification>) -> Result<Vec<NotificationResult>>;
+    /// Returns an error if any target is invalid, permissions are not enough, or sending fails
+    fn send_batch(&self, notifications: Vec<Notification>) -> CloudResult<Vec<NotificationResult>>;
 
     /// Subscribe an endpoint to a topic
     ///
     /// # Errors
     ///
     /// Returns an error if the topic doesn't exist, the endpoint is invalid, or subscription fails
-    fn subscribe(&self, topic: &str, endpoint: &str, protocol: &str) -> Result<String>;
+    fn subscribe(&self, topic: &str, endpoint: &str, protocol: &str) -> CloudResult<String>;
 
     /// Unsubscribe from a topic
     ///
     /// # Errors
     ///
-    /// Returns an error if the subscription doesn't exist, permissions are insufficient, or unsubscription fails
-    fn unsubscribe(&self, subscription_id: &str) -> Result<()>;
+    /// Returns an error if the subscription doesn't exist, permissions are not enough, or unsubscription fails
+    fn unsubscribe(&self, subscription_id: &str) -> CloudResult<()>;
 
     /// Create a topic
     ///
     /// # Errors
     ///
-    /// Returns an error if the topic already exists, permissions are insufficient, or creation fails
-    fn create_topic(&self, name: &str) -> Result<String>;
+    /// Returns an error if the topic already exists, permissions are not enough, or creation fails
+    fn create_topic(&self, name: &str) -> CloudResult<String>;
 
     /// Delete a topic
     ///
     /// # Errors
     ///
-    /// Returns an error if the topic doesn't exist, permissions are insufficient, or deletion fails
-    fn delete_topic(&self, topic: &str) -> Result<()>;
+    /// Returns an error if the topic doesn't exist, permissions are not enough, or deletion fails
+    fn delete_topic(&self, topic: &str) -> CloudResult<()>;
 }
 
 // ============================================================================
@@ -1082,7 +1096,7 @@ pub trait IntelligenceIO: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the model doesn't exist, the input is invalid, or inference fails
-    fn predict(&self, model_name: &str, input: InferenceInput) -> Result<InferenceOutput>;
+    fn predict(&self, model_name: &str, input: InferenceInput) -> CloudResult<InferenceOutput>;
 
     /// Batch prediction
     ///
@@ -1093,19 +1107,19 @@ pub trait IntelligenceIO: Send + Sync {
         &self,
         model_name: &str,
         inputs: Vec<InferenceInput>,
-    ) -> Result<Vec<InferenceOutput>>;
+    ) -> CloudResult<Vec<InferenceOutput>>;
 
     /// List available models
     ///
     /// # Errors
     ///
-    /// Returns an error if permissions are insufficient or the listing fails
-    fn list_models(&self) -> Result<Vec<String>>;
+    /// Returns an error if permissions are not enough or the listing fails
+    fn list_models(&self) -> CloudResult<Vec<String>>;
 
     /// Get model metadata
     ///
     /// # Errors
     ///
-    /// Returns an error if the model doesn't exist, permissions are insufficient, or the operation fails
-    fn get_model_info(&self, model_name: &str) -> Result<HashMap<String, String>>;
+    /// Returns an error if the model doesn't exist, permissions are not enough, or the operation fails
+    fn get_model_info(&self, model_name: &str) -> CloudResult<HashMap<String, String>>;
 }

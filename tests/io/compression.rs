@@ -81,7 +81,7 @@ mod compression_tests {
         let loaded = read_jsonl_compressed(path_str)?;
         assert_eq!(data, loaded);
 
-        // Verify file is actually compressed (should be smaller than uncompressed)
+        // Verify the file is actually compressed (should be smaller than uncompressed)
         let compressed_size = std::fs::metadata(&path)?.len();
         let uncompressed_json = serde_json::to_string(&data)?;
         assert!(compressed_size < uncompressed_json.len() as u64);
@@ -205,7 +205,7 @@ mod compression_tests {
     #[test]
     #[allow(clippy::items_after_statements)]
     fn test_magic_byte_detection() -> Result<()> {
-        // Write gzip data but with wrong extension to test magic byte fallback
+        // Write gzip data but with the wrong extension to test magic byte fallback
         let temp = NamedTempFile::new()?;
         let gz_path = temp.path().with_extension("dat"); // intentionally wrong extension
         let gz_path_str = gz_path.to_str().unwrap();
@@ -234,7 +234,7 @@ mod compression_tests {
     #[cfg(feature = "compression-gzip")]
     fn test_detect_from_magic_insufficient_bytes() {
         use std::io::BufRead;
-        // Test with less bytes than gzip magic bytes
+        // Test with fewer bytes than gzip magic bytes
         let data: &[u8] = &[0x1f]; // Only 1 byte, but gzip needs 2
         let mut reader = std::io::BufReader::new(std::io::Cursor::new(data));
         // Force fill_buf to be called

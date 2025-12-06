@@ -195,7 +195,7 @@ fn test_queue_send_receive() -> Result<()> {
 fn test_queue_batch_operations() -> Result<()> {
     let queue = FakeQueueIO::new();
 
-    // Batch send
+    // Batch sending of messages
     let messages = vec![
         ("msg1".to_string(), HashMap::new()),
         ("msg2".to_string(), HashMap::new()),
@@ -615,7 +615,7 @@ fn test_notification_send() -> Result<()> {
 fn test_notification_topics() -> Result<()> {
     let notif = FakeNotificationIO::new();
 
-    // Create topic
+    // Create a topic
     let topic_id = notif.create_topic("alerts")?;
     assert_eq!(topic_id, "alerts");
 

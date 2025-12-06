@@ -19,7 +19,7 @@ fn map_with_side_map_enriches_records() -> Result<()> {
         Product { sku: "A".into() },
         Product { sku: "B".into() },
         Product { sku: "C".into() },
-        Product { sku: "D".into() }, // not in price map
+        Product { sku: "D".into() }, // not in the price map
     ];
     let input = from_vec(&p, items);
 

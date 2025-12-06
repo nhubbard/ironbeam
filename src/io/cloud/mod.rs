@@ -46,7 +46,8 @@
 //! ### Synchronous by Design
 //! Unlike most cloud SDKs which are async-first, these traits are synchronous. This matches
 //! Ironbeam's execution model and avoids the complexity of async Rust. Implementations can
-//! use `tokio` or similar internally, but expose a blocking interface.
+//! use `tokio` or a similar async runtime within their own implementation but expose a blocking
+//! interface.
 //!
 //! ### Credential & Config Abstraction
 //! - [`CloudCredentials`] - Trait for passing authentication credentials
@@ -61,7 +62,7 @@
 //! use ironbeam::io::cloud::*;
 //! use std::collections::HashMap;
 //!
-//! # fn test_my_logic() -> Result<()> {
+//! # fn test_my_logic() -> CloudResult<()> {
 //! // Create fake implementations (all state is in-memory)
 //! let storage = FakeObjectIO::new();
 //! let queue = FakeQueueIO::new();
@@ -110,7 +111,7 @@
 //! use ironbeam::io::cloud::helpers::*;
 //! use ironbeam::io::cloud::*;
 //!
-//! # fn example() -> Result<()> {
+//! # fn example() -> CloudResult<()> {
 //! // Retry with exponential backoff
 //! let config = RetryConfig::default();
 //! let result = retry_with_backoff(&config, || {
@@ -135,7 +136,7 @@
 //!
 //! ## Error Handling
 //!
-//! All operations return [`Result<T>`] where the error is [`CloudIOError`].
+//! All operations return [`CloudResult<T>`] where the error is [`CloudIOError`].
 //! Errors are categorized by [`ErrorKind`]:
 //! - `Authentication` / `Authorization` - Credential issues
 //! - `NotFound` / `AlreadyExists` - Resource state
@@ -159,7 +160,9 @@
 
 pub mod fake;
 pub mod helpers;
+pub mod readers;
 pub mod traits;
+pub mod utils;
 
 pub use fake::*;
 pub use traits::*;

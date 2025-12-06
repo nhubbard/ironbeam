@@ -57,7 +57,7 @@ fn apply_transform_with_numbers() -> Result<()> {
     Ok(())
 }
 
-// Test custom DynOp with key-preserving flag
+// Test custom DynOp with a key-preserving flag
 struct UppercaseValueOp;
 
 impl DynOp for UppercaseValueOp {

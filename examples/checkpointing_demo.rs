@@ -20,7 +20,7 @@ use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
 fn main() -> Result<()> {
     println!("=== Ironbeam Checkpointing Demo ===\n");
 
-    // Create a pipeline with a large dataset to simulate long-running job
+    // Create a pipeline with a large dataset to simulate long-running jobs
     let p = Pipeline::default();
 
     println!("Building pipeline with 100,000 records...");
@@ -49,7 +49,7 @@ fn main() -> Result<()> {
     println!("  Auto-recovery: enabled");
     println!("  Max checkpoints: 5");
 
-    // Create runner with checkpointing
+    // Create a runner with checkpointing
     let runner = Runner {
         mode: ExecMode::Sequential,
         checkpoint_config: Some(checkpoint_config),

@@ -4,12 +4,12 @@
 //! making them ideal for unit testing without external dependencies.
 
 use crate::io::cloud::traits::{
-    CacheIO, CloudConfig, CloudCredentials, CloudIOError, ComputeIO, ComputeResult, ConfigIO,
-    ConfigValue, DatabaseIO, Document, EdgeDirection, ErrorKind, GraphEdge, GraphIO, GraphNode,
-    InferenceInput, InferenceOutput, IntelligenceIO, InvocationStatus, KeyValueIO, Message,
-    MetricIO, MetricPoint, MetricQuery, Notification, NotificationIO, NotificationResult,
+    CacheIO, CloudConfig, CloudCredentials, CloudIOError, CloudResult, ComputeIO, ComputeResult,
+    ConfigIO, ConfigValue, DatabaseIO, Document, EdgeDirection, ErrorKind, GraphEdge, GraphIO,
+    GraphNode, InferenceInput, InferenceOutput, IntelligenceIO, InvocationStatus, KeyValueIO,
+    Message, MetricIO, MetricPoint, MetricQuery, Notification, NotificationIO, NotificationResult,
     NotificationStatus, ObjectIO, ObjectMetadata, PubSubIO, QueryResult, QueueIO, QueueMessage,
-    Result, Row, SearchHit, SearchIO, SearchQuery, Transaction, WarehouseIO,
+    Row, SearchHit, SearchIO, SearchQuery, Transaction, WarehouseIO,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -40,7 +40,7 @@ impl CloudCredentials for FakeCredentials {
         &self.credential_type
     }
 
-    fn validate(&self) -> Result<()> {
+    fn validate(&self) -> CloudResult<()> {
         if self.identifier.is_empty() {
             return Err(CloudIOError::new(
                 ErrorKind::Authentication,
@@ -131,8 +131,8 @@ impl Default for FakeWarehouseIO {
 }
 
 impl WarehouseIO for FakeWarehouseIO {
-    fn query(&self, sql: &str) -> Result<QueryResult> {
-        // Simple fake: assume query is "SELECT * FROM table_name"
+    fn query(&self, sql: &str) -> CloudResult<QueryResult> {
+        // Simple fake: assume the query is "SELECT * FROM table_name"
         let parts: Vec<&str> = sql.split_whitespace().collect();
         if parts.len() >= 4 && parts[0].eq_ignore_ascii_case("SELECT") {
             let table_name = parts[3];
@@ -165,7 +165,7 @@ impl WarehouseIO for FakeWarehouseIO {
         }
     }
 
-    fn execute(&self, _sql: &str) -> Result<()> {
+    fn execute(&self, _sql: &str) -> CloudResult<()> {
         Ok(())
     }
 
@@ -174,7 +174,7 @@ impl WarehouseIO for FakeWarehouseIO {
         table: &str,
         _source_uri: &str,
         _options: HashMap<String, String>,
-    ) -> Result<()> {
+    ) -> CloudResult<()> {
         self.tables
             .lock()
             .expect("tables mutex poisoned")
@@ -188,11 +188,11 @@ impl WarehouseIO for FakeWarehouseIO {
         _sql: &str,
         _destination_uri: &str,
         _options: HashMap<String, String>,
-    ) -> Result<()> {
+    ) -> CloudResult<()> {
         Ok(())
     }
 
-    fn table_exists(&self, table: &str) -> Result<bool> {
+    fn table_exists(&self, table: &str) -> CloudResult<bool> {
         Ok(self
             .tables
             .lock()
@@ -200,7 +200,7 @@ impl WarehouseIO for FakeWarehouseIO {
             .contains_key(table))
     }
 
-    fn get_schema(&self, table: &str) -> Result<Vec<(String, String)>> {
+    fn get_schema(&self, table: &str) -> CloudResult<Vec<(String, String)>> {
         self.schemas
             .lock()
             .expect("schemas mutex poisoned")
@@ -237,7 +237,7 @@ impl Default for FakeObjectIO {
 }
 
 impl ObjectIO for FakeObjectIO {
-    fn put_object(&self, bucket: &str, key: &str, data: &[u8]) -> Result<()> {
+    fn put_object(&self, bucket: &str, key: &str, data: &[u8]) -> CloudResult<()> {
         self.storage
             .lock()
             .expect("storage mutex poisoned")
@@ -247,7 +247,7 @@ impl ObjectIO for FakeObjectIO {
         Ok(())
     }
 
-    fn get_object(&self, bucket: &str, key: &str) -> Result<Vec<u8>> {
+    fn get_object(&self, bucket: &str, key: &str) -> CloudResult<Vec<u8>> {
         let storage = self.storage.lock().expect("storage mutex poisoned");
         storage
             .get(bucket)
@@ -261,7 +261,7 @@ impl ObjectIO for FakeObjectIO {
             })
     }
 
-    fn delete_object(&self, bucket: &str, key: &str) -> Result<()> {
+    fn delete_object(&self, bucket: &str, key: &str) -> CloudResult<()> {
         if let Some(bucket_map) = self
             .storage
             .lock()
@@ -273,7 +273,7 @@ impl ObjectIO for FakeObjectIO {
         Ok(())
     }
 
-    fn list_objects(&self, bucket: &str, prefix: Option<&str>) -> Result<Vec<ObjectMetadata>> {
+    fn list_objects(&self, bucket: &str, prefix: Option<&str>) -> CloudResult<Vec<ObjectMetadata>> {
         let storage = self.storage.lock().expect("storage mutex poisoned");
         let bucket_map = storage.get(bucket).ok_or_else(|| {
             CloudIOError::new(ErrorKind::NotFound, format!("Bucket {bucket} not found"))
@@ -297,12 +297,12 @@ impl ObjectIO for FakeObjectIO {
         Ok(objects)
     }
 
-    fn object_exists(&self, bucket: &str, key: &str) -> Result<bool> {
+    fn object_exists(&self, bucket: &str, key: &str) -> CloudResult<bool> {
         let storage = self.storage.lock().expect("storage mutex poisoned");
         Ok(storage.get(bucket).is_some_and(|b| b.contains_key(key)))
     }
 
-    fn get_metadata(&self, bucket: &str, key: &str) -> Result<ObjectMetadata> {
+    fn get_metadata(&self, bucket: &str, key: &str) -> CloudResult<ObjectMetadata> {
         let storage = self.storage.lock().expect("storage mutex poisoned");
         storage
             .get(bucket)
@@ -329,7 +329,7 @@ impl ObjectIO for FakeObjectIO {
         src_key: &str,
         dst_bucket: &str,
         dst_key: &str,
-    ) -> Result<()> {
+    ) -> CloudResult<()> {
         let data = self.get_object(src_bucket, src_key)?;
         self.put_object(dst_bucket, dst_key, &data)
     }
@@ -380,7 +380,7 @@ impl PubSubIO for FakePubSubIO {
         topic: &str,
         data: &[u8],
         attributes: HashMap<String, String>,
-    ) -> Result<String> {
+    ) -> CloudResult<String> {
         let msg_id = self.next_id();
         let message = Message {
             id: msg_id.clone(),
@@ -403,14 +403,14 @@ impl PubSubIO for FakePubSubIO {
         &self,
         topic: &str,
         messages: Vec<(Vec<u8>, HashMap<String, String>)>,
-    ) -> Result<Vec<String>> {
+    ) -> CloudResult<Vec<String>> {
         messages
             .into_iter()
             .map(|(data, attrs)| self.publish(topic, &data, attrs))
             .collect()
     }
 
-    fn subscribe(&self, topic: &str, subscription_name: &str) -> Result<()> {
+    fn subscribe(&self, topic: &str, subscription_name: &str) -> CloudResult<()> {
         self.subscriptions
             .lock()
             .expect("subscriptions mutex poisoned")
@@ -418,7 +418,7 @@ impl PubSubIO for FakePubSubIO {
         Ok(())
     }
 
-    fn pull(&self, subscription: &str, max_messages: u32) -> Result<Vec<Message>> {
+    fn pull(&self, subscription: &str, max_messages: u32) -> CloudResult<Vec<Message>> {
         let mut subscriptions = self
             .subscriptions
             .lock()
@@ -431,11 +431,11 @@ impl PubSubIO for FakePubSubIO {
         Ok(pulled)
     }
 
-    fn acknowledge(&self, _subscription: &str, _ack_ids: Vec<String>) -> Result<()> {
+    fn acknowledge(&self, _subscription: &str, _ack_ids: Vec<String>) -> CloudResult<()> {
         Ok(())
     }
 
-    fn topic_exists(&self, topic: &str) -> Result<bool> {
+    fn topic_exists(&self, topic: &str) -> CloudResult<bool> {
         Ok(self
             .topics
             .lock()
@@ -487,8 +487,8 @@ impl Default for FakeDatabaseIO {
 }
 
 impl DatabaseIO for FakeDatabaseIO {
-    fn query(&self, sql: &str, _params: Vec<String>) -> Result<Vec<Row>> {
-        // Simple fake: assume query is "SELECT * FROM table_name"
+    fn query(&self, sql: &str, _params: Vec<String>) -> CloudResult<Vec<Row>> {
+        // Simple fake: assume the query is "SELECT * FROM table_name"
         let parts: Vec<&str> = sql.split_whitespace().collect();
         if parts.len() >= 4 && parts[0].eq_ignore_ascii_case("SELECT") {
             let table_name = parts[3];
@@ -502,7 +502,7 @@ impl DatabaseIO for FakeDatabaseIO {
         }
     }
 
-    fn execute(&self, sql: &str, _params: Vec<String>) -> Result<u64> {
+    fn execute(&self, sql: &str, _params: Vec<String>) -> CloudResult<u64> {
         // Simple fake: count INSERT/UPDATE/DELETE
         if sql.to_uppercase().contains("INSERT") {
             Ok(1)
@@ -511,14 +511,14 @@ impl DatabaseIO for FakeDatabaseIO {
         }
     }
 
-    fn begin_transaction(&self) -> Result<Box<dyn Transaction>> {
+    fn begin_transaction(&self) -> CloudResult<Box<dyn Transaction>> {
         Ok(Box::new(FakeTransaction {
             db: self.clone(),
             committed: false,
         }))
     }
 
-    fn table_exists(&self, table: &str) -> Result<bool> {
+    fn table_exists(&self, table: &str) -> CloudResult<bool> {
         Ok(self
             .tables
             .lock()
@@ -526,7 +526,7 @@ impl DatabaseIO for FakeDatabaseIO {
             .contains_key(table))
     }
 
-    fn get_schema(&self, table: &str) -> Result<Vec<(String, String)>> {
+    fn get_schema(&self, table: &str) -> CloudResult<Vec<(String, String)>> {
         self.schemas
             .lock()
             .expect("schemas mutex poisoned")
@@ -544,20 +544,20 @@ struct FakeTransaction {
 }
 
 impl Transaction for FakeTransaction {
-    fn query(&mut self, sql: &str, params: Vec<String>) -> Result<Vec<Row>> {
+    fn query(&mut self, sql: &str, params: Vec<String>) -> CloudResult<Vec<Row>> {
         self.db.query(sql, params)
     }
 
-    fn execute(&mut self, sql: &str, params: Vec<String>) -> Result<u64> {
+    fn execute(&mut self, sql: &str, params: Vec<String>) -> CloudResult<u64> {
         self.db.execute(sql, params)
     }
 
-    fn commit(mut self: Box<Self>) -> Result<()> {
+    fn commit(mut self: Box<Self>) -> CloudResult<()> {
         self.committed = true;
         Ok(())
     }
 
-    fn rollback(self: Box<Self>) -> Result<()> {
+    fn rollback(self: Box<Self>) -> CloudResult<()> {
         Ok(())
     }
 }
@@ -587,7 +587,7 @@ impl Default for FakeKeyValueIO {
 }
 
 impl KeyValueIO for FakeKeyValueIO {
-    fn put(&self, collection: &str, key: &str, data: HashMap<String, String>) -> Result<()> {
+    fn put(&self, collection: &str, key: &str, data: HashMap<String, String>) -> CloudResult<()> {
         let mut collections = self.collections.lock().expect("collections mutex poisoned");
         let coll = collections.entry(collection.to_string()).or_default();
         coll.insert(
@@ -602,7 +602,7 @@ impl KeyValueIO for FakeKeyValueIO {
         Ok(())
     }
 
-    fn get(&self, collection: &str, key: &str) -> Result<Option<Document>> {
+    fn get(&self, collection: &str, key: &str) -> CloudResult<Option<Document>> {
         let collections = self.collections.lock().expect("collections mutex poisoned");
         Ok(collections
             .get(collection)
@@ -610,7 +610,7 @@ impl KeyValueIO for FakeKeyValueIO {
             .cloned())
     }
 
-    fn delete(&self, collection: &str, key: &str) -> Result<()> {
+    fn delete(&self, collection: &str, key: &str) -> CloudResult<()> {
         if let Some(coll) = self
             .collections
             .lock()
@@ -622,7 +622,11 @@ impl KeyValueIO for FakeKeyValueIO {
         Ok(())
     }
 
-    fn query(&self, collection: &str, filters: HashMap<String, String>) -> Result<Vec<Document>> {
+    fn query(
+        &self,
+        collection: &str,
+        filters: HashMap<String, String>,
+    ) -> CloudResult<Vec<Document>> {
         let collections = self.collections.lock().expect("collections mutex poisoned");
         let coll = collections.get(collection).ok_or_else(|| {
             CloudIOError::new(
@@ -641,7 +645,7 @@ impl KeyValueIO for FakeKeyValueIO {
         Ok(results)
     }
 
-    fn batch_get(&self, collection: &str, keys: Vec<String>) -> Result<Vec<Option<Document>>> {
+    fn batch_get(&self, collection: &str, keys: Vec<String>) -> CloudResult<Vec<Option<Document>>> {
         keys.into_iter().map(|k| self.get(collection, &k)).collect()
     }
 
@@ -649,14 +653,14 @@ impl KeyValueIO for FakeKeyValueIO {
         &self,
         collection: &str,
         documents: Vec<(String, HashMap<String, String>)>,
-    ) -> Result<()> {
+    ) -> CloudResult<()> {
         for (key, data) in documents {
             self.put(collection, &key, data)?;
         }
         Ok(())
     }
 
-    fn exists(&self, collection: &str, key: &str) -> Result<bool> {
+    fn exists(&self, collection: &str, key: &str) -> CloudResult<bool> {
         let collections = self.collections.lock().expect("collections mutex poisoned");
         Ok(collections
             .get(collection)
@@ -689,7 +693,7 @@ impl Default for FakeSearchIO {
 }
 
 impl SearchIO for FakeSearchIO {
-    fn index(&self, index: &str, id: &str, document: HashMap<String, String>) -> Result<()> {
+    fn index(&self, index: &str, id: &str, document: HashMap<String, String>) -> CloudResult<()> {
         self.indices
             .lock()
             .expect("indices mutex poisoned")
@@ -703,14 +707,14 @@ impl SearchIO for FakeSearchIO {
         &self,
         index: &str,
         documents: Vec<(String, HashMap<String, String>)>,
-    ) -> Result<()> {
+    ) -> CloudResult<()> {
         for (id, doc) in documents {
             self.index(index, &id, doc)?;
         }
         Ok(())
     }
 
-    fn search(&self, index: &str, query: SearchQuery) -> Result<Vec<SearchHit>> {
+    fn search(&self, index: &str, query: SearchQuery) -> CloudResult<Vec<SearchHit>> {
         let indices = self.indices.lock().expect("indices mutex poisoned");
         let idx = indices.get(index).ok_or_else(|| {
             CloudIOError::new(ErrorKind::NotFound, format!("Index {index} not found"))
@@ -719,7 +723,7 @@ impl SearchIO for FakeSearchIO {
         let mut hits: Vec<SearchHit> = idx
             .iter()
             .filter(|(_, doc)| {
-                // Simple filtering - check if query string appears in any field
+                // Simple filtering - check if the query string appears in any field
                 doc.values().any(|v| v.contains(&query.query))
                     && query.filters.iter().all(|(k, v)| doc.get(k) == Some(v))
             })
@@ -744,7 +748,7 @@ impl SearchIO for FakeSearchIO {
         Ok(hits[start..end].to_vec())
     }
 
-    fn delete(&self, index: &str, id: &str) -> Result<()> {
+    fn delete(&self, index: &str, id: &str) -> CloudResult<()> {
         if let Some(idx) = self
             .indices
             .lock()
@@ -756,12 +760,12 @@ impl SearchIO for FakeSearchIO {
         Ok(())
     }
 
-    fn get(&self, index: &str, id: &str) -> Result<Option<HashMap<String, String>>> {
+    fn get(&self, index: &str, id: &str) -> CloudResult<Option<HashMap<String, String>>> {
         let indices = self.indices.lock().expect("indices mutex poisoned");
         Ok(indices.get(index).and_then(|idx| idx.get(id)).cloned())
     }
 
-    fn index_exists(&self, index: &str) -> Result<bool> {
+    fn index_exists(&self, index: &str) -> CloudResult<bool> {
         Ok(self
             .indices
             .lock()
@@ -795,7 +799,7 @@ impl Default for FakeMetricIO {
 }
 
 impl MetricIO for FakeMetricIO {
-    fn put_metric(&self, namespace: &str, metric: MetricPoint) -> Result<()> {
+    fn put_metric(&self, namespace: &str, metric: MetricPoint) -> CloudResult<()> {
         self.metrics
             .lock()
             .expect("metrics mutex poisoned")
@@ -805,14 +809,14 @@ impl MetricIO for FakeMetricIO {
         Ok(())
     }
 
-    fn put_metrics(&self, namespace: &str, metrics: Vec<MetricPoint>) -> Result<()> {
+    fn put_metrics(&self, namespace: &str, metrics: Vec<MetricPoint>) -> CloudResult<()> {
         for metric in metrics {
             self.put_metric(namespace, metric)?;
         }
         Ok(())
     }
 
-    fn query_metrics(&self, namespace: &str, query: MetricQuery) -> Result<Vec<MetricPoint>> {
+    fn query_metrics(&self, namespace: &str, query: MetricQuery) -> CloudResult<Vec<MetricPoint>> {
         let metrics = self.metrics.lock().expect("metrics mutex poisoned");
         let ns_metrics = metrics.get(namespace).ok_or_else(|| {
             CloudIOError::new(
@@ -836,7 +840,7 @@ impl MetricIO for FakeMetricIO {
         Ok(results)
     }
 
-    fn list_metrics(&self, namespace: &str) -> Result<Vec<String>> {
+    fn list_metrics(&self, namespace: &str) -> CloudResult<Vec<String>> {
         let metrics = self.metrics.lock().expect("metrics mutex poisoned");
         let ns_metrics = metrics.get(namespace).ok_or_else(|| {
             CloudIOError::new(
@@ -878,7 +882,7 @@ impl Default for FakeConfigIO {
 }
 
 impl ConfigIO for FakeConfigIO {
-    fn get(&self, key: &str) -> Result<ConfigValue> {
+    fn get(&self, key: &str) -> CloudResult<ConfigValue> {
         self.config
             .lock()
             .expect("config mutex poisoned")
@@ -889,7 +893,7 @@ impl ConfigIO for FakeConfigIO {
             })
     }
 
-    fn set(&self, key: &str, value: &str, is_secret: bool) -> Result<()> {
+    fn set(&self, key: &str, value: &str, is_secret: bool) -> CloudResult<()> {
         self.config.lock().expect("config mutex poisoned").insert(
             key.to_string(),
             ConfigValue {
@@ -902,7 +906,7 @@ impl ConfigIO for FakeConfigIO {
         Ok(())
     }
 
-    fn delete(&self, key: &str) -> Result<()> {
+    fn delete(&self, key: &str) -> CloudResult<()> {
         self.config
             .lock()
             .expect("config mutex poisoned")
@@ -910,7 +914,7 @@ impl ConfigIO for FakeConfigIO {
         Ok(())
     }
 
-    fn list(&self, prefix: Option<&str>) -> Result<Vec<String>> {
+    fn list(&self, prefix: Option<&str>) -> CloudResult<Vec<String>> {
         let config = self.config.lock().expect("config mutex poisoned");
         let mut keys: Vec<String> = config
             .keys()
@@ -922,7 +926,7 @@ impl ConfigIO for FakeConfigIO {
         Ok(keys)
     }
 
-    fn batch_get(&self, keys: Vec<String>) -> Result<Vec<Option<ConfigValue>>> {
+    fn batch_get(&self, keys: Vec<String>) -> CloudResult<Vec<Option<ConfigValue>>> {
         let config = self.config.lock().expect("config mutex poisoned");
         Ok(keys.into_iter().map(|k| config.get(&k).cloned()).collect())
     }
@@ -966,7 +970,12 @@ impl Default for FakeQueueIO {
 }
 
 impl QueueIO for FakeQueueIO {
-    fn send(&self, queue: &str, body: &str, attributes: HashMap<String, String>) -> Result<String> {
+    fn send(
+        &self,
+        queue: &str,
+        body: &str,
+        attributes: HashMap<String, String>,
+    ) -> CloudResult<String> {
         let msg_id = self.next_id();
         let message = QueueMessage {
             id: msg_id.clone(),
@@ -990,7 +999,7 @@ impl QueueIO for FakeQueueIO {
         &self,
         queue: &str,
         messages: Vec<(String, HashMap<String, String>)>,
-    ) -> Result<Vec<String>> {
+    ) -> CloudResult<Vec<String>> {
         messages
             .into_iter()
             .map(|(body, attrs)| self.send(queue, &body, attrs))
@@ -1002,7 +1011,7 @@ impl QueueIO for FakeQueueIO {
         queue: &str,
         max_messages: u32,
         _visibility_timeout_secs: u32,
-    ) -> Result<Vec<QueueMessage>> {
+    ) -> CloudResult<Vec<QueueMessage>> {
         let mut queues = self.queues.lock().expect("queues mutex poisoned");
         let q = queues.entry(queue.to_string()).or_default();
 
@@ -1012,20 +1021,20 @@ impl QueueIO for FakeQueueIO {
         Ok(messages)
     }
 
-    fn delete(&self, _queue: &str, _receipt_handle: &str) -> Result<()> {
+    fn delete(&self, _queue: &str, _receipt_handle: &str) -> CloudResult<()> {
         Ok(())
     }
 
-    fn delete_batch(&self, _queue: &str, _receipt_handles: Vec<String>) -> Result<()> {
+    fn delete_batch(&self, _queue: &str, _receipt_handles: Vec<String>) -> CloudResult<()> {
         Ok(())
     }
 
-    fn queue_size(&self, queue: &str) -> Result<u64> {
+    fn queue_size(&self, queue: &str) -> CloudResult<u64> {
         let queues = self.queues.lock().expect("queues mutex poisoned");
         Ok(queues.get(queue).map_or(0, |q| q.len() as u64))
     }
 
-    fn purge(&self, queue: &str) -> Result<()> {
+    fn purge(&self, queue: &str) -> CloudResult<()> {
         if let Some(q) = self
             .queues
             .lock()
@@ -1063,7 +1072,7 @@ impl Default for FakeCacheIO {
 }
 
 impl CacheIO for FakeCacheIO {
-    fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+    fn get(&self, key: &str) -> CloudResult<Option<Vec<u8>>> {
         Ok(self
             .cache
             .lock()
@@ -1072,7 +1081,7 @@ impl CacheIO for FakeCacheIO {
             .cloned())
     }
 
-    fn set(&self, key: &str, value: &[u8], _ttl_secs: Option<u64>) -> Result<()> {
+    fn set(&self, key: &str, value: &[u8], _ttl_secs: Option<u64>) -> CloudResult<()> {
         self.cache
             .lock()
             .expect("cache mutex poisoned")
@@ -1080,12 +1089,12 @@ impl CacheIO for FakeCacheIO {
         Ok(())
     }
 
-    fn delete(&self, key: &str) -> Result<()> {
+    fn delete(&self, key: &str) -> CloudResult<()> {
         self.cache.lock().expect("cache mutex poisoned").remove(key);
         Ok(())
     }
 
-    fn exists(&self, key: &str) -> Result<bool> {
+    fn exists(&self, key: &str) -> CloudResult<bool> {
         Ok(self
             .cache
             .lock()
@@ -1093,12 +1102,12 @@ impl CacheIO for FakeCacheIO {
             .contains_key(key))
     }
 
-    fn get_batch(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>> {
+    fn get_batch(&self, keys: Vec<String>) -> CloudResult<Vec<Option<Vec<u8>>>> {
         let cache = self.cache.lock().expect("cache mutex poisoned");
         Ok(keys.into_iter().map(|k| cache.get(&k).cloned()).collect())
     }
 
-    fn set_batch(&self, items: Vec<(String, Vec<u8>, Option<u64>)>) -> Result<()> {
+    fn set_batch(&self, items: Vec<(String, Vec<u8>, Option<u64>)>) -> CloudResult<()> {
         let mut cache = self.cache.lock().expect("cache mutex poisoned");
         for (key, value, _ttl) in items {
             cache.insert(key, value);
@@ -1107,7 +1116,7 @@ impl CacheIO for FakeCacheIO {
         Ok(())
     }
 
-    fn increment(&self, key: &str, delta: i64) -> Result<i64> {
+    fn increment(&self, key: &str, delta: i64) -> CloudResult<i64> {
         let mut cache = self.cache.lock().expect("cache mutex poisoned");
         let current = cache
             .get(key)
@@ -1120,7 +1129,7 @@ impl CacheIO for FakeCacheIO {
         Ok(new_value)
     }
 
-    fn flush(&self) -> Result<()> {
+    fn flush(&self) -> CloudResult<()> {
         self.cache.lock().expect("cache mutex poisoned").clear();
         Ok(())
     }
@@ -1179,7 +1188,11 @@ impl Default for FakeGraphIO {
 }
 
 impl GraphIO for FakeGraphIO {
-    fn add_node(&self, labels: Vec<String>, properties: HashMap<String, String>) -> Result<String> {
+    fn add_node(
+        &self,
+        labels: Vec<String>,
+        properties: HashMap<String, String>,
+    ) -> CloudResult<String> {
         let id = self.next_node_id();
         let node = GraphNode {
             id: id.clone(),
@@ -1193,7 +1206,7 @@ impl GraphIO for FakeGraphIO {
         Ok(id)
     }
 
-    fn get_node(&self, id: &str) -> Result<Option<GraphNode>> {
+    fn get_node(&self, id: &str) -> CloudResult<Option<GraphNode>> {
         Ok(self
             .nodes
             .lock()
@@ -1202,7 +1215,7 @@ impl GraphIO for FakeGraphIO {
             .cloned())
     }
 
-    fn update_node(&self, id: &str, properties: HashMap<String, String>) -> Result<()> {
+    fn update_node(&self, id: &str, properties: HashMap<String, String>) -> CloudResult<()> {
         let mut nodes = self.nodes.lock().expect("nodes mutex poisoned");
         if let Some(node) = nodes.get_mut(id) {
             node.properties.extend(properties);
@@ -1215,7 +1228,7 @@ impl GraphIO for FakeGraphIO {
         }
     }
 
-    fn delete_node(&self, id: &str) -> Result<()> {
+    fn delete_node(&self, id: &str) -> CloudResult<()> {
         self.nodes.lock().expect("nodes mutex poisoned").remove(id);
         Ok(())
     }
@@ -1226,7 +1239,7 @@ impl GraphIO for FakeGraphIO {
         to: &str,
         label: &str,
         properties: HashMap<String, String>,
-    ) -> Result<String> {
+    ) -> CloudResult<String> {
         let id = self.next_edge_id();
         let edge = GraphEdge {
             id: id.clone(),
@@ -1242,7 +1255,7 @@ impl GraphIO for FakeGraphIO {
         Ok(id)
     }
 
-    fn get_edge(&self, id: &str) -> Result<Option<GraphEdge>> {
+    fn get_edge(&self, id: &str) -> CloudResult<Option<GraphEdge>> {
         Ok(self
             .edges
             .lock()
@@ -1251,7 +1264,7 @@ impl GraphIO for FakeGraphIO {
             .cloned())
     }
 
-    fn delete_edge(&self, id: &str) -> Result<()> {
+    fn delete_edge(&self, id: &str) -> CloudResult<()> {
         self.edges.lock().expect("edges mutex poisoned").remove(id);
         Ok(())
     }
@@ -1260,12 +1273,16 @@ impl GraphIO for FakeGraphIO {
         &self,
         _query: &str,
         _params: HashMap<String, String>,
-    ) -> Result<Vec<HashMap<String, String>>> {
+    ) -> CloudResult<Vec<HashMap<String, String>>> {
         // Simple fake - return empty results
         Ok(Vec::new())
     }
 
-    fn get_neighbors(&self, node_id: &str, direction: EdgeDirection) -> Result<Vec<GraphNode>> {
+    fn get_neighbors(
+        &self,
+        node_id: &str,
+        direction: EdgeDirection,
+    ) -> CloudResult<Vec<GraphNode>> {
         let edges = self.edges.lock().expect("edges mutex poisoned");
 
         let neighbor_ids: Vec<String> = edges
@@ -1360,7 +1377,7 @@ impl Default for FakeComputeIO {
 }
 
 impl ComputeIO for FakeComputeIO {
-    fn invoke(&self, function_name: &str, payload: &[u8]) -> Result<ComputeResult> {
+    fn invoke(&self, function_name: &str, payload: &[u8]) -> CloudResult<ComputeResult> {
         let functions = self.functions.lock().expect("functions mutex poisoned");
         let func = functions.get(function_name).ok_or_else(|| {
             CloudIOError::new(
@@ -1380,15 +1397,15 @@ impl ComputeIO for FakeComputeIO {
         })
     }
 
-    fn invoke_async(&self, _function_name: &str, _payload: &[u8]) -> Result<String> {
+    fn invoke_async(&self, _function_name: &str, _payload: &[u8]) -> CloudResult<String> {
         Ok(self.next_invocation_id())
     }
 
-    fn get_invocation_status(&self, _invocation_id: &str) -> Result<InvocationStatus> {
+    fn get_invocation_status(&self, _invocation_id: &str) -> CloudResult<InvocationStatus> {
         Ok(InvocationStatus::Succeeded)
     }
 
-    fn list_functions(&self) -> Result<Vec<String>> {
+    fn list_functions(&self) -> CloudResult<Vec<String>> {
         let functions = self.functions.lock().expect("functions mutex poisoned");
         let mut names: Vec<String> = functions.keys().cloned().collect();
         drop(functions);
@@ -1437,7 +1454,7 @@ impl Default for FakeNotificationIO {
 }
 
 impl NotificationIO for FakeNotificationIO {
-    fn send(&self, notification: Notification) -> Result<NotificationResult> {
+    fn send(&self, notification: Notification) -> CloudResult<NotificationResult> {
         let msg_id = self.next_id();
         let target = notification.target.clone();
         self.topics
@@ -1453,11 +1470,11 @@ impl NotificationIO for FakeNotificationIO {
         })
     }
 
-    fn send_batch(&self, notifications: Vec<Notification>) -> Result<Vec<NotificationResult>> {
+    fn send_batch(&self, notifications: Vec<Notification>) -> CloudResult<Vec<NotificationResult>> {
         notifications.into_iter().map(|n| self.send(n)).collect()
     }
 
-    fn subscribe(&self, topic: &str, endpoint: &str, _protocol: &str) -> Result<String> {
+    fn subscribe(&self, topic: &str, endpoint: &str, _protocol: &str) -> CloudResult<String> {
         let sub_id = format!("sub-{topic}-{endpoint}");
         self.subscriptions
             .lock()
@@ -1466,7 +1483,7 @@ impl NotificationIO for FakeNotificationIO {
         Ok(sub_id)
     }
 
-    fn unsubscribe(&self, subscription_id: &str) -> Result<()> {
+    fn unsubscribe(&self, subscription_id: &str) -> CloudResult<()> {
         self.subscriptions
             .lock()
             .expect("subscriptions mutex poisoned")
@@ -1474,7 +1491,7 @@ impl NotificationIO for FakeNotificationIO {
         Ok(())
     }
 
-    fn create_topic(&self, name: &str) -> Result<String> {
+    fn create_topic(&self, name: &str) -> CloudResult<String> {
         self.topics
             .lock()
             .expect("topics mutex poisoned")
@@ -1482,7 +1499,7 @@ impl NotificationIO for FakeNotificationIO {
         Ok(name.to_string())
     }
 
-    fn delete_topic(&self, topic: &str) -> Result<()> {
+    fn delete_topic(&self, topic: &str) -> CloudResult<()> {
         self.topics
             .lock()
             .expect("topics mutex poisoned")
@@ -1531,7 +1548,7 @@ impl Default for FakeIntelligenceIO {
 }
 
 impl IntelligenceIO for FakeIntelligenceIO {
-    fn predict(&self, model_name: &str, input: InferenceInput) -> Result<InferenceOutput> {
+    fn predict(&self, model_name: &str, input: InferenceInput) -> CloudResult<InferenceOutput> {
         let models = self.models.lock().expect("models mutex poisoned");
         let model = models.get(model_name).ok_or_else(|| {
             CloudIOError::new(ErrorKind::NotFound, format!("Model {model_name} not found"))
@@ -1552,14 +1569,14 @@ impl IntelligenceIO for FakeIntelligenceIO {
         &self,
         model_name: &str,
         inputs: Vec<InferenceInput>,
-    ) -> Result<Vec<InferenceOutput>> {
+    ) -> CloudResult<Vec<InferenceOutput>> {
         inputs
             .into_iter()
             .map(|input| self.predict(model_name, input))
             .collect()
     }
 
-    fn list_models(&self) -> Result<Vec<String>> {
+    fn list_models(&self) -> CloudResult<Vec<String>> {
         let models = self.models.lock().expect("models mutex poisoned");
         let mut names: Vec<String> = models.keys().cloned().collect();
         drop(models);
@@ -1567,7 +1584,7 @@ impl IntelligenceIO for FakeIntelligenceIO {
         Ok(names)
     }
 
-    fn get_model_info(&self, model_name: &str) -> Result<HashMap<String, String>> {
+    fn get_model_info(&self, model_name: &str) -> CloudResult<HashMap<String, String>> {
         let models = self.models.lock().expect("models mutex poisoned");
         if models.contains_key(model_name) {
             let mut info = HashMap::new();

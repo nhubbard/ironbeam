@@ -63,7 +63,7 @@ fn write_parquet_vec_empty() -> Result<()> {
     assert_eq!(n, 0);
     assert!(path.exists());
 
-    // Read back empty file
+    // Read back the empty file
     let back: Vec<Row> = read_parquet_vec(&path)?;
     assert_eq!(back.len(), 0);
     Ok(())
@@ -124,7 +124,7 @@ fn read_parquet_row_group_range_test() -> Result<()> {
     let shards = build_parquet_shards(&path, 1)?;
     assert!(!shards.group_ranges.is_empty());
 
-    // Read first group
+    // Read the first group
     let (start, end) = shards.group_ranges[0];
     let subset: Vec<Row> = read_parquet_row_group_range(&shards, start, end)?;
     assert!(!subset.is_empty());

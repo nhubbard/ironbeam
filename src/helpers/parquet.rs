@@ -5,7 +5,7 @@
 //!
 //! ## Available operations
 //! - [`read_parquet_streaming`] - Read Parquet file(s) as a streaming source
-//! - [`PCollection::write_parquet`](crate::PCollection::write_parquet) - Write collection to Parquet file
+//! - [`PCollection::write_parquet`](PCollection::write_parquet) - Write a collection to a Parquet file
 //!
 //! ### Notes
 //! - Requires the `io-parquet` feature (Arrow/Parquet + serde-arrow integration).

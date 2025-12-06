@@ -3,17 +3,7 @@ name: CI
 on:
   push:
     branches: ['**']
-    paths:
-      - '**.rs'
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - '.github/workflows/ci.yml'
-  pull_request:
-    paths:
-      - '**.rs'
-      - '**/Cargo.toml'
-      - '**/Cargo.lock'
-      - '.github/workflows/ci.yml'
+  pull_request: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,7 +17,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: clippy
 
@@ -63,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust
+      - name: Install Rust (nightly + llvm-tools)
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: llvm-tools-preview
@@ -105,14 +95,44 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build docs
+        run: cargo doc --workspace --all-features --no-deps
+
   examples:
     name: Examples
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -146,22 +166,23 @@ jobs:
   release:
     name: Semantic Release
     runs-on: ubuntu-latest
-    needs: [clippy, test, examples]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [clippy, test, docs, examples]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: main
     permissions:
       contents: write
       issues: write
       pull-requests: write
       id-token: write
+
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -181,9 +202,6 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build package
-        run: cargo build --release --all-features
-
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -195,22 +213,14 @@ jobs:
             semantic-release@latest \
             @semantic-release/git@latest \
             @semantic-release/changelog@latest \
-            @semantic-release/exec@latest \
+            @semantic-release/commit-analyzer@latest \
+            @semantic-release/release-notes-generator@latest \
+            @semantic-release/github@latest \
             @semantic-release-cargo/semantic-release-cargo \
             conventional-changelog-conventionalcommits@latest
 
       - name: Semantic Release
-        id: semantic
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
-        run: |
-          npx semantic-release
-          echo "new_release_published=$([ -f .semanticRelease ])" >> $GITHUB_OUTPUT
-
-      - name: Publish to crates.io
-        if: always()
-        run: |
-          cargo publish --token ${{ secrets.CARGO_TOKEN }} --allow-dirty || true
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+        run: npx semantic-release

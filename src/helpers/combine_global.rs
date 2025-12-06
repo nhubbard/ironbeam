@@ -4,8 +4,8 @@
 //! fast-path that can build accumulators from whole partitions.
 //!
 //! ## Available operations
-//! - [`PCollection::combine_globally`](crate::PCollection::combine_globally) - Fold all elements into a single output via `CombineFn<V, A, O>`
-//! - [`PCollection::combine_globally_lifted`](crate::PCollection::combine_globally_lifted) - Same as above but uses `LiftableCombiner::build_from_group` for better locality
+//! - [`PCollection::combine_globally`](PCollection::combine_globally) - Fold all elements into a single output via `CombineFn<V, A, O>`
+//! - [`PCollection::combine_globally_lifted`](PCollection::combine_globally_lifted) - Same as above but uses `LiftableCombiner::build_from_group` for better locality
 //!
 //! Both APIs accept an optional `fanout`: during parallel execution we reduce
 //! accumulators in rounds, merging at most `fanout` accumulators per round to

@@ -80,7 +80,7 @@
 //!
 //! ### Zero-Cost Abstraction
 //! When no compression features are enabled, the auto-detection functions become
-//! simple pass-throughs with minimal overhead.
+//! simple pass-through operations with minimal overhead.
 
 use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader, BufWriter, Read, Result as IoResult, Write};
@@ -244,8 +244,8 @@ fn detect_from_magic<R: BufRead>(reader: &mut R) -> Option<Arc<dyn CompressionCo
 ///
 /// Detection strategy:
 /// 1. Check file path extension (fast path)
-/// 2. Fall back to magic byte detection if extension not recognized
-/// 3. Return unwrapped reader if no compression detected
+/// 2. Fall back to magic byte detection if the extension is not recognized
+/// 3. Return an unwrapped reader if no compression is detected
 ///
 /// # Examples
 /// ```no_run

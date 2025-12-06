@@ -222,7 +222,7 @@ fn production_etl_example() -> Result<()> {
         ],
     );
 
-    // Set up error collection
+    // Set up an error collector
     let validation_errors = Arc::new(Mutex::new(ErrorCollector::new()));
 
     // Validate and filter bad records

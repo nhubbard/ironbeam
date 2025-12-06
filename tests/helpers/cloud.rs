@@ -3,10 +3,10 @@
 // These tests verify the high-level helpers that allow end-users to run
 // custom cloud operations with built-in retry, timeout, and error handling.
 
-use anyhow::Result;
 use ironbeam::helpers::cloud::*;
+use ironbeam::io::cloud::CloudResult;
 use ironbeam::io::cloud::helpers::{PaginationConfig, RetryConfig};
-use ironbeam::io::cloud::traits::{CloudIOError, ErrorKind, Result as CloudResult};
+use ironbeam::io::cloud::traits::{CloudIOError, ErrorKind};
 use std::time::Duration;
 
 // ============================================================================
@@ -14,17 +14,14 @@ use std::time::Duration;
 // ============================================================================
 
 #[test]
-fn test_run_with_retry_success() -> Result<()> {
+fn test_run_with_retry_success() {
     let config = RetryConfig::default();
     let mut attempts = 0;
 
     let result = run_with_retry(&config, || {
         attempts += 1;
         if attempts < 2 {
-            Err(CloudIOError::new(
-                ErrorKind::Network,
-                "Temporary failure",
-            ))
+            Err(CloudIOError::new(ErrorKind::Network, "Temporary failure"))
         } else {
             Ok("success")
         }
@@ -33,11 +30,10 @@ fn test_run_with_retry_success() -> Result<()> {
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "success");
     assert_eq!(attempts, 2);
-    Ok(())
 }
 
 #[test]
-fn test_run_with_retry_exhausted() -> Result<()> {
+fn test_run_with_retry_exhausted() {
     let config = RetryConfig {
         max_attempts: 2,
         ..RetryConfig::default()
@@ -51,11 +47,10 @@ fn test_run_with_retry_exhausted() -> Result<()> {
 
     assert!(result.is_err());
     assert_eq!(attempts, 2);
-    Ok(())
 }
 
 #[test]
-fn test_run_with_retry_non_retryable_error() -> Result<()> {
+fn test_run_with_retry_non_retryable_error() {
     let config = RetryConfig::default();
     let mut attempts = 0;
 
@@ -69,7 +64,6 @@ fn test_run_with_retry_non_retryable_error() -> Result<()> {
 
     assert!(result.is_err());
     assert_eq!(attempts, 1); // Should not retry non-retryable errors
-    Ok(())
 }
 
 // ============================================================================
@@ -77,22 +71,18 @@ fn test_run_with_retry_non_retryable_error() -> Result<()> {
 // ============================================================================
 
 #[test]
-fn test_run_parallel_success() -> Result<()> {
-    let operations: Vec<Box<dyn FnOnce() -> CloudResult<i32> + Send>> = vec![
-        Box::new(|| Ok(1)),
-        Box::new(|| Ok(2)),
-        Box::new(|| Ok(3)),
-    ];
+fn test_run_parallel_success() {
+    let operations: Vec<Box<dyn FnOnce() -> CloudResult<i32> + Send>> =
+        vec![Box::new(|| Ok(1)), Box::new(|| Ok(2)), Box::new(|| Ok(3))];
 
     let results = run_parallel(operations);
     assert!(results.is_ok());
     let values = results.unwrap();
     assert_eq!(values, vec![1, 2, 3]);
-    Ok(())
 }
 
 #[test]
-fn test_run_parallel_with_error() -> Result<()> {
+fn test_run_parallel_with_error() {
     let operations: Vec<Box<dyn FnOnce() -> CloudResult<i32> + Send>> = vec![
         Box::new(|| Ok(1)),
         Box::new(|| Err(CloudIOError::new(ErrorKind::Network, "Failed"))),
@@ -101,17 +91,15 @@ fn test_run_parallel_with_error() -> Result<()> {
 
     let results = run_parallel(operations);
     assert!(results.is_err());
-    Ok(())
 }
 
 #[test]
-fn test_run_parallel_empty() -> Result<()> {
+fn test_run_parallel_empty() {
     let operations: Vec<Box<dyn FnOnce() -> CloudResult<i32> + Send>> = vec![];
 
     let results = run_parallel(operations);
     assert!(results.is_ok());
     assert_eq!(results.unwrap().len(), 0);
-    Ok(())
 }
 
 // ============================================================================
@@ -119,7 +107,7 @@ fn test_run_parallel_empty() -> Result<()> {
 // ============================================================================
 
 #[test]
-fn test_run_with_timeout_and_retry_success() -> Result<()> {
+fn test_run_with_timeout_and_retry_success() {
     let retry_config = RetryConfig::default();
     let timeout = Duration::from_secs(5);
     let mut attempts = 0;
@@ -135,11 +123,10 @@ fn test_run_with_timeout_and_retry_success() -> Result<()> {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 42);
-    Ok(())
 }
 
 #[test]
-fn test_run_with_timeout_and_retry_no_retry_needed() -> Result<()> {
+fn test_run_with_timeout_and_retry_no_retry_needed() {
     let retry_config = RetryConfig::default();
     let timeout = Duration::from_secs(5);
 
@@ -147,7 +134,6 @@ fn test_run_with_timeout_and_retry_no_retry_needed() -> Result<()> {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 100);
-    Ok(())
 }
 
 // ============================================================================
@@ -155,7 +141,7 @@ fn test_run_with_timeout_and_retry_no_retry_needed() -> Result<()> {
 // ============================================================================
 
 #[test]
-fn test_run_batch_operation() -> Result<()> {
+fn test_run_batch_operation() {
     let items = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let config = BatchConfig {
         chunk_size: 3,
@@ -171,11 +157,10 @@ fn test_run_batch_operation() -> Result<()> {
     assert_eq!(results.len(), 10);
     assert_eq!(results[0], 2);
     assert_eq!(results[9], 20);
-    Ok(())
 }
 
 #[test]
-fn test_run_batch_operation_with_error() -> Result<()> {
+fn test_run_batch_operation_with_error() {
     let items = vec![1, 2, 3, 4, 5];
     let config = BatchConfig::default();
 
@@ -191,11 +176,10 @@ fn test_run_batch_operation_with_error() -> Result<()> {
     });
 
     assert!(result.is_err());
-    Ok(())
 }
 
 #[test]
-fn test_run_batch_operation_empty() -> Result<()> {
+fn test_run_batch_operation_empty() {
     let items: Vec<i32> = vec![];
     let config = BatchConfig::default();
 
@@ -205,15 +189,13 @@ fn test_run_batch_operation_empty() -> Result<()> {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap().len(), 0);
-    Ok(())
 }
 
 #[test]
-fn test_batch_config_default() -> Result<()> {
+fn test_batch_config_default() {
     let config = BatchConfig::default();
     assert_eq!(config.chunk_size, 100);
     assert!(!config.parallel);
-    Ok(())
 }
 
 // ============================================================================
@@ -221,7 +203,7 @@ fn test_batch_config_default() -> Result<()> {
 // ============================================================================
 
 #[test]
-fn test_run_paginated_operation() -> Result<()> {
+fn test_run_paginated_operation() {
     let config = PaginationConfig {
         page_size: 5,
         max_pages: Some(3),
@@ -229,7 +211,7 @@ fn test_run_paginated_operation() -> Result<()> {
 
     let result = run_paginated_operation(&config, |page, size| {
         let start = page * size;
-        let items: Vec<i32> = (start..start + size).map(|x| x as i32).collect();
+        let items: Vec<i32> = (start..start + size).map(u32::cast_signed).collect();
         let has_more = page < 5;
         Ok((items, has_more))
     });
@@ -237,11 +219,10 @@ fn test_run_paginated_operation() -> Result<()> {
     assert!(result.is_ok());
     let items = result.unwrap();
     assert_eq!(items.len(), 15); // 3 pages * 5 items
-    Ok(())
 }
 
 #[test]
-fn test_run_paginated_operation_no_pages() -> Result<()> {
+fn test_run_paginated_operation_no_pages() {
     let config = PaginationConfig {
         page_size: 10,
         max_pages: Some(5),
@@ -254,7 +235,6 @@ fn test_run_paginated_operation_no_pages() -> Result<()> {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap().len(), 0);
-    Ok(())
 }
 
 // ============================================================================
@@ -262,16 +242,15 @@ fn test_run_paginated_operation_no_pages() -> Result<()> {
 // ============================================================================
 
 #[test]
-fn test_operation_builder_no_config() -> Result<()> {
+fn test_operation_builder_no_config() {
     let result = OperationBuilder::new().execute(|| Ok(100));
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 100);
-    Ok(())
 }
 
 #[test]
-fn test_operation_builder_with_retry() -> Result<()> {
+fn test_operation_builder_with_retry() {
     let mut attempts = 0;
     let retry_config = RetryConfig {
         max_attempts: 3,
@@ -294,22 +273,20 @@ fn test_operation_builder_with_retry() -> Result<()> {
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "success");
     assert_eq!(attempts, 2);
-    Ok(())
 }
 
 #[test]
-fn test_operation_builder_with_timeout() -> Result<()> {
+fn test_operation_builder_with_timeout() {
     let result = OperationBuilder::new()
         .with_timeout(Duration::from_secs(5))
         .execute(|| Ok(42));
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 42);
-    Ok(())
 }
 
 #[test]
-fn test_operation_builder_with_both() -> Result<()> {
+fn test_operation_builder_with_both() {
     let retry_config = RetryConfig {
         max_attempts: 2,
         initial_delay_ms: 1,
@@ -324,16 +301,14 @@ fn test_operation_builder_with_both() -> Result<()> {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 123);
-    Ok(())
 }
 
 #[test]
-fn test_operation_builder_default() -> Result<()> {
+fn test_operation_builder_default() {
     let builder = OperationBuilder::default();
     let result = builder.execute(|| Ok(42));
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 42);
-    Ok(())
 }
 
 // ============================================================================
@@ -341,7 +316,7 @@ fn test_operation_builder_default() -> Result<()> {
 // ============================================================================
 
 #[test]
-fn test_operation_context() -> Result<()> {
+fn test_operation_context() {
     let mut context = OperationContext::new("test_operation");
     assert_eq!(context.operation_name, "test_operation");
     assert_eq!(context.retry_count, 0);
@@ -355,13 +330,13 @@ fn test_operation_context() -> Result<()> {
     context.increment_retry();
     assert_eq!(context.retry_count, 2);
 
-    // Just verify that elapsed time can be retrieved
-    let _elapsed = context.elapsed();
-    Ok(())
+    // Verify that elapsed time can be retrieved
+    let elapsed = context.elapsed();
+    assert!(elapsed >= Duration::from_millis(0));
 }
 
 #[test]
-fn test_run_with_context() -> Result<()> {
+fn test_run_with_context() {
     let context = OperationContext::new("upload_file");
 
     let result = run_with_context(context, |ctx| {
@@ -375,11 +350,10 @@ fn test_run_with_context() -> Result<()> {
     assert_eq!(value, "uploaded");
     assert_eq!(final_context.retry_count, 1);
     assert_eq!(final_context.metadata.get("file").unwrap(), "test.txt");
-    Ok(())
 }
 
 #[test]
-fn test_run_with_context_error() -> Result<()> {
+fn test_run_with_context_error() {
     let context = OperationContext::new("failing_operation");
 
     let result: CloudResult<(i32, OperationContext)> = run_with_context(context, |_ctx| {
@@ -391,7 +365,6 @@ fn test_run_with_context_error() -> Result<()> {
 
     assert!(result.is_err());
     assert_eq!(result.unwrap_err().kind, ErrorKind::InternalError);
-    Ok(())
 }
 
 // ============================================================================
@@ -399,7 +372,7 @@ fn test_run_with_context_error() -> Result<()> {
 // ============================================================================
 
 #[test]
-fn test_complex_nested_operation() -> Result<()> {
+fn test_complex_nested_operation() {
     // Simulate a complex operation combining multiple helpers
     let items = vec!["file1.txt", "file2.txt", "file3.txt"];
     let batch_config = BatchConfig {
@@ -432,11 +405,10 @@ fn test_complex_nested_operation() -> Result<()> {
     assert_eq!(results.len(), 3);
     assert_eq!(results[0], "uploaded:file1.txt");
     assert_eq!(results[2], "uploaded:file3.txt");
-    Ok(())
 }
 
 #[test]
-fn test_builder_with_context() -> Result<()> {
+fn test_builder_with_context() {
     let context = OperationContext::new("complex_upload");
     let retry_config = RetryConfig {
         max_attempts: 2,
@@ -465,5 +437,4 @@ fn test_builder_with_context() -> Result<()> {
         final_context.metadata.get("operation_type").unwrap(),
         "batch_upload"
     );
-    Ok(())
 }

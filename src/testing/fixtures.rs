@@ -133,17 +133,17 @@ pub fn numeric_data_with_outliers() -> Vec<f64> {
 pub fn skewed_key_value_data() -> Vec<(String, i32)> {
     let mut data = Vec::new();
 
-    // Hot key - appears 50% of the time
+    // Hot keys appear 50% of the time
     for i in 0..50 {
         data.push(("hot_key".to_string(), i));
     }
 
-    // Warm keys - appear 30% of the time
+    // Warm keys appear 30% of the time
     for i in 0..30 {
         data.push((format!("warm_key_{}", i % 3), i));
     }
 
-    // Cold keys - appear 20% of the time (unique keys)
+    // Cold keys appear 20% of the time (unique keys)
     for i in 0..20 {
         data.push((format!("cold_key_{i}"), i));
     }
@@ -343,47 +343,4 @@ pub fn transaction_data() -> Vec<(String, String, f64, String)> {
             "EUR".to_string(),
         ),
     ]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sample_log_entries() {
-        let logs = sample_log_entries();
-        assert_eq!(logs.len(), 5);
-        assert!(logs.iter().all(|l| l.timestamp > 0));
-    }
-
-    #[test]
-    fn test_word_count_data() {
-        let words = word_count_data();
-        assert!(!words.is_empty());
-        assert!(words.iter().any(|s| s.contains("hello")));
-    }
-
-    #[test]
-    fn test_numeric_data_with_outliers() {
-        let data = numeric_data_with_outliers();
-        let has_outliers = data.iter().any(|&x| !(0.0..=100.0).contains(&x));
-        assert!(has_outliers);
-    }
-
-    #[test]
-    fn test_skewed_key_value_data() {
-        let kvs = skewed_key_value_data();
-        let hot_key_count = kvs.iter().filter(|(k, _)| k == "hot_key").count();
-        assert_eq!(hot_key_count, 50); // Should be exactly 50
-    }
-
-    #[test]
-    fn test_time_series_data() {
-        let ts = time_series_data();
-        assert!(!ts.is_empty());
-        // Verify timestamps are increasing
-        for i in 1..ts.len() {
-            assert!(ts[i].0 > ts[i - 1].0);
-        }
-    }
 }

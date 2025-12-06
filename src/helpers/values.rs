@@ -2,7 +2,7 @@
 //!
 //! This module provides ergonomic helpers to manipulate only the *values* of
 //! key–value pairs while preserving their keys. They're direct analogs to
-//! [`crate::PCollection::map`] and [`crate::PCollection::filter`], but operating over `(K, V)` pairs instead of single
+//! [`PCollection::map`] and [`PCollection::filter`], but operating over `(K, V)` pairs instead of single
 //! values.
 //!
 //! ## Provided methods

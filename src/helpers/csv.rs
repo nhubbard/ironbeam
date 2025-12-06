@@ -5,7 +5,7 @@
 //!
 //! - **Vector I/O** -- read the whole file into memory or write an in-memory collection:
 //!   - [`read_csv`] -> `PCollection<T>`
-//!   - [`PCollection::write_csv`](crate::PCollection::write_csv) / [`PCollection::write_csv_par`](crate::PCollection::write_csv_par)
+//!   - [`PCollection::write_csv`](PCollection::write_csv) / [`PCollection::write_csv_par`](PCollection::write_csv_par)
 //!
 //! - **Streaming I/O** -- build a source that shards a CSV file by row count and
 //!   parses each shard lazily in the runner:
@@ -94,7 +94,7 @@ use std::sync::Arc;
 /// An error is returned if the file cannot be opened or if any row fails to deserialize.
 ///
 /// # Panics
-/// Panics if the `path` parameter is invalid UTF-8 or the regex engine fails.
+/// The code panics if the `path` parameter is invalid UTF-8 or the regex engine fails.
 ///
 /// # Examples
 ///
@@ -144,7 +144,7 @@ where
         .to_str()
         .ok_or_else(|| anyhow!("path contains invalid UTF-8"))?;
 
-    // Check if path contains glob patterns
+    // Check if the path contains glob patterns
     let glob_regex = Regex::new(r"[*?\[]").expect("valid glob regex");
     if glob_regex.is_match(path_str) {
         // Glob pattern - expand and read all matching files

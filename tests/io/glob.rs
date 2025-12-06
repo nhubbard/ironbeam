@@ -47,7 +47,7 @@ fn test_jsonl_glob_pattern() -> Result<()> {
     write_jsonl_vec(&file1, &records1)?;
     write_jsonl_vec(&file2, &records2)?;
 
-    // Read with glob pattern
+    // Read with a glob pattern
     let p = TestPipeline::new();
     let pattern = format!("{}/*.jsonl", base.display());
     let pc: PCollection<Record> = read_jsonl(&p, &pattern)?;
@@ -83,7 +83,7 @@ fn test_jsonl_single_file() -> Result<()> {
 
     write_jsonl_vec(&file, &records)?;
 
-    // Read single file (no glob pattern)
+    // Read a single file (no glob pattern)
     let p = TestPipeline::new();
     let pc: PCollection<Record> = read_jsonl(&p, &file)?;
 
@@ -144,7 +144,7 @@ fn test_csv_glob_pattern() -> Result<()> {
     write_csv_vec(&file1, true, &records1)?;
     write_csv_vec(&file2, true, &records2)?;
 
-    // Read with glob pattern
+    // Read with a glob pattern
     let p = TestPipeline::new();
     let pattern = format!("{}/*.csv", base.display());
     let pc: PCollection<Record> = read_csv(&p, &pattern, true)?;
@@ -180,7 +180,7 @@ fn test_csv_single_file() -> Result<()> {
 
     write_csv_vec(&file, true, &records)?;
 
-    // Read single file (no glob pattern)
+    // Read a single file (no glob pattern)
     let p = TestPipeline::new();
     let pc: PCollection<Record> = read_csv(&p, &file, true)?;
 
@@ -227,7 +227,7 @@ fn test_parquet_glob_pattern() -> Result<()> {
     write_parquet_vec(&file1, &records1)?;
     write_parquet_vec(&file2, &records2)?;
 
-    // Read with glob pattern
+    // Read with a glob pattern
     let p = TestPipeline::new();
     let pattern = format!("{}/*.parquet", base.display());
     let pc: PCollection<Record> = read_parquet_streaming(&p, &pattern, 1)?;
@@ -263,7 +263,7 @@ fn test_parquet_single_file() -> Result<()> {
 
     write_parquet_vec(&file, &records)?;
 
-    // Read single file (no glob pattern)
+    // Read a single file (no glob pattern)
     let p = TestPipeline::new();
     let pc: PCollection<Record> = read_parquet_streaming(&p, &file, 1)?;
 
@@ -282,7 +282,7 @@ fn test_jsonl_date_partitions() -> Result<()> {
     let dir = TempDir::new()?;
     let base = dir.path();
 
-    // Create date-partitioned structure
+    // Create a date-partitioned structure
     let day1 = base.join("year=2024/month=01/day=01");
     let day2 = base.join("year=2024/month=01/day=02");
     create_dir_all(&day1)?;
@@ -346,7 +346,7 @@ fn test_csv_deterministic_order() -> Result<()> {
     write_csv_vec(&file2, true, &records2)?;
     write_csv_vec(&file3, true, &records3)?;
 
-    // Read with glob pattern multiple times
+    // Read with a glob pattern multiple times
     let p1 = TestPipeline::new();
     let pattern = format!("{}/*.csv", base.display());
     let pc1: PCollection<Record> = read_csv(&p1, &pattern, true)?;

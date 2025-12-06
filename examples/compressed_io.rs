@@ -86,7 +86,7 @@ fn main() -> AnyhowResult<()> {
             writer.write_all(b"\n")?;
         }
         writer.flush()?;
-        drop(writer); // Ensure encoder finishes before reading
+        drop(writer); // Ensure the encoder finishes before reading
 
         let size = metadata("logs.jsonl.gz")?.len();
         println!("✅ Compressed file size: {size} bytes\n");

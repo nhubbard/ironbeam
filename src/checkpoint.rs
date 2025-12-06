@@ -7,7 +7,7 @@
 //! # Features
 //!
 //! - **Automatic checkpoint creation** - Save state at configurable intervals
-//! - **Transparent recovery** - Automatically resume from last checkpoint
+//! - **Transparent recovery** - Automatically resume from the last checkpoint
 //! - **Configurable policies** - Control when and where checkpoints are created
 //! - **State verification** - Checksums ensure checkpoint integrity
 //!
@@ -119,7 +119,7 @@ pub struct CheckpointState {
     pub pipeline_id: String,
     /// Index of the last successfully completed node in the chain.
     pub completed_node_index: usize,
-    /// Timestamp when checkpoint was created (milliseconds since epoch).
+    /// Timestamp when the checkpoint was created (milliseconds since epoch).
     pub timestamp: u64,
     /// Number of partitions being processed.
     pub partition_count: usize,
@@ -159,7 +159,7 @@ impl CheckpointManager {
     /// Returns an error if the checkpoint directory cannot be created.
     pub fn new(config: CheckpointConfig) -> Result<Self> {
         if config.enabled {
-            // Ensure checkpoint directory exists
+            // Ensure the checkpoint directory exists
             create_dir_all(&config.directory).context("Failed to create checkpoint directory")?;
         }
         Ok(Self {

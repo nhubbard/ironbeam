@@ -6,8 +6,8 @@
 //! [`collect_fail_fast`](crate::PCollection::collect_fail_fast).
 //!
 //! ## Available operations
-//! - [`PCollection::try_map`](crate::PCollection::try_map) - Fallible 1->1 transform
-//! - [`PCollection::try_flat_map`](crate::PCollection::try_flat_map) - Fallible 1->N transform
+//! - [`PCollection::try_map`](PCollection::try_map) - Fallible 1->1 transform
+//! - [`PCollection::try_flat_map`](PCollection::try_flat_map) - Fallible 1->N transform
 //! - [`PCollection::collect_fail_fast`](crate::PCollection::collect_fail_fast) - Fail-fast terminal
 //!
 //! ## When to use
@@ -30,7 +30,7 @@
 //! let parsed = lines
 //!     .try_map::<u64, String, _>(|s| s.parse::<u64>().map_err(|e| e.to_string()));
 //!
-//! // Fail on first bad element (here: "x").
+//! // Fail on the first bad element (here: "x").
 //! let res: Result<Vec<u64>> = parsed.collect_fail_fast();
 //! assert!(res.is_err());
 //! ```
@@ -91,7 +91,7 @@ impl<T: RFBound> PCollection<T> {
     /// let maybe_lists = raw.try_flat_map::<u32, String, _>(|s| {
     ///     s.split(',')
     ///         .map(|tok| tok.parse::<u32>().map_err(|e| e.to_string()))
-    ///         .collect::<Result<Vec<_>, _>>() // If any token fails, whole element fails
+    ///         .collect::<Result<Vec<_>, _>>() // If any token fails, the whole element fails
     /// });
     ///
     /// // maybe_lists: PCollection<Result<Vec<u32>, String>>

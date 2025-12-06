@@ -134,7 +134,7 @@
 //! # fn main() -> Result<()> {
 //! let p = Pipeline::default();
 //!
-//! // Read entire file into memory
+//! // Read the entire file into memory
 //! let data = read_jsonl::<Record>(&p, "data.jsonl")?;
 //!
 //! // Or stream by chunks
@@ -296,7 +296,7 @@
 //! metrics.register(Box::new(metrics::CounterMetric::with_value("input_records", 1000)));
 //! p.set_metrics(metrics);
 //!
-//! // Build and execute pipeline
+//! // Build and execute the pipeline
 //! let data = from_vec(&p, (0..1000).collect::<Vec<i32>>());
 //! let result = data
 //!     .filter(|x: &i32| x % 2 == 0)

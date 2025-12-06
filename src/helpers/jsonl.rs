@@ -4,10 +4,10 @@
 //! plus sequential and parallel writers. All APIs are serde-backed and type-safe.
 //!
 //! ## Available operations
-//! - [`read_jsonl`] - Read entire file into memory as typed `PCollection<T>`
-//! - [`read_jsonl_streaming`] - Build streaming source with pre-scanned line ranges
-//! - [`PCollection::write_jsonl`](crate::PCollection::write_jsonl) - Execute and write sequentially
-//! - [`PCollection::write_jsonl_par`](crate::PCollection::write_jsonl_par) - Execute sequentially, write in parallel (feature: `parallel-io`)
+//! - [`read_jsonl`] - Read the entire file into memory as typed `PCollection<T>`
+//! - [`read_jsonl_streaming`] - Build a streaming source with pre-scanned line ranges
+//! - [`PCollection::write_jsonl`](PCollection::write_jsonl) - Execute and write sequentially
+//! - [`PCollection::write_jsonl_par`](PCollection::write_jsonl_par) - Execute sequentially, write in parallel (feature: `parallel-io`)
 //!
 //! ### Feature gates
 //! - All functions in this module require `io-jsonl`.
@@ -76,7 +76,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Read JSONL file(s) into a typed `PCollection<T>`.
+/// Read one or more JSONL files into a typed `PCollection<T>`.
 ///
 /// This is an *eager* source: the file(s) are fully read and parsed into memory
 /// before being wrapped as a `PCollection`.
@@ -154,7 +154,7 @@ where
         .to_str()
         .ok_or_else(|| anyhow!("path contains invalid UTF-8"))?;
 
-    // Check if path contains glob patterns
+    // Check if the path contains glob patterns
     let glob_regex = Regex::new(r"[*?\[]").expect("valid glob regex");
     if glob_regex.is_match(path_str) {
         // Glob pattern - expand and read all matching files

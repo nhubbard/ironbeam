@@ -124,7 +124,7 @@ where
 ///
 /// ### Arguments
 /// - `p` -- The pipeline to attach the source node to
-/// - `payload` -- Your custom data source (e.g., connection handle, file metadata, shards info)
+/// - `payload` -- Your custom data source (e.g., connection handle, file metadata, and shard info)
 /// - `vec_ops` -- Implementation of [`VecOps`] that knows how to work with your payload type
 ///
 /// ### Example

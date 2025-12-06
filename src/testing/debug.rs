@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-/// Debug operator that prints elements as they flow through the pipeline.
+/// A debug operator that prints elements as they flow through the pipeline.
 pub(crate) struct DebugInspectOp<T, F> {
     label: String,
     inspector: F,
@@ -42,7 +42,7 @@ where
         for (i, item) in v.iter().enumerate() {
             (self.inspector)(item);
             if i < 10 {
-                // Only print first 10 items to avoid spam
+                // Only print the first 10 items to avoid spam
                 eprintln!("[Debug: {}] [{}]: {:?}", self.label, i, item);
             }
         }
@@ -59,7 +59,7 @@ where
     }
 }
 
-/// Debug operator that counts elements flowing through the pipeline.
+/// A debug operator that counts elements flowing through the pipeline.
 pub(crate) struct DebugCountOp<T> {
     label: String,
     _phantom: PhantomData<T>,

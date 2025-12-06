@@ -148,7 +148,7 @@ Execute pipelines in sequential or parallel mode:
 
 ```rust
 let results = collection.collect_seq()?;  // Single-threaded
-let results = collection.collect_par()?;  // Multi-threaded with Rayon
+let results = collection.collect_par()?;  // Multithreading with Rayon
 ```
 
 ## I/O Examples

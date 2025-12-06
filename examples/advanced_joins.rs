@@ -52,7 +52,7 @@ fn main() -> Result<()> {
     println!("📊 Example 1: Inner Join (Users ⋈ Orders)");
     println!("Only shows users who have placed orders\n");
 
-    // Create join-ready collection by keying orders by user_id
+    // Create a join-ready collection by keying orders by user_id
     let orders_by_user = from_vec(
         &pipeline,
         orders_raw

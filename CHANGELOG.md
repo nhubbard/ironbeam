@@ -1,10 +1,16 @@
-## [1.0.1](https://github.com/nhubbard/ironbeam/compare/v1.0.0...v1.0.1) (2025-11-27)
+## [1.1.0](https://github.com/nhubbard/ironbeam/compare/v1.0.0...v1.0.1) (2025-11-27)
 
-### Bug Fixes
+### Features
+
+* Add generic cloud I/O support
+
+### Enhancements
 
 * Clippy issues ([abdae35](https://github.com/nhubbard/ironbeam/commit/abdae359a3bb6f108823d8fd22122ffc7558b36f))
 
 ## 1.0.0 (2025-11-15)
+
+Initial release!
 
 ### Features
 

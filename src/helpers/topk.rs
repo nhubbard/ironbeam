@@ -4,7 +4,7 @@
 //! from keyed collections without needing to explicitly instantiate combiners.
 //!
 //! ## Available operations
-//! - [`PCollection::top_k_per_key`](crate::PCollection::top_k_per_key) - Select top K largest values per key
+//! - [`PCollection::top_k_per_key`](crate::PCollection::top_k_per_key) - Select the top-K largest values per key
 //!
 //! ## Example
 //! ```no_run
@@ -38,7 +38,7 @@ where
     K: RFBound + Eq + Hash,
     V: RFBound + Ord,
 {
-    /// Select the top K largest values per key.
+    /// Select the top-K largest values per key.
     ///
     /// This is a convenience method that wraps [`combine_values`](PCollection::combine_values)
     /// with a [`TopK`] combiner. It returns a `PCollection<(K, Vec<V>)>` where each vector

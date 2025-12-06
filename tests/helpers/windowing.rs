@@ -7,7 +7,7 @@ const fn mk_ts(i: u64) -> u64 {
     i
 } // convenience: using raw millis in tests
 
-// Start from raw payloads + separate timestamp field
+// Start from raw payloads and separate the timestamp field
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct Row {
     ts: u64,
@@ -29,7 +29,7 @@ fn tumbling_non_keyed_counts() -> Result<()> {
         .map_values(|vs| vs.len() as u64)
         .collect_par_sorted_by_key(None, None)?; // sort by Window (Ord)
 
-    // Expect: each 10ms bucket gets 2 events at t={0,5}, {10,15}, {20,25}
+    // Expect: each 10 ms bucket gets 2 events at t={0,5}, {10,15}, {20,25}
     let expected = vec![
         (Window::new(0, 10), 2u64),
         (Window::new(10, 20), 2u64),
@@ -60,7 +60,7 @@ fn tumbling_keyed_counts() -> Result<()> {
         .collect_par_sorted_by_key(None, None)?;
 
     // Expected bucket counts:
-    // window [0,10):  "a" has 2, "b" has 1
+    // window [0,10): "a" has 2, "b" has 1
     // window [10,20): "a" has 1, "b" has 1
     let w0 = Window::new(0, 10);
     let w1 = Window::new(10, 20);

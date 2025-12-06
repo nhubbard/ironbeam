@@ -192,3 +192,6 @@ path_stats.csv
 path_stats.jsonl
 pipeline_metrics.json
 *.info
+
+# AI files
+.clauderc
