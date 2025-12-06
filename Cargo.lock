@@ -705,7 +705,7 @@ checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
 
 [[package]]
 name = "ironbeam"
-version = "1.1.1"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "arrow",

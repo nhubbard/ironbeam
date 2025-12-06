@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/nhubbard/ironbeam/compare/v1.0.1...v1.1.0) (2025-12-06)
+
+### Features
+
+* **cloud:** Improved cloud I/O read helpers, more to come soon; documentation, test, and linting cleanup ([ade9629](https://github.com/nhubbard/ironbeam/commit/ade96293759bd7918beaa0c2e4093f7dfca6cfa2))
+
 ## [1.1.0](https://github.com/nhubbard/ironbeam/compare/v1.0.0...v1.0.1) (2025-11-27)
 
 ### Features
