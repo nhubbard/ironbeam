@@ -7,7 +7,7 @@ description = "A batch processing clone of Apache Beam in Rust."
 repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
-default = ["io-jsonl", "io-csv", "io-parquet", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing"]
+default = ["io-jsonl", "io-csv", "io-parquet", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling"]
 
 # IO backends
 io-jsonl = []
@@ -24,6 +24,7 @@ compression-xz = ["dep:xz2"]
 parallel-io = []
 metrics = []
 checkpointing = ["dep:bincode", "dep:sha2"]
+spilling = ["dep:bincode"]
 
 [dependencies]
 anyhow = "1"

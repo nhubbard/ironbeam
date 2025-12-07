@@ -188,6 +188,7 @@
 //! - `parallel-io` - Enable parallel I/O operations (`write_*_par` methods)
 //! - `metrics` - Enable metrics collection and reporting (enabled by default)
 //! - `checkpointing` - Enable automatic checkpointing for fault tolerance (enabled by default)
+//! - `spilling` - Enable automatic memory spilling to disk (enabled by default)
 //!
 //! ## Examples
 //!
@@ -533,6 +534,11 @@ pub mod metrics;
 
 #[cfg(feature = "checkpointing")]
 pub mod checkpoint;
+
+#[cfg(feature = "spilling")]
+pub mod spill;
+
+pub mod spill_integration;
 
 // General re-exports
 pub use collection::{CombineFn, Count, PCollection, RFBound};

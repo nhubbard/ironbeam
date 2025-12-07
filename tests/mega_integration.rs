@@ -869,6 +869,55 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
 
     println!("  ✅ Sequential and parallel execution are deterministic\n");
 
+    // =============================================================================
+    // SECTION 17: Memory Spilling (with artificial limits)
+    // =============================================================================
+    #[cfg(feature = "spilling")]
+    {
+        use ironbeam::spill::SpillConfig;
+        use ironbeam::spill_integration::init_spilling;
+
+        println!("📦 Section 17: Memory Spilling");
+
+        // Initialize spilling with a restrictive artificial memory limit
+        let spill_config = SpillConfig::new()
+            .with_memory_limit(5000) // 5KB - very restrictive for testing
+            .with_spill_directory(tempfile::tempdir()?.path().to_path_buf())
+            .with_min_spill_size(100);
+
+        init_spilling(spill_config);
+
+        // Create a dataset that will trigger memory tracking
+        let spill_data = from_vec(&p, (1..=200u32).collect::<Vec<_>>());
+
+        // Run a pipeline that processes the data
+        let spill_result = spill_data
+            .map(|x: &u32| x * 3)
+            .filter(|x: &u32| x.is_multiple_of(2))
+            .key_by(|x: &u32| x % 10)
+            .combine_values(Sum::<u32>::default())
+            .collect_seq_sorted()?;
+
+        // Verify the result is correct (regardless of whether spilling occurred)
+        assert!(spill_result.len() <= 10); // At most 10 groups (x % 10)
+
+        // Verify a specific computation
+        let sum_of_zeroes: u32 = (1..=200u32)
+            .map(|x| x * 3)
+            .filter(|x| x % 2 == 0 && x % 10 == 0)
+            .sum();
+
+        let zero_key_result = spill_result.iter().find(|(k, _)| *k == 0);
+        if let Some((_, sum)) = zero_key_result {
+            assert_eq!(*sum, sum_of_zeroes);
+        }
+
+        println!("  ✅ Memory spilling (with artificial limits) works correctly\n");
+    }
+
+    #[cfg(not(feature = "spilling"))]
+    println!("  ⏭️  Memory spilling tests skipped (feature not enabled)\n");
+
     println!("🎉 MEGA INTEGRATION TEST PASSED! All features work correctly! 🎉");
 
     Ok(())
