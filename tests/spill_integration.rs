@@ -54,7 +54,7 @@ fn test_spilling_executor_default() {
 }
 
 #[test]
-fn test_spilling_executor_process_partition_no_spill() -> Result<()> {
+fn test_spilling_executor_process_partition_no_spill() {
     setup_test();
 
     let executor = SpillingExecutor::new();
@@ -62,8 +62,6 @@ fn test_spilling_executor_process_partition_no_spill() -> Result<()> {
 
     let result = executor.process_partition::<i32, _>(|| Box::new(data.clone()));
     assert!(result.is_ok());
-
-    Ok(())
 }
 
 #[test]
@@ -190,20 +188,25 @@ fn test_spilling_executor_disabled_when_not_initialized() {
 }
 
 #[test]
-fn test_process_partition_with_type_mismatch() -> Result<()> {
+fn test_process_partition_with_type_mismatch() {
     setup_test();
 
     let executor = SpillingExecutor::new();
 
     // Create a partition with one type
     let data = vec!["string1".to_string(), "string2".to_string()];
-    let partition = Box::new(data.clone()) as Box<dyn std::any::Any + Send + Sync>;
+    let partition = Box::new(data) as Box<dyn std::any::Any + Send + Sync>;
 
     // Try to process as a different type - should handle gracefully
     let result = executor.process_partition::<i32, _>(|| partition);
     assert!(result.is_ok());
+}
 
-    Ok(())
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct ComplexType {
+    id: u64,
+    name: String,
+    values: Vec<f64>,
 }
 
 #[test]
@@ -211,13 +214,6 @@ fn test_wrap_and_check_with_serialization() -> Result<()> {
     setup_test();
 
     let executor = SpillingExecutor::new();
-
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-    struct ComplexType {
-        id: u64,
-        name: String,
-        values: Vec<f64>,
-    }
 
     let complex_data = vec![
         ComplexType {

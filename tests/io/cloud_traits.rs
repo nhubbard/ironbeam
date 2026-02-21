@@ -117,7 +117,7 @@ fn test_object_metadata_creation() {
         key: "file.txt".to_string(),
         size: 1024,
         content_type: Some("text/plain".to_string()),
-        last_modified: Some(1234567890),
+        last_modified: Some(1_234_567_890),
         etag: Some("abc123".to_string()),
         custom_metadata,
     };
@@ -136,7 +136,7 @@ fn test_message_creation() {
         id: "msg-123".to_string(),
         data: b"test data".to_vec(),
         attributes,
-        publish_time: Some(1234567890),
+        publish_time: Some(1_234_567_890),
     };
 
     assert_eq!(message.id, "msg-123");
@@ -173,7 +173,7 @@ fn test_search_hit_creation() {
     };
 
     assert_eq!(hit.id, "doc-1");
-    assert_eq!(hit.score, 0.95);
+    assert_approx_eq!(hit.score, 0.95);
     assert!(hit.fields.contains_key("title"));
 }
 
@@ -202,13 +202,13 @@ fn test_metric_point_creation() {
     let metric = MetricPoint {
         name: "cpu_usage".to_string(),
         value: 75.5,
-        timestamp: 1234567890,
+        timestamp: 1_234_567_890,
         tags,
     };
 
     assert_eq!(metric.name, "cpu_usage");
-    assert_eq!(metric.value, 75.5);
-    assert_eq!(metric.timestamp, 1234567890);
+    assert_approx_eq!(metric.value, 75.5);
+    assert_eq!(metric.timestamp, 1_234_567_890);
 }
 
 #[test]
@@ -384,6 +384,7 @@ fn test_inference_output_creation() {
 }
 
 #[test]
+#[allow(clippy::unnecessary_literal_unwrap)]
 fn test_cloud_result_ok() {
     let result: CloudResult<i32> = Ok(42);
     assert!(result.is_ok());
