@@ -1,6 +1,7 @@
 // IO module tests
 mod cloud;
 mod cloud_readers;
+mod cloud_traits;
 mod cloud_utils;
 mod compression;
 mod csv;

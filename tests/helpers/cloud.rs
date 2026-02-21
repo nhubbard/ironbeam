@@ -438,3 +438,396 @@ fn test_builder_with_context() {
         "batch_upload"
     );
 }
+
+// ============================================================================
+// Additional Error Handling and Edge Case Tests
+// ============================================================================
+
+#[test]
+fn test_run_with_retry_all_error_kinds() {
+    let config = RetryConfig::default();
+
+    // Test different error kinds
+    let error_kinds = vec![
+        ErrorKind::Authentication,
+        ErrorKind::Authorization,
+        ErrorKind::NotFound,
+        ErrorKind::AlreadyExists,
+        ErrorKind::InvalidInput,
+        ErrorKind::Network,
+        ErrorKind::Timeout,
+        ErrorKind::ServiceUnavailable,
+        ErrorKind::RateLimited,
+        ErrorKind::InternalError,
+        ErrorKind::Other,
+    ];
+
+    for kind in error_kinds {
+        let result: CloudResult<i32> = run_with_retry(&config, || {
+            Err(CloudIOError::new(kind.clone(), "Test error"))
+        });
+
+        // All non-retryable errors should fail on first attempt
+        assert!(result.is_err());
+    }
+}
+
+#[test]
+fn test_run_batch_operation_single_item() {
+    let items = vec![42];
+    let config = BatchConfig {
+        chunk_size: 10,
+        parallel: false,
+    };
+
+    let result = run_batch_operation(&items, &config, |chunk| {
+        Ok(chunk.iter().map(|x| x * 2).collect())
+    });
+
+    assert!(result.is_ok());
+    let results = result.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0], 84);
+}
+
+#[test]
+fn test_run_batch_operation_exact_chunk_size() {
+    let items = vec![1, 2, 3, 4, 5];
+    let config = BatchConfig {
+        chunk_size: 5,
+        parallel: false,
+    };
+
+    let result = run_batch_operation(&items, &config, |chunk| {
+        Ok(chunk.iter().map(|x| x * 2).collect())
+    });
+
+    assert!(result.is_ok());
+    let results = result.unwrap();
+    assert_eq!(results.len(), 5);
+}
+
+#[test]
+fn test_run_paginated_operation_with_error() {
+    let config = PaginationConfig {
+        page_size: 5,
+        max_pages: Some(10),
+    };
+
+    let result = run_paginated_operation(&config, |page, _size| {
+        if page == 2 {
+            Err(CloudIOError::new(
+                ErrorKind::Network,
+                "Failed to fetch page 2",
+            ))
+        } else {
+            Ok((vec![1, 2, 3], true))
+        }
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_run_paginated_operation_stops_when_no_more() {
+    let config = PaginationConfig {
+        page_size: 5,
+        max_pages: Some(100),
+    };
+
+    let result = run_paginated_operation(&config, |page, size| {
+        let items: Vec<i32> = (0..size).map(u32::cast_signed).collect();
+        let has_more = page < 2; // Only 3 pages total
+        Ok((items, has_more))
+    });
+
+    assert!(result.is_ok());
+    let items = result.unwrap();
+    assert_eq!(items.len(), 15); // 3 pages * 5 items
+}
+
+#[test]
+fn test_cloud_io_executor_no_config() {
+    let result = CloudIOExecutor::new().execute(|| Ok(42));
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 42);
+}
+
+#[test]
+fn test_cloud_io_executor_with_retry() {
+    let mut attempts = 0;
+    let retry_config = RetryConfig {
+        max_attempts: 3,
+        initial_delay_ms: 1,
+        max_delay_ms: 10,
+        backoff_multiplier: 2.0,
+    };
+
+    let result = CloudIOExecutor::new().with_retry(retry_config).execute(|| {
+        attempts += 1;
+        if attempts < 2 {
+            Err(CloudIOError::new(ErrorKind::Network, "Retry"))
+        } else {
+            Ok("success")
+        }
+    });
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), "success");
+    assert_eq!(attempts, 2);
+}
+
+#[test]
+fn test_cloud_io_executor_with_timeout() {
+    let result = CloudIOExecutor::new()
+        .with_timeout(Duration::from_secs(5))
+        .execute(|| Ok(100));
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 100);
+}
+
+#[test]
+fn test_cloud_io_executor_with_retry_and_timeout() {
+    let retry_config = RetryConfig {
+        max_attempts: 2,
+        initial_delay_ms: 1,
+        max_delay_ms: 10,
+        backoff_multiplier: 2.0,
+    };
+
+    let result = CloudIOExecutor::new()
+        .with_retry(retry_config)
+        .with_timeout(Duration::from_secs(5))
+        .execute(|| Ok(123));
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 123);
+}
+
+#[test]
+fn test_cloud_io_executor_default() {
+    let executor = CloudIOExecutor::default();
+    let result = executor.execute(|| Ok(42));
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 42);
+}
+
+#[test]
+fn test_run_cloud_io_with_retry_success() {
+    let config = RetryConfig::default();
+    let mut attempts = 0;
+
+    let result = run_cloud_io_with_retry(&config, || {
+        attempts += 1;
+        if attempts < 2 {
+            Err(CloudIOError::new(ErrorKind::Network, "Temporary"))
+        } else {
+            Ok(vec![1, 2, 3])
+        }
+    });
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), vec![1, 2, 3]);
+    assert_eq!(attempts, 2);
+}
+
+#[test]
+fn test_run_cloud_io_batch_success() {
+    let config = RetryConfig::default();
+    let items = vec!["a", "b", "c"];
+
+    let result = run_cloud_io_batch(&config, &items, |item| Ok(format!("processed:{item}")));
+
+    assert!(result.is_ok());
+    let results = result.unwrap();
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0], "processed:a");
+}
+
+#[test]
+fn test_run_cloud_io_batch_with_retry() {
+    let config = RetryConfig {
+        max_attempts: 3,
+        initial_delay_ms: 1,
+        max_delay_ms: 10,
+        backoff_multiplier: 2.0,
+    };
+    let items = vec![1, 2, 3];
+    let mut fail_count = 0;
+
+    let result = run_cloud_io_batch(&config, &items, |item| {
+        if *item == 2 && fail_count < 1 {
+            fail_count += 1;
+            Err(CloudIOError::new(ErrorKind::Network, "Transient error"))
+        } else {
+            Ok(*item * 2)
+        }
+    });
+
+    assert!(result.is_ok());
+    let results = result.unwrap();
+    assert_eq!(results, vec![2, 4, 6]);
+}
+
+#[test]
+fn test_run_cloud_io_batch_empty() {
+    let config = RetryConfig::default();
+    let items: Vec<i32> = vec![];
+
+    let result = run_cloud_io_batch(&config, &items, |item| Ok(*item * 2));
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().len(), 0);
+}
+
+#[test]
+fn test_run_cloud_io_paginated_basic() {
+    let config = PaginationConfig {
+        page_size: 3,
+        max_pages: Some(2),
+    };
+
+    let result = run_cloud_io_paginated(&config, |page, size| {
+        let start = page * size;
+        let items: Vec<String> = (start..start + size).map(|i| format!("item{i}")).collect();
+        Ok((items, true))
+    });
+
+    assert!(result.is_ok());
+    let items = result.unwrap();
+    assert_eq!(items.len(), 6); // 2 pages * 3 items
+}
+
+#[test]
+fn test_run_cloud_io_with_retry_and_timeout_success() {
+    let retry_config = RetryConfig::default();
+    let timeout = Duration::from_secs(5);
+
+    let result =
+        run_cloud_io_with_retry_and_timeout(&retry_config, timeout, || Ok("completed".to_string()));
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), "completed");
+}
+
+#[test]
+fn test_operation_context_metadata() {
+    let mut context = OperationContext::new("test");
+
+    context.add_metadata("key1", "value1");
+    context.add_metadata("key2", 42.to_string());
+    context.add_metadata("key3", String::from("value3"));
+
+    assert_eq!(context.metadata.len(), 3);
+    assert_eq!(context.metadata.get("key1").unwrap(), "value1");
+    assert_eq!(context.metadata.get("key2").unwrap(), "42");
+    assert_eq!(context.metadata.get("key3").unwrap(), "value3");
+}
+
+#[test]
+fn test_operation_context_elapsed_time() {
+    use std::thread;
+
+    let context = OperationContext::new("timed_operation");
+
+    // Wait a small amount
+    thread::sleep(Duration::from_millis(10));
+
+    let elapsed = context.elapsed();
+    assert!(elapsed >= Duration::from_millis(10));
+}
+
+#[test]
+fn test_batch_config_custom() {
+    let config = BatchConfig {
+        chunk_size: 50,
+        parallel: true,
+    };
+
+    assert_eq!(config.chunk_size, 50);
+    assert!(config.parallel);
+}
+
+#[test]
+fn test_run_parallel_single_operation() {
+    let operations: Vec<Box<dyn FnOnce() -> CloudResult<i32> + Send>> = vec![Box::new(|| Ok(42))];
+
+    let results = run_parallel(operations);
+    assert!(results.is_ok());
+    let values = results.unwrap();
+    assert_eq!(values, vec![42]);
+}
+
+#[test]
+fn test_run_with_retry_first_success() {
+    let config = RetryConfig::default();
+
+    let result = run_with_retry(&config, || Ok("immediate success"));
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), "immediate success");
+}
+
+#[test]
+fn test_operation_builder_chaining() {
+    let retry_config = RetryConfig {
+        max_attempts: 2,
+        initial_delay_ms: 1,
+        max_delay_ms: 10,
+        backoff_multiplier: 2.0,
+    };
+
+    let result = OperationBuilder::new()
+        .with_retry(retry_config)
+        .with_timeout(Duration::from_secs(5))
+        .execute(|| Ok(999));
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 999);
+}
+
+#[test]
+fn test_run_with_context_multiple_retries() {
+    let context = OperationContext::new("multi_retry");
+    let mut attempts = 0;
+
+    let result = run_with_context(context, |ctx| {
+        attempts += 1;
+        ctx.increment_retry();
+        if attempts < 3 {
+            Err(CloudIOError::new(ErrorKind::Network, "Retry"))
+        } else {
+            Ok("finally succeeded")
+        }
+    });
+
+    // Note: run_with_context doesn't automatically retry, it just tracks context
+    // So this will fail on first attempt
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_run_cloud_io_batch_with_error() {
+    let config = RetryConfig {
+        max_attempts: 1,
+        initial_delay_ms: 1,
+        max_delay_ms: 10,
+        backoff_multiplier: 2.0,
+    };
+    let items = vec![1, 2, 3];
+
+    let result = run_cloud_io_batch(&config, &items, |item| {
+        if *item == 2 {
+            Err(CloudIOError::new(
+                ErrorKind::InvalidInput,
+                "Cannot process 2",
+            ))
+        } else {
+            Ok(*item * 2)
+        }
+    });
+
+    assert!(result.is_err());
+}
