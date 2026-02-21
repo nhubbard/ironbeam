@@ -217,11 +217,11 @@ mod checkpoint_tests {
         file.read_to_end(&mut data).unwrap();
         drop(file);
 
-        let (mut corrupted_state, _): (CheckpointState, usize) =
-            bincode::serde::decode_from_slice(&data, bincode::config::standard()).unwrap();
+        let mut corrupted_state: CheckpointState =
+            postcard::from_bytes(&data).unwrap();
         corrupted_state.completed_node_index = 999; // Corrupt data
         let corrupted_data =
-            bincode::serde::encode_to_vec(&corrupted_state, bincode::config::standard()).unwrap();
+            postcard::to_allocvec(&corrupted_state).unwrap();
 
         let mut file = File::create(&path).unwrap();
         file.write_all(&corrupted_data).unwrap();

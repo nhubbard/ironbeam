@@ -46,7 +46,7 @@
 #[cfg(feature = "checkpointing")]
 use anyhow::{Context, Result, anyhow};
 #[cfg(feature = "checkpointing")]
-use bincode::serde::{decode_from_slice, encode_to_vec};
+use postcard;
 #[cfg(feature = "checkpointing")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "checkpointing")]
@@ -215,7 +215,7 @@ impl CheckpointManager {
         let filename = format!("checkpoint_{}_{}.bin", state.pipeline_id, state.timestamp);
         let path = self.config.directory.join(&filename);
 
-        let encoded = encode_to_vec(state, bincode::config::standard())
+        let encoded = postcard::to_allocvec(state)
             .context("Failed to serialize checkpoint")?;
 
         let mut file = File::create(&path).context("Failed to create checkpoint file")?;
@@ -291,9 +291,8 @@ impl CheckpointManager {
         file.read_to_end(&mut encoded)
             .context("Failed to read checkpoint")?;
 
-        let (state, _len): (CheckpointState, usize) =
-            decode_from_slice(&encoded, bincode::config::standard())
-                .context("Failed to deserialize checkpoint")?;
+        let state: CheckpointState = postcard::from_bytes(&encoded)
+            .context("Failed to deserialize checkpoint")?;
 
         // Verify checksum
         let metadata_str = format!(

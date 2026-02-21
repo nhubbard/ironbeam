@@ -294,19 +294,19 @@ impl SpillManager {
 
         let mut writer = BufWriter::new(file);
 
-        // Serialize the data using bincode 2.0 API
+        // Serialize the data using postcard
         let serialized = if self.config.compress {
             #[cfg(feature = "compression-zstd")]
             {
-                let bytes = bincode::serde::encode_to_vec(data, bincode::config::standard())?;
+                let bytes = postcard::to_allocvec(data)?;
                 zstd::encode_all(&bytes[..], 3)?
             }
             #[cfg(not(feature = "compression-zstd"))]
             {
-                bincode::serde::encode_to_vec(data, bincode::config::standard())?
+                postcard::to_allocvec(data)?
             }
         } else {
-            bincode::serde::encode_to_vec(data, bincode::config::standard())?
+            postcard::to_allocvec(data)?
         };
 
         writer
@@ -335,25 +335,19 @@ impl SpillManager {
             .read_to_end(&mut buffer)
             .context("Failed to read spill file")?;
 
-        // Deserialize the data using bincode 2.0 API
+        // Deserialize the data using postcard
         let data: Vec<T> = if self.config.compress {
             #[cfg(feature = "compression-zstd")]
             {
                 let decompressed = zstd::decode_all(&buffer[..])?;
-                let (decoded, _) =
-                    bincode::serde::decode_from_slice(&decompressed, bincode::config::standard())?;
-                decoded
+                postcard::from_bytes(&decompressed)?
             }
             #[cfg(not(feature = "compression-zstd"))]
             {
-                let (decoded, _) =
-                    bincode::serde::decode_from_slice(&buffer, bincode::config::standard())?;
-                decoded
+                postcard::from_bytes(&buffer)?
             }
         } else {
-            let (decoded, _) =
-                bincode::serde::decode_from_slice(&buffer, bincode::config::standard())?;
-            decoded
+            postcard::from_bytes(&buffer)?
         };
 
         Ok(data)

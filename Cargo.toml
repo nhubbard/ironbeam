@@ -1,6 +1,6 @@
 [package]
 name = "ironbeam"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 license = "MIT"
 description = "A batch processing clone of Apache Beam in Rust."
@@ -23,10 +23,11 @@ compression-xz = ["dep:xz2"]
 # Behaviors
 parallel-io = []
 metrics = []
-checkpointing = ["dep:bincode", "dep:sha2"]
-spilling = ["dep:bincode"]
+checkpointing = ["dep:postcard", "dep:sha2"]
+spilling = ["dep:postcard"]
 
 [dependencies]
+# Core dependencies
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -34,9 +35,11 @@ rayon = "1"
 num_cpus = "1"
 ordered-float = "5"
 glob = "0.3"
-bincode = { version = "2.0.1", features = ["serde"], optional = true }
+postcard = { version = "1", features = ["alloc"], optional = true }
 sha2 = { version = "0.10", optional = true }
+regex = "1.12.2"
 
+# Optional encoding formats
 csv = { version = "1", optional = true }
 arrow = { version = "57", optional = true }
 parquet = { version = "57", optional = true }
@@ -47,7 +50,6 @@ flate2 = { version = "1", optional = true }
 zstd = { version = "0.13", optional = true }
 bzip2 = { version = "0.6", optional = true }
 xz2 = { version = "0.1", optional = true }
-regex = "1.12.2"
 
 # Testing utilities
 tempfile = "3"
