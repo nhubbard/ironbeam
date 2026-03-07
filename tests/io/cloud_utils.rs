@@ -99,3 +99,5 @@ fn test_pagination() {
     let items = result.unwrap();
     assert_eq!(items.len(), 30); // 3 pages * 10 items
 }
+
+// Note: All tests from src/io/cloud/utils.rs were already present in this file above

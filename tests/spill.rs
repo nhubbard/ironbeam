@@ -506,3 +506,43 @@ fn test_spilling_preserves_order() -> Result<()> {
     cleanup_test(&config);
     Ok(())
 }
+
+// Tests moved from src/spill.rs
+
+#[test]
+fn test_memory_tracker_initialization() {
+    let config = SpillConfig::new().with_memory_limit(1000);
+    MemoryTracker::initialize(config);
+
+    let tracker = MemoryTracker::instance().unwrap();
+    assert_eq!(tracker.memory_limit(), Some(1000));
+    assert_eq!(tracker.current_usage(), 0);
+}
+
+#[test]
+fn test_memory_allocation_tracking() {
+    let config = SpillConfig::new().with_memory_limit(1000);
+    MemoryTracker::initialize(config);
+
+    let tracker = MemoryTracker::instance().unwrap();
+    tracker.allocate(500);
+    assert_eq!(tracker.current_usage(), 500);
+
+    tracker.allocate(300);
+    assert_eq!(tracker.current_usage(), 800);
+
+    tracker.deallocate(200);
+    assert_eq!(tracker.current_usage(), 600);
+}
+
+#[test]
+fn test_should_spill_detection() {
+    let config = SpillConfig::new().with_memory_limit(1000);
+    MemoryTracker::initialize(config);
+
+    let tracker = MemoryTracker::instance().unwrap();
+    assert!(!tracker.should_spill());
+
+    tracker.allocate(1001);
+    assert!(tracker.should_spill());
+}
