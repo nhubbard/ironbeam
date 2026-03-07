@@ -169,6 +169,7 @@ pub mod combine_global;
 pub mod common;
 pub mod csv;
 pub mod distinct;
+pub mod flatten;
 pub mod joins;
 pub mod jsonl;
 pub mod keyed;
@@ -186,6 +187,7 @@ pub mod values;
 // Only re-export files with top-level functions
 pub use cloud::*;
 pub use csv::*;
+pub use flatten::*;
 pub use jsonl::*;
 pub use parquet::*;
 pub use side_inputs::*;

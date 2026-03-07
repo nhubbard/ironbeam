@@ -155,4 +155,19 @@ pub enum Node {
     /// Used by some tests/terminals to anchor a typed vector that the runner
     /// should return without further transformation.
     Materialized(Arc<dyn Any + Send + Sync>),
+
+    /// Flatten multiple collections into one.
+    ///
+    /// Merges N input collections of the same type `T` into a single `PCollection<T>`.
+    /// Each input is a full subplan that produces `Vec<T>`.
+    ///
+    /// **Fields**
+    /// - `chains`: vector of subplans to execute (one per input collection).
+    /// - `coalesce`: merges each subplan's per-partition outputs into single `Vec<T>`.
+    /// - `merge`: combines all coalesced `Vec<T>` from each input into final `Vec<T>`.
+    Flatten {
+        chains: Arc<Vec<Vec<Self>>>,
+        coalesce: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
+        merge: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
+    },
 }

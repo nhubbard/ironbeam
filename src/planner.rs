@@ -324,6 +324,16 @@ impl Plan {
                         80,
                     )
                 }
+                Node::Flatten { chains, .. } => {
+                    barriers += 1;
+                    total_ops += 1;
+                    (
+                        "Flatten",
+                        format!("Flatten {} collections (BARRIER)", chains.len()),
+                        true,
+                        120,
+                    )
+                }
                 Node::CoGroup { .. } => {
                     barriers += 1;
                     total_ops += 1;

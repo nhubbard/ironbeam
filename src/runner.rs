@@ -212,6 +212,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                     merge(vec![mid])
                 }
                 Node::Materialized(p) => Box::new(p) as Partition,
+                Node::Flatten { .. } => bail!("nested Flatten not supported in subplan"),
                 Node::CoGroup { .. } => bail!("nested CoGroup not supported in subplan"),
                 Node::CombineGlobal {
                     local,
@@ -233,6 +234,25 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
 
     for node in chain {
         buf = Some(match node {
+            Node::Flatten {
+                chains,
+                coalesce,
+                merge,
+            } => {
+                // Execute each subplan and coalesce its partitions
+                let mut coalesced_inputs: Vec<Partition> = Vec::new();
+                for chain in chains.iter() {
+                    let mut parts = run_subplan_seq(chain.clone())?;
+                    let single: Partition = if parts.len() == 1 {
+                        parts.pop().unwrap()
+                    } else {
+                        coalesce(parts)
+                    };
+                    coalesced_inputs.push(single);
+                }
+                // Merge all inputs into one
+                merge(coalesced_inputs)
+            }
             Node::CoGroup {
                 left_chain,
                 right_chain,
@@ -373,6 +393,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                 Node::Source { .. } | Node::Materialized(_) => {
                     bail!("unexpected source/materialized in subplan")
                 }
+                Node::Flatten { .. } => bail!("nested Flatten not supported in subplan"),
                 Node::CoGroup { .. } => bail!("nested CoGroup not supported in subplan"),
                 Node::CombineGlobal {
                     local,
@@ -472,6 +493,26 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                     .map_or_else(|| local_pairs.clone(), |lg| lg.clone());
                 let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
                 curr = vec![merge(mids)];
+                i += 1;
+            }
+            Node::Flatten {
+                chains,
+                coalesce,
+                merge,
+            } => {
+                // Execute each subplan in parallel and coalesce
+                let coalesced_inputs: Vec<Partition> = chains
+                    .iter()
+                    .map(|chain| {
+                        let parts = run_subplan_par(chain, partitions)?;
+                        Ok(if parts.len() == 1 {
+                            parts.into_iter().next().unwrap()
+                        } else {
+                            coalesce(parts)
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                curr = vec![merge(coalesced_inputs)];
                 i += 1;
             }
             Node::CoGroup {
@@ -615,6 +656,7 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
             node,
             Node::GroupByKey { .. }
                 | Node::CombineValues { .. }
+                | Node::Flatten { .. }
                 | Node::CoGroup { .. }
                 | Node::CombineGlobal { .. }
         );
@@ -624,6 +666,7 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
             Node::Stateless(_) => "Stateless",
             Node::GroupByKey { .. } => "GroupByKey",
             Node::CombineValues { .. } => "CombineValues",
+            Node::Flatten { .. } => "Flatten",
             Node::CoGroup { .. } => "CoGroup",
             Node::Materialized(_) => "Materialized",
             Node::CombineGlobal { .. } => "CombineGlobal",
@@ -657,6 +700,7 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
                     .cloned()
                     .ok_or_else(|| anyhow!("terminal type mismatch"))?,
             ) as Partition,
+            Node::Flatten { .. } => bail!("Flatten requires subplan execution"),
             Node::CoGroup { .. } => bail!("CoGroup requires subplan execution"),
             Node::CombineGlobal {
                 local,
