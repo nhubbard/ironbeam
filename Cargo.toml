@@ -41,9 +41,9 @@ regex = "1.12.2"
 
 # Optional encoding formats
 csv = { version = "1", optional = true }
-arrow = { version = "57", optional = true }
-parquet = { version = "57", optional = true }
-serde_arrow = { version = "0.13", optional = true, features = ["arrow-57"] }
+arrow = { version = "58", optional = true }
+parquet = { version = "58", optional = true }
+serde_arrow = { version = "0.14", optional = true, features = ["arrow-58"] }
 
 # Compression codecs
 flate2 = { version = "1", optional = true }
@@ -51,10 +51,7 @@ zstd = { version = "0.13", optional = true }
 bzip2 = { version = "0.6", optional = true }
 xz2 = { version = "0.1", optional = true }
 
-# Testing utilities
-tempfile = "3"
-
-[dev-dependencies]
+# Testing dependency, used in testing module and in tests
 tempfile = "3"
 
 [package.metadata.docs.rs]
