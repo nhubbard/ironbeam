@@ -1,3 +1,22 @@
+## [2.0.0](https://github.com/nhubbard/ironbeam/compare/v1.1.0...v2.0.0) (2026-03-07)
+
+### ⚠ BREAKING CHANGES
+
+* Bump version to 1.2.0, replace bincode with postcard
+
+### release
+
+* Bump version to 1.2.0, replace bincode with postcard ([d2396d6](https://github.com/nhubbard/ironbeam/commit/d2396d6d437fdbf2853558af87f4fa730c924bd3))
+
+### Features
+
+* **spill:** Add resource spilling support ([849e429](https://github.com/nhubbard/ironbeam/commit/849e429e4c1fbb8148416bdbe68b7919eed3f84c))
+
+### Bug Fixes
+
+* Bump arrow and tempfiles version ([c80f3eb](https://github.com/nhubbard/ironbeam/commit/c80f3eb2c3530113048605cc4ddb622ceea7a6c0))
+* Fix clippy errors (may cause test failure in CI?) ([8765b3d](https://github.com/nhubbard/ironbeam/commit/8765b3dfb1b76275855ddcd1243372ff71e212a3))
+
 ## [1.1.0](https://github.com/nhubbard/ironbeam/compare/v1.0.1...v1.1.0) (2025-12-06)
 
 ### Features
