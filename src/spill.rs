@@ -426,10 +426,12 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
     }
 
     /// Estimate the memory size of a vector in bytes.
-    const fn estimate_size(data: &[T]) -> usize {
+    fn estimate_size(data: &[T]) -> usize {
         // Conservative estimate: length * element size + overhead
         let overhead = size_of::<Vec<T>>();
-        size_of_val(data) + overhead
+        let element_size = size_of::<T>();
+        let data_size = data.len() * element_size;
+        data_size + overhead
     }
 
     /// Check if this partition should be spilled to disk.

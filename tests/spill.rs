@@ -20,8 +20,8 @@ struct ComplexRecord {
 }
 
 /// Helper to clean up and reset state between tests
-fn setup_test(memory_limit: usize) -> SpillConfig {
-    let _guard = TEST_LOCK.lock().unwrap();
+fn setup_test(memory_limit: usize) -> (SpillConfig, std::sync::MutexGuard<'static, ()>) {
+    let guard = TEST_LOCK.lock().unwrap();
 
     // Reset the memory tracker
     reset_memory_tracker();
@@ -41,7 +41,7 @@ fn setup_test(memory_limit: usize) -> SpillConfig {
 
     init_spilling(config.clone());
 
-    config
+    (config, guard)
 }
 
 /// Clean up test directory
@@ -53,7 +53,7 @@ fn cleanup_test(config: &SpillConfig) {
 
 #[test]
 fn test_memory_tracker_basic() {
-    let config = setup_test(1000);
+    let (config, _guard) = setup_test(1000);
 
     let tracker = MemoryTracker::instance().expect("Tracker should be initialized");
 
@@ -80,7 +80,7 @@ fn test_memory_tracker_basic() {
 
 #[test]
 fn test_spillable_partition_creation() {
-    let config = setup_test(10_000);
+    let (config, _guard) = setup_test(10_000);
 
     let data: Vec<i32> = vec![1, 2, 3, 4, 5];
     let partition = SpillablePartition::new(data);
@@ -98,7 +98,7 @@ fn test_spillable_partition_creation() {
 #[test]
 #[cfg(not(target_arch = "x86_64"))]
 fn test_spillable_partition_manual_spill_and_restore() -> Result<()> {
-    let config = setup_test(100_000);
+    let (config, _guard) = setup_test(100_000);
 
     let data: Vec<i32> = (0..1000).collect();
     let mut partition = SpillablePartition::new(data.clone());
@@ -127,7 +127,7 @@ fn test_spillable_partition_manual_spill_and_restore() -> Result<()> {
 #[cfg(not(target_arch = "x86_64"))]
 fn test_spillable_partition_automatic_spill_detection() -> Result<()> {
     // Set a very low memory limit to trigger spilling
-    let config = setup_test(1000);
+    let (config, _guard) = setup_test(1000);
 
     let tracker = MemoryTracker::instance().unwrap();
 
@@ -144,7 +144,7 @@ fn test_spillable_partition_automatic_spill_detection() -> Result<()> {
     partition.spill()?;
     assert!(partition.is_spilled());
 
-    // Verify we can restore the spilled data, and that the data is intact
+    // Verify we can restore the spilled data and that the data is intact
     let restored = partition.into_vec()?;
     assert_eq!(restored, large_data);
 
@@ -154,7 +154,7 @@ fn test_spillable_partition_automatic_spill_detection() -> Result<()> {
 
 #[test]
 fn test_spill_manager_operations() -> Result<()> {
-    let config = setup_test(100_000);
+    let (config, _guard) = setup_test(100_000);
 
     let manager = SpillManager::new(config.clone())?;
 
@@ -184,7 +184,7 @@ fn test_spill_manager_operations() -> Result<()> {
 
 #[test]
 fn test_spill_with_complex_types() -> Result<()> {
-    let config = setup_test(100_000);
+    let (config, _guard) = setup_test(100_000);
 
     let data = vec![
         ComplexRecord {
@@ -215,16 +215,16 @@ fn test_spill_with_complex_types() -> Result<()> {
 
 #[test]
 fn test_spillable_partition_with_small_data() {
-    // Small data should not trigger spilling even with low limit
-    let config = setup_test(50); // Very low limit
+    // Small data should not trigger spilling even with a low limit
+    let (config, _guard) = setup_test(50); // Very low limit
 
     let tracker = MemoryTracker::instance().unwrap();
 
-    // Create very small partition
+    // Create a very small partition
     let small_data: Vec<i32> = vec![1, 2, 3];
     let _partition = SpillablePartition::new(small_data);
 
-    // Even if we're over limit, small partitions shouldn't spill
+    // Even if we're over the limit, small partitions shouldn't spill
     tracker.allocate(10_000);
 
     // The partition is too small to be worth spilling (< min_spill_size)
@@ -236,7 +236,7 @@ fn test_spillable_partition_with_small_data() {
 
 #[test]
 fn test_multiple_partitions_with_spilling() -> Result<()> {
-    let config = setup_test(5000);
+    let (config, _guard) = setup_test(5000);
 
     let tracker = MemoryTracker::instance().unwrap();
 
@@ -254,7 +254,7 @@ fn test_multiple_partitions_with_spilling() -> Result<()> {
     assert!(part2.is_in_memory());
     assert!(part3.is_in_memory());
 
-    // Force spilling by exceeding memory limit
+    // Force spilling by exceeding the memory limit
     tracker.allocate(50_000);
 
     // Spill some partitions
@@ -321,7 +321,7 @@ fn test_memory_tracking_accuracy() {
     drop(partition);
     let after_drop = tracker.current_usage();
 
-    // Memory should decrease after drop (or at least not increase)
+    // Memory should decrease after a drop (or at least not increase)
     assert!(
         after_drop <= before_drop,
         "Memory should not increase after dropping partition"
@@ -332,7 +332,7 @@ fn test_memory_tracking_accuracy() {
 
 #[test]
 fn test_spill_with_empty_data() -> Result<()> {
-    let config = setup_test(10_000);
+    let (config, _guard) = setup_test(10_000);
 
     let data: Vec<i32> = vec![];
     let mut partition = SpillablePartition::new(data.clone());
@@ -350,7 +350,7 @@ fn test_spill_with_empty_data() -> Result<()> {
 fn test_concurrent_spilling() -> Result<()> {
     use std::thread;
 
-    let config = setup_test(50_000);
+    let (config, _guard) = setup_test(50_000);
     let tracker = MemoryTracker::instance().unwrap();
 
     // Create multiple threads that create and spill partitions
@@ -387,7 +387,7 @@ fn test_concurrent_spilling() -> Result<()> {
 
 #[test]
 fn test_artificial_memory_limit_with_pipeline() -> Result<()> {
-    let config = setup_test(5000); // 5KB limit - very restrictive for testing
+    let (config, _guard) = setup_test(5000); // 5KB limit - very restrictive for testing
 
     let p = Pipeline::default();
 
@@ -406,7 +406,7 @@ fn test_artificial_memory_limit_with_pipeline() -> Result<()> {
 
     assert_eq!(result, expected);
 
-    // Check that memory was tracked (though may not have actually spilled in this simple case)
+    // Check that memory was tracked (though may not have spilled in this simple case)
     let tracker = MemoryTracker::instance().unwrap();
     let _ = tracker.current_usage(); // Just verify we can read it
 
@@ -418,7 +418,7 @@ fn test_artificial_memory_limit_with_pipeline() -> Result<()> {
 fn test_large_dataset_with_artificial_limit() -> Result<()> {
     // This test uses a very restrictive memory limit to force spilling behavior
     // without needing administrative privileges to monitor real memory usage
-    let config = setup_test(2000); // 2KB - will definitely be exceeded
+    let (config, _guard) = setup_test(2000); // 2KB - will definitely be exceeded
 
     let p = Pipeline::default();
 
@@ -438,7 +438,7 @@ fn test_large_dataset_with_artificial_limit() -> Result<()> {
 
 #[test]
 fn test_spilling_with_key_value_operations() -> Result<()> {
-    let config = setup_test(3000);
+    let (config, _guard) = setup_test(3000);
 
     let p = Pipeline::default();
 
@@ -491,7 +491,7 @@ fn test_spilling_with_compression() -> Result<()> {
 
 #[test]
 fn test_spilling_preserves_order() -> Result<()> {
-    let config = setup_test(10_000);
+    let (config, _guard) = setup_test(10_000);
 
     let data: Vec<i32> = (0..100).rev().collect(); // Reverse order
     let mut partition = SpillablePartition::new(data.clone());
