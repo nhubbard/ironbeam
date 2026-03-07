@@ -426,11 +426,10 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
     }
 
     /// Estimate the memory size of a vector in bytes.
-    fn estimate_size(data: &[T]) -> usize {
+    const fn estimate_size(data: &[T]) -> usize {
         // Conservative estimate: length * element size + overhead
         let overhead = size_of::<Vec<T>>();
-        let element_size = size_of::<T>();
-        let data_size = data.len() * element_size;
+        let data_size = size_of_val(data);
         data_size + overhead
     }
 
