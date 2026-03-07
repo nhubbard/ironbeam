@@ -215,8 +215,7 @@ impl CheckpointManager {
         let filename = format!("checkpoint_{}_{}.bin", state.pipeline_id, state.timestamp);
         let path = self.config.directory.join(&filename);
 
-        let encoded = postcard::to_allocvec(state)
-            .context("Failed to serialize checkpoint")?;
+        let encoded = postcard::to_allocvec(state).context("Failed to serialize checkpoint")?;
 
         let mut file = File::create(&path).context("Failed to create checkpoint file")?;
         file.write_all(&encoded)
@@ -291,8 +290,8 @@ impl CheckpointManager {
         file.read_to_end(&mut encoded)
             .context("Failed to read checkpoint")?;
 
-        let state: CheckpointState = postcard::from_bytes(&encoded)
-            .context("Failed to deserialize checkpoint")?;
+        let state: CheckpointState =
+            postcard::from_bytes(&encoded).context("Failed to deserialize checkpoint")?;
 
         // Verify checksum
         let metadata_str = format!(

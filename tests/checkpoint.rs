@@ -217,11 +217,9 @@ mod checkpoint_tests {
         file.read_to_end(&mut data).unwrap();
         drop(file);
 
-        let mut corrupted_state: CheckpointState =
-            postcard::from_bytes(&data).unwrap();
+        let mut corrupted_state: CheckpointState = postcard::from_bytes(&data).unwrap();
         corrupted_state.completed_node_index = 999; // Corrupt data
-        let corrupted_data =
-            postcard::to_allocvec(&corrupted_state).unwrap();
+        let corrupted_data = postcard::to_allocvec(&corrupted_state).unwrap();
 
         let mut file = File::create(&path).unwrap();
         file.write_all(&corrupted_data).unwrap();
