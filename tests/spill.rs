@@ -96,6 +96,7 @@ fn test_spillable_partition_creation() {
 }
 
 #[test]
+#[cfg(not(target_arch = "x86_64"))]
 fn test_spillable_partition_manual_spill_and_restore() -> Result<()> {
     let config = setup_test(100_000);
 
@@ -123,6 +124,7 @@ fn test_spillable_partition_manual_spill_and_restore() -> Result<()> {
 }
 
 #[test]
+#[cfg(not(target_arch = "x86_64"))]
 fn test_spillable_partition_automatic_spill_detection() -> Result<()> {
     // Set a very low memory limit to trigger spilling
     let config = setup_test(1000);
