@@ -9,6 +9,9 @@
 //! cargo run --example multi_output
 //! ```
 
+#![allow(clippy::wildcard_imports)]
+#![allow(clippy::too_many_lines)]
+
 use anyhow::Result;
 use ironbeam::*;
 
@@ -18,6 +21,22 @@ enum RecordValidation {
     Valid(String),
     Warning(String),
     Error(String),
+}
+
+// User struct for data quality example
+#[derive(Clone, Debug)]
+struct User {
+    id: u32,
+    email: String,
+    age: i32,
+}
+
+#[derive(Clone)]
+enum UserValidation {
+    Valid(User),
+    InvalidEmail(User),
+    InvalidAge(User),
+    MultipleErrors(User),
 }
 
 fn main() -> Result<()> {
@@ -45,7 +64,6 @@ fn main() -> Result<()> {
         if parts.len() >= 3 {
             let status_code = parts[2];
             match status_code {
-                "200" => vec![RecordValidation::Valid(log.to_string())],
                 "401" | "403" => vec![RecordValidation::Warning(log.to_string())],
                 "500" => vec![RecordValidation::Error(log.to_string())],
                 _ => vec![RecordValidation::Valid(log.to_string())],
@@ -81,21 +99,6 @@ fn main() -> Result<()> {
     println!("\n=== Advanced: Data Quality Pipeline ===\n");
 
     // More complex example: validating user records
-    #[derive(Clone, Debug)]
-    struct User {
-        id: u32,
-        email: String,
-        age: i32,
-    }
-
-    #[derive(Clone)]
-    enum UserValidation {
-        Valid(User),
-        InvalidEmail(User),
-        InvalidAge(User),
-        MultipleErrors(User),
-    }
-
     let p2 = Pipeline::default();
     let users = from_vec(
         &p2,
