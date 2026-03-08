@@ -122,10 +122,12 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
         File::create(path)?; // touch
         return Ok(0);
     }
-    let shards = shards.unwrap_or_else(|| num_cpus::get().max(2)).clamp(1, n);
-    let chunk = n.div_ceil(shards);
+    let requested_shards = shards.unwrap_or_else(|| num_cpus::get().max(2));
+    // Clamp shards to the data length to avoid creating empty shards or going out of bounds
+    let actual_shards = requested_shards.clamp(1, n);
+    let chunk = n.div_ceil(actual_shards);
 
-    let shard_paths: Vec<PathBuf> = (0..shards)
+    let shard_paths: Vec<PathBuf> = (0..actual_shards)
         .map(|i| path.with_extension(format!("jsonl.part{i}")))
         .collect();
 

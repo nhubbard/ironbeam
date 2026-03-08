@@ -24,13 +24,14 @@
 //! use ironbeam::*;
 //!
 //! let p = Pipeline::default();
-//! let numbers = from_vec(&p, vec![1, 5, 10, 15, 20, 25]);
 //!
 //! // Keep numbers less than 10
+//! let numbers = from_vec(&p, vec![1, 5, 10, 15, 20, 25]);
 //! let small = numbers.filter_lt(&10);
 //! assert_eq!(small.collect_seq().unwrap(), vec![1, 5]);
 //!
 //! // Keep numbers in range [10, 20)
+//! let numbers = from_vec(&p, vec![1, 5, 10, 15, 20, 25]);
 //! let mid_range = numbers.filter_range(&10, &20);
 //! assert_eq!(mid_range.collect_seq().unwrap(), vec![10, 15]);
 //! ```
@@ -296,20 +297,10 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     ///
     /// # Comparison with separate map + filter
-    /// This method is more efficient than:
-    /// ```no_run
-    /// # use ironbeam::*;
-    /// # #[derive(Clone)]
-    /// # struct Product { name: String, price: f64 }
-    /// # let p = Pipeline::default();
-    /// # let products: PCollection<Product> = from_vec(&p, vec![]);
-    /// // Less efficient: two passes over the data
-    /// let prices = products.map(|p| (p.clone(), p.price));
-    /// let filtered = prices.filter(|(_, price)| *price < 20.0);
-    /// let result = filtered.map(|(p, _)| p);
-    /// ```
+    /// This method is more efficient than using separate map and filter operations.
     ///
-    /// With `filter_by`, the extraction and filtering happen in a single pass.
+    /// With `filter_by`, the extraction and filtering happen in a single pass,
+    /// avoiding the overhead of creating intermediate tuples.
     #[must_use]
     pub fn filter_by<V, E, P>(self, extractor: E, predicate: P) -> Self
     where
