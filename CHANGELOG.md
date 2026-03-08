@@ -1,3 +1,15 @@
+## [2.1.0](https://github.com/nhubbard/ironbeam/compare/v2.0.0...v2.1.0) (2026-03-08)
+
+### Features
+
+* Enhanced partitioning and filtering helpers ([cc6ecaf](https://github.com/nhubbard/ironbeam/commit/cc6ecaf7796707afe25e3581e6ab4313e44355b0))
+* Flatten transform ([c282bbc](https://github.com/nhubbard/ironbeam/commit/c282bbc4b6ff389cab85559717264477d39ddc41))
+
+### Bug Fixes
+
+* Test error on x86 related to shard length calculation ([116f084](https://github.com/nhubbard/ironbeam/commit/116f08433e0b6efbb2a48e6b2be2c43d19e55e90))
+* Test error on x86 related to shard length calculation (attempt 2) ([e2462e3](https://github.com/nhubbard/ironbeam/commit/e2462e36cbc269c3da60486ddb461187368ecb97))
+
 ## [2.0.0](https://github.com/nhubbard/ironbeam/compare/v1.1.0...v2.0.0) (2026-03-07)
 
 ### ⚠ BREAKING CHANGES
