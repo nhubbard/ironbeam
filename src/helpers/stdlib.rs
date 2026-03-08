@@ -30,6 +30,7 @@
 //! assert_eq!(squared.collect_seq().unwrap(), vec![1, 4, 9, 16, 25]);
 //! ```
 
+use crate::collection::FlatMapOp;
 use crate::node::Node;
 use crate::type_token::{TypeTag, VecOps, vec_ops_for};
 use crate::{PCollection, Pipeline, RFBound};
@@ -173,5 +174,83 @@ where
         pipeline: p.clone(),
         id,
         _t: PhantomData,
+    }
+}
+
+impl<T: RFBound> PCollection<T> {
+    /// Filter and transform elements in one step using an `Option`-returning function.
+    ///
+    /// This is a convenience method that combines [`filter`](crate::PCollection::filter) and
+    /// [`map`](crate::PCollection::map) into a single operation. Elements are kept when the
+    /// function returns `Some(value)` and discarded when it returns `None`.
+    ///
+    /// This is particularly useful for:
+    /// - Extracting specific variants from enums (see multi-output pattern example)
+    /// - Parsing strings that may fail
+    /// - Transforming data while filtering invalid entries
+    ///
+    /// ### Arguments
+    /// - `f` -- Function that returns `Some(O)` to keep and transform, or `None` to discard
+    ///
+    /// ### Returns
+    /// A new `PCollection<O>` containing only the transformed values from `Some` results.
+    ///
+    /// ### Example
+    /// ```no_run
+    /// use ironbeam::*;
+    /// # use anyhow::Result;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let data = from_vec(&p, vec!["1", "2", "not a number", "3"]);
+    ///
+    /// let parsed = data.filter_map(|s: &&str| s.parse::<i32>().ok());
+    ///
+    /// assert_eq!(parsed.collect_seq()?, vec![1, 2, 3]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ### Multi-Output Pattern
+    /// This is especially useful for implementing the side outputs/multi-output pattern
+    /// by filtering enum variants:
+    /// ```no_run
+    /// use ironbeam::*;
+    /// # use anyhow::Result;
+    ///
+    /// # fn main() -> Result<()> {
+    /// #[derive(Clone)]
+    /// enum RecordOutput {
+    ///     Good(String),
+    ///     Bad(String),
+    /// }
+    ///
+    /// let p = Pipeline::default();
+    /// let outputs = from_vec(&p, vec![
+    ///     RecordOutput::Good("valid".into()),
+    ///     RecordOutput::Bad("invalid".into()),
+    ///     RecordOutput::Good("ok".into()),
+    /// ]);
+    ///
+    /// // Extract only the Good variants
+    /// let good = outputs.filter_map(|out: &RecordOutput| match out {
+    ///     RecordOutput::Good(s) => Some(s.clone()),
+    ///     RecordOutput::Bad(_) => None,
+    /// });
+    ///
+    /// assert_eq!(good.collect_seq()?, vec!["valid", "ok"]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn filter_map<O, F>(&self, f: F) -> PCollection<O>
+    where
+        O: RFBound,
+        F: Fn(&T) -> Option<O> + Send + Sync + 'static,
+    {
+        // Use flat_map to implement filter_map
+        self.apply_transform(Arc::new(FlatMapOp(
+            move |elem: &T| f(elem).map_or_else(Vec::new, |o| vec![o]),
+            PhantomData::<(T, O)>,
+        )))
     }
 }

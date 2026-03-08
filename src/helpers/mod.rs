@@ -46,6 +46,18 @@
 //!   - [`PCollection::distinct`](crate::PCollection::distinct)
 //!   - [`PCollection::distinct_per_key`](crate::PCollection::distinct_per_key)
 //!
+//! ### Filter Operations
+//! - [`filter`] - Enhanced filtering with convenience methods
+//!   - [`PCollection::filter_eq`](crate::PCollection::filter_eq)
+//!   - [`PCollection::filter_ne`](crate::PCollection::filter_ne)
+//!   - [`PCollection::filter_lt`](crate::PCollection::filter_lt)
+//!   - [`PCollection::filter_le`](crate::PCollection::filter_le)
+//!   - [`PCollection::filter_gt`](crate::PCollection::filter_gt)
+//!   - [`PCollection::filter_ge`](crate::PCollection::filter_ge)
+//!   - [`PCollection::filter_range`](crate::PCollection::filter_range)
+//!   - [`PCollection::filter_range_inclusive`](crate::PCollection::filter_range_inclusive)
+//!   - [`PCollection::filter_by`](crate::PCollection::filter_by)
+//!
 //! ### Sampling
 //! - [`sampling`] - Random sampling operations
 //!   - [`PCollection::sample_reservoir_vec`](crate::PCollection::sample_reservoir_vec)
@@ -169,11 +181,13 @@ pub mod combine_global;
 pub mod common;
 pub mod csv;
 pub mod distinct;
+pub mod filter;
 pub mod flatten;
 pub mod joins;
 pub mod jsonl;
 pub mod keyed;
 pub mod parquet;
+pub mod partition;
 pub mod sampling;
 pub mod side_inputs;
 pub mod stdlib;
