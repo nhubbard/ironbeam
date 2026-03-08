@@ -127,7 +127,11 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
     let actual_shards = requested_shards.clamp(1, n);
     let chunk = n.div_ceil(actual_shards);
 
-    let shard_paths: Vec<PathBuf> = (0..actual_shards)
+    // Calculate the actual number of shards that will have data
+    // When chunk * actual_shards > n, some trailing shards would be empty
+    let non_empty_shards = n.div_ceil(chunk);
+
+    let shard_paths: Vec<PathBuf> = (0..non_empty_shards)
         .map(|i| path.with_extension(format!("jsonl.part{i}")))
         .collect();
 
