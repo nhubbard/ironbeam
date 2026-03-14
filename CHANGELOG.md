@@ -1,3 +1,14 @@
+## [2.2.0](https://github.com/nhubbard/ironbeam/compare/v2.1.0...v2.2.0) (2026-03-14)
+
+### Features
+
+* Add to_hashmap function ([643f886](https://github.com/nhubbard/ironbeam/commit/643f886ca3dad7e5426a6d2dac469072f1b99998))
+* Add with_constant_key and with_keys helper methods ([903a18c](https://github.com/nhubbard/ironbeam/commit/903a18ca308eb1e8c756d1c944ec3b507018f299))
+
+### Bug Fixes
+
+* Clippy errors ([e50fc54](https://github.com/nhubbard/ironbeam/commit/e50fc54c02533c30d4451bbee51c7441376be7aa))
+
 ## [2.1.0](https://github.com/nhubbard/ironbeam/compare/v2.0.0...v2.1.0) (2026-03-08)
 
 ### Features
