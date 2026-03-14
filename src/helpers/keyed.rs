@@ -105,6 +105,35 @@ impl<T: RFBound> PCollection<T> {
 }
 
 impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
+    /// Convert a `PCollection<(K, V)>` directly into a `HashMap<K, V>`.
+    ///
+    /// This is a terminal operation that collects all key-value pairs into a single
+    /// `HashMap`. If there are duplicate keys, the last value encountered wins.
+    ///
+    /// ### Performance & memory
+    /// This operation materializes all key-value pairs in memory as a `HashMap`.
+    /// Use this when you need direct HashMap access to the results.
+    ///
+    /// ### Example
+    /// ```no_run
+    /// use ironbeam::*;
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let pairs = from_vec(&p, vec![("a".to_string(), 1u32), ("b".into(), 2), ("c".into(), 3)]);
+    /// let map = pairs.to_hashmap()?; // HashMap<String, u32>
+    /// assert_eq!(map.get("a"), Some(&1));
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pipeline execution fails.
+    pub fn to_hashmap(self) -> anyhow::Result<HashMap<K, V>> {
+        let vec = self.collect_seq()?;
+        Ok(vec.into_iter().collect())
+    }
+
     /// Group values by key, producing `(K, Vec<V>)`.
     ///
     /// This is a two-stage aggregation:
