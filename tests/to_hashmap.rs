@@ -381,16 +381,16 @@ fn test_to_hashmap_constant_key() {
 fn test_to_hashmap_float_values() {
     let p = Pipeline::default();
     let pairs = from_vec(&p, vec![
-        ("pi", 3.14159),
-        ("e", 2.71828),
+        ("pi", std::f64::consts::PI),
+        ("e", std::f64::consts::E),
         ("phi", 1.61803),
     ]);
 
     let map = pairs.to_hashmap().unwrap();
 
     assert_eq!(map.len(), 3);
-    assert_eq!(map.get(&"pi"), Some(&3.14159));
-    assert_eq!(map.get(&"e"), Some(&2.71828));
+    assert_eq!(map.get(&"pi"), Some(&std::f64::consts::PI));
+    assert_eq!(map.get(&"e"), Some(&std::f64::consts::E));
     assert_eq!(map.get(&"phi"), Some(&1.61803));
 }
 
@@ -399,7 +399,7 @@ fn test_to_hashmap_float_values() {
 fn test_to_hashmap_distinct_keys_preserves_all() {
     let p = Pipeline::default();
     let pairs: Vec<(i32, String)> = (1..=100)
-        .map(|i| (i, format!("value_{}", i)))
+        .map(|i| (i, format!("value_{i}")))
         .collect();
     let pcoll = from_vec(&p, pairs);
 
@@ -407,7 +407,7 @@ fn test_to_hashmap_distinct_keys_preserves_all() {
 
     assert_eq!(map.len(), 100);
     for i in 1..=100 {
-        assert_eq!(map.get(&i), Some(&format!("value_{}", i)));
+        assert_eq!(map.get(&i), Some(&format!("value_{i}")));
     }
 }
 

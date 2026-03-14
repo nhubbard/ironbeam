@@ -112,7 +112,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     ///
     /// ### Performance & memory
     /// This operation materializes all key-value pairs in memory as a `HashMap`.
-    /// Use this when you need direct HashMap access to the results.
+    /// Use this when you need direct `HashMap` access to the results.
     ///
     /// ### Example
     /// ```no_run
