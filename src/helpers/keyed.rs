@@ -46,6 +46,62 @@ impl<T: RFBound> PCollection<T> {
     {
         self.map(move |t| (key_fn(t), t.clone()))
     }
+
+    /// Assign a constant key to all elements, useful for global grouping.
+    ///
+    /// This helper is especially useful when you want to group all elements
+    /// together under a single key for global aggregations.
+    ///
+    /// ### Types
+    /// * `K`: key type; must be hashable and equatable.
+    /// * `T`: original element type.
+    ///
+    /// ### Example
+    /// ```no_run
+    /// use ironbeam::*;
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let input = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
+    ///
+    /// // Assign constant key "all" to every element
+    /// let keyed = input.with_constant_key("all");
+    /// let grouped = keyed.group_by_key();
+    /// let out = grouped.collect_seq()?; // [("all", vec![1, 2, 3, 4, 5])]
+    /// # Ok(()) }
+    /// ```
+    pub fn with_constant_key<K>(self, key: K) -> PCollection<(K, T)>
+    where
+        K: RFBound + Eq + Hash,
+    {
+        self.map(move |t| (key.clone(), t.clone()))
+    }
+
+    /// Alias for [`key_by`](PCollection::key_by) for Apache Beam familiarity.
+    ///
+    /// This method is identical to `key_by` and is provided for users
+    /// familiar with Apache Beam's `WithKeys` transform.
+    ///
+    /// ### Example
+    /// ```no_run
+    /// use ironbeam::*;
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let words = from_vec(&p, vec!["cat".to_string(), "dog".into(), "bird".into()]);
+    ///
+    /// // Key by string length
+    /// let keyed = words.with_keys(|s: &String| s.len());
+    /// let out = keyed.collect_seq()?; // Vec<(usize, String)>
+    /// # Ok(()) }
+    /// ```
+    pub fn with_keys<K, F>(self, key_fn: F) -> PCollection<(K, T)>
+    where
+        K: RFBound + Eq + Hash,
+        F: 'static + Send + Sync + Fn(&T) -> K,
+    {
+        self.key_by(key_fn)
+    }
 }
 
 impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
