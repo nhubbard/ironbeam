@@ -6,8 +6,11 @@
 //! - [`Sum<T>`] -- sum of values.
 //! - [`Min<T>`] -- minimum value.
 //! - [`Max<T>`] -- maximum value.
+//! - [`Count<T>`] -- count of values.
 //! - [`AverageF64`] -- average as `f64` (values convertible to `f64`).
 //! - [`DistinctCount<T>`] -- count of distinct values.
+//! - [`ToList<T>`] -- collect all values into a `Vec<T>`.
+//! - [`ToSet<T>`] -- collect unique values into a `HashSet<T>`.
 //! - [`TopK<T>`] -- the top-K largest values.
 //! - [`ApproxQuantiles<T>`] -- approximate quantiles/percentiles using t-digest.
 //! - [`ApproxMedian<T>`] -- approximate median using t-digest.
@@ -20,7 +23,7 @@
 //! ```no_run
 //! # use anyhow::Result;
 //! use ironbeam::*;
-//! use ironbeam::combiners::{Sum, Min, Max, AverageF64, DistinctCount, TopK, ApproxQuantiles, ApproxMedian};
+//! use ironbeam::combiners::{Sum, Min, Max, Count, AverageF64, DistinctCount, ToList, ToSet, TopK, ApproxQuantiles, ApproxMedian};
 //!
 //! let p = Pipeline::default();
 //!
@@ -37,6 +40,11 @@
 //!     .combine_values(Max::<u64>::default())
 //!     .collect_seq()?;
 //!
+//! // Count
+//! let cnt = from_vec(&p, vec![("a", 1u64), ("a", 2), ("a", 3)])
+//!     .combine_values(Count::new())
+//!     .collect_seq()?;
+//!
 //! // AverageF64 (values must be Into<f64>)
 //! let avg = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
 //!     .combine_values(AverageF64::default())
@@ -45,6 +53,16 @@
 //! // DistinctCount (values must be Eq + Hash)
 //! let dc = from_vec(&p, vec![("a", 1u32), ("a", 1), ("a", 2)])
 //!     .combine_values(DistinctCount::<u32>::default())
+//!     .collect_seq()?;
+//!
+//! // ToList - collect all values into a Vec
+//! let lst = from_vec(&p, vec![("a", 1u32), ("a", 2), ("b", 3)])
+//!     .combine_values(ToList::new())
+//!     .collect_seq()?;
+//!
+//! // ToSet - collect unique values into a HashSet
+//! let set = from_vec(&p, vec![("a", 1u32), ("a", 1), ("a", 2)])
+//!     .combine_values(ToSet::new())
 //!     .collect_seq()?;
 //!
 //! // TopK (values must be Ord)
@@ -66,6 +84,8 @@
 //! ```
 
 mod basic;
+mod collect;
+mod count;
 mod distinct;
 mod quantiles;
 mod sampling;
@@ -74,6 +94,8 @@ mod topk;
 
 // Re-export all public combiners
 pub use basic::{Max, Min, Sum};
+pub use collect::{ToList, ToSet};
+pub use count::Count;
 pub use distinct::{DistinctCount, DistinctSet, KMVApproxDistinctCount};
 pub use quantiles::{ApproxMedian, ApproxQuantiles, TDigest};
 pub use sampling::PriorityReservoir;
