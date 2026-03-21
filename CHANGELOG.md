@@ -1,3 +1,13 @@
+## [2.4.0](https://github.com/nhubbard/ironbeam/compare/v2.3.0...v2.4.0) (2026-03-21)
+
+### ⚠ BREAKING CHANGES
+
+* None - this is purely additive functionality
+
+### Features
+
+* add Count, ToList, and ToSet combiners ([93c533a](https://github.com/nhubbard/ironbeam/commit/93c533a0a8e2b6af600e72560071838a5a3b9323))
+
 ## [2.3.0](https://github.com/nhubbard/ironbeam/compare/v2.2.0...v2.3.0) (2026-03-21)
 
 ### Features
