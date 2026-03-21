@@ -33,6 +33,8 @@
 //!   - [`PCollection::join_left`](crate::PCollection::join_left)
 //!   - [`PCollection::join_right`](crate::PCollection::join_right)
 //!   - [`PCollection::join_full`](crate::PCollection::join_full)
+//! - [`co_gbk`] - Multi-way `CoGroupByKey` for N-way joins (2-10 collections)
+//!   - [`cogroup_by_key!`](crate::cogroup_by_key) - Macro for N-way full outer joins
 //!
 //! ### Side Inputs
 //! - [`side_inputs`] - Enrich streams with auxiliary data
@@ -175,6 +177,7 @@
 
 pub mod batches;
 pub mod cloud;
+pub mod co_gbk;
 pub mod collect_sorted;
 pub mod combine;
 pub mod combine_global;

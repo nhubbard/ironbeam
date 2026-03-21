@@ -756,6 +756,7 @@ dependencies = [
  "num_cpus",
  "ordered-float 5.1.0",
  "parquet",
+ "paste",
  "postcard",
  "rayon",
  "regex",

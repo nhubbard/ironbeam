@@ -38,6 +38,7 @@ glob = "0.3"
 postcard = { version = "1", features = ["alloc"], optional = true }
 sha2 = { version = "0.10", optional = true }
 regex = "1.12.2"
+paste = "1"
 
 # Optional encoding formats
 csv = { version = "1", optional = true }
