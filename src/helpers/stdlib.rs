@@ -180,8 +180,8 @@ where
 impl<T: RFBound> PCollection<T> {
     /// Filter and transform elements in one step using an `Option`-returning function.
     ///
-    /// This is a convenience method that combines [`filter`](crate::PCollection::filter) and
-    /// [`map`](crate::PCollection::map) into a single operation. Elements are kept when the
+    /// This is a convenience method that combines [`filter`](PCollection::filter) and
+    /// [`map`](PCollection::map) into a single operation. Elements are kept when the
     /// function returns `Some(value)` and discarded when it returns `None`.
     ///
     /// This is particularly useful for:

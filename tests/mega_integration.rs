@@ -882,7 +882,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         // Initialize spilling with a restrictive artificial memory limit
         let spill_config = SpillConfig::new()
             .with_memory_limit(5000) // 5KB - very restrictive for testing
-            .with_spill_directory(tempfile::tempdir()?.path().to_path_buf())
+            .with_spill_directory(tempdir()?.path().to_path_buf())
             .with_min_spill_size(100);
 
         init_spilling(spill_config);

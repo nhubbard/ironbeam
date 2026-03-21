@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 /// A helper to automatically manage memory pressure during pipeline execution.
 ///
-/// This wraps partition operations and automatically spills data to disk when
+/// This wraps partition operations and automatically spills data to persistent storage when
 /// memory limits are exceeded.
 #[cfg(feature = "spilling")]
 pub struct SpillingExecutor {
@@ -60,7 +60,7 @@ impl SpillingExecutor {
         {
             // Attempt to spill the partition we just created
             // downcast consumes the partition, so we handle both success and failure
-            match partition.downcast::<Vec<T>>() {
+            return match partition.downcast::<Vec<T>>() {
                 Ok(vec) => {
                     let mut spillable = SpillablePartition::new(*vec);
                     if spillable.should_spill() {
@@ -68,11 +68,11 @@ impl SpillingExecutor {
                     }
                     // For now, we restore immediately as the runner expects in-memory data
                     // In a full implementation, we'd keep track of spilled partitions
-                    return Ok(Box::new(spillable.into_vec()?) as Partition);
+                    Ok(Box::new(spillable.into_vec()?) as Partition)
                 }
                 Err(original) => {
                     // Type mismatch, return the original partition
-                    return Ok(original);
+                    Ok(original)
                 }
             }
         }

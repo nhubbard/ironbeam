@@ -60,7 +60,7 @@ fn chain_from(p: &Pipeline, terminal: NodeId) -> Result<Vec<Node>> {
 /// `Source` node (as expected by the runner).
 ///
 /// The dummy payload is a `Vec<u8>` of length 1. It does not participate in the
-/// flatten semantics--it's only a structural anchor for the execution plan.
+/// flatten transform's semantics--it's only a structural anchor for the execution plan.
 fn insert_dummy_source(p: &Pipeline) -> NodeId {
     p.insert_node(Node::Source {
         payload: Arc::new(vec![0u8]),
@@ -88,7 +88,7 @@ fn insert_dummy_source(p: &Pipeline) -> NodeId {
 /// A new `PCollection<T>` containing all elements from all input collections
 ///
 /// # Panics
-/// Panics if the chain building operation fails or if types are mismatched.
+/// If the chain building operation fails or if types are mismatched, the function panics.
 ///
 /// # Example
 /// ```no_run
