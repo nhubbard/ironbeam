@@ -1,3 +1,9 @@
+## [2.5.0](https://github.com/nhubbard/ironbeam/compare/v2.4.0...v2.5.0) (2026-03-21)
+
+### Features
+
+* add Latest combiner for timestamped values ([186782f](https://github.com/nhubbard/ironbeam/commit/186782f91af8cfe7424d074d240a1011cc776d36))
+
 ## [2.4.0](https://github.com/nhubbard/ironbeam/compare/v2.3.0...v2.4.0) (2026-03-21)
 
 ### ⚠ BREAKING CHANGES
