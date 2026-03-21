@@ -191,6 +191,7 @@ pub mod flatten;
 pub mod joins;
 pub mod jsonl;
 pub mod keyed;
+pub mod latest;
 pub mod parquet;
 pub mod partition;
 pub mod sampling;

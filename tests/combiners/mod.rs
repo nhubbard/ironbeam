@@ -4,6 +4,7 @@ mod combine_global;
 mod count;
 mod distinct;
 mod integration;
+mod latest;
 mod lifting;
 mod quantiles;
 mod sampling;

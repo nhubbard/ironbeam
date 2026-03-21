@@ -11,6 +11,7 @@
 //! - [`DistinctCount<T>`] -- count of distinct values.
 //! - [`ToList<T>`] -- collect all values into a `Vec<T>`.
 //! - [`ToSet<T>`] -- collect unique values into a `HashSet<T>`.
+//! - [`Latest<T>`] -- select the value with the latest timestamp.
 //! - [`TopK<T>`] -- the top-K largest values.
 //! - [`ApproxQuantiles<T>`] -- approximate quantiles/percentiles using t-digest.
 //! - [`ApproxMedian<T>`] -- approximate median using t-digest.
@@ -23,7 +24,8 @@
 //! ```no_run
 //! # use anyhow::Result;
 //! use ironbeam::*;
-//! use ironbeam::combiners::{Sum, Min, Max, Count, AverageF64, DistinctCount, ToList, ToSet, TopK, ApproxQuantiles, ApproxMedian};
+//! use ironbeam::combiners::{Sum, Min, Max, Count, AverageF64, DistinctCount, ToList, ToSet, Latest, TopK, ApproxQuantiles, ApproxMedian};
+//! use ironbeam::window::Timestamped;
 //!
 //! let p = Pipeline::default();
 //!
@@ -65,6 +67,14 @@
 //!     .combine_values(ToSet::new())
 //!     .collect_seq()?;
 //!
+//! // Latest - select value with latest timestamp
+//! let latest = from_vec(&p, vec![
+//!     ("user", Timestamped::new(100, "login")),
+//!     ("user", Timestamped::new(200, "click"))
+//! ])
+//!     .combine_values(Latest::new())
+//!     .collect_seq()?;
+//!
 //! // TopK (values must be Ord)
 //! let top = from_vec(&p, vec![("a", 3u32), ("a", 7), ("a", 5)])
 //!     .combine_values(TopK::<u32>::new(2))
@@ -87,6 +97,7 @@ mod basic;
 mod collect;
 mod count;
 mod distinct;
+mod latest;
 mod quantiles;
 mod sampling;
 mod statistical;
@@ -97,6 +108,7 @@ pub use basic::{Max, Min, Sum};
 pub use collect::{ToList, ToSet};
 pub use count::Count;
 pub use distinct::{DistinctCount, DistinctSet, KMVApproxDistinctCount};
+pub use latest::Latest;
 pub use quantiles::{ApproxMedian, ApproxQuantiles, TDigest};
 pub use sampling::PriorityReservoir;
 pub use statistical::AverageF64;
