@@ -1,3 +1,9 @@
+## [2.3.0](https://github.com/nhubbard/ironbeam/compare/v2.2.0...v2.3.0) (2026-03-21)
+
+### Features
+
+* Add N-way CoGroupByKey with macro-generated implementations ([d777c32](https://github.com/nhubbard/ironbeam/commit/d777c3266a64a3d0c9b99c1202f730d70d7c7bcc))
+
 ## [2.2.0](https://github.com/nhubbard/ironbeam/compare/v2.1.0...v2.2.0) (2026-03-14)
 
 ### Features
