@@ -40,12 +40,14 @@ jobs:
       - name: Install semantic-release and plugins
         run: npm ci
 
+      - name: Authenticate with crates.io (trusted publishing)
+        id: crates-auth
+        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe  # v1.0.4
+
       - name: Semantic Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # CARGO_REGISTRY_TOKEN is intentionally absent — crates.io trusted publishing
-          # uses the OIDC token from id-token: write above. Configure at:
-          # https://crates.io/settings/tokens/trusted-publishing/new
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
         run: npx semantic-release
 
       - name: Build release artifact for attestation
