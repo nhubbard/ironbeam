@@ -2,8 +2,10 @@ name: CI
 
 on:
   push:
-    branches: ['**']
-  pull_request: {}
+    branches: [ '**' ]
+  pull_request: { }
+
+permissions: { }
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,28 +15,35 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-clippy-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
-          components: clippy
+          persist-credentials: false
+
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --component clippy --no-self-update
+          rustup default nightly
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
@@ -50,13 +59,20 @@ jobs:
     name: Test Suite with Coverage
     runs-on: ubuntu-latest
     environment: main
+    concurrency:
+      group: ${{ github.workflow }}-test-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust (nightly + llvm-tools)
-        uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
-          components: llvm-tools-preview
+          persist-credentials: false
+
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --component llvm-tools-preview --no-self-update
+          rustup default nightly
 
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
@@ -65,19 +81,19 @@ jobs:
         run: cargo install rustfilt
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
@@ -89,7 +105,7 @@ jobs:
         run: rustfilt -i lcov.info -o lcov-demangled.info
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe  # v5
         with:
           files: lcov-demangled.info
           fail_ci_if_error: false
@@ -98,26 +114,35 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-docs-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
-      - name: Install Rust (nightly)
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --no-self-update
+          rustup default nightly
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
@@ -128,26 +153,35 @@ jobs:
   examples:
     name: Examples
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-examples-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
-      - name: Install Rust (nightly)
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --no-self-update
+          rustup default nightly
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
@@ -166,58 +200,36 @@ jobs:
   release:
     name: Semantic Release
     runs-on: ubuntu-latest
-    needs: [clippy, test, docs, examples]
+    needs: [ clippy, test, docs, examples ]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: main
+    concurrency:
+      group: ${{ github.workflow }}-release
+      cancel-in-progress: false
     permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      id-token: write
+      contents: write       # create GitHub releases and push changelog commits
+      issues: write         # comment on issues closed by a release
+      pull-requests: write  # comment on PRs included in a release
+      id-token: write       # request OIDC token for trusted publishing
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install Rust (nightly)
-        uses: dtolnay/rust-toolchain@nightly
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --no-self-update
+          rustup default nightly
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6
         with:
           node-version: 'lts/*'
 
       - name: Install semantic-release and plugins
-        run: |
-          npm install -g \
-            semantic-release@latest \
-            @semantic-release/git@latest \
-            @semantic-release/changelog@latest \
-            @semantic-release/commit-analyzer@latest \
-            @semantic-release/release-notes-generator@latest \
-            @semantic-release/github@latest \
-            @semantic-release-cargo/semantic-release-cargo \
-            conventional-changelog-conventionalcommits@latest
+        run: npm ci
 
       - name: Semantic Release
         env:
