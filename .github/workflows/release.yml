@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    branches: [ main ]
+
+permissions: {}
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    environment: release  # requires manual approval via GitHub environment protection rules
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write       # create GitHub releases and push changelog commits
+      issues: write         # comment on issues closed by a release
+      pull-requests: write  # comment on PRs included in a release
+      id-token: write       # request OIDC token for crates.io trusted publishing
+      attestations: write   # publish build provenance attestations
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --no-self-update
+          rustup default nightly
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6
+        with:
+          node-version: 'lts/*'
+
+      - name: Install semantic-release and plugins
+        run: npm ci
+
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # CARGO_REGISTRY_TOKEN is intentionally absent — crates.io trusted publishing
+          # uses the OIDC token from id-token: write above. Configure at:
+          # https://crates.io/settings/tokens/trusted-publishing/new
+        run: npx semantic-release
+
+      - name: Build release artifact for attestation
+        run: cargo package --no-verify
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2
+        with:
+          subject-path: target/package/*.crate
