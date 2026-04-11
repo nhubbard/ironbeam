@@ -1,3 +1,13 @@
+## [2.7.0](https://github.com/nhubbard/ironbeam/compare/v2.6.0...v2.7.0) (2026-04-11)
+
+### Features
+
+* trigger release workflow after CI passes via workflow_run ([4aa6d54](https://github.com/nhubbard/ironbeam/commit/4aa6d54f0f06797417de86ec2c04ada3293e1484))
+
+### Bug Fixes
+
+* switch release workflow to workflow_dispatch trigger ([fa6f704](https://github.com/nhubbard/ironbeam/commit/fa6f7045b4186470acf08ec612ee0e9948451d96))
+
 ## [2.6.0](https://github.com/nhubbard/ironbeam/compare/v2.5.0...v2.6.0) (2026-04-11)
 
 ### Features
