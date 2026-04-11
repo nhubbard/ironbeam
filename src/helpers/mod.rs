@@ -26,6 +26,20 @@
 //!   - [`PCollection::combine_values_lifted`](crate::PCollection::combine_values_lifted)
 //! - [`combine_global`] - Global aggregations across the entire collection
 //!   - [`PCollection::combine_globally`](crate::PCollection::combine_globally)
+//! - [`basic`] - Arithmetic aggregate convenience methods
+//!   - [`PCollection::sum_globally`](crate::PCollection::sum_globally)
+//!   - [`PCollection::sum_per_key`](crate::PCollection::sum_per_key)
+//!   - [`PCollection::min_globally`](crate::PCollection::min_globally)
+//!   - [`PCollection::min_per_key`](crate::PCollection::min_per_key)
+//!   - [`PCollection::max_globally`](crate::PCollection::max_globally)
+//!   - [`PCollection::max_per_key`](crate::PCollection::max_per_key)
+//!   - [`PCollection::average_globally`](crate::PCollection::average_globally)
+//!   - [`PCollection::average_per_key`](crate::PCollection::average_per_key)
+//! - [`statistical`] - Statistical aggregate convenience methods
+//!   - [`PCollection::approx_median_globally`](crate::PCollection::approx_median_globally)
+//!   - [`PCollection::approx_median_per_key`](crate::PCollection::approx_median_per_key)
+//!   - [`PCollection::approx_quantiles_globally`](crate::PCollection::approx_quantiles_globally)
+//!   - [`PCollection::approx_quantiles_per_key`](crate::PCollection::approx_quantiles_per_key)
 //!
 //! ### Joins
 //! - [`joins`] - Join operations for keyed collections
@@ -44,9 +58,11 @@
 //!   - [`PCollection::filter_with_side`](crate::PCollection::filter_with_side)
 //!
 //! ### Distinct Operations
-//! - [`distinct`] - Remove duplicate elements
+//! - [`distinct`] - Remove duplicate elements and count distinct values
 //!   - [`PCollection::distinct`](crate::PCollection::distinct)
 //!   - [`PCollection::distinct_per_key`](crate::PCollection::distinct_per_key)
+//!   - [`PCollection::distinct_count_globally`](crate::PCollection::distinct_count_globally)
+//!   - [`PCollection::distinct_count_per_key`](crate::PCollection::distinct_count_per_key)
 //!
 //! ### Filter Operations
 //! - [`filter`] - Enhanced filtering with convenience methods
@@ -60,6 +76,13 @@
 //!   - [`PCollection::filter_range_inclusive`](crate::PCollection::filter_range_inclusive)
 //!   - [`PCollection::filter_by`](crate::PCollection::filter_by)
 //!
+//! ### Collection Operations
+//! - [`collect_values`] - Collect elements into `Vec` or `HashSet`
+//!   - [`PCollection::to_list_globally`](crate::PCollection::to_list_globally)
+//!   - [`PCollection::to_set_globally`](crate::PCollection::to_set_globally)
+//!   - [`PCollection::to_list_per_key`](crate::PCollection::to_list_per_key)
+//!   - [`PCollection::to_set_per_key`](crate::PCollection::to_set_per_key)
+//!
 //! ### Sampling
 //! - [`sampling`] - Random sampling operations
 //!   - [`PCollection::sample_reservoir_vec`](crate::PCollection::sample_reservoir_vec)
@@ -68,7 +91,8 @@
 //!   - [`PCollection::sample_values_reservoir`](crate::PCollection::sample_values_reservoir)
 //!
 //! ### Top-K Operations
-//! - [`topk`] - Convenience API for selecting top K values per key
+//! - [`topk`] - Convenience API for selecting top K values globally or per key
+//!   - [`PCollection::top_k_globally`](crate::PCollection::top_k_globally)
 //!   - [`PCollection::top_k_per_key`](crate::PCollection::top_k_per_key)
 //!
 //! ### Error Handling
@@ -175,6 +199,7 @@
 //! - [`combiners`](crate::combiners) - Built-in aggregation functions
 //! - [`Pipeline`](crate::Pipeline) - Pipeline construction
 
+pub mod basic;
 pub mod batches;
 pub mod cloud;
 pub mod co_gbk;
@@ -196,6 +221,7 @@ pub mod parquet;
 pub mod partition;
 pub mod sampling;
 pub mod side_inputs;
+pub mod statistical;
 pub mod stdlib;
 pub mod timestamped;
 pub mod topk;

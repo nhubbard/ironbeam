@@ -1,9 +1,10 @@
-//! Top-K convenience API for selecting the largest values per key.
+//! Top-K convenience API for selecting the largest values globally or per key.
 //!
 //! This module provides ergonomic helpers for selecting the top-K largest values
-//! from keyed collections without needing to explicitly instantiate combiners.
+//! without needing to explicitly instantiate combiner structs.
 //!
 //! ## Available operations
+//! - [`PCollection::top_k_globally`] - Select the top-K largest elements (global)
 //! - [`PCollection::top_k_per_key`](crate::PCollection::top_k_per_key) - Select the top-K largest values per key
 //!
 //! ## Example
@@ -32,6 +33,37 @@ use crate::combiners::TopK;
 use crate::{PCollection, RFBound};
 use std::cmp::Ord;
 use std::hash::Hash;
+
+impl<T: RFBound + Ord> PCollection<T> {
+    /// Select the top-K largest elements globally.
+    ///
+    /// Returns a single `Vec<T>` containing at most `k` elements sorted in
+    /// descending order (largest first). If `k == 0`, produces an empty `Vec`.
+    /// If the collection has fewer than `k` elements, all elements are returned.
+    ///
+    /// # Parameters
+    /// - `k`: the number of largest elements to retain.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let top3 = from_vec(&p, vec![5i32, 2, 8, 1, 9, 3])
+    ///     .top_k_globally(3)
+    ///     .collect_seq()?;
+    /// assert_eq!(top3[0], vec![9i32, 8, 5]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn top_k_globally(self, k: usize) -> PCollection<Vec<T>> {
+        self.combine_globally(TopK::new(k), None)
+    }
+}
 
 impl<K, V> PCollection<(K, V)>
 where

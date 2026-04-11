@@ -1,21 +1,49 @@
-//! Distinct helpers: exact (dedupe) and approximate distinct counts (KMV) for
-//! unkeyed and keyed collections.
+//! Distinct helpers: exact (dedupe) and distinct counts for unkeyed and keyed collections.
 //!
 //! # Overview
 //! - [`PCollection::distinct`](PCollection::distinct) - Remove duplicates globally (exact)
 //! - [`PCollection::distinct_per_key`](crate::PCollection::distinct_per_key) - Remove duplicate values per key (exact)
+//! - [`PCollection::distinct_count_globally`] - Exact count of distinct elements (global)
+//! - [`PCollection::distinct_count_per_key`] - Exact count of distinct values per key
 //! - [`PCollection::approx_distinct_count`](PCollection::approx_distinct_count) - Approximate global cardinality (f64)
 //! - [`PCollection::approx_distinct_count_per_key`](crate::PCollection::approx_distinct_count_per_key) - Approximate cardinality per key
 //!
 //! Exact distinct is implemented with the `DistinctSet<T>` combiner and then
-//! expanded back into an element stream via `flat_map`. Approximate counts use
-//! a KMV estimator (`KMVApproxDistinctCount<T>`).
+//! expanded back into an element stream via `flat_map`. Exact distinct counts use
+//! `DistinctCount<T>` (returns `u64`). Approximate counts use a KMV estimator
+//! (`KMVApproxDistinctCount<T>`).
 
-use crate::combiners::{DistinctSet, KMVApproxDistinctCount};
+use crate::combiners::{DistinctCount, DistinctSet, KMVApproxDistinctCount};
 use crate::{PCollection, RFBound};
 use std::hash::Hash;
 
 impl<T: RFBound + Eq + Hash> PCollection<T> {
+    /// Count the exact number of distinct elements globally.
+    ///
+    /// Unlike [`approx_distinct_count`](Self::approx_distinct_count) (which uses a KMV
+    /// estimator), this method is exact: it collects a `HashSet<T>` over the whole
+    /// collection and returns its length as `u64`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let count = from_vec(&p, vec![1u32, 1, 2, 3, 3, 3])
+    ///     .distinct_count_globally()
+    ///     .collect_seq()?;
+    /// assert_eq!(count, vec![3u64]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn distinct_count_globally(self) -> PCollection<u64> {
+        self.combine_globally(DistinctCount::<T>::new(), None)
+    }
+
     /// Exact global distinct. Removes duplicates across the entire collection.
     ///
     /// Returns a `PCollection<T>` containing each unique element once (order unspecified).
@@ -61,6 +89,38 @@ where
     K: RFBound + Eq + Hash,
     V: RFBound + Eq + Hash,
 {
+    /// Count the exact number of distinct values per key.
+    ///
+    /// Returns `(K, u64)` where the value is the number of unique values seen for
+    /// that key. This is different from
+    /// [`distinct_per_key`](Self::distinct_per_key), which returns the actual
+    /// distinct elements; and from
+    /// [`approx_distinct_count_per_key`](Self::approx_distinct_count_per_key),
+    /// which uses an approximate estimator.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let counts = from_vec(&p, vec![
+    ///     ("a", 1u32), ("a", 1), ("a", 2),
+    ///     ("b", 7u32), ("b", 7),
+    /// ])
+    /// .distinct_count_per_key()
+    /// .collect_seq_sorted()?;
+    /// assert_eq!(counts, vec![("a", 2u64), ("b", 1u64)]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn distinct_count_per_key(self) -> PCollection<(K, u64)> {
+        self.combine_values(DistinctCount::<V>::new())
+    }
+
     /// Exact per-key distinct of values: removes duplicate values for each key.
     ///
     /// Output is a `(K, V)` stream containing only unique `(key, value)` pairs,
