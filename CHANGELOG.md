@@ -1,3 +1,14 @@
+## [2.6.0](https://github.com/nhubbard/ironbeam/compare/v2.5.0...v2.6.0) (2026-04-11)
+
+### Features
+
+* add convenience methods for all combiners (task 2.0) ([e29bf96](https://github.com/nhubbard/ironbeam/commit/e29bf9670f4aac74812e32779a295e0df1586081))
+
+### Bug Fixes
+
+* add crates-io-auth-action for trusted publishing OIDC exchange ([1e3b518](https://github.com/nhubbard/ironbeam/commit/1e3b518a711e57441616e41816c0925aa11fd79e))
+* remove inapplicable artifact attestation from release workflow ([c7f10a7](https://github.com/nhubbard/ironbeam/commit/c7f10a77b67bef3a96d0dbcbb0c0e96e2f0f42ab))
+
 ## [2.5.0](https://github.com/nhubbard/ironbeam/compare/v2.4.0...v2.5.0) (2026-03-21)
 
 ### Features
