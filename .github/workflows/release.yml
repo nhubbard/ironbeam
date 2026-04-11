@@ -1,14 +1,7 @@
 name: Release
 
-on: # zizmor: ignore[dangerous-triggers]
-  # Safe: only triggers on completed CI runs on `main`, never on fork PRs.
-  # Code reaches `main` only after branch protection required CI to pass on
-  # the PR. The release job additionally gates on the `release` environment,
-  # requiring manual approval before any publish occurs.
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+on:
+  workflow_dispatch:
 
 permissions: {}
 
@@ -16,7 +9,6 @@ jobs:
   release:
     name: Semantic Release
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     environment: release  # requires manual approval via GitHub environment protection rules
     concurrency:
       group: release

@@ -196,4 +196,3 @@ jobs:
             echo "Running example: $example_name"
             cargo run --example "$example_name" --all-features || exit 1
           done
-
