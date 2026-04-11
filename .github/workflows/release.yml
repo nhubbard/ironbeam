@@ -19,7 +19,6 @@ jobs:
       issues: write         # comment on issues closed by a release
       pull-requests: write  # comment on PRs included in a release
       id-token: write       # request OIDC token for crates.io trusted publishing
-      attestations: write   # publish build provenance attestations
 
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
@@ -50,10 +49,3 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
         run: npx semantic-release
 
-      - name: Build release artifact for attestation
-        run: cargo package --no-verify
-
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2
-        with:
-          subject-path: target/package/*.crate
