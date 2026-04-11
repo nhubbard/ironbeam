@@ -12,13 +12,16 @@ use std::collections::HashMap;
 #[test]
 fn test_key_by_string_length() {
     let p = Pipeline::default();
-    let words = from_vec(&p, vec![
-        "cat".to_string(),
-        "dog".to_string(),
-        "bird".to_string(),
-        "elephant".to_string(),
-        "ant".to_string(),
-    ]);
+    let words = from_vec(
+        &p,
+        vec![
+            "cat".to_string(),
+            "dog".to_string(),
+            "bird".to_string(),
+            "elephant".to_string(),
+            "ant".to_string(),
+        ],
+    );
 
     let keyed = words.key_by(|s: &String| s.len());
     let mut result = keyed.collect_seq().unwrap();
@@ -124,11 +127,14 @@ fn test_with_constant_key_global_sum() {
 #[test]
 fn test_with_keys_alias() {
     let p = Pipeline::default();
-    let words = from_vec(&p, vec![
-        "apple".to_string(),
-        "apricot".to_string(),
-        "banana".to_string(),
-    ]);
+    let words = from_vec(
+        &p,
+        vec![
+            "apple".to_string(),
+            "apricot".to_string(),
+            "banana".to_string(),
+        ],
+    );
 
     // Use with_keys instead of key_by
     let keyed = words.with_keys(|s: &String| s.chars().next().unwrap());
@@ -153,12 +159,31 @@ fn test_key_by_struct_field() {
     }
 
     let p = Pipeline::default();
-    let people = from_vec(&p, vec![
-        Person { name: "Alice".into(), age: 25, city: "NYC".into() },
-        Person { name: "Bob".into(), age: 30, city: "LA".into() },
-        Person { name: "Carol".into(), age: 35, city: "NYC".into() },
-        Person { name: "David".into(), age: 40, city: "LA".into() },
-    ]);
+    let people = from_vec(
+        &p,
+        vec![
+            Person {
+                name: "Alice".into(),
+                age: 25,
+                city: "NYC".into(),
+            },
+            Person {
+                name: "Bob".into(),
+                age: 30,
+                city: "LA".into(),
+            },
+            Person {
+                name: "Carol".into(),
+                age: 35,
+                city: "NYC".into(),
+            },
+            Person {
+                name: "David".into(),
+                age: 40,
+                city: "LA".into(),
+            },
+        ],
+    );
 
     // Key by city
     let by_city = people.key_by(|p| p.city.clone());
@@ -183,12 +208,27 @@ fn test_key_by_computed_value() {
     }
 
     let p = Pipeline::default();
-    let products = from_vec(&p, vec![
-        Product { name: "Book".into(), price: 15.99 },
-        Product { name: "Pen".into(), price: 2.50 },
-        Product { name: "Laptop".into(), price: 899.99 },
-        Product { name: "Mouse".into(), price: 25.00 },
-    ]);
+    let products = from_vec(
+        &p,
+        vec![
+            Product {
+                name: "Book".into(),
+                price: 15.99,
+            },
+            Product {
+                name: "Pen".into(),
+                price: 2.50,
+            },
+            Product {
+                name: "Laptop".into(),
+                price: 899.99,
+            },
+            Product {
+                name: "Mouse".into(),
+                price: 25.00,
+            },
+        ],
+    );
 
     // Key by price category (cheap < 10, mid < 100, expensive >= 100)
     let by_category = products.key_by(|p| {
@@ -242,18 +282,34 @@ fn test_key_by_option() {
     }
 
     let p = Pipeline::default();
-    let records = from_vec(&p, vec![
-        Record { id: 1, category: Some("A".into()) },
-        Record { id: 2, category: None },
-        Record { id: 3, category: Some("B".into()) },
-        Record { id: 4, category: Some("A".into()) },
-        Record { id: 5, category: None },
-    ]);
+    let records = from_vec(
+        &p,
+        vec![
+            Record {
+                id: 1,
+                category: Some("A".into()),
+            },
+            Record {
+                id: 2,
+                category: None,
+            },
+            Record {
+                id: 3,
+                category: Some("B".into()),
+            },
+            Record {
+                id: 4,
+                category: Some("A".into()),
+            },
+            Record {
+                id: 5,
+                category: None,
+            },
+        ],
+    );
 
     // Key by category, treating None as "unknown"
-    let keyed = records.key_by(|r| {
-        r.category.clone().unwrap_or_else(|| "unknown".to_string())
-    });
+    let keyed = records.key_by(|r| r.category.clone().unwrap_or_else(|| "unknown".to_string()));
 
     let grouped = keyed.group_by_key();
     let result = grouped.collect_seq().unwrap();
@@ -305,12 +361,31 @@ fn test_key_by_composite_key() {
     }
 
     let p = Pipeline::default();
-    let events = from_vec(&p, vec![
-        Event { user_id: 1, region: "US".into(), value: 10 },
-        Event { user_id: 1, region: "EU".into(), value: 20 },
-        Event { user_id: 2, region: "US".into(), value: 15 },
-        Event { user_id: 1, region: "US".into(), value: 5 },
-    ]);
+    let events = from_vec(
+        &p,
+        vec![
+            Event {
+                user_id: 1,
+                region: "US".into(),
+                value: 10,
+            },
+            Event {
+                user_id: 1,
+                region: "EU".into(),
+                value: 20,
+            },
+            Event {
+                user_id: 2,
+                region: "US".into(),
+                value: 15,
+            },
+            Event {
+                user_id: 1,
+                region: "US".into(),
+                value: 5,
+            },
+        ],
+    );
 
     // Key by (user_id, region) tuple
     let keyed = events.key_by(|e| (e.user_id, e.region.clone()));
@@ -393,17 +468,30 @@ fn test_key_by_chaining() {
     }
 
     let p = Pipeline::default();
-    let items = from_vec(&p, vec![
-        Item { category: "A".into(), subcategory: "X".into(), value: 1 },
-        Item { category: "A".into(), subcategory: "Y".into(), value: 2 },
-        Item { category: "B".into(), subcategory: "X".into(), value: 3 },
-    ]);
+    let items = from_vec(
+        &p,
+        vec![
+            Item {
+                category: "A".into(),
+                subcategory: "X".into(),
+                value: 1,
+            },
+            Item {
+                category: "A".into(),
+                subcategory: "Y".into(),
+                value: 2,
+            },
+            Item {
+                category: "B".into(),
+                subcategory: "X".into(),
+                value: 3,
+            },
+        ],
+    );
 
     // First key by category, then by subcategory
     let by_category = items.key_by(|i| i.category.clone());
-    let nested = by_category.map_values(|item| {
-        (item.subcategory.clone(), item.value)
-    });
+    let nested = by_category.map_values(|item| (item.subcategory.clone(), item.value));
 
     let result = nested.group_by_key().collect_seq().unwrap();
     let map: HashMap<_, _> = result.into_iter().collect();
@@ -431,20 +519,33 @@ fn test_key_by_enum() {
     }
 
     let p = Pipeline::default();
-    let tasks = from_vec(&p, vec![
-        Task { id: 1, status: Status::Pending },
-        Task { id: 2, status: Status::Active },
-        Task { id: 3, status: Status::Pending },
-        Task { id: 4, status: Status::Complete },
-    ]);
+    let tasks = from_vec(
+        &p,
+        vec![
+            Task {
+                id: 1,
+                status: Status::Pending,
+            },
+            Task {
+                id: 2,
+                status: Status::Active,
+            },
+            Task {
+                id: 3,
+                status: Status::Pending,
+            },
+            Task {
+                id: 4,
+                status: Status::Complete,
+            },
+        ],
+    );
 
     // Key by status discriminant
-    let keyed = tasks.key_by(|t| {
-        match t.status {
-            Status::Pending => 0,
-            Status::Active => 1,
-            Status::Complete => 2,
-        }
+    let keyed = tasks.key_by(|t| match t.status {
+        Status::Pending => 0,
+        Status::Active => 1,
+        Status::Complete => 2,
     });
 
     let grouped = keyed.group_by_key();

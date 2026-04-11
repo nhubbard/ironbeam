@@ -110,9 +110,6 @@ where
     T: RFBound,
 {
     fn build_from_group(&self, values: &[Timestamped<T>]) -> Option<Timestamped<T>> {
-        values
-            .iter()
-            .max_by_key(|v| v.ts)
-            .cloned()
+        values.iter().max_by_key(|v| v.ts).cloned()
     }
 }

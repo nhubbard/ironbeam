@@ -49,8 +49,8 @@ fn test_latest_per_key_multiple_updates() -> Result<()> {
     assert_eq!(
         latest,
         vec![
-            ("user1", "click"),   // timestamp 200 is latest
-            ("user2", "logout")   // timestamp 300 is latest
+            ("user1", "click"),  // timestamp 200 is latest
+            ("user2", "logout")  // timestamp 300 is latest
         ]
     );
     Ok(())
@@ -102,10 +102,7 @@ fn test_latest_per_key_many_keys() -> Result<()> {
     let mut latest = data.combine_values(Latest::new()).collect_seq()?;
     latest.sort_unstable();
 
-    assert_eq!(
-        latest,
-        vec![("a", "a2"), ("b", "b1"), ("c", "c1")]
-    );
+    assert_eq!(latest, vec![("a", "a2"), ("b", "b1"), ("c", "c1")]);
     Ok(())
 }
 

@@ -11,14 +11,7 @@ fn test_count_then_filter() -> Result<()> {
     let p = Pipeline::default();
     let data = from_vec(
         &p,
-        vec![
-            ("a", 1),
-            ("a", 2),
-            ("b", 3),
-            ("c", 4),
-            ("c", 5),
-            ("c", 6),
-        ],
+        vec![("a", 1), ("a", 2), ("b", 3), ("c", 4), ("c", 5), ("c", 6)],
     );
 
     // Count per key, then filter for keys with count > 1

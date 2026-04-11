@@ -268,32 +268,22 @@ generate_tagged_enum!(10);
 /// ```
 #[macro_export]
 macro_rules! cogroup_by_key {
-    ($c1:expr, $c2:expr) => {{
-        $crate::helpers::co_gbk::cogroup_by_key_2(&$c1, &$c2)
-    }};
-    ($c1:expr, $c2:expr, $c3:expr) => {{
-        $crate::helpers::co_gbk::cogroup_by_key_3(&$c1, &$c2, &$c3)
-    }};
-    ($c1:expr, $c2:expr, $c3:expr, $c4:expr) => {{
-        $crate::helpers::co_gbk::cogroup_by_key_4(&$c1, &$c2, &$c3, &$c4)
-    }};
-    ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr) => {{
-        $crate::helpers::co_gbk::cogroup_by_key_5(&$c1, &$c2, &$c3, &$c4, &$c5)
-    }};
-    ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr, $c6:expr) => {{
-        $crate::helpers::co_gbk::cogroup_by_key_6(&$c1, &$c2, &$c3, &$c4, &$c5, &$c6)
-    }};
-    ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr, $c6:expr, $c7:expr) => {{
-        $crate::helpers::co_gbk::cogroup_by_key_7(&$c1, &$c2, &$c3, &$c4, &$c5, &$c6, &$c7)
-    }};
-    ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr, $c6:expr, $c7:expr, $c8:expr) => {{
-        $crate::helpers::co_gbk::cogroup_by_key_8(&$c1, &$c2, &$c3, &$c4, &$c5, &$c6, &$c7, &$c8)
-    }};
+    ($c1:expr, $c2:expr) => {{ $crate::helpers::co_gbk::cogroup_by_key_2(&$c1, &$c2) }};
+    ($c1:expr, $c2:expr, $c3:expr) => {{ $crate::helpers::co_gbk::cogroup_by_key_3(&$c1, &$c2, &$c3) }};
+    ($c1:expr, $c2:expr, $c3:expr, $c4:expr) => {{ $crate::helpers::co_gbk::cogroup_by_key_4(&$c1, &$c2, &$c3, &$c4) }};
+    ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr) => {{ $crate::helpers::co_gbk::cogroup_by_key_5(&$c1, &$c2, &$c3, &$c4, &$c5) }};
+    ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr, $c6:expr) => {{ $crate::helpers::co_gbk::cogroup_by_key_6(&$c1, &$c2, &$c3, &$c4, &$c5, &$c6) }};
+    ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr, $c6:expr, $c7:expr) => {{ $crate::helpers::co_gbk::cogroup_by_key_7(&$c1, &$c2, &$c3, &$c4, &$c5, &$c6, &$c7) }};
+    ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr, $c6:expr, $c7:expr, $c8:expr) => {{ $crate::helpers::co_gbk::cogroup_by_key_8(&$c1, &$c2, &$c3, &$c4, &$c5, &$c6, &$c7, &$c8) }};
     ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr, $c6:expr, $c7:expr, $c8:expr, $c9:expr) => {{
-        $crate::helpers::co_gbk::cogroup_by_key_9(&$c1, &$c2, &$c3, &$c4, &$c5, &$c6, &$c7, &$c8, &$c9)
+        $crate::helpers::co_gbk::cogroup_by_key_9(
+            &$c1, &$c2, &$c3, &$c4, &$c5, &$c6, &$c7, &$c8, &$c9,
+        )
     }};
     ($c1:expr, $c2:expr, $c3:expr, $c4:expr, $c5:expr, $c6:expr, $c7:expr, $c8:expr, $c9:expr, $c10:expr) => {{
-        $crate::helpers::co_gbk::cogroup_by_key_10(&$c1, &$c2, &$c3, &$c4, &$c5, &$c6, &$c7, &$c8, &$c9, &$c10)
+        $crate::helpers::co_gbk::cogroup_by_key_10(
+            &$c1, &$c2, &$c3, &$c4, &$c5, &$c6, &$c7, &$c8, &$c9, &$c10,
+        )
     }};
 }
 

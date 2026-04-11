@@ -157,12 +157,27 @@ fn test_filter_by_struct_field() {
     }
 
     let p = Pipeline::default();
-    let people = from_vec(&p, vec![
-        Person { name: "Alice".into(), age: 25 },
-        Person { name: "Bob".into(), age: 17 },
-        Person { name: "Carol".into(), age: 30 },
-        Person { name: "David".into(), age: 15 },
-    ]);
+    let people = from_vec(
+        &p,
+        vec![
+            Person {
+                name: "Alice".into(),
+                age: 25,
+            },
+            Person {
+                name: "Bob".into(),
+                age: 17,
+            },
+            Person {
+                name: "Carol".into(),
+                age: 30,
+            },
+            Person {
+                name: "David".into(),
+                age: 15,
+            },
+        ],
+    );
 
     // Filter adults (age >= 18)
     let adults = people.filter_by(|person| person.age, |age| *age >= 18);
@@ -176,13 +191,16 @@ fn test_filter_by_struct_field() {
 #[test]
 fn test_filter_by_computed_value() {
     let p = Pipeline::default();
-    let words = from_vec(&p, vec![
-        "hi".to_string(),
-        "hello".to_string(),
-        "world".to_string(),
-        "rust".to_string(),
-        "programming".to_string(),
-    ]);
+    let words = from_vec(
+        &p,
+        vec![
+            "hi".to_string(),
+            "hello".to_string(),
+            "world".to_string(),
+            "rust".to_string(),
+            "programming".to_string(),
+        ],
+    );
 
     // Find words with length > 4
     let long_words = words.filter_by(String::len, |len| *len > 4);
@@ -202,12 +220,31 @@ fn test_filter_by_complex_struct() {
     }
 
     let p = Pipeline::default();
-    let products = from_vec(&p, vec![
-        Product { name: "Book".into(), price: 15.99, in_stock: true },
-        Product { name: "Pen".into(), price: 2.50, in_stock: true },
-        Product { name: "Laptop".into(), price: 899.99, in_stock: false },
-        Product { name: "Mouse".into(), price: 25.00, in_stock: true },
-    ]);
+    let products = from_vec(
+        &p,
+        vec![
+            Product {
+                name: "Book".into(),
+                price: 15.99,
+                in_stock: true,
+            },
+            Product {
+                name: "Pen".into(),
+                price: 2.50,
+                in_stock: true,
+            },
+            Product {
+                name: "Laptop".into(),
+                price: 899.99,
+                in_stock: false,
+            },
+            Product {
+                name: "Mouse".into(),
+                price: 25.00,
+                in_stock: true,
+            },
+        ],
+    );
 
     // Find affordable products in stock (price < 20 and in_stock)
     let affordable_in_stock = products
@@ -230,10 +267,7 @@ fn test_filter_chaining() {
     let numbers = from_vec(&p, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
     // Chain multiple filters: > 3 and < 8 and != 5
-    let result = numbers
-        .filter_gt(&3)
-        .filter_lt(&8)
-        .filter_ne(&5);
+    let result = numbers.filter_gt(&3).filter_lt(&8).filter_ne(&5);
 
     let mut values = result.collect_seq().unwrap();
     values.sort_unstable();
@@ -283,18 +317,27 @@ fn test_filter_by_option_field() {
     }
 
     let p = Pipeline::default();
-    let records = from_vec(&p, vec![
-        Record { id: 1, value: Some(10) },
-        Record { id: 2, value: None },
-        Record { id: 3, value: Some(20) },
-        Record { id: 4, value: Some(5) },
-    ]);
+    let records = from_vec(
+        &p,
+        vec![
+            Record {
+                id: 1,
+                value: Some(10),
+            },
+            Record { id: 2, value: None },
+            Record {
+                id: 3,
+                value: Some(20),
+            },
+            Record {
+                id: 4,
+                value: Some(5),
+            },
+        ],
+    );
 
     // Filter records with Some value > 7
-    let filtered = records.filter_by(
-        |r| r.value,
-        |opt| opt.is_some() && opt.unwrap() > 7
-    );
+    let filtered = records.filter_by(|r| r.value, |opt| opt.is_some() && opt.unwrap() > 7);
 
     let result = filtered.collect_seq().unwrap();
     assert_eq!(result.len(), 2);
@@ -318,26 +361,35 @@ fn test_filter_by_nested_struct() {
     }
 
     let p = Pipeline::default();
-    let customers = from_vec(&p, vec![
-        Customer {
-            name: "Alice".into(),
-            address: Address { city: "NYC".into(), zip: 10001 }
-        },
-        Customer {
-            name: "Bob".into(),
-            address: Address { city: "LA".into(), zip: 90001 }
-        },
-        Customer {
-            name: "Carol".into(),
-            address: Address { city: "NYC".into(), zip: 10002 }
-        },
-    ]);
+    let customers = from_vec(
+        &p,
+        vec![
+            Customer {
+                name: "Alice".into(),
+                address: Address {
+                    city: "NYC".into(),
+                    zip: 10001,
+                },
+            },
+            Customer {
+                name: "Bob".into(),
+                address: Address {
+                    city: "LA".into(),
+                    zip: 90001,
+                },
+            },
+            Customer {
+                name: "Carol".into(),
+                address: Address {
+                    city: "NYC".into(),
+                    zip: 10002,
+                },
+            },
+        ],
+    );
 
     // Find customers in NYC
-    let nyc_customers = customers.filter_by(
-        |c| c.address.city.clone(),
-        |city| city == "NYC"
-    );
+    let nyc_customers = customers.filter_by(|c| c.address.city.clone(), |city| city == "NYC");
 
     let result = nyc_customers.collect_seq().unwrap();
     assert_eq!(result.len(), 2);
@@ -357,12 +409,27 @@ fn test_filter_by_with_regular_filter() {
     }
 
     let p = Pipeline::default();
-    let scores = from_vec(&p, vec![
-        Score { player: "Alice".into(), points: 100 },
-        Score { player: "Bob".into(), points: 50 },
-        Score { player: "Carol".into(), points: 150 },
-        Score { player: "David".into(), points: 75 },
-    ]);
+    let scores = from_vec(
+        &p,
+        vec![
+            Score {
+                player: "Alice".into(),
+                points: 100,
+            },
+            Score {
+                player: "Bob".into(),
+                points: 50,
+            },
+            Score {
+                player: "Carol".into(),
+                points: 150,
+            },
+            Score {
+                player: "David".into(),
+                points: 75,
+            },
+        ],
+    );
 
     // Filter by points > 60 and name starts with 'A' or 'C'
     let filtered = scores
@@ -421,12 +488,10 @@ fn test_filter_range_negative() {
 #[test]
 fn test_filter_tuples() {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![
-        ("apple", 5),
-        ("banana", 3),
-        ("cherry", 8),
-        ("date", 2),
-    ]);
+    let data = from_vec(
+        &p,
+        vec![("apple", 5), ("banana", 3), ("cherry", 8), ("date", 2)],
+    );
 
     // Filter by second element (count) > 3
     let popular = data.filter_by(|item| item.1, |count| *count > 3);

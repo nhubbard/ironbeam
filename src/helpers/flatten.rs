@@ -111,7 +111,10 @@ pub fn flatten<T>(collections: &[&PCollection<T>]) -> PCollection<T>
 where
     T: RFBound,
 {
-    assert!(!collections.is_empty(), "flatten requires at least one input collection");
+    assert!(
+        !collections.is_empty(),
+        "flatten requires at least one input collection"
+    );
 
     // Use the first collection's pipeline
     let pipeline = &collections[0].pipeline;
@@ -126,9 +129,7 @@ where
     let coalesce = Arc::new(|parts: Vec<Partition>| -> Partition {
         let mut out: Vec<T> = Vec::new();
         for p in parts {
-            let mut v = *p
-                .downcast::<Vec<T>>()
-                .expect("coalesce: wrong type");
+            let mut v = *p.downcast::<Vec<T>>().expect("coalesce: wrong type");
             out.append(&mut v);
         }
         Box::new(out) as Partition
@@ -138,9 +139,7 @@ where
     let merge = Arc::new(|coalesced_inputs: Vec<Partition>| -> Partition {
         let mut result: Vec<T> = Vec::new();
         for p in coalesced_inputs {
-            let mut v = *p
-                .downcast::<Vec<T>>()
-                .expect("merge: wrong type");
+            let mut v = *p.downcast::<Vec<T>>().expect("merge: wrong type");
             result.append(&mut v);
         }
         Box::new(result) as Partition

@@ -4,7 +4,7 @@
 //! N-way full outer joins on multiple keyed collections.
 
 use anyhow::Result;
-use ironbeam::{cogroup_by_key, Pipeline, PCollection, from_vec};
+use ironbeam::{PCollection, Pipeline, cogroup_by_key, from_vec};
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
@@ -77,7 +77,10 @@ fn main() -> Result<()> {
 
     // Custom join logic: Create a report for each user
     let reports = cogroup3.map(|(user_id, (users, orders, addrs))| {
-        let user_name = users.first().cloned().unwrap_or_else(|| "Unknown".to_string());
+        let user_name = users
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "Unknown".to_string());
         let total_orders = orders.iter().sum::<u32>();
         let address = addrs
             .first()
@@ -102,34 +105,22 @@ fn main() -> Result<()> {
     // Example 3: 5-way cogroup - Demonstrating larger N-way joins
     println!("\n=== 5-Way CoGroupByKey Example ===\n");
 
-    let c1: PCollection<(String, String)> = from_vec(
-        &p,
-        vec![("key1".to_string(), "data1".to_string())],
-    );
-    let c2: PCollection<(String, String)> = from_vec(
-        &p,
-        vec![("key1".to_string(), "data2".to_string())],
-    );
-    let c3: PCollection<(String, String)> = from_vec(
-        &p,
-        vec![("key1".to_string(), "data3".to_string())],
-    );
-    let c4: PCollection<(String, String)> = from_vec(
-        &p,
-        vec![("key1".to_string(), "data4".to_string())],
-    );
-    let c5: PCollection<(String, String)> = from_vec(
-        &p,
-        vec![("key1".to_string(), "data5".to_string())],
-    );
+    let c1: PCollection<(String, String)> =
+        from_vec(&p, vec![("key1".to_string(), "data1".to_string())]);
+    let c2: PCollection<(String, String)> =
+        from_vec(&p, vec![("key1".to_string(), "data2".to_string())]);
+    let c3: PCollection<(String, String)> =
+        from_vec(&p, vec![("key1".to_string(), "data3".to_string())]);
+    let c4: PCollection<(String, String)> =
+        from_vec(&p, vec![("key1".to_string(), "data4".to_string())]);
+    let c5: PCollection<(String, String)> =
+        from_vec(&p, vec![("key1".to_string(), "data5".to_string())]);
 
     let cogroup5 = cogroup_by_key!(c1, c2, c3, c4, c5);
 
     println!("5-Way Cogroup Result:");
     for (key, (v1, v2, v3, v4, v5)) in cogroup5.collect_seq()? {
-        println!(
-            "Key: {key}, Values: {v1:?}, {v2:?}, {v3:?}, {v4:?}, {v5:?}"
-        );
+        println!("Key: {key}, Values: {v1:?}, {v2:?}, {v3:?}, {v4:?}, {v5:?}");
     }
 
     // Example 4: Filtering based on cogroup results
@@ -170,7 +161,8 @@ fn main() -> Result<()> {
             let name = names.first()?.clone();
             let total_sales: u32 = sales_list.iter().sum();
             #[allow(clippy::cast_precision_loss)]
-            let avg_rating = f64::from(reviews_list.iter().sum::<u32>()) / reviews_list.len() as f64;
+            let avg_rating =
+                f64::from(reviews_list.iter().sum::<u32>()) / reviews_list.len() as f64;
 
             Some(format!(
                 "{product_id} ({name}): {total_sales} sales, {avg_rating:.1} avg rating"

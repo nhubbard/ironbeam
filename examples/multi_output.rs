@@ -69,7 +69,9 @@ fn main() -> Result<()> {
                 _ => vec![RecordValidation::Valid(log.to_string())],
             }
         } else {
-            vec![RecordValidation::Error(format!("Invalid log format: {log}"))]
+            vec![RecordValidation::Error(format!(
+                "Invalid log format: {log}"
+            ))]
         }
     });
 

@@ -47,10 +47,7 @@ fn test_to_list_single_value_per_key() -> Result<()> {
     let mut lists = data.combine_values(ToList::new()).collect_seq()?;
     lists.sort_by_key(|x| x.0);
 
-    assert_eq!(
-        lists,
-        vec![("a", vec![1]), ("b", vec![2]), ("c", vec![3])]
-    );
+    assert_eq!(lists, vec![("a", vec![1]), ("b", vec![2]), ("c", vec![3])]);
     Ok(())
 }
 

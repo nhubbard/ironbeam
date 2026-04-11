@@ -1,7 +1,7 @@
 //! Comprehensive tests for the flatten transform.
 
-use ironbeam::*;
 use anyhow::Result;
+use ironbeam::*;
 
 /// Test basic 2-way flatten with simple integers
 #[test]
@@ -108,12 +108,15 @@ fn test_flatten_keyed_collections() -> Result<()> {
     let mut result = merged.collect_seq()?;
     result.sort_by_key(|x| x.0.clone());
 
-    assert_eq!(result, vec![
-        ("a".to_string(), 1),
-        ("b".to_string(), 2),
-        ("c".to_string(), 3),
-        ("d".to_string(), 4),
-    ]);
+    assert_eq!(
+        result,
+        vec![
+            ("a".to_string(), 1),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+            ("d".to_string(), 4),
+        ]
+    );
     Ok(())
 }
 
@@ -134,11 +137,14 @@ fn test_flatten_then_group_by_key() -> Result<()> {
     }
     result.sort_by_key(|x| x.0.clone());
 
-    assert_eq!(result, vec![
-        ("a".to_string(), vec![1, 3]),
-        ("b".to_string(), vec![2]),
-        ("c".to_string(), vec![4]),
-    ]);
+    assert_eq!(
+        result,
+        vec![
+            ("a".to_string(), vec![1, 3]),
+            ("b".to_string(), vec![2]),
+            ("c".to_string(), vec![4]),
+        ]
+    );
     Ok(())
 }
 
@@ -245,25 +251,58 @@ fn test_flatten_with_structs() -> Result<()> {
     }
 
     let p = Pipeline::default();
-    let pc1 = from_vec(&p, vec![
-        Record { id: 1, name: "Alice".to_string() },
-        Record { id: 2, name: "Bob".to_string() },
-    ]);
-    let pc2 = from_vec(&p, vec![
-        Record { id: 3, name: "Charlie".to_string() },
-        Record { id: 4, name: "David".to_string() },
-    ]);
+    let pc1 = from_vec(
+        &p,
+        vec![
+            Record {
+                id: 1,
+                name: "Alice".to_string(),
+            },
+            Record {
+                id: 2,
+                name: "Bob".to_string(),
+            },
+        ],
+    );
+    let pc2 = from_vec(
+        &p,
+        vec![
+            Record {
+                id: 3,
+                name: "Charlie".to_string(),
+            },
+            Record {
+                id: 4,
+                name: "David".to_string(),
+            },
+        ],
+    );
 
     let merged = flatten(&[&pc1, &pc2]);
     let mut result = merged.collect_seq()?;
     result.sort_by_key(|r| r.id);
 
-    assert_eq!(result, vec![
-        Record { id: 1, name: "Alice".to_string() },
-        Record { id: 2, name: "Bob".to_string() },
-        Record { id: 3, name: "Charlie".to_string() },
-        Record { id: 4, name: "David".to_string() },
-    ]);
+    assert_eq!(
+        result,
+        vec![
+            Record {
+                id: 1,
+                name: "Alice".to_string()
+            },
+            Record {
+                id: 2,
+                name: "Bob".to_string()
+            },
+            Record {
+                id: 3,
+                name: "Charlie".to_string()
+            },
+            Record {
+                id: 4,
+                name: "David".to_string()
+            },
+        ]
+    );
     Ok(())
 }
 

@@ -9,11 +9,14 @@ use ironbeam::*;
 #[test]
 fn test_to_hashmap_basic() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("a".to_string(), 1u32),
-        ("b".to_string(), 2),
-        ("c".to_string(), 3),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -27,11 +30,14 @@ fn test_to_hashmap_basic() {
 #[test]
 fn test_to_hashmap_numeric_keys() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        (1, "one".to_string()),
-        (2, "two".to_string()),
-        (3, "three".to_string()),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            (1, "one".to_string()),
+            (2, "two".to_string()),
+            (3, "three".to_string()),
+        ],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -45,12 +51,15 @@ fn test_to_hashmap_numeric_keys() {
 #[test]
 fn test_to_hashmap_duplicate_keys() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("a".to_string(), 1),
-        ("b".to_string(), 2),
-        ("a".to_string(), 10), // Duplicate key, should override
-        ("b".to_string(), 20), // Duplicate key, should override
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("b".to_string(), 2),
+            ("a".to_string(), 10), // Duplicate key, should override
+            ("b".to_string(), 20), // Duplicate key, should override
+        ],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -89,12 +98,15 @@ fn test_to_hashmap_single_element() {
 #[test]
 fn test_to_hashmap_after_key_by() {
     let p = Pipeline::default();
-    let words = from_vec(&p, vec![
-        "cat".to_string(),
-        "dog".to_string(),
-        "bird".to_string(),
-        "ant".to_string(),
-    ]);
+    let words = from_vec(
+        &p,
+        vec![
+            "cat".to_string(),
+            "dog".to_string(),
+            "bird".to_string(),
+            "ant".to_string(),
+        ],
+    );
 
     let keyed = words.key_by(|s: &String| s.len());
     let map = keyed.to_hashmap().unwrap();
@@ -110,11 +122,7 @@ fn test_to_hashmap_after_key_by() {
 #[test]
 fn test_to_hashmap_tuple_keys() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ((1, "a"), 100),
-        ((2, "b"), 200),
-        ((1, "b"), 150),
-    ]);
+    let pairs = from_vec(&p, vec![((1, "a"), 100), ((2, "b"), 200), ((1, "b"), 150)]);
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -134,11 +142,32 @@ fn test_to_hashmap_struct_values() {
     }
 
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        (1, Person { name: "Alice".into(), age: 25 }),
-        (2, Person { name: "Bob".into(), age: 30 }),
-        (3, Person { name: "Carol".into(), age: 35 }),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            (
+                1,
+                Person {
+                    name: "Alice".into(),
+                    age: 25,
+                },
+            ),
+            (
+                2,
+                Person {
+                    name: "Bob".into(),
+                    age: 30,
+                },
+            ),
+            (
+                3,
+                Person {
+                    name: "Carol".into(),
+                    age: 35,
+                },
+            ),
+        ],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -167,13 +196,16 @@ fn test_to_hashmap_large_collection() {
 #[test]
 fn test_to_hashmap_unique_keys() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("key1", 10),
-        ("key2", 20),
-        ("key3", 30),
-        ("key4", 40),
-        ("key5", 50),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            ("key1", 10),
+            ("key2", 20),
+            ("key3", 30),
+            ("key4", 40),
+            ("key5", 50),
+        ],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -189,11 +221,7 @@ fn test_to_hashmap_unique_keys() {
 #[test]
 fn test_to_hashmap_option_values() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("a", Some(1)),
-        ("b", None),
-        ("c", Some(3)),
-    ]);
+    let pairs = from_vec(&p, vec![("a", Some(1)), ("b", None), ("c", Some(3))]);
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -207,11 +235,14 @@ fn test_to_hashmap_option_values() {
 #[test]
 fn test_to_hashmap_result_values() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        (1, Ok::<i32, String>(10)),
-        (2, Err::<i32, String>("error".into())),
-        (3, Ok(30)),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            (1, Ok::<i32, String>(10)),
+            (2, Err::<i32, String>("error".into())),
+            (3, Ok(30)),
+        ],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -225,11 +256,10 @@ fn test_to_hashmap_result_values() {
 #[test]
 fn test_to_hashmap_vec_values() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("a", vec![1, 2, 3]),
-        ("b", vec![4, 5]),
-        ("c", vec![6]),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![("a", vec![1, 2, 3]), ("b", vec![4, 5]), ("c", vec![6])],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -243,13 +273,7 @@ fn test_to_hashmap_vec_values() {
 #[test]
 fn test_to_hashmap_after_filter() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("a", 1),
-        ("b", 2),
-        ("c", 3),
-        ("d", 4),
-        ("e", 5),
-    ]);
+    let pairs = from_vec(&p, vec![("a", 1), ("b", 2), ("c", 3), ("d", 4), ("e", 5)]);
 
     let filtered = pairs.filter(|(_, v)| *v % 2 == 0);
     let map = filtered.to_hashmap().unwrap();
@@ -264,11 +288,14 @@ fn test_to_hashmap_after_filter() {
 #[test]
 fn test_to_hashmap_after_map() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("a".to_string(), 1),
-        ("b".to_string(), 2),
-        ("c".to_string(), 3),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    );
 
     let transformed = pairs.map(|(k, v)| (k.clone(), v * 10));
     let map = transformed.to_hashmap().unwrap();
@@ -289,21 +316,48 @@ fn test_to_hashmap_composite_keys() {
     }
 
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        (CompositeKey { region: "US".into(), category: 1 }, 100),
-        (CompositeKey { region: "EU".into(), category: 2 }, 200),
-        (CompositeKey { region: "US".into(), category: 2 }, 150),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            (
+                CompositeKey {
+                    region: "US".into(),
+                    category: 1,
+                },
+                100,
+            ),
+            (
+                CompositeKey {
+                    region: "EU".into(),
+                    category: 2,
+                },
+                200,
+            ),
+            (
+                CompositeKey {
+                    region: "US".into(),
+                    category: 2,
+                },
+                150,
+            ),
+        ],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
     assert_eq!(map.len(), 3);
     assert_eq!(
-        map.get(&CompositeKey { region: "US".into(), category: 1 }),
+        map.get(&CompositeKey {
+            region: "US".into(),
+            category: 1
+        }),
         Some(&100)
     );
     assert_eq!(
-        map.get(&CompositeKey { region: "EU".into(), category: 2 }),
+        map.get(&CompositeKey {
+            region: "EU".into(),
+            category: 2
+        }),
         Some(&200)
     );
 }
@@ -312,10 +366,10 @@ fn test_to_hashmap_composite_keys() {
 #[test]
 fn test_to_hashmap_boolean_keys() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        (true, "yes".to_string()),
-        (false, "no".to_string()),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![(true, "yes".to_string()), (false, "no".to_string())],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -328,11 +382,7 @@ fn test_to_hashmap_boolean_keys() {
 #[test]
 fn test_to_hashmap_char_keys() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ('a', 1),
-        ('b', 2),
-        ('c', 3),
-    ]);
+    let pairs = from_vec(&p, vec![('a', 1), ('b', 2), ('c', 3)]);
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -346,13 +396,7 @@ fn test_to_hashmap_char_keys() {
 #[test]
 fn test_to_hashmap_duplicate_ordering() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("x", 1),
-        ("y", 2),
-        ("x", 3),
-        ("y", 4),
-        ("x", 5),
-    ]);
+    let pairs = from_vec(&p, vec![("x", 1), ("y", 2), ("x", 3), ("y", 4), ("x", 5)]);
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -380,11 +424,14 @@ fn test_to_hashmap_constant_key() {
 #[test]
 fn test_to_hashmap_float_values() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("pi", std::f64::consts::PI),
-        ("e", std::f64::consts::E),
-        ("phi", 1.61803),
-    ]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            ("pi", std::f64::consts::PI),
+            ("e", std::f64::consts::E),
+            ("phi", 1.61803),
+        ],
+    );
 
     let map = pairs.to_hashmap().unwrap();
 
@@ -398,9 +445,7 @@ fn test_to_hashmap_float_values() {
 #[test]
 fn test_to_hashmap_distinct_keys_preserves_all() {
     let p = Pipeline::default();
-    let pairs: Vec<(i32, String)> = (1..=100)
-        .map(|i| (i, format!("value_{i}")))
-        .collect();
+    let pairs: Vec<(i32, String)> = (1..=100).map(|i| (i, format!("value_{i}"))).collect();
     let pcoll = from_vec(&p, pairs);
 
     let map = pcoll.to_hashmap().unwrap();
@@ -431,11 +476,7 @@ fn test_to_hashmap_parallel() {
 #[test]
 fn test_to_hashmap_str_keys() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![
-        ("alpha", 1),
-        ("beta", 2),
-        ("gamma", 3),
-    ]);
+    let pairs = from_vec(&p, vec![("alpha", 1), ("beta", 2), ("gamma", 3)]);
 
     let map = pairs.to_hashmap().unwrap();
 

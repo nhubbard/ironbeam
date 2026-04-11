@@ -74,7 +74,7 @@ impl SpillingExecutor {
                     // Type mismatch, return the original partition
                     Ok(original)
                 }
-            }
+            };
         }
 
         Ok(partition)

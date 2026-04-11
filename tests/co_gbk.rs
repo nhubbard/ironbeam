@@ -1,7 +1,7 @@
 //! Tests for multi-way `CoGroupByKey` operations
 
-use ironbeam::*;
 use anyhow::Result;
+use ironbeam::*;
 
 #[test]
 fn test_cogroup_2_way() -> Result<()> {
@@ -210,16 +210,11 @@ fn test_cogroup_with_custom_join_logic() -> Result<()> {
 
     let orders: PCollection<(String, u32)> = from_vec(
         &p,
-        vec![
-            ("user1".to_string(), 100),
-            ("user1".to_string(), 200),
-        ],
+        vec![("user1".to_string(), 100), ("user1".to_string(), 200)],
     );
 
-    let addresses: PCollection<(String, String)> = from_vec(
-        &p,
-        vec![("user1".to_string(), "123 Main St".to_string())],
-    );
+    let addresses: PCollection<(String, String)> =
+        from_vec(&p, vec![("user1".to_string(), "123 Main St".to_string())]);
 
     let cogroup = cogroup_by_key!(users, orders, addresses);
 
@@ -278,13 +273,8 @@ fn test_cogroup_with_multiple_values_per_key() -> Result<()> {
         ],
     );
 
-    let c2: PCollection<(i32, String)> = from_vec(
-        &p,
-        vec![
-            (1, "b1".to_string()),
-            (1, "b2".to_string()),
-        ],
-    );
+    let c2: PCollection<(i32, String)> =
+        from_vec(&p, vec![(1, "b1".to_string()), (1, "b2".to_string())]);
 
     let result = cogroup_by_key!(c1, c2);
 

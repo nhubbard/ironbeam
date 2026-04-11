@@ -99,13 +99,7 @@ fn test_filter_map_transform() -> Result<()> {
     let data = from_vec(&p, vec![1, 2, 3, 4, 5, 6]);
 
     // Keep only even numbers and double them
-    let result_collection = data.filter_map(|n: &i32| {
-        if n % 2 == 0 {
-            Some(n * 2)
-        } else {
-            None
-        }
-    });
+    let result_collection = data.filter_map(|n: &i32| if n % 2 == 0 { Some(n * 2) } else { None });
 
     let result = result_collection.collect_seq()?;
     assert_eq!(result, vec![4, 8, 12]);
@@ -139,7 +133,11 @@ fn test_manual_partition_two_outputs() -> Result<()> {
 
     assert_eq!(
         good.collect_seq()?,
-        vec!["valid".to_string(), "invalid".to_string(), "good".to_string()]
+        vec![
+            "valid".to_string(),
+            "invalid".to_string(),
+            "good".to_string()
+        ]
     );
     assert_eq!(
         bad.collect_seq()?,
@@ -206,7 +204,11 @@ fn test_partition_macro_two_outputs() -> Result<()> {
 
     assert_eq!(
         good.collect_seq()?,
-        vec!["valid".to_string(), "invalid".to_string(), "good".to_string()]
+        vec![
+            "valid".to_string(),
+            "invalid".to_string(),
+            "good".to_string()
+        ]
     );
     assert_eq!(
         bad.collect_seq()?,
@@ -371,7 +373,11 @@ fn test_partition_empty_variant() -> Result<()> {
 
     assert_eq!(
         good.collect_seq()?,
-        vec!["valid".to_string(), "good".to_string(), "excellent".to_string()]
+        vec![
+            "valid".to_string(),
+            "good".to_string(),
+            "excellent".to_string()
+        ]
     );
     assert_eq!(bad.collect_seq()?, Vec::<String>::new());
     Ok(())
@@ -383,8 +389,7 @@ fn test_partition_all_empty() -> Result<()> {
     let data: Vec<String> = vec![];
     let collection = from_vec(&p, data);
 
-    let classified =
-        collection.flat_map(|s: &String| vec![SimpleOutput::Good(s.clone())]);
+    let classified = collection.flat_map(|s: &String| vec![SimpleOutput::Good(s.clone())]);
 
     partition!(classified, SimpleOutput, {
         Good => good,

@@ -74,12 +74,7 @@ fn test_to_set_all_duplicates() -> Result<()> {
 #[test]
 fn test_to_set_many_unique_values() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(
-        &p,
-        (1..=100)
-            .map(|i| ("key", i))
-            .collect::<Vec<_>>(),
-    );
+    let data = from_vec(&p, (1..=100).map(|i| ("key", i)).collect::<Vec<_>>());
 
     let sets = data.combine_values(ToSet::new()).collect_seq()?;
 

@@ -536,4 +536,3 @@ pub fn test_credentials() -> impl CloudCredentials {
 pub fn test_config() -> impl CloudConfig {
     FakeConfig::default()
 }
-
