@@ -5,11 +5,16 @@ A data processing framework for Rust inspired by Apache Beam and Google Cloud Da
 ## Features
 
 - **Declarative pipeline API** with fluent interface
-- **Stateless operations**: `map`, `filter`, `flat_map`, `map_batches`
+- **Stateless operations**: `map`, `filter`, `flat_map`, `map_batches`, `filter_map`
 - **Stateful operations**: `group_by_key`, `combine_values`, keyed aggregations
-- **Built-in combiners**: Sum, Min, Max, Average, DistinctCount, TopK
+- **Built-in aggregations**: `count_globally`, `count_per_key`, `count_per_element`, `top_k_per_key`, `to_list_per_key`, `to_set_per_key`, `latest_globally`, `latest_per_key`, `sample_reservoir`, `sample_values_reservoir`, `distinct`, `distinct_per_key`, `approx_distinct_count`; lower-level combiners (`Sum`, `Min`, `Max`, `AverageF64`, `ApproxMedian`, `ApproxQuantiles`, `TDigest`) available via `combine_values` / `combine_globally`
+- **Flatten**: merge multiple `PCollection`s of the same type into one
+- **Multi-output / side outputs**: enum-based routing with the `partition!` macro, compile-time type-safe
+- **N-way CoGroupByKey**: `cogroup_by_key!` macro for 2–10 inputs
+- **Enhanced filters**: `filter_eq`, `filter_ne`, `filter_lt`, `filter_le`, `filter_gt`, `filter_ge`, `filter_range`, `filter_range_inclusive`, `filter_by`
+- **Reservoir sampling**: `sample_reservoir` (global) and `sample_values_reservoir` (per-key)
 - **Join support**: inner, left, right, and full outer joins
-- **Side inputs** for enriching streams with auxiliary data
+- **Side inputs** for enriching streams with auxiliary data (Vec and HashMap views)
 - **Sequential and parallel execution** modes
 - **Type-safe** with compile-time correctness
 - **Optional I/O backends**: JSON Lines, CSV, Parquet
@@ -26,14 +31,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ironbeam = "1.0.0"
+ironbeam = "2.5.0"
 ```
 
 By default, all features are enabled. To use a minimal configuration:
 
 ```toml
 [dependencies]
-ironbeam = { version = "1.0.0", default-features = false }
+ironbeam = { version = "2.5.0", default-features = false }
 ```
 
 Available feature flags:
@@ -107,44 +112,127 @@ A `PCollection<T>` represents a distributed collection of elements. Collections 
 
 **Stateful operations** work on keyed data:
 
-- `key_by` - convert to a keyed collection
-- `map_values` - transform values while preserving keys
+- `key_by` / `with_keys` / `with_constant_key` - convert to a keyed collection
+- `map_values` / `filter_values` - transform or filter values while preserving keys
 - `group_by_key` - group values by key
-- `combine_values` - aggregate values per key
+- `combine_values` / `combine_values_lifted` - aggregate values per key
 - `top_k_per_key` - select top K values per key
+- `distinct` / `distinct_per_key` - remove duplicate elements or values
 
 ### Combiners
 
-Combiners provide efficient aggregation. Built-in options include:
+Ironbeam provides convenience methods for common aggregations, plus lower-level combiners for
+use with `combine_values` / `combine_globally`.
 
-- `Count` - count elements
-- `Sum` - sum numeric values
-- `Min` / `Max` - find minimum/maximum
-- `AverageF64` - compute averages
-- `DistinctCount` - count unique values
-- `TopK` - select top K elements
+**Convenience methods (call directly on a collection):**
+- `count_globally()` — total element count → `PCollection<u64>`
+- `count_per_key()` — element count per key → `PCollection<(K, u64)>`
+- `count_per_element()` — frequency of each distinct element → `PCollection<(T, u64)>`
+- `top_k_per_key(k)` — K largest values per key → `PCollection<(K, Vec<V>)>`
+- `to_list_per_key()` — all values per key → `PCollection<(K, Vec<V>)>`
+- `to_set_per_key()` — unique values per key → `PCollection<(K, HashSet<V>)>`
+- `latest_globally()` — value with the latest timestamp → `PCollection<T>`
+- `latest_per_key()` — latest value per key → `PCollection<(K, T)>`
+- `sample_reservoir(k, seed)` — global reservoir sample → `PCollection<T>`
+- `sample_reservoir_vec(k, seed)` — global sample as a single Vec → `PCollection<Vec<T>>`
+- `sample_values_reservoir(k, seed)` — per-key reservoir sample → `PCollection<(K, V)>`
+- `distinct()` — remove global duplicates → `PCollection<T>`
+- `distinct_per_key()` — remove duplicate values per key → `PCollection<(K, V)>`
+- `approx_distinct_count(k)` — estimated cardinality (KMV) → `PCollection<f64>`
+- `approx_distinct_count_per_key(k)` — estimated cardinality per key → `PCollection<(K, f64)>`
+
+**Lower-level combiners for use with `combine_values` / `combine_globally`:**
+- `Sum` / `Min` / `Max` — basic numeric aggregation
+- `AverageF64` — arithmetic mean
+- `ApproxMedian` / `ApproxQuantiles` / `TDigest` — statistical estimators
 
 Custom combiners can be implemented via the `CombineFn` trait.
 
-### Joins
+### Flatten
 
-Keyed collections support all standard join operations:
+Merge multiple `PCollection`s of the same type into one:
 
 ```rust
-let joined = left_collection.join_inner(&right_collection)?;
+let merged = flatten(&[&pc1, &pc2, &pc3]);
 ```
 
-Available methods: `join_inner`, `join_left`, `join_right`, `join_full`.
+### Multi-Output / Side Outputs
+
+Split a collection into multiple typed output streams using enums and the `partition!` macro.
+All output types are checked at compile time:
+
+```rust
+#[derive(Clone)]
+enum ParseResult {
+    Integer(i64),
+    Float(f64),
+    Invalid(String),
+}
+
+let classified = lines.flat_map(|s: &&str| {
+    if let Ok(i) = s.parse::<i64>() { vec![ParseResult::Integer(i)] }
+    else if let Ok(f) = s.parse::<f64>() { vec![ParseResult::Float(f)] }
+    else { vec![ParseResult::Invalid(s.to_string())] }
+});
+
+partition!(classified, ParseResult, {
+    Integer => integers,
+    Float   => floats,
+    Invalid => errors
+});
+// integers, floats, and errors are now independent PCollections
+```
+
+### N-Way CoGroupByKey
+
+Full outer join of N-keyed collections on a shared key type:
+
+```rust
+// cogroup_by_key! supports 2–10 inputs
+let grouped = cogroup_by_key!(users, orders, addresses);
+
+let results = grouped.flat_map(|(user_id, (users, orders, addrs))| {
+    // users: Vec<User>, orders: Vec<Order>, addrs: Vec<Address>
+    vec![...]
+});
+```
+
+### Joins
+
+Two-collection keyed joins:
+
+```rust
+let joined = left.join_inner(&right);
+```
+
+Available: `join_inner`, `join_left`, `join_right`, `join_full`.
 
 ### Side Inputs
 
-Enrich pipelines with auxiliary data:
+Enrich elements with small, broadcast auxiliary data:
 
 ```rust
-let lookup = side_hashmap(&p, my_map);
-data.map_with_side(&lookup, |elem, map| {
-    // Use map to enrich elem
-})
+// Vec side input
+let primes = side_vec(vec![2u32, 3, 5, 7]);
+let flagged = nums.map_with_side(&primes, |n, ps| ps.contains(n));
+
+// HashMap side input (O(1) lookup)
+let lookup = side_hashmap(vec![("a".to_string(), 1u32), ("b".to_string(), 2)]);
+let enriched = data.map_with_side_map(&lookup, |(k, v), m| {
+    (k.clone(), v + m.get(k).copied().unwrap_or(0))
+});
+```
+
+### Sampling
+
+Uniform reservoir sampling, deterministic across sequential and parallel execution:
+
+```rust
+// Sample 1000 elements globally (returns PCollection<Vec<T>>)
+let sample = data.sample_reservoir_vec(1000, /*seed=*/ 42);
+
+// Sample 10 values per key
+let per_key = keyed.sample_values_reservoir(10, 42);
 ```
 
 ### Execution
@@ -250,7 +338,7 @@ println!("Elements processed: {}", metrics.elements_processed);
 
 ### Automatic Memory Spilling
 
-For memory-constrained environments, Ironbeam can automatically spill data to disk when memory limits are exceeded:
+For memory-constrained environments, Ironbeam can automatically spill data to persistent storage when memory limits are exceeded:
 
 ```rust
 use ironbeam::spill::SpillConfig;
@@ -268,7 +356,7 @@ let results = large_dataset
     .collect_seq()?;
 ```
 
-Data is transparently spilled to disk when memory pressure is detected and automatically restored when needed. This allows processing datasets larger than available RAM without manual intervention.
+Data is transparently spilled to persistent storage when memory pressure is detected and automatically restored when needed. This allows processing datasets larger than available RAM without manual intervention.
 
 [Learn more about spilling →](https://github.com/nhubbard/ironbeam/blob/main/src/spill.rs)
 
