@@ -117,7 +117,7 @@ where
     /// let p = Pipeline::default();
     /// let medians = from_vec(&p, vec![("a", 1.0f64), ("a", 3.0), ("b", 10.0)])
     ///     .approx_median_per_key(100.0)
-    ///     .collect_seq_sorted()?;
+    ///     .collect_seq()?;
     /// assert_eq!(medians[0].0, "a");
     /// assert!((medians[0].1 - 2.0).abs() < 1.0);
     /// # Ok(())
