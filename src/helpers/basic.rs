@@ -245,7 +245,7 @@ where
     /// let p = Pipeline::default();
     /// let avgs = from_vec(&p, vec![("a", 1u32), ("a", 3), ("b", 10)])
     ///     .average_per_key()
-    ///     .collect_seq_sorted()?;
+    ///     .collect_seq()?;
     /// assert_eq!(avgs[0].0, "a");
     /// assert!((avgs[0].1 - 2.0).abs() < 1e-12);
     /// assert_eq!(avgs[1].0, "b");
