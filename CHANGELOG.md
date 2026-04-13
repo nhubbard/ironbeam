@@ -1,3 +1,10 @@
+## [2.7.1](https://github.com/nhubbard/ironbeam/compare/v2.7.0...v2.7.1) (2026-04-13)
+
+### Bug Fixes
+
+* Ordered float doctest failure (1/2) ([f039a7d](https://github.com/nhubbard/ironbeam/commit/f039a7df5c26566484da7f3899f681ea40be2aa8))
+* Ordered float doctest failure (2/2) ([dbefbae](https://github.com/nhubbard/ironbeam/commit/dbefbaee2938d8dc4116c077da31c1c907a47c72))
+
 ## [2.7.0](https://github.com/nhubbard/ironbeam/compare/v2.6.0...v2.7.0) (2026-04-11)
 
 ### Features
