@@ -10,7 +10,7 @@
 //!
 //! - **Declarative pipeline API** - chain transformations with a fluent interface
 //! - **Stateless and stateful operations** - `map`, `filter`, `flat_map`, `group_by_key`, `combine`
-//! - **Built-in combiners** - `Sum`, `Min`, `Max`, `Average`, `DistinctCount`, `TopK`, and more
+//! - **Built-in combiners** - `Sum`, `Min`, `Max`, `Average`, `DistinctCount`, `TopK`, `BottomK`, and more
 //! - **Join support** - inner, left, right, and full outer joins
 //! - **Side inputs** - enrich streams with auxiliary data (vectors and hash maps)
 //! - **Batch processing** - optimize CPU-heavy operations with batch transforms
@@ -91,6 +91,7 @@
 //! - [`AverageF64`] - compute averages
 //! - [`DistinctCount`] - count unique values
 //! - [`TopK`] - select top K elements
+//! - [`BottomK`] - select bottom K elements
 //!
 //! You can also implement custom combiners via the [`CombineFn`] trait.
 //!
@@ -542,7 +543,7 @@ pub mod spill_integration;
 
 // General re-exports
 pub use collection::{CombineFn, Count, PCollection, RFBound};
-pub use combiners::{AverageF64, DistinctCount, Max, Min, Sum, TopK};
+pub use combiners::{AverageF64, BottomK, DistinctCount, Max, Min, Sum, TopK};
 pub use helpers::*;
 pub use node_id::NodeId;
 pub use pipeline::Pipeline;

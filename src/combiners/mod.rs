@@ -13,6 +13,7 @@
 //! - [`ToSet<T>`] -- collect unique values into a `HashSet<T>`.
 //! - [`Latest<T>`] -- select the value with the latest timestamp.
 //! - [`TopK<T>`] -- the top-K largest values.
+//! - [`BottomK<T>`] -- the bottom-K smallest values.
 //! - [`ApproxQuantiles<T>`] -- approximate quantiles/percentiles using t-digest.
 //! - [`ApproxMedian<T>`] -- approximate median using t-digest.
 //!
@@ -24,7 +25,7 @@
 //! ```no_run
 //! # use anyhow::Result;
 //! use ironbeam::*;
-//! use ironbeam::combiners::{Sum, Min, Max, Count, AverageF64, DistinctCount, ToList, ToSet, Latest, TopK, ApproxQuantiles, ApproxMedian};
+//! use ironbeam::combiners::{Sum, Min, Max, Count, AverageF64, DistinctCount, ToList, ToSet, Latest, TopK, BottomK, ApproxQuantiles, ApproxMedian};
 //! use ironbeam::window::Timestamped;
 //!
 //! let p = Pipeline::default();
@@ -80,6 +81,11 @@
 //!     .combine_values(TopK::<u32>::new(2))
 //!     .collect_seq()?;
 //!
+//! // BottomK (values must be Ord)
+//! let bot = from_vec(&p, vec![("a", 3u32), ("a", 7), ("a", 5)])
+//!     .combine_values(BottomK::<u32>::new(2))
+//!     .collect_seq()?;
+//!
 //! // Approximate quantiles (values must be Into<f64>)
 //! let quantiles = from_vec(&p, vec![("a", 1.0), ("a", 2.0), ("a", 3.0), ("a", 4.0)])
 //!     .combine_values(ApproxQuantiles::<f64>::new(vec![0.25, 0.5, 0.75], 100.0))
@@ -112,4 +118,4 @@ pub use latest::Latest;
 pub use quantiles::{ApproxMedian, ApproxQuantiles, TDigest};
 pub use sampling::PriorityReservoir;
 pub use statistical::AverageF64;
-pub use topk::TopK;
+pub use topk::{BottomK, TopK};
