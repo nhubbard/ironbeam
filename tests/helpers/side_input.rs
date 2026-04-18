@@ -157,7 +157,7 @@ fn map_with_singleton_scales_all_elements() -> Result<()> {
     let scaled = data.map_with_singleton(&multiplier, |x, m| x * m);
 
     let mut out = scaled.collect_par(Some(2), None)?;
-    out.sort();
+    out.sort_unstable();
     assert_eq!(out, vec![10, 20, 30, 40]);
     Ok(())
 }
@@ -188,7 +188,7 @@ fn filter_with_singleton_threshold() -> Result<()> {
     let above = data.filter_with_singleton(&threshold, |x, t| x > t);
 
     let mut out = above.collect_par(Some(2), None)?;
-    out.sort();
+    out.sort_unstable();
     assert_eq!(out, vec![8, 10]);
     Ok(())
 }
@@ -202,7 +202,7 @@ fn filter_with_singleton_all_pass() -> Result<()> {
     let above = data.filter_with_singleton(&threshold, |x, t| x > t);
 
     let mut out = above.collect_par(Some(2), None)?;
-    out.sort();
+    out.sort_unstable();
     assert_eq!(out, vec![10, 20, 30]);
     Ok(())
 }
@@ -234,8 +234,8 @@ fn singleton_can_be_shared_across_two_collections() -> Result<()> {
 
     let mut out_a = a.collect_par(Some(2), None)?;
     let mut out_b = b.collect_par(Some(2), None)?;
-    out_a.sort();
-    out_b.sort();
+    out_a.sort_unstable();
+    out_b.sort_unstable();
     assert_eq!(out_a, vec![11, 12, 13]);
     assert_eq!(out_b, vec![10, 20, 30]);
     Ok(())
@@ -250,7 +250,7 @@ fn side_multimap_groups_duplicate_keys() {
     let m = side_multimap(vec![("alice", "admin"), ("alice", "user"), ("bob", "user")]);
     let inner = &*m.0;
     let mut alice_tags = inner["alice"].clone();
-    alice_tags.sort();
+    alice_tags.sort_unstable();
     assert_eq!(alice_tags, vec!["admin", "user"]);
     assert_eq!(inner["bob"], vec!["user"]);
 }
@@ -321,7 +321,7 @@ fn filter_with_side_multimap_keeps_users_with_admin_tag() -> Result<()> {
 
     let admins = users.filter_with_side_multimap(&tags, |name, m| {
         m.get(name)
-            .map_or(false, |ts| ts.contains(&"admin".to_string()))
+            .is_some_and(|ts| ts.contains(&"admin".to_string()))
     });
 
     let out = admins.collect_par(Some(2), None)?;
