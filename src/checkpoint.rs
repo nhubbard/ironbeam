@@ -388,14 +388,11 @@ impl CheckpointManager {
 pub fn compute_checksum(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
-    hasher
-        .finalize()
-        .iter()
-        .fold(String::new(), |mut s, b| {
-            use std::fmt::Write;
-            let _ = write!(s, "{b:02x}");
-            s
-        })
+    hasher.finalize().iter().fold(String::new(), |mut s, b| {
+        use std::fmt::Write;
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 /// Generate a stable pipeline ID from the pipeline structure.
@@ -403,14 +400,11 @@ pub fn compute_checksum(data: &[u8]) -> String {
 pub(crate) fn generate_pipeline_id(pipeline_hash: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(pipeline_hash.as_bytes());
-    let hash = hasher
-        .finalize()
-        .iter()
-        .fold(String::new(), |mut s, b| {
-            use std::fmt::Write;
-            let _ = write!(s, "{b:02x}");
-            s
-        });
+    let hash = hasher.finalize().iter().fold(String::new(), |mut s, b| {
+        use std::fmt::Write;
+        let _ = write!(s, "{b:02x}");
+        s
+    });
     hash[..16].to_string()
 }
 
