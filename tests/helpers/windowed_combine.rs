@@ -135,7 +135,7 @@ fn sum_per_window_many_in_one_window() -> Result<()> {
 
     let result = events.sum_per_window(10_000, 0).collect_seq()?;
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].1, 0 + 1 + 2 + 3 + 4);
+    assert_eq!(result[0].1, 1 + 2 + 3 + 4);
     Ok(())
 }
 
@@ -344,7 +344,6 @@ fn average_per_window_single_element() -> Result<()> {
 
 #[test]
 fn average_per_window_three_windows() -> Result<()> {
-    let p = Pipeline::default();
     // Each window: [0,10s)=6 elements summing to 15, so avg=2.5
     //              [10s,20s)=4 elements summing to 16, so avg=4.0
     //              [20s,30s)=1 element =100, avg=100.0
@@ -697,7 +696,7 @@ fn windowed_combine_chain_with_map_values() -> Result<()> {
         .sum_per_window(10_000, 0)
         .map(|(win, total): &(Window, u32)| (win.start, *total))
         .collect_seq()?;
-    result.sort();
+    result.sort_unstable();
 
     assert_eq!(result, vec![(0u64, 3u32), (10_000u64, 10u32)]);
     Ok(())
