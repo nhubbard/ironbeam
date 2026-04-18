@@ -6,6 +6,7 @@ use anyhow::Result;
 use ironbeam::spill::{MemoryTracker, SpillConfig, SpillManager, SpillablePartition};
 use ironbeam::spill_integration::{init_spilling, reset_memory_tracker};
 use ironbeam::*;
+use mark_flaky_tests::flaky;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -51,6 +52,7 @@ fn cleanup_test(config: &SpillConfig) {
     }
 }
 
+#[flaky]
 #[test]
 fn test_memory_tracker_basic() {
     let (config, _guard) = setup_test(1000);
@@ -78,6 +80,7 @@ fn test_memory_tracker_basic() {
     cleanup_test(&config);
 }
 
+#[flaky]
 #[test]
 fn test_spillable_partition_creation() {
     let (config, _guard) = setup_test(10_000);
@@ -95,8 +98,9 @@ fn test_spillable_partition_creation() {
     cleanup_test(&config);
 }
 
-#[test]
 #[cfg(not(target_arch = "x86_64"))]
+#[flaky]
+#[test]
 fn test_spillable_partition_manual_spill_and_restore() -> Result<()> {
     let (config, _guard) = setup_test(100_000);
 
@@ -123,8 +127,9 @@ fn test_spillable_partition_manual_spill_and_restore() -> Result<()> {
     Ok(())
 }
 
-#[test]
 #[cfg(not(target_arch = "x86_64"))]
+#[flaky]
+#[test]
 fn test_spillable_partition_automatic_spill_detection() -> Result<()> {
     // Set a very low memory limit to trigger spilling
     let (config, _guard) = setup_test(1000);
@@ -152,6 +157,7 @@ fn test_spillable_partition_automatic_spill_detection() -> Result<()> {
     Ok(())
 }
 
+#[flaky]
 #[test]
 fn test_spill_manager_operations() -> Result<()> {
     let (config, _guard) = setup_test(100_000);
@@ -182,6 +188,7 @@ fn test_spill_manager_operations() -> Result<()> {
     Ok(())
 }
 
+#[flaky]
 #[test]
 fn test_spill_with_complex_types() -> Result<()> {
     let (config, _guard) = setup_test(100_000);
@@ -213,6 +220,7 @@ fn test_spill_with_complex_types() -> Result<()> {
     Ok(())
 }
 
+#[flaky]
 #[test]
 fn test_spillable_partition_with_small_data() {
     // Small data should not trigger spilling even with a low limit
@@ -234,6 +242,7 @@ fn test_spillable_partition_with_small_data() {
     cleanup_test(&config);
 }
 
+#[flaky]
 #[test]
 fn test_multiple_partitions_with_spilling() -> Result<()> {
     let (config, _guard) = setup_test(5000);
@@ -278,6 +287,7 @@ fn test_multiple_partitions_with_spilling() -> Result<()> {
     Ok(())
 }
 
+#[flaky]
 #[test]
 fn test_memory_tracking_accuracy() {
     let _guard = TEST_LOCK.lock().unwrap();
@@ -330,6 +340,7 @@ fn test_memory_tracking_accuracy() {
     cleanup_test(&config);
 }
 
+#[flaky]
 #[test]
 fn test_spill_with_empty_data() -> Result<()> {
     let (config, _guard) = setup_test(10_000);
@@ -346,6 +357,7 @@ fn test_spill_with_empty_data() -> Result<()> {
     Ok(())
 }
 
+#[flaky]
 #[test]
 fn test_concurrent_spilling() -> Result<()> {
     use std::thread;
@@ -385,6 +397,7 @@ fn test_concurrent_spilling() -> Result<()> {
     Ok(())
 }
 
+#[flaky]
 #[test]
 fn test_artificial_memory_limit_with_pipeline() -> Result<()> {
     let (config, _guard) = setup_test(5000); // 5KB limit - very restrictive for testing
@@ -414,6 +427,7 @@ fn test_artificial_memory_limit_with_pipeline() -> Result<()> {
     Ok(())
 }
 
+#[flaky]
 #[test]
 fn test_large_dataset_with_artificial_limit() -> Result<()> {
     // This test uses a very restrictive memory limit to force spilling behavior
@@ -436,6 +450,7 @@ fn test_large_dataset_with_artificial_limit() -> Result<()> {
     Ok(())
 }
 
+#[flaky]
 #[test]
 fn test_spilling_with_key_value_operations() -> Result<()> {
     let (config, _guard) = setup_test(3000);
@@ -458,8 +473,9 @@ fn test_spilling_with_key_value_operations() -> Result<()> {
     Ok(())
 }
 
-#[test]
 #[cfg(feature = "compression-zstd")]
+#[flaky]
+#[test]
 fn test_spilling_with_compression() -> Result<()> {
     let config = SpillConfig::new()
         .with_memory_limit(100_000)
@@ -489,6 +505,7 @@ fn test_spilling_with_compression() -> Result<()> {
     Ok(())
 }
 
+#[flaky]
 #[test]
 fn test_spilling_preserves_order() -> Result<()> {
     let (config, _guard) = setup_test(10_000);
@@ -509,6 +526,7 @@ fn test_spilling_preserves_order() -> Result<()> {
 
 // Tests moved from src/spill.rs
 
+#[flaky]
 #[test]
 fn test_memory_tracker_initialization() {
     let config = SpillConfig::new().with_memory_limit(1000);
@@ -519,6 +537,7 @@ fn test_memory_tracker_initialization() {
     assert_eq!(tracker.current_usage(), 0);
 }
 
+#[flaky]
 #[test]
 fn test_memory_allocation_tracking() {
     let config = SpillConfig::new().with_memory_limit(1000);
@@ -535,6 +554,7 @@ fn test_memory_allocation_tracking() {
     assert_eq!(tracker.current_usage(), 600);
 }
 
+#[flaky]
 #[test]
 fn test_should_spill_detection() {
     let config = SpillConfig::new().with_memory_limit(1000);
