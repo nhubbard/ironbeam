@@ -55,5 +55,8 @@ xz2 = { version = "0.1", optional = true }
 # Testing dependency, used in testing module and in tests
 tempfile = "3"
 
+[dev-dependencies]
+mark-flaky-tests = "1"
+
 [package.metadata.docs.rs]
 all-features = true
