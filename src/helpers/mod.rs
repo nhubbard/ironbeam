@@ -91,10 +91,12 @@
 //!   - [`PCollection::sample_values_reservoir_vec`](crate::PCollection::sample_values_reservoir_vec)
 //!   - [`PCollection::sample_values_reservoir`](crate::PCollection::sample_values_reservoir)
 //!
-//! ### Top-K Operations
-//! - [`topk`] - Convenience API for selecting top K values globally or per key
+//! ### Top-K / Bottom-K Operations
+//! - [`topk`] - Convenience API for selecting top or bottom K values globally or per key
 //!   - [`PCollection::top_k_globally`](crate::PCollection::top_k_globally)
 //!   - [`PCollection::top_k_per_key`](crate::PCollection::top_k_per_key)
+//!   - [`PCollection::bottom_k_globally`](crate::PCollection::bottom_k_globally)
+//!   - [`PCollection::bottom_k_per_key`](crate::PCollection::bottom_k_per_key)
 //!
 //! ### Error Handling
 //! - [`try_process`] - Fallible transformations
