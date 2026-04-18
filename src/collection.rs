@@ -384,9 +384,23 @@ pub struct SideInput<T: RFBound>(pub Arc<Vec<T>>);
 /// A read-only hash map side input.
 ///
 /// Constructed via helper `side_hashmap(pairs)`, then consumed by
-/// `map_with_side_map`.
+/// `map_with_side_map` / `filter_with_side_map`.
 #[derive(Clone)]
 pub struct SideMap<K: RFBound + Eq + Hash, V: RFBound>(pub Arc<HashMap<K, V>>);
+
+/// A read-only singleton side input — broadcasts a single scalar value to all elements.
+///
+/// Constructed via [`side_singleton`](crate::side_singleton), then consumed by
+/// `map_with_singleton` / `filter_with_singleton`.
+#[derive(Clone)]
+pub struct SideSingleton<T: RFBound>(pub Arc<T>);
+
+/// A read-only multimap side input — maps each key to a `Vec` of associated values.
+///
+/// Constructed via [`side_multimap`](crate::side_multimap), then consumed by
+/// `map_with_side_multimap` / `filter_with_side_multimap`.
+#[derive(Clone)]
+pub struct SideMultimap<K: RFBound + Eq + Hash, V: RFBound>(pub Arc<HashMap<K, Vec<V>>>);
 
 // |---------------------|
 // | Batch map operators |
