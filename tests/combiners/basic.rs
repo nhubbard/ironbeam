@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ironbeam::testing::*;
-use ironbeam::{AverageF64, DistinctCount, Max, Min, Sum, TopK, from_vec};
+use ironbeam::{AverageF64, BottomK, DistinctCount, Max, Min, Sum, TopK, from_vec};
 use std::collections::HashMap;
 
 #[test]
@@ -411,6 +411,123 @@ fn combiners_multiple_keys() -> Result<()> {
     assert_eq!(map.get("a"), Some(&4)); // 1 + 3
     assert_eq!(map.get("b"), Some(&7)); // 2 + 5
     assert_eq!(map.get("c"), Some(&4));
+
+    Ok(())
+}
+
+#[test]
+fn bottomk_basic_and_lifted() -> Result<()> {
+    let p = TestPipeline::new();
+    let vals: Vec<i32> = (0..200).collect();
+    let k = 3usize;
+
+    let bot_direct = from_vec(&p, vals.clone())
+        .key_by(|x| x % 7)
+        .combine_values(BottomK::<i32>::new(k))
+        .collect_par_sorted_by_key(Some(6), None)?;
+
+    let bot_lifted = from_vec(&p, vals)
+        .key_by(|x| x % 7)
+        .group_by_key()
+        .combine_values_lifted(BottomK::<i32>::new(k))
+        .collect_par_sorted_by_key(Some(6), None)?;
+
+    assert_eq!(bot_direct, bot_lifted);
+
+    for (_k, v) in bot_direct {
+        assert!(v.windows(2).all(|w| w[0] <= w[1]));
+        assert!(v.len() <= k);
+    }
+    Ok(())
+}
+
+#[test]
+fn bottomk_edge_cases() -> Result<()> {
+    let p = TestPipeline::new();
+
+    // k = 0
+    let data = vec![("a".to_string(), 5), ("a".to_string(), 3)];
+    let result = from_vec(&p, data)
+        .combine_values(BottomK::<i32>::new(0))
+        .collect_seq()?;
+    assert_eq!(result[0].1.len(), 0);
+
+    // k larger than data
+    let data = vec![("a".to_string(), 5), ("a".to_string(), 3)];
+    let result = from_vec(&p, data)
+        .combine_values(BottomK::<i32>::new(10))
+        .collect_seq()?;
+    assert_eq!(result[0].1.len(), 2);
+
+    // Duplicate values
+    let data: Vec<(String, i32)> = vec![("a".to_string(), 5); 10];
+    let result = from_vec(&p, data)
+        .combine_values(BottomK::<i32>::new(3))
+        .collect_seq()?;
+    assert_eq!(result[0].1.len(), 3);
+    assert!(result[0].1.iter().all(|&x| x == 5));
+
+    // Single element
+    let data = vec![("a".to_string(), 42)];
+    let result = from_vec(&p, data)
+        .combine_values(BottomK::<i32>::new(5))
+        .collect_seq()?;
+    assert_eq!(result[0].1, vec![42]);
+
+    Ok(())
+}
+
+#[test]
+fn bottomk_correctness_large_dataset() -> Result<()> {
+    let p = TestPipeline::new();
+    let data: Vec<(u8, u64)> = (0..1000u32)
+        .map(|i| ((i % 5) as u8, u64::from(i)))
+        .collect();
+
+    let bot10 = from_vec(&p, data)
+        .combine_values(BottomK::<u64>::new(10))
+        .collect_par_sorted_by_key(Some(4), None)?;
+
+    for (key, values) in &bot10 {
+        assert_eq!(values.len(), 10);
+        assert!(values.windows(2).all(|w| w[0] <= w[1]));
+        // Key k has values k, k+5, k+10, ...; smallest 10 are k+0 through k+45
+        let expected_min = u64::from(*key);
+        assert_eq!(values[0], expected_min);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn bottomk_inverse_of_topk() -> Result<()> {
+    let p = TestPipeline::new();
+    let data: Vec<(&str, i32)> = vec![
+        ("a", 10),
+        ("a", 3),
+        ("a", 7),
+        ("a", 1),
+        ("a", 5),
+        ("b", 8),
+        ("b", 2),
+        ("b", 9),
+        ("b", 4),
+        ("b", 6),
+    ];
+
+    let top3 = from_vec(&p, data.clone())
+        .combine_values(TopK::<i32>::new(3))
+        .collect_seq_sorted()?;
+    let bot3 = from_vec(&p, data)
+        .combine_values(BottomK::<i32>::new(3))
+        .collect_seq_sorted()?;
+
+    // Top 3 for "a": [10, 7, 5]; bottom 3 for "a": [1, 3, 5]
+    assert_eq!(top3[0].1, vec![10, 7, 5]);
+    assert_eq!(bot3[0].1, vec![1, 3, 5]);
+    // Top 3 for "b": [9, 8, 6]; bottom 3 for "b": [2, 4, 6]
+    assert_eq!(top3[1].1, vec![9, 8, 6]);
+    assert_eq!(bot3[1].1, vec![2, 4, 6]);
 
     Ok(())
 }
