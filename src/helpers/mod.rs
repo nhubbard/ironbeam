@@ -60,6 +60,7 @@
 //! ### Distinct Operations
 //! - [`distinct`] - Remove duplicate elements and count distinct values
 //!   - [`PCollection::distinct`](crate::PCollection::distinct)
+//!   - [`PCollection::distinct_by`](crate::PCollection::distinct_by)
 //!   - [`PCollection::distinct_per_key`](crate::PCollection::distinct_per_key)
 //!   - [`PCollection::distinct_count_globally`](crate::PCollection::distinct_count_globally)
 //!   - [`PCollection::distinct_count_per_key`](crate::PCollection::distinct_count_per_key)

@@ -13,7 +13,7 @@
 //! 1. Define an enum with variants for each output type
 //! 2. Use [`flat_map`](crate::PCollection::flat_map) to produce the enum
 //! 3. Use [`filter_map`](crate::PCollection::filter_map) to extract each variant
-//! 4. Or use the [`partition!`] macro for convenience
+//! 4. Or use the [`partition!`](macro@crate::partition) macro for convenience
 //!
 //! This approach is:
 //! - **Type-safe**: Enum variants are checked at compile time
@@ -88,7 +88,7 @@
 //!
 //! ### Using the `partition!` Macro (Most Convenient)
 //!
-//! The [`partition!`] macro reduces boilerplate by automatically generating the
+//! The [`partition!`](macro@crate::partition) macro reduces boilerplate by automatically generating the
 //! `filter_map` calls for each variant:
 //!
 //! ```no_run
