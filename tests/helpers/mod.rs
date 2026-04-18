@@ -2,6 +2,7 @@
 mod basic;
 mod batching;
 mod cloud;
+mod distinct;
 mod joins;
 mod parquet;
 mod side_input;

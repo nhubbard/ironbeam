@@ -2,6 +2,7 @@
 //!
 //! # Overview
 //! - [`PCollection::distinct`](PCollection::distinct) - Remove duplicates globally (exact)
+//! - [`PCollection::distinct_by`](PCollection::distinct_by) - Remove duplicates by a computed projection
 //! - [`PCollection::distinct_per_key`](crate::PCollection::distinct_per_key) - Remove duplicate values per key (exact)
 //! - [`PCollection::distinct_count_globally`] - Exact count of distinct elements (global)
 //! - [`PCollection::distinct_count_per_key`] - Exact count of distinct values per key
@@ -81,6 +82,56 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     #[must_use]
     pub fn approx_distinct_count(self, k: usize) -> PCollection<f64> {
         self.combine_globally(KMVApproxDistinctCount::<T>::new(k), None)
+    }
+}
+
+impl<T: RFBound> PCollection<T> {
+    /// Deduplicate elements by a computed projection, keeping one arbitrary element per
+    /// distinct key value.
+    ///
+    /// This differs from [`distinct`](Self::distinct), which requires `T: Eq + Hash` and
+    /// deduplicates the element itself. `distinct_by` lets you project to any hashable key
+    /// and retains one full element for each unique projected value.
+    ///
+    /// The element retained per key is **arbitrary** (determined by processing order).
+    /// If a specific element must be selected, sort or filter before calling this method.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// #[derive(Clone, Debug, PartialEq)]
+    /// struct Event { user_id: u32, payload: String }
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let events = from_vec(&p, vec![
+    ///     Event { user_id: 1, payload: "first".into() },
+    ///     Event { user_id: 1, payload: "second".into() },
+    ///     Event { user_id: 2, payload: "only".into() },
+    /// ]);
+    ///
+    /// // Keep one event per user_id
+    /// let one_per_user = events.distinct_by(|e| e.user_id);
+    /// let mut results = one_per_user.collect_seq()?;
+    /// results.sort_by_key(|e| e.user_id);
+    /// assert_eq!(results.len(), 2);
+    /// assert_eq!(results[0].user_id, 1);
+    /// assert_eq!(results[1].user_id, 2);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn distinct_by<K, F>(self, key_fn: F) -> Self
+    where
+        K: RFBound + Eq + Hash,
+        F: 'static + Send + Sync + Fn(&T) -> K,
+    {
+        self.key_by(key_fn)
+            .group_by_key()
+            .flat_map(|kv: &(K, Vec<T>)| kv.1.iter().take(1).cloned().collect::<Vec<_>>())
     }
 }
 
