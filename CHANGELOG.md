@@ -1,3 +1,18 @@
+## [2.9.0](https://github.com/nhubbard/ironbeam/compare/v2.8.0...v2.9.0) (2026-04-18)
+
+### Features
+
+* **combiners:** add BottomK combiner with bottom_k_per_key and bottom_k_globally helpers (2.3) ([ff5cc1a](https://github.com/nhubbard/ironbeam/commit/ff5cc1aa00c6905d6922b834647b6602a83240ba))
+* **helpers:** add filter_with_side_map, SideSingleton, SideMultimap, and all map/filter variants (2.4) ([3a3818e](https://github.com/nhubbard/ironbeam/commit/3a3818ef32b4f6bdcffa9d324eb4c83499fb7c37))
+
+### Bug Fixes
+
+* **deps:** upgrade sha2 from 0.10 to 0.11 ([6229a97](https://github.com/nhubbard/ironbeam/commit/6229a9746071b75e4b68eefade6aef9cf3243f32))
+
+### Code Refactoring
+
+* **checkpoint:** use fold+write! for hex encoding ([ee4a296](https://github.com/nhubbard/ironbeam/commit/ee4a296b681f7fa6c771a975cedf7e4d9a92e2a7))
+
 ## [2.8.0](https://github.com/nhubbard/ironbeam/compare/v2.7.1...v2.8.0) (2026-04-18)
 
 ### Features
