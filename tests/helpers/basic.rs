@@ -462,3 +462,98 @@ fn min_max_globally_consistent() -> Result<()> {
     assert_eq!(max, 50);
     Ok(())
 }
+
+// ─────────────────────────────── bottom_k_globally ───────────────────────────
+
+#[test]
+fn bottom_k_globally_basic() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, vec![5i32, 2, 8, 1, 9, 3])
+        .bottom_k_globally(3)
+        .collect_seq()?;
+    assert_eq!(result[0], vec![1i32, 2, 3]);
+    Ok(())
+}
+
+#[test]
+fn bottom_k_globally_k_larger_than_collection() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, vec![3i32, 1, 2])
+        .bottom_k_globally(10)
+        .collect_seq()?;
+    assert_eq!(result[0], vec![1i32, 2, 3]);
+    Ok(())
+}
+
+#[test]
+fn bottom_k_globally_k_zero() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, vec![5i32, 2, 8])
+        .bottom_k_globally(0)
+        .collect_seq()?;
+    assert_eq!(result[0], Vec::<i32>::new());
+    Ok(())
+}
+
+#[test]
+fn bottom_k_globally_single_element() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, vec![42i32])
+        .bottom_k_globally(3)
+        .collect_seq()?;
+    assert_eq!(result[0], vec![42i32]);
+    Ok(())
+}
+
+#[test]
+fn bottom_k_globally_matches_manual() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<u32> = (0..100).collect();
+    let result = from_vec(&p, data).bottom_k_globally(5).collect_seq()?;
+    assert_eq!(result[0], vec![0u32, 1, 2, 3, 4]);
+    Ok(())
+}
+
+// ─────────────────────────────── bottom_k_per_key ────────────────────────────
+
+#[test]
+fn bottom_k_per_key_basic() -> Result<()> {
+    let p = Pipeline::default();
+    let data = vec![
+        ("alice", 95),
+        ("alice", 87),
+        ("alice", 92),
+        ("bob", 78),
+        ("bob", 88),
+        ("bob", 82),
+    ];
+
+    let bot2 = from_vec(&p, data)
+        .bottom_k_per_key(2)
+        .collect_seq_sorted()?;
+
+    assert_eq!(bot2.len(), 2);
+    assert_eq!(bot2[0].0, "alice");
+    assert_eq!(bot2[0].1, vec![87, 92]);
+    assert_eq!(bot2[1].0, "bob");
+    assert_eq!(bot2[1].1, vec![78, 82]);
+    Ok(())
+}
+
+#[test]
+fn bottom_k_globally_complements_top_k() -> Result<()> {
+    let p = Pipeline::default();
+    let data: Vec<u32> = (0..20).collect();
+
+    let top5 = from_vec(&p, data.clone()).top_k_globally(5).collect_seq()?;
+    let bot5 = from_vec(&p, data).bottom_k_globally(5).collect_seq()?;
+
+    // Top 5: [19, 18, 17, 16, 15]; Bottom 5: [0, 1, 2, 3, 4]
+    assert_eq!(top5[0], vec![19u32, 18, 17, 16, 15]);
+    assert_eq!(bot5[0], vec![0u32, 1, 2, 3, 4]);
+    // No overlap
+    let top_set: std::collections::HashSet<_> = top5[0].iter().collect();
+    let bot_set: std::collections::HashSet<_> = bot5[0].iter().collect();
+    assert!(top_set.is_disjoint(&bot_set));
+    Ok(())
+}
