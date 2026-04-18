@@ -3,7 +3,7 @@ name: Release
 on:
   workflow_dispatch:
 
-permissions: {}
+permissions: { }
 
 jobs:
   release:
@@ -54,4 +54,3 @@ jobs:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
         run: npx semantic-release
-
