@@ -141,12 +141,34 @@
 //!   - [`OperationBuilder`] - Fluent API for operation configuration
 //!   - [`run_with_context`] - Track execution metadata
 //!
+//! ### Regex Transforms
+//! - [`regex`] - Regex-based transforms for `PCollection<String>`
+//!   - [`PCollection::regex_matches`](crate::PCollection::regex_matches)
+//!   - [`PCollection::regex_extract`](crate::PCollection::regex_extract)
+//!   - [`PCollection::regex_extract_kv`](crate::PCollection::regex_extract_kv)
+//!   - [`PCollection::regex_find`](crate::PCollection::regex_find)
+//!   - [`PCollection::regex_replace_all`](crate::PCollection::regex_replace_all)
+//!   - [`PCollection::regex_split`](crate::PCollection::regex_split)
+//!
 //! ### Windowing
 //! - [`tumbling`] - Tumbling window operations
 //!   - [`PCollection::key_by_window`](crate::PCollection::key_by_window)
 //!   - [`PCollection::group_by_window`](crate::PCollection::group_by_window)
 //!   - [`PCollection::group_by_key_and_window`](crate::PCollection::group_by_key_and_window)
 //! - [`timestamped`] - Timestamp utilities for windowed data
+//! - [`windowed_combine`] - One-call windowed aggregation helpers
+//!   - [`PCollection::combine_per_window`](crate::PCollection::combine_per_window)
+//!   - [`PCollection::sum_per_window`](crate::PCollection::sum_per_window)
+//!   - [`PCollection::count_per_window`](crate::PCollection::count_per_window)
+//!   - [`PCollection::min_per_window`](crate::PCollection::min_per_window)
+//!   - [`PCollection::max_per_window`](crate::PCollection::max_per_window)
+//!   - [`PCollection::average_per_window`](crate::PCollection::average_per_window)
+//!   - [`PCollection::combine_per_key_and_window`](crate::PCollection::combine_per_key_and_window)
+//!   - [`PCollection::sum_per_key_and_window`](crate::PCollection::sum_per_key_and_window)
+//!   - [`PCollection::count_per_key_and_window`](crate::PCollection::count_per_key_and_window)
+//!   - [`PCollection::min_per_key_and_window`](crate::PCollection::min_per_key_and_window)
+//!   - [`PCollection::max_per_key_and_window`](crate::PCollection::max_per_key_and_window)
+//!   - [`PCollection::average_per_key_and_window`](crate::PCollection::average_per_key_and_window)
 //!
 //! ### Standard Library Integration
 //! - [`stdlib`] - Convenience constructors for common sources
@@ -230,6 +252,7 @@ pub mod keyed;
 pub mod latest;
 pub mod parquet;
 pub mod partition;
+pub mod regex;
 pub mod sampling;
 pub mod side_inputs;
 pub mod statistical;
@@ -240,6 +263,7 @@ pub mod try_process;
 pub mod tumbling;
 pub mod validation;
 pub mod values;
+pub mod windowed_combine;
 
 // Only re-export files with top-level functions
 pub use cloud::*;
