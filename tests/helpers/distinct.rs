@@ -17,9 +17,18 @@ fn distinct_by_removes_duplicates_by_field() -> Result<()> {
     let events = from_vec(
         &p,
         vec![
-            Event { user_id: 1, payload: "first".into() },
-            Event { user_id: 1, payload: "second".into() },
-            Event { user_id: 2, payload: "only".into() },
+            Event {
+                user_id: 1,
+                payload: "first".into(),
+            },
+            Event {
+                user_id: 1,
+                payload: "second".into(),
+            },
+            Event {
+                user_id: 2,
+                payload: "only".into(),
+            },
         ],
     );
     let mut result = events.distinct_by(|e| e.user_id).collect_seq()?;
@@ -43,7 +52,13 @@ fn distinct_by_empty_collection() -> Result<()> {
 #[test]
 fn distinct_by_single_element() -> Result<()> {
     let p = Pipeline::default();
-    let events = from_vec(&p, vec![Event { user_id: 42, payload: "hello".into() }]);
+    let events = from_vec(
+        &p,
+        vec![Event {
+            user_id: 42,
+            payload: "hello".into(),
+        }],
+    );
     let result = events.distinct_by(|e| e.user_id).collect_seq()?;
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].user_id, 42);
@@ -56,9 +71,18 @@ fn distinct_by_all_same_key_returns_one() -> Result<()> {
     let events = from_vec(
         &p,
         vec![
-            Event { user_id: 7, payload: "a".into() },
-            Event { user_id: 7, payload: "b".into() },
-            Event { user_id: 7, payload: "c".into() },
+            Event {
+                user_id: 7,
+                payload: "a".into(),
+            },
+            Event {
+                user_id: 7,
+                payload: "b".into(),
+            },
+            Event {
+                user_id: 7,
+                payload: "c".into(),
+            },
         ],
     );
     let result = events.distinct_by(|e| e.user_id).collect_seq()?;
@@ -73,9 +97,18 @@ fn distinct_by_all_unique_keys_passes_all_through() -> Result<()> {
     let events = from_vec(
         &p,
         vec![
-            Event { user_id: 1, payload: "a".into() },
-            Event { user_id: 2, payload: "b".into() },
-            Event { user_id: 3, payload: "c".into() },
+            Event {
+                user_id: 1,
+                payload: "a".into(),
+            },
+            Event {
+                user_id: 2,
+                payload: "b".into(),
+            },
+            Event {
+                user_id: 3,
+                payload: "c".into(),
+            },
         ],
     );
     let mut result = events.distinct_by(|e| e.user_id).collect_seq()?;
@@ -91,7 +124,10 @@ fn distinct_by_all_unique_keys_passes_all_through() -> Result<()> {
 fn distinct_by_string_key_projection() -> Result<()> {
     let p = Pipeline::default();
     // Deduplicate by first character of a string
-    let words = from_vec(&p, vec!["apple", "avocado", "banana", "blueberry", "cherry"]);
+    let words = from_vec(
+        &p,
+        vec!["apple", "avocado", "banana", "blueberry", "cherry"],
+    );
     let result_count = words
         .distinct_by(|w: &&str| w.chars().next().unwrap())
         .collect_seq()?
@@ -117,7 +153,10 @@ fn distinct_by_large_collection() -> Result<()> {
     let p = Pipeline::default();
     // 1000 elements, 10 distinct keys (0..10 cycling)
     let data: Vec<u32> = (0..1000).collect();
-    let result_count = from_vec(&p, data).distinct_by(|n| n % 10).collect_seq()?.len();
+    let result_count = from_vec(&p, data)
+        .distinct_by(|n| n % 10)
+        .collect_seq()?
+        .len();
     assert_eq!(result_count, 10);
     Ok(())
 }
@@ -128,8 +167,14 @@ fn distinct_by_retains_full_element_not_just_key() -> Result<()> {
     let events = from_vec(
         &p,
         vec![
-            Event { user_id: 5, payload: "payload_a".into() },
-            Event { user_id: 5, payload: "payload_b".into() },
+            Event {
+                user_id: 5,
+                payload: "payload_a".into(),
+            },
+            Event {
+                user_id: 5,
+                payload: "payload_b".into(),
+            },
         ],
     );
     let result = events.distinct_by(|e| e.user_id).collect_seq()?;

@@ -388,7 +388,11 @@ impl CheckpointManager {
 pub fn compute_checksum(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
-    format!("{:x}", hasher.finalize())
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Generate a stable pipeline ID from the pipeline structure.
@@ -396,7 +400,12 @@ pub fn compute_checksum(data: &[u8]) -> String {
 pub(crate) fn generate_pipeline_id(pipeline_hash: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(pipeline_hash.as_bytes());
-    format!("{:x}", hasher.finalize())[..16].to_string()
+    let hash: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    hash[..16].to_string()
 }
 
 /// Get current timestamp in milliseconds since epoch.
