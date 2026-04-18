@@ -1,3 +1,9 @@
+## [2.8.0](https://github.com/nhubbard/ironbeam/compare/v2.7.1...v2.8.0) (2026-04-18)
+
+### Features
+
+* **helpers:** add distinct_by for deduplication by projection (2.2) ([bc27a8f](https://github.com/nhubbard/ironbeam/commit/bc27a8fe8abda8dbb8441d332513288989c8311d))
+
 ## [2.7.1](https://github.com/nhubbard/ironbeam/compare/v2.7.0...v2.7.1) (2026-04-13)
 
 ### Bug Fixes
