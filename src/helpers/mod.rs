@@ -54,8 +54,16 @@
 //! - [`side_inputs`] - Enrich streams with auxiliary data
 //!   - [`side_vec`] - Create a side input from a vector
 //!   - [`side_hashmap`] - Create a side input from a hash map
+//!   - [`side_singleton`] - Broadcast a single scalar value to all workers
+//!   - [`side_multimap`] - Create a one-to-many side input (`HashMap<K, Vec<V>>`)
 //!   - [`PCollection::map_with_side`](crate::PCollection::map_with_side)
 //!   - [`PCollection::filter_with_side`](crate::PCollection::filter_with_side)
+//!   - [`PCollection::map_with_side_map`](crate::PCollection::map_with_side_map)
+//!   - [`PCollection::filter_with_side_map`](crate::PCollection::filter_with_side_map)
+//!   - [`PCollection::map_with_singleton`](crate::PCollection::map_with_singleton)
+//!   - [`PCollection::filter_with_singleton`](crate::PCollection::filter_with_singleton)
+//!   - [`PCollection::map_with_side_multimap`](crate::PCollection::map_with_side_multimap)
+//!   - [`PCollection::filter_with_side_multimap`](crate::PCollection::filter_with_side_multimap)
 //!
 //! ### Distinct Operations
 //! - [`distinct`] - Remove duplicate elements and count distinct values
