@@ -7,12 +7,13 @@ description = "A batch processing clone of Apache Beam in Rust."
 repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
-default = ["io-jsonl", "io-csv", "io-parquet", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling"]
+default = ["io-jsonl", "io-csv", "io-parquet", "io-avro", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling"]
 
 # IO backends
 io-jsonl = []
 io-csv = ["dep:csv"]
 io-parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow"]
+io-avro = ["dep:apache-avro"]
 
 # Compression codecs (pluggable)
 compression-gzip = ["dep:flate2"]
@@ -41,6 +42,7 @@ regex = "1.12.2"
 paste = "1"
 
 # Optional encoding formats
+apache-avro = { version = "0.21", optional = true }
 csv = { version = "1", optional = true }
 arrow = { version = "58", optional = true }
 parquet = { version = "58", optional = true }

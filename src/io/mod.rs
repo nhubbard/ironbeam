@@ -31,6 +31,14 @@
 //! - **Streaming**: [`ParquetShards`](parquet::ParquetShards), [`build_parquet_shards`](parquet::build_parquet_shards)
 //! - **Note**: Uses Arrow 56 and `serde_arrow` 0.13 for schema inference
 //!
+//! ### Avro (feature: `io-avro`)
+//! - **Module**: [`avro`]
+//! - **Format**: Apache Avro binary serialization
+//! - **Vector I/O**: [`read_avro_vec`](avro::read_avro_vec), [`write_avro_vec`](avro::write_avro_vec)
+//!   (note: schema must be provided as a string)
+//! - **Streaming**: [`AvroShards`](avro::AvroShards), [`build_avro_shards`](avro::build_avro_shards)
+//! - **Note**: Compression support for gzip, zstd, bzip2, xz
+//!
 //! ## Architecture
 //!
 //! ### Vector I/O Pattern
@@ -202,6 +210,10 @@ pub mod csv;
 #[cfg_attr(docsrs, doc(cfg(feature = "io-parquet")))]
 #[cfg(feature = "io-parquet")]
 pub mod parquet;
+
+#[cfg_attr(docsrs, doc(cfg(feature = "io-avro")))]
+#[cfg(feature = "io-avro")]
+pub mod avro;
 
 pub mod cloud;
 pub mod compression;

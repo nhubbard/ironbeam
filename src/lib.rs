@@ -15,7 +15,7 @@
 //! - **Side inputs** - enrich streams with auxiliary data (vectors and hash maps)
 //! - **Batch processing** - optimize CPU-heavy operations with batch transforms
 //! - **Sequential and parallel execution** - choose the right mode for your workload
-//! - **I/O integrations** - JSON Lines, CSV, and Parquet (all optional via feature flags)
+//! - **I/O integrations** - JSON Lines, CSV, Parquet, and Avro (all optional via feature flags)
 //! - **Type-safe** - leverages Rust's type system for compile-time correctness
 //!
 //! ## Quick Start
@@ -589,3 +589,12 @@ pub use helpers::csv::read_csv_streaming;
 pub use helpers::jsonl::read_jsonl;
 #[cfg(feature = "io-parquet")]
 pub use helpers::parquet::read_parquet_streaming;
+
+#[cfg(feature = "io-avro")]
+pub use io::avro::{read_avro_vec, write_avro_vec};
+
+#[cfg(feature = "io-avro")]
+pub use helpers::avro::{read_avro, read_avro_streaming};
+
+#[cfg(all(feature = "io-avro", feature = "parallel-io"))]
+pub use io::avro::write_avro_par;
