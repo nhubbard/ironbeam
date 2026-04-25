@@ -130,6 +130,11 @@
 //! - [`parquet`] - Parquet I/O utilities (feature: `io-parquet`)
 //!   - [`read_parquet_streaming`]
 //!   - [`PCollection::write_parquet`](crate::PCollection::write_parquet)
+//! - [`avro`] - Avro I/O utilities (feature: `io-avro`)
+//!   - [`read_avro`]
+//!   - [`read_avro_streaming`]
+//!   - [`PCollection::write_avro_with_schema`](crate::PCollection::write_avro_with_schema)
+//!   - [`PCollection::write_avro_par`](crate::PCollection::write_avro_par)
 //!
 //! ### Cloud Operations
 //! - [`cloud`] - Helpers for running custom cloud operations
@@ -232,6 +237,7 @@
 //! - [`combiners`](crate::combiners) - Built-in aggregation functions
 //! - [`Pipeline`](crate::Pipeline) - Pipeline construction
 
+pub mod avro;
 pub mod basic;
 pub mod batches;
 pub mod cloud;
@@ -266,6 +272,7 @@ pub mod values;
 pub mod windowed_combine;
 
 // Only re-export files with top-level functions
+pub use avro::*;
 pub use cloud::*;
 pub use csv::*;
 pub use flatten::*;
