@@ -1316,17 +1316,17 @@ fn test_read_avro_glob_concatenation_order() -> Result<()> {
 
     // Write files in reverse order so creation order ≠ sort order
     write_avro_vec(
-        &temp_dir.path().join("c.avro"),
+        temp_dir.path().join("c.avro"),
         &[SimpleRecord { k: "c".into(), v: 3 }],
         SIMPLE_RECORD_SCHEMA,
     )?;
     write_avro_vec(
-        &temp_dir.path().join("a.avro"),
+        temp_dir.path().join("a.avro"),
         &[SimpleRecord { k: "a".into(), v: 1 }],
         SIMPLE_RECORD_SCHEMA,
     )?;
     write_avro_vec(
-        &temp_dir.path().join("b.avro"),
+        temp_dir.path().join("b.avro"),
         &[SimpleRecord { k: "b".into(), v: 2 }],
         SIMPLE_RECORD_SCHEMA,
     )?;
