@@ -1,3 +1,20 @@
+## [2.10.0](https://github.com/nhubbard/ironbeam/compare/v2.9.0...v2.10.0) (2026-04-25)
+
+### Features
+
+* **helpers:** add read_avro/write_avro pipeline helpers with glob support ([8a80976](https://github.com/nhubbard/ironbeam/commit/8a80976158848c2b010ca8aa74b7bd39d35eb758))
+* **helpers:** add regex transforms and windowed combining helpers (2.5 + 2.5b) ([773cf01](https://github.com/nhubbard/ironbeam/commit/773cf01506042b4b0616b2c26fda34f0c8bcd6bc))
+* **io:** add Avro I/O layer with streaming shards and parallel write ([4e201b6](https://github.com/nhubbard/ironbeam/commit/4e201b6c68110590b008f8099a19dc9d3723bce6))
+* register io-avro feature and export Avro helpers ([cdd0c2b](https://github.com/nhubbard/ironbeam/commit/cdd0c2bec23bffd33322a7a651857f530c290155))
+
+### Bug Fixes
+
+* **test:** Correct Clippy failures ([000cb02](https://github.com/nhubbard/ironbeam/commit/000cb02292ecf31c4dd60b712df90d3ed2da9a66))
+
+### Documentation
+
+* mark 2.5 and 2.5b as complete in feature parity plan ([8ca8fad](https://github.com/nhubbard/ironbeam/commit/8ca8fad26ee37ba3b427c9979b44d2b845edf395))
+
 ## [2.9.0](https://github.com/nhubbard/ironbeam/compare/v2.8.0...v2.9.0) (2026-04-18)
 
 ### Features
