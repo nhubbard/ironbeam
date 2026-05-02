@@ -500,9 +500,9 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                 coalesce,
                 merge,
             } => {
-                // Execute each subplan in parallel and coalesce
+                // Run each branch concurrently via Rayon; Result propagation via collect.
                 let coalesced_inputs: Vec<Partition> = chains
-                    .iter()
+                    .par_iter()
                     .map(|chain| {
                         let parts = run_subplan_par(chain, partitions)?;
                         Ok(if parts.len() == 1 {
@@ -522,9 +522,16 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                 coalesce_right,
                 exec,
             } => {
-                // Execute left/right subplans in parallel; coalesce when necessary.
-                let left_parts = run_subplan_par(&(**left_chain).clone(), partitions)?;
-                let right_parts = run_subplan_par(&(**right_chain).clone(), partitions)?;
+                // Run both subplans concurrently via rayon::join (same thread pool,
+                // no oversubscription). Results are propagated after the join.
+                let lc = (**left_chain).clone();
+                let rc = (**right_chain).clone();
+                let (left_result, right_result) = rayon::join(
+                    || run_subplan_par(&lc, partitions),
+                    || run_subplan_par(&rc, partitions),
+                );
+                let left_parts = left_result?;
+                let right_parts = right_result?;
 
                 let left_single = if left_parts.len() == 1 {
                     left_parts.into_iter().next().unwrap()

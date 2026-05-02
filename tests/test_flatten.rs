@@ -324,6 +324,20 @@ fn test_flatten_with_combine() -> Result<()> {
     Ok(())
 }
 
+/// Verify that flatten branches run correctly when branches execute concurrently.
+/// This specifically exercises the par_iter path in exec_par's Flatten arm.
+#[test]
+fn flatten_branches_produce_correct_result_in_parallel() -> Result<()> {
+    let p = Pipeline::default();
+    let a = from_vec(&p, vec![1u32, 2, 3]);
+    let b = from_vec(&p, vec![4u32, 5, 6]);
+    let c = from_vec(&p, vec![7u32, 8, 9]);
+    let mut out = flatten(&[&a, &b, &c]).collect_par(None, Some(4))?;
+    out.sort_unstable();
+    assert_eq!(out, (1u32..=9).collect::<Vec<_>>());
+    Ok(())
+}
+
 /// Test flatten followed by distinct
 #[test]
 fn test_flatten_then_distinct() -> Result<()> {
