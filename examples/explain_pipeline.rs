@@ -107,6 +107,9 @@ fn example_with_optimizations() -> Result<()> {
             OptimizationDecision::DroppedMidMaterialized { count } => {
                 println!("✓ Dropped {count} mid-pipeline materialized nodes");
             }
+            OptimizationDecision::PushedDownPredicates { ops_pushed } => {
+                println!("✓ Pushed {ops_pushed} cardinality-reducing op(s) before GroupByKey");
+            }
             OptimizationDecision::PartitionSuggestion {
                 source_len,
                 partitions,

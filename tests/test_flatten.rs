@@ -325,7 +325,7 @@ fn test_flatten_with_combine() -> Result<()> {
 }
 
 /// Verify that flatten branches run correctly when branches execute concurrently.
-/// This specifically exercises the par_iter path in exec_par's Flatten arm.
+/// This specifically exercises the `par_iter` path in `exec_par`'s Flatten arm.
 #[test]
 fn flatten_branches_produce_correct_result_in_parallel() -> Result<()> {
     let p = Pipeline::default();

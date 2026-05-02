@@ -45,8 +45,8 @@ fn inner_join_basic_seq_par() -> Result<()> {
     Ok(())
 }
 
-/// Verify that CoGroup left/right branches execute correctly when run concurrently
-/// via rayon::join. This exercises the parallel CoGroup arm in exec_par.
+/// Verify that `CoGroup` left/right branches execute correctly when run concurrently
+/// via `rayon::join`. This exercises the parallel `CoGroup` arm in `exec_par`.
 #[test]
 fn join_branches_produce_correct_result_in_parallel() -> Result<()> {
     let p = Pipeline::default();

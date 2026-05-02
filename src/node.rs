@@ -43,6 +43,9 @@ use std::sync::Arc;
 /// - [`Self::reorder_safe_with_value_only`] -- returns `true` if reordering across
 ///   other `value_only` ops is semantics-preserving.
 /// - [`Self::cost_hint`] -- small heuristic cost (smaller often scheduled earlier).
+/// - [`Self::cardinality_reducing`] -- returns `true` if the op can only reduce or
+///   preserve element count (never increases it). Used by the predicate-pushdown pass
+///   to identify ops safe to hoist before a `GroupByKey` barrier.
 pub trait DynOp: Send + Sync {
     /// Apply the operator to a single partition.
     fn apply(&self, input: Partition) -> Partition;
@@ -65,6 +68,15 @@ pub trait DynOp: Send + Sync {
     /// Small cost hint to help local op ordering (lower is "cheaper").
     fn cost_hint(&self) -> u8 {
         10
+    }
+
+    /// True if the op can only reduce or preserve element count (never increases it).
+    ///
+    /// Combined with [`Self::key_preserving`] and [`Self::value_only`], this flag
+    /// gates the predicate-pushdown planner pass: ops that satisfy all three may be
+    /// hoisted before a `GroupByKey` barrier, shrinking the GBK input.
+    fn cardinality_reducing(&self) -> bool {
+        false
     }
 }
 
