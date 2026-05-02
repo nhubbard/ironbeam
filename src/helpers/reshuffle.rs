@@ -2,14 +2,14 @@
 //!
 //! # Overview
 //!
-//! [`PCollection::reshuffle`] inserts a [`Node::Reshuffle`](Node::Reshuffle) barrier that:
+//! [`PCollection::reshuffle`] inserts a [`Node::Reshuffle`] barrier that:
 //!
 //! 1. **Forces materialization** — all elements are collected from every current partition
 //!    before any downstream operator runs.
 //! 2. **Re-distributes elements** — elements are re-partitioned evenly across the runner's
 //!    configured partition count (one or more partitions per CPU core by default), restoring
 //!    full parallelism for downstream transforms.
-//! 3. **Prevents op fusion** — [`Node::Reshuffle`](Node::Reshuffle) is a
+//! 3. **Prevents op fusion** — [`Node::Reshuffle`] is a
 //!    non-[`Stateless`](Node::Stateless) node; the planner and runner cannot
 //!    fuse stateless ops across it.
 //!
@@ -37,7 +37,7 @@ use std::sync::Arc;
 impl<T: RFBound> PCollection<T> {
     /// Insert a shuffle barrier, re-distributing elements evenly across output partitions.
     ///
-    /// This is a true graph-level barrier backed by [`Node::Reshuffle`](Node::Reshuffle):
+    /// This is a true graph-level barrier backed by [`Node::Reshuffle`]:
     /// elements are fully materialized, then re-partitioned into *N* evenly sized output
     /// partitions where *N* matches the runner's configured parallelism. Downstream stateless
     /// transforms subsequently run in parallel across all *N* partitions.

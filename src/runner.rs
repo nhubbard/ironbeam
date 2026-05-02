@@ -16,17 +16,33 @@
 use crate::NodeId;
 use crate::node::Node;
 use crate::pipeline::Pipeline;
-use crate::planner::build_plan;
-use crate::type_token::Partition;
+use crate::planner::{build_plan, find_deepest_fanout_ancestor};
+use crate::type_token::{Partition, TypeTag, vec_ops_for};
 use anyhow::{Result, anyhow, bail};
 use ordered_float::NotNan;
 use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
-use std::collections::BinaryHeap;
-use std::sync::Arc;
+use std::any::Any;
+use std::collections::{BinaryHeap, HashMap};
+use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "checkpointing")]
 use crate::checkpoint::CheckpointConfig;
+
+/// A shared cache for Common Subexpression Elimination (CSE).
+///
+/// Maps a [`NodeId`] to the type-erased `Vec<T>` result materialized at that node.
+/// Pass the **same** `SharedCSECache` to multiple [`Runner::run_collect_cached`] calls
+/// that share a common pipeline prefix so the shared work executes only once.
+///
+/// The cache is correct for the lifetime of the owning [`Pipeline`]: pipelines are
+/// append-only (nodes and edges are never removed), so cached results remain valid.
+///
+/// # Type invariant
+///
+/// Each entry stores `Arc<Vec<T>>` for the *exact* `T` produced by that node.
+/// [`Runner::run_collect_cached`] downcasts on retrieval; a mismatch returns an error.
+pub type SharedCSECache = Arc<Mutex<HashMap<NodeId, Arc<dyn Any + Send + Sync>>>>;
 
 /// Execution mode for a plan.
 ///
@@ -175,6 +191,134 @@ impl Runner {
 
         result
     }
+
+    /// Execute the pipeline ending at `terminal` with Common Subexpression Elimination.
+    ///
+    /// Identical to [`Runner::run_collect`] for pipelines with no shared prefix.  When
+    /// multiple `PCollection`s share a common upstream subgraph (a *fan-out* node), this
+    /// method materializes and caches the result of the deepest shared ancestor the first
+    /// time it is reached, then reuses it for every subsequent call that walks through
+    /// the same ancestor.
+    ///
+    /// Pass the **same** `cache` instance across all calls that should share work:
+    ///
+    /// ```no_run
+    /// use ironbeam::{Pipeline, Runner, SharedCSECache, from_vec};
+    /// use anyhow::Result;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let shared = from_vec(&p, vec![1u32, 2, 3]).map(|x: &u32| x + 10);
+    /// let a = shared.clone().map(|x: &u32| x * 2);
+    /// let b = shared.map(|x: &u32| x + 1);
+    ///
+    /// let cache = SharedCSECache::default();
+    /// let runner = Runner::default();
+    /// let out_a = runner.run_collect_cached::<u32>(&p, a.node_id(), &cache)?;
+    /// let out_b = runner.run_collect_cached::<u32>(&p, b.node_id(), &cache)?;
+    /// // The `+10` map ran only 3 times total, not 6.
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Type invariant
+    ///
+    /// The fan-out ancestor node must produce `Vec<T>`.  If the shared prefix ends with
+    /// a different intermediate type, the cache insertion fails and an error is returned.
+    /// In that case use [`Runner::run_collect`] directly.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Runner::run_collect`], plus a type-mismatch error if the fan-out
+    /// ancestor does not produce `Vec<T>`.
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline or cache mutex is in a poisoned state.
+    pub fn run_collect_cached<T: 'static + Send + Sync + Clone>(
+        &self,
+        p: &Pipeline,
+        terminal: NodeId,
+        cache: &SharedCSECache,
+    ) -> Result<Vec<T>> {
+        let (nodes, edges) = p.snapshot();
+
+        let Some(fanout_id) = find_deepest_fanout_ancestor(&edges, terminal) else {
+            return self.run_collect::<T>(p, terminal);
+        };
+
+        // --- cache lookup / population ---
+        let cached_vec: Vec<T> = {
+            let maybe_arc = cache.lock().unwrap().get(&fanout_id).cloned();
+            if let Some(arc) = maybe_arc {
+                // Cache hit: downcast to the expected type.
+                arc.downcast::<Vec<T>>()
+                    .map(|a| (*a).clone())
+                    .map_err(|_| anyhow!("CSE: cached type mismatch at node {fanout_id:?}"))?
+            } else {
+                // Cache miss: execute the prefix subgraph up to the fan-out node.
+                let prefix_result = self.run_collect::<T>(p, fanout_id)?;
+                cache
+                    .lock()
+                    .unwrap()
+                    .insert(fanout_id, Arc::new(prefix_result.clone()));
+                prefix_result
+            }
+        };
+
+        // --- execute the suffix (fan-out exclusive → terminal inclusive) ---
+        run_collect_suffix(self, terminal, fanout_id, cached_vec, &nodes, &edges)
+    }
+}
+
+/// Build and execute the suffix chain from just after `fanout_id` to `terminal`,
+/// seeding it with `cached` as the initial source data.
+///
+/// A fresh mini-pipeline is assembled so the standard planner passes (fusion,
+/// predicate pushdown, etc.) are applied to the suffix just as they would be to
+/// a normal top-level plan.
+fn run_collect_suffix<T: 'static + Send + Sync + Clone>(
+    runner: &Runner,
+    terminal: NodeId,
+    fanout_id: NodeId,
+    cached: Vec<T>,
+    nodes: &HashMap<NodeId, Node>,
+    edges: &[(NodeId, NodeId)],
+) -> Result<Vec<T>> {
+    // Collect the ordered list of node IDs on the path [fanout_id+1 .. terminal].
+    let mut suffix_ids = Vec::new();
+    let mut cur = terminal;
+    while cur != fanout_id {
+        suffix_ids.push(cur);
+        let (from, _) = edges
+            .iter()
+            .find(|(_, to)| *to == cur)
+            .copied()
+            .ok_or_else(|| anyhow!("CSE: no predecessor for node {cur:?} while building suffix"))?;
+        cur = from;
+    }
+    suffix_ids.reverse(); // source-to-terminal order
+
+    // Build a mini-pipeline: Source(cached) → [suffix nodes...]
+    let new_p = Pipeline::default();
+    let source_id = new_p.insert_node(Node::Source {
+        payload: Arc::new(cached),
+        vec_ops: vec_ops_for::<T>(),
+        elem_tag: TypeTag::of::<T>(),
+    });
+
+    let mut prev_id = source_id;
+    for &orig_id in &suffix_ids {
+        let node = nodes
+            .get(&orig_id)
+            .ok_or_else(|| anyhow!("CSE: missing node {orig_id:?} in suffix build"))?
+            .clone();
+        let new_id = new_p.insert_node(node);
+        new_p.connect(prev_id, new_id);
+        prev_id = new_id;
+    }
+
+    runner.run_collect::<T>(&new_p, prev_id)
 }
 
 /// Execute a fully linearized chain **sequentially**, collecting `Vec<T>`.
@@ -513,9 +657,9 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                 coalesce,
                 merge,
             } => {
-                // Execute each subplan in parallel and coalesce
+                // Run each branch concurrently via Rayon; Result propagation via collect.
                 let coalesced_inputs: Vec<Partition> = chains
-                    .iter()
+                    .par_iter()
                     .map(|chain| {
                         let parts = run_subplan_par(chain, partitions)?;
                         Ok(if parts.len() == 1 {
@@ -535,9 +679,16 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                 coalesce_right,
                 exec,
             } => {
-                // Execute left/right subplans in parallel; coalesce when necessary.
-                let left_parts = run_subplan_par(&(**left_chain).clone(), partitions)?;
-                let right_parts = run_subplan_par(&(**right_chain).clone(), partitions)?;
+                // Run both subplans concurrently via rayon::join (same thread pool,
+                // no oversubscription). Results are propagated after the join.
+                let lc = (**left_chain).clone();
+                let rc = (**right_chain).clone();
+                let (left_result, right_result) = rayon::join(
+                    || run_subplan_par(&lc, partitions),
+                    || run_subplan_par(&rc, partitions),
+                );
+                let left_parts = left_result?;
+                let right_parts = right_result?;
 
                 let left_single = if left_parts.len() == 1 {
                     left_parts.into_iter().next().unwrap()

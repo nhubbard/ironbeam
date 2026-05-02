@@ -213,6 +213,10 @@ where
         let out: Vec<T> = v.into_iter().filter(|t| self.0(t)).collect();
         Box::new(out) as Partition
     }
+
+    fn cardinality_reducing(&self) -> bool {
+        true
+    }
 }
 
 /// Internal dynamic implementation for `filter_values`.
@@ -246,6 +250,9 @@ where
     fn cost_hint(&self) -> u8 {
         1
     } // filters are "cheapest" -> push earlier
+    fn cardinality_reducing(&self) -> bool {
+        true
+    }
 }
 
 /// Internal dynamic implementation for `flat_map`.

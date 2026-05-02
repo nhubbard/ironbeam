@@ -45,6 +45,25 @@ fn inner_join_basic_seq_par() -> Result<()> {
     Ok(())
 }
 
+/// Verify that `CoGroup` left/right branches execute correctly when run concurrently
+/// via `rayon::join`. This exercises the parallel `CoGroup` arm in `exec_par`.
+#[test]
+fn join_branches_produce_correct_result_in_parallel() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2)]);
+    let right = from_vec(&p, vec![("a".to_string(), 10u32), ("b".to_string(), 20)]);
+    let mut out = left.join_inner(&right).collect_par(None, Some(4))?;
+    out.sort_unstable_by_key(|(k, _)| k.clone());
+    assert_eq!(
+        out,
+        vec![
+            ("a".to_string(), (1u32, 10u32)),
+            ("b".to_string(), (2u32, 20u32)),
+        ]
+    );
+    Ok(())
+}
+
 #[test]
 fn left_right_full_outer() -> Result<()> {
     let p = TestPipeline::new();

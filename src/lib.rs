@@ -552,7 +552,7 @@ pub use pipeline::Pipeline;
 pub use planner::{
     CostEstimate, ExecutionExplanation, ExplainStep, OptimizationDecision, Plan, build_plan,
 };
-pub use runner::{ExecMode, Runner};
+pub use runner::{ExecMode, Runner, SharedCSECache};
 pub use type_token::Partition;
 pub use utils::OrdF64;
 pub use window::{TimestampMs, Timestamped, Window};

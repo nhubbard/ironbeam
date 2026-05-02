@@ -4,13 +4,17 @@
 //! and applies a few lightweight, semantics-preserving rewrites:
 //!
 //! 1. **Fuse stateless ops** -- adjacent `Node::Stateless` blocks are concatenated.
-//! 2. **Reorder value-only runs** -- within a stateless block where *all* ops are
+//! 2. **Predicate pushdown before GBK** -- within a fused `Stateless` block immediately
+//!    before a `GroupByKey`, ops that are `key_preserving + value_only + cardinality_reducing`
+//!    (e.g. `filter_values`) are split into their own earlier block when doing so is
+//!    type-safe and cost-beneficial (cost-hint gate).  This shrinks the GBK input.
+//! 3. **Reorder value-only runs** -- within a stateless block where *all* ops are
 //!    key-preserving and value-only, put cheaper/filters first using `cost_hint`.
-//! 3. **Lift GBK->Combine** -- if a `GroupByKey` is immediately followed by a
+//! 4. **Lift GBK->Combine** -- if a `GroupByKey` is immediately followed by a
 //!    `CombineValues` that also has a lifted local (`local_groups.is_some()`),
 //!    drop the `GroupByKey` and keep the combine, switching it to consume
 //!    `(K, V)` pairs via `local_pairs`.
-//! 4. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
+//! 5. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
 //!    terminal in the chain.
 //!
 //! The planner also provides a heuristic **partition suggestion** that the runner
@@ -61,6 +65,12 @@ pub enum OptimizationDecision {
     DroppedMidMaterialized {
         /// Number of materialized nodes removed.
         count: usize,
+    },
+    /// Cardinality-reducing ops were confirmed (and where beneficial, split out) before
+    /// a `GroupByKey` barrier, shrinking the GBK input.
+    PushedDownPredicates {
+        /// Number of operations confirmed as pre-GBK predicates.
+        ops_pushed: usize,
     },
     /// Partition count suggestion.
     PartitionSuggestion {
@@ -201,6 +211,13 @@ impl Display for ExecutionExplanation {
                     OptimizationDecision::DroppedMidMaterialized { count } => {
                         writeln!(f, "│ • Dropped Mid-Pipeline Materialization")?;
                         writeln!(f, "│   Removed {count} unnecessary materialized node(s)")?;
+                    }
+                    OptimizationDecision::PushedDownPredicates { ops_pushed } => {
+                        writeln!(f, "│ • Predicate Pushdown Before GroupByKey")?;
+                        writeln!(
+                            f,
+                            "│   {ops_pushed} cardinality-reducing op(s) confirmed pre-GBK"
+                        )?;
                     }
                     OptimizationDecision::PartitionSuggestion {
                         source_len,
@@ -402,9 +419,10 @@ impl Plan {
 /// The pass order is intentional:
 /// 1) backwalk graph -> chain
 /// 2) fuse stateless
-/// 3) reorder value-only ops (requires fused blocks)
-/// 4) lift GBK->Combine (structure-changing)
-/// 5) drop mid-materialized (cleanup)
+/// 3) predicate pushdown before GBK (requires fused blocks; may split one Stateless into two)
+/// 4) reorder value-only ops (works on the split blocks produced by step 3)
+/// 5) lift GBK->Combine (structure-changing; GBK must still be present)
+/// 6) drop mid-materialized (cleanup)
 ///
 /// # Errors
 ///
@@ -420,6 +438,12 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     let (new_chain, fusion_opt) = fuse_stateless_tracked(chain);
     chain = new_chain;
     if let Some(opt) = fusion_opt {
+        optimizations.push(opt);
+    }
+
+    let (new_chain, pushdown_opt) = push_down_before_gbk_pass(chain);
+    chain = new_chain;
+    if let Some(opt) = pushdown_opt {
         optimizations.push(opt);
     }
 
@@ -573,6 +597,105 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
     (out, optimizations)
 }
 
+/* ---------- NEW: predicate pushdown before GBK ---------- */
+
+/// Hoist cardinality-reducing ops to run as early as possible before a `GroupByKey`.
+///
+/// For each consecutive `[Stateless(ops), GroupByKey]` pair in the chain the pass:
+///
+/// 1. Splits `ops` into `pushable` (all three of `key_preserving`, `value_only`,
+///    `cardinality_reducing` are true) and `remaining` (everything else).
+/// 2. **Records** an [`OptimizationDecision::PushedDownPredicates`] whenever any pushable
+///    ops are found, so the explain output reflects that predicates are in the ideal
+///    pre-GBK position.
+/// 3. **Structurally splits** the Stateless block — putting pushable ops in their own
+///    earlier Stateless node — only when two conditions both hold:
+///    - **Type-safe**: every `remaining` op that currently precedes the first pushable op
+///      is itself `value_only + key_preserving` (guaranteeing the `(K, V)` type is
+///      intact at the point we insert the filter block).
+///    - **Cost-beneficial** (the cost-hint gate): at least one such preceding remaining op
+///      has a higher `cost_hint` than the cheapest pushable op.  If the pushable ops are
+///      already first, or the preceding ops are equally cheap, splitting would add node
+///      dispatch overhead with no throughput benefit.
+///
+/// No ops are ever moved past the GBK boundary; `remaining` always stays pre-GBK.
+fn push_down_before_gbk_pass(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
+    let mut out = Vec::with_capacity(chain.len() + 1);
+    let mut pushed_count = 0usize;
+
+    let is_pushable = |op: &Arc<dyn crate::node::DynOp>| {
+        op.key_preserving() && op.value_only() && op.cardinality_reducing()
+    };
+
+    let mut iter = chain.into_iter().peekable();
+    while let Some(node) = iter.next() {
+        let Node::Stateless(ops) = node else {
+            out.push(node);
+            continue;
+        };
+
+        // Only apply the pattern when the very next node is a GroupByKey.
+        if !iter
+            .peek()
+            .is_some_and(|nx| matches!(nx, Node::GroupByKey { .. }))
+        {
+            out.push(Node::Stateless(ops));
+            continue;
+        }
+        let gbk = iter.next().expect("peeked Some");
+
+        let (pushable, remaining): (Vec<_>, Vec<_>) = ops.iter().cloned().partition(is_pushable);
+
+        if pushable.is_empty() {
+            // No pushable ops in this block — pass through unchanged.
+            out.push(Node::Stateless(ops));
+            out.push(gbk);
+            continue;
+        }
+
+        pushed_count += pushable.len();
+
+        // Cost-hint gate: only perform a structural split when it is both
+        // type-safe and cheaper than the ops it would leapfrog.
+        let min_pushable_cost = pushable
+            .iter()
+            .map(|op| op.cost_hint())
+            .min()
+            .unwrap_or(u8::MAX);
+        let first_pushable_pos = ops.iter().position(is_pushable).unwrap_or(ops.len());
+        let pre_pushable = &ops[..first_pushable_pos];
+
+        // Type-safety: all ops that precede the first pushable op must be
+        // value_only + key_preserving — meaning the partition is already in
+        // (K, V) form at the insertion point.
+        let type_safe = pre_pushable
+            .iter()
+            .all(|op| op.value_only() && op.key_preserving());
+
+        // Benefit: at least one preceding op is strictly more expensive than
+        // the cheapest pushable op.  Equal-cost shuffling adds dispatch
+        // overhead with no throughput gain.
+        let beneficial = pre_pushable
+            .iter()
+            .any(|op| op.cost_hint() > min_pushable_cost);
+
+        if !remaining.is_empty() && type_safe && beneficial {
+            // Structural split: filters first, remaining pre-GBK ops second.
+            out.push(Node::Stateless(pushable));
+            out.push(Node::Stateless(remaining));
+        } else {
+            // Already optimal or unsafe to split; keep the fused block as-is.
+            out.push(Node::Stateless(ops));
+        }
+        out.push(gbk);
+    }
+
+    let opt = (pushed_count > 0).then_some(OptimizationDecision::PushedDownPredicates {
+        ops_pushed: pushed_count,
+    });
+    (out, opt)
+}
+
 /* ---------- NEW: GBK -> Combine lifting ---------- */
 
 /// Lift GBK->Combine pattern and track optimization decisions.
@@ -654,6 +777,45 @@ fn drop_mid_materialized_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
     };
 
     (result, optimization)
+}
+
+/* ---------- CSE helpers ---------- */
+
+/// Find the deepest fan-out ancestor of `terminal` in the pipeline edge graph.
+///
+/// A *fan-out* node is one that appears as the `from` side of **more than one edge**
+/// (out-degree > 1). Walking backwards from `terminal`, the first such node encountered
+/// is the deepest (closest to `terminal`) shared ancestor — the ideal materialization
+/// point for Common Subexpression Elimination.
+///
+/// Returns `None` when no fan-out ancestor exists on the backwards path from
+/// `terminal` to the root (source node), or when the source itself is the only
+/// fan-out.
+///
+/// # Examples
+///
+/// For a graph `source → map [id=1] → filter [id=2] → terminal_a [id=3]`
+/// where `map` also feeds `terminal_b` (edge `1 → 4`), calling this with
+/// `terminal = 3` returns `Some(NodeId(1))`.
+pub(crate) fn find_deepest_fanout_ancestor(
+    edges: &[(NodeId, NodeId)],
+    terminal: NodeId,
+) -> Option<NodeId> {
+    // Count out-degree for every node that appears as `from`.
+    let mut out_degree: HashMap<NodeId, usize> = HashMap::new();
+    for &(from, _) in edges {
+        *out_degree.entry(from).or_insert(0) += 1;
+    }
+
+    // Walk backwards from terminal; return the first ancestor with out-degree > 1.
+    let mut cur = terminal;
+    while let Some((from, _)) = edges.iter().find(|(_, to)| *to == cur).copied() {
+        cur = from;
+        if out_degree.get(&cur).copied().unwrap_or(0) > 1 {
+            return Some(cur);
+        }
+    }
+    None
 }
 
 /* ---------- Adaptive partitions ---------- */

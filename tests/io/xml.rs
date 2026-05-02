@@ -598,7 +598,9 @@ fn test_xml_vec_ops_split() -> Result<()> {
 
     let shards = build_xml_shards(&path, 10)?;
     let ops = XmlVecOps::<SimpleRecord>::new();
-    let parts = ops.split(&shards, 4).ok_or_else(|| anyhow!("split failed"))?;
+    let parts = ops
+        .split(&shards, 4)
+        .ok_or_else(|| anyhow!("split failed"))?;
     // XML always produces exactly one shard.
     assert_eq!(parts.len(), 1);
 
