@@ -377,6 +377,7 @@ fn regex_replace_all_no_match_passes_through() -> Result<()> {
     Ok(())
 }
 
+//noinspection SpellCheckingInspection
 #[test]
 fn regex_replace_all_multiple_per_line() -> Result<()> {
     let p = Pipeline::default();
