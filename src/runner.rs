@@ -214,6 +214,9 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 Node::Materialized(p) => Box::new(p) as Partition,
                 Node::Flatten { .. } => bail!("nested Flatten not supported in subplan"),
                 Node::CoGroup { .. } => bail!("nested CoGroup not supported in subplan"),
+                Node::Reshuffle { .. } => {
+                    bail!("Reshuffle not supported in CoGroup/Flatten subplans")
+                }
                 Node::CombineGlobal {
                     local,
                     merge,
@@ -317,6 +320,13 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 }
                 finish(acc)
             }
+            Node::Reshuffle { reshuffle } => {
+                // Sequential: collect the single partition and re-emit as one partition.
+                reshuffle(vec![buf.take().unwrap()], 1)
+                    .into_iter()
+                    .next()
+                    .expect("Reshuffle returned empty vec in sequential mode")
+            }
         });
     }
 
@@ -395,6 +405,9 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                 }
                 Node::Flatten { .. } => bail!("nested Flatten not supported in subplan"),
                 Node::CoGroup { .. } => bail!("nested CoGroup not supported in subplan"),
+                Node::Reshuffle { .. } => {
+                    bail!("Reshuffle not supported in CoGroup/Flatten subplans")
+                }
                 Node::CombineGlobal {
                     local,
                     merge,
@@ -590,6 +603,12 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                 curr = vec![finish(acc)];
                 i += 1;
             }
+            Node::Reshuffle { reshuffle } => {
+                // Parallel: collect all partitions, re-distribute across `partitions` lanes.
+                // This re-expands parallelism so downstream stateless ops run on all cores.
+                curr = reshuffle(curr, partitions);
+                i += 1;
+            }
         }
     }
 
@@ -666,6 +685,7 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
                 | Node::Flatten { .. }
                 | Node::CoGroup { .. }
                 | Node::CombineGlobal { .. }
+                | Node::Reshuffle { .. }
         );
 
         let node_type = match &node {
@@ -677,6 +697,7 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
             Node::CoGroup { .. } => "CoGroup",
             Node::Materialized(_) => "Materialized",
             Node::CombineGlobal { .. } => "CombineGlobal",
+            Node::Reshuffle { .. } => "Reshuffle",
         };
 
         // Execute the node (same logic as exec_seq)
@@ -719,6 +740,10 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
                 let acc = merge(vec![mid_acc]);
                 finish(acc)
             }
+            Node::Reshuffle { reshuffle } => reshuffle(vec![buf.take().unwrap()], 1)
+                .into_iter()
+                .next()
+                .expect("Reshuffle returned empty vec in sequential mode"),
         });
 
         // Check if we should create a checkpoint

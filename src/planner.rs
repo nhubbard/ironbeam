@@ -1,4 +1,4 @@
-//! Query planner and optimizer passes.
+//! Query planner and optimizer pass.
 //!
 //! The planner converts the pipeline graph into a single **linear execution chain**
 //! and applies a few lightweight, semantics-preserving rewrites:
@@ -360,6 +360,17 @@ impl Plan {
                     total_ops += 1;
                     ("Materialized", "Materialize results".to_string(), false, 1)
                 }
+                Node::Reshuffle { .. } => {
+                    barriers += 1;
+                    total_ops += 1;
+                    (
+                        "Reshuffle",
+                        "Collect all partitions and redistribute elements evenly (BARRIER)"
+                            .to_string(),
+                        true,
+                        100,
+                    )
+                }
             };
 
             steps.push(ExplainStep {
@@ -385,7 +396,7 @@ impl Plan {
     }
 }
 
-/// Build a linear plan from `terminal`, then apply optimizer passes and produce
+/// Build a linear plan from `terminal`, apply optimizer passes, and produce
 /// a partitioning hint.
 ///
 /// The pass order is intentional:
@@ -397,7 +408,7 @@ impl Plan {
 ///
 /// # Errors
 ///
-/// If any of the optimizer passes fail or the pipeline is in an inconsistent state.
+/// If any of the optimizer passes fail, or the pipeline is in an inconsistent state.
 pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     let (nodes, edges) = p.snapshot();
     let mut chain = backwalk_linear(nodes, &edges, terminal)?;

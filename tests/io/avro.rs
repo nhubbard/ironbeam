@@ -1227,7 +1227,7 @@ fn test_read_avro_range_hits_end_break() -> Result<()> {
     write_avro_vec(&path, &data, TEST_RECORD_SCHEMA)?;
 
     let shards = build_avro_shards(&path, 20)?;
-    // Read only records [5, 10) — the loop must break at i=10
+    // Only read records [5, 10) — the loop must break at i=10
     let range: Vec<TestRecord> = read_avro_range(&shards, 5, 10)?;
     assert_eq!(range.len(), 5);
     assert_eq!(range[0].id, 5);
@@ -1235,7 +1235,7 @@ fn test_read_avro_range_hits_end_break() -> Result<()> {
     Ok(())
 }
 
-// ── Glob support in read_avro (helpers layer) ─────────────────────────────────
+// ── Glob support in read_avro (helper layer) ─────────────────────────────────
 
 #[cfg(feature = "io-avro")]
 #[test]
