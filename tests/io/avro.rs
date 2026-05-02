@@ -1227,7 +1227,7 @@ fn test_read_avro_range_hits_end_break() -> Result<()> {
     write_avro_vec(&path, &data, TEST_RECORD_SCHEMA)?;
 
     let shards = build_avro_shards(&path, 20)?;
-    // Read only records [5, 10) — the loop must break at i=10
+    // Only read records [5, 10) — the loop must break at i=10
     let range: Vec<TestRecord> = read_avro_range(&shards, 5, 10)?;
     assert_eq!(range.len(), 5);
     assert_eq!(range[0].id, 5);
@@ -1235,7 +1235,7 @@ fn test_read_avro_range_hits_end_break() -> Result<()> {
     Ok(())
 }
 
-// ── Glob support in read_avro (helpers layer) ─────────────────────────────────
+// ── Glob support in read_avro (helper layer) ─────────────────────────────────
 
 #[cfg(feature = "io-avro")]
 #[test]
@@ -1250,9 +1250,30 @@ fn test_read_avro_glob_multiple_files() -> Result<()> {
     let file_c = temp_dir.path().join("part-00002.avro");
 
     // Write three separate files in known order
-    write_avro_vec(&file_a, &[SimpleRecord { k: "a".into(), v: 1 }], SIMPLE_RECORD_SCHEMA)?;
-    write_avro_vec(&file_b, &[SimpleRecord { k: "b".into(), v: 2 }], SIMPLE_RECORD_SCHEMA)?;
-    write_avro_vec(&file_c, &[SimpleRecord { k: "c".into(), v: 3 }], SIMPLE_RECORD_SCHEMA)?;
+    write_avro_vec(
+        &file_a,
+        &[SimpleRecord {
+            k: "a".into(),
+            v: 1,
+        }],
+        SIMPLE_RECORD_SCHEMA,
+    )?;
+    write_avro_vec(
+        &file_b,
+        &[SimpleRecord {
+            k: "b".into(),
+            v: 2,
+        }],
+        SIMPLE_RECORD_SCHEMA,
+    )?;
+    write_avro_vec(
+        &file_c,
+        &[SimpleRecord {
+            k: "c".into(),
+            v: 3,
+        }],
+        SIMPLE_RECORD_SCHEMA,
+    )?;
 
     let glob = format!("{}/*.avro", temp_dir.path().display());
     let pc: PCollection<SimpleRecord> = read_avro(&p, &glob)?;
@@ -1260,9 +1281,27 @@ fn test_read_avro_glob_multiple_files() -> Result<()> {
     results.sort_by_key(|r: &SimpleRecord| r.v);
 
     assert_eq!(results.len(), 3);
-    assert_eq!(results[0], SimpleRecord { k: "a".into(), v: 1 });
-    assert_eq!(results[1], SimpleRecord { k: "b".into(), v: 2 });
-    assert_eq!(results[2], SimpleRecord { k: "c".into(), v: 3 });
+    assert_eq!(
+        results[0],
+        SimpleRecord {
+            k: "a".into(),
+            v: 1
+        }
+    );
+    assert_eq!(
+        results[1],
+        SimpleRecord {
+            k: "b".into(),
+            v: 2
+        }
+    );
+    assert_eq!(
+        results[2],
+        SimpleRecord {
+            k: "c".into(),
+            v: 3
+        }
+    );
     Ok(())
 }
 
@@ -1277,8 +1316,16 @@ fn test_read_avro_glob_single_match() -> Result<()> {
     write_avro_vec(
         &file,
         &[
-            TestRecord { id: 1, name: "Alice".into(), value: 1.0 },
-            TestRecord { id: 2, name: "Bob".into(), value: 2.0 },
+            TestRecord {
+                id: 1,
+                name: "Alice".into(),
+                value: 1.0,
+            },
+            TestRecord {
+                id: 2,
+                name: "Bob".into(),
+                value: 2.0,
+            },
         ],
         TEST_RECORD_SCHEMA,
     )?;
@@ -1317,17 +1364,26 @@ fn test_read_avro_glob_concatenation_order() -> Result<()> {
     // Write files in reverse order so creation order ≠ sort order
     write_avro_vec(
         temp_dir.path().join("c.avro"),
-        &[SimpleRecord { k: "c".into(), v: 3 }],
+        &[SimpleRecord {
+            k: "c".into(),
+            v: 3,
+        }],
         SIMPLE_RECORD_SCHEMA,
     )?;
     write_avro_vec(
         temp_dir.path().join("a.avro"),
-        &[SimpleRecord { k: "a".into(), v: 1 }],
+        &[SimpleRecord {
+            k: "a".into(),
+            v: 1,
+        }],
         SIMPLE_RECORD_SCHEMA,
     )?;
     write_avro_vec(
         temp_dir.path().join("b.avro"),
-        &[SimpleRecord { k: "b".into(), v: 2 }],
+        &[SimpleRecord {
+            k: "b".into(),
+            v: 2,
+        }],
         SIMPLE_RECORD_SCHEMA,
     )?;
 
