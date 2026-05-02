@@ -215,6 +215,10 @@ pub mod parquet;
 #[cfg(feature = "io-avro")]
 pub mod avro;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "io-xml")))]
+#[cfg(feature = "io-xml")]
+pub mod xml;
+
 pub mod cloud;
 pub mod compression;
 pub mod glob;

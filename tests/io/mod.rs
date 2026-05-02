@@ -12,3 +12,4 @@ mod jsonl;
 mod jsonl_streaming;
 mod parquet;
 mod parquet_streaming;
+mod xml;

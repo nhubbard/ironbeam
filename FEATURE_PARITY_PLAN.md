@@ -43,91 +43,13 @@ in Ironbeam. Features are organized by priority tier.
 | 2.4 Side Input Views  | `filter_with_side_map`, `SideSingleton`/`side_singleton`, `SideMultimap`/`side_multimap` + map/filter methods           | next        |
 | 2.5 Regex Transforms  | `regex_matches/extract/extract_kv/find/replace_all/split` on `PCollection<String>`                                      | next        |
 | 2.5b Windowed Combine | `combine/sum/count/min/max/average_per_window` + `_per_key_and_window` helpers                                          | next        |
+| 2.6 Avro I/O          | `read_avro`/`write_avro` helpers with glob support; `AvroReader`/`AvroWriter` behind `io-avro` feature                  | 2.10.0      |
+| 2.7 XML I/O           | `read_xml`/`write_xml`/`read_xml_streaming`/`write_xml_par` with glob support; `XmlShards`/`XmlVecOps` behind `io-xml`  | 2.11.0      |
 | 3.2 WithTimestamps    | `attach_timestamps()` / `Timestamped<T>`                                                                                | 1.0.0       |
 
 ---
 
 ## Tier 2: High-Value Features (Incomplete)
-
-### 2.6 I/O: Avro Format Support
-
-**Current state:** Not implemented. JSON Lines, CSV, and Parquet are supported.
-
-**Serde support:** ✅ The `apache-avro` crate provides full Serde integration via
-`apache_avro::from_value` / `apache_avro::to_value`.
-
-**Proposed API:**
-```rust
-// Read
-let records: PCollection<MyRecord> = read_avro(&p, "data.avro");
-let records: PCollection<MyRecord> = read_avro_glob(&p, "data/year=*/part-*.avro");
-
-// Write
-records.write_avro("output.avro")?;
-```
-
-**Implementation plan:**
-
-1. Add to `Cargo.toml`:
-   ```toml
-   [dependencies]
-   apache-avro = { version = "0.20", optional = true }
-   
-   [features]
-   io-avro = ["apache-avro"]
-   ```
-2. Create `src/io/avro.rs` following the existing JSONL/CSV/Parquet structure (`AvroReader`,
-   `AvroWriter`, streaming reader variant).
-3. Add `read_avro` / `write_avro` helpers to `src/helpers/` behind `#[cfg(feature = "io-avro")]`.
-4. Export from `src/lib.rs`.
-
-**Estimated complexity:** Medium
-
-**Files to modify/create:** `Cargo.toml`, `src/io/avro.rs` (new), `src/io/mod.rs`,
-`src/helpers/mod.rs`, `src/lib.rs`
-
----
-
-### 2.7 I/O: XML Format Support
-
-**Current state:** Not implemented.
-
-**Serde support:** ✅ The `quick-xml` crate provides Serde integration via its `serialize`
-feature.
-
-**Caveat:** XML is not naturally splittable. The reader should produce all elements from a single
-partition; the writer should produce a single output file regardless of parallelism.
-
-**Proposed API:**
-```rust
-// Read: each top-level child element deserializes to one T
-let records: PCollection<MyRecord> = read_xml(&p, "data.xml");
-
-// Write
-records.write_xml("output.xml")?;
-```
-
-**Implementation plan:**
-
-1. Add to `Cargo.toml`:
-   ```toml
-   [dependencies]
-   quick-xml = { version = "0.39", features = ["serialize"], optional = true }
-   
-   [features]
-   io-xml = ["quick-xml"]
-   ```
-2. Create `src/io/xml.rs`. Reader loads the whole file in partition 0 and returns empty for all
-   other partitions. Writer serializes to a single file.
-3. Add `read_xml` / `write_xml` helpers to `src/helpers/` behind `#[cfg(feature = "io-xml")]`.
-4. Export from `src/lib.rs`.
-
-**Estimated complexity:** Medium
-
-**Files to modify/create:** `Cargo.toml`, `src/io/xml.rs` (new), `src/io/mod.rs`,
-`src/helpers/mod.rs`, `src/lib.rs`
-
----
 
 ## Tier 3: Nice-to-Have Features
 
@@ -226,8 +148,8 @@ here for consideration before deciding whether to add them.
    2. ~~2.5 — Regex transforms~~ ✅ complete
    3. ~~2.5b — Windowed combining helpers~~ ✅ complete
 2. **Medium-term:**
-   1. 2.6 — Avro I/O
-   2. 2.7 — XML I/O
+   1. ~~2.6 — Avro I/O~~ ✅ complete
+   2. ~~2.7 — XML I/O~~ ✅ complete
 3. **Polish:**
    1. 3.1 — Reshuffle
    2. 3.3 — Reify

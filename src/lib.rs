@@ -598,3 +598,12 @@ pub use helpers::avro::{read_avro, read_avro_streaming};
 
 #[cfg(all(feature = "io-avro", feature = "parallel-io"))]
 pub use io::avro::write_avro_par;
+
+#[cfg(feature = "io-xml")]
+pub use io::xml::{read_xml_vec, write_xml_vec};
+
+#[cfg(feature = "io-xml")]
+pub use helpers::xml::{read_xml, read_xml_streaming};
+
+#[cfg(all(feature = "io-xml", feature = "parallel-io"))]
+pub use io::xml::write_xml_par;
