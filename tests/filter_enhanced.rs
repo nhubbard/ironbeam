@@ -92,7 +92,7 @@ fn test_filter_range() {
     assert_eq!(result, vec![10, 15]);
 }
 
-/// Test inclusive range filtering [min, max]
+/// Test filtering on inclusive range [min, max]
 #[test]
 fn test_filter_range_inclusive() {
     let p = Pipeline::default();
@@ -209,7 +209,7 @@ fn test_filter_by_computed_value() {
     assert_eq!(result, vec!["hello", "programming", "world"]);
 }
 
-/// Test filtering with complex struct
+/// Test filtering with a complex struct
 #[test]
 fn test_filter_by_complex_struct() {
     #[derive(Clone, Debug)]

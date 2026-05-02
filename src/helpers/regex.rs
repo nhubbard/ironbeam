@@ -3,7 +3,7 @@
 //! This module adds six convenience methods to any `PCollection<String>`, covering the
 //! most common regex operations: matching, capture-group extraction, find, replace, and
 //! split. All methods compile the pattern at call time with
-//! [`Regex::new`](regex::Regex::new). An invalid pattern causes an immediate panic with a
+//! [`Regex::new`](Regex::new). An invalid pattern causes an immediate panic with a
 //! descriptive message.
 //!
 //! ## Methods
@@ -54,7 +54,7 @@ use std::sync::Arc;
 impl PCollection<String> {
     /// Keep only lines where the pattern is found anywhere in the string.
     ///
-    /// Uses [`Regex::is_match`](regex::Regex::is_match) to test each element.
+    /// Uses [`Regex::is_match`](Regex::is_match) to test each element.
     /// Lines that do not match are discarded.
     ///
     /// # Panics
@@ -136,7 +136,7 @@ impl PCollection<String> {
     /// Extract two capture groups from each line as `(key, value)` string pairs.
     ///
     /// Lines where the pattern does not match, or where either requested group is absent,
-    /// are dropped. The returned collection has element type `(String, String)`.
+    /// are dropped. The returned collection has the element type `(String, String)`.
     ///
     /// # Panics
     ///
@@ -188,7 +188,7 @@ impl PCollection<String> {
 
     /// Return the substring of the first match for each line; non-matching lines are dropped.
     ///
-    /// Uses [`Regex::find`](regex::Regex::find) which returns the leftmost-first match.
+    /// Uses [`Regex::find`](Regex::find) which returns the leftmost-first match.
     /// When a line matches, the matched substring is returned as a new `String`. When it
     /// does not match, the element is silently dropped.
     ///
@@ -225,7 +225,7 @@ impl PCollection<String> {
 
     /// Replace every non-overlapping match of `pattern` with `replacement`.
     ///
-    /// Equivalent to [`Regex::replace_all`](regex::Regex::replace_all). All elements are
+    /// Equivalent to [`Regex::replace_all`](Regex::replace_all). All elements are
     /// kept; elements with no match are passed through unchanged.
     ///
     /// # Panics
@@ -266,7 +266,7 @@ impl PCollection<String> {
 
     /// Split each line on the pattern, producing a `Vec<String>` of parts.
     ///
-    /// Equivalent to calling [`Regex::split`](regex::Regex::split) on each element and
+    /// Equivalent to calling [`Regex::split`](Regex::split) on each element and
     /// collecting the resulting pieces. An element with no matches produces a single-element
     /// `Vec` containing the original string.
     ///

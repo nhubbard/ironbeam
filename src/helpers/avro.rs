@@ -1,4 +1,4 @@
-//! Avro sources and sinks for [`crate::collection::PCollection`].
+//! Avro sources and sinks for [`PCollection`].
 //!
 //! This module provides typed, serde-backed Avro I/O that integrates with the
 //! Ironbeam pipeline. You can either:

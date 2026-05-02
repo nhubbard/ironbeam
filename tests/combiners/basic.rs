@@ -416,7 +416,7 @@ fn combiners_multiple_keys() -> Result<()> {
 }
 
 #[test]
-fn bottomk_basic_and_lifted() -> Result<()> {
+fn bottom_k_basic_and_lifted() -> Result<()> {
     let p = TestPipeline::new();
     let vals: Vec<i32> = (0..200).collect();
     let k = 3usize;
@@ -442,7 +442,7 @@ fn bottomk_basic_and_lifted() -> Result<()> {
 }
 
 #[test]
-fn bottomk_edge_cases() -> Result<()> {
+fn bottom_k_edge_cases() -> Result<()> {
     let p = TestPipeline::new();
 
     // k = 0
@@ -478,7 +478,7 @@ fn bottomk_edge_cases() -> Result<()> {
 }
 
 #[test]
-fn bottomk_correctness_large_dataset() -> Result<()> {
+fn bottom_k_correctness_large_dataset() -> Result<()> {
     let p = TestPipeline::new();
     let data: Vec<(u8, u64)> = (0..1000u32)
         .map(|i| ((i % 5) as u8, u64::from(i)))
@@ -500,7 +500,7 @@ fn bottomk_correctness_large_dataset() -> Result<()> {
 }
 
 #[test]
-fn bottomk_inverse_of_topk() -> Result<()> {
+fn bottom_k_inverse_of_topk() -> Result<()> {
     let p = TestPipeline::new();
     let data: Vec<(&str, i32)> = vec![
         ("a", 10),
