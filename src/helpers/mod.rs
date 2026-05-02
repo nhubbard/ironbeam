@@ -270,6 +270,7 @@ pub mod tumbling;
 pub mod validation;
 pub mod values;
 pub mod windowed_combine;
+pub mod xml;
 
 // Only re-export files with top-level functions
 pub use avro::*;
@@ -280,3 +281,4 @@ pub use jsonl::*;
 pub use parquet::*;
 pub use side_inputs::*;
 pub use stdlib::*;
+pub use xml::*;
