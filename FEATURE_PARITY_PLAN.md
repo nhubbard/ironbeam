@@ -49,8 +49,6 @@ in Ironbeam. Features are organized by priority tier.
 
 ---
 
-## Tier 2: High-Value Features (Incomplete)
-
 ## Tier 3: Nice-to-Have Features
 
 ### 3.1 Reshuffle
