@@ -21,8 +21,8 @@
 //! # Notes
 //! * Nodes are **type-erased** at runtime via `Partition` (a boxed `Any`), but
 //!   every node closure we build is typed, so downcasts are safe where used.
-//! * Barriers like [`Node::GroupByKey`] and [`Node::CombineValues`] intentionally break
-//!   partition parallelism to enforce global grouping/merge semantics.
+//! * Barriers like [`Node::GroupByKey`], [`Node::CombineValues`], and [`Node::Reshuffle`]
+//!   intentionally break partition parallelism to enforce global grouping/merge/redistribution semantics.
 //! * [`Node::CoGroup`] executes two **subplans** (left/right) and then invokes a
 //!   typed closure to produce joined results; it is the building block for
 //!   `join_inner`, `join_left`, `join_right`, and `join_full`.
@@ -125,7 +125,7 @@ pub enum Node {
     /// **Fields**
     /// - `left_chain`, `right_chain`: subplans to execute to materialization.
     /// - `coalesce_left`, `coalesce_right`: merge per-partition outputs on each side into single `Vec<(K, V)>`/`Vec<(K, W)>`.
-    /// - `exec`: typed closure that takes the coalesced left & right partitions and returns a joined partition.
+    /// - `exec`: typed closure that takes the coalesced left and right partitions and returns a joined partition.
     ///
     /// **Typical `exec` outputs**
     /// - Inner join: `Vec<(K, (V, W))>`
@@ -148,6 +148,21 @@ pub enum Node {
         merge: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
         finish: Arc<dyn Fn(Partition) -> Partition + Send + Sync>,
         fanout: Option<usize>,
+    },
+
+    /// Shuffle barrier: collect all input partitions and re-distribute elements evenly.
+    ///
+    /// The `reshuffle` closure receives all current partitions and the desired output
+    /// partition count `n`, then returns exactly `n` evenly sized partitions.
+    ///
+    /// - In parallel execution `n` equals the runner's configured partition count,
+    ///   restoring full parallelism for downstream [`Node::Stateless`] stages.
+    /// - In sequential execution `n = 1`; elements are collected into a single partition.
+    ///
+    /// The closure is produced by [`PCollection::reshuffle`](crate::helpers::reshuffle) and
+    /// captures the element type `T` via downcast.
+    Reshuffle {
+        reshuffle: Arc<dyn Fn(Vec<Partition>, usize) -> Vec<Partition> + Send + Sync>,
     },
 
     /// Pre-materialized payload (type-erased).

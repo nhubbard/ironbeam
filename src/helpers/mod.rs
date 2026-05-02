@@ -259,6 +259,7 @@ pub mod latest;
 pub mod parquet;
 pub mod partition;
 pub mod regex;
+pub mod reshuffle;
 pub mod sampling;
 pub mod side_inputs;
 pub mod statistical;
