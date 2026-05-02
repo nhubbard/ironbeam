@@ -574,7 +574,7 @@ fn test_xml_vec_ops_len() -> Result<()> {
 
     let shards = build_xml_shards(&path, 10)?;
     let ops = XmlVecOps::<SimpleRecord>::new();
-    let len = ops.len(&shards).ok_or(anyhow!("len failed"))?;
+    let len = ops.len(&shards).ok_or_else(|| anyhow!("len failed"))?;
     assert_eq!(len, 7);
 
     Ok(())
@@ -598,7 +598,7 @@ fn test_xml_vec_ops_split() -> Result<()> {
 
     let shards = build_xml_shards(&path, 10)?;
     let ops = XmlVecOps::<SimpleRecord>::new();
-    let parts = ops.split(&shards, 4).ok_or(anyhow!("split failed"))?;
+    let parts = ops.split(&shards, 4).ok_or_else(|| anyhow!("split failed"))?;
     // XML always produces exactly one shard.
     assert_eq!(parts.len(), 1);
 
@@ -839,13 +839,11 @@ fn test_xml_zstd_roundtrip() -> Result<()> {
 
 #[cfg(feature = "io-xml")]
 #[test]
-fn test_read_xml_missing_file_is_error() -> Result<()> {
+fn test_read_xml_missing_file_is_error() {
     let result = read_xml_vec::<SimpleRecord>("/nonexistent/path/to/file.xml");
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(msg.contains("nonexistent") || msg.contains("No such file") || msg.contains("open"));
-
-    Ok(())
 }
 
 #[cfg(feature = "io-xml")]
