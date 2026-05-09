@@ -120,6 +120,14 @@ fn example_with_optimizations() -> Result<()> {
                     println!("✓ Suggested {partitions} partitions");
                 }
             }
+            OptimizationDecision::PushedDownIntoFlattenSubplans {
+                ops_pushed,
+                subplan_count,
+            } => {
+                println!(
+                    "✓ Pushed {ops_pushed} op(s) into {subplan_count} Flatten subplan(s) before fan-in"
+                );
+            }
             OptimizationDecision::EliminatedReshuffle { count } => {
                 println!("✓ Eliminated {count} redundant Reshuffle node(s)");
             }
