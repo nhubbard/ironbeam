@@ -143,7 +143,9 @@ fn example_with_optimizations() -> Result<()> {
                 );
             }
             OptimizationDecision::TreeReduction { global_count } => {
-                println!("✓ Tree reduction enabled for {global_count} CombineGlobal node(s) (O(log n) parallel depth)");
+                println!(
+                    "✓ Tree reduction enabled for {global_count} CombineGlobal node(s) (O(log n) parallel depth)"
+                );
             }
         }
     }

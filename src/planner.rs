@@ -162,7 +162,7 @@ pub enum OptimizationDecision {
     },
     /// One or more `CombineGlobal` nodes will use O(log n) parallel tree reduction.
     ///
-    /// When a combiner declares [`CombineFn::is_associative_commutative`] `= true`,
+    /// When a combiner declares [`crate::collection::CombineFn::is_associative_commutative`] `= true`,
     /// the parallel runner replaces the sequential fanout merge loop with Rayon's
     /// `reduce_with`, which processes accumulators in a binary fan-in pattern.
     /// This halves the critical-path merge depth on each doubling of input size
@@ -635,7 +635,15 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     // Post-pass: count CombineGlobal nodes with tree reduction enabled.
     let tree_reduce_count = chain
         .iter()
-        .filter(|n| matches!(n, Node::CombineGlobal { tree_reduce: true, .. }))
+        .filter(|n| {
+            matches!(
+                n,
+                Node::CombineGlobal {
+                    tree_reduce: true,
+                    ..
+                }
+            )
+        })
         .count();
     if tree_reduce_count > 0 {
         optimizations.push(OptimizationDecision::TreeReduction {

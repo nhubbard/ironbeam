@@ -907,8 +907,8 @@ fn cogroup_equal_cardinality_not_reordered() -> Result<()> {
 
 // ---- 3.10: Tree Reduction for Associative Combiners ----
 
-use ironbeam::combiners::{Count as CombCount, Max, Min, Sum};
 use ironbeam::collection::Count;
+use ironbeam::combiners::{Count as CombCount, Max, Min, Sum};
 
 /// `Sum` is associative+commutative, so a `CombineGlobal` built from it must
 /// have `tree_reduce == true` in the compiled plan.
@@ -919,7 +919,13 @@ fn tree_reduce_flag_set_for_sum_combiner() -> Result<()> {
     let out = data.combine_globally(Sum::<u64>::default(), None);
     let plan = build_plan(&p, out.node_id())?;
     let has_tree_reduce = plan.chain.iter().any(|n| {
-        matches!(n, ironbeam::node::Node::CombineGlobal { tree_reduce: true, .. })
+        matches!(
+            n,
+            ironbeam::node::Node::CombineGlobal {
+                tree_reduce: true,
+                ..
+            }
+        )
     });
     assert!(
         has_tree_reduce,
@@ -936,7 +942,13 @@ fn tree_reduce_flag_set_for_count_combiner() -> Result<()> {
     let out = data.combine_globally(Count, None);
     let plan = build_plan(&p, out.node_id())?;
     let has_tree_reduce = plan.chain.iter().any(|n| {
-        matches!(n, ironbeam::node::Node::CombineGlobal { tree_reduce: true, .. })
+        matches!(
+            n,
+            ironbeam::node::Node::CombineGlobal {
+                tree_reduce: true,
+                ..
+            }
+        )
     });
     assert!(
         has_tree_reduce,
@@ -953,9 +965,13 @@ fn tree_reduce_flag_set_for_min_combiner() -> Result<()> {
     let out = data.combine_globally(Min::<i64>::default(), None);
     let plan = build_plan(&p, out.node_id())?;
     assert!(
-        plan.chain
-            .iter()
-            .any(|n| matches!(n, Node::CombineGlobal { tree_reduce: true, .. })),
+        plan.chain.iter().any(|n| matches!(
+            n,
+            Node::CombineGlobal {
+                tree_reduce: true,
+                ..
+            }
+        )),
         "Min combiner must produce CombineGlobal with tree_reduce=true"
     );
     Ok(())
@@ -989,10 +1005,13 @@ fn tree_reduce_not_set_for_non_ac_combiner() -> Result<()> {
     let out = data.combine_globally(ConcatStr, None);
     let plan = build_plan(&p, out.node_id())?;
     assert!(
-        !plan
-            .chain
-            .iter()
-            .any(|n| matches!(n, Node::CombineGlobal { tree_reduce: true, .. })),
+        !plan.chain.iter().any(|n| matches!(
+            n,
+            Node::CombineGlobal {
+                tree_reduce: true,
+                ..
+            }
+        )),
         "non-AC combiner must NOT produce CombineGlobal with tree_reduce=true"
     );
     Ok(())
@@ -1016,7 +1035,11 @@ fn tree_reduce_sum_produces_correct_result_par() -> Result<()> {
     let data = from_vec(&p, (1u64..=100).collect::<Vec<_>>());
     let out = data.combine_globally(Sum::<u64>::default(), None);
     let result = out.collect_par(Some(8), None)?;
-    assert_eq!(result, vec![5050u64], "parallel sum 1..=100 should equal 5050");
+    assert_eq!(
+        result,
+        vec![5050u64],
+        "parallel sum 1..=100 should equal 5050"
+    );
     Ok(())
 }
 
@@ -1082,10 +1105,18 @@ fn tree_reduction_absent_for_non_ac_combiner() -> Result<()> {
     #[derive(Clone, Default)]
     struct SumButNotAC;
     impl CombineFn<u64, u64, u64> for SumButNotAC {
-        fn create(&self) -> u64 { 0 }
-        fn add_input(&self, acc: &mut u64, v: u64) { *acc += v; }
-        fn merge(&self, acc: &mut u64, other: u64) { *acc += other; }
-        fn finish(&self, acc: u64) -> u64 { acc }
+        fn create(&self) -> u64 {
+            0
+        }
+        fn add_input(&self, acc: &mut u64, v: u64) {
+            *acc += v;
+        }
+        fn merge(&self, acc: &mut u64, other: u64) {
+            *acc += other;
+        }
+        fn finish(&self, acc: u64) -> u64 {
+            acc
+        }
     }
 
     let p = Pipeline::default();
