@@ -98,7 +98,6 @@ where
         match operation() {
             Ok(result) => return Ok(result),
             Err(err) => {
-                // Check if we should retry based on the kind of error returned
                 let should_retry = matches!(
                     err.kind,
                     ErrorKind::Network
@@ -111,7 +110,6 @@ where
                     return Err(err);
                 }
 
-                // Sleep before retry
                 std::thread::sleep(Duration::from_millis(delay_ms));
 
                 // Calculate next delay with exponential backoff
@@ -135,7 +133,6 @@ where
 /// Execute an operation with a timeout
 ///
 /// This helper ensures that any operations are completed within a specified time limit.
-/// Note: This uses a simple polling approach for synchronous operations.
 ///
 /// # Example
 /// ```ignore
@@ -409,26 +406,14 @@ pub fn parse_resource_uri(uri: &str) -> CloudResult<(String, Vec<String>)> {
 /// })?;
 /// ```
 ///
-/// Note: This is a placeholder function. To enable async support,
-/// you would need to add tokio or async-std as a dependency and
-/// implement this function using their runtime.
-///
-/// # Errors
-///
-/// This function is unimplemented and will panic if called.
-/// It exists as a placeholder for future async support.
-///
 /// # Panics
 ///
-/// This function always panics with an unimplemented message.
-/// To use async operations, you need to add a runtime dependency.
+/// Always panics; requires an async runtime dependency (e.g. tokio) to implement.
 #[allow(dead_code)]
 pub fn block_on_async<F, T>(_future: F) -> CloudResult<T>
 where
     F: Future<Output = CloudResult<T>>,
 {
-    // Note: This is a placeholder. In a real implementation, you'd use
-    // tokio::runtime::Runtime or similar to execute the async operation.
     unimplemented!("Async runtime support requires additional dependencies")
 }
 
@@ -479,7 +464,6 @@ pub fn validate_resource_name(name: &str) -> CloudResult<()> {
         ));
     }
 
-    // Check for invalid characters (basic validation)
     if !name
         .chars()
         .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')

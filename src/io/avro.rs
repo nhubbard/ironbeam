@@ -248,7 +248,6 @@ pub fn write_avro_par<T: Serialize + Sync>(
         .collect::<Result<Vec<_>>>()
         .with_context(|| format!("serialize records to Avro for {}", path.display()))?;
 
-    // Sequential write into a single valid Avro file.
     let f = File::create(path).with_context(|| format!("create {}", path.display()))?;
     let mut w = BufWriter::new(f);
     let mut writer = Writer::new(&schema, &mut w);

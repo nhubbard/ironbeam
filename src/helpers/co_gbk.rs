@@ -56,7 +56,6 @@ use std::hash::Hash;
 // Macro to generate a single Tagged enum with N type parameters
 // Usage: generate_tagged_enum!(2) produces Tagged2<V1, V2> with variants V1(V1), V2(V2)
 macro_rules! generate_tagged_enum {
-    // Generate Tagged2
     (2) => {
         /// Tagged enum for `2`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
@@ -67,7 +66,6 @@ macro_rules! generate_tagged_enum {
             V2(V2),
         }
     };
-    // Generate Tagged3
     (3) => {
         /// Tagged enum for `3`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
@@ -80,7 +78,6 @@ macro_rules! generate_tagged_enum {
             V3(V3),
         }
     };
-    // Generate Tagged4
     (4) => {
         /// Tagged enum for `4`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
@@ -95,7 +92,6 @@ macro_rules! generate_tagged_enum {
             V4(V4),
         }
     };
-    // Generate Tagged5
     (5) => {
         /// Tagged enum for `5`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
@@ -112,7 +108,6 @@ macro_rules! generate_tagged_enum {
             V5(V5),
         }
     };
-    // Generate Tagged6
     (6) => {
         /// Tagged enum for `6`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
@@ -131,7 +126,6 @@ macro_rules! generate_tagged_enum {
             V6(V6),
         }
     };
-    // Generate Tagged7
     (7) => {
         /// Tagged enum for `7`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
@@ -152,7 +146,6 @@ macro_rules! generate_tagged_enum {
             V7(V7),
         }
     };
-    // Generate Tagged8
     (8) => {
         /// Tagged enum for `8`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
@@ -175,7 +168,6 @@ macro_rules! generate_tagged_enum {
             V8(V8),
         }
     };
-    // Generate Tagged9
     (9) => {
         /// Tagged enum for `9`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
@@ -200,7 +192,6 @@ macro_rules! generate_tagged_enum {
             V9(V9),
         }
     };
-    // Generate Tagged10
     (10) => {
         /// Tagged enum for `10`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
@@ -289,7 +280,6 @@ macro_rules! cogroup_by_key {
 
 // Macro to generate all cogroup_by_key_N implementation functions
 macro_rules! generate_cogroup_impls {
-    // Generate implementation for each N-way cogroup
     ($(
         $n:tt => {
             fn_name: $fn_name:ident,
@@ -312,31 +302,26 @@ macro_rules! generate_cogroup_impls {
             {
                 use crate::helpers::flatten::flatten;
 
-                // Tag each collection with its variant type
                 $(
                     paste::paste! {
                         let [<tagged $idx>] = $param.clone().map(|(k, v)| (k.clone(), $tagged::$variant(v.clone())));
                     }
                 )+
 
-                // Flatten all tagged collections and group by key
                 paste::paste! {
                     let flattened = flatten(&[$(&[<tagged $idx>]),+]);
                 }
                 let grouped = flattened.group_by_key();
 
-                // Partition values by their tags and return grouped result
                 grouped.map(|(k, values)| {
                     let k = k.clone();
 
-                    // Initialize result vectors for each input
                     $(
                         paste::paste! {
                             let mut [<v $idx s>] = Vec::new();
                         }
                     )+
 
-                    // Partition values by their tags
                     for tagged in values {
                         match tagged {
                             $(
@@ -349,7 +334,6 @@ macro_rules! generate_cogroup_impls {
                         }
                     }
 
-                    // Return tuple of (key, (vec1, vec2, ...))
                     paste::paste! {
                         (k, ($([<v $idx s>]),+))
                     }

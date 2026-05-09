@@ -235,10 +235,8 @@ where
         .to_str()
         .ok_or_else(|| anyhow!("path contains invalid UTF-8"))?;
 
-    // Check if the path contains glob patterns
     let glob_regex = Regex::new(r"[*?\[]").expect("valid glob regex");
     if glob_regex.is_match(path_str) {
-        // Glob pattern - expand and read all matching files
         let files =
             expand_glob(path_str).with_context(|| format!("expanding glob pattern: {path_str}"))?;
 
@@ -254,7 +252,6 @@ where
         }
         Ok(from_vec(p, all_data))
     } else {
-        // Single file path
         let v = read_avro_vec::<T>(path)?;
         Ok(from_vec(p, v))
     }

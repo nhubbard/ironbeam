@@ -264,7 +264,6 @@ impl SpillManager {
     ///
     /// Returns an error if the spill directory cannot be created.
     pub fn new(config: SpillConfig) -> Result<Self> {
-        // Ensure spill directory exists
         create_dir_all(&config.spill_directory).context("Failed to create spill directory")?;
 
         Ok(Self { config })
@@ -294,7 +293,6 @@ impl SpillManager {
 
         let mut writer = BufWriter::new(file);
 
-        // Serialize the data using postcard
         let serialized = if self.config.compress {
             #[cfg(feature = "compression-zstd")]
             {
@@ -335,7 +333,6 @@ impl SpillManager {
             .read_to_end(&mut buffer)
             .context("Failed to read spill file")?;
 
-        // Deserialize the data using postcard
         let data: Vec<T> = if self.config.compress {
             #[cfg(feature = "compression-zstd")]
             {
@@ -405,7 +402,6 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
     pub fn new(data: Vec<T>) -> Self {
         let memory_size = Self::estimate_size(&data);
 
-        // Register with the global tracker if available
         if let Some(tracker) = MemoryTracker::instance() {
             tracker.allocate(memory_size);
 
@@ -473,7 +469,6 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
         let spill_id = tracker.next_spill_id();
         let disk_size = manager.spill(data, spill_id)?;
 
-        // Free the in-memory data
         self.data = None;
         tracker.deallocate(self.memory_size);
 
@@ -505,13 +500,11 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
         let data = manager.restore(spill_id)?;
         self.memory_size = Self::estimate_size(&data);
 
-        // Register the restored memory
         tracker.allocate(self.memory_size);
 
         self.data = Some(data);
         self.state = PartitionState::InMemory;
 
-        // Clean up the spill file
         let _ = manager.cleanup(spill_id);
 
         Ok(())
@@ -574,7 +567,6 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>> D
     for SpillablePartition<T>
 {
     fn drop(&mut self) {
-        // Clean up spilled data if it exists
         if let PartitionState::Spilled { spill_id, .. } = self.state
             && let Some(ref tracker) = self.tracker
         {
@@ -584,7 +576,6 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>> D
             }
         }
 
-        // Deallocate tracked memory
         if self.is_in_memory()
             && let Some(ref tracker) = self.tracker
         {

@@ -8,7 +8,7 @@
 //!   operations internally where needed
 //! - **Fake implementations** - In-memory implementations for unit testing without external
 //!   dependencies
-//! - **Generic helpers** - Utilities for retry logic, batching, pagination, and more
+//! - **Utilities** - Retry logic, batching, pagination, and more via [`utils`]
 //!
 //! ## Available Cloud Service Traits
 //!
@@ -90,7 +90,7 @@
 //!
 //! impl ObjectIO for S3ObjectIO {
 //!     fn put_object(&self, bucket: &str, key: &str, data: &[u8]) -> Result<()> {
-//!         // Use helpers::retry_with_backoff for resilience
+//!         // Use utils::retry_with_backoff for resilience
 //!         let rt = tokio::runtime::Runtime::new()?;
 //!         rt.block_on(async {
 //!             self.client.put_object()
@@ -108,7 +108,7 @@
 //!
 //! ### Using Helpers
 //! ```
-//! use ironbeam::io::cloud::helpers::*;
+//! use ironbeam::io::cloud::utils::*;
 //! use ironbeam::io::cloud::*;
 //!
 //! # fn example() -> CloudResult<()> {
@@ -145,13 +145,13 @@
 //! - `InvalidInput` - Bad parameters
 //! - `InternalError` / `Other` - Catch-all
 //!
-//! The `helpers` module provides utilities for automatically retrying transient errors.
+//! The `utils` module provides utilities for automatically retrying transient errors.
 //!
 //! ## Module Structure
 //!
 //! - [`traits`] - Core trait definitions and types
 //! - [`fake`] - In-memory fake implementations for testing
-//! - [`helpers`] - Generic utilities for implementing cloud I/O
+//! - [`utils`] - Generic utilities for implementing cloud I/O
 //!
 //! ## Examples
 //!
@@ -159,7 +159,6 @@
 //! and `tests/cloud_io_tests.rs` for comprehensive integration tests.
 
 pub mod fake;
-pub mod helpers;
 pub mod readers;
 pub mod traits;
 pub mod utils;

@@ -125,7 +125,6 @@ impl Display for ExecutionExplanation {
         )?;
         writeln!(f)?;
 
-        // Cost Summary
         writeln!(
             f,
             "┌─ COST ESTIMATES ─────────────────────────────────────────────┐"
@@ -161,7 +160,6 @@ impl Display for ExecutionExplanation {
         )?;
         writeln!(f)?;
 
-        // Execution Steps
         writeln!(
             f,
             "┌─ EXECUTION STEPS ────────────────────────────────────────────┐"
@@ -183,7 +181,6 @@ impl Display for ExecutionExplanation {
             "└──────────────────────────────────────────────────────────────┘"
         )?;
 
-        // Optimizations
         if !self.optimizations.is_empty() {
             writeln!(f)?;
             writeln!(
@@ -456,7 +453,6 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
 
     let mut optimizations = Vec::new();
 
-    // Track optimization decisions
     let (new_chain, fusion_opt) = fuse_stateless_tracked(chain);
     chain = new_chain;
     if let Some(opt) = fusion_opt {
@@ -590,7 +586,7 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
     (out, optimization)
 }
 
-/* ---------- NEW: reorder value-only runs ---------- */
+/* ---------- Reorder value-only runs ---------- */
 
 /// Reorder value-only operations and track optimization decisions.
 fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<OptimizationDecision>) {
@@ -625,7 +621,7 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
     (out, optimizations)
 }
 
-/* ---------- NEW: predicate pushdown before GBK ---------- */
+/* ---------- Predicate pushdown before GBK ---------- */
 
 /// Hoist cardinality-reducing ops to run as early as possible before a `GroupByKey`.
 ///
@@ -651,9 +647,8 @@ fn push_down_before_gbk_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimizatio
     let mut out = Vec::with_capacity(chain.len() + 1);
     let mut pushed_count = 0usize;
 
-    let is_pushable = |op: &Arc<dyn DynOp>| {
-        op.key_preserving() && op.value_only() && op.cardinality_reducing()
-    };
+    let is_pushable =
+        |op: &Arc<dyn DynOp>| op.key_preserving() && op.value_only() && op.cardinality_reducing();
 
     let mut iter = chain.into_iter().peekable();
     while let Some(node) = iter.next() {
@@ -724,7 +719,7 @@ fn push_down_before_gbk_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimizatio
     (out, opt)
 }
 
-/* ---------- NEW: GBK -> Combine lifting ---------- */
+/* ---------- GBK -> Combine lifting ---------- */
 
 /// Lift GBK->Combine pattern and track optimization decisions.
 fn lift_gbk_then_combine_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {

@@ -75,7 +75,6 @@ impl<T: RFBound> PCollection<T> {
     pub fn reshuffle(self) -> Self {
         let reshuffle_fn: Arc<dyn Fn(Vec<Partition>, usize) -> Vec<Partition> + Send + Sync> =
             Arc::new(|parts: Vec<Partition>, n: usize| {
-                // Collect all elements from every input partition.
                 let mut all: Vec<T> = Vec::new();
                 for p in parts {
                     #[allow(clippy::expect_used)]

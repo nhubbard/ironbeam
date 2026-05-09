@@ -151,7 +151,6 @@ pub fn write_jsonl_par<T: Serialize + Send + Sync>(
             Ok(())
         })?;
 
-    // concat in order
     let mut out = BufWriter::new(File::create(path)?);
     for p in &shard_paths {
         let mut r = BufReader::new(File::open(p)?);
@@ -303,7 +302,6 @@ where
     }
 
     fn clone_any(&self, data: &dyn Any) -> Option<Partition> {
-        // read full file if sequential
         let s = data.downcast_ref::<JsonlShards>()?;
         let v: Vec<T> = read_jsonl_range::<T>(s, 0, s.total_lines).ok()?;
         Some(Box::new(v) as Partition)

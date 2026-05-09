@@ -135,24 +135,6 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 /// # Ok(()) }
 /// ```
 ///
-/// Glob pattern:
-/// ```no_run
-/// use ironbeam::*;
-/// use anyhow::Result;
-/// # fn main() -> Result<()> {
-/// #[cfg(feature = "io-parquet")]
-/// {
-///     #[derive(serde::Serialize, serde::Deserialize, Clone)]
-///     struct Rec { k: String, v: u64 }
-///
-///     let p = Pipeline::default();
-///     // Read all Parquet files in date partitions
-///     let stream = read_parquet_streaming::<Rec>(&p, "data/year=2024/month=*/day=*/*.parquet", 1)?;
-///     let rows = stream.collect_seq()?;
-/// }
-/// # Ok(()) }
-/// ```
-///
 /// # Errors
 ///
 /// If an error occurs while streaming the Parquet input data, then a [`Result`] is returned.
@@ -174,10 +156,8 @@ where
         .to_str()
         .ok_or_else(|| anyhow!("path contains invalid UTF-8"))?;
 
-    // Check if the path contains glob patterns
     let glob_regex = Regex::new(r"[*?\[]").expect("valid glob regex");
     if glob_regex.is_match(path_str) {
-        // Glob pattern - expand and read all matching files
         let files =
             expand_glob(path_str).with_context(|| format!("expanding glob pattern: {path_str}"))?;
 
@@ -185,8 +165,6 @@ where
             bail!("no files found matching pattern: {path_str}");
         }
 
-        // For glob patterns, we use eager loading since streaming multiple
-        // parquet files would require a more complex sharding strategy
         let mut all_data = Vec::new();
         for file in files {
             let data: Vec<T> =
@@ -195,7 +173,6 @@ where
         }
         Ok(from_vec(p, all_data))
     } else {
-        // Single file path - use streaming
         let shards: ParquetShards = build_parquet_shards(path, groups_per_shard)?;
         let id = p.insert_node(Node::Source {
             payload: Arc::new(shards),

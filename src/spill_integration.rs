@@ -54,11 +54,9 @@ impl SpillingExecutor {
             return Ok(partition);
         }
 
-        // Try to check if we should spill
         if let Some(tracker) = MemoryTracker::instance()
             && tracker.should_spill()
         {
-            // Attempt to spill the partition we just created
             // downcast consumes the partition, so we handle both success and failure
             return match partition.downcast::<Vec<T>>() {
                 Ok(vec) => {
@@ -66,14 +64,9 @@ impl SpillingExecutor {
                     if spillable.should_spill() {
                         spillable.spill()?;
                     }
-                    // For now, we restore immediately as the runner expects in-memory data
-                    // In a full implementation, we'd keep track of spilled partitions
                     Ok(Box::new(spillable.into_vec()?) as Partition)
                 }
-                Err(original) => {
-                    // Type mismatch, return the original partition
-                    Ok(original)
-                }
+                Err(original) => Ok(original),
             };
         }
 
@@ -95,12 +88,8 @@ impl SpillingExecutor {
 
         let mut spillable = SpillablePartition::new(data);
 
-        // Check if we should spill this partition
         if spillable.should_spill() {
             spillable.spill()?;
-            // Restore it immediately for this implementation
-            // In a more advanced implementation, we could keep it spilled
-            // and only restore when needed
         }
 
         spillable.into_vec()

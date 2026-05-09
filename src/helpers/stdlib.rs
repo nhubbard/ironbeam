@@ -247,7 +247,6 @@ impl<T: RFBound> PCollection<T> {
         O: RFBound,
         F: Fn(&T) -> Option<O> + Send + Sync + 'static,
     {
-        // Use flat_map to implement filter_map
         self.apply_transform(Arc::new(FlatMapOp(
             move |elem: &T| f(elem).map_or_else(Vec::new, |o| vec![o]),
             PhantomData::<(T, O)>,

@@ -116,16 +116,13 @@ where
         "flatten requires at least one input collection"
     );
 
-    // Use the first collection's pipeline
     let pipeline = &collections[0].pipeline;
 
-    // Build subchains for each input collection
     let chains: Vec<Vec<Node>> = collections
         .iter()
         .map(|pc| chain_from(&pc.pipeline, pc.id).expect("chain build"))
         .collect();
 
-    // Coalesce function: merges per-partition outputs from a single subplan
     let coalesce = Arc::new(|parts: Vec<Partition>| -> Partition {
         let mut out: Vec<T> = Vec::new();
         for p in parts {
@@ -135,7 +132,6 @@ where
         Box::new(out) as Partition
     });
 
-    // Merge function: combines coalesced outputs from all subplans
     let merge = Arc::new(|coalesced_inputs: Vec<Partition>| -> Partition {
         let mut result: Vec<T> = Vec::new();
         for p in coalesced_inputs {
@@ -145,7 +141,6 @@ where
         Box::new(result) as Partition
     });
 
-    // Insert dummy source + Flatten node
     let source_id = insert_dummy_source(pipeline);
     let id = pipeline.insert_node(Node::Flatten {
         chains: Arc::new(chains),

@@ -133,13 +133,8 @@ where
     T: DeserializeOwned,
     O: ObjectIO,
 {
-    // Get object from cloud storage
     let data = storage.get_object(bucket, key)?;
-
-    // Create a cursor over the data
     let cursor = std::io::Cursor::new(data);
-
-    // Apply automatic decompression based on the key extension
     let reader = auto_detect_reader(cursor, key).map_err(|e| {
         CloudIOError::new(
             ErrorKind::InternalError,
@@ -147,7 +142,6 @@ where
         )
     })?;
 
-    // Read and parse JSONL
     let buffered = BufReader::new(reader);
     let mut results = Vec::new();
 
@@ -165,7 +159,6 @@ where
             )
         })?;
 
-        // Skip empty lines
         if line.trim().is_empty() {
             continue;
         }
@@ -232,7 +225,6 @@ where
     T: Serialize,
     O: ObjectIO,
 {
-    // Determine the compression format from the file extension
     let key_lower = key.to_lowercase();
     let extension = Path::new(&key_lower).extension();
     let final_buffer = if extension
@@ -298,17 +290,14 @@ where
             ));
         }
     } else {
-        // No compression - write uncompressed JSONL
         serialize_jsonl_uncompressed(data, bucket, key)?
     };
 
-    // Upload to cloud storage
     storage.put_object(bucket, key, &final_buffer)?;
 
     Ok(data.len())
 }
 
-/// Serialize JSONL data without compression
 fn serialize_jsonl_uncompressed<T: Serialize>(
     data: &[T],
     bucket: &str,
@@ -327,7 +316,6 @@ fn serialize_jsonl_uncompressed<T: Serialize>(
     Ok(buffer)
 }
 
-/// Compress JSONL data with gzip
 #[cfg(feature = "compression-gzip")]
 fn compress_jsonl_gzip<T: Serialize>(data: &[T], bucket: &str, key: &str) -> CloudResult<Vec<u8>> {
     let buffer = Vec::new();
@@ -348,7 +336,6 @@ fn compress_jsonl_gzip<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Clo
         })?;
     }
 
-    // Finish compression and return the inner buffer
     encoder.finish().map_err(|e| {
         CloudIOError::new(
             ErrorKind::InternalError,
@@ -357,7 +344,6 @@ fn compress_jsonl_gzip<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Clo
     })
 }
 
-/// Compress JSONL data with zstd
 #[cfg(feature = "compression-zstd")]
 fn compress_jsonl_zstd<T: Serialize>(data: &[T], bucket: &str, key: &str) -> CloudResult<Vec<u8>> {
     let buffer = Vec::new();
@@ -383,7 +369,6 @@ fn compress_jsonl_zstd<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Clo
         })?;
     }
 
-    // Finish compression and return the inner buffer
     encoder.finish().map_err(|e| {
         CloudIOError::new(
             ErrorKind::InternalError,
@@ -392,7 +377,6 @@ fn compress_jsonl_zstd<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Clo
     })
 }
 
-/// Compress JSONL data with bzip2
 #[cfg(feature = "compression-bzip2")]
 fn compress_jsonl_bzip2<T: Serialize>(data: &[T], bucket: &str, key: &str) -> CloudResult<Vec<u8>> {
     let buffer = Vec::new();
@@ -413,7 +397,6 @@ fn compress_jsonl_bzip2<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Cl
         })?;
     }
 
-    // Finish compression and return the inner buffer
     encoder.finish().map_err(|e| {
         CloudIOError::new(
             ErrorKind::InternalError,
@@ -422,7 +405,6 @@ fn compress_jsonl_bzip2<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Cl
     })
 }
 
-/// Compress JSONL data with xz
 #[cfg(feature = "compression-xz")]
 fn compress_jsonl_xz<T: Serialize>(data: &[T], bucket: &str, key: &str) -> CloudResult<Vec<u8>> {
     let buffer = Vec::new();
@@ -443,7 +425,6 @@ fn compress_jsonl_xz<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Cloud
         })?;
     }
 
-    // Finish compression and return the inner buffer
     encoder.finish().map_err(|e| {
         CloudIOError::new(
             ErrorKind::InternalError,
@@ -501,7 +482,6 @@ pub fn expand_cloud_glob<O>(storage: &O, bucket: &str, pattern: &str) -> CloudRe
 where
     O: ObjectIO,
 {
-    // Convert glob pattern to regex
     let regex_pattern = glob_to_regex(pattern);
     let regex = Regex::new(&regex_pattern).map_err(|e| {
         CloudIOError::new(
@@ -510,13 +490,8 @@ where
         )
     })?;
 
-    // Determine the prefix to use for listing (everything before the first wildcard)
     let prefix = extract_prefix_before_wildcard(pattern);
-
-    // List objects with the determined prefix
     let objects = storage.list_objects(bucket, prefix.as_deref())?;
-
-    // Filter objects that match the pattern
     let mut matched_keys: Vec<String> = objects
         .into_iter()
         .filter_map(|obj| {
@@ -528,7 +503,6 @@ where
         })
         .collect();
 
-    // Sort for deterministic order
     matched_keys.sort();
 
     Ok(matched_keys)

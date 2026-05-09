@@ -117,11 +117,9 @@ impl Runner {
         p: &Pipeline,
         terminal: NodeId,
     ) -> Result<Vec<T>> {
-        // Record start time in metrics
         #[cfg(feature = "metrics")]
         p.record_metrics_start();
 
-        // Get the optimized plan
         let plan = build_plan(p, terminal)?;
         let chain = plan.chain;
         let suggested_parts = plan.suggested_partitions;
@@ -131,7 +129,6 @@ impl Runner {
 
         #[cfg(feature = "checkpointing")]
         let result = if checkpoint_enabled {
-            // Run with checkpointing
             let config = self.checkpoint_config.as_ref().unwrap().clone();
             match self.mode {
                 ExecMode::Sequential => exec_seq_with_checkpointing::<T>(chain, config),
@@ -149,7 +146,6 @@ impl Runner {
                 }
             }
         } else {
-            // Run without checkpointing
             match self.mode {
                 ExecMode::Sequential => exec_seq::<T>(chain),
                 ExecMode::Parallel {
@@ -185,7 +181,6 @@ impl Runner {
             }
         };
 
-        // Record end time in metrics
         #[cfg(feature = "metrics")]
         p.record_metrics_end();
 
@@ -247,16 +242,13 @@ impl Runner {
             return self.run_collect::<T>(p, terminal);
         };
 
-        // --- cache lookup / population ---
         let cached_vec: Vec<T> = {
             let maybe_arc = cache.lock().unwrap().get(&fanout_id).cloned();
             if let Some(arc) = maybe_arc {
-                // Cache hit: downcast to the expected type.
                 arc.downcast::<Vec<T>>()
                     .map(|a| (*a).clone())
                     .map_err(|_| anyhow!("CSE: cached type mismatch at node {fanout_id:?}"))?
             } else {
-                // Cache miss: execute the prefix subgraph up to the fan-out node.
                 let prefix_result = self.run_collect::<T>(p, fanout_id)?;
                 cache
                     .lock()
@@ -266,7 +258,6 @@ impl Runner {
             }
         };
 
-        // --- execute the suffix (fan-out exclusive → terminal inclusive) ---
         run_collect_suffix(self, terminal, fanout_id, cached_vec, &nodes, &edges)
     }
 }
@@ -386,7 +377,6 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 coalesce,
                 merge,
             } => {
-                // Execute each subplan and coalesce its partitions
                 let mut coalesced_inputs: Vec<Partition> = Vec::new();
                 for chain in chains.iter() {
                     let mut parts = run_subplan_seq(chain.clone())?;
@@ -397,7 +387,6 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                     };
                     coalesced_inputs.push(single);
                 }
-                // Merge all inputs into one
                 merge(coalesced_inputs)
             }
             Node::CoGroup {
@@ -407,7 +396,6 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 coalesce_right,
                 exec,
             } => {
-                // Execute left/right subplans and coalesce if they produced multiple partitions.
                 let mut left_parts = run_subplan_seq((*left_chain).clone())?;
                 let mut right_parts = run_subplan_seq((*right_chain).clone())?;
 
@@ -445,7 +433,6 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 let mid = local(buf.take().unwrap());
                 merge(vec![mid])
             }
-            // Terminal: type-check and materialize as Vec<T>
             Node::Materialized(p) => Box::new(
                 p.downcast_ref::<Vec<T>>()
                     .cloned()
@@ -459,18 +446,12 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
             } => {
                 let mid_acc = local(buf.take().unwrap());
                 let acc = merge(vec![mid_acc]);
-                if let Some(h) = acc.downcast_ref::<BinaryHeap<NotNan<f64>>>() {
-                    eprintln!("DEBUG: KMV heap len = {}", h.len()); // should be <= k
-                }
                 finish(acc)
             }
-            Node::Reshuffle { reshuffle } => {
-                // Sequential: collect the single partition and re-emit as one partition.
-                reshuffle(vec![buf.take().unwrap()], 1)
-                    .into_iter()
-                    .next()
-                    .expect("Reshuffle returned empty vec in sequential mode")
-            }
+            Node::Reshuffle { reshuffle } => reshuffle(vec![buf.take().unwrap()], 1)
+                .into_iter()
+                .next()
+                .expect("Reshuffle returned empty vec in sequential mode"),
         });
     }
 
@@ -492,7 +473,6 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
     /// of partitions. The subplan must start with a `Source`. Nested `CoGroup`
     /// inside a subplan is not supported.
     fn run_subplan_par(chain: &[Node], partitions: usize) -> Result<Vec<Partition>> {
-        // must start with a source
         let (payload, vec_ops, rest) = match &chain[0] {
             Node::Source {
                 payload, vec_ops, ..
@@ -599,7 +579,6 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
         Ok(curr)
     }
 
-    // Original head Source
     let (payload, vec_ops, rest) = match &chain[0] {
         Node::Source {
             payload, vec_ops, ..
@@ -756,7 +735,6 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
         }
     }
 
-    // Terminal collection
     if curr.len() == 1 {
         let one = curr.into_iter().next().unwrap();
         let v = *one
@@ -795,10 +773,8 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
     let total_nodes = chain.len();
     let mut manager = CheckpointManager::new(config)?;
 
-    // Generate pipeline ID from chain structure
     let pipeline_id = generate_pipeline_id(&format!("{:?}", chain.len()));
 
-    // Check for existing checkpoint if auto-recovery is enabled
     if manager.config.auto_recover
         && let Some(checkpoint_path) = manager.find_latest_checkpoint(&pipeline_id)?
     {
@@ -809,8 +785,7 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
                     "[Checkpoint] Recovered from node {} ({:.0}% complete)",
                     state.completed_node_index, state.metadata.progress_percent
                 );
-                // Note: We still re-execute from the start due to type-erasure limitations.
-                // But we log that we're resuming from a previous run
+                // Type-erasure prevents restoring partition state; we re-execute from the start.
             }
             Err(e) => {
                 eprintln!("[Checkpoint] Failed to load checkpoint: {e}");
@@ -818,7 +793,6 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
         }
     }
 
-    // Execute the chain with checkpointing
     let mut buf: Option<Partition> = None;
 
     for (idx, node) in chain.into_iter().enumerate() {
@@ -844,7 +818,6 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
             Node::Reshuffle { .. } => "Reshuffle",
         };
 
-        // Execute the node (same logic as exec_seq)
         buf = Some(match node {
             Node::Source {
                 payload, vec_ops, ..
@@ -890,7 +863,6 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
                 .expect("Reshuffle returned empty vec in sequential mode"),
         });
 
-        // Check if we should create a checkpoint
         if manager.should_checkpoint(idx, is_barrier, total_nodes) {
             let timestamp = current_timestamp_ms();
             #[allow(
@@ -936,7 +908,6 @@ fn exec_seq_with_checkpointing<T: 'static + Send + Sync + Clone>(
         .downcast::<Vec<T>>()
         .map_err(|_| anyhow!("terminal type mismatch"))?;
 
-    // Clean up checkpoints on successful completion
     manager.clear_checkpoints(&pipeline_id).ok();
     eprintln!("[Checkpoint] Pipeline completed successfully, checkpoints cleared");
 
@@ -958,10 +929,8 @@ fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
     let total_nodes = chain.len();
     let mut manager = CheckpointManager::new(config)?;
 
-    // Generate pipeline ID
     let pipeline_id = generate_pipeline_id(&format!("{:?}:{}", chain.len(), partitions));
 
-    // Check for existing checkpoint
     if manager.config.auto_recover
         && let Some(checkpoint_path) = manager.find_latest_checkpoint(&pipeline_id)?
     {
@@ -984,12 +953,10 @@ fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
     // at coarser granularity
     let result = exec_par::<T>(chain, partitions);
 
-    // On success, clear checkpoints
     if result.is_ok() {
         manager.clear_checkpoints(&pipeline_id).ok();
         eprintln!("[Checkpoint] Pipeline completed successfully, checkpoints cleared");
     } else {
-        // On failure, save a checkpoint indicating the failure point
         let timestamp = current_timestamp_ms();
         let metadata_str = format!("{pipeline_id}:0:{timestamp}:{partitions}");
         let checksum = compute_checksum(metadata_str.as_bytes());
