@@ -589,3 +589,144 @@ fn predicate_pushdown_into_flatten_subplan_count_matches_inputs() -> Result<()> 
     );
     Ok(())
 }
+
+// ── 3.8 Dead Subtree Elimination ──────────────────────────────────────────────
+
+/// A purely linear pipeline has no dead branches; the optimization must NOT fire.
+#[test]
+fn dead_subtree_elimination_does_not_fire_on_linear_pipeline() -> Result<()> {
+    let p = Pipeline::default();
+    let pc = from_vec(&p, vec![1i32, 2, 3])
+        .map(|x: &i32| x * 2)
+        .filter(|x: &i32| *x > 2);
+    let plan = build_plan(&p, pc.node_id())?;
+    assert!(
+        !plan
+            .optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::PrunedDeadSubtrees { .. })),
+        "PrunedDeadSubtrees must not fire when there are no dead branches"
+    );
+    Ok(())
+}
+
+/// When two branches diverge from a shared source, building the plan for one branch
+/// must prune the other branch's nodes and record `PrunedDeadSubtrees`.
+#[test]
+fn dead_branch_is_pruned_optimization_fires() -> Result<()> {
+    let p = Pipeline::default();
+    let src = from_vec(&p, vec![1i32, 2, 3]);
+    // Two branches from the same source.
+    let branch_a = src.clone().map(|x: &i32| x * 10); // terminal A
+    let _branch_b = src.filter(|x: &i32| *x > 1); // terminal B — dead relative to A
+
+    let plan = build_plan(&p, branch_a.node_id())?;
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::PrunedDeadSubtrees { .. })),
+        "expected PrunedDeadSubtrees optimization to fire when a dead branch exists"
+    );
+    Ok(())
+}
+
+/// The `nodes_pruned` count equals the number of nodes that belong exclusively to the
+/// dead branch (one `Stateless` node for the dead `filter`).
+#[test]
+fn dead_branch_pruned_count_is_correct() -> Result<()> {
+    let p = Pipeline::default();
+    let src = from_vec(&p, vec![1i32, 2, 3]);
+    let branch_a = src.clone().map(|x: &i32| x * 10);
+    let _branch_b = src.filter(|x: &i32| *x > 1); // one extra node
+
+    let plan = build_plan(&p, branch_a.node_id())?;
+    let pruned: usize = plan
+        .optimizations
+        .iter()
+        .filter_map(|o| {
+            if let OptimizationDecision::PrunedDeadSubtrees { nodes_pruned } = o {
+                Some(*nodes_pruned)
+            } else {
+                None
+            }
+        })
+        .sum();
+    assert_eq!(
+        pruned, 1,
+        "exactly one dead-branch node (the filter Stateless) should be pruned, got {pruned}"
+    );
+    Ok(())
+}
+
+/// Functional correctness: pruning dead branches must not alter the results of the
+/// live branch.
+#[test]
+fn dead_subtree_pruning_does_not_affect_results() -> Result<()> {
+    let p = Pipeline::default();
+    let src = from_vec(&p, vec![1i32, 2, 3, 4, 5]);
+    let branch_a = src.clone().map(|x: &i32| x * 2);
+    // Dead branch — its existence should have no observable effect on branch_a's output.
+    let _dead = src.filter(|x: &i32| *x % 2 == 0);
+
+    let mut result = branch_a.collect_seq()?;
+    result.sort_unstable();
+    assert_eq!(result, vec![2i32, 4, 6, 8, 10]);
+    Ok(())
+}
+
+/// The explain output includes a description of the `PrunedDeadSubtrees` optimization
+/// when it fires.
+#[test]
+fn pruned_dead_subtrees_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    let src = from_vec(&p, vec![1i32, 2, 3]);
+    let branch_a = src.clone().map(|x: &i32| x + 1);
+    let _dead = src.filter(|x: &i32| *x > 0);
+
+    let plan = build_plan(&p, branch_a.node_id())?;
+    let explain = plan.explain().to_string();
+    assert!(
+        explain.contains("Dead Subtree Elimination"),
+        "explain output should mention Dead Subtree Elimination: {explain}"
+    );
+    Ok(())
+}
+
+/// A longer dead branch (multiple chained operations) is entirely pruned, and the
+/// `nodes_pruned` count reflects all nodes on the dead path.
+#[test]
+fn long_dead_branch_is_fully_pruned() -> Result<()> {
+    let p = Pipeline::default();
+    let src = from_vec(&p, vec![1i32, 2, 3]);
+    let branch_a = src.clone().map(|x: &i32| x + 100); // live terminal
+    // Dead branch: filter -> map -> filter (3 extra nodes).
+    let _dead = src
+        .filter(|x: &i32| *x > 0)
+        .map(|x: &i32| x * 3)
+        .filter(|x: &i32| *x < 100);
+
+    let plan = build_plan(&p, branch_a.node_id())?;
+    let pruned: usize = plan
+        .optimizations
+        .iter()
+        .filter_map(|o| {
+            if let OptimizationDecision::PrunedDeadSubtrees { nodes_pruned } = o {
+                Some(*nodes_pruned)
+            } else {
+                None
+            }
+        })
+        .sum();
+    assert_eq!(
+        pruned, 3,
+        "three nodes on the dead branch should be pruned, got {pruned}"
+    );
+
+    // Functional correctness of the live branch.
+    let mut result = from_vec(&p, vec![1i32, 2, 3])
+        .map(|x: &i32| x + 100)
+        .collect_seq()?;
+    result.sort_unstable();
+    assert_eq!(result, vec![101i32, 102, 103]);
+    Ok(())
+}

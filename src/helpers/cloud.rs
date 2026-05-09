@@ -145,7 +145,7 @@ use std::time::{Duration, Instant};
 /// # Example
 /// ```no_run
 /// # use ironbeam::helpers::cloud::*;
-/// # use ironbeam::io::cloud::helpers::RetryConfig;
+/// # use ironbeam::io::cloud::utils::RetryConfig;
 /// # use ironbeam::io::cloud::traits::CloudResult;
 /// # fn my_custom_s3_upload(bucket: &str, key: &str, data: &[u8]) -> CloudResult<()> { Ok(()) }
 /// # fn main() -> CloudResult<()> {
@@ -209,7 +209,7 @@ pub fn run_parallel<T: Send>(
 /// # Example
 /// ```no_run
 /// # use ironbeam::helpers::cloud::*;
-/// # use ironbeam::io::cloud::helpers::RetryConfig;
+/// # use ironbeam::io::cloud::utils::RetryConfig;
 /// # use ironbeam::io::cloud::traits::CloudResult;
 /// # use std::time::Duration;
 /// # fn process_large_dataset() -> CloudResult<()> { Ok(()) }
@@ -302,7 +302,7 @@ impl Default for BatchConfig {
 /// # Example
 /// ```no_run
 /// # use ironbeam::helpers::cloud::*;
-/// # use ironbeam::io::cloud::helpers::PaginationConfig;
+/// # use ironbeam::io::cloud::utils::PaginationConfig;
 /// # use ironbeam::io::cloud::traits::CloudResult;
 /// # fn fetch_items_page(page: u32, size: u32) -> CloudResult<Vec<String>> {
 /// #     Ok(vec!["item1".to_string(), "item2".to_string()])
@@ -340,7 +340,7 @@ where
 /// # Example
 /// ```no_run
 /// # use ironbeam::helpers::cloud::*;
-/// # use ironbeam::io::cloud::helpers::RetryConfig;
+/// # use ironbeam::io::cloud::utils::RetryConfig;
 /// # use ironbeam::io::cloud::traits::CloudResult;
 /// # use std::time::Duration;
 /// # fn upload_large_file(bucket: &str, key: &str, data: &[u8]) -> CloudResult<()> { Ok(()) }
