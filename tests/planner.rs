@@ -461,3 +461,131 @@ fn planner_eliminates_reshuffle_before_flatten_correctness() -> Result<()> {
     assert_eq!(seq, vec![1, 2, 3, 4, 5, 6]);
     Ok(())
 }
+
+// ── 3.7 Predicate pushdown into Flatten subplans ───────────────────────────────
+
+/// Functional correctness: a `filter_values` following a `flatten` of two KV collections
+/// produces the same result as applying the filter without the optimization.
+#[test]
+fn predicate_pushed_into_flatten_subplans_correctness() -> Result<()> {
+    let p = TestPipeline::new();
+    let a = from_vec(&p, vec![("x".to_string(), 1u32), ("x".to_string(), 10)]);
+    let b = from_vec(&p, vec![("y".to_string(), 2u32), ("y".to_string(), 20)]);
+    // filter_values is value_only + cardinality_reducing — eligible for Flatten pushdown.
+    let mut result = flatten(&[&a, &b])
+        .filter_values(|v: &u32| *v >= 10) // only ("x",10) and ("y",20) survive
+        .collect_seq()?;
+    result.sort_unstable_by_key(|(k, v): &(String, u32)| (k.clone(), *v));
+    assert_eq!(
+        result,
+        vec![("x".to_string(), 10u32), ("y".to_string(), 20u32)]
+    );
+    Ok(())
+}
+
+/// The `PushedDownIntoFlattenSubplans` optimization fires when a `value_only +
+/// cardinality_reducing` op immediately follows a `Flatten` node.
+#[test]
+fn predicate_pushdown_into_flatten_optimization_fires() -> Result<()> {
+    let p = TestPipeline::new();
+    let a = from_vec(&p, vec![("a".to_string(), 1u32)]);
+    let b = from_vec(&p, vec![("b".to_string(), 2u32)]);
+    let pc = flatten(&[&a, &b]).filter_values(|v: &u32| *v > 0);
+    let plan = build_plan(&p, pc.node_id())?;
+    assert!(
+        plan.optimizations.iter().any(|o| matches!(
+            o,
+            OptimizationDecision::PushedDownIntoFlattenSubplans { .. }
+        )),
+        "expected PushedDownIntoFlattenSubplans optimization to fire"
+    );
+    Ok(())
+}
+
+/// When ALL post-Flatten ops are pushable, the outer `Stateless` block is removed entirely.
+#[test]
+fn predicate_pushdown_into_flatten_removes_empty_stateless() -> Result<()> {
+    let p = TestPipeline::new();
+    let a = from_vec(&p, vec![("a".to_string(), 1u32)]);
+    let b = from_vec(&p, vec![("b".to_string(), 2u32)]);
+    // Only filter_values follows the flatten — it should be pushed in and the outer
+    // Stateless block should disappear from the chain.
+    let pc = flatten(&[&a, &b]).filter_values(|v: &u32| *v > 0);
+    let plan = build_plan(&p, pc.node_id())?;
+    // Walk the chain: there should be no Stateless node immediately following a Flatten.
+    let chain = &plan.chain;
+    for window in chain.windows(2) {
+        assert!(
+            !(matches!(window[0], Node::Flatten { .. }) && matches!(window[1], Node::Stateless(_))),
+            "Stateless block should have been removed after Flatten when all ops were pushed"
+        );
+    }
+    Ok(())
+}
+
+/// The explain output mentions the Flatten predicate-pushdown optimization.
+#[test]
+fn predicate_pushdown_into_flatten_appears_in_explain() -> Result<()> {
+    let p = TestPipeline::new();
+    let a = from_vec(&p, vec![("x".to_string(), 1u32)]);
+    let b = from_vec(&p, vec![("y".to_string(), 2u32)]);
+    let pc = flatten(&[&a, &b]).filter_values(|v: &u32| *v > 0);
+    let plan = build_plan(&p, pc.node_id())?;
+    let explain = plan.explain().to_string();
+    assert!(
+        explain.contains("Predicate Pushdown Into Flatten Subplans"),
+        "explain output should mention the flatten pushdown: {explain}"
+    );
+    Ok(())
+}
+
+/// A non-`value_only` op (plain `filter`) following a `Flatten` is NOT pushed into
+/// subplans — it must remain in the outer chain unchanged.
+#[test]
+fn predicate_pushdown_into_flatten_leaves_non_value_only_ops() -> Result<()> {
+    let p = TestPipeline::new();
+    let a = from_vec(&p, vec![1i32, 2, 3]);
+    let b = from_vec(&p, vec![4i32, 5, 6]);
+    // plain filter() is cardinality_reducing but NOT value_only — must not be pushed.
+    let pc = flatten(&[&a, &b]).filter(|v: &i32| *v > 3);
+    let plan = build_plan(&p, pc.node_id())?;
+    assert!(
+        !plan.optimizations.iter().any(|o| matches!(
+            o,
+            OptimizationDecision::PushedDownIntoFlattenSubplans { .. }
+        )),
+        "plain filter (not value_only) must not trigger PushedDownIntoFlattenSubplans"
+    );
+    // Functional correctness must still hold.
+    let mut result = flatten(&[&a, &b]).filter(|v: &i32| *v > 3).collect_seq()?;
+    result.sort_unstable();
+    assert_eq!(result, vec![4i32, 5, 6]);
+    Ok(())
+}
+
+/// Optimization fires and subplan_count reflects all input collections.
+#[test]
+fn predicate_pushdown_into_flatten_subplan_count_matches_inputs() -> Result<()> {
+    let p = TestPipeline::new();
+    let a = from_vec(&p, vec![("a".to_string(), 1u32)]);
+    let b = from_vec(&p, vec![("b".to_string(), 2u32)]);
+    let c = from_vec(&p, vec![("c".to_string(), 3u32)]);
+    let pc = flatten(&[&a, &b, &c]).filter_values(|v: &u32| *v > 0);
+    let plan = build_plan(&p, pc.node_id())?;
+    let subplan_count: usize = plan
+        .optimizations
+        .iter()
+        .filter_map(|o| {
+            if let OptimizationDecision::PushedDownIntoFlattenSubplans { subplan_count, .. } = o {
+                Some(*subplan_count)
+            } else {
+                None
+            }
+        })
+        .sum();
+    assert_eq!(
+        subplan_count, 3,
+        "three input collections → subplan_count should be 3, got {subplan_count}"
+    );
+    Ok(())
+}

@@ -10,18 +10,23 @@
 //!    doing so is type-safe and cost-beneficial (cost-hint gate).  Because `Reshuffle` never
 //!    alters element content or count, the same pushdown rationale that applies to `GroupByKey`
 //!    applies equally, reducing the volume of elements that flow into the redistribution step.
-//! 3. **Reorder value-only runs** -- within a stateless block where *all* ops are
+//! 3. **Predicate pushdown into Flatten subplans** -- `value_only + cardinality_reducing` ops
+//!    that immediately follow a `Flatten` are cloned into the tail of every Flatten input
+//!    subplan and removed from the post-Flatten block.  Because each subplan produces the same
+//!    element type that the merge function expects, pushing a filter *before* the fan-in reduces
+//!    the volume of elements that flow into the merge step.
+//! 4. **Reorder value-only runs** -- within a stateless block where *all* ops are
 //!    key-preserving and value-only, put cheaper/filters first using `cost_hint`.
-//! 4. **Lift GBK->Combine** -- if a `GroupByKey` is immediately followed by a
+//! 5. **Lift GBK->Combine** -- if a `GroupByKey` is immediately followed by a
 //!    `CombineValues` that also has a lifted local (`local_groups.is_some()`),
 //!    drop the `GroupByKey` and keep the combine, switching it to consume
 //!    `(K, V)` pairs via `local_pairs`.
-//! 5. **Eliminate redundant Reshuffle** -- a `Reshuffle` immediately before a shuffle
+//! 6. **Eliminate redundant Reshuffle** -- a `Reshuffle` immediately before a shuffle
 //!    barrier (`GroupByKey`, `CombineValues`, `CoGroup`, `Flatten`) is a no-op because
 //!    the barrier already redistributes all elements.  Two consecutive `Reshuffle` nodes
-//!    reduce to one for the same reason.  Runs after pass 4 so that lifted combiners
+//!    reduce to one for the same reason.  Runs after pass 5 so that lifted combiners
 //!    (which remove the `GroupByKey`) are visible as `CombineValues` targets.
-//! 6. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
+//! 7. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
 //!    terminal in the chain.
 //!
 //! The planner also provides a heuristic **partition suggestion** that the runner
@@ -82,6 +87,21 @@ pub enum OptimizationDecision {
     PushedDownPredicates {
         /// The number of operations confirmed as pre-barrier predicates.
         ops_pushed: usize,
+    },
+    /// `value_only + cardinality_reducing` ops were cloned into every `Flatten` input
+    /// subplan and removed from the post-`Flatten` `Stateless` block, reducing the volume
+    /// of elements that flow into the fan-in merge step.
+    ///
+    /// Only ops that satisfy both `value_only` and `cardinality_reducing` are eligible:
+    /// `value_only` guarantees the element type is preserved so the subplan output still
+    /// matches the `coalesce`/`merge` closures; `cardinality_reducing` guarantees no new
+    /// elements are introduced.
+    PushedDownIntoFlattenSubplans {
+        /// Number of operations cloned into each subplan.
+        ops_pushed: usize,
+        /// Total number of subplans that received the cloned ops
+        /// (sum over all `Flatten` nodes processed in the chain).
+        subplan_count: usize,
     },
     /// Partition count suggestion.
     PartitionSuggestion {
@@ -249,6 +269,16 @@ impl Display for ExecutionExplanation {
                         } else {
                             writeln!(f, "│   Suggest {partitions} partitions")?;
                         }
+                    }
+                    OptimizationDecision::PushedDownIntoFlattenSubplans {
+                        ops_pushed,
+                        subplan_count,
+                    } => {
+                        writeln!(f, "│ • Predicate Pushdown Into Flatten Subplans")?;
+                        writeln!(
+                            f,
+                            "│   {ops_pushed} op(s) cloned into {subplan_count} subplan(s) before fan-in"
+                        )?;
                     }
                     OptimizationDecision::EliminatedReshuffle { count } => {
                         writeln!(f, "│ • Eliminated Redundant Reshuffle")?;
@@ -445,10 +475,11 @@ impl Plan {
 /// 2) fuse stateless
 /// 3) predicate pushdown before shuffle barriers — `GroupByKey` and `Reshuffle` — (requires fused
 ///    blocks; may split one Stateless into two)
-/// 4) reorder value-only ops (works on the split blocks produced by step 3)
-/// 5) lift GBK->Combine (structure-changing; GBK must still be present)
-/// 6) eliminate redundant Reshuffle (runs after lift so lifted `CombineValues` is visible as a target)
-/// 7) drop mid-materialized (cleanup)
+/// 4) predicate pushdown into Flatten subplans (clones qualifying ops into each subplan tail)
+/// 5) reorder value-only ops (works on the blocks produced by steps 3–4)
+/// 6) lift GBK->Combine (structure-changing; GBK must still be present)
+/// 7) eliminate redundant Reshuffle (runs after lift so lifted `CombineValues` is visible as a target)
+/// 8) drop mid-materialized (cleanup)
 ///
 /// # Errors
 ///
@@ -469,6 +500,12 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     let (new_chain, pushdown_opt) = push_down_before_barrier_pass(chain);
     chain = new_chain;
     if let Some(opt) = pushdown_opt {
+        optimizations.push(opt);
+    }
+
+    let (new_chain, flatten_pushdown_opt) = push_down_into_flatten_pass(chain);
+    chain = new_chain;
+    if let Some(opt) = flatten_pushdown_opt {
         optimizations.push(opt);
     }
 
@@ -591,6 +628,117 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
     };
 
     (out, optimization)
+}
+
+/* ---------- Predicate pushdown into Flatten subplans ---------- */
+
+/// Push `value_only + cardinality_reducing` ops from the post-`Flatten` `Stateless` block
+/// into the tail of every `Flatten` input subplan, then remove them from the outer chain.
+///
+/// For each consecutive `[Flatten { chains, … }, Stateless(ops)]` pair:
+///
+/// 1. Splits `ops` into `pushable` (both `value_only` and `cardinality_reducing` are true)
+///    and `remaining` (everything else).
+/// 2. Clones each `pushable` op and appends them as a new trailing `Stateless` block to
+///    **every** input subplan inside `Flatten`.  Because `Flatten` executes each subplan
+///    independently, the filter runs once per subplan, reducing the elements that reach
+///    the coalesce/merge step.
+/// 3. Reconstructs the `Flatten` node with the augmented subplans.
+/// 4. Keeps the post-`Flatten` `Stateless` block only if it still has `remaining` ops;
+///    drops it entirely when all ops were pushed.
+/// 5. Records a [`OptimizationDecision::PushedDownIntoFlattenSubplans`] when any ops are
+///    pushed, so the explain output reflects the optimization.
+///
+/// **Safety invariant:** only `value_only` ops are eligible because `value_only` guarantees
+/// the element type is preserved — the subplan output remains the same type that the
+/// `coalesce` and `merge` closures expect.  A non-`value_only` op (e.g. `map_values`) could
+/// silently change the element type and cause a runtime downcast failure inside the runner.
+fn push_down_into_flatten_pass(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
+    if chain.len() < 2 {
+        return (chain, None);
+    }
+
+    let mut out = Vec::with_capacity(chain.len());
+    let mut total_ops_pushed = 0usize;
+    let mut total_subplans_affected = 0usize;
+
+    let is_pushable = |op: &Arc<dyn DynOp>| op.value_only() && op.cardinality_reducing();
+
+    let mut iter = chain.into_iter().peekable();
+    while let Some(node) = iter.next() {
+        let Node::Flatten {
+            chains,
+            coalesce,
+            merge,
+        } = node
+        else {
+            out.push(node);
+            continue;
+        };
+
+        // Only apply the pattern when the very next node is a Stateless block.
+        if !iter
+            .peek()
+            .is_some_and(|nx| matches!(nx, Node::Stateless(_)))
+        {
+            out.push(Node::Flatten {
+                chains,
+                coalesce,
+                merge,
+            });
+            continue;
+        }
+        let Node::Stateless(ops) = iter.next().expect("peeked Some") else {
+            unreachable!("matched Stateless above");
+        };
+
+        let (pushable, remaining): (Vec<_>, Vec<_>) = ops.iter().cloned().partition(is_pushable);
+
+        if pushable.is_empty() {
+            // No eligible ops — pass through unchanged.
+            out.push(Node::Flatten {
+                chains,
+                coalesce,
+                merge,
+            });
+            out.push(Node::Stateless(ops));
+            continue;
+        }
+
+        // Clone each subplan, appending the pushable ops to its tail.
+        let old_chains: Vec<Vec<Node>> =
+            Arc::try_unwrap(chains).unwrap_or_else(|arc| (*arc).clone());
+
+        let subplan_count = old_chains.len();
+        let new_chains: Vec<Vec<Node>> = old_chains
+            .into_iter()
+            .map(|mut subchain| {
+                subchain.push(Node::Stateless(pushable.clone()));
+                subchain
+            })
+            .collect();
+
+        total_ops_pushed += pushable.len();
+        total_subplans_affected += subplan_count;
+
+        out.push(Node::Flatten {
+            chains: Arc::new(new_chains),
+            coalesce,
+            merge,
+        });
+
+        // Keep remaining ops in the outer chain; drop the block if nothing is left.
+        if !remaining.is_empty() {
+            out.push(Node::Stateless(remaining));
+        }
+    }
+
+    let opt =
+        (total_ops_pushed > 0).then_some(OptimizationDecision::PushedDownIntoFlattenSubplans {
+            ops_pushed: total_ops_pushed,
+            subplan_count: total_subplans_affected,
+        });
+    (out, opt)
 }
 
 /* ---------- Reorder value-only runs ---------- */
