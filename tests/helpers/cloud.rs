@@ -5,8 +5,8 @@
 
 use ironbeam::helpers::cloud::*;
 use ironbeam::io::cloud::CloudResult;
-use ironbeam::io::cloud::helpers::{PaginationConfig, RetryConfig};
 use ironbeam::io::cloud::traits::{CloudIOError, ErrorKind};
+use ironbeam::io::cloud::utils::{PaginationConfig, RetryConfig};
 use std::time::Duration;
 
 // ============================================================================
@@ -803,8 +803,8 @@ fn test_run_with_context_multiple_retries() {
         }
     });
 
-    // Note: run_with_context doesn't automatically retry, it just tracks context
-    // So this will fail on first attempt
+    // Note: run_with_context doesn't automatically retry, it just tracks context.
+    // So this will fail on the first attempt
     assert!(result.is_err());
 }
 

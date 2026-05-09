@@ -28,29 +28,29 @@ in Ironbeam. Features are organized by priority tier.
 
 ## Implemented Features
 
-| Feature                               | Description                                                                                                                         | Since  |
-|---------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|--------|
-| 1.1 Flatten                           | `flatten()` merges multiple `PCollection<T>` into one                                                                               | 2.1.0  |
-| 1.2 Side Outputs                      | Enum + `partition!` macro; compile-time type-safe multi-output                                                                      | 2.1.0  |
-| 1.3 Filter (Enhanced)                 | `filter_eq/ne/lt/le/gt/ge/range/range_inclusive/by`                                                                                 | 2.1.0  |
-| 1.4 WithKeys                          | `with_keys()`, `with_constant_key()`, `key_by()`                                                                                    | 2.1.0  |
-| 1.5 CoGroupByKey                      | `cogroup_by_key!` macro for 2–10 inputs                                                                                             | 2.2.0  |
-| 1.6 Combiners                         | `Count`, `ToList`, `ToSet`, `Latest` built-in combiners                                                                             | 2.4.0  |
-| 2.0 Combiner Helpers                  | `sum/min/max/average/approx_median/approx_quantiles/distinct_count` per-key & globally; `to_list/to_set/top_k` globally             | 2.5.0  |
-| 2.1 Partition                         | Numeric partitioning via enum + `partition!` macro                                                                                  | 2.1.0  |
-| 2.2 Distinct By                       | `distinct_by(key_fn)` — deduplicate by projection, retaining full element                                                           | 2.8.0  |
-| 2.3 BottomK                           | `BottomK` combiner; `bottom_k_per_key(k)` / `bottom_k_globally(k)` helpers                                                          | 2.9.0  |
-| 2.4 Side Input Views                  | `filter_with_side_map`, `SideSingleton`/`side_singleton`, `SideMultimap`/`side_multimap` + map/filter methods                       | 2.9.0  |
-| 2.5 Regex Transforms                  | `regex_matches/extract/extract_kv/find/replace_all/split` on `PCollection<String>`                                                  | 2.10.0 |
-| 2.5b Windowed Combine                 | `combine/sum/count/min/max/average_per_window` + `_per_key_and_window` helpers                                                      | 2.10.0 |
-| 2.6 Avro I/O                          | `read_avro`/`write_avro` helpers with glob support; `AvroReader`/`AvroWriter` behind `io-avro` feature                              | 2.10.0 |
-| 2.7 XML I/O                           | `read_xml`/`write_xml`/`read_xml_streaming`/`write_xml_par` with glob support; `XmlShards`/`XmlVecOps` behind `io-xml`              | 2.11.0 |
-| 3.1 Reshuffle                         | Graph-level barrier; prevents fusion and redistributes elements across the pipeline graph                                           | 2.11.0 |
-| 3.2 WithTimestamps                    | `attach_timestamps()` / `Timestamped<T>`                                                                                            | 1.0.0  |
-| 3.3 Reify                             | `reify_timestamps()` — project `Timestamped<T>` into `(TimestampMs, T)` tuples; inverse of `to_timestamped`                         | 2.12.0 |
-| 3.4 PAssert                           | `PAssert::that(&result).contains_in_any_order/is_empty/has_count/all_match` fluent assertion builder                                | 2.12.0 |
-| 3.5 Reshuffle Elim                    | `eliminate_reshuffle_pass()` — drops leading `Reshuffle` before barriers or consecutive pairs; `EliminatedReshuffle` opt            | 2.12.0 |
-| 3.6 Predicate Pushdown Past Reshuffle | `push_down_before_barrier_pass()` — extends predicate pushdown to treat `Reshuffle` as a transparent barrier alongside `GroupByKey` | 2.12.0 |
+| Feature                               | Description                                                                                                                                                | Since  |
+|---------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
+| 1.1 Flatten                           | `flatten()` merges multiple `PCollection<T>` into one                                                                                                      | 2.1.0  |
+| 1.2 Side Outputs                      | Enum + `partition!` macro; compile-time type-safe multi-output                                                                                             | 2.1.0  |
+| 1.3 Filter (Enhanced)                 | `filter_eq/ne/lt/le/gt/ge/range/range_inclusive/by`                                                                                                        | 2.1.0  |
+| 1.4 WithKeys                          | `with_keys()`, `with_constant_key()`, `key_by()`                                                                                                           | 2.1.0  |
+| 1.5 CoGroupByKey                      | `cogroup_by_key!` macro for 2–10 inputs                                                                                                                    | 2.2.0  |
+| 1.6 Combiners                         | `Count`, `ToList`, `ToSet`, `Latest` built-in combiners                                                                                                    | 2.4.0  |
+| 2.0 Combiner Helpers                  | `sum/min/max/average/approx_median/approx_quantiles/distinct_count` per-key & globally; `to_list/to_set/top_k` globally                                    | 2.5.0  |
+| 2.1 Partition                         | Numeric partitioning via enum + `partition!` macro                                                                                                         | 2.1.0  |
+| 2.2 Distinct By                       | `distinct_by(key_fn)` — deduplicate by projection, retaining full element                                                                                  | 2.8.0  |
+| 2.3 BottomK                           | `BottomK` combiner; `bottom_k_per_key(k)` / `bottom_k_globally(k)` helpers                                                                                 | 2.9.0  |
+| 2.4 Side Input Views                  | `filter_with_side_map`, `SideSingleton`/`side_singleton`, `SideMultimap`/`side_multimap` + map/filter methods                                              | 2.9.0  |
+| 2.5 Regex Transforms                  | `regex_matches/extract/extract_kv/find/replace_all/split` on `PCollection<String>`                                                                         | 2.10.0 |
+| 2.5b Windowed Combine                 | `combine/sum/count/min/max/average_per_window` + `_per_key_and_window` helpers                                                                             | 2.10.0 |
+| 2.6 Avro I/O                          | `read_avro`/`write_avro` helpers with glob support; `AvroReader`/`AvroWriter` behind `io-avro` feature                                                     | 2.10.0 |
+| 2.7 XML I/O                           | `read_xml`/`write_xml`/`read_xml_streaming`/`write_xml_par` with glob support; `XmlShards`/`XmlVecOps` behind `io-xml`                                     | 2.11.0 |
+| 3.1 Reshuffle                         | Graph-level barrier; prevents fusion and redistributes elements across the pipeline graph                                                                  | 2.11.0 |
+| 3.2 WithTimestamps                    | `attach_timestamps()` / `Timestamped<T>`                                                                                                                   | 1.0.0  |
+| 3.3 Reify                             | `reify_timestamps()` — project `Timestamped<T>` into `(TimestampMs, T)` tuples; inverse of `to_timestamped`                                                | 2.12.0 |
+| 3.4 PAssert                           | `PAssert::that(&result).contains_in_any_order/is_empty/has_count/all_match` fluent assertion builder                                                       | 2.12.0 |
+| 3.5 Reshuffle Elim                    | `eliminate_reshuffle_pass()` — drops leading `Reshuffle` before barriers or consecutive pairs; `EliminatedReshuffle` opt                                   | 2.12.0 |
+| 3.6 Predicate Pushdown Past Reshuffle | `push_down_before_barrier_pass()` — extends predicate pushdown to treat `Reshuffle` as a transparent barrier alongside `GroupByKey`                        | 2.12.0 |
 | 3.7 Flatten Input Predicate Pushdown  | `push_down_into_flatten_pass()` — clones `value_only + cardinality_reducing` ops into each Flatten subplan tail, removing them from the post-Flatten block | 2.12.0 |
 
 ---
