@@ -2,7 +2,10 @@ use anyhow::Result;
 use ironbeam::from_vec;
 use ironbeam::node::Node;
 use ironbeam::testing::*;
-use ironbeam::{OptimizationDecision, Pipeline, Runner, SharedCSECache, build_plan, flatten};
+use ironbeam::{
+    OptimizationDecision, PCollection, Pipeline, Runner, SharedCSECache, build_plan, cogroup_by_key,
+    flatten,
+};
 
 #[test]
 fn planner_fuses_stateless_equivalence() -> Result<()> {
@@ -728,5 +731,174 @@ fn long_dead_branch_is_fully_pruned() -> Result<()> {
         .collect_seq()?;
     result.sort_unstable();
     assert_eq!(result, vec![101i32, 102, 103]);
+    Ok(())
+}
+
+// ── 3.9 CoGroup Join Ordering ──────────────────────────────────────────────────
+
+/// When all cogroup inputs are already in ascending cardinality order, no reordering
+/// occurs and `ReorderedCoGroupInputs` is NOT emitted.
+#[test]
+fn cogroup_no_reorder_when_already_ascending() -> Result<()> {
+    let p = Pipeline::default();
+    // c1 (5 elements) ≤ c2 (10 elements) ≤ c3 (20 elements) — already ascending.
+    let c1: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..5).map(|i| (format!("k{i}"), i)).collect());
+    let c2: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..10).map(|i| (format!("k{i}"), i)).collect());
+    let c3: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..20).map(|i| (format!("k{i}"), i)).collect());
+    let pc = cogroup_by_key!(c1, c2, c3);
+    let plan = build_plan(&p, pc.node_id())?;
+    assert!(
+        !plan
+            .optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::ReorderedCoGroupInputs { .. })),
+        "inputs already in ascending order must not trigger ReorderedCoGroupInputs"
+    );
+    Ok(())
+}
+
+/// When inputs are in descending cardinality order, the planner reorders and records
+/// the `ReorderedCoGroupInputs` optimization.
+#[test]
+fn cogroup_reorders_descending_inputs() -> Result<()> {
+    let p = Pipeline::default();
+    // c1 (1000) > c2 (100) > c3 (10): requires reordering to ascending.
+    let c1: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..1000).map(|i| (format!("k{i}"), i)).collect());
+    let c2: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..100).map(|i| (format!("k{i}"), i)).collect());
+    let c3: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..10).map(|i| (format!("k{i}"), i)).collect());
+    let pc = cogroup_by_key!(c1, c2, c3);
+    let plan = build_plan(&p, pc.node_id())?;
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::ReorderedCoGroupInputs { .. })),
+        "inputs in descending order must trigger ReorderedCoGroupInputs"
+    );
+    Ok(())
+}
+
+/// The `new_order` permutation places the smallest chain at index 0.
+///
+/// With c1=100 elements, c2=10, c3=50: the sorted order is [c2, c3, c1],
+/// so `new_order` should be `[1, 2, 0]`.
+#[test]
+fn cogroup_reorder_permutation_is_correct() -> Result<()> {
+    let p = Pipeline::default();
+    let c1: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..100).map(|i| (format!("k{i}"), i)).collect());
+    let c2: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..10).map(|i| (format!("k{i}"), i)).collect());
+    let c3: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..50).map(|i| (format!("k{i}"), i)).collect());
+    let pc = cogroup_by_key!(c1, c2, c3);
+    let plan = build_plan(&p, pc.node_id())?;
+
+    let (original, new) = plan
+        .optimizations
+        .iter()
+        .find_map(|o| {
+            if let OptimizationDecision::ReorderedCoGroupInputs {
+                original_order,
+                new_order,
+            } = o
+            {
+                Some((original_order.clone(), new_order.clone()))
+            } else {
+                None
+            }
+        })
+        .expect("expected ReorderedCoGroupInputs optimization");
+
+    assert_eq!(original, vec![0, 1, 2], "original_order must be [0,1,2]");
+    assert_eq!(
+        new,
+        vec![1, 2, 0],
+        "new_order must place c2(10) first, c3(50) second, c1(100) last"
+    );
+    Ok(())
+}
+
+/// Functional correctness: reordering Flatten subchains does not alter cogroup results.
+///
+/// Even after the planner reorders the subchains inside the Flatten, each element
+/// still carries its correct type-level tag, so the final grouping is identical.
+#[test]
+fn cogroup_reorder_preserves_correctness() -> Result<()> {
+    let p = Pipeline::default();
+    // c1 (large) > c2 (small) — planner will reorder to [c2, c1].
+    let c1: PCollection<(String, u32)> = from_vec(
+        &p,
+        vec![
+            ("alice".to_string(), 100u32),
+            ("bob".to_string(), 200u32),
+            ("alice".to_string(), 150u32),
+        ],
+    );
+    let c2: PCollection<(String, u32)> =
+        from_vec(&p, vec![("alice".to_string(), 1u32), ("carol".to_string(), 2u32)]);
+
+    let pc = cogroup_by_key!(c1, c2);
+    let mut result = pc.collect_seq()?;
+    result.sort_by_key(|(k, _): &(String, _)| k.clone());
+
+    let alice = result.iter().find(|(k, _)| k == "alice").unwrap();
+    let mut alice_c1 = alice.1.0.clone();
+    alice_c1.sort_unstable();
+    assert_eq!(alice_c1, vec![100u32, 150]);
+    assert_eq!(alice.1.1, vec![1u32]);
+
+    let bob = result.iter().find(|(k, _)| k == "bob").unwrap();
+    assert_eq!(bob.1.0, vec![200u32]);
+    assert!(bob.1.1.is_empty());
+
+    let carol = result.iter().find(|(k, _)| k == "carol").unwrap();
+    assert!(carol.1.0.is_empty());
+    assert_eq!(carol.1.1, vec![2u32]);
+    Ok(())
+}
+
+/// The explain output contains "`CoGroup` Input Reordering" when the optimization fires.
+#[test]
+fn cogroup_reorder_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    // c1 (100) > c2 (10): reordering expected.
+    let c1: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..100).map(|i| (format!("k{i}"), i)).collect());
+    let c2: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..10).map(|i| (format!("k{i}"), i)).collect());
+    let pc = cogroup_by_key!(c1, c2);
+    let plan = build_plan(&p, pc.node_id())?;
+    let explain = plan.explain().to_string();
+    assert!(
+        explain.contains("CoGroup Input Reordering"),
+        "explain output should mention CoGroup Input Reordering: {explain}"
+    );
+    Ok(())
+}
+
+/// A two-collection Flatten where both have equal (or ascending) cardinality is NOT
+/// reordered; the optimization must fire only when a permutation is actually needed.
+#[test]
+fn cogroup_equal_cardinality_not_reordered() -> Result<()> {
+    let p = Pipeline::default();
+    let c1: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..10).map(|i| (format!("k{i}"), i)).collect());
+    let c2: PCollection<(String, u32)> =
+        from_vec(&p, (0u32..10).map(|i| (format!("k{i}"), i)).collect());
+    let pc = cogroup_by_key!(c1, c2);
+    let plan = build_plan(&p, pc.node_id())?;
+    assert!(
+        !plan
+            .optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::ReorderedCoGroupInputs { .. })),
+        "equal-cardinality inputs must not trigger ReorderedCoGroupInputs (already ordered)"
+    );
     Ok(())
 }

@@ -11,29 +11,34 @@
 //!    predecessor selection when dead branches introduce extra incoming edges at a shared
 //!    node.
 //! 1. **Fuse stateless ops** -- adjacent `Node::Stateless` blocks are concatenated.
-//! 2. **Predicate pushdown before barriers** -- within a fused `Stateless` block immediately
+//! 2. **`CoGroup` input reordering** -- input subchains of every `Flatten` node are
+//!    sorted by estimated cardinality (ascending).  `cogroup_by_key!` implements N-way
+//!    grouping as a `Flatten` (one subplan per input collection) followed by a
+//!    `GroupByKey`; placing smaller subchains first reduces peak intermediate memory in
+//!    sequential execution.  Subchains with unknown cardinality are moved to the end.
+//! 3. **Predicate pushdown before barriers** -- within a fused `Stateless` block immediately
 //!    before a `GroupByKey` *or* `Reshuffle`, ops that are `key_preserving + value_only +
 //!    cardinality_reducing` (e.g. `filter_values`) are split into their own earlier block when
 //!    doing so is type-safe and cost-beneficial (cost-hint gate).  Because `Reshuffle` never
 //!    alters element content or count, the same pushdown rationale that applies to `GroupByKey`
 //!    applies equally, reducing the volume of elements that flow into the redistribution step.
-//! 3. **Predicate pushdown into Flatten subplans** -- `value_only + cardinality_reducing` ops
+//! 4. **Predicate pushdown into Flatten subplans** -- `value_only + cardinality_reducing` ops
 //!    that immediately follow a `Flatten` are cloned into the tail of every Flatten input
 //!    subplan and removed from the post-Flatten block.  Because each subplan produces the same
 //!    element type that the merge function expects, pushing a filter *before* the fan-in reduces
 //!    the volume of elements that flow into the merge step.
-//! 4. **Reorder value-only runs** -- within a stateless block where *all* ops are
+//! 5. **Reorder value-only runs** -- within a stateless block where *all* ops are
 //!    key-preserving and value-only, put cheaper/filters first using `cost_hint`.
-//! 5. **Lift GBK->Combine** -- if a `GroupByKey` is immediately followed by a
+//! 6. **Lift GBK->Combine** -- if a `GroupByKey` is immediately followed by a
 //!    `CombineValues` that also has a lifted local (`local_groups.is_some()`),
 //!    drop the `GroupByKey` and keep the combine, switching it to consume
 //!    `(K, V)` pairs via `local_pairs`.
-//! 6. **Eliminate redundant Reshuffle** -- a `Reshuffle` immediately before a shuffle
+//! 7. **Eliminate redundant Reshuffle** -- a `Reshuffle` immediately before a shuffle
 //!    barrier (`GroupByKey`, `CombineValues`, `CoGroup`, `Flatten`) is a no-op because
 //!    the barrier already redistributes all elements.  Two consecutive `Reshuffle` nodes
-//!    reduce to one for the same reason.  Runs after pass 5 so that lifted combiners
+//!    reduce to one for the same reason.  Runs after pass 6 so that lifted combiners
 //!    (which remove the `GroupByKey`) are visible as `CombineValues` targets.
-//! 7. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
+//! 8. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
 //!    terminal in the chain.
 //!
 //! The planner also provides a heuristic **partition suggestion** that the runner
@@ -136,6 +141,24 @@ pub enum OptimizationDecision {
     PrunedDeadSubtrees {
         /// Number of nodes removed from the pipeline graph.
         nodes_pruned: usize,
+    },
+    /// Input subchains of a `Flatten` node were reordered by estimated cardinality so
+    /// that smaller inputs are processed before larger ones.
+    ///
+    /// In sequential execution the runner replays subchains one-at-a-time; placing
+    /// cheaper (smaller) subchains first reduces peak intermediate memory and can
+    /// allow downstream combiners to see useful data sooner.  Subchains whose
+    /// cardinality cannot be estimated (no `Source` with a known length) are sorted
+    /// to the end as a conservative default.
+    ///
+    /// `original_order[i]` is the original zero-based index of the chain that was
+    /// at position `i` before sorting.  `new_order[i]` is the original index of the
+    /// chain that occupies position `i` after sorting.
+    ReorderedCoGroupInputs {
+        /// Original subchain ordering (always `[0, 1, 2, …, n-1]`).
+        original_order: Vec<usize>,
+        /// New ordering: `new_order[i]` is the original index now at position `i`.
+        new_order: Vec<usize>,
     },
 }
 
@@ -310,6 +333,19 @@ impl Display for ExecutionExplanation {
                         writeln!(
                             f,
                             "│   Pruned {nodes_pruned} unreachable node(s) before chain extraction"
+                        )?;
+                    }
+                    OptimizationDecision::ReorderedCoGroupInputs {
+                        original_order,
+                        new_order,
+                    } => {
+                        writeln!(f, "│ • CoGroup Input Reordering")?;
+                        writeln!(
+                            f,
+                            "│   Reordered {} subchain(s) by estimated cardinality: {:?} → {:?}",
+                            new_order.len(),
+                            original_order,
+                            new_order
                         )?;
                     }
                 }
@@ -499,13 +535,14 @@ impl Plan {
 /// 0) dead subtree elimination (pre-pass before chain extraction — operates on the raw graph)
 /// 1) backwalk graph -> chain
 /// 2) fuse stateless
-/// 3) predicate pushdown before shuffle barriers — `GroupByKey` and `Reshuffle` — (requires fused
+/// 3) `CoGroup` input reordering — sort Flatten subchains by estimated cardinality ascending
+/// 4) predicate pushdown before shuffle barriers — `GroupByKey` and `Reshuffle` — (requires fused
 ///    blocks; may split one Stateless into two)
-/// 4) predicate pushdown into Flatten subplans (clones qualifying ops into each subplan tail)
-/// 5) reorder value-only ops (works on the blocks produced by steps 3–4)
-/// 6) lift GBK->Combine (structure-changing; GBK must still be present)
-/// 7) eliminate redundant Reshuffle (runs after lift so lifted `CombineValues` is visible as a target)
-/// 8) drop mid-materialized (cleanup)
+/// 5) predicate pushdown into Flatten subplans (clones qualifying ops into each subplan tail)
+/// 6) reorder value-only ops (works on the blocks produced by steps 4–5)
+/// 7) lift GBK->Combine (structure-changing; GBK must still be present)
+/// 8) eliminate redundant Reshuffle (runs after lift so lifted `CombineValues` is visible as a target)
+/// 9) drop mid-materialized (cleanup)
 ///
 /// # Errors
 ///
@@ -529,6 +566,10 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     if let Some(opt) = fusion_opt {
         optimizations.push(opt);
     }
+
+    let (new_chain, cogroup_order_opts) = reorder_cogroup_inputs_pass(chain);
+    chain = new_chain;
+    optimizations.extend(cogroup_order_opts);
 
     let (new_chain, pushdown_opt) = push_down_before_barrier_pass(chain);
     chain = new_chain;
@@ -577,6 +618,108 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         suggested_partitions: suggested,
         optimizations,
     })
+}
+
+/* ---------- CoGroup input reordering ---------- */
+
+/// Estimate the cardinality of a subchain by inspecting its first node.
+///
+/// Returns `Some(n)` when the chain starts with a `Source` node whose `VecOps`
+/// implementation reports a known length; otherwise returns `None`.
+fn estimate_subchain_cardinality(chain: &[Node]) -> Option<usize> {
+    if let Some(Node::Source { payload, vec_ops, .. }) = chain.first() {
+        vec_ops.len(payload.as_ref())
+    } else {
+        None
+    }
+}
+
+/// Sort the input subchains of every `Flatten` node by estimated cardinality (ascending).
+///
+/// For each `Flatten { chains, … }` in the chain with two or more input subplans:
+///
+/// 1. Estimates the cardinality of each subchain using [`estimate_subchain_cardinality`]
+///    (looks for a leading `Source` node with a known length).
+/// 2. Builds a sort permutation: subchains with a known cardinality are ordered ascending
+///    by that count; subchains with an **unknown** cardinality are moved to the end
+///    (treated conservatively as large).
+/// 3. If the sorted permutation differs from the original order, applies the sort and
+///    emits a [`OptimizationDecision::ReorderedCoGroupInputs`] recording both the
+///    original and new ordering.
+///
+/// **Why `Flatten` rather than `Node::CoGroup`?**  The `cogroup_by_key!` macro
+/// implements N-way grouping as a `Flatten` (one subplan per input collection) followed
+/// by a `GroupByKey`, **not** as a binary `CoGroup` join tree.  All subchains in such a
+/// `Flatten` produce the same tagged element type — making reordering type-safe.  The
+/// `Node::CoGroup` binary join has distinct left/right value types baked into its
+/// `exec` closure, so swapping those chains would produce a runtime type mismatch.
+///
+/// **Performance rationale:** In sequential execution the runner replays subchains
+/// one-at-a-time.  Scheduling cheaper (smaller) subchains first reduces the peak
+/// number of intermediate elements held in memory before the downstream `GroupByKey`
+/// or merge step can consume them, and can surface data to later pipeline stages
+/// sooner.  In parallel execution (rayon) all subplans run concurrently, so ordering
+/// has no effect on wall-clock time but also incurs no overhead.
+fn reorder_cogroup_inputs_pass(chain: Vec<Node>) -> (Vec<Node>, Vec<OptimizationDecision>) {
+    let mut out = Vec::with_capacity(chain.len());
+    let mut decisions = Vec::new();
+
+    for node in chain {
+        let Node::Flatten {
+            chains,
+            coalesce,
+            merge,
+        } = node
+        else {
+            out.push(node);
+            continue;
+        };
+
+        let old_chains: Vec<Vec<Node>> =
+            Arc::try_unwrap(chains).unwrap_or_else(|arc| (*arc).clone());
+        let n = old_chains.len();
+
+        if n <= 1 {
+            out.push(Node::Flatten {
+                chains: Arc::new(old_chains),
+                coalesce,
+                merge,
+            });
+            continue;
+        }
+
+        // Estimate cardinality of each subchain.
+        let cardinalities: Vec<Option<usize>> =
+            old_chains.iter().map(|c| estimate_subchain_cardinality(c)).collect();
+
+        // Build a sorted permutation: known sizes ascending first, unknowns at the end.
+        let mut indices: Vec<usize> = (0..n).collect();
+        indices.sort_by_key(|&i| cardinalities[i].map_or((1u8, 0), |len| (0u8, len)));
+
+        let original_order: Vec<usize> = (0..n).collect();
+        if indices == original_order {
+            out.push(Node::Flatten {
+                chains: Arc::new(old_chains),
+                coalesce,
+                merge,
+            });
+            continue;
+        }
+
+        let new_order = indices.clone();
+        let new_chains: Vec<Vec<Node>> = indices.into_iter().map(|i| old_chains[i].clone()).collect();
+        decisions.push(OptimizationDecision::ReorderedCoGroupInputs {
+            original_order,
+            new_order,
+        });
+        out.push(Node::Flatten {
+            chains: Arc::new(new_chains),
+            coalesce,
+            merge,
+        });
+    }
+
+    (out, decisions)
 }
 
 /* ---------- Dead subtree elimination ---------- */
