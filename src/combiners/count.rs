@@ -68,6 +68,10 @@ where
     fn finish(&self, acc: u64) -> u64 {
         acc
     }
+
+    fn is_associative_commutative(&self) -> bool {
+        true
+    }
 }
 
 impl<T> LiftableCombiner<T, u64, u64> for Count<T>

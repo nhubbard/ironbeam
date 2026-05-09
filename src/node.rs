@@ -155,11 +155,15 @@ pub enum Node {
     /// - `merge`: merges `Vec<A>` -> `A`
     /// - `finish`: converts `A` -> `Vec<O>` (typically a singleton)
     /// - `fanout`: optional breadth limit for multi-round parallel reduction
+    /// - `tree_reduce`: when `true`, the parallel runner uses Rayon's O(log n)
+    ///   `reduce_with` instead of the sequential fanout loop.  Set automatically
+    ///   when the combiner reports [`CombineFn::is_associative_commutative`].
     CombineGlobal {
         local: Arc<dyn Fn(Partition) -> Partition + Send + Sync>,
         merge: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
         finish: Arc<dyn Fn(Partition) -> Partition + Send + Sync>,
         fanout: Option<usize>,
+        tree_reduce: bool,
     },
 
     /// Shuffle barrier: collect all input partitions and re-distribute elements evenly.

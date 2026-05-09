@@ -302,6 +302,24 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     fn merge(&self, acc: &mut A, other: A);
     /// Finalize the accumulator into the output value.
     fn finish(&self, acc: A) -> O;
+
+    /// Returns `true` if this combiner's `merge` is both associative and commutative.
+    ///
+    /// When `true`, the runner substitutes the standard left-fold merge with an
+    /// O(log n) parallel **tree reduction** via Rayon's `reduce_with`, halving the
+    /// critical-path depth on large inputs.
+    ///
+    /// A merge is **associative** when
+    /// `merge(merge(a, b), c) == merge(a, merge(b, c))`, and **commutative** when
+    /// `merge(a, b) == merge(b, a)`. Both must hold for tree reduction to produce
+    /// the same result as a sequential left-fold.
+    ///
+    /// Override this to return `true` for combiners where `merge` is a monoid
+    /// operation (e.g., addition, set union, min/max).  The default is `false`
+    /// (conservative).
+    fn is_associative_commutative(&self) -> bool {
+        false
+    }
 }
 
 /// Built-in combiner that **counts** values per key.
@@ -335,6 +353,9 @@ impl<V> CombineFn<V, u64, u64> for Count {
     }
     fn finish(&self, acc: u64) -> u64 {
         acc
+    }
+    fn is_associative_commutative(&self) -> bool {
+        true
     }
 }
 
