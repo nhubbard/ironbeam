@@ -131,6 +131,9 @@ fn example_with_optimizations() -> Result<()> {
             OptimizationDecision::EliminatedReshuffle { count } => {
                 println!("✓ Eliminated {count} redundant Reshuffle node(s)");
             }
+            OptimizationDecision::PrunedDeadSubtrees { nodes_pruned } => {
+                println!("✓ Pruned {nodes_pruned} dead subtree node(s) from the pipeline graph");
+            }
         }
     }
 

@@ -3,6 +3,13 @@
 //! The planner converts the pipeline graph into a single **linear execution chain**
 //! and applies a few lightweight, semantics-preserving rewrites:
 //!
+//! 0. **Dead subtree elimination** (pre-pass) -- before extracting the linear chain,
+//!    nodes that have no forward path to the target terminal are pruned from the graph.
+//!    This is most impactful in multi-terminal graphs (e.g. `partition!`, tee patterns)
+//!    where building the plan for terminal A should not include branches leading only to
+//!    terminal B.  Running this before `backwalk_linear` also prevents ambiguous
+//!    predecessor selection when dead branches introduce extra incoming edges at a shared
+//!    node.
 //! 1. **Fuse stateless ops** -- adjacent `Node::Stateless` blocks are concatenated.
 //! 2. **Predicate pushdown before barriers** -- within a fused `Stateless` block immediately
 //!    before a `GroupByKey` *or* `Reshuffle`, ops that are `key_preserving + value_only +
@@ -35,7 +42,7 @@
 use crate::node::{DynOp, Node};
 use crate::{NodeId, Pipeline};
 use anyhow::{Result, anyhow};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Display, Formatter, Result as FormatResult};
 use std::sync::Arc;
 
@@ -118,6 +125,17 @@ pub enum OptimizationDecision {
     EliminatedReshuffle {
         /// Number of `Reshuffle` nodes removed.
         count: usize,
+    },
+    /// Dead-subtree nodes were pruned from the pipeline graph before chain extraction.
+    ///
+    /// Any node that has no forward path to the target terminal is unreachable from
+    /// the perspective of the plan being built, and can be safely removed.  This
+    /// optimization is most impactful in multi-terminal graphs (e.g. `partition!`,
+    /// tee patterns) where building the plan for terminal A should not pay the cost
+    /// of evaluating branches that lead exclusively to terminal B.
+    PrunedDeadSubtrees {
+        /// Number of nodes removed from the pipeline graph.
+        nodes_pruned: usize,
     },
 }
 
@@ -285,6 +303,13 @@ impl Display for ExecutionExplanation {
                         writeln!(
                             f,
                             "│   Removed {count} redundant Reshuffle node(s) before shuffle barriers or consecutive pairs"
+                        )?;
+                    }
+                    OptimizationDecision::PrunedDeadSubtrees { nodes_pruned } => {
+                        writeln!(f, "│ • Dead Subtree Elimination")?;
+                        writeln!(
+                            f,
+                            "│   Pruned {nodes_pruned} unreachable node(s) before chain extraction"
                         )?;
                     }
                 }
@@ -471,6 +496,7 @@ impl Plan {
 /// a partitioning hint.
 ///
 /// The pass order is intentional:
+/// 0) dead subtree elimination (pre-pass before chain extraction — operates on the raw graph)
 /// 1) backwalk graph -> chain
 /// 2) fuse stateless
 /// 3) predicate pushdown before shuffle barriers — `GroupByKey` and `Reshuffle` — (requires fused
@@ -486,10 +512,17 @@ impl Plan {
 /// If any of the optimizer passes fail, or the pipeline is in an inconsistent state.
 pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     let (nodes, edges) = p.snapshot();
-    let mut chain = backwalk_linear(nodes, &edges, terminal)?;
-    let len_hint = estimate_source_len(&chain);
 
     let mut optimizations = Vec::new();
+
+    // Pre-pass 0: dead subtree elimination — remove nodes with no forward path to terminal.
+    let (nodes, edges, nodes_pruned) = prune_dead_subtrees(nodes, edges, terminal);
+    if nodes_pruned > 0 {
+        optimizations.push(OptimizationDecision::PrunedDeadSubtrees { nodes_pruned });
+    }
+
+    let mut chain = backwalk_linear(nodes, &edges, terminal)?;
+    let len_hint = estimate_source_len(&chain);
 
     let (new_chain, fusion_opt) = fuse_stateless_tracked(chain);
     chain = new_chain;
@@ -544,6 +577,51 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         suggested_partitions: suggested,
         optimizations,
     })
+}
+
+/* ---------- Dead subtree elimination ---------- */
+
+/// Remove nodes that have no forward path to `terminal` before chain extraction.
+///
+/// Performs a backward BFS from `terminal`, following edges in reverse (`to → from`).
+/// Every node reachable by this traversal is an ancestor of `terminal` — i.e. it can
+/// reach `terminal` by following edges forward.  Nodes that are *not* reached are dead:
+/// they belong to branches of the graph that lead exclusively to some other terminal and
+/// can be safely pruned before `backwalk_linear` is called.
+///
+/// **Why run this before `backwalk_linear`?**  In a multi-terminal graph (e.g. after
+/// `partition!` or a tee), a shared source node has out-degree > 1 — one edge per
+/// branch.  `backwalk_linear` uses `edges.iter().find(|(_, to)| *to == cur)`, which
+/// picks the *first* matching edge.  If a dead-branch edge happens to appear first in
+/// the slice, `backwalk_linear` would follow the wrong predecessor.  Pruning dead nodes
+/// (and their edges) first guarantees that only one in-edge survives per node on the
+/// live path, making predecessor selection unambiguous.
+///
+/// Returns `(live_nodes, live_edges, count_of_nodes_removed)`.
+fn prune_dead_subtrees(
+    mut nodes: HashMap<NodeId, Node>,
+    mut edges: Vec<(NodeId, NodeId)>,
+    terminal: NodeId,
+) -> (HashMap<NodeId, Node>, Vec<(NodeId, NodeId)>, usize) {
+    let mut reachable: HashSet<NodeId> = HashSet::new();
+    let mut queue: VecDeque<NodeId> = VecDeque::new();
+    reachable.insert(terminal);
+    queue.push_back(terminal);
+
+    while let Some(cur) = queue.pop_front() {
+        for &(from, to) in &edges {
+            if to == cur && reachable.insert(from) {
+                queue.push_back(from);
+            }
+        }
+    }
+
+    let before = nodes.len();
+    nodes.retain(|id, _| reachable.contains(id));
+    edges.retain(|(from, to)| reachable.contains(from) && reachable.contains(to));
+    let nodes_pruned = before - nodes.len();
+
+    (nodes, edges, nodes_pruned)
 }
 
 /// Walk the pipeline graph **backwards** from `terminal` following single-predecessor
