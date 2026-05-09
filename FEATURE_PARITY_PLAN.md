@@ -28,51 +28,32 @@ in Ironbeam. Features are organized by priority tier.
 
 ## Implemented Features
 
-| Feature               | Description                                                                                                             | Since  |
-|-----------------------|-------------------------------------------------------------------------------------------------------------------------|--------|
-| 1.1 Flatten           | `flatten()` merges multiple `PCollection<T>` into one                                                                   | 2.1.0  |
-| 1.2 Side Outputs      | Enum + `partition!` macro; compile-time type-safe multi-output                                                          | 2.1.0  |
-| 1.3 Filter (Enhanced) | `filter_eq/ne/lt/le/gt/ge/range/range_inclusive/by`                                                                     | 2.1.0  |
-| 1.4 WithKeys          | `with_keys()`, `with_constant_key()`, `key_by()`                                                                        | 2.1.0  |
-| 1.5 CoGroupByKey      | `cogroup_by_key!` macro for 2–10 inputs                                                                                 | 2.2.0  |
-| 1.6 Combiners         | `Count`, `ToList`, `ToSet`, `Latest` built-in combiners                                                                 | 2.4.0  |
-| 2.0 Combiner Helpers  | `sum/min/max/average/approx_median/approx_quantiles/distinct_count` per-key & globally; `to_list/to_set/top_k` globally | 2.5.0  |
-| 2.1 Partition         | Numeric partitioning via enum + `partition!` macro                                                                      | 2.1.0  |
-| 2.2 Distinct By       | `distinct_by(key_fn)` — deduplicate by projection, retaining full element                                               | 2.8.0  |
-| 2.3 BottomK           | `BottomK` combiner; `bottom_k_per_key(k)` / `bottom_k_globally(k)` helpers                                              | 2.9.0  |
-| 2.4 Side Input Views  | `filter_with_side_map`, `SideSingleton`/`side_singleton`, `SideMultimap`/`side_multimap` + map/filter methods           | 2.9.0  |
-| 2.5 Regex Transforms  | `regex_matches/extract/extract_kv/find/replace_all/split` on `PCollection<String>`                                      | 2.10.0 |
-| 2.5b Windowed Combine | `combine/sum/count/min/max/average_per_window` + `_per_key_and_window` helpers                                          | 2.10.0 |
-| 2.6 Avro I/O          | `read_avro`/`write_avro` helpers with glob support; `AvroReader`/`AvroWriter` behind `io-avro` feature                  | 2.10.0 |
-| 2.7 XML I/O           | `read_xml`/`write_xml`/`read_xml_streaming`/`write_xml_par` with glob support; `XmlShards`/`XmlVecOps` behind `io-xml`  | 2.11.0 |
-| 3.1 Reshuffle         | Graph-level barrier; prevents fusion and redistributes elements across the pipeline graph                               | 2.11.0 |
-| 3.2 WithTimestamps    | `attach_timestamps()` / `Timestamped<T>`                                                                                | 1.0.0  |
-| 3.3 Reify             | `reify_timestamps()` — project `Timestamped<T>` into `(TimestampMs, T)` tuples; inverse of `to_timestamped`             | 2.12.0 |
-| 3.4 PAssert           | `PAssert::that(&result).contains_in_any_order/is_empty/has_count/all_match` fluent assertion builder                    | 2.12.0 |
+| Feature               | Description                                                                                                              | Since  |
+|-----------------------|--------------------------------------------------------------------------------------------------------------------------|--------|
+| 1.1 Flatten           | `flatten()` merges multiple `PCollection<T>` into one                                                                    | 2.1.0  |
+| 1.2 Side Outputs      | Enum + `partition!` macro; compile-time type-safe multi-output                                                           | 2.1.0  |
+| 1.3 Filter (Enhanced) | `filter_eq/ne/lt/le/gt/ge/range/range_inclusive/by`                                                                      | 2.1.0  |
+| 1.4 WithKeys          | `with_keys()`, `with_constant_key()`, `key_by()`                                                                         | 2.1.0  |
+| 1.5 CoGroupByKey      | `cogroup_by_key!` macro for 2–10 inputs                                                                                  | 2.2.0  |
+| 1.6 Combiners         | `Count`, `ToList`, `ToSet`, `Latest` built-in combiners                                                                  | 2.4.0  |
+| 2.0 Combiner Helpers  | `sum/min/max/average/approx_median/approx_quantiles/distinct_count` per-key & globally; `to_list/to_set/top_k` globally  | 2.5.0  |
+| 2.1 Partition         | Numeric partitioning via enum + `partition!` macro                                                                       | 2.1.0  |
+| 2.2 Distinct By       | `distinct_by(key_fn)` — deduplicate by projection, retaining full element                                                | 2.8.0  |
+| 2.3 BottomK           | `BottomK` combiner; `bottom_k_per_key(k)` / `bottom_k_globally(k)` helpers                                               | 2.9.0  |
+| 2.4 Side Input Views  | `filter_with_side_map`, `SideSingleton`/`side_singleton`, `SideMultimap`/`side_multimap` + map/filter methods            | 2.9.0  |
+| 2.5 Regex Transforms  | `regex_matches/extract/extract_kv/find/replace_all/split` on `PCollection<String>`                                       | 2.10.0 |
+| 2.5b Windowed Combine | `combine/sum/count/min/max/average_per_window` + `_per_key_and_window` helpers                                           | 2.10.0 |
+| 2.6 Avro I/O          | `read_avro`/`write_avro` helpers with glob support; `AvroReader`/`AvroWriter` behind `io-avro` feature                   | 2.10.0 |
+| 2.7 XML I/O           | `read_xml`/`write_xml`/`read_xml_streaming`/`write_xml_par` with glob support; `XmlShards`/`XmlVecOps` behind `io-xml`   | 2.11.0 |
+| 3.1 Reshuffle         | Graph-level barrier; prevents fusion and redistributes elements across the pipeline graph                                | 2.11.0 |
+| 3.2 WithTimestamps    | `attach_timestamps()` / `Timestamped<T>`                                                                                 | 1.0.0  |
+| 3.3 Reify             | `reify_timestamps()` — project `Timestamped<T>` into `(TimestampMs, T)` tuples; inverse of `to_timestamped`              | 2.12.0 |
+| 3.4 PAssert           | `PAssert::that(&result).contains_in_any_order/is_empty/has_count/all_match` fluent assertion builder                     | 2.12.0 |
+| 3.5 Reshuffle Elim    | `eliminate_reshuffle_pass()` — drops leading `Reshuffle` before barriers or consecutive pairs; `EliminatedReshuffle` opt | 2.12.0 |
 
 ---
 
 ## Tier 3: Nice-to-Have Features
-
-### 3.5 Reshuffle Elimination
-
-**Status:** Not implemented.
-
-Remove redundant `Reshuffle` nodes from the plan in two cases:
-
-1. A `Reshuffle` immediately preceding a shuffle barrier (`GroupByKey`, `CombineValues`, `CoGroup`,
-   `Flatten`) — the barrier will redistribute elements anyway, so the reshuffle is a no-op.
-2. Two consecutive `Reshuffle` nodes — the second is redundant.
-
-Both are pure pattern-match removals with no semantic risk.
-
-**Implementation sketch:**
-- In a new `eliminate_reshuffle_pass()`, scan the linear chain for `[Reshuffle, <barrier>]` and
-  `[Reshuffle, Reshuffle]` patterns and drop the leading `Reshuffle` in each case.
-
-**Estimated complexity:** Very Low — extends the existing pattern-match style of Pass 4.
-
----
 
 ### 3.6 Predicate Pushdown Past Reshuffle
 
@@ -84,7 +65,7 @@ content or count, a filter that qualifies for pushdown past `GroupByKey` can equ
 `Reshuffle`, further reducing the volume of elements that flow into the redistribution step.
 
 **Implementation sketch:**
-- Generalise the barrier-detection predicate in `push_down_before_gbk_pass()` to accept both
+- Generalize the barrier-detection predicate in `push_down_before_gbk_pass()` to accept both
   `Node::GroupByKey` and `Node::Reshuffle` as valid push targets.
 - The existing type-safety and cost-benefit gates apply unchanged.
 
@@ -114,7 +95,7 @@ Flatten's input subplans rather than applying it to the merged output. This redu
 
 **Status:** Not implemented.
 
-Generalise the existing mid-`Materialized` drop (Pass 5) to a full dead-subtree pass: any node
+Generalize the existing mid-`Materialized` drop (Pass 5) to a full dead-subtree pass: any node
 whose entire forward reachability set contains no terminal that is ever collected can be pruned from
 the plan. This matters most in multi-output pipelines (Tee, `partition!`, multi-terminal graphs)
 where building the plan for terminal A should not pay the cost of evaluating branches that lead only
@@ -704,7 +685,7 @@ read_tfrecord_examples("path/*.tfrecord") // -> PCollection<Example> (prost-gene
 
 **Dependencies:** `prost` (for `tf.Example`), custom masked CRC-32C framing (~100 LOC).
 
-**Estimated complexity:** Medium — the container format is simple, but CRC verification and
+**Estimated complexity:** Medium — the container format is straightforward, but CRC verification and
 the `prost`-generated proto dependency add complexity.
 
 ---
@@ -748,5 +729,5 @@ write_mongodb(uri: &str, db: &str, coll: &str, collection: PCollection<T>)
 
 **Dependencies:** `mongodb` (official async driver), `bson`
 
-**Estimated complexity:** High — parallel reads via `_id`-range splitting or `$sample`, BSON↔Rust
+**Estimated complexity:** High. Parallel reads via `_id`-range splitting or `$sample`, BSON↔Rust
 type mapping, and handling of schema heterogeneity all require significant effort.
