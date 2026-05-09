@@ -78,6 +78,18 @@ pub trait DynOp: Send + Sync {
     fn cardinality_reducing(&self) -> bool {
         false
     }
+
+    /// If this op is a hard upper-bound limit (`take(N)`), returns `Some(N)`.
+    ///
+    /// The planner uses this to set [`crate::planner::Plan::limit`], which the
+    /// runner honours to stop collecting elements as soon as `N` have been
+    /// gathered across all partitions — providing early termination without
+    /// executing the full pipeline.
+    ///
+    /// Returns `None` for all ops that are not explicit take-limits (the default).
+    fn limit_n(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// A node in the compiled execution plan.

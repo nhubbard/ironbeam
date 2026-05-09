@@ -15,7 +15,7 @@
 //! These operations form the foundation of the dataflow API, similar to Apache Beam's
 //! elementwise transforms (`Map`, `Filter`, `FlatMap`).
 
-use crate::collection::{FilterOp, FlatMapOp, MapOp};
+use crate::collection::{FilterOp, FlatMapOp, MapOp, TakeOp};
 use crate::node::{DynOp, Node};
 use crate::{ExecMode, PCollection, RFBound, Runner};
 use anyhow::Result;
@@ -83,6 +83,65 @@ impl<T: RFBound> PCollection<T> {
             id,
             _t: PhantomData,
         }
+    }
+
+    /// Keep at most `n` elements from the front of the collection.
+    ///
+    /// Each partition is truncated to `n` elements, and the runner stops collecting
+    /// across partitions as soon as `n` total elements have been gathered.  In
+    /// **sequential** mode this is equivalent to `Vec::truncate(n)`.  In **parallel**
+    /// mode each partition is individually capped at `n` and then the merged result is
+    /// truncated to `n`, so the actual output is always at most `n` elements.
+    ///
+    /// For a single-element result use [`PCollection::first`].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use ironbeam::*;
+    ///
+    /// let p = Pipeline::default();
+    /// let top3 = from_vec(&p, vec![10, 20, 30, 40, 50])
+    ///     .take(3)
+    ///     .collect_seq()
+    ///     .unwrap();
+    /// assert_eq!(top3, vec![10, 20, 30]);
+    /// ```
+    #[must_use]
+    pub fn take(self, n: usize) -> Self {
+        let op: Arc<dyn DynOp> = Arc::new(TakeOp::<T> {
+            n,
+            _t: std::marker::PhantomData,
+        });
+        let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
+        self.pipeline.connect(self.id, id);
+        Self {
+            pipeline: self.pipeline,
+            id,
+            _t: PhantomData,
+        }
+    }
+
+    /// Keep only the first element of the collection.
+    ///
+    /// Equivalent to `.take(1)`. Returns a collection with at most one element;
+    /// returns an empty collection when the input is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use ironbeam::*;
+    ///
+    /// let p = Pipeline::default();
+    /// let head = from_vec(&p, vec![42u32, 99, 0])
+    ///     .first()
+    ///     .collect_seq()
+    ///     .unwrap();
+    /// assert_eq!(head, vec![42u32]);
+    /// ```
+    #[must_use]
+    pub fn first(self) -> Self {
+        self.take(1)
     }
 
     /// Apply a one-to-many transformation, expanding each element into zero or more outputs.

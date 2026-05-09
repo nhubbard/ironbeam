@@ -123,6 +123,7 @@ impl Runner {
         let plan = build_plan(p, terminal)?;
         let chain = plan.chain;
         let suggested_parts = plan.suggested_partitions;
+        let limit = plan.limit;
 
         #[cfg(feature = "checkpointing")]
         let checkpoint_enabled = self.checkpoint_config.as_ref().is_some_and(|c| c.enabled);
@@ -158,7 +159,7 @@ impl Runner {
                     let parts = partitions
                         .or(suggested_parts)
                         .unwrap_or(self.default_partitions);
-                    exec_par::<T>(&chain, parts)
+                    exec_par::<T>(&chain, parts, limit)
                 }
             }
         };
@@ -177,7 +178,7 @@ impl Runner {
                 let parts = partitions
                     .or(suggested_parts)
                     .unwrap_or(self.default_partitions);
-                exec_par::<T>(chain, parts)
+                exec_par::<T>(chain, parts, limit)
             }
         };
 
@@ -467,8 +468,16 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
 /// Internal helper used by [`Runner::run_collect`]. Partitions the head source
 /// and applies stateless runs with rayon. Barriers (`GroupByKey`, `CombineValues`,
 /// `CoGroup`) perform a parallel local phase followed by a global merge.
+///
+/// When `limit` is `Some(n)` the final merge step stops accumulating elements as
+/// soon as `n` total have been collected — providing early termination for
+/// pipelines that end with `take(n)` / `first()`.
 #[allow(clippy::too_many_lines)]
-fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize) -> Result<Vec<T>> {
+fn exec_par<T: 'static + Send + Sync + Clone>(
+    chain: &[Node],
+    partitions: usize,
+    limit: Option<usize>,
+) -> Result<Vec<T>> {
     /// Run a nested subplan (used by `CoGroup`) in parallel, returning a vector
     /// of partitions. The subplan must start with a `Source`. Nested `CoGroup`
     /// inside a subplan is not supported.
@@ -758,9 +767,12 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
 
     if curr.len() == 1 {
         let one = curr.into_iter().next().unwrap();
-        let v = *one
+        let mut v = *one
             .downcast::<Vec<T>>()
             .map_err(|_| anyhow!("terminal type mismatch"))?;
+        if let Some(n) = limit {
+            v.truncate(n);
+        }
         Ok(v)
     } else {
         let mut out = Vec::<T>::new();
@@ -768,7 +780,18 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
             let v = *part
                 .downcast::<Vec<T>>()
                 .map_err(|_| anyhow!("terminal type mismatch"))?;
-            out.extend(v);
+            if let Some(n) = limit {
+                let remaining = n.saturating_sub(out.len());
+                if remaining == 0 {
+                    break;
+                }
+                out.extend(v.into_iter().take(remaining));
+                if out.len() >= n {
+                    break;
+                }
+            } else {
+                out.extend(v);
+            }
         }
         Ok(out)
     }
@@ -971,8 +994,9 @@ fn exec_par_with_checkpointing<T: 'static + Send + Sync + Clone>(
 
     // Execute with checkpointing (simplified: checkpoint after major barriers only)
     // Due to parallel execution complexity, we use the standard exec_par and checkpoint
-    // at coarser granularity
-    let result = exec_par::<T>(chain, partitions);
+    // at coarser granularity. No limit is passed here because checkpointing pipelines
+    // do not currently support early termination.
+    let result = exec_par::<T>(chain, partitions, None);
 
     if result.is_ok() {
         manager.clear_checkpoints(&pipeline_id).ok();

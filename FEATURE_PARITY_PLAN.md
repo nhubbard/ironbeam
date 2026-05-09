@@ -55,33 +55,11 @@ in Ironbeam. Features are organized by priority tier.
 | 3.8 Dead Subtree Elimination          | `prune_dead_subtrees()` — backward BFS pre-pass removes nodes with no forward path to the target terminal before chain extraction; `PrunedDeadSubtrees` opt                                                                      | 2.12.0 |
 | 3.9 CoGroup Join Ordering             | `reorder_cogroup_inputs_pass()` — sorts `Flatten` subchains by estimated cardinality ascending; `ReorderedCoGroupInputs { original_order, new_order }` opt                                                                       | 2.12.0 |
 | 3.10 Tree Reduction                   | `CombineFn::is_associative_commutative()` marker; `Node::CombineGlobal { tree_reduce }` flag; Rayon `reduce_with` for O(log n) parallel merge depth; parallel-within-key local closure for `combine_values`; `TreeReduction` opt | 2.13.0 |
+| 3.11 Early Termination / Limit        | `TakeOp<T>` stateless op; `PCollection::take(n)` / `first()`; `DynOp::limit_n()`; `Plan::limit`; `exec_par` merge-phase early stopping; `LimitPushdown` opt                                                                      | 2.14.0 |
 
 ---
 
 ## Tier 3: Nice-to-Have Features
-
----
-
-### 3.11 Early Termination / Limit Pushdown
-
-**Status:** Not implemented.
-
-When a `take(N)` or `first()` op terminates the chain, the runner should stop producing elements
-once N are collected rather than executing the full pipeline. This is the pipeline equivalent of
-SQL `LIMIT` pushdown: stateless ops before the limit can short-circuit as soon as their output
-buffer reaches N elements.
-
-**Implementation sketch:**
-- Add a `TakeOp { n: usize }` stateless operator.
-- In the planner, detect a terminal `TakeOp` and record `Plan::limit = Some(n)`.
-- In `exec_par()`, after each partition's stateless pass, check the running total; once N elements
-  are collected across all partitions, cancel remaining rayon tasks via an `AtomicBool` flag.
-- In `exec_seq()`, break the element loop as soon as the output reaches N.
-
-**Estimated complexity:** Medium — the `TakeOp` itself is trivial; the cancellation signal across
-rayon tasks requires careful use of an atomic flag to avoid data races.
-
----
 
 ### 3.12 Bloom Filter Semi-Join for CoGroup
 
