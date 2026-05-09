@@ -127,6 +127,10 @@ impl MetricsCollector {
     /// Register a custom metric.
     ///
     /// If a metric with the same name already exists, it will be replaced.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal metrics mutex is poisoned.
     pub fn register(&mut self, metric: Box<dyn Metric>) {
         let mut inner = self.inner.lock().unwrap();
         inner.metrics.insert(metric.name().to_string(), metric);
@@ -140,18 +144,30 @@ impl MetricsCollector {
     }
 
     /// Record the start time of pipeline execution.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal metrics mutex is poisoned.
     pub fn record_start(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.start_time = Some(Instant::now());
     }
 
     /// Record the end time of pipeline execution.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal metrics mutex is poisoned.
     pub fn record_end(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.end_time = Some(Instant::now());
     }
 
     /// Get the elapsed execution time, if available.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal metrics mutex is poisoned.
     #[must_use]
     pub fn elapsed(&self) -> Option<Duration> {
         let inner = self.inner.lock().unwrap();
@@ -164,6 +180,10 @@ impl MetricsCollector {
     /// Increment a counter metric by name.
     ///
     /// If the metric doesn't exist, it will be created as a `CounterMetric`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal metrics mutex is poisoned.
     pub fn increment_counter(&self, name: &str, value: u64) {
         let mut inner = self.inner.lock().unwrap();
         if let Some(metric) = inner.metrics.get_mut(name) {
@@ -185,6 +205,10 @@ impl MetricsCollector {
     }
 
     /// Set a counter metric to a specific value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal metrics mutex is poisoned.
     pub fn set_counter(&self, name: &str, value: u64) {
         let mut inner = self.inner.lock().unwrap();
         inner.metrics.insert(
@@ -197,6 +221,10 @@ impl MetricsCollector {
     }
 
     /// Get all metrics as a JSON object.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal metrics mutex is poisoned.
     #[must_use]
     pub fn to_json(&self) -> Value {
         let inner = self.inner.lock().unwrap();
@@ -272,6 +300,10 @@ impl MetricsCollector {
     }
 
     /// Get a snapshot of all metric names and values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal metrics mutex is poisoned.
     #[must_use]
     pub fn snapshot(&self) -> HashMap<String, Value> {
         let inner = self.inner.lock().unwrap();

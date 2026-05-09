@@ -406,6 +406,11 @@ pub fn parse_resource_uri(uri: &str) -> CloudResult<(String, Vec<String>)> {
 /// })?;
 /// ```
 ///
+/// # Errors
+///
+/// This function always panics rather than returning an error; the `Result` return
+/// type is present for API compatibility with future implementations.
+///
 /// # Panics
 ///
 /// Always panics; requires an async runtime dependency (e.g. tokio) to implement.

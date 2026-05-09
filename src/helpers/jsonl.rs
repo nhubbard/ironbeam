@@ -126,6 +126,15 @@ use std::sync::Arc;
 /// # Ok(()) }
 /// ```
 ///
+/// # Panics
+///
+/// Panics if the internal glob-detection regex cannot be compiled — this is
+/// not reachable in practice because the pattern is a compile-time constant.
+///
+/// # Errors
+///
+/// Returns an error if `path` contains invalid UTF-8, if a glob pattern does
+/// not match any files, or if any matched file cannot be read or parsed.
 #[cfg(feature = "io-jsonl")]
 pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
