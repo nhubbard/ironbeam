@@ -195,7 +195,6 @@ pub fn read_csv_range<T: DeserializeOwned>(
     let mut rdr = ReaderBuilder::new()
         .has_headers(src.has_headers)
         .from_reader(rdr);
-    // skip rows
     let mut out = Vec::<T>::new();
     for (i, rec) in rdr.deserialize::<T>().enumerate() {
         let i = i as u64;
@@ -298,7 +297,6 @@ pub fn write_csv_par<T: Serialize + Sync>(
     let n = data.len();
     let path = path.as_ref();
 
-    // Empty case: create/truncate file, nothing to do.
     if n == 0 {
         let _ = File::create(path).with_context(|| format!("create {}", path.display()))?;
         return Ok(0);
@@ -328,7 +326,6 @@ pub fn write_csv_par<T: Serialize + Sync>(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    // Concatenate buffers in deterministic order into the final file.
     buffers.sort_by_key(|(idx, _)| *idx);
 
     let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;

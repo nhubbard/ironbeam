@@ -109,9 +109,8 @@ pub enum CheckpointPolicy {
 /// Checkpoint state containing execution progress and intermediate results.
 ///
 /// This is the serializable snapshot of a running pipeline at a specific point.
-/// Note: Due to type-erasure in Partition buffers, full state recovery requires
-/// the pipeline to support serialization. For now, we primarily checkpoint
-/// progress markers and allow restart from the last completed barrier.
+/// Due to type-erasure in Partition buffers, checkpoints track only progress
+/// markers; the pipeline re-executes from the last completed barrier on recovery.
 #[derive(Serialize, Deserialize)]
 #[cfg(feature = "checkpointing")]
 pub struct CheckpointState {
@@ -159,7 +158,6 @@ impl CheckpointManager {
     /// Returns an error if the checkpoint directory cannot be created.
     pub fn new(config: CheckpointConfig) -> Result<Self> {
         if config.enabled {
-            // Ensure the checkpoint directory exists
             create_dir_all(&config.directory).context("Failed to create checkpoint directory")?;
         }
         Ok(Self {
@@ -225,7 +223,6 @@ impl CheckpointManager {
 
         self.last_checkpoint_time = Some(SystemTime::now());
 
-        // Clean up old checkpoints if needed
         self.cleanup_old_checkpoints(&state.pipeline_id)?;
 
         Ok(path)
@@ -293,7 +290,6 @@ impl CheckpointManager {
         let state: CheckpointState =
             postcard::from_bytes(&encoded).context("Failed to deserialize checkpoint")?;
 
-        // Verify checksum
         let metadata_str = format!(
             "{}:{}:{}:{}",
             state.pipeline_id, state.completed_node_index, state.timestamp, state.partition_count
@@ -332,7 +328,6 @@ impl CheckpointManager {
             return Ok(());
         }
 
-        // Sort by timestamp
         checkpoints.sort_by_key(|entry| {
             entry
                 .file_name()
@@ -345,7 +340,6 @@ impl CheckpointManager {
                 .unwrap_or(0)
         });
 
-        // Delete oldest checkpoints
         let to_delete = checkpoints.len() - max_checkpoints;
         for entry in checkpoints.iter().take(to_delete) {
             remove_file(entry.path()).ok(); // Ignore errors

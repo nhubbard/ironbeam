@@ -268,14 +268,12 @@ pub fn auto_detect_reader<R: Read + 'static>(
     reader: R,
     path_hint: impl AsRef<Path>,
 ) -> Result<Box<dyn Read>> {
-    // Try extension-based detection first
     if let Some(codec) = detect_from_extension(&path_hint) {
         return codec
             .wrap_reader_dyn(Box::new(reader))
             .with_context(|| format!("wrap reader with {} codec", codec.name()));
     }
 
-    // Fall back to magic byte detection
     let mut buf_reader = BufReader::new(reader);
     if let Some(codec) = detect_from_magic(&mut buf_reader) {
         return codec
@@ -283,7 +281,6 @@ pub fn auto_detect_reader<R: Read + 'static>(
             .with_context(|| format!("wrap reader with {} codec", codec.name()));
     }
 
-    // No compression detected, return as-is
     Ok(Box::new(buf_reader))
 }
 
@@ -319,7 +316,6 @@ pub fn auto_detect_writer<W: Write + 'static>(
             .with_context(|| format!("wrap writer with {} codec", codec.name()));
     }
 
-    // No compression detected, return buffered writer
     Ok(Box::new(BufWriter::new(writer)))
 }
 

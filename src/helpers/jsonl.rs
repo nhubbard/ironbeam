@@ -93,9 +93,6 @@ use std::sync::Arc;
 /// # Errors
 /// Propagates I/O and JSON parsing errors with line context.
 ///
-/// # Panics
-/// Propagates I/O and JSON parsing errors with line context.
-///
 /// # Examples
 ///
 /// Single file:
@@ -129,21 +126,6 @@ use std::sync::Arc;
 /// # Ok(()) }
 /// ```
 ///
-/// Glob pattern:
-/// ```no_run
-/// use ironbeam::*;
-/// use serde::{Deserialize, Serialize};
-/// use anyhow::Result;
-/// # fn main() -> Result<()> {
-/// #[derive(Serialize, Deserialize, Clone)]
-/// struct Row { k: String, v: u64 }
-///
-/// let p = Pipeline::default();
-/// // Read all JSONL files in the logs directory
-/// let pc: PCollection<Row> = read_jsonl(&p, "logs/*.jsonl")?;
-/// let v = pc.collect_seq()?;
-/// # Ok(()) }
-/// ```
 #[cfg(feature = "io-jsonl")]
 pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
@@ -154,10 +136,8 @@ where
         .to_str()
         .ok_or_else(|| anyhow!("path contains invalid UTF-8"))?;
 
-    // Check if the path contains glob patterns
     let glob_regex = Regex::new(r"[*?\[]").expect("valid glob regex");
     if glob_regex.is_match(path_str) {
-        // Glob pattern - expand and read all matching files
         let files =
             expand_glob(path_str).with_context(|| format!("expanding glob pattern: {path_str}"))?;
 
@@ -173,7 +153,6 @@ where
         }
         Ok(from_vec(p, all_data))
     } else {
-        // Single file path
         let data: Vec<T> = read_jsonl_vec(path)?;
         Ok(from_vec(p, data))
     }

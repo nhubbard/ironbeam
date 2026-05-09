@@ -127,10 +127,6 @@ impl MetricsCollector {
     /// Register a custom metric.
     ///
     /// If a metric with the same name already exists, it will be replaced.
-    ///
-    /// # Panics
-    ///
-    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     pub fn register(&mut self, metric: Box<dyn Metric>) {
         let mut inner = self.inner.lock().unwrap();
         inner.metrics.insert(metric.name().to_string(), metric);
@@ -144,30 +140,18 @@ impl MetricsCollector {
     }
 
     /// Record the start time of pipeline execution.
-    ///
-    /// # Panics
-    ///
-    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     pub fn record_start(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.start_time = Some(Instant::now());
     }
 
     /// Record the end time of pipeline execution.
-    ///
-    /// # Panics
-    ///
-    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     pub fn record_end(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.end_time = Some(Instant::now());
     }
 
     /// Get the elapsed execution time, if available.
-    ///
-    /// # Panics
-    ///
-    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     #[must_use]
     pub fn elapsed(&self) -> Option<Duration> {
         let inner = self.inner.lock().unwrap();
@@ -180,14 +164,9 @@ impl MetricsCollector {
     /// Increment a counter metric by name.
     ///
     /// If the metric doesn't exist, it will be created as a `CounterMetric`.
-    ///
-    /// # Panics
-    ///
-    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     pub fn increment_counter(&self, name: &str, value: u64) {
         let mut inner = self.inner.lock().unwrap();
         if let Some(metric) = inner.metrics.get_mut(name) {
-            // Try to downcast to CounterMetric and increment
             if let Some(counter) = metric.as_any().downcast_ref::<CounterMetric>() {
                 // We can't mutate through the trait object, so we need to replace it
                 let new_count = counter.count + value;
@@ -195,7 +174,6 @@ impl MetricsCollector {
                 self.set_counter(name, new_count);
             }
         } else {
-            // Create a new counter
             inner.metrics.insert(
                 name.to_string(),
                 Box::new(CounterMetric {
@@ -207,10 +185,6 @@ impl MetricsCollector {
     }
 
     /// Set a counter metric to a specific value.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the metric name is invalid or already exists.
     pub fn set_counter(&self, name: &str, value: u64) {
         let mut inner = self.inner.lock().unwrap();
         inner.metrics.insert(
@@ -223,10 +197,6 @@ impl MetricsCollector {
     }
 
     /// Get all metrics as a JSON object.
-    ///
-    /// # Panics
-    ///
-    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     #[must_use]
     pub fn to_json(&self) -> Value {
         let inner = self.inner.lock().unwrap();
@@ -241,7 +211,6 @@ impl MetricsCollector {
             metrics_json.insert(name.clone(), Value::Object(metric_obj));
         }
 
-        // Add execution time if available
         if let (Some(start), Some(end)) = (inner.start_time, inner.end_time) {
             let elapsed_ms = end.duration_since(start).as_millis();
             let mut time_obj = Map::new();
@@ -266,7 +235,6 @@ impl MetricsCollector {
 
         let inner = self.inner.lock().unwrap();
 
-        // Print execution time first if available
         if let (Some(start), Some(end)) = (inner.start_time, inner.end_time) {
             let elapsed = end.duration_since(start);
             println!(
@@ -277,7 +245,6 @@ impl MetricsCollector {
             println!("--------------------------------------");
         }
 
-        // Print all metrics
         let mut sorted_metrics: Vec<_> = inner.metrics.iter().collect();
         sorted_metrics.sort_by_key(|(name, _)| *name);
         for (name, metric) in sorted_metrics {
@@ -295,7 +262,7 @@ impl MetricsCollector {
     ///
     /// # Errors
     ///
-    /// Returns a `MetricsError` if the file cannot be created or written to.
+    /// Returns an error if the file cannot be created or written to.
     pub fn save_to_file(&self, path: &str) -> Result<()> {
         let json = self.to_json();
         let mut file = File::create(path)?;
@@ -305,10 +272,6 @@ impl MetricsCollector {
     }
 
     /// Get a snapshot of all metric names and values.
-    ///
-    /// # Panics
-    ///
-    /// Returns a `MetricsError` if the metric name is invalid or already exists.
     #[must_use]
     pub fn snapshot(&self) -> HashMap<String, Value> {
         let inner = self.inner.lock().unwrap();

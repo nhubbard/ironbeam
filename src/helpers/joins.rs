@@ -128,11 +128,9 @@ where
     where
         W: RFBound,
     {
-        // Build subchains
         let left_chain = chain_from(&self.pipeline, self.id).expect("left chain build");
         let right_chain = chain_from(&right.pipeline, right.id).expect("right chain build");
 
-        // Exec closure: Vec<(K,V)>, Vec<(K,W)> -> Vec<(K,(V,W))>
         let exec = Arc::new(|left_part: Partition, right_part: Partition| {
             let left_rows = *left_part
                 .downcast::<Vec<(K, V)>>()
@@ -163,7 +161,6 @@ where
             Box::new(out) as Partition
         });
 
-        // Insert dummy source + CoGroup
         let source_id = insert_dummy_source(&self.pipeline);
         let coalesce_left = Arc::new(|parts: Vec<Partition>| -> Partition {
             let mut out: Vec<(K, V)> = Vec::new();

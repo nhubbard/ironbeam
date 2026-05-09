@@ -438,7 +438,6 @@ where
 
         let mut out = Vec::with_capacity(v.len()); // heuristic: often ~1:1
 
-        // process in chunks of &T
         for chunk in v.chunks(batch_size) {
             let mut produced = f(chunk);
             out.append(&mut produced);
@@ -491,7 +490,6 @@ where
                 vals.len()
             );
 
-            // Re-pair with the original keys in order
             for (j, o) in produced.into_iter().enumerate() {
                 let k = kv[idx + j].0.clone();
                 out.push((k, o));

@@ -95,9 +95,6 @@ use crate::Pipeline;
 
 /// A test-focused wrapper around [`Pipeline`] with additional debugging utilities.
 ///
-/// This is a thin wrapper that provides the same functionality as [`Pipeline::default()`]
-/// but can be extended with test-specific features in the future.
-///
 /// # Example
 ///
 /// ```
