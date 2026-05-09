@@ -3,8 +3,8 @@ use ironbeam::from_vec;
 use ironbeam::node::Node;
 use ironbeam::testing::*;
 use ironbeam::{
-    OptimizationDecision, PCollection, Pipeline, Runner, SharedCSECache, build_plan, cogroup_by_key,
-    flatten,
+    OptimizationDecision, PCollection, Pipeline, Runner, SharedCSECache, build_plan,
+    cogroup_by_key, flatten,
 };
 
 #[test]
@@ -840,8 +840,10 @@ fn cogroup_reorder_preserves_correctness() -> Result<()> {
             ("alice".to_string(), 150u32),
         ],
     );
-    let c2: PCollection<(String, u32)> =
-        from_vec(&p, vec![("alice".to_string(), 1u32), ("carol".to_string(), 2u32)]);
+    let c2: PCollection<(String, u32)> = from_vec(
+        &p,
+        vec![("alice".to_string(), 1u32), ("carol".to_string(), 2u32)],
+    );
 
     let pc = cogroup_by_key!(c1, c2);
     let mut result = pc.collect_seq()?;

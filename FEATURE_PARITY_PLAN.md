@@ -53,30 +53,11 @@ in Ironbeam. Features are organized by priority tier.
 | 3.6 Predicate Pushdown Past Reshuffle | `push_down_before_barrier_pass()` — extends predicate pushdown to treat `Reshuffle` as a transparent barrier alongside `GroupByKey`                         | 2.12.0 |
 | 3.7 Flatten Input Predicate Pushdown  | `push_down_into_flatten_pass()` — clones `value_only + cardinality_reducing` ops into each Flatten subplan tail, removing them from the post-Flatten block  | 2.12.0 |
 | 3.8 Dead Subtree Elimination          | `prune_dead_subtrees()` — backward BFS pre-pass removes nodes with no forward path to the target terminal before chain extraction; `PrunedDeadSubtrees` opt | 2.12.0 |
+| 3.9 CoGroup Join Ordering             | `reorder_cogroup_inputs_pass()` — sorts `Flatten` subchains by estimated cardinality ascending; `ReorderedCoGroupInputs { original_order, new_order }` opt  | 2.12.0 |
 
 ---
 
 ## Tier 3: Nice-to-Have Features
-
-### 3.9 CoGroup Join Ordering
-
-**Status:** Not implemented.
-
-The `cogroup_by_key!` macro generates a fixed left-deep binary join tree. When multiple input
-`PCollection`s are joined, processing smaller inputs first reduces intermediate state. Because
-source `Vec` lengths are known at plan time, the planner can sort the CoGroup input chains by
-estimated cardinality before building the join tree.
-
-**Implementation sketch:**
-- In the CoGroup planning path, collect the estimated element count for each input chain (using
-  `VecOps::len()` on `Source` nodes, defaulting to a conservative estimate for non-source inputs).
-- Sort input chains ascending by estimated count before constructing the binary join sequence.
-- Record the reordering decision in a new `OptimizationDecision::ReorderedCoGroupInputs { original_order, new_order }`.
-
-**Estimated complexity:** Medium — the sort itself is trivial; the work is plumbing the cardinality
-estimate through the chain-building logic and wiring the new `OptimizationDecision` variant.
-
----
 
 ### 3.10 Tree Reduction for Associative Combiners
 

@@ -627,7 +627,10 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
 /// Returns `Some(n)` when the chain starts with a `Source` node whose `VecOps`
 /// implementation reports a known length; otherwise returns `None`.
 fn estimate_subchain_cardinality(chain: &[Node]) -> Option<usize> {
-    if let Some(Node::Source { payload, vec_ops, .. }) = chain.first() {
+    if let Some(Node::Source {
+        payload, vec_ops, ..
+    }) = chain.first()
+    {
         vec_ops.len(payload.as_ref())
     } else {
         None
@@ -689,8 +692,10 @@ fn reorder_cogroup_inputs_pass(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimization
         }
 
         // Estimate cardinality of each subchain.
-        let cardinalities: Vec<Option<usize>> =
-            old_chains.iter().map(|c| estimate_subchain_cardinality(c)).collect();
+        let cardinalities: Vec<Option<usize>> = old_chains
+            .iter()
+            .map(|c| estimate_subchain_cardinality(c))
+            .collect();
 
         // Build a sorted permutation: known sizes ascending first, unknowns at the end.
         let mut indices: Vec<usize> = (0..n).collect();
@@ -707,7 +712,8 @@ fn reorder_cogroup_inputs_pass(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimization
         }
 
         let new_order = indices.clone();
-        let new_chains: Vec<Vec<Node>> = indices.into_iter().map(|i| old_chains[i].clone()).collect();
+        let new_chains: Vec<Vec<Node>> =
+            indices.into_iter().map(|i| old_chains[i].clone()).collect();
         decisions.push(OptimizationDecision::ReorderedCoGroupInputs {
             original_order,
             new_order,
