@@ -120,6 +120,9 @@ fn example_with_optimizations() -> Result<()> {
                     println!("✓ Suggested {partitions} partitions");
                 }
             }
+            OptimizationDecision::EliminatedReshuffle { count } => {
+                println!("✓ Eliminated {count} redundant Reshuffle node(s)");
+            }
         }
     }
 

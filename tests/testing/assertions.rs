@@ -13,7 +13,7 @@ fn test_is_empty_fails_for_non_empty_collection() {
     let data = vec![1, 2, 3];
     let err = PAssert::that(&data).is_empty().unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("3"), "error should mention element count");
+    assert!(msg.contains('3'), "error should mention element count");
 }
 
 // ── has_count ─────────────────────────────────────────────────────────────────
@@ -67,7 +67,10 @@ fn test_all_match_fails_for_first_violating_element() {
     let data = vec![2, 3, 4];
     let err = PAssert::that(&data).all_match(|x| x % 2 == 0).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains('3'), "error should mention the failing element");
+    assert!(
+        msg.contains('3'),
+        "error should mention the failing element"
+    );
     assert!(msg.contains('1'), "error should mention the index");
 }
 
@@ -76,7 +79,10 @@ fn test_all_match_fails_on_last_element() {
     let data = vec![2, 4, 7];
     let err = PAssert::that(&data).all_match(|x| x % 2 == 0).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains('7'), "error should mention the failing element");
+    assert!(
+        msg.contains('7'),
+        "error should mention the failing element"
+    );
 }
 
 // ── contains_in_any_order ─────────────────────────────────────────────────────
@@ -100,9 +106,7 @@ fn test_contains_in_any_order_passes_for_different_order() {
 #[test]
 fn test_contains_in_any_order_passes_for_empty_collections() {
     let empty: Vec<i32> = vec![];
-    PAssert::that(&empty)
-        .contains_in_any_order(&[])
-        .unwrap();
+    PAssert::that(&empty).contains_in_any_order(&[]).unwrap();
 }
 
 #[test]
@@ -120,7 +124,10 @@ fn test_contains_in_any_order_fails_for_missing_element() {
         .contains_in_any_order(&[1, 2, 3])
         .unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains('3'), "error should mention the missing element");
+    assert!(
+        msg.contains('3'),
+        "error should mention the missing element"
+    );
 }
 
 #[test]
@@ -151,7 +158,10 @@ fn test_contains_in_any_order_fails_for_completely_different_elements() {
         .contains_in_any_order(&[1, 2, 3])
         .unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("Missing"), "error should mention missing elements");
+    assert!(
+        msg.contains("Missing"),
+        "error should mention missing elements"
+    );
     assert!(msg.contains("Extra"), "error should mention extra elements");
 }
 

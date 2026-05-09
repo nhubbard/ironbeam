@@ -14,7 +14,12 @@
 //!    `CombineValues` that also has a lifted local (`local_groups.is_some()`),
 //!    drop the `GroupByKey` and keep the combine, switching it to consume
 //!    `(K, V)` pairs via `local_pairs`.
-//! 5. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
+//! 5. **Eliminate redundant Reshuffle** -- a `Reshuffle` immediately before a shuffle
+//!    barrier (`GroupByKey`, `CombineValues`, `CoGroup`, `Flatten`) is a no-op because
+//!    the barrier already redistributes all elements.  Two consecutive `Reshuffle` nodes
+//!    reduce to one for the same reason.  Runs after pass 4 so that lifted combiners
+//!    (which remove the `GroupByKey`) are visible as `CombineValues` targets.
+//! 6. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
 //!    terminal in the chain.
 //!
 //! The planner also provides a heuristic **partition suggestion** that the runner
@@ -69,7 +74,7 @@ pub enum OptimizationDecision {
     /// Cardinality-reducing ops were confirmed (and where beneficial, split out) before
     /// a `GroupByKey` barrier, shrinking the GBK input.
     PushedDownPredicates {
-        /// Number of operations confirmed as pre-GBK predicates.
+        /// The number of operations confirmed as pre-GBK predicates.
         ops_pushed: usize,
     },
     /// Partition count suggestion.
@@ -78,6 +83,15 @@ pub enum OptimizationDecision {
         source_len: Option<usize>,
         /// Suggested partition count.
         partitions: usize,
+    },
+    /// Redundant `Reshuffle` nodes were removed from the plan.
+    ///
+    /// A `Reshuffle` is redundant when it immediately precedes a shuffle barrier
+    /// (`GroupByKey`, `CombineValues`, `CoGroup`, or `Flatten`) that already
+    /// redistributes all elements, or when it immediately precedes another `Reshuffle`.
+    EliminatedReshuffle {
+        /// Number of `Reshuffle` nodes removed.
+        count: usize,
     },
 }
 
@@ -232,6 +246,13 @@ impl Display for ExecutionExplanation {
                         } else {
                             writeln!(f, "│   Suggest {partitions} partitions")?;
                         }
+                    }
+                    OptimizationDecision::EliminatedReshuffle { count } => {
+                        writeln!(f, "│ • Eliminated Redundant Reshuffle")?;
+                        writeln!(
+                            f,
+                            "│   Removed {count} redundant Reshuffle node(s) before shuffle barriers or consecutive pairs"
+                        )?;
                     }
                 }
             }
@@ -422,7 +443,8 @@ impl Plan {
 /// 3) predicate pushdown before GBK (requires fused blocks; may split one Stateless into two)
 /// 4) reorder value-only ops (works on the split blocks produced by step 3)
 /// 5) lift GBK->Combine (structure-changing; GBK must still be present)
-/// 6) drop mid-materialized (cleanup)
+/// 6) eliminate redundant Reshuffle (runs after lift so lifted `CombineValues` is visible as a target)
+/// 7) drop mid-materialized (cleanup)
 ///
 /// # Errors
 ///
@@ -454,6 +476,12 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     let (new_chain, lift_opt) = lift_gbk_then_combine_tracked(chain);
     chain = new_chain;
     if let Some(opt) = lift_opt {
+        optimizations.push(opt);
+    }
+
+    let (new_chain, reshuffle_opt) = eliminate_reshuffle_pass(chain);
+    chain = new_chain;
+    if let Some(opt) = reshuffle_opt {
         optimizations.push(opt);
     }
 
@@ -623,7 +651,7 @@ fn push_down_before_gbk_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimizatio
     let mut out = Vec::with_capacity(chain.len() + 1);
     let mut pushed_count = 0usize;
 
-    let is_pushable = |op: &Arc<dyn crate::node::DynOp>| {
+    let is_pushable = |op: &Arc<dyn DynOp>| {
         op.key_preserving() && op.value_only() && op.cardinality_reducing()
     };
 
@@ -744,6 +772,58 @@ fn lift_gbk_then_combine_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
     };
 
     (out, optimization)
+}
+
+/* ---------- Reshuffle elimination ---------- */
+
+/// Remove redundant [`Node::Reshuffle`] nodes and track the decision.
+///
+/// A `Reshuffle` is redundant in two cases, both of which are pure no-ops:
+///
+/// 1. It immediately precedes a shuffle barrier — [`Node::GroupByKey`],
+///    [`Node::CombineValues`], [`Node::CoGroup`], or [`Node::Flatten`] — each of
+///    which already materializes and redistributes all elements across partitions.
+///    Reshuffling immediately before such a barrier is therefore a wasted O(N) pass.
+/// 2. It immediately precedes another [`Node::Reshuffle`].  After the first pass
+///    elements are already evenly distributed; a second pass produces the same
+///    distribution.  The leading (first) `Reshuffle` is dropped, keeping the
+///    trailing one so the redistribution still occurs once.
+///
+/// The pass scans the chain left-to-right and skips (drops) the current node
+/// whenever it is a `Reshuffle` whose successor matches one of the above patterns.
+/// Greedy left-to-right scanning handles chains of three or more consecutive
+/// reshuffles in a single pass.
+fn eliminate_reshuffle_pass(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
+    if chain.len() < 2 {
+        return (chain, None);
+    }
+    let mut out = Vec::with_capacity(chain.len());
+    let mut i = 0usize;
+    let mut eliminated = 0usize;
+
+    while i < chain.len() {
+        if i + 1 < chain.len() && matches!(chain[i], Node::Reshuffle { .. }) {
+            let successor_absorbs = matches!(
+                chain[i + 1],
+                Node::GroupByKey { .. }
+                    | Node::CombineValues { .. }
+                    | Node::CoGroup { .. }
+                    | Node::Flatten { .. }
+                    | Node::Reshuffle { .. }
+            );
+            if successor_absorbs {
+                eliminated += 1;
+                i += 1; // skip the leading Reshuffle; process successor on next iteration
+                continue;
+            }
+        }
+        out.push(chain[i].clone());
+        i += 1;
+    }
+
+    let opt =
+        (eliminated > 0).then_some(OptimizationDecision::EliminatedReshuffle { count: eliminated });
+    (out, opt)
 }
 
 /* ---------- Keep only terminal Materialized ---------- */
