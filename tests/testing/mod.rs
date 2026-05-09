@@ -1,3 +1,4 @@
+mod assertions;
 mod builders;
 mod debug;
 mod fixtures;

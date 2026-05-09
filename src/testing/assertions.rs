@@ -1,11 +1,214 @@
-//! Assertion functions for testing pipeline outputs.
+//! Assertion functions and fluent assertion builder for testing pipeline outputs.
 //!
-//! This module provides specialized assertion functions for comparing
-//! collections produced by pipelines with expected results.
+//! This module provides specialized assertion functions and the [`PAssert`] builder
+//! for comparing collections produced by pipelines with expected results.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::{BuildHasher, Hash};
+
+use anyhow::{Result, bail};
+
+/// A fluent assertion builder for testing pipeline collection outputs.
+///
+/// `PAssert` wraps a slice reference and exposes method-chaining assertion
+/// helpers. Each method returns `Result<&Self>` so checks can be composed
+/// with the `?` operator and the entire chain short-circuits on the first
+/// failure.
+///
+/// # Example
+///
+/// ```
+/// use ironbeam::testing::PAssert;
+/// # use anyhow::Result;
+///
+/// # fn main() -> Result<()> {
+/// let result = vec![3, 1, 2];
+///
+/// PAssert::that(&result)
+///     .contains_in_any_order(&[1, 2, 3])?
+///     .has_count(3)?
+///     .all_match(|x| *x > 0)?;
+///
+/// let empty: Vec<i32> = vec![];
+/// PAssert::that(&empty).is_empty()?;
+/// # Ok(())
+/// # }
+/// ```
+#[must_use = "call assertion methods to verify the collection"]
+#[derive(Debug)]
+pub struct PAssert<'a, T> {
+    data: &'a [T],
+}
+
+impl<'a, T: Debug> PAssert<'a, T> {
+    /// Create a new `PAssert` wrapping `data`.
+    ///
+    /// `data` is borrowed for the lifetime `'a` of the returned builder, so
+    /// assertions borrow-check against the same slice without copying.
+    pub const fn that(data: &'a [T]) -> Self {
+        Self { data }
+    }
+
+    /// Assert that the collection is empty.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the collection contains one or more elements.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ironbeam::testing::PAssert;
+    /// # use anyhow::Result;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let empty: Vec<i32> = vec![];
+    /// PAssert::that(&empty).is_empty()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn is_empty(&self) -> Result<&Self> {
+        if !self.data.is_empty() {
+            bail!(
+                "Expected an empty collection, but it contained {} element(s): {:?}",
+                self.data.len(),
+                self.data,
+            );
+        }
+        Ok(self)
+    }
+
+    /// Assert that the collection has exactly `expected` elements.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the element count does not match `expected`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ironbeam::testing::PAssert;
+    /// # use anyhow::Result;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let data = vec![1, 2, 3];
+    /// PAssert::that(&data).has_count(3)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn has_count(&self, expected: usize) -> Result<&Self> {
+        if self.data.len() != expected {
+            bail!(
+                "Expected {} element(s), but got {}: {:?}",
+                expected,
+                self.data.len(),
+                self.data,
+            );
+        }
+        Ok(self)
+    }
+
+    /// Assert that every element satisfies `predicate`.
+    ///
+    /// Evaluates elements in order and reports the index and value of the
+    /// first element that fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error identifying the first element that does not satisfy
+    /// `predicate`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ironbeam::testing::PAssert;
+    /// # use anyhow::Result;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let data = vec![2, 4, 6];
+    /// PAssert::that(&data).all_match(|x| x % 2 == 0)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn all_match(&self, predicate: impl Fn(&T) -> bool) -> Result<&Self> {
+        for (i, item) in self.data.iter().enumerate() {
+            if !predicate(item) {
+                bail!(
+                    "Predicate failed at index {i}: {:?}\n  Collection: {:?}",
+                    item,
+                    self.data,
+                );
+            }
+        }
+        Ok(self)
+    }
+}
+
+impl<T: Debug + Eq + Hash> PAssert<'_, T> {
+    /// Assert that the collection contains exactly the same elements as
+    /// `expected`, ignoring order.
+    ///
+    /// Uses multiset (bag) semantics: duplicate elements must appear the same
+    /// number of times in both collections.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error listing missing and extra elements when the multisets
+    /// differ.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use ironbeam::testing::PAssert;
+    /// # use anyhow::Result;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let data = vec![3, 1, 2];
+    /// PAssert::that(&data).contains_in_any_order(&[1, 2, 3])?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn contains_in_any_order(&self, expected: &[T]) -> Result<&Self> {
+        let mut actual_counts: HashMap<&T, usize> = HashMap::new();
+        for item in self.data {
+            *actual_counts.entry(item).or_insert(0) += 1;
+        }
+
+        let mut expected_counts: HashMap<&T, usize> = HashMap::new();
+        for item in expected {
+            *expected_counts.entry(item).or_insert(0) += 1;
+        }
+
+        if actual_counts == expected_counts {
+            return Ok(self);
+        }
+
+        let mut missing: Vec<(&T, usize)> = Vec::new();
+        for (item, &exp_count) in &expected_counts {
+            let act_count = actual_counts.get(item).copied().unwrap_or(0);
+            if act_count < exp_count {
+                missing.push((item, exp_count - act_count));
+            }
+        }
+
+        let mut extra: Vec<(&T, usize)> = Vec::new();
+        for (item, &act_count) in &actual_counts {
+            let exp_count = expected_counts.get(item).copied().unwrap_or(0);
+            if act_count > exp_count {
+                extra.push((item, act_count - exp_count));
+            }
+        }
+
+        bail!(
+            "Collection content mismatch:\n  Missing (item, count): {:?}\n  Extra (item, count): {:?}\n  Expected: {:?}\n  Actual: {:?}",
+            missing,
+            extra,
+            expected,
+            self.data,
+        );
+    }
+}
 
 /// Assert that two collections are equal in order and content.
 ///
