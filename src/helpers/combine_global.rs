@@ -104,11 +104,13 @@ impl<T: RFBound> PCollection<T> {
             })
         };
 
+        let tree_reduce = comb.is_associative_commutative();
         let id = self.pipeline.insert_node(Node::CombineGlobal {
             local,
             merge,
             finish,
             fanout,
+            tree_reduce,
         });
         self.pipeline.connect(self.id, id);
         PCollection {
@@ -184,11 +186,13 @@ impl<T: RFBound> PCollection<T> {
             })
         };
 
+        let tree_reduce = comb.is_associative_commutative();
         let id = self.pipeline.insert_node(Node::CombineGlobal {
             local,
             merge,
             finish,
             fanout,
+            tree_reduce,
         });
         self.pipeline.connect(self.id, id);
         PCollection {

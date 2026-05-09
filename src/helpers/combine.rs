@@ -14,6 +14,7 @@
 use crate::collection::LiftableCombiner;
 use crate::node::Node;
 use crate::{CombineFn, PCollection, Partition, RFBound};
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -74,19 +75,54 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
         let comb = Arc::new(comb);
 
         // local: Vec<(K, V)> -> HashMap<K, A>
-        let local = {
-            let comb = Arc::clone(&comb);
-            Arc::new(move |p: Partition| -> Partition {
-                let kv = *p
-                    .downcast::<Vec<(K, V)>>()
-                    .expect("combine local: bad input");
-                let mut map: HashMap<K, A> = HashMap::new();
-                for (k, v) in kv {
-                    comb.add_input(map.entry(k).or_insert_with(|| comb.create()), v);
-                }
-                Box::new(map) as Partition
-            })
-        };
+        //
+        // When the combiner is associative+commutative, group values by key first
+        // then parallel-reduce each key's value list with Rayon's `reduce_with`.
+        // This achieves O(log m) depth per key for keys with large fan-in.
+        let local: Arc<dyn Fn(Partition) -> Partition + Send + Sync> =
+            if comb.is_associative_commutative() {
+                let comb = Arc::clone(&comb);
+                Arc::new(move |p: Partition| -> Partition {
+                    let kv = *p
+                        .downcast::<Vec<(K, V)>>()
+                        .expect("combine local: bad input");
+                    let mut groups: HashMap<K, Vec<V>> = HashMap::new();
+                    for (k, v) in kv {
+                        groups.entry(k).or_default().push(v);
+                    }
+                    let map: HashMap<K, A> = groups
+                        .into_iter()
+                        .map(|(k, vals)| {
+                            let acc = vals
+                                .into_par_iter()
+                                .map(|v| {
+                                    let mut a = comb.create();
+                                    comb.add_input(&mut a, v);
+                                    a
+                                })
+                                .reduce_with(|mut a, b| {
+                                    comb.merge(&mut a, b);
+                                    a
+                                })
+                                .unwrap_or_else(|| comb.create());
+                            (k, acc)
+                        })
+                        .collect();
+                    Box::new(map) as Partition
+                })
+            } else {
+                let comb = Arc::clone(&comb);
+                Arc::new(move |p: Partition| -> Partition {
+                    let kv = *p
+                        .downcast::<Vec<(K, V)>>()
+                        .expect("combine local: bad input");
+                    let mut map: HashMap<K, A> = HashMap::new();
+                    for (k, v) in kv {
+                        comb.add_input(map.entry(k).or_insert_with(|| comb.create()), v);
+                    }
+                    Box::new(map) as Partition
+                })
+            };
 
         // merge: Vec<HashMap<K, A>> -> Vec<(K, O)>
         let merge = {

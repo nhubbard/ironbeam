@@ -44,6 +44,10 @@ where
     fn finish(&self, acc: T) -> T {
         acc
     }
+
+    fn is_associative_commutative(&self) -> bool {
+        true
+    }
 }
 
 impl<T> LiftableCombiner<T, T, T> for Sum<T>
@@ -106,6 +110,10 @@ where
     fn finish(&self, acc: Option<T>) -> T {
         acc.expect("Min::finish called on empty group")
     }
+
+    fn is_associative_commutative(&self) -> bool {
+        true
+    }
 }
 
 impl<T> LiftableCombiner<T, Option<T>, T> for Min<T>
@@ -167,6 +175,10 @@ where
 
     fn finish(&self, acc: Option<T>) -> T {
         acc.expect("Max::finish called on empty group")
+    }
+
+    fn is_associative_commutative(&self) -> bool {
+        true
     }
 }
 

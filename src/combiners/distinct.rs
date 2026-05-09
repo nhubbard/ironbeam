@@ -48,6 +48,10 @@ where
     fn finish(&self, acc: HashSet<T>) -> u64 {
         acc.len() as u64
     }
+
+    fn is_associative_commutative(&self) -> bool {
+        true
+    }
 }
 
 impl<T> LiftableCombiner<T, HashSet<T>, u64> for DistinctCount<T>
@@ -99,6 +103,9 @@ where
     }
     fn finish(&self, acc: HashSet<T>) -> Vec<T> {
         acc.into_iter().collect()
+    }
+    fn is_associative_commutative(&self) -> bool {
+        true
     }
 }
 
@@ -229,6 +236,10 @@ where
 
     fn finish(&self, acc: KMVAcc) -> f64 {
         acc.finish()
+    }
+
+    fn is_associative_commutative(&self) -> bool {
+        true
     }
 }
 

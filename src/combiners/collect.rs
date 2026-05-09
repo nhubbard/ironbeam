@@ -156,6 +156,10 @@ where
     fn finish(&self, acc: HashSet<T>) -> HashSet<T> {
         acc
     }
+
+    fn is_associative_commutative(&self) -> bool {
+        true
+    }
 }
 
 impl<T> LiftableCombiner<T, HashSet<T>, HashSet<T>> for ToSet<T>

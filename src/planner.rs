@@ -160,6 +160,17 @@ pub enum OptimizationDecision {
         /// New ordering: `new_order[i]` is the original index now at position `i`.
         new_order: Vec<usize>,
     },
+    /// One or more `CombineGlobal` nodes will use O(log n) parallel tree reduction.
+    ///
+    /// When a combiner declares [`CombineFn::is_associative_commutative`] `= true`,
+    /// the parallel runner replaces the sequential fanout merge loop with Rayon's
+    /// `reduce_with`, which processes accumulators in a binary fan-in pattern.
+    /// This halves the critical-path merge depth on each doubling of input size
+    /// (O(log n) instead of O(n)).
+    TreeReduction {
+        /// Number of `CombineGlobal` nodes that use tree reduction.
+        global_count: usize,
+    },
 }
 
 /// Detailed explanation of an execution plan including cost estimates and optimizations.
@@ -339,13 +350,20 @@ impl Display for ExecutionExplanation {
                         original_order,
                         new_order,
                     } => {
-                        writeln!(f, "│ • CoGroup Input Reordering")?;
+                        writeln!(f, "│ • `CoGroup` Input Reordering")?;
                         writeln!(
                             f,
                             "│   Reordered {} subchain(s) by estimated cardinality: {:?} → {:?}",
                             new_order.len(),
                             original_order,
                             new_order
+                        )?;
+                    }
+                    OptimizationDecision::TreeReduction { global_count } => {
+                        writeln!(f, "│ • Tree Reduction for Associative Combiners")?;
+                        writeln!(
+                            f,
+                            "│   {global_count} CombineGlobal node(s) use O(log n) parallel tree reduction"
                         )?;
                     }
                 }
@@ -476,14 +494,23 @@ impl Plan {
                         150,
                     )
                 }
-                Node::CombineGlobal { fanout, .. } => {
+                Node::CombineGlobal {
+                    fanout,
+                    tree_reduce,
+                    ..
+                } => {
                     barriers += 1;
                     total_ops += 1;
                     let fanout_str =
                         fanout.map_or_else(|| "unbounded".to_string(), |f| f.to_string());
+                    let mode = if *tree_reduce {
+                        "tree-reduce"
+                    } else {
+                        "fanout-merge"
+                    };
                     (
                         "CombineGlobal",
-                        format!("Global aggregation with fanout={fanout_str} (BARRIER)"),
+                        format!("Global aggregation [{mode}] fanout={fanout_str} (BARRIER)"),
                         true,
                         90,
                     )
@@ -603,6 +630,17 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     chain = new_chain;
     if let Some(opt) = drop_opt {
         optimizations.push(opt);
+    }
+
+    // Post-pass: count CombineGlobal nodes with tree reduction enabled.
+    let tree_reduce_count = chain
+        .iter()
+        .filter(|n| matches!(n, Node::CombineGlobal { tree_reduce: true, .. }))
+        .count();
+    if tree_reduce_count > 0 {
+        optimizations.push(OptimizationDecision::TreeReduction {
+            global_count: tree_reduce_count,
+        });
     }
 
     let suggested = suggest_partitions(len_hint);

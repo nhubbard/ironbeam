@@ -878,7 +878,7 @@ fn cogroup_reorder_appears_in_explain() -> Result<()> {
     let plan = build_plan(&p, pc.node_id())?;
     let explain = plan.explain().to_string();
     assert!(
-        explain.contains("CoGroup Input Reordering"),
+        explain.contains("CoGroup` Input Reordering"),
         "explain output should mention CoGroup Input Reordering: {explain}"
     );
     Ok(())
@@ -902,5 +902,226 @@ fn cogroup_equal_cardinality_not_reordered() -> Result<()> {
             .any(|o| matches!(o, OptimizationDecision::ReorderedCoGroupInputs { .. })),
         "equal-cardinality inputs must not trigger ReorderedCoGroupInputs (already ordered)"
     );
+    Ok(())
+}
+
+// ---- 3.10: Tree Reduction for Associative Combiners ----
+
+use ironbeam::combiners::{Count as CombCount, Max, Min, Sum};
+use ironbeam::collection::Count;
+
+/// `Sum` is associative+commutative, so a `CombineGlobal` built from it must
+/// have `tree_reduce == true` in the compiled plan.
+#[test]
+fn tree_reduce_flag_set_for_sum_combiner() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![1u64, 2, 3, 4, 5]);
+    let out = data.combine_globally(Sum::<u64>::default(), None);
+    let plan = build_plan(&p, out.node_id())?;
+    let has_tree_reduce = plan.chain.iter().any(|n| {
+        matches!(n, ironbeam::node::Node::CombineGlobal { tree_reduce: true, .. })
+    });
+    assert!(
+        has_tree_reduce,
+        "Sum combiner must produce CombineGlobal with tree_reduce=true"
+    );
+    Ok(())
+}
+
+/// `Count` (collection-level) is associative+commutative — same check.
+#[test]
+fn tree_reduce_flag_set_for_count_combiner() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![1u32, 2, 3]);
+    let out = data.combine_globally(Count, None);
+    let plan = build_plan(&p, out.node_id())?;
+    let has_tree_reduce = plan.chain.iter().any(|n| {
+        matches!(n, ironbeam::node::Node::CombineGlobal { tree_reduce: true, .. })
+    });
+    assert!(
+        has_tree_reduce,
+        "Count combiner must produce CombineGlobal with tree_reduce=true"
+    );
+    Ok(())
+}
+
+/// `Min` is AC; verify the flag is set.
+#[test]
+fn tree_reduce_flag_set_for_min_combiner() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![10i64, 3, 7]);
+    let out = data.combine_globally(Min::<i64>::default(), None);
+    let plan = build_plan(&p, out.node_id())?;
+    assert!(
+        plan.chain
+            .iter()
+            .any(|n| matches!(n, Node::CombineGlobal { tree_reduce: true, .. })),
+        "Min combiner must produce CombineGlobal with tree_reduce=true"
+    );
+    Ok(())
+}
+
+/// A custom combiner that does NOT declare AC must NOT set `tree_reduce`.
+#[test]
+fn tree_reduce_not_set_for_non_ac_combiner() -> Result<()> {
+    use ironbeam::CombineFn;
+
+    #[derive(Clone, Default)]
+    struct ConcatStr;
+    impl CombineFn<String, String, String> for ConcatStr {
+        fn create(&self) -> String {
+            String::new()
+        }
+        fn add_input(&self, acc: &mut String, v: String) {
+            acc.push_str(&v);
+        }
+        fn merge(&self, acc: &mut String, other: String) {
+            acc.push_str(&other);
+        }
+        fn finish(&self, acc: String) -> String {
+            acc
+        }
+        // is_associative_commutative() returns false (default)
+    }
+
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    let out = data.combine_globally(ConcatStr, None);
+    let plan = build_plan(&p, out.node_id())?;
+    assert!(
+        !plan
+            .chain
+            .iter()
+            .any(|n| matches!(n, Node::CombineGlobal { tree_reduce: true, .. })),
+        "non-AC combiner must NOT produce CombineGlobal with tree_reduce=true"
+    );
+    Ok(())
+}
+
+/// Tree reduction for `Sum` must produce the same result as the sequential fold.
+#[test]
+fn tree_reduce_sum_produces_correct_result_seq() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, (1u64..=100).collect::<Vec<_>>());
+    let out = data.combine_globally(Sum::<u64>::default(), None);
+    let result = out.collect_seq()?;
+    assert_eq!(result, vec![5050u64], "sum 1..=100 should equal 5050");
+    Ok(())
+}
+
+/// Tree reduction for `Sum` must produce the same result in parallel mode.
+#[test]
+fn tree_reduce_sum_produces_correct_result_par() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, (1u64..=100).collect::<Vec<_>>());
+    let out = data.combine_globally(Sum::<u64>::default(), None);
+    let result = out.collect_par(Some(8), None)?;
+    assert_eq!(result, vec![5050u64], "parallel sum 1..=100 should equal 5050");
+    Ok(())
+}
+
+/// Tree reduction for `Max` must return the correct maximum.
+#[test]
+fn tree_reduce_max_produces_correct_result_par() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![3u32, 1, 4, 1, 5, 9, 2, 6]);
+    let out = data.combine_globally(Max::<u32>::default(), None);
+    let result = out.collect_par(Some(4), None)?;
+    assert_eq!(result, vec![9u32]);
+    Ok(())
+}
+
+/// Tree reduction for `Min` must return the correct minimum.
+#[test]
+fn tree_reduce_min_produces_correct_result_par() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![3u32, 1, 4, 1, 5, 9, 2, 6]);
+    let out = data.combine_globally(Min::<u32>::default(), None);
+    let result = out.collect_par(Some(4), None)?;
+    assert_eq!(result, vec![1u32]);
+    Ok(())
+}
+
+/// Tree reduction for combiner-level `Count<T>` should count correctly.
+#[test]
+fn tree_reduce_combiner_count_correct() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, (0u32..50).collect::<Vec<_>>());
+    let out = data.combine_globally(CombCount::<u32>::new(), None);
+    let result = out.collect_par(Some(4), None)?;
+    assert_eq!(result, vec![50u64]);
+    Ok(())
+}
+
+/// `TreeReduction` decision appears in the plan explain output for an AC combiner.
+#[test]
+fn tree_reduction_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, (1u64..=10).collect::<Vec<_>>());
+    let out = data.combine_globally(Sum::<u64>::default(), None);
+    let plan = build_plan(&p, out.node_id())?;
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::TreeReduction { .. })),
+        "TreeReduction decision must appear in optimizations for Sum combiner"
+    );
+    let explain = format!("{}", plan.explain());
+    assert!(
+        explain.contains("Tree Reduction"),
+        "explain text must mention Tree Reduction: {explain}"
+    );
+    Ok(())
+}
+
+/// `TreeReduction` does NOT appear for a non-AC combiner.
+#[test]
+fn tree_reduction_absent_for_non_ac_combiner() -> Result<()> {
+    use ironbeam::CombineFn;
+
+    #[derive(Clone, Default)]
+    struct SumButNotAC;
+    impl CombineFn<u64, u64, u64> for SumButNotAC {
+        fn create(&self) -> u64 { 0 }
+        fn add_input(&self, acc: &mut u64, v: u64) { *acc += v; }
+        fn merge(&self, acc: &mut u64, other: u64) { *acc += other; }
+        fn finish(&self, acc: u64) -> u64 { acc }
+    }
+
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![1u64, 2, 3]);
+    let out = data.combine_globally(SumButNotAC, None);
+    let plan = build_plan(&p, out.node_id())?;
+    assert!(
+        !plan
+            .optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::TreeReduction { .. })),
+        "TreeReduction must NOT appear for non-AC combiner"
+    );
+    Ok(())
+}
+
+/// Keyed combine with AC combiner (Sum) produces correct results in parallel mode,
+/// verifying the parallel-within-key local closure is correct.
+#[test]
+fn tree_reduce_keyed_combine_correct_par() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            ("a", 1u64),
+            ("b", 10u64),
+            ("a", 2u64),
+            ("b", 20u64),
+            ("a", 3u64),
+            ("c", 100u64),
+        ],
+    );
+    let mut result = data
+        .combine_values(Sum::<u64>::default())
+        .collect_par_sorted(Some(4), None)?;
+    result.sort_by_key(|(k, _)| *k);
+    assert_eq!(result, vec![("a", 6u64), ("b", 30u64), ("c", 100u64)]);
     Ok(())
 }

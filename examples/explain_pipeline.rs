@@ -142,6 +142,9 @@ fn example_with_optimizations() -> Result<()> {
                     "✓ Reordered CoGroup inputs by cardinality: {original_order:?} → {new_order:?}"
                 );
             }
+            OptimizationDecision::TreeReduction { global_count } => {
+                println!("✓ Tree reduction enabled for {global_count} CombineGlobal node(s) (O(log n) parallel depth)");
+            }
         }
     }
 

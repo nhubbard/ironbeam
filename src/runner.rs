@@ -537,37 +537,45 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                     merge,
                     finish,
                     fanout,
+                    tree_reduce,
                 } => {
-                    // local on each partition -> Vec<A> (type-erased)
-                    let mut accs: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
+                    let accs: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
 
-                    // multi-round merge with optional fanout, no cloning
-                    let f = fanout.unwrap_or(usize::MAX).max(1);
-                    while accs.len() > 1 {
-                        if f == usize::MAX {
-                            accs = vec![merge(accs)];
-                            break;
-                        }
-                        let mut next: Vec<Partition> = Vec::with_capacity(accs.len().div_ceil(f));
-                        let mut it = accs.into_iter(); // take ownership to avoid clones
-                        loop {
-                            let mut group: Vec<Partition> = Vec::with_capacity(f);
-                            for _ in 0..f {
-                                if let Some(p) = it.next() {
-                                    group.push(p);
-                                } else {
-                                    break;
-                                }
-                            }
-                            if group.is_empty() {
+                    let acc = if *tree_reduce {
+                        let merge = Arc::clone(merge);
+                        accs.into_par_iter()
+                            .reduce_with(|a, b| merge(vec![a, b]))
+                            .unwrap_or_else(|| merge(Vec::new()))
+                    } else {
+                        let mut accs = accs;
+                        let f = fanout.unwrap_or(usize::MAX).max(1);
+                        while accs.len() > 1 {
+                            if f == usize::MAX {
+                                accs = vec![merge(accs)];
                                 break;
                             }
-                            next.push(merge(group));
+                            let mut next: Vec<Partition> =
+                                Vec::with_capacity(accs.len().div_ceil(f));
+                            let mut it = accs.into_iter();
+                            loop {
+                                let mut group: Vec<Partition> = Vec::with_capacity(f);
+                                for _ in 0..f {
+                                    if let Some(p) = it.next() {
+                                        group.push(p);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                if group.is_empty() {
+                                    break;
+                                }
+                                next.push(merge(group));
+                            }
+                            accs = next;
                         }
-                        accs = next;
-                    }
+                        accs.into_iter().next().unwrap_or_else(|| merge(Vec::new()))
+                    };
 
-                    let acc = accs.pop().unwrap_or_else(|| merge(Vec::new()));
                     if let Some(h) = acc.downcast_ref::<BinaryHeap<NotNan<f64>>>() {
                         eprintln!("DEBUG: KMV heap len = {}", h.len()); // should be <= k
                     }
@@ -691,35 +699,49 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                 merge,
                 finish,
                 fanout,
+                tree_reduce,
             } => {
-                let mut accs: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
+                let accs: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
 
-                let f = fanout.unwrap_or(usize::MAX).max(1);
-                while accs.len() > 1 {
-                    if f == usize::MAX {
-                        accs = vec![merge(accs)];
-                        break;
-                    }
-                    let mut next: Vec<Partition> = Vec::with_capacity(accs.len().div_ceil(f));
-                    let mut it = accs.into_iter();
-                    loop {
-                        let mut group: Vec<Partition> = Vec::with_capacity(f);
-                        for _ in 0..f {
-                            if let Some(p) = it.next() {
-                                group.push(p);
-                            } else {
-                                break;
-                            }
-                        }
-                        if group.is_empty() {
+                let acc = if *tree_reduce {
+                    // O(log n) parallel tree reduction: Rayon's work-stealing
+                    // `reduce_with` processes accumulators in a binary fan-in
+                    // pattern, achieving O(log n) critical-path depth.
+                    let merge = Arc::clone(merge);
+                    accs.into_par_iter()
+                        .reduce_with(|a, b| merge(vec![a, b]))
+                        .unwrap_or_else(|| merge(Vec::new()))
+                } else {
+                    // Fanout-based sequential merge loop (original strategy).
+                    let mut accs = accs;
+                    let f = fanout.unwrap_or(usize::MAX).max(1);
+                    while accs.len() > 1 {
+                        if f == usize::MAX {
+                            accs = vec![merge(accs)];
                             break;
                         }
-                        next.push(merge(group));
+                        let mut next: Vec<Partition> =
+                            Vec::with_capacity(accs.len().div_ceil(f));
+                        let mut it = accs.into_iter();
+                        loop {
+                            let mut group: Vec<Partition> = Vec::with_capacity(f);
+                            for _ in 0..f {
+                                if let Some(p) = it.next() {
+                                    group.push(p);
+                                } else {
+                                    break;
+                                }
+                            }
+                            if group.is_empty() {
+                                break;
+                            }
+                            next.push(merge(group));
+                        }
+                        accs = next;
                     }
-                    accs = next;
-                }
+                    accs.into_iter().next().unwrap_or_else(|| merge(Vec::new()))
+                };
 
-                let acc = accs.pop().unwrap_or_else(|| merge(Vec::new()));
                 if let Some(h) = acc.downcast_ref::<BinaryHeap<NotNan<f64>>>() {
                     eprintln!("DEBUG: KMV heap len = {}", h.len()); // should be <= k
                 }

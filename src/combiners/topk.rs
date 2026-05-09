@@ -104,6 +104,10 @@ where
         v.reverse(); // largest first
         v
     }
+
+    fn is_associative_commutative(&self) -> bool {
+        true
+    }
 }
 
 impl<T> LiftableCombiner<T, BinaryHeap<Reverse<T>>, Vec<T>> for TopK<T>
@@ -209,6 +213,10 @@ where
         let mut v: Vec<T> = acc.into_iter().collect();
         v.sort_unstable(); // smallest first
         v
+    }
+
+    fn is_associative_commutative(&self) -> bool {
+        true
     }
 }
 

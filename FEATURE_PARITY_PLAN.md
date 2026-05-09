@@ -54,30 +54,11 @@ in Ironbeam. Features are organized by priority tier.
 | 3.7 Flatten Input Predicate Pushdown  | `push_down_into_flatten_pass()` — clones `value_only + cardinality_reducing` ops into each Flatten subplan tail, removing them from the post-Flatten block  | 2.12.0 |
 | 3.8 Dead Subtree Elimination          | `prune_dead_subtrees()` — backward BFS pre-pass removes nodes with no forward path to the target terminal before chain extraction; `PrunedDeadSubtrees` opt | 2.12.0 |
 | 3.9 CoGroup Join Ordering             | `reorder_cogroup_inputs_pass()` — sorts `Flatten` subchains by estimated cardinality ascending; `ReorderedCoGroupInputs { original_order, new_order }` opt  | 2.12.0 |
+| 3.10 Tree Reduction                   | `CombineFn::is_associative_commutative()` marker; `Node::CombineGlobal { tree_reduce }` flag; Rayon `reduce_with` for O(log n) parallel merge depth; parallel-within-key local closure for `combine_values`; `TreeReduction` opt | 2.13.0 |
 
 ---
 
 ## Tier 3: Nice-to-Have Features
-
-### 3.10 Tree Reduction for Associative Combiners
-
-**Status:** Not implemented.
-
-For commutative and associative combiners (`Sum`, `Min`, `Max`, `Count`, etc.), replace the current
-linear fold with a parallel tree reduction. A tree reduction processes elements in a binary fan-in
-pattern, achieving O(log n) parallel depth vs. the current O(n). The existing `CombineGlobal` node
-already separates `local` (partial) and `merge` (combine) phases, which maps directly onto this
-pattern.
-
-**Implementation sketch:**
-- Add an `is_associative_commutative() -> bool` marker to `CombineFn`.
-- In `exec_par()`, when executing a `CombineGlobal` with this flag set, use Rayon's
-  `par_iter().reduce()` (which implements tree reduction internally) instead of the current
-  sequential `fold` + single `merge` call.
-- For `CombinePerKey`, apply the same within each key's value list using `rayon::slice::ParallelSlice`.
-
-**Estimated complexity:** Low — Rayon's `reduce()` already implements tree reduction; the main work
-is adding the marker trait and routing through it.
 
 ---
 
