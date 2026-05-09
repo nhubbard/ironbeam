@@ -134,6 +134,14 @@ fn example_with_optimizations() -> Result<()> {
             OptimizationDecision::PrunedDeadSubtrees { nodes_pruned } => {
                 println!("✓ Pruned {nodes_pruned} dead subtree node(s) from the pipeline graph");
             }
+            OptimizationDecision::ReorderedCoGroupInputs {
+                original_order,
+                new_order,
+            } => {
+                println!(
+                    "✓ Reordered CoGroup inputs by cardinality: {original_order:?} → {new_order:?}"
+                );
+            }
         }
     }
 
