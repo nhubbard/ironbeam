@@ -1156,3 +1156,162 @@ fn tree_reduce_keyed_combine_correct_par() -> Result<()> {
     assert_eq!(result, vec![("a", 6u64), ("b", 30u64), ("c", 100u64)]);
     Ok(())
 }
+
+// ─── Feature 3.11: Early Termination / Limit Pushdown ───────────────────────
+
+/// `Plan::limit` is `Some(n)` when the terminal stateless block ends with a `TakeOp`.
+#[test]
+fn take_sets_plan_limit() -> Result<()> {
+    let p = Pipeline::default();
+    let col = from_vec(&p, (0..100u32).collect::<Vec<_>>()).take(10);
+    let plan = build_plan(&p, col.node_id())?;
+    assert_eq!(plan.limit, Some(10), "plan.limit should be Some(10)");
+    Ok(())
+}
+
+/// `Plan::limit` is `None` for pipelines without a terminal `TakeOp`.
+#[test]
+fn no_take_means_no_plan_limit() -> Result<()> {
+    let p = Pipeline::default();
+    let col = from_vec(&p, vec![1u32, 2, 3]).map(|x| x + 1);
+    let plan = build_plan(&p, col.node_id())?;
+    assert!(plan.limit.is_none(), "plan.limit should be None");
+    Ok(())
+}
+
+/// `first()` is sugar for `take(1)` — plan.limit should be Some(1).
+#[test]
+fn first_sets_plan_limit_one() -> Result<()> {
+    let p = Pipeline::default();
+    let col = from_vec(&p, vec![10u32, 20, 30]).first();
+    let plan = build_plan(&p, col.node_id())?;
+    assert_eq!(plan.limit, Some(1));
+    Ok(())
+}
+
+/// `LimitPushdown` appears in the optimizations list when `take(N)` terminates the chain.
+#[test]
+fn limit_pushdown_appears_in_optimizations() -> Result<()> {
+    let p = Pipeline::default();
+    let col = from_vec(&p, (0..1000u32).collect::<Vec<_>>()).take(5);
+    let plan = build_plan(&p, col.node_id())?;
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::LimitPushdown { n: 5 })),
+        "LimitPushdown {{ n: 5 }} must appear in optimizations"
+    );
+    Ok(())
+}
+
+/// `LimitPushdown` is present in the explain output string.
+#[test]
+fn limit_pushdown_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    let col = from_vec(&p, (0..50u32).collect::<Vec<_>>()).take(7);
+    let plan = build_plan(&p, col.node_id())?;
+    let explain = plan.explain().to_string();
+    assert!(
+        explain.contains("Early Termination") || explain.contains("Limit Pushdown"),
+        "explain output should mention early termination / limit pushdown\n{explain}"
+    );
+    Ok(())
+}
+
+/// Sequential correctness: `take(N)` returns exactly N elements from a larger input.
+#[test]
+fn take_seq_correctness() -> Result<()> {
+    let p = Pipeline::default();
+    let input: Vec<u32> = (0..100).collect();
+    let result = from_vec(&p, input.clone()).take(10).collect_seq()?;
+    assert_eq!(result.len(), 10);
+    assert_eq!(result, &input[..10]);
+    Ok(())
+}
+
+/// Sequential correctness: `take(N)` with N >= input length returns all elements.
+#[test]
+fn take_seq_larger_than_input() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, vec![1u32, 2, 3]).take(100).collect_seq()?;
+    assert_eq!(result, vec![1u32, 2, 3]);
+    Ok(())
+}
+
+/// Sequential correctness: `take(0)` returns an empty collection.
+#[test]
+fn take_seq_zero() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, vec![1u32, 2, 3]).take(0).collect_seq()?;
+    assert!(result.is_empty());
+    Ok(())
+}
+
+/// Parallel correctness: `take(N)` returns at most N elements.
+#[test]
+fn take_par_at_most_n() -> Result<()> {
+    let p = Pipeline::default();
+    let input: Vec<u32> = (0..1000).collect();
+    let result = from_vec(&p, input).take(20).collect_par(Some(4), Some(8))?;
+    assert!(
+        result.len() <= 20,
+        "take(20) par should produce at most 20 elements, got {}",
+        result.len()
+    );
+    Ok(())
+}
+
+/// Parallel correctness: `first()` returns exactly one element (or zero for empty input).
+#[test]
+fn first_par_returns_one() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, vec![42u32, 99, 0, 1])
+        .first()
+        .collect_par(Some(4), Some(4))?;
+    assert_eq!(result.len(), 1);
+    Ok(())
+}
+
+/// `take(N)` composed with `map` before it — result is a prefix of the mapped values.
+#[test]
+fn take_after_map_seq() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, (0..50u32).collect::<Vec<_>>())
+        .map(|x| x * 2)
+        .take(5)
+        .collect_seq()?;
+    assert_eq!(result, vec![0u32, 2, 4, 6, 8]);
+    Ok(())
+}
+
+/// `take(N)` composed with `filter` — output is filtered elements, at most N.
+#[test]
+fn take_after_filter_seq() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, (0u32..100).collect::<Vec<_>>())
+        .filter(|x| x % 2 == 0) // evens: 0,2,4,...
+        .take(4)
+        .collect_seq()?;
+    assert_eq!(result, vec![0u32, 2, 4, 6]);
+    Ok(())
+}
+
+/// Empty input + take(N) returns empty, not an error.
+#[test]
+fn take_empty_input_seq() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, Vec::<u32>::new()).take(10).collect_seq()?;
+    assert!(result.is_empty());
+    Ok(())
+}
+
+/// Empty input + take(N) in parallel mode returns empty.
+#[test]
+fn take_empty_input_par() -> Result<()> {
+    let p = Pipeline::default();
+    let result = from_vec(&p, Vec::<u32>::new())
+        .take(10)
+        .collect_par(Some(4), Some(4))?;
+    assert!(result.is_empty());
+    Ok(())
+}

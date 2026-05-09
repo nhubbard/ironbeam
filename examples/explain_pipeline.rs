@@ -147,6 +147,9 @@ fn example_with_optimizations() -> Result<()> {
                     "✓ Tree reduction enabled for {global_count} CombineGlobal node(s) (O(log n) parallel depth)"
                 );
             }
+            OptimizationDecision::LimitPushdown { n } => {
+                println!("✓ Early termination: runner stops after collecting {n} element(s)");
+            }
         }
     }
 

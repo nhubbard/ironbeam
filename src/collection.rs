@@ -274,6 +274,34 @@ where
     }
 }
 
+/// Internal dynamic implementation for `take(N)` / `first()`.
+///
+/// Truncates each partition to at most `n` elements. When fused with other
+/// stateless ops, this per-partition truncation bounds the elements that flow
+/// into downstream stages.  The planner also captures `n` in
+/// [`crate::planner::Plan::limit`] so that the runner can stop collecting
+/// across partitions as soon as `n` total elements are gathered.
+pub(crate) struct TakeOp<T> {
+    pub n: usize,
+    pub _t: PhantomData<T>,
+}
+
+impl<T: RFBound> DynOp for TakeOp<T> {
+    fn apply(&self, input: Partition) -> Partition {
+        let mut v = *input.downcast::<Vec<T>>().expect("TakeOp input type");
+        v.truncate(self.n);
+        Box::new(v) as Partition
+    }
+
+    fn cardinality_reducing(&self) -> bool {
+        true
+    }
+
+    fn limit_n(&self) -> Option<usize> {
+        Some(self.n)
+    }
+}
+
 // |----------------|
 // | Combine traits |
 // |----------------|

@@ -59,6 +59,10 @@ pub struct Plan {
     pub suggested_partitions: Option<usize>,
     /// Optimization decisions made during planning.
     pub optimizations: Vec<OptimizationDecision>,
+    /// If the terminal stateless block ends with a `take(N)` / `first()` operator,
+    /// this is `Some(N)` — the runner uses it to stop collecting elements as soon
+    /// as `N` total have been gathered across all partitions.
+    pub limit: Option<usize>,
 }
 
 /// Represents an optimization decision made by the planner.
@@ -170,6 +174,16 @@ pub enum OptimizationDecision {
     TreeReduction {
         /// Number of `CombineGlobal` nodes that use tree reduction.
         global_count: usize,
+    },
+    /// The terminal stateless block ends with a `take(N)` / `first()` operator.
+    ///
+    /// The runner will stop collecting elements across partitions as soon as `N`
+    /// total have been gathered, providing early termination without executing
+    /// the full pipeline.  Each partition is also individually capped at `N`
+    /// elements by the internal `TakeOp` stateless operator.
+    LimitPushdown {
+        /// The maximum number of elements to collect.
+        n: usize,
     },
 }
 
@@ -364,6 +378,13 @@ impl Display for ExecutionExplanation {
                         writeln!(
                             f,
                             "│   {global_count} CombineGlobal node(s) use O(log n) parallel tree reduction"
+                        )?;
+                    }
+                    OptimizationDecision::LimitPushdown { n } => {
+                        writeln!(f, "│ • Early Termination / Limit Pushdown")?;
+                        writeln!(
+                            f,
+                            "│   Terminal take({n}): runner stops after collecting {n} element(s)"
                         )?;
                     }
                 }
@@ -651,6 +672,19 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         });
     }
 
+    // Post-pass: detect a terminal take(N) / first() for early-termination support.
+    // The limit is encoded as a TakeOp whose `limit_n()` returns `Some(N)`.
+    let limit = chain.last().and_then(|node| {
+        if let Node::Stateless(ops) = node {
+            ops.last().and_then(|op| op.limit_n())
+        } else {
+            None
+        }
+    });
+    if let Some(n) = limit {
+        optimizations.push(OptimizationDecision::LimitPushdown { n });
+    }
+
     let suggested = suggest_partitions(len_hint);
     if let Some(parts) = suggested {
         optimizations.push(OptimizationDecision::PartitionSuggestion {
@@ -663,6 +697,7 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         chain,
         suggested_partitions: suggested,
         optimizations,
+        limit,
     })
 }
 
