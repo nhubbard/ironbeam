@@ -51,28 +51,11 @@ in Ironbeam. Features are organized by priority tier.
 | 3.4 PAssert                           | `PAssert::that(&result).contains_in_any_order/is_empty/has_count/all_match` fluent assertion builder                                | 2.12.0 |
 | 3.5 Reshuffle Elim                    | `eliminate_reshuffle_pass()` — drops leading `Reshuffle` before barriers or consecutive pairs; `EliminatedReshuffle` opt            | 2.12.0 |
 | 3.6 Predicate Pushdown Past Reshuffle | `push_down_before_barrier_pass()` — extends predicate pushdown to treat `Reshuffle` as a transparent barrier alongside `GroupByKey` | 2.12.0 |
+| 3.7 Flatten Input Predicate Pushdown  | `push_down_into_flatten_pass()` — clones `value_only + cardinality_reducing` ops into each Flatten subplan tail, removing them from the post-Flatten block | 2.12.0 |
 
 ---
 
 ## Tier 3: Nice-to-Have Features
-
-### 3.7 Flatten Input Predicate Pushdown
-
-**Status:** Not implemented.
-
-When a `cardinality_reducing` filter immediately follows a `Flatten`, push the filter into each of
-Flatten's input subplans rather than applying it to the merged output. This reduces data volume
-*before* the fan-in, which is where the cost is highest.
-
-**Implementation sketch:**
-- In a new `push_down_into_flatten_pass()`, detect `[Flatten { chains, … }, Stateless([filter, …])]`.
-- Clone the qualifying filter ops into the tail of each subplan chain inside the `Flatten`.
-- Remove them from the post-Flatten `Stateless` block (or drop the block if it becomes empty).
-
-**Estimated complexity:** Medium — requires cloning ops into subplan chains and updating the
-`Flatten` node in-place; care needed to avoid double-applying ops that are not purely `value_only`.
-
----
 
 ### 3.8 Dead Subtree Elimination
 
