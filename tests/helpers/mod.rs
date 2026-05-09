@@ -6,6 +6,7 @@ mod distinct;
 mod joins;
 mod parquet;
 mod regex;
+mod reify;
 mod reshuffle;
 mod side_input;
 mod statistical;

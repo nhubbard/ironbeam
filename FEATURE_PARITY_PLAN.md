@@ -45,52 +45,13 @@ in Ironbeam. Features are organized by priority tier.
 | 2.5b Windowed Combine | `combine/sum/count/min/max/average_per_window` + `_per_key_and_window` helpers                                          | next        |
 | 2.6 Avro I/O          | `read_avro`/`write_avro` helpers with glob support; `AvroReader`/`AvroWriter` behind `io-avro` feature                  | 2.10.0      |
 | 2.7 XML I/O           | `read_xml`/`write_xml`/`read_xml_streaming`/`write_xml_par` with glob support; `XmlShards`/`XmlVecOps` behind `io-xml`  | 2.11.0      |
+| 3.1 Reshuffle         | Graph-level barrier; prevents fusion and redistributes elements across the pipeline graph                               | next        |
 | 3.2 WithTimestamps    | `attach_timestamps()` / `Timestamped<T>`                                                                                | 1.0.0       |
+| 3.3 Reify             | `reify_timestamps()` — project `Timestamped<T>` into `(TimestampMs, T)` tuples; inverse of `to_timestamped`             | next        |
 
 ---
 
 ## Tier 3: Nice-to-Have Features
-
-### 3.1 Reshuffle
-
-**Status:** Not implemented.
-
-Forces a barrier that prevents operation fusion and redistributes elements. In a local-only
-framework this is primarily useful for forcing checkpointing between stages or breaking
-processing skew.
-
-**Simple implementation:**
-```rust
-impl<T: RFBound> PCollection<T> {
-    pub fn reshuffle(self) -> PCollection<T> {
-        self.map(|elem| (rand::random::<u64>(), elem.clone()))
-            .group_by_key()
-            .flat_map(|(_, vs): &(u64, Vec<T>)| vs.clone())
-    }
-}
-```
-
-**Estimated complexity:** Low (simple form); Medium (true graph-level barrier)
-
----
-
-### 3.3 Reify
-
-**Status:** Not implemented. Primarily a debugging aid for windowed pipelines.
-
-Makes implicit metadata (timestamps) explicit in the data stream:
-
-```rust
-impl<T: RFBound> PCollection<Timestamped<T>> {
-    pub fn reify_timestamps(self) -> PCollection<(i64, T)> {
-        self.map(|ts: &Timestamped<T>| (ts.timestamp, ts.value.clone()))
-    }
-}
-```
-
-**Estimated complexity:** Low
-
----
 
 ### 3.4 PAssert Builder API
 
@@ -136,19 +97,3 @@ here for consideration before deciding whether to add them.
 | CBOR             | `ciborium`  | Compact binary; common in IoT                                      |
 | Arrow IPC        | `arrow`     | Already a dependency; efficient in-memory columnar exchange        |
 | Protocol Buffers | `prost`     | Widely used; Serde support is partial and may need custom handling |
-
----
-
-## Implementation Priority Order
-
-1. **Active (next):**
-   1. ~~2.4 — `filter_with_side_map`, `side_singleton`, `side_multimap`~~ ✅ complete
-   2. ~~2.5 — Regex transforms~~ ✅ complete
-   3. ~~2.5b — Windowed combining helpers~~ ✅ complete
-2. **Medium-term:**
-   1. ~~2.6 — Avro I/O~~ ✅ complete
-   2. ~~2.7 — XML I/O~~ ✅ complete
-3. **Polish:**
-   1. 3.1 — Reshuffle
-   2. 3.3 — Reify
-   3. 3.4 — PAssert builder API

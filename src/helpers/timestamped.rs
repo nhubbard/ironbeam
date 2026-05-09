@@ -1,17 +1,20 @@
 //! Event-time helpers: attaching timestamps and normalizing timestamped inputs.
 //!
 //! This module provides lightweight utilities for working in **event time**.
-//! It lets you attach a millisecond timestamp to each element or normalize an
+//! It lets you attach a millisecond timestamp to each element, normalize an
 //! existing `(timestamp, value)` stream into the internal [`Timestamped<T>`]
-//! representation used by windowing transforms.
+//! representation used by windowing transforms, or project timestamps back out
+//! into the data stream as explicit tuple fields.
 //!
 //! ## Available operations
 //! - [`PCollection::attach_timestamps`](PCollection::attach_timestamps) - Attach event timestamps using a function
-//! - [`PCollection::to_timestamped`](crate::PCollection::to_timestamped) - Normalize `(timestamp, value)` pairs
+//! - [`PCollection::to_timestamped`](crate::PCollection::to_timestamped) - Normalize `(timestamp, value)` pairs into `Timestamped<T>`
+//! - [`PCollection::reify_timestamps`](crate::PCollection::reify_timestamps) - Make timestamps explicit as `(TimestampMs, T)` tuples
 //!
 //! ### What this is (and isn't)
 //! - ✅ Attaches/normalizes event timestamps, preserving data and order within a partition
 //! - ✅ Plays nicely with tumbling window helpers (e.g., `key_by_window(...)`)
+//! - ✅ Reifies timestamps as explicit data fields (inverse of `to_timestamped`)
 //! - ❌ Not a full watermark/late data engine -- timestamps are metadata used by
 //!   later operators; there's no lateness tracking or triggers.
 //!
@@ -36,6 +39,10 @@
 //! // From (ts, value) pairs: normalize to Timestamped<T>
 //! let pairs = from_vec(&p, vec![ (1000_u64, "x".to_string()), (1250_u64, "y".to_string()) ]);
 //! let stamped2 = pairs.to_timestamped();
+//!
+//! // Reify timestamps back out as explicit tuple fields
+//! let tuples = stamped2.reify_timestamps();
+//! // tuples: PCollection<(TimestampMs, String)>
 //! ```
 
 use crate::{PCollection, RFBound, TimestampMs, Timestamped};
@@ -103,5 +110,41 @@ impl<T: RFBound> PCollection<(TimestampMs, T)> {
     #[must_use]
     pub fn to_timestamped(self) -> PCollection<Timestamped<T>> {
         self.map(|p| Timestamped::new(p.0, p.1.clone()))
+    }
+}
+
+impl<T: RFBound> PCollection<Timestamped<T>> {
+    /// Make event-time timestamps explicit in the data stream.
+    ///
+    /// Projects each [`Timestamped<T>`] element into a `(timestamp_ms, value)` tuple,
+    /// dropping the wrapper type. This is the inverse of
+    /// [`PCollection::to_timestamped`].
+    ///
+    /// Primarily useful as a debugging aid: it lets you inspect timestamps as
+    /// ordinary data without needing to reach inside the [`Timestamped`] wrapper
+    /// downstream.
+    ///
+    /// ### Returns
+    /// A `PCollection<(TimestampMs, T)>` containing one tuple per input element,
+    /// where the first field is the event-time timestamp in milliseconds and the
+    /// second is the original value.
+    ///
+    /// ### Example
+    /// ```no_run
+    /// use ironbeam::*;
+    /// use ironbeam::window::Timestamped;
+    ///
+    /// let p = Pipeline::default();
+    /// let events = from_vec(&p, vec![
+    ///     Timestamped::new(1_000u64, "hello".to_string()),
+    ///     Timestamped::new(2_000u64, "world".to_string()),
+    /// ]);
+    ///
+    /// let tuples = events.reify_timestamps();
+    /// // tuples: PCollection<(TimestampMs, String)>
+    /// ```
+    #[must_use]
+    pub fn reify_timestamps(self) -> PCollection<(TimestampMs, T)> {
+        self.map(|ts: &Timestamped<T>| (ts.ts, ts.value.clone()))
     }
 }
