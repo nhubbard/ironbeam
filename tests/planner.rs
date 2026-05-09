@@ -117,7 +117,7 @@ fn cse_shared_prefix_executes_once() -> Result<()> {
     Ok(())
 }
 
-/// The explain output must reflect that the predicate-pushdown pass fired.
+/// The `explain` output must reflect that the predicate-pushdown pass fired.
 #[test]
 fn predicate_pushdown_is_reflected_in_explain() -> Result<()> {
     let p = TestPipeline::new();
@@ -184,7 +184,7 @@ fn predicate_pushdown_before_reshuffle_optimization_fires() -> Result<()> {
     Ok(())
 }
 
-/// The explain output mentions the predicate-pushdown optimization when it fires
+/// The `explain` output mentions the predicate-pushdown optimization when it fires
 /// before a `Reshuffle`.
 #[test]
 fn predicate_pushdown_before_reshuffle_appears_in_explain() -> Result<()> {
@@ -452,7 +452,7 @@ fn planner_eliminates_reshuffle_before_flatten_correctness() -> Result<()> {
     let p = TestPipeline::new();
     let a = from_vec(&p, vec![1i32, 2, 3]);
     let b = from_vec(&p, vec![4i32, 5, 6]);
-    // flatten embeds subplans; adding reshuffle after flatten then checking
+    // flatten embeds subplans; adding reshuffle after Flatten op, then checking
     // that the result is stable across seq/par confirms the overall plan is sound.
     let merged = flatten(&[&a, &b]);
     let seq = merged.clone().collect_seq_sorted()?;
@@ -563,7 +563,7 @@ fn predicate_pushdown_into_flatten_leaves_non_value_only_ops() -> Result<()> {
     Ok(())
 }
 
-/// Optimization fires and subplan_count reflects all input collections.
+/// Optimization fires and `subplan_count` reflects all input collections.
 #[test]
 fn predicate_pushdown_into_flatten_subplan_count_matches_inputs() -> Result<()> {
     let p = TestPipeline::new();
