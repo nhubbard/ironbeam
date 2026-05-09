@@ -720,8 +720,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(chain: &[Node], partitions: usize)
                             accs = vec![merge(accs)];
                             break;
                         }
-                        let mut next: Vec<Partition> =
-                            Vec::with_capacity(accs.len().div_ceil(f));
+                        let mut next: Vec<Partition> = Vec::with_capacity(accs.len().div_ceil(f));
                         let mut it = accs.into_iter();
                         loop {
                             let mut group: Vec<Partition> = Vec::with_capacity(f);
