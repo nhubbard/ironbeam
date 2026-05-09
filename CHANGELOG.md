@@ -1,3 +1,17 @@
+## [2.11.0](https://github.com/nhubbard/ironbeam/compare/v2.10.0...v2.11.0) (2026-05-09)
+
+### Features
+
+* Implement independent subgraph parallelism ([ccde7e2](https://github.com/nhubbard/ironbeam/commit/ccde7e247fc53bd918bda3f2cb2e6b102b66637b))
+* **io:** add XML I/O support with glob, streaming, and parallel write ([7a190ee](https://github.com/nhubbard/ironbeam/commit/7a190ee91af773c02c65b56d6699f708133c0735))
+* **io:** add XML I/O support with glob, streaming, and parallel write ([77178e9](https://github.com/nhubbard/ironbeam/commit/77178e9d8fadf2bc9967bda299aee2913c165289))
+* **planner,runner:** graph-theory optimizations 2 & 3 ([600633d](https://github.com/nhubbard/ironbeam/commit/600633d6685b47f768e547dcd14645657f3ef74d))
+
+### Bug Fixes
+
+* XML test inefficient error handling ([e2d2830](https://github.com/nhubbard/ironbeam/commit/e2d28309ce366a7ba14376c2aa7c20a7cc9b51cb))
+* XML test inefficient error handling ([19126c7](https://github.com/nhubbard/ironbeam/commit/19126c7a51e10182d7c9bd3f280a282faaa1762d))
+
 ## [2.10.0](https://github.com/nhubbard/ironbeam/compare/v2.9.0...v2.10.0) (2026-04-25)
 
 ### Features
