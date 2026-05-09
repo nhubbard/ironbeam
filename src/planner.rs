@@ -4,10 +4,12 @@
 //! and applies a few lightweight, semantics-preserving rewrites:
 //!
 //! 1. **Fuse stateless ops** -- adjacent `Node::Stateless` blocks are concatenated.
-//! 2. **Predicate pushdown before GBK** -- within a fused `Stateless` block immediately
-//!    before a `GroupByKey`, ops that are `key_preserving + value_only + cardinality_reducing`
-//!    (e.g. `filter_values`) are split into their own earlier block when doing so is
-//!    type-safe and cost-beneficial (cost-hint gate).  This shrinks the GBK input.
+//! 2. **Predicate pushdown before barriers** -- within a fused `Stateless` block immediately
+//!    before a `GroupByKey` *or* `Reshuffle`, ops that are `key_preserving + value_only +
+//!    cardinality_reducing` (e.g. `filter_values`) are split into their own earlier block when
+//!    doing so is type-safe and cost-beneficial (cost-hint gate).  Because `Reshuffle` never
+//!    alters element content or count, the same pushdown rationale that applies to `GroupByKey`
+//!    applies equally, reducing the volume of elements that flow into the redistribution step.
 //! 3. **Reorder value-only runs** -- within a stateless block where *all* ops are
 //!    key-preserving and value-only, put cheaper/filters first using `cost_hint`.
 //! 4. **Lift GBK->Combine** -- if a `GroupByKey` is immediately followed by a
@@ -72,9 +74,13 @@ pub enum OptimizationDecision {
         count: usize,
     },
     /// Cardinality-reducing ops were confirmed (and where beneficial, split out) before
-    /// a `GroupByKey` barrier, shrinking the GBK input.
+    /// a shuffle barrier (`GroupByKey` or `Reshuffle`), shrinking the barrier's input.
+    ///
+    /// Because neither `GroupByKey` nor `Reshuffle` alters element content or count, a
+    /// `key_preserving + value_only + cardinality_reducing` filter is equally beneficial
+    /// before either one.
     PushedDownPredicates {
-        /// The number of operations confirmed as pre-GBK predicates.
+        /// The number of operations confirmed as pre-barrier predicates.
         ops_pushed: usize,
     },
     /// Partition count suggestion.
@@ -224,10 +230,10 @@ impl Display for ExecutionExplanation {
                         writeln!(f, "│   Removed {count} unnecessary materialized node(s)")?;
                     }
                     OptimizationDecision::PushedDownPredicates { ops_pushed } => {
-                        writeln!(f, "│ • Predicate Pushdown Before GroupByKey")?;
+                        writeln!(f, "│ • Predicate Pushdown Before Shuffle Barrier")?;
                         writeln!(
                             f,
-                            "│   {ops_pushed} cardinality-reducing op(s) confirmed pre-GBK"
+                            "│   {ops_pushed} cardinality-reducing op(s) confirmed pre-barrier (GroupByKey or Reshuffle)"
                         )?;
                     }
                     OptimizationDecision::PartitionSuggestion {
@@ -437,7 +443,8 @@ impl Plan {
 /// The pass order is intentional:
 /// 1) backwalk graph -> chain
 /// 2) fuse stateless
-/// 3) predicate pushdown before GBK (requires fused blocks; may split one Stateless into two)
+/// 3) predicate pushdown before shuffle barriers — `GroupByKey` and `Reshuffle` — (requires fused
+///    blocks; may split one Stateless into two)
 /// 4) reorder value-only ops (works on the split blocks produced by step 3)
 /// 5) lift GBK->Combine (structure-changing; GBK must still be present)
 /// 6) eliminate redundant Reshuffle (runs after lift so lifted `CombineValues` is visible as a target)
@@ -459,7 +466,7 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         optimizations.push(opt);
     }
 
-    let (new_chain, pushdown_opt) = push_down_before_gbk_pass(chain);
+    let (new_chain, pushdown_opt) = push_down_before_barrier_pass(chain);
     chain = new_chain;
     if let Some(opt) = pushdown_opt {
         optimizations.push(opt);
@@ -621,17 +628,21 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
     (out, optimizations)
 }
 
-/* ---------- Predicate pushdown before GBK ---------- */
+/* ---------- Predicate pushdown before shuffle barriers ---------- */
 
-/// Hoist cardinality-reducing ops to run as early as possible before a `GroupByKey`.
+/// Hoist cardinality-reducing ops to run as early as possible before a shuffle barrier.
 ///
-/// For each consecutive `[Stateless(ops), GroupByKey]` pair in the chain the pass:
+/// Treated barriers: [`Node::GroupByKey`] and [`Node::Reshuffle`].  Both redistribute
+/// all elements but neither alters element content or count, so a filter that would be
+/// beneficial to run before a `GroupByKey` is equally beneficial before a `Reshuffle`.
+///
+/// For each consecutive `[Stateless(ops), GroupByKey | Reshuffle]` pair in the chain the pass:
 ///
 /// 1. Splits `ops` into `pushable` (all three of `key_preserving`, `value_only`,
 ///    `cardinality_reducing` are true) and `remaining` (everything else).
 /// 2. **Records** an [`OptimizationDecision::PushedDownPredicates`] whenever any pushable
 ///    ops are found, so the explain output reflects that predicates are in the ideal
-///    pre-GBK position.
+///    pre-barrier position.
 /// 3. **Structurally splits** the Stateless block — putting pushable ops in their own
 ///    earlier Stateless node — only when two conditions both hold:
 ///    - **Type-safe**: every `remaining` op that currently precedes the first pushable op
@@ -642,8 +653,8 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
 ///      already first, or the preceding ops are equally cheap, splitting would add node
 ///      dispatch overhead with no throughput benefit.
 ///
-/// No ops are ever moved past the GBK boundary; `remaining` always stays pre-GBK.
-fn push_down_before_gbk_pass(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
+/// No ops are ever moved past the barrier; `remaining` always stays pre-barrier.
+fn push_down_before_barrier_pass(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
     let mut out = Vec::with_capacity(chain.len() + 1);
     let mut pushed_count = 0usize;
 
@@ -657,22 +668,24 @@ fn push_down_before_gbk_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimizatio
             continue;
         };
 
-        // Only apply the pattern when the very next node is a GroupByKey.
+        // Only apply the pattern when the very next node is a GroupByKey or Reshuffle.
+        // Both barriers redistribute elements without altering content or count, so a
+        // cardinality-reducing filter is equally beneficial before either one.
         if !iter
             .peek()
-            .is_some_and(|nx| matches!(nx, Node::GroupByKey { .. }))
+            .is_some_and(|nx| matches!(nx, Node::GroupByKey { .. } | Node::Reshuffle { .. }))
         {
             out.push(Node::Stateless(ops));
             continue;
         }
-        let gbk = iter.next().expect("peeked Some");
+        let barrier = iter.next().expect("peeked Some");
 
         let (pushable, remaining): (Vec<_>, Vec<_>) = ops.iter().cloned().partition(is_pushable);
 
         if pushable.is_empty() {
             // No pushable ops in this block — pass through unchanged.
             out.push(Node::Stateless(ops));
-            out.push(gbk);
+            out.push(barrier);
             continue;
         }
 
@@ -703,14 +716,14 @@ fn push_down_before_gbk_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimizatio
             .any(|op| op.cost_hint() > min_pushable_cost);
 
         if !remaining.is_empty() && type_safe && beneficial {
-            // Structural split: filters first, remaining pre-GBK ops second.
+            // Structural split: filters first, remaining pre-barrier ops second.
             out.push(Node::Stateless(pushable));
             out.push(Node::Stateless(remaining));
         } else {
             // Already optimal or unsafe to split; keep the fused block as-is.
             out.push(Node::Stateless(ops));
         }
-        out.push(gbk);
+        out.push(barrier);
     }
 
     let opt = (pushed_count > 0).then_some(OptimizationDecision::PushedDownPredicates {

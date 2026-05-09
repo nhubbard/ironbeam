@@ -135,6 +135,109 @@ fn predicate_pushdown_is_reflected_in_explain() -> Result<()> {
     Ok(())
 }
 
+// ── 3.6 Predicate pushdown past Reshuffle ─────────────────────────────────────
+
+/// Functional correctness: `filter_values` before `reshuffle()` produces correct results.
+///
+/// The predicate-pushdown pass should recognize `Reshuffle` as a transparent barrier and
+/// confirm the filter as a pre-barrier predicate without altering semantics.
+#[test]
+fn predicate_pushed_before_reshuffle_correctness() -> Result<()> {
+    let p = TestPipeline::new();
+    let input = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+            ("b".to_string(), 4),
+        ],
+    );
+    // filter_values is key_preserving + value_only + cardinality_reducing — eligible pre-Reshuffle.
+    let mut result = input
+        .filter_values(|v: &u32| *v > 2) // only ("b",3) and ("b",4) survive
+        .reshuffle()
+        .collect_seq()?;
+    result.sort_unstable_by_key(|(k, v): &(String, u32)| (k.clone(), *v));
+    assert_eq!(
+        result,
+        vec![("b".to_string(), 3u32), ("b".to_string(), 4u32)]
+    );
+    Ok(())
+}
+
+/// The `PushedDownPredicates` optimization is recorded when a cardinality-reducing
+/// filter immediately precedes a `Reshuffle` barrier.
+#[test]
+fn predicate_pushdown_before_reshuffle_optimization_fires() -> Result<()> {
+    let p = TestPipeline::new();
+    let pc = from_vec(&p, vec![("a".to_string(), 1u32)])
+        .filter_values(|v: &u32| *v > 0)
+        .reshuffle();
+    let plan = build_plan(&p, pc.node_id())?;
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::PushedDownPredicates { .. })),
+        "expected PushedDownPredicates optimization to fire before Reshuffle"
+    );
+    Ok(())
+}
+
+/// The explain output mentions the predicate-pushdown optimization when it fires
+/// before a `Reshuffle`.
+#[test]
+fn predicate_pushdown_before_reshuffle_appears_in_explain() -> Result<()> {
+    let p = TestPipeline::new();
+    let pc = from_vec(&p, vec![("x".to_string(), 1u32)])
+        .filter_values(|v: &u32| *v > 0)
+        .reshuffle();
+    let plan = build_plan(&p, pc.node_id())?;
+    let explain = plan.explain().to_string();
+    assert!(
+        explain.contains("Predicate Pushdown Before Shuffle Barrier"),
+        "explain output should mention the predicate pushdown: {explain}"
+    );
+    Ok(())
+}
+
+/// Predicate pushdown fires before both `GroupByKey` and `Reshuffle` in the same chain.
+/// The `ops_pushed` count must reflect filters confirmed before each barrier.
+#[test]
+fn predicate_pushdown_fires_before_both_gbk_and_reshuffle() -> Result<()> {
+    let p = TestPipeline::new();
+    // chain: filter_values -> reshuffle -> filter_values -> group_by_key
+    let pc = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 5),
+            ("b".to_string(), 10),
+        ],
+    )
+    .filter_values(|v: &u32| *v > 1) // pre-Reshuffle filter
+    .reshuffle()
+    .filter_values(|v: &u32| *v < 10) // pre-GBK filter
+    .group_by_key();
+    let plan = build_plan(&p, pc.node_id())?;
+    let total_pushed: usize = plan
+        .optimizations
+        .iter()
+        .filter_map(|o| {
+            if let OptimizationDecision::PushedDownPredicates { ops_pushed } = o {
+                Some(*ops_pushed)
+            } else {
+                None
+            }
+        })
+        .sum();
+    assert!(
+        total_pushed >= 2,
+        "expected at least 2 ops pushed (one before Reshuffle, one before GBK), got {total_pushed}"
+    );
+    Ok(())
+}
+
 // ── 3.5 Reshuffle elimination ──────────────────────────────────────────────────
 
 /// Functional correctness: `reshuffle()` before `group_by_key()` is eliminated
