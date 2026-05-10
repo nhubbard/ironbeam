@@ -293,10 +293,6 @@ impl<T: RFBound> DynOp for TakeOp<T> {
         Box::new(v) as Partition
     }
 
-    fn cardinality_reducing(&self) -> bool {
-        true
-    }
-
     fn limit_n(&self) -> Option<usize> {
         Some(self.n)
     }
