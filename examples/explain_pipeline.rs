@@ -158,6 +158,11 @@ fn example_with_optimizations() -> Result<()> {
                     "✓ Bloom semi-join pre-filter: build side={smaller_side}, estimated probe-side reduction={estimated_reduction_pct}%"
                 );
             }
+            OptimizationDecision::AdaptivePartitionCount { barrier_count } => {
+                println!(
+                    "✓ Adaptive inter-stage partition count: {barrier_count} barrier stage(s) will rescale partition count by cardinality ratio"
+                );
+            }
         }
     }
 

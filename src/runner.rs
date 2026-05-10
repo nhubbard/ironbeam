@@ -620,18 +620,39 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
         ]
     });
 
+    // Tracks the adaptive partition count updated after each barrier stage.
+    // Starts at the source-based split count; updated by barrier_cardinality_hint after
+    // each barrier so that downstream Reshuffle calls use a proportional split count
+    // rather than always re-expanding to the original `partitions` suggestion.
+    let mut current_parts = parts;
+
     let mut i = 0usize;
     while i < rest.len() {
         match &rest[i] {
             Node::Stateless(_) => {
                 let mut ops = Vec::new();
+                // Accumulate multiplier hints from all ops in this stateless block.
+                let mut multiplier: f64 = 1.0;
                 while i < rest.len() {
                     if let Node::Stateless(more) = &rest[i] {
+                        for op in more {
+                            multiplier *= op.cardinality_multiplier_hint();
+                        }
                         ops.extend(more.iter().cloned());
                         i += 1;
                     } else {
                         break;
                     }
+                }
+                // Rescale current_parts by the stateless block's net multiplier.
+                #[allow(
+                    clippy::cast_precision_loss,
+                    clippy::cast_sign_loss,
+                    clippy::cast_possible_truncation
+                )]
+                {
+                    let scaled = (current_parts as f64 * multiplier).round() as usize;
+                    current_parts = scaled.max(1).min(partitions);
                 }
                 curr = curr
                     .into_par_iter()
@@ -641,6 +662,16 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
             Node::GroupByKey { local, merge } => {
                 let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
                 curr = vec![merge(mids)];
+                // GBK collapses to 1 partition then we'll expand downstream; ratio ~0.1.
+                #[allow(
+                    clippy::cast_precision_loss,
+                    clippy::cast_sign_loss,
+                    clippy::cast_possible_truncation
+                )]
+                {
+                    let scaled = (current_parts as f64 * 0.1_f64).round() as usize;
+                    current_parts = scaled.max(1);
+                }
                 i += 1;
             }
             Node::CombineValues {
@@ -653,6 +684,16 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                     .map_or_else(|| local_pairs.clone(), |lg| lg.clone());
                 let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
                 curr = vec![merge(mids)];
+                // CombineValues collapses like GBK; ratio ~0.1.
+                #[allow(
+                    clippy::cast_precision_loss,
+                    clippy::cast_sign_loss,
+                    clippy::cast_possible_truncation
+                )]
+                {
+                    let scaled = (current_parts as f64 * 0.1_f64).round() as usize;
+                    current_parts = scaled.max(1);
+                }
                 i += 1;
             }
             Node::Flatten {
@@ -660,6 +701,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                 coalesce,
                 merge,
             } => {
+                let n_chains = chains.len();
                 // Run each branch concurrently via Rayon; Result propagation via collect.
                 let coalesced_inputs: Vec<Partition> = chains
                     .par_iter()
@@ -673,6 +715,16 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                     })
                     .collect::<Result<Vec<_>>>()?;
                 curr = vec![merge(coalesced_inputs)];
+                // Flatten fans in N chains; scale up by N (clamped to partitions).
+                #[allow(
+                    clippy::cast_precision_loss,
+                    clippy::cast_sign_loss,
+                    clippy::cast_possible_truncation
+                )]
+                {
+                    let scaled = (current_parts as f64 * n_chains as f64).round() as usize;
+                    current_parts = scaled.max(1).min(partitions);
+                }
                 i += 1;
             }
             Node::CoGroup {
@@ -706,6 +758,16 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                 };
 
                 curr = vec![exec(left_single, right_single)];
+                // CoGroup join filters non-matching pairs; ratio ~0.5.
+                #[allow(
+                    clippy::cast_precision_loss,
+                    clippy::cast_sign_loss,
+                    clippy::cast_possible_truncation
+                )]
+                {
+                    let scaled = (current_parts as f64 * 0.5_f64).round() as usize;
+                    current_parts = scaled.max(1);
+                }
                 i += 1;
             }
             Node::Source { .. } | Node::Materialized(_) => {
@@ -762,12 +824,15 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                     eprintln!("DEBUG: KMV heap len = {}", h.len()); // should be <= k
                 }
                 curr = vec![finish(acc)];
+                // CombineGlobal collapses to a single value; treat as 1 partition downstream.
+                current_parts = 1;
                 i += 1;
             }
             Node::Reshuffle { reshuffle } => {
-                // Parallel: collect all partitions, re-distribute across `partitions` lanes.
-                // This re-expands parallelism so downstream stateless ops run on all cores.
-                curr = reshuffle(curr, partitions);
+                // Use the adaptively-updated current_parts instead of the original
+                // `partitions` suggestion, keeping the split count proportional to the
+                // post-barrier cardinality estimate rather than the source size.
+                curr = reshuffle(curr, current_parts);
                 i += 1;
             }
         }

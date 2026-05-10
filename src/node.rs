@@ -90,6 +90,19 @@ pub trait DynOp: Send + Sync {
     fn limit_n(&self) -> Option<usize> {
         None
     }
+
+    /// Estimated ratio of output elements to input elements for this op.
+    ///
+    /// Used by the adaptive partition count pass to scale `suggested_partitions`
+    /// after each barrier stage. A value of `1.0` means the op is cardinality-neutral
+    /// (the default). `FlatMap`-class ops may return `> 1.0` (expansion); `Filter`-class
+    /// ops that know their selectivity may return `< 1.0` (reduction).
+    ///
+    /// This hint is advisory only: the runner uses it to size the Reshuffle split
+    /// count after each barrier, not to alter element contents.
+    fn cardinality_multiplier_hint(&self) -> f64 {
+        1.0
+    }
 }
 
 /// A node in the compiled execution plan.
