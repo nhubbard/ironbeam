@@ -70,11 +70,16 @@ pub struct Plan {
     /// entering the execution engine. Not set for `CombineGlobal` pipelines because
     /// a combiner always emits the identity value for an empty input.
     pub is_empty: bool,
-    /// True when the source contains exactly one element (`VecOps::len() == 1`).
+    /// True when the source contains exactly one element (`VecOps::len() == 1`) and the
+    /// chain does not contain a [`Node::Flatten`] or [`Node::CoGroup`].
     ///
     /// The runner overrides the execution mode to sequential regardless of any
     /// parallelism hint, since partitioning a single element across N workers
     /// adds scheduler overhead with zero benefit.
+    ///
+    /// Flatten and CoGroup pipelines always use a 1-element dummy source as a graph
+    /// anchor; `is_singleton` intentionally excludes them so their subchains execute via
+    /// the parallel `run_subplan_par` path when parallel mode is selected.
     pub is_singleton: bool,
 }
 
@@ -804,11 +809,19 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     // Post-pass: empty / singleton source short-circuits.
     // `CombineGlobal` always emits exactly one output element (the identity value) even
     // for an empty input, so the empty short-circuit must NOT fire when one is present.
+    //
+    // `Flatten` and `CoGroup` pipelines use a 1-element dummy source as a graph anchor;
+    // `is_singleton` must not fire for them because the real data lives in the subchains,
+    // and we want their subchains to run via `exec_par` (with `run_subplan_par`) when
+    // parallel mode is selected.
     let has_combine_global = chain
         .iter()
         .any(|n| matches!(n, Node::CombineGlobal { .. }));
+    let has_flatten_or_cogroup = chain
+        .iter()
+        .any(|n| matches!(n, Node::Flatten { .. } | Node::CoGroup { .. }));
     let is_empty = !has_combine_global && len_hint == Some(0);
-    let is_singleton = len_hint == Some(1);
+    let is_singleton = !has_flatten_or_cogroup && len_hint == Some(1);
     if is_empty {
         optimizations.push(OptimizationDecision::EmptySourceShortCircuit);
     } else if is_singleton {
