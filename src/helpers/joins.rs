@@ -3,11 +3,27 @@
 //! These helpers construct a `CoGroup` node that:
 //! 1) snapshots the left and right subplans ending at the provided `PCollection`s,
 //! 2) replays each subplan into intermediate, coalesced `Vec<(K, V)>` / `Vec<(K, W)>` buffers,
-//! 3) executes a join-specific closure over those buffers to emit the final joined rows.
+//! 3) applies a Bloom semi-join pre-filter where semantically safe (see below), and
+//! 4) executes a join-specific closure over those buffers to emit the final joined rows.
 //!
 //! All joins are **key-based** and require `K: Eq + Hash + RFBound`. The left and right value
 //! types must satisfy `RFBound` as usual. The resulting collection is another `PCollection` in
 //! the same pipeline.
+//!
+//! ## Bloom Semi-Join Pre-Filter
+//!
+//! Before the hash-join phase, each `exec` closure builds a Bloom filter from the keys of one
+//! side and discards elements from the other side whose key is *definitively* absent:
+//!
+//! | Join type   | Build side | Filter side | Rationale |
+//! |-------------|-----------|-------------|-----------|
+//! | Inner       | Smaller   | Larger      | Unmatched elements on either side are dropped |
+//! | Left outer  | Left      | Right       | All left rows appear; right rows not in left are dropped |
+//! | Right outer | Right     | Left        | All right rows appear; left rows not in right are dropped |
+//! | Full outer  | —         | —           | Both sides appear completely; no safe filtering |
+//!
+//! False positives in the Bloom filter are harmless (a few extra elements reach the
+//! hash-join step); false negatives are impossible, so join correctness is guaranteed.
 //!
 //! ## Available operations
 //! - [`PCollection::join_inner`](crate::PCollection::join_inner) - Inner join on the key
@@ -47,6 +63,7 @@
 //! # Ok(()) }
 //! ```
 
+use crate::bloom_filter::BloomFilter;
 use crate::node::Node;
 use crate::type_token::{TypeTag, vec_ops_for};
 use crate::{NodeId, PCollection, Partition, Pipeline, RFBound};
@@ -105,6 +122,10 @@ where
     ///
     /// Emits one row for every `(k, v)` on the left and `(k, w)` on the right with the same `k`.
     ///
+    /// Internally applies a Bloom semi-join pre-filter: the smaller side's keys are loaded into
+    /// a Bloom filter, and elements on the larger side whose key is definitively absent are
+    /// discarded before the hash-join step.
+    ///
     /// # Example
     /// ```no_run
     /// use ironbeam::*;
@@ -138,6 +159,31 @@ where
             let right_rows = *right_part
                 .downcast::<Vec<(K, W)>>()
                 .expect("cogroup exec: right type Vec<(K,W)>");
+
+            // Bloom semi-join: build filter from the smaller side and pre-filter the larger.
+            // Both sides can safely be filtered for an inner join (unmatched rows on either
+            // side never appear in the output).
+            let (left_rows, right_rows) = if left_rows.len() <= right_rows.len() {
+                let mut filter = BloomFilter::new(left_rows.len());
+                for (k, _) in &left_rows {
+                    filter.insert(k);
+                }
+                let right_filtered = right_rows
+                    .into_iter()
+                    .filter(|(k, _)| filter.might_contain(k))
+                    .collect::<Vec<_>>();
+                (left_rows, right_filtered)
+            } else {
+                let mut filter = BloomFilter::new(right_rows.len());
+                for (k, _) in &right_rows {
+                    filter.insert(k);
+                }
+                let left_filtered = left_rows
+                    .into_iter()
+                    .filter(|(k, _)| filter.might_contain(k))
+                    .collect::<Vec<_>>();
+                (left_filtered, right_rows)
+            };
 
             let mut lm: HashMap<K, Vec<V>> = HashMap::new();
             for (k, v) in left_rows {
@@ -190,6 +236,7 @@ where
             coalesce_left,
             coalesce_right,
             exec,
+            uses_bloom_semi_join: true,
         });
         self.pipeline.connect(source_id, id);
         PCollection {
@@ -202,6 +249,10 @@ where
     /// Left outer join on a key with `(K, W)` -> `(K, (V, Option<W>))`.
     ///
     /// Emits all left rows; missing right values appear as `None`.
+    ///
+    /// Applies a Bloom semi-join pre-filter on the **right** side: left keys are loaded into
+    /// a Bloom filter and right elements whose key is definitively absent from the left are
+    /// discarded before the hash-join step.  All left rows are preserved unconditionally.
     ///
     /// # Example
     /// ```no_run
@@ -236,6 +287,21 @@ where
             let right_rows = *right_part
                 .downcast::<Vec<(K, W)>>()
                 .expect("cogroup exec: right type Vec<(K,W)>");
+
+            // Bloom semi-join on the right side only.
+            // All left rows must appear in the output, so only the right side can be
+            // pre-filtered.  Right elements whose key is absent from the left will never
+            // appear in the left-outer-join output, so discarding them is safe.
+            let right_rows = {
+                let mut filter = BloomFilter::new(left_rows.len());
+                for (k, _) in &left_rows {
+                    filter.insert(k);
+                }
+                right_rows
+                    .into_iter()
+                    .filter(|(k, _)| filter.might_contain(k))
+                    .collect::<Vec<_>>()
+            };
 
             let mut lm: HashMap<K, Vec<V>> = HashMap::new();
             for (k, v) in left_rows {
@@ -295,6 +361,7 @@ where
             coalesce_left,
             coalesce_right,
             exec,
+            uses_bloom_semi_join: true,
         });
         self.pipeline.connect(source_id, id);
         PCollection {
@@ -307,6 +374,10 @@ where
     /// Right outer join on a key with `(K, W)` -> `(K, (Option<V>, W))`.
     ///
     /// Emits all right rows; missing left values appear as `None`.
+    ///
+    /// Applies a Bloom semi-join pre-filter on the **left** side: right keys are loaded into
+    /// a Bloom filter and left elements whose key is definitively absent from the right are
+    /// discarded before the hash-join step.  All right rows are preserved unconditionally.
     ///
     /// # Example
     /// ```no_run
@@ -341,6 +412,21 @@ where
             let right_rows = *right_part
                 .downcast::<Vec<(K, W)>>()
                 .expect("cogroup exec: right type Vec<(K,W)>");
+
+            // Bloom semi-join on the left side only.
+            // All right rows must appear in the output, so only the left side can be
+            // pre-filtered.  Left elements whose key is absent from the right will never
+            // appear in the right-outer-join output, so discarding them is safe.
+            let left_rows = {
+                let mut filter = BloomFilter::new(right_rows.len());
+                for (k, _) in &right_rows {
+                    filter.insert(k);
+                }
+                left_rows
+                    .into_iter()
+                    .filter(|(k, _)| filter.might_contain(k))
+                    .collect::<Vec<_>>()
+            };
 
             let mut lm: HashMap<K, Vec<V>> = HashMap::new();
             for (k, v) in left_rows {
@@ -401,6 +487,7 @@ where
             coalesce_left,
             coalesce_right,
             exec,
+            uses_bloom_semi_join: true,
         });
         self.pipeline.connect(source_id, id);
         PCollection {
@@ -413,6 +500,10 @@ where
     /// Full outer join on a key with `(K, W)` -> `(K, (Option<V>, Option<W>))`.
     ///
     /// Emits rows for the union of keys found on either side. Missing values are `None`.
+    ///
+    /// No Bloom semi-join pre-filter is applied: both sides must be preserved in full because
+    /// every key on either side appears in the output (potentially with `None` on the missing
+    /// side).
     ///
     /// # Example
     /// ```no_run
@@ -451,6 +542,9 @@ where
             let right_rows = *right_part
                 .downcast::<Vec<(K, W)>>()
                 .expect("cogroup exec: right type Vec<(K,W)>");
+
+            // No Bloom semi-join for full outer join: every key on both sides must appear
+            // in the output (with None for the absent side), so neither side can be filtered.
 
             let mut lm: HashMap<K, Vec<V>> = HashMap::new();
             for (k, v) in left_rows {
@@ -520,6 +614,7 @@ where
             coalesce_left,
             coalesce_right,
             exec,
+            uses_bloom_semi_join: false,
         });
         self.pipeline.connect(source_id, id);
         PCollection {

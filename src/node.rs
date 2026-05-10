@@ -150,6 +150,11 @@ pub enum Node {
     /// - `left_chain`, `right_chain`: subplans to execute to materialization.
     /// - `coalesce_left`, `coalesce_right`: merge per-partition outputs on each side into single `Vec<(K, V)>`/`Vec<(K, W)>`.
     /// - `exec`: typed closure that takes the coalesced left and right partitions and returns a joined partition.
+    /// - `uses_bloom_semi_join`: when `true`, the `exec` closure incorporates a Bloom
+    ///   semi-join pre-filter that discards elements from the larger (or filterable) side
+    ///   whose key is definitively absent from the other side before the hash-join step.
+    ///   Set by the join builders in [`crate::helpers::joins`]; the planner reads this
+    ///   flag to emit an [`crate::planner::OptimizationDecision::BloomSemiJoin`] record.
     ///
     /// **Typical `exec` outputs**
     /// - Inner join: `Vec<(K, (V, W))>`
@@ -160,6 +165,8 @@ pub enum Node {
         coalesce_left: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
         coalesce_right: Arc<dyn Fn(Vec<Partition>) -> Partition + Send + Sync>,
         exec: Arc<dyn Fn(Partition, Partition) -> Partition + Send + Sync>,
+        /// `true` when the `exec` closure applies a Bloom semi-join pre-filter.
+        uses_bloom_semi_join: bool,
     },
 
     /// Global (non-keyed) combine:

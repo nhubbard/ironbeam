@@ -150,6 +150,14 @@ fn example_with_optimizations() -> Result<()> {
             OptimizationDecision::LimitPushdown { n } => {
                 println!("✓ Early termination: runner stops after collecting {n} element(s)");
             }
+            OptimizationDecision::BloomSemiJoin {
+                smaller_side,
+                estimated_reduction_pct,
+            } => {
+                println!(
+                    "✓ Bloom semi-join pre-filter: build side={smaller_side}, estimated probe-side reduction={estimated_reduction_pct}%"
+                );
+            }
         }
     }
 

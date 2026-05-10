@@ -123,3 +123,130 @@ fn left_right_full_outer() -> Result<()> {
 
     Ok(())
 }
+
+// ── 3.12 Bloom Filter Semi-Join correctness ───────────────────────────────────
+
+/// Inner join with sparse overlap: only matching keys appear in output.
+/// Verifies that the Bloom semi-join does not produce false negatives.
+#[test]
+fn inner_join_sparse_overlap_correctness() -> Result<()> {
+    let p = Pipeline::default();
+    // Left: keys 0..5.  Right: keys 3..8.  Overlap: 3, 4.
+    let left = from_vec(&p, (0u32..5).map(|i| (i, i * 10)).collect::<Vec<_>>());
+    let right = from_vec(&p, (3u32..8).map(|i| (i, i * 100)).collect::<Vec<_>>());
+    let mut out = left.join_inner(&right).collect_seq()?;
+    out.sort_unstable_by_key(|(k, _)| *k);
+    assert_eq!(
+        out,
+        vec![(3u32, (30u32, 300u32)), (4, (40, 400))],
+        "only keys present on both sides must appear in the inner join output"
+    );
+    Ok(())
+}
+
+/// Inner join with no overlap produces empty output.
+#[test]
+fn inner_join_no_overlap_empty() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2)]);
+    let right = from_vec(&p, vec![("c".to_string(), 10u32), ("d".to_string(), 20)]);
+    let out = left.join_inner(&right).collect_seq()?;
+    assert!(
+        out.is_empty(),
+        "inner join with disjoint key sets must produce no output"
+    );
+    Ok(())
+}
+
+/// Inner join with complete overlap is identical to a regular hash join.
+/// All pairs are emitted — no false negatives from the Bloom filter.
+#[test]
+fn inner_join_full_overlap_no_false_negatives() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    );
+    let right = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 10u32),
+            ("b".to_string(), 20),
+            ("c".to_string(), 30),
+        ],
+    );
+    let mut out = left.join_inner(&right).collect_seq()?;
+    out.sort_unstable_by_key(|(k, _)| k.clone());
+    assert_eq!(
+        out,
+        vec![
+            ("a".to_string(), (1u32, 10u32)),
+            ("b".to_string(), (2, 20)),
+            ("c".to_string(), (3, 30)),
+        ]
+    );
+    Ok(())
+}
+
+/// Left outer join: all left rows appear; only matched right rows appear.
+/// The Bloom filter on the right side must not drop right rows that match.
+#[test]
+fn left_join_bloom_preserves_all_left_rows() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2)]);
+    // Right only has "a"; "b" has no right counterpart.
+    let right = from_vec(&p, vec![("a".to_string(), "ax".to_string())]);
+    let mut out = left.join_left(&right).collect_seq()?;
+    out.sort_unstable_by_key(|(k, _)| k.clone());
+    assert_eq!(
+        out,
+        vec![
+            ("a".to_string(), (1u32, Some("ax".to_string()))),
+            ("b".to_string(), (2u32, None)),
+        ],
+        "all left rows must be present; right=None for unmatched"
+    );
+    Ok(())
+}
+
+/// Right outer join: all right rows appear; only matched left rows appear.
+#[test]
+fn right_join_bloom_preserves_all_right_rows() -> Result<()> {
+    let p = Pipeline::default();
+    // Left only has "a"; "c" has no left counterpart.
+    let left = from_vec(&p, vec![("a".to_string(), 1u32)]);
+    let right = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), "ax".to_string()),
+            ("c".to_string(), "cx".to_string()),
+        ],
+    );
+    let mut out = left.join_right(&right).collect_seq()?;
+    out.sort_unstable_by_key(|(k, _)| k.clone());
+    assert_eq!(
+        out,
+        vec![
+            ("a".to_string(), (Some(1u32), "ax".to_string())),
+            ("c".to_string(), (None, "cx".to_string())),
+        ],
+        "all right rows must be present; left=None for unmatched"
+    );
+    Ok(())
+}
+
+/// Bloom semi-join works correctly in parallel execution mode.
+#[test]
+fn inner_join_bloom_correct_parallel() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, (0u32..5).map(|i| (i, i * 10)).collect::<Vec<_>>());
+    let right = from_vec(&p, (3u32..8).map(|i| (i, i * 100)).collect::<Vec<_>>());
+    let mut out = left.join_inner(&right).collect_par(None, None)?;
+    out.sort_unstable_by_key(|(k, _)| *k);
+    assert_eq!(out, vec![(3u32, (30u32, 300u32)), (4, (40, 400))]);
+    Ok(())
+}

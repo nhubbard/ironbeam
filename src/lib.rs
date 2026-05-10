@@ -514,6 +514,7 @@
 //! }
 //! ```
 
+pub mod bloom_filter;
 pub mod collection;
 pub mod combiners;
 pub mod extensions;

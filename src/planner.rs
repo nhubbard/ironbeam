@@ -185,6 +185,32 @@ pub enum OptimizationDecision {
         /// The maximum number of elements to collect.
         n: usize,
     },
+
+    /// A [`Node::CoGroup`] binary join node uses a Bloom semi-join pre-filter.
+    ///
+    /// Before the hash-join phase, the `exec` closure builds a Bloom filter from the
+    /// keys of the smaller (or semantically-required) join side and discards elements
+    /// from the other side whose key is definitively absent.  Elements eliminated this
+    /// way never reach the hash-map construction step, reducing both peak memory and
+    /// CPU cost for sparse joins.
+    ///
+    /// `smaller_side` identifies which side's keys are used to build the filter:
+    /// - **Inner join**: the side with smaller estimated cardinality (or `"left"` /
+    ///   `"right"` when one or both cardinalities are unknown).
+    /// - **Left outer join**: always `"left"` (only the right side is filtered).
+    /// - **Right outer join**: always `"right"` (only the left side is filtered).
+    ///
+    /// `estimated_reduction_pct` is a planner-time upper-bound estimate of the fraction
+    /// of the *filtered* side's elements that will be discarded, expressed as a
+    /// percentage `0–100`.  Computed as
+    /// `max(0, ⌊(|larger| − |smaller|) / |larger| × 100⌋)` when both cardinalities are
+    /// available; `0` otherwise.
+    BloomSemiJoin {
+        /// Which side's keys are used to build the Bloom filter (`"left"` or `"right"`).
+        smaller_side: String,
+        /// Estimated upper-bound percentage of elements filtered from the probe side.
+        estimated_reduction_pct: u8,
+    },
 }
 
 /// Detailed explanation of an execution plan including cost estimates and optimizations.
@@ -385,6 +411,16 @@ impl Display for ExecutionExplanation {
                         writeln!(
                             f,
                             "│   Terminal take({n}): runner stops after collecting {n} element(s)"
+                        )?;
+                    }
+                    OptimizationDecision::BloomSemiJoin {
+                        smaller_side,
+                        estimated_reduction_pct,
+                    } => {
+                        writeln!(f, "│ • Bloom Semi-Join Pre-Filter")?;
+                        writeln!(
+                            f,
+                            "│   Build side: {smaller_side}; estimated probe-side reduction: {estimated_reduction_pct}%"
                         )?;
                     }
                 }
@@ -672,6 +708,10 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         });
     }
 
+    // Post-pass: record BloomSemiJoin optimization decisions for CoGroup nodes.
+    let bloom_opts = bloom_semi_join_pass(&chain);
+    optimizations.extend(bloom_opts);
+
     // Post-pass: detect a terminal take(N) / first() for early-termination support.
     // The limit is encoded as a TakeOp whose `limit_n()` returns `Some(N)`.
     let limit = chain.last().and_then(|node| {
@@ -807,6 +847,93 @@ fn reorder_cogroup_inputs_pass(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimization
     }
 
     (out, decisions)
+}
+
+/* ---------- Bloom semi-join pass ---------- */
+
+/// Scan the chain for [`Node::CoGroup`] nodes that use a Bloom semi-join pre-filter
+/// and emit a [`OptimizationDecision::BloomSemiJoin`] for each one.
+///
+/// Uses the same cardinality estimation as [`reorder_cogroup_inputs_pass`] to determine
+/// which side is "smaller" (the build side) and to compute an upper-bound estimate of
+/// how many elements on the probe side will be discarded.
+///
+/// ## `smaller_side` semantics
+///
+/// | Estimated cardinalities  | `smaller_side` |
+/// |--------------------------|----------------|
+/// | Both known, left < right | `"left"`        |
+/// | Both known, right ≤ left | `"right"`       |
+/// | Only left known          | `"left"`        |
+/// | Only right known         | `"right"`       |
+/// | Neither known            | `"left"` (default) |
+///
+/// ## `estimated_reduction_pct`
+///
+/// `max(0, ⌊(|probe| − |build|) / |probe| × 100⌋)` when both cardinalities are
+/// available; `0` when either is unknown.
+fn bloom_semi_join_pass(chain: &[Node]) -> Vec<OptimizationDecision> {
+    let mut decisions = Vec::new();
+
+    for node in chain {
+        let Node::CoGroup {
+            left_chain,
+            right_chain,
+            uses_bloom_semi_join,
+            ..
+        } = node
+        else {
+            continue;
+        };
+
+        if !uses_bloom_semi_join {
+            continue;
+        }
+
+        let left_card = estimate_subchain_cardinality(left_chain);
+        let right_card = estimate_subchain_cardinality(right_chain);
+
+        let (smaller_side, estimated_reduction_pct) = match (left_card, right_card) {
+            (Some(l), Some(r)) => {
+                if l <= r {
+                    // Build from left, probe right.
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        clippy::cast_sign_loss,
+                        clippy::cast_possible_truncation
+                    )]
+                    let pct = if r > 0 {
+                        ((r.saturating_sub(l)) as f64 / r as f64 * 100.0) as u8
+                    } else {
+                        0u8
+                    };
+                    ("left".to_string(), pct)
+                } else {
+                    // Build from right, probe left.
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        clippy::cast_sign_loss,
+                        clippy::cast_possible_truncation
+                    )]
+                    let pct = if l > 0 {
+                        ((l.saturating_sub(r)) as f64 / l as f64 * 100.0) as u8
+                    } else {
+                        0u8
+                    };
+                    ("right".to_string(), pct)
+                }
+            }
+            (Some(_) | None, None) => ("left".to_string(), 0u8),
+            (None, Some(_)) => ("right".to_string(), 0u8),
+        };
+
+        decisions.push(OptimizationDecision::BloomSemiJoin {
+            smaller_side,
+            estimated_reduction_pct,
+        });
+    }
+
+    decisions
 }
 
 /* ---------- Dead subtree elimination ---------- */

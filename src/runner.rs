@@ -396,6 +396,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
                 coalesce_left,
                 coalesce_right,
                 exec,
+                ..
             } => {
                 let mut left_parts = run_subplan_seq((*left_chain).clone())?;
                 let mut right_parts = run_subplan_seq((*right_chain).clone())?;
@@ -674,6 +675,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                 coalesce_left,
                 coalesce_right,
                 exec,
+                ..
             } => {
                 // Run both subplans concurrently via rayon::join (same thread pool,
                 // no oversubscription). Results are propagated after the join.

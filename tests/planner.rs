@@ -1315,3 +1315,131 @@ fn take_empty_input_par() -> Result<()> {
     assert!(result.is_empty());
     Ok(())
 }
+
+// ── 3.12 Bloom Filter Semi-Join ───────────────────────────────────────────────
+
+/// `BloomSemiJoin` optimization decision is recorded for `join_inner`.
+#[test]
+fn bloom_semi_join_opt_fires_for_inner_join() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2)]);
+    let right = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 10u32),
+            ("c".to_string(), 30),
+            ("d".to_string(), 40),
+            ("e".to_string(), 50),
+        ],
+    );
+    let joined = left.join_inner(&right);
+    let plan = build_plan(&p, joined.node_id())?;
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::BloomSemiJoin { .. })),
+        "expected BloomSemiJoin optimization decision for join_inner"
+    );
+    Ok(())
+}
+
+/// `BloomSemiJoin` is recorded for `join_left`.
+#[test]
+fn bloom_semi_join_opt_fires_for_left_join() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, vec![("a".to_string(), 1u32)]);
+    let right = from_vec(&p, vec![("a".to_string(), "x".to_string())]);
+    let joined = left.join_left(&right);
+    let plan = build_plan(&p, joined.node_id())?;
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::BloomSemiJoin { .. })),
+        "expected BloomSemiJoin optimization decision for join_left"
+    );
+    Ok(())
+}
+
+/// `BloomSemiJoin` is recorded for `join_right`.
+#[test]
+fn bloom_semi_join_opt_fires_for_right_join() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, vec![("a".to_string(), 1u32)]);
+    let right = from_vec(&p, vec![("a".to_string(), "x".to_string())]);
+    let joined = left.join_right(&right);
+    let plan = build_plan(&p, joined.node_id())?;
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::BloomSemiJoin { .. })),
+        "expected BloomSemiJoin optimization decision for join_right"
+    );
+    Ok(())
+}
+
+/// `BloomSemiJoin` is NOT recorded for `join_full` (full outer cannot filter either side).
+#[test]
+fn bloom_semi_join_opt_absent_for_full_join() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, vec![("a".to_string(), 1u32)]);
+    let right = from_vec(&p, vec![("a".to_string(), "x".to_string())]);
+    let joined = left.join_full(&right);
+    let plan = build_plan(&p, joined.node_id())?;
+    assert!(
+        !plan
+            .optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::BloomSemiJoin { .. })),
+        "expected NO BloomSemiJoin for join_full (both sides must be preserved)"
+    );
+    Ok(())
+}
+
+/// When left is the smaller side, `smaller_side` is `"left"` and
+/// `estimated_reduction_pct` is positive.
+#[test]
+fn bloom_semi_join_smaller_side_and_pct_inner() -> Result<()> {
+    let p = Pipeline::default();
+    // Left: 2 elements.  Right: 10 elements.  Left is smaller.
+    let left = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2)]);
+    let right = from_vec(
+        &p,
+        (0u32..10).map(|i| (format!("k{i}"), i)).collect::<Vec<_>>(),
+    );
+    let joined = left.join_inner(&right);
+    let plan = build_plan(&p, joined.node_id())?;
+    let decision = plan.optimizations.iter().find_map(|o| {
+        if let OptimizationDecision::BloomSemiJoin {
+            smaller_side,
+            estimated_reduction_pct,
+        } = o
+        {
+            Some((smaller_side.clone(), *estimated_reduction_pct))
+        } else {
+            None
+        }
+    });
+    let (side, pct) = decision.expect("BloomSemiJoin decision missing");
+    assert_eq!(side, "left", "left (2 items) should be the build side");
+    assert!(
+        pct > 0,
+        "estimated reduction % should be positive when right >> left, got {pct}"
+    );
+    Ok(())
+}
+
+/// `explain()` output mentions the Bloom semi-join optimization.
+#[test]
+fn bloom_semi_join_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    let left = from_vec(&p, vec![("a".to_string(), 1u32)]);
+    let right = from_vec(&p, vec![("a".to_string(), "x".to_string())]);
+    let joined = left.join_inner(&right);
+    let plan = build_plan(&p, joined.node_id())?;
+    let explain = plan.explain().to_string();
+    assert!(
+        explain.contains("Bloom Semi-Join"),
+        "explain output should mention Bloom Semi-Join: {explain}"
+    );
+    Ok(())
+}
