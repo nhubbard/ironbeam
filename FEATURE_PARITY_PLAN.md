@@ -66,35 +66,11 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 3.10 Tree Reduction                   | `CombineFn::is_associative_commutative()` marker; `Node::CombineGlobal { tree_reduce }` flag; Rayon `reduce_with` for O(log n) parallel merge depth; parallel-within-key local closure for `combine_values`; `TreeReduction` opt | 2.13.0 |
 | 3.11 Early Termination / Limit        | `TakeOp<T>` stateless op; `PCollection::take(n)` / `first()`; `DynOp::limit_n()`; `Plan::limit`; `exec_par` merge-phase early stopping; `LimitPushdown` opt                                                                      | 2.14.0 |
 | 3.12 Bloom Filter Semi-Join           | In-tree `BloomFilter` (K=4, ~1% FPR); `join_inner/left/right` build from smaller side and pre-filter larger; `uses_bloom_semi_join` metadata flag; `BloomSemiJoin { smaller_side, estimated_reduction_pct }` opt                 | 2.14.0 |
+| 3.13 Dominator-Based Cache Placement  | Cooper's dominance algorithm on the pipeline DAG; `build_dominator_tree` + `find_cache_node_via_dominators` replace `find_deepest_fanout_ancestor`; enables CSE caching for linear pipelines and diamond topologies              | 2.14.0 |
 
 ---
 
 ## Tier 3: Nice-to-Have Features
-
-### 3.13 Dominator-Based Cache Placement
-
-**Status:** Not implemented.
-
-The current CSE cache places the materialization point at the "deepest fanout ancestor" — the node
-with out-degree > 1 closest to the terminal. A more principled approach uses the dominator tree of
-the execution DAG: a node `d` dominates node `n` if every path from the source to `n` passes
-through `d`. Materializing at the immediate dominator of a shared subtree guarantees that all
-consumers benefit and that no work upstream of the dominator is repeated.
-
-This generalizes CSE from "shared fanout" to "any shared work", including cases where multiple
-terminals share a long common prefix even without an explicit fan-out node in the current graph
-snapshot.
-
-**Implementation sketch:**
-- Implement the Lengauer–Tarjan algorithm for dominator tree construction on the pipeline DAG.
-- In `run_collect_cached()`, replace `find_deepest_fanout_ancestor()` with a dominator-tree
-  lookup: cache at the immediate dominator of the set of nodes reachable from the target terminal.
-- The cache key remains `NodeId`; only the selection of *which* node to cache changes.
-
-**Estimated complexity:** High — Lengauer–Tarjan is a well-known O(E log V) algorithm but requires
-careful implementation over the existing `HashMap`/`Vec` graph representation.
-
----
 
 ### 3.14 Adaptive Inter-Stage Partition Count
 

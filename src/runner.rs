@@ -16,7 +16,7 @@
 use crate::NodeId;
 use crate::node::Node;
 use crate::pipeline::Pipeline;
-use crate::planner::{build_plan, find_deepest_fanout_ancestor};
+use crate::planner::{build_plan, find_cache_node_via_dominators};
 use crate::type_token::{Partition, TypeTag, vec_ops_for};
 use anyhow::{Result, anyhow, bail};
 use ordered_float::NotNan;
@@ -191,10 +191,15 @@ impl Runner {
     /// Execute the pipeline ending at `terminal` with Common Subexpression Elimination.
     ///
     /// Identical to [`Runner::run_collect`] for pipelines with no shared prefix.  When
-    /// multiple `PCollection`s share a common upstream subgraph (a *fan-out* node), this
-    /// method materializes and caches the result of the deepest shared ancestor the first
-    /// time it is reached, then reuses it for every subsequent call that walks through
-    /// the same ancestor.
+    /// the pipeline graph contains shared computation, this method determines the
+    /// **immediate dominator** of `terminal` in the pipeline DAG — the deepest node
+    /// that every source-to-terminal path passes through — materializes the result
+    /// of that node on the first call, then reuses it on every subsequent call that
+    /// shares the same cache and the same dominator node.
+    ///
+    /// This handles both classic fan-out patterns (one node with multiple successors)
+    /// and diamond patterns (two branches that merge at a join node), where the join
+    /// node is the correct cache point rather than the fork node.
     ///
     /// Pass the **same** `cache` instance across all calls that should share work:
     ///
@@ -219,14 +224,15 @@ impl Runner {
     ///
     /// # Type invariant
     ///
-    /// The fan-out ancestor node must produce `Vec<T>`.  If the shared prefix ends with
-    /// a different intermediate type, the cache insertion fails and an error is returned.
-    /// In that case use [`Runner::run_collect`] directly.
+    /// The cache node (immediate dominator of `terminal`) must produce `Vec<T>`.
+    /// If the shared prefix ends with a different intermediate type, the cache
+    /// insertion fails and an error is returned.  In that case use
+    /// [`Runner::run_collect`] directly.
     ///
     /// # Errors
     ///
-    /// Same as [`Runner::run_collect`], plus a type-mismatch error if the fan-out
-    /// ancestor does not produce `Vec<T>`.
+    /// Same as [`Runner::run_collect`], plus a type-mismatch error if the cache
+    /// node does not produce `Vec<T>`.
     ///
     /// # Panics
     ///
@@ -239,7 +245,7 @@ impl Runner {
     ) -> Result<Vec<T>> {
         let (nodes, edges) = p.snapshot();
 
-        let Some(fanout_id) = find_deepest_fanout_ancestor(&edges, terminal) else {
+        let Some(fanout_id) = find_cache_node_via_dominators(&edges, terminal) else {
             return self.run_collect::<T>(p, terminal);
         };
 
