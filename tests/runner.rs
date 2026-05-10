@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ironbeam::collection::Count;
+use ironbeam::collection::{CombineFn, Count};
 use ironbeam::flatten;
 use ironbeam::from_vec;
 use ironbeam::runner::{ExecMode, Runner};
@@ -964,4 +964,80 @@ mod checkpointing_tests {
         assert_eq!(result.len(), 5);
         Ok(())
     }
+}
+
+// ── run_subplan_par CombineGlobal arm coverage ──────────────────────────────
+
+/// A combiner that sums u64 values but does NOT advertise AC (tree_reduce=false).
+/// This forces the fanout/sequential merge path in run_subplan_par and exec_par.
+#[derive(Clone, Default)]
+struct NonAcSum;
+
+impl CombineFn<u64, u64, u64> for NonAcSum {
+    fn create(&self) -> u64 {
+        0
+    }
+    fn add_input(&self, acc: &mut u64, v: u64) {
+        *acc += v;
+    }
+    fn merge(&self, acc: &mut u64, other: u64) {
+        *acc += other;
+    }
+    fn finish(&self, acc: u64) -> u64 {
+        acc
+    }
+    // is_associative_commutative() intentionally not overridden → returns false
+}
+
+/// `flatten` where one subchain ends with an AC `combine_globally`.
+/// In exec_par, the Flatten node calls `run_subplan_par` for each subchain;
+/// when a subchain's chain contains a `CombineGlobal` node with `tree_reduce=true`
+/// this exercises the CombineGlobal arm (L568-616) in `run_subplan_par`.
+#[test]
+fn flatten_with_combine_global_subchain_ac() -> Result<()> {
+    let p = TestPipeline::new();
+
+    // Subchain a ends with combine_globally (AC → tree_reduce=true)
+    let a = from_vec(&p, vec![1u64, 2, 3, 4, 5]).combine_globally(Count, None);
+    // Subchain b is a plain source
+    let b = from_vec(&p, vec![1u64]);
+
+    let result = flatten(&[&a, &b]).collect_par(None, Some(4))?;
+    // a produces [5], b produces [1] → flatten → [5, 1] in some order
+    let mut result = result;
+    result.sort_unstable();
+    assert_eq!(result, vec![1u64, 5]);
+    Ok(())
+}
+
+/// `flatten` where one subchain ends with a non-AC `combine_globally`.
+/// Forces the `tree_reduce=false` / `f == usize::MAX` fanout path (L582-609)
+/// inside `run_subplan_par`.
+#[test]
+fn flatten_with_combine_global_subchain_non_ac() -> Result<()> {
+    let p = TestPipeline::new();
+
+    let a = from_vec(&p, vec![10u64, 20, 30]).combine_globally(NonAcSum, None);
+    let b = from_vec(&p, vec![1u64]);
+
+    let result = flatten(&[&a, &b]).collect_par(None, Some(4))?;
+    let mut result = result;
+    result.sort_unstable();
+    assert_eq!(result, vec![1u64, 60]);
+    Ok(())
+}
+
+/// Top-level `combine_globally` with a non-AC combiner in parallel mode.
+/// `tree_reduce=false` → exec_par takes the fanout loop at L811-837;
+/// with `fanout=None` (`f == usize::MAX`) L816-817 fires.
+#[test]
+fn combine_global_non_ac_parallel() -> Result<()> {
+    let p = TestPipeline::new();
+
+    let data: Vec<u64> = (1..=50).collect();
+    let combined = from_vec(&p, data).combine_globally(NonAcSum, None);
+
+    let result = combined.collect_par(None, Some(4))?;
+    assert_eq!(result, vec![1275u64]); // sum 1..=50
+    Ok(())
 }

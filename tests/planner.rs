@@ -921,7 +921,7 @@ fn tree_reduce_flag_set_for_sum_combiner() -> Result<()> {
     let has_tree_reduce = plan.chain.iter().any(|n| {
         matches!(
             n,
-            ironbeam::node::Node::CombineGlobal {
+            Node::CombineGlobal {
                 tree_reduce: true,
                 ..
             }
@@ -944,7 +944,7 @@ fn tree_reduce_flag_set_for_count_combiner() -> Result<()> {
     let has_tree_reduce = plan.chain.iter().any(|n| {
         matches!(
             n,
-            ironbeam::node::Node::CombineGlobal {
+            Node::CombineGlobal {
                 tree_reduce: true,
                 ..
             }
@@ -1777,6 +1777,131 @@ fn normal_source_has_no_short_circuit_flags() -> Result<()> {
             .any(|o| matches!(o, OptimizationDecision::SingletonSourceShortCircuit)),
     );
     Ok(())
+}
+
+// ── Display impl coverage for previously-uncovered OptimizationDecision arms ──
+
+/// `FusedStateless` appears in the `explain()` output when multiple stateless
+/// blocks are fused into one.
+#[test]
+fn fused_stateless_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    let col = from_vec(&p, vec![1u32, 2, 3, 4, 5])
+        .map(|x: &u32| x * 2)
+        .filter(|x: &u32| *x > 4);
+    let plan = build_plan(&p, col.node_id())?;
+    let explain = format!("{}", plan.explain());
+    assert!(
+        explain.contains("Fused Stateless Operations"),
+        "explain output should mention Fused Stateless Operations: {explain}"
+    );
+    Ok(())
+}
+
+/// `ReorderedValueOps` appears in the `explain()` output when value-only ops are
+/// sorted by cost hint (filter before map).
+#[test]
+fn reordered_value_ops_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    // map_values has cost_hint=3; filter_values has cost_hint=1.
+    // After fusion the reorder pass promotes filter_values before map_values.
+    let col = from_vec(&p, vec![("a".to_string(), 10u32)])
+        .map_values(|v: &u32| v * 2)
+        .filter_values(|v: &u32| *v > 0);
+    let plan = build_plan(&p, col.node_id())?;
+    let explain = format!("{}", plan.explain());
+    assert!(
+        explain.contains("Reordered Value-Only Operations"),
+        "explain output should mention Reordered Value-Only Operations: {explain}"
+    );
+    Ok(())
+}
+
+/// `LiftedGBKCombine` appears in the `explain()` output when a GroupByKey →
+/// CombineValues(local_groups=Some) pair is lifted into a single combine pass.
+#[test]
+fn lifted_gbk_combine_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 2)]);
+    let col = data.group_by_key().combine_values_lifted(Sum::<u32>::default());
+    let plan = build_plan(&p, col.node_id())?;
+    let explain = format!("{}", plan.explain());
+    assert!(
+        explain.contains("Lifted GroupByKey"),
+        "explain output should mention Lifted GroupByKey→CombineValues: {explain}"
+    );
+    Ok(())
+}
+
+/// `DroppedMidMaterialized`, `ReorderedValueOps { by_cost: false }`, and
+/// `LiftedGBKCombine { removed_barrier: false }` Display branches are covered
+/// via direct `ExecutionExplanation` construction (the planner never emits
+/// those flag values, so they can only be reached this way).
+#[test]
+fn display_unreachable_branches_render() {
+    use ironbeam::{CostEstimate, ExecutionExplanation, ExplainStep};
+    let step = ExplainStep {
+        step: 0,
+        node_type: "Source".to_string(),
+        description: "Read data source (1 elements)".to_string(),
+        is_barrier: false,
+        cost_hint: 1,
+    };
+    let cost = CostEstimate {
+        barriers: 0,
+        total_ops: 1,
+        stateless_ops: 0,
+        source_size: Some(1),
+    };
+
+    let dropped = ExecutionExplanation {
+        steps: vec![step.clone()],
+        cost_estimate: cost.clone(),
+        optimizations: vec![OptimizationDecision::DroppedMidMaterialized { count: 2 }],
+        suggested_partitions: None,
+    };
+    let s = format!("{dropped}");
+    assert!(s.contains("Dropped Mid-Pipeline Materialization"), "{s}");
+
+    // by_cost=false branch ("default order") — never emitted by the planner
+    let reordered_no_cost = ExecutionExplanation {
+        steps: vec![step.clone()],
+        cost_estimate: cost.clone(),
+        optimizations: vec![OptimizationDecision::ReorderedValueOps {
+            ops_count: 2,
+            by_cost: false,
+        }],
+        suggested_partitions: None,
+    };
+    let s = format!("{reordered_no_cost}");
+    assert!(s.contains("default order"), "{s}");
+
+    // removed_barrier=false branch — never emitted by the planner
+    let lifted_no_remove = ExecutionExplanation {
+        steps: vec![step.clone()],
+        cost_estimate: cost.clone(),
+        optimizations: vec![OptimizationDecision::LiftedGBKCombine {
+            removed_barrier: false,
+        }],
+        suggested_partitions: None,
+    };
+    let s = format!("{lifted_no_remove}");
+    assert!(s.contains("Lifted GroupByKey"), "{s}");
+    assert!(!s.contains("Removed GroupByKey barrier"), "{s}");
+
+    // PartitionSuggestion with source_len=None — the planner always emits Some,
+    // so this branch is only reachable via direct construction.
+    let partition_no_len = ExecutionExplanation {
+        steps: vec![step.clone()],
+        cost_estimate: cost.clone(),
+        optimizations: vec![OptimizationDecision::PartitionSuggestion {
+            source_len: None,
+            partitions: 4,
+        }],
+        suggested_partitions: Some(4),
+    };
+    let s = format!("{partition_no_len}");
+    assert!(s.contains("Suggest 4 partitions"), "{s}");
 }
 
 /// A pipeline with GBK still produces correct results after the adaptive partition change.
