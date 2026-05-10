@@ -186,6 +186,22 @@ pub enum OptimizationDecision {
         n: usize,
     },
 
+    /// The runner will adaptively rescale `suggested_partitions` between barrier stages.
+    ///
+    /// After each barrier in the plan chain, the runner multiplies the current partition
+    /// count by a barrier-specific output-to-input cardinality ratio:
+    /// - `GroupByKey` / `CombineValues` → ratio `0.1` (key deduplication shrinks output)
+    /// - `CombineGlobal` → ratio `f64::EPSILON` (collapses to a single value → 1 partition)
+    /// - `Flatten` with N input chains → ratio `N` (fan-in expansion)
+    /// - `CoGroup` → ratio `0.5` (join eliminates non-matching pairs)
+    /// - `Reshuffle` → ratio `1.0` (no cardinality change, but uses updated count)
+    ///
+    /// The result is clamped to `[1, suggested_partitions]` to prevent runaway growth.
+    AdaptivePartitionCount {
+        /// Number of barrier stages that will apply adaptive rescaling.
+        barrier_count: usize,
+    },
+
     /// A [`Node::CoGroup`] binary join node uses a Bloom semi-join pre-filter.
     ///
     /// Before the hash-join phase, the `exec` closure builds a Bloom filter from the
@@ -421,6 +437,13 @@ impl Display for ExecutionExplanation {
                         writeln!(
                             f,
                             "│   Build side: {smaller_side}; estimated probe-side reduction: {estimated_reduction_pct}%"
+                        )?;
+                    }
+                    OptimizationDecision::AdaptivePartitionCount { barrier_count } => {
+                        writeln!(f, "│ • Adaptive Inter-Stage Partition Count")?;
+                        writeln!(
+                            f,
+                            "│   {barrier_count} barrier stage(s) will rescale partition count by cardinality ratio"
                         )?;
                     }
                 }
@@ -712,6 +735,14 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     let bloom_opts = bloom_semi_join_pass(&chain);
     optimizations.extend(bloom_opts);
 
+    // Post-pass: adaptive inter-stage partition count — count barrier stages.
+    let adaptive_barriers = count_adaptive_barriers(&chain);
+    if adaptive_barriers > 0 {
+        optimizations.push(OptimizationDecision::AdaptivePartitionCount {
+            barrier_count: adaptive_barriers,
+        });
+    }
+
     // Post-pass: detect a terminal take(N) / first() for early-termination support.
     // The limit is encoded as a TakeOp whose `limit_n()` returns `Some(N)`.
     let limit = chain.last().and_then(|node| {
@@ -934,6 +965,34 @@ fn bloom_semi_join_pass(chain: &[Node]) -> Vec<OptimizationDecision> {
     }
 
     decisions
+}
+
+/* ---------- Adaptive inter-stage partition count ---------- */
+
+/// Count the number of barrier stages in the plan chain that will trigger
+/// adaptive partition rescaling at runtime.
+///
+/// A barrier stage is any node that collapses or reshapes partitions:
+/// `GroupByKey`, `CombineValues`, `CombineGlobal`, `Flatten`, `CoGroup`, `Reshuffle`.
+///
+/// The runner uses per-barrier cardinality ratios to adaptively scale the current
+/// partition count after each such stage, keeping downstream Reshuffle splits in proportion
+/// to the actual data volume rather than the original source-based suggestion.
+fn count_adaptive_barriers(chain: &[Node]) -> usize {
+    chain
+        .iter()
+        .filter(|n| {
+            matches!(
+                n,
+                Node::GroupByKey { .. }
+                    | Node::CombineValues { .. }
+                    | Node::CombineGlobal { .. }
+                    | Node::Flatten { .. }
+                    | Node::CoGroup { .. }
+                    | Node::Reshuffle { .. }
+            )
+        })
+        .count()
 }
 
 /* ---------- Dead subtree elimination ---------- */

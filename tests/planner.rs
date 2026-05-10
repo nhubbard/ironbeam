@@ -1561,3 +1561,107 @@ fn cse_linear_pipeline_caches_on_repeated_calls() -> Result<()> {
     );
     Ok(())
 }
+
+// ── Feature 3.14: Adaptive Inter-Stage Partition Count ─────────────────────
+
+/// A plan with a `GroupByKey` barrier emits `AdaptivePartitionCount`.
+#[test]
+fn adaptive_partition_count_opt_fires_for_gbk() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![("a", 1u32), ("b", 2), ("a", 3)]);
+    let grouped = data.group_by_key();
+    let plan = build_plan(&p, grouped.node_id())?;
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::AdaptivePartitionCount { .. })),
+        "expected AdaptivePartitionCount optimization decision for GroupByKey pipeline"
+    );
+    Ok(())
+}
+
+/// A pure stateless pipeline (no barriers) does NOT emit `AdaptivePartitionCount`.
+#[test]
+fn adaptive_partition_count_absent_for_stateless_only() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
+    let result = data.map(|x| x * 2).filter(|x| *x > 4);
+    let plan = build_plan(&p, result.node_id())?;
+    assert!(
+        !plan
+            .optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::AdaptivePartitionCount { .. })),
+        "AdaptivePartitionCount must NOT fire when there are no barriers"
+    );
+    Ok(())
+}
+
+/// The `barrier_count` field reflects the number of barrier stages in the chain.
+#[test]
+fn adaptive_partition_count_barrier_count_correct() -> Result<()> {
+    let p = Pipeline::default();
+    // GroupByKey (1) + CombineValues would lift GBK so use a simple GBK only here.
+    let data = from_vec(&p, vec![("k", 1u32), ("k", 2)]);
+    let grouped = data.group_by_key();
+    let plan = build_plan(&p, grouped.node_id())?;
+    let barrier_count = plan.optimizations.iter().find_map(|o| {
+        if let OptimizationDecision::AdaptivePartitionCount { barrier_count } = o {
+            Some(*barrier_count)
+        } else {
+            None
+        }
+    });
+    assert_eq!(
+        barrier_count,
+        Some(1),
+        "expected exactly 1 adaptive barrier for a single GBK"
+    );
+    Ok(())
+}
+
+/// `AdaptivePartitionCount` appears in the `explain()` output.
+#[test]
+fn adaptive_partition_count_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![("a", 1u32), ("a", 2)]);
+    let grouped = data.group_by_key();
+    let plan = build_plan(&p, grouped.node_id())?;
+    let explanation = plan.explain();
+    let rendered = format!("{explanation}");
+    assert!(
+        rendered.contains("Adaptive Inter-Stage Partition Count"),
+        "explain() output must mention Adaptive Inter-Stage Partition Count"
+    );
+    Ok(())
+}
+
+/// A pipeline with GBK still produces correct results after the adaptive partition change.
+#[test]
+fn adaptive_partition_count_correctness_gbk() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("a".to_string(), 3),
+            ("b".to_string(), 4),
+        ],
+    );
+    let grouped = data.group_by_key();
+    let runner = Runner::default();
+    let mut result = runner.run_collect::<(String, Vec<u32>)>(&p, grouped.node_id())?;
+    result.sort_by_key(|(k, _)| k.clone());
+    for (_, v) in &mut result {
+        v.sort_unstable();
+    }
+    assert_eq!(
+        result,
+        vec![
+            ("a".to_string(), vec![1u32, 3]),
+            ("b".to_string(), vec![2u32, 4]),
+        ]
+    );
+    Ok(())
+}
