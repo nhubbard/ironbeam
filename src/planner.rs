@@ -63,6 +63,19 @@ pub struct Plan {
     /// this is `Some(N)` — the runner uses it to stop collecting elements as soon
     /// as `N` total have been gathered across all partitions.
     pub limit: Option<usize>,
+    /// True when the source is known to be empty (`VecOps::len() == 0`) and the
+    /// chain does not contain a [`Node::CombineGlobal`].
+    ///
+    /// The runner short-circuits immediately, returning `Vec::new()` without
+    /// entering the execution engine. Not set for `CombineGlobal` pipelines because
+    /// a combiner always emits the identity value for an empty input.
+    pub is_empty: bool,
+    /// True when the source contains exactly one element (`VecOps::len() == 1`).
+    ///
+    /// The runner overrides the execution mode to sequential regardless of any
+    /// parallelism hint, since partitioning a single element across N workers
+    /// adds scheduler overhead with zero benefit.
+    pub is_singleton: bool,
 }
 
 /// Represents an optimization decision made by the planner.
@@ -185,6 +198,23 @@ pub enum OptimizationDecision {
         /// The maximum number of elements to collect.
         n: usize,
     },
+
+    /// The source is known to be empty at plan time (`VecOps::len() == 0`).
+    ///
+    /// The runner will skip the execution engine entirely and return an empty
+    /// `Vec` immediately. No stateless or barrier ops are evaluated.
+    ///
+    /// This optimization does **not** fire when the chain contains a
+    /// [`Node::CombineGlobal`], which always emits exactly one output (the
+    /// combiner identity value) regardless of input cardinality.
+    EmptySourceShortCircuit,
+
+    /// The source contains exactly one element at plan time (`VecOps::len() == 1`).
+    ///
+    /// The runner overrides any parallelism hint and executes the plan sequentially.
+    /// Splitting a single-element source across N workers adds scheduler overhead
+    /// with no throughput benefit.
+    SingletonSourceShortCircuit,
 
     /// The runner will adaptively rescale `suggested_partitions` between barrier stages.
     ///
@@ -446,6 +476,20 @@ impl Display for ExecutionExplanation {
                             "│   {barrier_count} barrier stage(s) will rescale partition count by cardinality ratio"
                         )?;
                     }
+                    OptimizationDecision::EmptySourceShortCircuit => {
+                        writeln!(f, "│ • Empty Source Short-Circuit")?;
+                        writeln!(
+                            f,
+                            "│   Source has 0 elements; runner returns Vec::new() without executing"
+                        )?;
+                    }
+                    OptimizationDecision::SingletonSourceShortCircuit => {
+                        writeln!(f, "│ • Singleton Source Short-Circuit")?;
+                        writeln!(
+                            f,
+                            "│   Source has 1 element; runner forces sequential execution to avoid partition overhead"
+                        )?;
+                    }
                 }
             }
             writeln!(
@@ -654,6 +698,7 @@ impl Plan {
 /// # Errors
 ///
 /// If any of the optimizer passes fail, or the pipeline is in an inconsistent state.
+#[allow(clippy::too_many_lines)]
 pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
     let (nodes, edges) = p.snapshot();
 
@@ -756,7 +801,26 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         optimizations.push(OptimizationDecision::LimitPushdown { n });
     }
 
-    let suggested = suggest_partitions(len_hint);
+    // Post-pass: empty / singleton source short-circuits.
+    // `CombineGlobal` always emits exactly one output element (the identity value) even
+    // for an empty input, so the empty short-circuit must NOT fire when one is present.
+    let has_combine_global = chain
+        .iter()
+        .any(|n| matches!(n, Node::CombineGlobal { .. }));
+    let is_empty = !has_combine_global && len_hint == Some(0);
+    let is_singleton = len_hint == Some(1);
+    if is_empty {
+        optimizations.push(OptimizationDecision::EmptySourceShortCircuit);
+    } else if is_singleton {
+        optimizations.push(OptimizationDecision::SingletonSourceShortCircuit);
+    }
+
+    // For a singleton source, override the partition suggestion to 1.
+    let suggested = if is_singleton {
+        Some(1)
+    } else {
+        suggest_partitions(len_hint)
+    };
     if let Some(parts) = suggested {
         optimizations.push(OptimizationDecision::PartitionSuggestion {
             source_len: len_hint,
@@ -769,6 +833,8 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         suggested_partitions: suggested,
         optimizations,
         limit,
+        is_empty,
+        is_singleton,
     })
 }
 

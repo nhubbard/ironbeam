@@ -1636,6 +1636,149 @@ fn adaptive_partition_count_appears_in_explain() -> Result<()> {
     Ok(())
 }
 
+// ── Feature 3.15: Empty / Singleton Source Short-Circuit ───────────────────
+
+/// An empty source emits `EmptySourceShortCircuit` and sets `is_empty = true`.
+#[test]
+fn empty_source_plan_has_is_empty_flag() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, Vec::<u32>::new());
+    let result = data.map(|x| x * 2);
+    let plan = build_plan(&p, result.node_id())?;
+    assert!(
+        plan.is_empty,
+        "plan.is_empty must be true for an empty source"
+    );
+    assert!(
+        !plan.is_singleton,
+        "plan.is_singleton must be false for an empty source"
+    );
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::EmptySourceShortCircuit)),
+        "expected EmptySourceShortCircuit optimization decision"
+    );
+    Ok(())
+}
+
+/// Running a pipeline on an empty source returns `vec![]` without executing ops.
+#[test]
+fn empty_source_runner_returns_empty_vec() -> Result<()> {
+    use std::sync::{Arc, Mutex};
+    let counter = Arc::new(Mutex::new(0usize));
+    let c = counter.clone();
+
+    let p = Pipeline::default();
+    let data = from_vec(&p, Vec::<u32>::new());
+    let result = data.map(move |x: &u32| {
+        *c.lock().unwrap() += 1;
+        *x * 2
+    });
+
+    let runner = Runner::default();
+    let out = runner.run_collect::<u32>(&p, result.node_id())?;
+    assert!(out.is_empty(), "result must be empty for empty source");
+    assert_eq!(
+        *counter.lock().unwrap(),
+        0,
+        "no ops must execute for empty source"
+    );
+    Ok(())
+}
+
+/// `EmptySourceShortCircuit` appears in the `explain()` output.
+#[test]
+fn empty_source_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, Vec::<u32>::new());
+    let plan = build_plan(&p, data.node_id())?;
+    let rendered = format!("{}", plan.explain());
+    assert!(
+        rendered.contains("Empty Source Short-Circuit"),
+        "explain() output must mention Empty Source Short-Circuit"
+    );
+    Ok(())
+}
+
+/// A singleton source emits `SingletonSourceShortCircuit` and sets `is_singleton = true`.
+#[test]
+fn singleton_source_plan_has_is_singleton_flag() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![42u32]);
+    let result = data.map(|x| x * 2);
+    let plan = build_plan(&p, result.node_id())?;
+    assert!(
+        plan.is_singleton,
+        "plan.is_singleton must be true for a single-element source"
+    );
+    assert!(
+        !plan.is_empty,
+        "plan.is_empty must be false for a singleton source"
+    );
+    assert_eq!(
+        plan.suggested_partitions,
+        Some(1),
+        "singleton source must suggest 1 partition"
+    );
+    assert!(
+        plan.optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::SingletonSourceShortCircuit)),
+        "expected SingletonSourceShortCircuit optimization decision"
+    );
+    Ok(())
+}
+
+/// Running a pipeline on a singleton source produces the correct result.
+#[test]
+fn singleton_source_runner_correct_result() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![7u32]);
+    let result = data.map(|x| x * 3).filter(|x| *x > 0);
+    let runner = Runner::default();
+    let out = runner.run_collect::<u32>(&p, result.node_id())?;
+    assert_eq!(out, vec![21u32]);
+    Ok(())
+}
+
+/// `SingletonSourceShortCircuit` appears in the `explain()` output.
+#[test]
+fn singleton_source_appears_in_explain() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![1u32]);
+    let plan = build_plan(&p, data.node_id())?;
+    let rendered = format!("{}", plan.explain());
+    assert!(
+        rendered.contains("Singleton Source Short-Circuit"),
+        "explain() output must mention Singleton Source Short-Circuit"
+    );
+    Ok(())
+}
+
+/// A normal (multi-element) source does NOT emit either short-circuit optimization.
+#[test]
+fn normal_source_has_no_short_circuit_flags() -> Result<()> {
+    let p = Pipeline::default();
+    let data = from_vec(&p, vec![1u32, 2, 3]);
+    let plan = build_plan(&p, data.node_id())?;
+    assert!(!plan.is_empty);
+    assert!(!plan.is_singleton);
+    assert!(
+        !plan
+            .optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::EmptySourceShortCircuit)),
+    );
+    assert!(
+        !plan
+            .optimizations
+            .iter()
+            .any(|o| matches!(o, OptimizationDecision::SingletonSourceShortCircuit)),
+    );
+    Ok(())
+}
+
 /// A pipeline with GBK still produces correct results after the adaptive partition change.
 #[test]
 fn adaptive_partition_count_correctness_gbk() -> Result<()> {

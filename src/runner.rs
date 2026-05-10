@@ -121,6 +121,15 @@ impl Runner {
         p.record_metrics_start();
 
         let plan = build_plan(p, terminal)?;
+
+        // Fast-path: empty source — skip the executor entirely.
+        if plan.is_empty {
+            #[cfg(feature = "metrics")]
+            p.record_metrics_end();
+            return Ok(Vec::new());
+        }
+
+        let is_singleton = plan.is_singleton;
         let chain = plan.chain;
         let suggested_parts = plan.suggested_partitions;
         let limit = plan.limit;
@@ -146,6 +155,9 @@ impl Runner {
                     exec_par_with_checkpointing::<T>(&chain, parts, config)
                 }
             }
+        } else if is_singleton {
+            // Singleton source: force sequential to avoid partition overhead.
+            exec_seq::<T>(chain)
         } else {
             match self.mode {
                 ExecMode::Sequential => exec_seq::<T>(chain),
@@ -165,20 +177,25 @@ impl Runner {
         };
 
         #[cfg(not(feature = "checkpointing"))]
-        let result = match self.mode {
-            ExecMode::Sequential => exec_seq::<T>(chain),
-            ExecMode::Parallel {
-                threads,
-                partitions,
-            } => {
-                if let Some(t) = threads {
-                    // Best-effort: first builder to install wins globally.
-                    ThreadPoolBuilder::new().num_threads(t).build_global().ok();
+        let result = if is_singleton {
+            // Singleton source: force sequential to avoid partition overhead.
+            exec_seq::<T>(chain)
+        } else {
+            match self.mode {
+                ExecMode::Sequential => exec_seq::<T>(chain),
+                ExecMode::Parallel {
+                    threads,
+                    partitions,
+                } => {
+                    if let Some(t) = threads {
+                        // Best-effort: first builder to install wins globally.
+                        ThreadPoolBuilder::new().num_threads(t).build_global().ok();
+                    }
+                    let parts = partitions
+                        .or(suggested_parts)
+                        .unwrap_or(self.default_partitions);
+                    exec_par::<T>(chain, parts, limit)
                 }
-                let parts = partitions
-                    .or(suggested_parts)
-                    .unwrap_or(self.default_partitions);
-                exec_par::<T>(chain, parts, limit)
             }
         };
 
