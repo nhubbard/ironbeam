@@ -700,10 +700,7 @@ fn run_subplan_par_stateless_before_barrier_break_path() -> Result<()> {
     .filter(|x: &(String, u32)| x.1 > 0) // stateless before GBK → break fires in subplan_par
     .group_by_key();
 
-    let right = from_vec(
-        &p,
-        vec![("a".to_string(), 10u32), ("b".to_string(), 20u32)],
-    );
+    let right = from_vec(&p, vec![("a".to_string(), 10u32), ("b".to_string(), 20u32)]);
 
     let joined = left.join_inner(&right);
     let mut result = joined.collect_par(None, Some(4))?;
@@ -718,7 +715,7 @@ fn run_subplan_par_stateless_before_barrier_break_path() -> Result<()> {
 #[test]
 fn exec_par_flatten_single_element_subchain_skip_coalesce() -> Result<()> {
     let p = TestPipeline::new();
-    let singleton = from_vec(&p, vec![42u32]);      // 1 element → 1 partition in run_subplan_par
+    let singleton = from_vec(&p, vec![42u32]); // 1 element → 1 partition in run_subplan_par
     let multi = from_vec(&p, vec![1u32, 2u32, 3u32]);
     let mut result = flatten(&[&singleton, &multi]).collect_par(None, Some(4))?;
     result.sort_unstable();
@@ -968,8 +965,8 @@ mod checkpointing_tests {
 
 // ── run_subplan_par CombineGlobal arm coverage ──────────────────────────────
 
-/// A combiner that sums u64 values but does NOT advertise AC (tree_reduce=false).
-/// This forces the fanout/sequential merge path in run_subplan_par and exec_par.
+/// A combiner that sums u64 values but does NOT advertise AC (`tree_reduce=false`).
+/// This forces the fanout/sequential merge path in `run_subplan_par` and `exec_par`.
 #[derive(Clone, Default)]
 struct NonAcSum;
 
@@ -990,9 +987,9 @@ impl CombineFn<u64, u64, u64> for NonAcSum {
 }
 
 /// `flatten` where one subchain ends with an AC `combine_globally`.
-/// In exec_par, the Flatten node calls `run_subplan_par` for each subchain;
+/// In `exec_par`, the Flatten node calls `run_subplan_par` for each subchain;
 /// when a subchain's chain contains a `CombineGlobal` node with `tree_reduce=true`
-/// this exercises the CombineGlobal arm (L568-616) in `run_subplan_par`.
+/// this exercises the `CombineGlobal` arm (L568-616) in `run_subplan_par`.
 #[test]
 fn flatten_with_combine_global_subchain_ac() -> Result<()> {
     let p = TestPipeline::new();
@@ -1028,7 +1025,7 @@ fn flatten_with_combine_global_subchain_non_ac() -> Result<()> {
 }
 
 /// Top-level `combine_globally` with a non-AC combiner in parallel mode.
-/// `tree_reduce=false` → exec_par takes the fanout loop at L811-837;
+/// `tree_reduce=false` → `exec_par` takes the fanout loop at L811-837;
 /// with `fanout=None` (`f == usize::MAX`) L816-817 fires.
 #[test]
 fn combine_global_non_ac_parallel() -> Result<()> {

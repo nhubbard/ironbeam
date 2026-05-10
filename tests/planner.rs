@@ -1817,13 +1817,15 @@ fn reordered_value_ops_appears_in_explain() -> Result<()> {
     Ok(())
 }
 
-/// `LiftedGBKCombine` appears in the `explain()` output when a GroupByKey →
-/// CombineValues(local_groups=Some) pair is lifted into a single combine pass.
+/// `LiftedGBKCombine` appears in the `explain()` output when a `GroupByKey` →
+/// `CombineValues(local_groups=Some)` pair is lifted into a single combine pass.
 #[test]
 fn lifted_gbk_combine_appears_in_explain() -> Result<()> {
     let p = Pipeline::default();
     let data = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 2)]);
-    let col = data.group_by_key().combine_values_lifted(Sum::<u32>::default());
+    let col = data
+        .group_by_key()
+        .combine_values_lifted(Sum::<u32>::default());
     let plan = build_plan(&p, col.node_id())?;
     let explain = format!("{}", plan.explain());
     assert!(
@@ -1892,8 +1894,8 @@ fn display_unreachable_branches_render() {
     // PartitionSuggestion with source_len=None — the planner always emits Some,
     // so this branch is only reachable via direct construction.
     let partition_no_len = ExecutionExplanation {
-        steps: vec![step.clone()],
-        cost_estimate: cost.clone(),
+        steps: vec![step],
+        cost_estimate: cost,
         optimizations: vec![OptimizationDecision::PartitionSuggestion {
             source_len: None,
             partitions: 4,
