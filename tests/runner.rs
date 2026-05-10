@@ -684,7 +684,7 @@ fn parallel_with_aggressive_filter() -> Result<()> {
 }
 
 /// Covers the `break` in `run_subplan_par`'s inner stateless-accumulation loop
-/// (runner.rs L534-535): a CoGroup subchain that has stateless ops before a GBK
+/// (runner.rs L534-535): a `CoGroup` subchain that has stateless ops before a GBK
 /// causes the inner while to break on the non-Stateless node.
 #[test]
 fn run_subplan_par_stateless_before_barrier_break_path() -> Result<()> {
@@ -712,9 +712,9 @@ fn run_subplan_par_stateless_before_barrier_break_path() -> Result<()> {
     Ok(())
 }
 
-/// Covers the `parts.len() == 1` branch inside exec_par's Flatten arm
+/// Covers the `parts.len() == 1` branch inside `exec_par`'s Flatten arm
 /// (runner.rs L727-728): a subchain with exactly 1 element returns 1 partition from
-/// run_subplan_par, skipping the coalesce call.
+/// `run_subplan_par`, skipping the coalesce call.
 #[test]
 fn exec_par_flatten_single_element_subchain_skip_coalesce() -> Result<()> {
     let p = TestPipeline::new();
@@ -726,8 +726,8 @@ fn exec_par_flatten_single_element_subchain_skip_coalesce() -> Result<()> {
     Ok(())
 }
 
-/// Covers exec_par's single-partition limit truncation path (runner.rs L864):
-/// after a GBK collapses curr to 1 partition, a trailing take() means limit is
+/// Covers `exec_par`'s single-partition limit truncation path (runner.rs L864):
+/// after a GBK collapses curr to 1 partition, a trailing `take()` means limit is
 /// applied at collection time via `v.truncate(n)`.
 #[test]
 fn exec_par_limit_truncate_single_partition_result() -> Result<()> {

@@ -77,7 +77,7 @@ pub struct Plan {
     /// parallelism hint, since partitioning a single element across N workers
     /// adds scheduler overhead with zero benefit.
     ///
-    /// Flatten and CoGroup pipelines always use a 1-element dummy source as a graph
+    /// Flatten and `CoGroup` pipelines always use a 1-element dummy source as a graph
     /// anchor; `is_singleton` intentionally excludes them so their subchains execute via
     /// the parallel `run_subplan_par` path when parallel mode is selected.
     pub is_singleton: bool,
@@ -1013,7 +1013,7 @@ fn bloom_semi_join_pass(chain: &[Node]) -> Vec<OptimizationDecision> {
                         clippy::cast_possible_truncation
                     )]
                     let pct = if r > 0 {
-                        ((r.saturating_sub(l)) as f64 / r as f64 * 100.0) as u8
+                        (r.saturating_sub(l) as f64 / r as f64 * 100.0) as u8
                     } else {
                         0u8
                     };
@@ -1026,7 +1026,7 @@ fn bloom_semi_join_pass(chain: &[Node]) -> Vec<OptimizationDecision> {
                         clippy::cast_possible_truncation
                     )]
                     let pct = if l > 0 {
-                        ((l.saturating_sub(r)) as f64 / l as f64 * 100.0) as u8
+                        (l.saturating_sub(r) as f64 / l as f64 * 100.0) as u8
                     } else {
                         0u8
                     };
