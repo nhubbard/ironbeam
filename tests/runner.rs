@@ -1,5 +1,6 @@
 use anyhow::Result;
 use ironbeam::collection::Count;
+use ironbeam::flatten;
 use ironbeam::from_vec;
 use ironbeam::runner::{ExecMode, Runner};
 use ironbeam::testing::*;
@@ -679,6 +680,70 @@ fn parallel_with_aggressive_filter() -> Result<()> {
     let result = pcoll.collect_par(None, Some(10))?;
     assert_eq!(result.len(), 5);
     assert!(result.iter().all(|&x| x > 95));
+    Ok(())
+}
+
+/// Covers the `break` in `run_subplan_par`'s inner stateless-accumulation loop
+/// (runner.rs L534-535): a CoGroup subchain that has stateless ops before a GBK
+/// causes the inner while to break on the non-Stateless node.
+#[test]
+fn run_subplan_par_stateless_before_barrier_break_path() -> Result<()> {
+    let p = TestPipeline::new();
+    let left = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2u32),
+            ("a".to_string(), 3u32),
+        ],
+    )
+    .filter(|x: &(String, u32)| x.1 > 0) // stateless before GBK → break fires in subplan_par
+    .group_by_key();
+
+    let right = from_vec(
+        &p,
+        vec![("a".to_string(), 10u32), ("b".to_string(), 20u32)],
+    );
+
+    let joined = left.join_inner(&right);
+    let mut result = joined.collect_par(None, Some(4))?;
+    result.sort_by_key(|(k, _)| k.clone());
+    assert!(!result.is_empty());
+    Ok(())
+}
+
+/// Covers the `parts.len() == 1` branch inside exec_par's Flatten arm
+/// (runner.rs L727-728): a subchain with exactly 1 element returns 1 partition from
+/// run_subplan_par, skipping the coalesce call.
+#[test]
+fn exec_par_flatten_single_element_subchain_skip_coalesce() -> Result<()> {
+    let p = TestPipeline::new();
+    let singleton = from_vec(&p, vec![42u32]);      // 1 element → 1 partition in run_subplan_par
+    let multi = from_vec(&p, vec![1u32, 2u32, 3u32]);
+    let mut result = flatten(&[&singleton, &multi]).collect_par(None, Some(4))?;
+    result.sort_unstable();
+    assert_eq!(result, vec![1u32, 2u32, 3u32, 42u32]);
+    Ok(())
+}
+
+/// Covers exec_par's single-partition limit truncation path (runner.rs L864):
+/// after a GBK collapses curr to 1 partition, a trailing take() means limit is
+/// applied at collection time via `v.truncate(n)`.
+#[test]
+fn exec_par_limit_truncate_single_partition_result() -> Result<()> {
+    let p = TestPipeline::new();
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2u32),
+            ("a".to_string(), 3u32),
+            ("c".to_string(), 4u32),
+        ],
+    );
+    // GBK collapses to 1 partition; take(2) adds limit annotation.
+    let result = data.group_by_key().take(2).collect_par(None, Some(4))?;
+    assert_eq!(result.len(), 2);
     Ok(())
 }
 
