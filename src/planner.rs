@@ -1452,41 +1452,169 @@ fn drop_mid_materialized_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
 
 /* ---------- CSE helpers ---------- */
 
-/// Find the deepest fan-out ancestor of `terminal` in the pipeline edge graph.
+/// DFS post-order traversal from `source` through the forward edge graph.
 ///
-/// A *fan-out* node is one that appears as the `from` side of **more than one edge**
-/// (out-degree > 1). Walking backwards from `terminal`, the first such node encountered
-/// is the deepest (closest to `terminal`) shared ancestor — the ideal materialization
-/// point for Common Subexpression Elimination.
+/// Nodes are appended to `order` after all their successors have been visited
+/// (post-order).  Reversing the result yields *reverse post-order* (RPO), which
+/// Cooper's dominance algorithm requires.
+fn dfs_postorder(
+    node: NodeId,
+    succs: &HashMap<NodeId, Vec<NodeId>>,
+    visited: &mut HashSet<NodeId>,
+    order: &mut Vec<NodeId>,
+) {
+    if !visited.insert(node) {
+        return;
+    }
+    for &child in succs.get(&node).map_or(&[] as &[NodeId], Vec::as_slice) {
+        dfs_postorder(child, succs, visited, order);
+    }
+    order.push(node);
+}
+
+/// Walk up the dominator tree from `b1` and `b2` until they meet.
 ///
-/// Returns `None` when no fan-out ancestor exists on the backwards path from
-/// `terminal` to the root (source node), or when the source itself is the only
-/// fan-out.
+/// This is the *intersect* subroutine of Cooper's dominance algorithm.  Both
+/// fingers advance toward the root along the `idom` chain, guided by the RPO
+/// numbering so the deeper finger always moves first.
+fn dominator_intersect(
+    mut b1: NodeId,
+    mut b2: NodeId,
+    idom: &HashMap<NodeId, NodeId>,
+    rpo: &HashMap<NodeId, usize>,
+) -> NodeId {
+    while b1 != b2 {
+        while rpo.get(&b1).copied().unwrap_or(usize::MAX)
+            > rpo.get(&b2).copied().unwrap_or(usize::MAX)
+        {
+            b1 = idom[&b1];
+        }
+        while rpo.get(&b2).copied().unwrap_or(usize::MAX)
+            > rpo.get(&b1).copied().unwrap_or(usize::MAX)
+        {
+            b2 = idom[&b2];
+        }
+    }
+    b1
+}
+
+/// Compute the immediate-dominator map for all nodes reachable from `source`.
 ///
-/// # Examples
+/// Uses Cooper's simple dominance algorithm (PLDI 2001), which is O(N²) in
+/// the worst case but converges in one or two passes for the acyclic pipeline
+/// DAGs that Ironbeam produces.
 ///
-/// For a graph `source → map [id=1] → filter [id=2] → terminal_a [id=3]`
-/// where `map` also feeds `terminal_b` (edge `1 → 4`), calling this with
-/// `terminal = 3` returns `Some(NodeId(1))`.
-pub(crate) fn find_deepest_fanout_ancestor(
+/// A node `d` **dominates** node `n` when every directed path from `source` to
+/// `n` passes through `d`.  The *immediate* dominator of `n` is the deepest
+/// such `d ≠ n` in the dominator tree.
+///
+/// # Returns
+///
+/// A `HashMap<NodeId, NodeId>` where each key maps to its immediate dominator.
+/// The `source` node maps to itself as a sentinel.  Nodes unreachable from
+/// `source` are absent from the map.
+fn build_dominator_tree(edges: &[(NodeId, NodeId)], source: NodeId) -> HashMap<NodeId, NodeId> {
+    let mut succs: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+    let mut preds: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+    for &(from, to) in edges {
+        succs.entry(from).or_default().push(to);
+        preds.entry(to).or_default().push(from);
+    }
+
+    // DFS post-order, then reverse → RPO.
+    let mut order = Vec::new();
+    let mut visited = HashSet::new();
+    dfs_postorder(source, &succs, &mut visited, &mut order);
+    order.reverse();
+
+    let rpo: HashMap<NodeId, usize> = order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+
+    let mut idom: HashMap<NodeId, NodeId> = HashMap::new();
+    idom.insert(source, source);
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for &b in order.iter().skip(1) {
+            let processed_preds: Vec<NodeId> = preds
+                .get(&b)
+                .map(|ps| {
+                    ps.iter()
+                        .filter(|&&p| idom.contains_key(&p))
+                        .copied()
+                        .collect()
+                })
+                .unwrap_or_default();
+            if processed_preds.is_empty() {
+                continue;
+            }
+            let mut new_idom = processed_preds[0];
+            for &p in &processed_preds[1..] {
+                new_idom = dominator_intersect(p, new_idom, &idom, &rpo);
+            }
+            if idom.get(&b) != Some(&new_idom) {
+                idom.insert(b, new_idom);
+                changed = true;
+            }
+        }
+    }
+
+    idom
+}
+
+/// Identify the CSE materialization node for `terminal` using dominator-tree analysis.
+///
+/// This replaces the earlier heuristic (`find_deepest_fanout_ancestor`) with a
+/// principled approach: the **immediate dominator** of `terminal` in the pipeline
+/// DAG is the deepest node that *every* source-to-terminal path passes through,
+/// making it the correct and maximally-deep cache point for Common Subexpression
+/// Elimination.
+///
+/// Improvements over the fan-out heuristic:
+///
+/// - **Diamond patterns** — when two input branches merge at a join node (e.g. a
+///   `Flatten`), the join node is the immediate dominator of any terminal beyond
+///   it.  The old heuristic walked backward and found the *fan-out* node (the
+///   fork, not the join), yielding a shallow, near-trivial cache point.  The
+///   dominator approach correctly identifies the *join* node, caching the full
+///   merged prefix.
+/// - **Linear pipelines** — for a single chain with no branching, the old
+///   heuristic returned `None` (no caching).  The dominator approach returns the
+///   node immediately before `terminal`, enabling caching on repeated calls for
+///   the same terminal.
+///
+/// Returns `None` when:
+/// - `edges` is empty.
+/// - `terminal` is the source itself (no prefix to cache).
+/// - `idom(terminal)` equals the source (the only shared ancestor is the root,
+///   meaning there is no useful shared prefix deeper in the graph).
+pub(crate) fn find_cache_node_via_dominators(
     edges: &[(NodeId, NodeId)],
     terminal: NodeId,
 ) -> Option<NodeId> {
-    // Count out-degree for every node that appears as `from`.
-    let mut out_degree: HashMap<NodeId, usize> = HashMap::new();
-    for &(from, _) in edges {
-        *out_degree.entry(from).or_insert(0) += 1;
+    if edges.is_empty() {
+        return None;
     }
 
-    // Walk backwards from terminal; return the first ancestor with out-degree > 1.
-    let mut cur = terminal;
-    while let Some((from, _)) = edges.iter().find(|(_, to)| *to == cur).copied() {
-        cur = from;
-        if out_degree.get(&cur).copied().unwrap_or(0) > 1 {
-            return Some(cur);
-        }
+    // Source = node that appears as `from` but never as `to`.
+    let has_incoming: HashSet<NodeId> = edges.iter().map(|&(_, to)| to).collect();
+    let source = edges
+        .iter()
+        .map(|&(from, _)| from)
+        .find(|n| !has_incoming.contains(n))?;
+
+    if source == terminal {
+        return None;
     }
-    None
+
+    let idom = build_dominator_tree(edges, source);
+    let cache_node = *idom.get(&terminal)?;
+
+    if cache_node == source {
+        None
+    } else {
+        Some(cache_node)
+    }
 }
 
 /* ---------- Adaptive partitions ---------- */
@@ -1514,4 +1642,129 @@ fn suggest_partitions(len_hint: Option<usize>) -> Option<usize> {
     let hw = num_cpus::get().max(2);
     parts = parts.clamp(hw, hw * 8);
     Some(parts)
+}
+
+#[cfg(test)]
+mod dominator_tests {
+    use super::*;
+
+    fn n(v: u64) -> NodeId {
+        NodeId::new(v)
+    }
+
+    // ── build_dominator_tree ───────────────────────────────────────────────
+
+    #[test]
+    fn dominator_linear_chain() {
+        // 0 → 1 → 2 → 3
+        let edges = vec![(n(0), n(1)), (n(1), n(2)), (n(2), n(3))];
+        let idom = build_dominator_tree(&edges, n(0));
+        assert_eq!(idom[&n(0)], n(0)); // source maps to itself
+        assert_eq!(idom[&n(1)], n(0));
+        assert_eq!(idom[&n(2)], n(1));
+        assert_eq!(idom[&n(3)], n(2));
+    }
+
+    #[test]
+    fn dominator_simple_fanout() {
+        // 0 → 1 → 2
+        //       ↘ 3
+        let edges = vec![(n(0), n(1)), (n(1), n(2)), (n(1), n(3))];
+        let idom = build_dominator_tree(&edges, n(0));
+        assert_eq!(idom[&n(1)], n(0));
+        assert_eq!(idom[&n(2)], n(1));
+        assert_eq!(idom[&n(3)], n(1));
+    }
+
+    #[test]
+    fn dominator_diamond_join_point() {
+        // 0 → 1 → 3 → 4
+        //   ↘ 2 ↗
+        // dom(3) = {0, 3} → idom(3) = 0 (source is the only shared ancestor)
+        // dom(4) = {0, 3, 4} → idom(4) = 3
+        let edges = vec![
+            (n(0), n(1)),
+            (n(0), n(2)),
+            (n(1), n(3)),
+            (n(2), n(3)),
+            (n(3), n(4)),
+        ];
+        let idom = build_dominator_tree(&edges, n(0));
+        assert_eq!(idom[&n(1)], n(0));
+        assert_eq!(idom[&n(2)], n(0));
+        assert_eq!(idom[&n(3)], n(0)); // join node: idom = source
+        assert_eq!(idom[&n(4)], n(3)); // post-join terminal: idom = join
+    }
+
+    #[test]
+    fn dominator_double_diamond() {
+        // Two back-to-back diamonds:
+        // 0 → 1 → 3 → 4 → 6 → 7
+        //   ↘ 2 ↗   ↘ 5 ↗
+        let edges = vec![
+            (n(0), n(1)),
+            (n(0), n(2)),
+            (n(1), n(3)),
+            (n(2), n(3)),
+            (n(3), n(4)),
+            (n(3), n(5)),
+            (n(4), n(6)),
+            (n(5), n(6)),
+            (n(6), n(7)),
+        ];
+        let idom = build_dominator_tree(&edges, n(0));
+        assert_eq!(idom[&n(3)], n(0)); // first join: idom = source
+        assert_eq!(idom[&n(6)], n(3)); // second join: idom = first join
+        assert_eq!(idom[&n(7)], n(6)); // terminal: idom = second join
+    }
+
+    // ── find_cache_node_via_dominators ────────────────────────────────────
+
+    #[test]
+    fn cache_node_empty_edges() {
+        assert_eq!(find_cache_node_via_dominators(&[], n(5)), None);
+    }
+
+    #[test]
+    fn cache_node_terminal_is_source() {
+        let edges = vec![(n(0), n(1))];
+        assert_eq!(find_cache_node_via_dominators(&edges, n(0)), None);
+    }
+
+    #[test]
+    fn cache_node_idom_is_source_returns_none() {
+        // Diamond: 0 → 1 → 3 and 0 → 2 → 3. idom(3) = 0 = source → None.
+        let edges = vec![(n(0), n(1)), (n(0), n(2)), (n(1), n(3)), (n(2), n(3))];
+        assert_eq!(find_cache_node_via_dominators(&edges, n(3)), None);
+    }
+
+    #[test]
+    fn cache_node_linear_pipeline() {
+        // 0 → 1 → 2: idom(2) = 1 (not source) → Some(1)
+        let edges = vec![(n(0), n(1)), (n(1), n(2))];
+        assert_eq!(find_cache_node_via_dominators(&edges, n(2)), Some(n(1)));
+    }
+
+    #[test]
+    fn cache_node_fanout_returns_shared_ancestor() {
+        // 0 → 1 → 2 and 0 → 1 → 3: idom(2) = idom(3) = 1 → same cache key.
+        let edges = vec![(n(0), n(1)), (n(1), n(2)), (n(1), n(3))];
+        assert_eq!(find_cache_node_via_dominators(&edges, n(2)), Some(n(1)));
+        assert_eq!(find_cache_node_via_dominators(&edges, n(3)), Some(n(1)));
+    }
+
+    #[test]
+    fn cache_node_diamond_returns_join_not_fork() {
+        // Diamond followed by terminal:
+        // 0 → 1 → 3 → 4  and  0 → 2 → 3 → 4
+        // Old fan-out heuristic would return source (0); dominator returns join (3).
+        let edges = vec![
+            (n(0), n(1)),
+            (n(0), n(2)),
+            (n(1), n(3)),
+            (n(2), n(3)),
+            (n(3), n(4)),
+        ];
+        assert_eq!(find_cache_node_via_dominators(&edges, n(4)), Some(n(3)));
+    }
 }

@@ -1443,3 +1443,121 @@ fn bloom_semi_join_appears_in_explain() -> Result<()> {
     );
     Ok(())
 }
+
+// ── 3.13 Dominator-Based Cache Placement ──────────────────────────────────
+
+/// The existing fan-out CSE test must still pass: when two terminals branch from
+/// the same shared intermediate node, the shared computation runs only once.
+#[test]
+fn cse_fanout_still_works_with_dominator_approach() -> Result<()> {
+    use std::sync::{Arc, Mutex};
+    let counter = Arc::new(Mutex::new(0usize));
+    let c = counter.clone();
+
+    let p = Pipeline::default();
+    let src = from_vec(&p, vec![1u32, 2, 3]);
+    let mapped = src.map(move |x: &u32| {
+        *c.lock().unwrap() += 1;
+        x + 10
+    });
+    let a = mapped.clone().map(|x: &u32| x * 2);
+    let b = mapped.map(|x: &u32| x + 1);
+
+    let cache = SharedCSECache::default();
+    let runner = Runner {
+        mode: ironbeam::ExecMode::Sequential,
+        ..Runner::default()
+    };
+
+    let mut out_a = runner.run_collect_cached::<u32>(&p, a.node_id(), &cache)?;
+    let mut out_b = runner.run_collect_cached::<u32>(&p, b.node_id(), &cache)?;
+    out_a.sort_unstable();
+    out_b.sort_unstable();
+
+    assert_eq!(out_a, vec![22u32, 24, 26]);
+    assert_eq!(out_b, vec![12u32, 13, 14]);
+    assert_eq!(
+        *counter.lock().unwrap(),
+        3,
+        "shared map should execute only once across both terminals"
+    );
+    Ok(())
+}
+
+/// `flatten`-based merge: two branches are combined via `flatten`, followed by a
+/// map.  Verifies correct results when using the dominator-based CSE cache.
+///
+/// Note: `flatten` embeds its input subchains inside `Node::Flatten` rather than
+/// creating pipeline-graph edges, so the flatten node's subchain work is not
+/// part of the dominator cache key.  The cache node in this topology is the node
+/// immediately before `terminal` (the post-flatten map).
+#[test]
+fn cse_flatten_pipeline_correct_results() -> Result<()> {
+    let p = Pipeline::default();
+    let src = from_vec(&p, vec![1u32, 2, 3]);
+    let left = src.clone().map(|x: &u32| x + 10); // [11, 12, 13]
+    let right = src.map(|x: &u32| x * 2); // [2, 4, 6]
+    let joined = flatten(&[&left, &right]);
+    let terminal = joined.map(|x: &u32| x + 1); // [12,13,14,3,5,7]
+
+    let cache = SharedCSECache::default();
+    let runner = Runner {
+        mode: ironbeam::ExecMode::Sequential,
+        ..Runner::default()
+    };
+
+    let mut out1 = runner.run_collect_cached::<u32>(&p, terminal.node_id(), &cache)?;
+    let mut out2 = runner.run_collect_cached::<u32>(&p, terminal.node_id(), &cache)?;
+    out1.sort_unstable();
+    out2.sort_unstable();
+
+    assert_eq!(out1, vec![3u32, 5, 7, 12, 13, 14]);
+    assert_eq!(out1, out2, "repeated calls must produce identical results");
+    Ok(())
+}
+
+/// The dominator-based approach enables caching even for **linear** pipelines
+/// (no fan-out node), unlike the old heuristic which returned `None` for those.
+///
+/// On the second call the immediate dominator of `terminal` is already cached,
+/// so only the final suffix step (the `×2` map) re-executes; the expensive
+/// `+10` map does not run again.
+#[test]
+fn cse_linear_pipeline_caches_on_repeated_calls() -> Result<()> {
+    use std::sync::{Arc, Mutex};
+    let counter = Arc::new(Mutex::new(0usize));
+    let c = counter.clone();
+
+    let p = Pipeline::default();
+    let terminal = from_vec(&p, vec![1u32, 2, 3])
+        .map(move |x: &u32| {
+            *c.lock().unwrap() += 1;
+            x + 10
+        })
+        .map(|x: &u32| x * 2);
+
+    let cache = SharedCSECache::default();
+    let runner = Runner {
+        mode: ironbeam::ExecMode::Sequential,
+        ..Runner::default()
+    };
+
+    // First call: executes the full pipeline and caches at idom(terminal).
+    let mut out1 = runner.run_collect_cached::<u32>(&p, terminal.node_id(), &cache)?;
+    // Second call: idom(terminal) is cached; only the ×2 suffix re-executes.
+    let mut out2 = runner.run_collect_cached::<u32>(&p, terminal.node_id(), &cache)?;
+    out1.sort_unstable();
+    out2.sort_unstable();
+
+    assert_eq!(out1, vec![22u32, 24, 26]);
+    assert_eq!(out1, out2, "repeated runs must produce identical results");
+
+    // The expensive +10 map ran only 3 times (once per element, on the first call).
+    // Without dominator caching (old heuristic), this would be 6.
+    assert_eq!(
+        *counter.lock().unwrap(),
+        3,
+        "dominator caching must prevent the shared map from re-executing on repeated calls"
+    );
+    Ok(())
+}
