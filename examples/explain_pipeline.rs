@@ -57,6 +57,7 @@ fn example_with_grouping() -> Result<()> {
 }
 
 /// Demonstrates explain with multiple operations that trigger optimizations.
+#[allow(clippy::too_many_lines)]
 fn example_with_optimizations() -> Result<()> {
     let p = Pipeline::default();
     let data = from_vec(&p, (1..=10000).collect::<Vec<_>>());
@@ -162,6 +163,12 @@ fn example_with_optimizations() -> Result<()> {
                 println!(
                     "✓ Adaptive inter-stage partition count: {barrier_count} barrier stage(s) will rescale partition count by cardinality ratio"
                 );
+            }
+            OptimizationDecision::EmptySourceShortCircuit => {
+                println!("✓ Empty source short-circuit: runner returns Vec::new() immediately");
+            }
+            OptimizationDecision::SingletonSourceShortCircuit => {
+                println!("✓ Singleton source short-circuit: runner forces sequential execution");
             }
         }
     }
