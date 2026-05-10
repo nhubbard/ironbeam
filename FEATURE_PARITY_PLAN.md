@@ -24,6 +24,15 @@ in Ironbeam. Features are organized by priority tier.
    unless they are truly inapplicable.
 7. Documentation for the code must be **lint-free** when `cargo doc` is run.
 
+To expedite analysis and ensure that errors are caught, you must do the following:
+
+1. `cargo doc --no-deps` must produce no warnings.
+2. `cargo fmt` must be run.
+3. `cargo clippy --all-targets --all-features --fix --allow-dirty -- -D warnings -W clippy::pedantic -W clippy::nursery`
+   must be run and any manual-fix issues must be corrected unless they genuinely do not apply to the situation.
+4. `cargo llvm-cov --workspace --all-features --html --branch` must execute all tests and produce no compilation or test
+   errors. You should analyze the coverage report, both before and after, to make sure that coverage has not dropped.
+
 ---
 
 ## Implemented Features
@@ -56,34 +65,11 @@ in Ironbeam. Features are organized by priority tier.
 | 3.9 CoGroup Join Ordering             | `reorder_cogroup_inputs_pass()` — sorts `Flatten` subchains by estimated cardinality ascending; `ReorderedCoGroupInputs { original_order, new_order }` opt                                                                       | 2.12.0 |
 | 3.10 Tree Reduction                   | `CombineFn::is_associative_commutative()` marker; `Node::CombineGlobal { tree_reduce }` flag; Rayon `reduce_with` for O(log n) parallel merge depth; parallel-within-key local closure for `combine_values`; `TreeReduction` opt | 2.13.0 |
 | 3.11 Early Termination / Limit        | `TakeOp<T>` stateless op; `PCollection::take(n)` / `first()`; `DynOp::limit_n()`; `Plan::limit`; `exec_par` merge-phase early stopping; `LimitPushdown` opt                                                                      | 2.14.0 |
+| 3.12 Bloom Filter Semi-Join           | In-tree `BloomFilter` (K=4, ~1% FPR); `join_inner/left/right` build from smaller side and pre-filter larger; `uses_bloom_semi_join` metadata flag; `BloomSemiJoin { smaller_side, estimated_reduction_pct }` opt                 | 2.14.0 |
 
 ---
 
 ## Tier 3: Nice-to-Have Features
-
-### 3.12 Bloom Filter Semi-Join for CoGroup
-
-**Status:** Not implemented.
-
-Before executing a `CoGroup`, build a Bloom filter of the smaller input's key set and pre-filter
-the larger input, dropping elements whose key cannot appear in the join output. Elements eliminated
-by the Bloom filter never reach the shuffle step, reducing both memory and CPU cost for sparse joins.
-
-**Implementation sketch:**
-- At the start of `CoGroup` execution, identify the smaller and larger input chains by estimated
-  cardinality (same estimate used in 3.9).
-- Build a `BloomFilter<K>` from the smaller input's keys (first pass).
-- Pre-filter the larger input: discard any element whose key hash is absent in the filter.
-- Execute the hash-join phase on the filtered larger input.
-- Record filter statistics in a new `OptimizationDecision::BloomSemiJoin { smaller_side, estimated_reduction_pct }`.
-
-**Dependencies:** A Bloom filter crate (`bloomfilter` or `fastbloom`) or a small in-tree
-implementation (~100 LOC with `ahash`).
-
-**Estimated complexity:** Medium — the Bloom filter itself is straightforward; the complexity is
-integrating the two-pass execution into the existing single-pass CoGroup runner.
-
----
 
 ### 3.13 Dominator-Based Cache Placement
 
