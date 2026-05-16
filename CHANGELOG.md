@@ -1,3 +1,30 @@
+## [3.0.0](https://github.com/nhubbard/ironbeam/compare/v2.11.0...v3.0.0) (2026-05-16)
+
+### Features
+
+* **helpers:** implement 3.3 Reify — reify_timestamps() on PCollection<Timestamped<T>> ([8e699b8](https://github.com/nhubbard/ironbeam/commit/8e699b85825919135f66e0b9c2d4a79ffed8c818))
+* **planner:** implement 3.10 Tree Reduction for Associative Combiners ([96b04d4](https://github.com/nhubbard/ironbeam/commit/96b04d48bbb520f360f1f69a968d37c005eef13b))
+* **planner:** implement 3.11 Early Termination / Limit Pushdown ([5f24986](https://github.com/nhubbard/ironbeam/commit/5f24986f9ea58e6dcbc62e00a978a64db959ee9d))
+* **planner:** implement 3.12 Bloom Filter Semi-Join for CoGroup ([c1405df](https://github.com/nhubbard/ironbeam/commit/c1405dfcee8facc687c00966e1b8217fae3fe484))
+* **planner:** implement 3.13 Dominator-Based Cache Placement ([c24fc13](https://github.com/nhubbard/ironbeam/commit/c24fc13264632b40cfc53944e520371c1e93c293))
+* **planner:** implement 3.14 Adaptive Inter-Stage Partition Count ([f028a23](https://github.com/nhubbard/ironbeam/commit/f028a23a6e1bea9486e0a9454298fe71ec3c7228))
+* **planner:** implement 3.5 Reshuffle Elimination — eliminate_reshuffle_pass() ([92804cb](https://github.com/nhubbard/ironbeam/commit/92804cbee4015d246c4b9b8ec153064ec5fac651))
+* **planner:** implement 3.6 Predicate Pushdown Past Reshuffle ([710a116](https://github.com/nhubbard/ironbeam/commit/710a1164a735dbba39e956925e48df1617896bb2))
+* **planner:** implement 3.7 Flatten Input Predicate Pushdown ([d8f3502](https://github.com/nhubbard/ironbeam/commit/d8f3502408cb4d041592c0c54badd4c8364bd5af))
+* **planner:** implement 3.8 Dead Subtree Elimination — prune_dead_subtrees() ([eff3b17](https://github.com/nhubbard/ironbeam/commit/eff3b179fa7c25ce72dd6e25ed10fd3e00d25a3d))
+* **planner:** implement 3.9 CoGroup Join Ordering — reorder_cogroup_inputs_pass() ([ad9b0d8](https://github.com/nhubbard/ironbeam/commit/ad9b0d8e46aec2b5751134847e16702a55472893))
+* **testing:** implement 3.4 PAssert — fluent assertion builder ([aab32f4](https://github.com/nhubbard/ironbeam/commit/aab32f47b1ece18d540e871f583c261509084725))
+
+### Bug Fixes
+
+* Clippy issues ([85edb35](https://github.com/nhubbard/ironbeam/commit/85edb350299cae4c4740988037fdaf8e3eca58c5))
+* **collection:** remove dead TakeOp::cardinality_reducing() override ([13d4e3b](https://github.com/nhubbard/ironbeam/commit/13d4e3b29629413474773fb8229610dfb35687de))
+* **docs:** add missing # Panics / # Errors sections to satisfy clippy::pedantic ([885aa21](https://github.com/nhubbard/ironbeam/commit/885aa2179613ee5cc73d65f21f14c0f3c21d7bf1))
+* **docs:** resolve unresolved doc links for CombineFn::is_associative_commutative ([f43c18a](https://github.com/nhubbard/ironbeam/commit/f43c18aa1782c027bda9b0895cf87c381acaceb2))
+* **examples:** add missing PushedDownIntoFlattenSubplans match arm ([1fc90a8](https://github.com/nhubbard/ironbeam/commit/1fc90a884302f1570dcb098b63752cdfd7efb0c7))
+* Minor Clippy issues ([65c9319](https://github.com/nhubbard/ironbeam/commit/65c9319fa01de4cadab6ec387171e6c192fc8a43))
+* **planner:** exclude Flatten/CoGroup from singleton short-circuit; add coverage tests ([61a2cc0](https://github.com/nhubbard/ironbeam/commit/61a2cc014f763ab8a203277343a0188362cc6ec7))
+
 ## [2.11.0](https://github.com/nhubbard/ironbeam/compare/v2.10.0...v2.11.0) (2026-05-09)
 
 ### Features
