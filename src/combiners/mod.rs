@@ -12,6 +12,7 @@
 //! - [`DistinctCount<T>`] -- count of distinct values.
 //! - [`ToList<T>`] -- collect all values into a `Vec<T>`.
 //! - [`ToSet<T>`] -- collect unique values into a `HashSet<T>`.
+//! - [`ToDict<K, V>`] -- collect `(K, V)` pairs into a `HashMap<K, V>`.
 //! - [`Latest<T>`] -- select the value with the latest timestamp.
 //! - [`TopK<T>`] -- the top-K largest values.
 //! - [`BottomK<T>`] -- the bottom-K smallest values.
@@ -26,7 +27,7 @@
 //! ```no_run
 //! # use anyhow::Result;
 //! use ironbeam::*;
-//! use ironbeam::combiners::{Sum, Min, Max, Count, AverageF64, Mean, DistinctCount, ToList, ToSet, Latest, TopK, BottomK, ApproxQuantiles, ApproxMedian};
+//! use ironbeam::combiners::{Sum, Min, Max, Count, AverageF64, Mean, DistinctCount, ToList, ToSet, ToDict, Latest, TopK, BottomK, ApproxQuantiles, ApproxMedian};
 //! use ironbeam::window::Timestamped;
 //!
 //! let p = Pipeline::default();
@@ -77,6 +78,11 @@
 //!     .combine_values(ToSet::new())
 //!     .collect_seq()?;
 //!
+//! // ToDict - materialize a keyed collection as a single HashMap
+//! let dict = from_vec(&p, vec![("a", 1u32), ("b", 2)])
+//!     .combine_globally(ToDict::new(), None)
+//!     .collect_seq()?;
+//!
 //! // Latest - select value with latest timestamp
 //! let latest = from_vec(&p, vec![
 //!     ("user", Timestamped::new(100, "login")),
@@ -120,7 +126,7 @@ mod topk;
 
 // Re-export all public combiners
 pub use basic::{Max, Min, Sum};
-pub use collect::{ToList, ToSet};
+pub use collect::{ToDict, ToList, ToSet};
 pub use count::Count;
 pub use distinct::{DistinctCount, DistinctSet, KMVApproxDistinctCount};
 pub use latest::Latest;

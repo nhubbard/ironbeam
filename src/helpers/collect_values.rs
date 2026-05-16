@@ -5,10 +5,11 @@
 //! - `to_set_globally()` - Collect all unique elements into a single `HashSet<T>`
 //! - `to_list_per_key()` - Collect all values per key into a `Vec<V>`
 //! - `to_set_per_key()` - Collect unique values per key into a `HashSet<V>`
+//! - `to_dict()` - Materialize a `PCollection<(K, V)>` as a single `HashMap<K, V>`
 
-use crate::combiners::{ToList, ToSet};
+use crate::combiners::{ToDict, ToList, ToSet};
 use crate::{PCollection, RFBound};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 impl<T: RFBound> PCollection<T> {
@@ -161,5 +162,54 @@ where
         V: Hash + Eq,
     {
         self.combine_values(ToSet::new())
+    }
+
+    /// Materialize the keyed collection as a single `HashMap<K, V>`.
+    ///
+    /// Produces exactly one element — a `HashMap<K, V>` containing every
+    /// `(K, V)` pair in the collection. Equivalent to calling
+    /// `combine_globally(ToDict::new(), None)`. This is the Ironbeam
+    /// equivalent of Apache Beam's `ToDict` transform, and is typically used
+    /// to prepare a side input from a small keyed stream.
+    ///
+    /// # Duplicate keys
+    ///
+    /// When the same key appears more than once, **the surviving value is
+    /// unspecified** under parallel execution (the per-partition `insert` and
+    /// cross-partition `extend` both follow last-value-wins, but partition
+    /// order is not stable). For deterministic results, fold duplicates with a
+    /// `combine_values` step first (e.g. `Sum`, `Latest`) before calling
+    /// `to_dict`.
+    ///
+    /// # Distinction from `to_hashmap`
+    ///
+    /// Unlike [`to_hashmap`](Self::to_hashmap), which is a *terminal* operation
+    /// returning `anyhow::Result<HashMap<K, V>>` directly, `to_dict` is a
+    /// *transform* that produces a `PCollection<HashMap<K, V>>`. Use it when
+    /// the materialized map needs to participate in further pipeline stages
+    /// (e.g. as input to a side-input view).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    /// use std::collections::HashMap;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let dict = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3)])
+    ///     .to_dict()
+    ///     .collect_seq()?;
+    ///
+    /// let expected: HashMap<&str, u32> =
+    ///     [("a", 1u32), ("b", 2), ("c", 3)].iter().copied().collect();
+    /// assert_eq!(dict[0], expected);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn to_dict(self) -> PCollection<HashMap<K, V>> {
+        self.combine_globally(ToDict::<K, V>::new(), None)
     }
 }

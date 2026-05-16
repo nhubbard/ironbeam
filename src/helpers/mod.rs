@@ -96,6 +96,7 @@
 //!   - [`PCollection::to_set_globally`](crate::PCollection::to_set_globally)
 //!   - [`PCollection::to_list_per_key`](crate::PCollection::to_list_per_key)
 //!   - [`PCollection::to_set_per_key`](crate::PCollection::to_set_per_key)
+//!   - [`PCollection::to_dict`](crate::PCollection::to_dict)
 //!
 //! ### Sampling
 //! - [`sampling`] - Random sampling operations

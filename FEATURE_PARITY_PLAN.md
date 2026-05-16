@@ -73,6 +73,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.2 KvSwap                                  | `kv_swap()` — `PCollection<(K, V)>` → `PCollection<(V, K)>`; thin wrapper over `map`; permits non-`Hash` keys                                                                                                                                            | 3.1.0  |
 | 4.3 Mean Combiners                          | `Mean<O>` typed `CombineFn` (`f32` / `f64` output) implementing `LiftableCombiner`; `mean_globally::<O>()` / `mean_per_key::<O>()` helpers complementing `average_*`                                                                                     | 3.1.0  |
 | 4.4 Count.PerElement                        | `count_per_element()` — `PCollection<T: Hash + Eq>` → `PCollection<(T, u64)>`; counts occurrences of each distinct element                                                                                                                               | 2.4.0  |
+| 4.5 ToDict Combiner                         | `ToDict<K, V>` typed `CombineFn` + `LiftableCombiner` materializing `(K, V)` pairs into a single `HashMap<K, V>`; `to_dict()` helper on `PCollection<(K, V)>`                                                                                            | 3.1.0  |
 
 ---
 
@@ -81,26 +82,6 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 These transforms were identified in the initial survey of Beam features but not assigned to earlier
 tiers. They are primarily convenience wrappers, less common aggregation patterns, or additional
 serialization formats.
-
-### 4.5 ToDict Combiner
-
-**Status:** Not implemented.
-
-Collect `(K, V)` pairs into a `HashMap<K, V>` via a combiner. Useful as a `combine_globally` target
-when the entire collection should be materialized as a single map (e.g., for use as a side input).
-
-**Beam equivalent:** `ToDict` in `combiners.py`
-
-**Proposed API:**
-```rust
-kv_collection.to_dict() // PCollection<(K, V)> -> PCollection<HashMap<K, V>>
-// Combiner form:
-kv_collection.combine_globally(ToDict::new())
-```
-
-**Estimated complexity:** Low
-
----
 
 ### 4.6 GroupIntoBatches
 
