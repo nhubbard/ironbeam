@@ -72,6 +72,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.1 Keys / Values                           | `keys()` — `PCollection<(K, V)>` → `PCollection<K>`; `values()` — `PCollection<(K, V)>` → `PCollection<V>`; thin wrappers over `map`                                                                                                                   | 3.1.0  |
 | 4.2 KvSwap                                  | `kv_swap()` — `PCollection<(K, V)>` → `PCollection<(V, K)>`; thin wrapper over `map`; permits non-`Hash` keys                                                                                                                                            | 3.1.0  |
 | 4.3 Mean Combiners                          | `Mean<O>` typed `CombineFn` (`f32` / `f64` output) implementing `LiftableCombiner`; `mean_globally::<O>()` / `mean_per_key::<O>()` helpers complementing `average_*`                                                                                     | 3.1.0  |
+| 4.4 Count.PerElement                        | `count_per_element()` — `PCollection<T: Hash + Eq>` → `PCollection<(T, u64)>`; counts occurrences of each distinct element                                                                                                                               | 2.4.0  |
 
 ---
 
@@ -80,24 +81,6 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 These transforms were identified in the initial survey of Beam features but not assigned to earlier
 tiers. They are primarily convenience wrappers, less common aggregation patterns, or additional
 serialization formats.
-
-### 4.4 Count.PerElement
-
-**Status:** Not implemented.
-
-Count occurrences of each distinct element, producing `(T, u64)` pairs. Requires `T: Eq + Hash`.
-
-**Beam equivalent:** `Count.PerElement()` in `combiners.py`
-
-**Proposed API:**
-```rust
-collection.count_per_element() // PCollection<T> -> PCollection<(T, u64)>
-```
-
-**Estimated complexity:** Low — equivalent to `with_constant_key(1u64).sum_per_key()` with a key
-swap, or a direct `GroupByKey` + count.
-
----
 
 ### 4.5 ToDict Combiner
 
