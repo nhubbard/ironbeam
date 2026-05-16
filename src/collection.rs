@@ -560,3 +560,74 @@ where
         2
     }
 }
+
+/// `BatchElementsOp`: `Vec<T> -> Vec<Vec<T>>`, groups consecutive elements
+/// within a partition into batches of at most `batch_size` elements each.
+/// The final batch may be smaller. Used by `batch_elements`.
+pub struct BatchElementsOp<T>(pub usize, pub PhantomData<T>)
+where
+    T: 'static + Send + Sync + Clone;
+
+impl<T> DynOp for BatchElementsOp<T>
+where
+    T: 'static + Send + Sync + Clone,
+{
+    fn apply(&self, input: Partition) -> Partition {
+        let batch_size = self.0.max(1);
+        let v = *input
+            .downcast::<Vec<T>>()
+            .expect("BatchElementsOp: expected Vec<T> input");
+
+        let mut out: Vec<Vec<T>> = Vec::with_capacity(v.len().div_ceil(batch_size));
+        for chunk in v.chunks(batch_size) {
+            out.push(chunk.to_vec());
+        }
+        Box::new(out) as Partition
+    }
+}
+
+/// `BatchBySizeOp`: `Vec<T> -> Vec<Vec<T>>`, size-bounded batching.
+///
+/// Groups consecutive elements within a partition into batches whose total
+/// (caller-estimated) byte size does not exceed `max_bytes`. The final batch
+/// may be smaller, and a single element whose estimated size already exceeds
+/// `max_bytes` is emitted alone in its own batch. Used by `batch_by_size`.
+pub struct BatchBySizeOp<T, F>(pub usize, pub F, pub PhantomData<T>)
+where
+    T: 'static + Send + Sync + Clone,
+    F: 'static + Send + Sync + Fn(&T) -> usize;
+
+impl<T, F> DynOp for BatchBySizeOp<T, F>
+where
+    T: 'static + Send + Sync + Clone,
+    F: 'static + Send + Sync + Fn(&T) -> usize,
+{
+    fn apply(&self, input: Partition) -> Partition {
+        let max_bytes = self.0.max(1);
+        let size_fn = &self.1;
+        let v = *input
+            .downcast::<Vec<T>>()
+            .expect("BatchBySizeOp: expected Vec<T> input");
+
+        let mut out: Vec<Vec<T>> = Vec::new();
+        let mut current: Vec<T> = Vec::new();
+        let mut current_bytes: usize = 0;
+
+        for elem in v {
+            let elem_size = size_fn(&elem);
+            // If the current batch is non-empty AND adding this element would
+            // overflow the limit, flush the current batch first. This still
+            // allows a single oversized element to be emitted in its own batch.
+            if !current.is_empty() && current_bytes.saturating_add(elem_size) > max_bytes {
+                out.push(std::mem::take(&mut current));
+                current_bytes = 0;
+            }
+            current_bytes = current_bytes.saturating_add(elem_size);
+            current.push(elem);
+        }
+        if !current.is_empty() {
+            out.push(current);
+        }
+        Box::new(out) as Partition
+    }
+}
