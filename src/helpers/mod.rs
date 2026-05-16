@@ -13,6 +13,8 @@
 //!   - [`PCollection::map_batches`](crate::PCollection::map_batches)
 //!   - [`PCollection::map_values_batches`](crate::PCollection::map_values_batches)
 //!   - [`PCollection::group_into_batches`](crate::PCollection::group_into_batches)
+//!   - [`PCollection::batch_elements`](crate::PCollection::batch_elements)
+//!   - [`PCollection::batch_by_size`](crate::PCollection::batch_by_size)
 //!
 //! ### Keyed Operations
 //! - [`keyed`] - Helpers for working with keyed collections `PCollection<(K, V)>`

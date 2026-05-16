@@ -75,6 +75,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.4 Count.PerElement                        | `count_per_element()` — `PCollection<T: Hash + Eq>` → `PCollection<(T, u64)>`; counts occurrences of each distinct element                                                                                                                               | 3.1.0  |
 | 4.5 ToDict Combiner                         | `ToDict<K, V>` typed `CombineFn` + `LiftableCombiner` materializing `(K, V)` pairs into a single `HashMap<K, V>`; `to_dict()` helper on `PCollection<(K, V)>`                                                                                            | 3.1.0  |
 | 4.6 GroupIntoBatches                        | `group_into_batches(n)` — `PCollection<(K, V)>` → `PCollection<(K, Vec<V>)>`; per-key chunking with each batch ≤ `n` elements (final per-key batch may be smaller)                                                                                       | 3.1.0  |
+| 4.7 BatchElements                           | `batch_elements(n)` / `batch_by_size(max_bytes, size_fn)` — `PCollection<T>` → `PCollection<Vec<T>>`; partition-local count- or size-bounded batching with explicit size estimator and lone-oversized-element semantics                                  | 3.1.0  |
 
 ---
 
@@ -83,26 +84,6 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 These transforms were identified in the initial survey of Beam features but not assigned to earlier
 tiers. They are primarily convenience wrappers, less common aggregation patterns, or additional
 serialization formats.
-
-### 4.7 BatchElements
-
-**Status:** Not implemented.
-
-Group consecutive elements into `Vec<T>` batches bounded by element count or estimated byte size.
-Unlike `GroupIntoBatches`, this is not per-key. Unlike `map_batches`, it controls where batch
-boundaries fall rather than adapting to the runner's internal shard boundaries.
-
-**Beam equivalent:** `BatchElements` in `util.py`
-
-**Proposed API:**
-```rust
-collection.batch_elements(max_count: usize) // PCollection<T> -> PCollection<Vec<T>>
-collection.batch_by_size(max_bytes: usize)  // size-bounded variant
-```
-
-**Estimated complexity:** Medium
-
----
 
 ### 4.8 ToString
 
