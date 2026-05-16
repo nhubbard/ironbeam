@@ -38,6 +38,8 @@
 //!   - [`PCollection::max_per_key`](crate::PCollection::max_per_key)
 //!   - [`PCollection::average_globally`](crate::PCollection::average_globally)
 //!   - [`PCollection::average_per_key`](crate::PCollection::average_per_key)
+//!   - [`PCollection::mean_globally`](crate::PCollection::mean_globally)
+//!   - [`PCollection::mean_per_key`](crate::PCollection::mean_per_key)
 //! - [`statistical`] - Statistical aggregate convenience methods
 //!   - [`PCollection::approx_median_globally`](crate::PCollection::approx_median_globally)
 //!   - [`PCollection::approx_median_per_key`](crate::PCollection::approx_median_per_key)

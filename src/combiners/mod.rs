@@ -8,6 +8,7 @@
 //! - [`Max<T>`] -- maximum value.
 //! - [`Count<T>`] -- count of values.
 //! - [`AverageF64`] -- average as `f64` (values convertible to `f64`).
+//! - [`Mean<O>`] -- arithmetic mean with caller-chosen floating-point output (`f32` or `f64`).
 //! - [`DistinctCount<T>`] -- count of distinct values.
 //! - [`ToList<T>`] -- collect all values into a `Vec<T>`.
 //! - [`ToSet<T>`] -- collect unique values into a `HashSet<T>`.
@@ -25,7 +26,7 @@
 //! ```no_run
 //! # use anyhow::Result;
 //! use ironbeam::*;
-//! use ironbeam::combiners::{Sum, Min, Max, Count, AverageF64, DistinctCount, ToList, ToSet, Latest, TopK, BottomK, ApproxQuantiles, ApproxMedian};
+//! use ironbeam::combiners::{Sum, Min, Max, Count, AverageF64, Mean, DistinctCount, ToList, ToSet, Latest, TopK, BottomK, ApproxQuantiles, ApproxMedian};
 //! use ironbeam::window::Timestamped;
 //!
 //! let p = Pipeline::default();
@@ -51,6 +52,14 @@
 //! // AverageF64 (values must be Into<f64>)
 //! let avg = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
 //!     .combine_values(AverageF64::default())
+//!     .collect_seq()?;
+//!
+//! // Mean<O> — choose the output floating-point precision (f32 or f64)
+//! let mean_f32 = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
+//!     .combine_values(Mean::<f32>::new())
+//!     .collect_seq()?;
+//! let mean_f64 = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
+//!     .combine_values(Mean::<f64>::new())
 //!     .collect_seq()?;
 //!
 //! // DistinctCount (values must be Eq + Hash)
@@ -117,5 +126,5 @@ pub use distinct::{DistinctCount, DistinctSet, KMVApproxDistinctCount};
 pub use latest::Latest;
 pub use quantiles::{ApproxMedian, ApproxQuantiles, TDigest};
 pub use sampling::PriorityReservoir;
-pub use statistical::AverageF64;
+pub use statistical::{AverageF64, Mean};
 pub use topk::{BottomK, TopK};
