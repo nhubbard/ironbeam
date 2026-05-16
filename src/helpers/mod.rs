@@ -18,6 +18,7 @@
 //!   - [`PCollection::key_by`](crate::PCollection::key_by)
 //!   - [`PCollection::keys`](crate::PCollection::keys)
 //!   - [`PCollection::values`](crate::PCollection::values)
+//!   - [`PCollection::kv_swap`](crate::PCollection::kv_swap)
 //! - [`values`] - Value-only transformations on keyed collections
 //!   - [`PCollection::map_values`](crate::PCollection::map_values)
 //!   - [`PCollection::filter_values`](crate::PCollection::filter_values)
