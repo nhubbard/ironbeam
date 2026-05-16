@@ -71,6 +71,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 3.15 Empty / Singleton Source Short-Circuit | `Plan::is_empty` + `Plan::is_singleton` flags; runner fast-paths empty → `Vec::new()` (skips executor); singleton → forces `exec_seq`; `EmptySourceShortCircuit` / `SingletonSourceShortCircuit` opts; empty-guard excludes `CombineGlobal` chains       | 3.0.0  |
 | 4.1 Keys / Values                           | `keys()` — `PCollection<(K, V)>` → `PCollection<K>`; `values()` — `PCollection<(K, V)>` → `PCollection<V>`; thin wrappers over `map`                                                                                                                   | 3.1.0  |
 | 4.2 KvSwap                                  | `kv_swap()` — `PCollection<(K, V)>` → `PCollection<(V, K)>`; thin wrapper over `map`; permits non-`Hash` keys                                                                                                                                            | 3.1.0  |
+| 4.3 Mean Combiners                          | `Mean<O>` typed `CombineFn` (`f32` / `f64` output) implementing `LiftableCombiner`; `mean_globally::<O>()` / `mean_per_key::<O>()` helpers complementing `average_*`                                                                                     | 3.1.0  |
 
 ---
 
@@ -79,30 +80,6 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 These transforms were identified in the initial survey of Beam features but not assigned to earlier
 tiers. They are primarily convenience wrappers, less common aggregation patterns, or additional
 serialization formats.
-
-### 4.3 Mean Combiners
-
-**Status:** Not implemented.
-
-Generic mean over any numeric type, exposed as a named `CombineFn` struct. Complements the
-existing `average_globally` / `average_per_key` helpers by providing typed combiner structs
-for use with `combine_globally` / `combine_per_key`.
-
-**Beam equivalent:** `Mean.PerKey()` / `Mean.Globally()` in `combiners.py`
-
-**Proposed API:**
-```rust
-collection.mean_globally::<f64>()
-collection.mean_per_key::<f64>()
-// Combiner form:
-collection.combine_globally(MeanGlobally::new())
-collection.combine_per_key(MeanPerKey::new())
-```
-
-**Estimated complexity:** Low — the math is trivial; main work is implementing the `CombineFn` trait
-cleanly for generic numeric types.
-
----
 
 ### 4.4 Count.PerElement
 

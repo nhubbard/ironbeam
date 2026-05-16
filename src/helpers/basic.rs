@@ -9,14 +9,17 @@
 //! - [`PCollection::min_globally`] — minimum element → `PCollection<T>`
 //! - [`PCollection::max_globally`] — maximum element → `PCollection<T>`
 //! - [`PCollection::average_globally`] — arithmetic mean → `PCollection<f64>`
+//! - [`PCollection::mean_globally`] — arithmetic mean with caller-chosen output type → `PCollection<O>`
 //!
 //! ## Per-key operations — `PCollection<(K, V)>`
 //! - [`PCollection::sum_per_key`] — sum of values per key → `PCollection<(K, V)>`
 //! - [`PCollection::min_per_key`] — minimum value per key → `PCollection<(K, V)>`
 //! - [`PCollection::max_per_key`] — maximum value per key → `PCollection<(K, V)>`
 //! - [`PCollection::average_per_key`] — arithmetic mean per key → `PCollection<(K, f64)>`
+//! - [`PCollection::mean_per_key`] — arithmetic mean per key with caller-chosen output → `PCollection<(K, O)>`
 
-use crate::combiners::{AverageF64, Max, Min, Sum};
+use crate::collection::CombineFn;
+use crate::combiners::{AverageF64, Max, Mean, Min, Sum};
 use crate::{PCollection, RFBound};
 use std::hash::Hash;
 use std::ops::Add;
@@ -129,6 +132,47 @@ where
     #[must_use]
     pub fn average_globally(self) -> PCollection<f64> {
         self.combine_globally(AverageF64, None)
+    }
+}
+
+impl<T> PCollection<T>
+where
+    T: RFBound,
+{
+    /// Compute the arithmetic mean of all elements globally with a caller-chosen
+    /// floating-point output type.
+    ///
+    /// Generic over the output type `O`, which must be `f32` or `f64`. The input
+    /// element type `T` must be convertible to `O` via `Into<O>`. The
+    /// [`Mean`] combiner is used internally. Empty
+    /// collections produce `0.0` cast to `O`.
+    ///
+    /// This complements [`average_globally`](Self::average_globally), which is
+    /// fixed to `f64` output. Use `mean_globally::<f32>()` when memory
+    /// footprint matters more than precision.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let avg = from_vec(&p, vec![1u32, 2, 3, 4, 5])
+    ///     .mean_globally::<f64>()
+    ///     .collect_seq()?;
+    /// assert!((avg[0] - 3.0).abs() < 1e-12);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn mean_globally<O>(self) -> PCollection<O>
+    where
+        O: RFBound,
+        Mean<O>: CombineFn<T, (O, u64), O> + 'static,
+    {
+        self.combine_globally(Mean::<O>::new(), None)
     }
 }
 
@@ -256,5 +300,49 @@ where
     #[must_use]
     pub fn average_per_key(self) -> PCollection<(K, f64)> {
         self.combine_values(AverageF64)
+    }
+}
+
+impl<K, V> PCollection<(K, V)>
+where
+    K: RFBound + Eq + Hash,
+    V: RFBound,
+{
+    /// Compute the arithmetic mean of values per key with a caller-chosen
+    /// floating-point output type, producing `(K, O)`.
+    ///
+    /// Generic over the output type `O`, which must be `f32` or `f64`. The
+    /// input value type `V` must be convertible to `O` via `Into<O>`. The
+    /// [`Mean`] combiner is used internally. Returns
+    /// `0.0` cast to `O` for keys with zero values (cannot occur in practice
+    /// because `combine_values` only emits entries for observed keys).
+    ///
+    /// This complements [`average_per_key`](Self::average_per_key), which is
+    /// fixed to `f64` output. Use `mean_per_key::<f32>()` when memory footprint
+    /// matters more than precision.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let avgs = from_vec(&p, vec![("a", 1u32), ("a", 3), ("b", 10)])
+    ///     .mean_per_key::<f64>()
+    ///     .collect_seq()?;
+    /// // "a" -> (1 + 3) / 2 = 2.0, "b" -> 10.0
+    /// # let _ = avgs;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn mean_per_key<O>(self) -> PCollection<(K, O)>
+    where
+        O: RFBound,
+        Mean<O>: CombineFn<V, (O, u64), O> + 'static,
+    {
+        self.combine_values(Mean::<O>::new())
     }
 }
