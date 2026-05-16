@@ -69,6 +69,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 3.13 Dominator-Based Cache Placement        | Cooper's dominance algorithm on the pipeline DAG; `build_dominator_tree` + `find_cache_node_via_dominators` replace `find_deepest_fanout_ancestor`; enables CSE caching for linear pipelines and diamond topologies                                      | 3.0.0  |
 | 3.14 Adaptive Inter-Stage Partition Count   | `DynOp::cardinality_multiplier_hint() -> f64` (default 1.0); `exec_par` tracks `current_parts` updated per barrier (GBK→×0.1, CombineGlobal→1, Flatten→×N, CoGroup→×0.5); Reshuffle uses `current_parts`; `AdaptivePartitionCount { barrier_count }` opt | 3.0.0  |
 | 3.15 Empty / Singleton Source Short-Circuit | `Plan::is_empty` + `Plan::is_singleton` flags; runner fast-paths empty → `Vec::new()` (skips executor); singleton → forces `exec_seq`; `EmptySourceShortCircuit` / `SingletonSourceShortCircuit` opts; empty-guard excludes `CombineGlobal` chains       | 3.0.0  |
+| 4.1 Keys / Values                           | `keys()` — `PCollection<(K, V)>` → `PCollection<K>`; `values()` — `PCollection<(K, V)>` → `PCollection<V>`; thin wrappers over `map`                                                                                                                   | 3.1.0  |
 
 ---
 
@@ -77,24 +78,6 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 These transforms were identified in the initial survey of Beam features but not assigned to earlier
 tiers. They are primarily convenience wrappers, less common aggregation patterns, or additional
 serialization formats.
-
-### 4.1 Keys / Values
-
-**Status:** Not implemented.
-
-Extract only the keys or only the values from a `PCollection<(K, V)>`.
-
-**Beam equivalent:** `Keys.create()` / `Values.create()` in `util.py`
-
-**Proposed API:**
-```rust
-kv_collection.keys()   // PCollection<(K, V)> -> PCollection<K>
-kv_collection.values() // PCollection<(K, V)> -> PCollection<V>
-```
-
-**Estimated complexity:** Very Low — thin wrappers over `map(|(k, _)| k)` / `map(|(_, v)| v)`.
-
----
 
 ### 4.2 KvSwap
 
