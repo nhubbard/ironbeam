@@ -69,11 +69,12 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 3.13 Dominator-Based Cache Placement        | Cooper's dominance algorithm on the pipeline DAG; `build_dominator_tree` + `find_cache_node_via_dominators` replace `find_deepest_fanout_ancestor`; enables CSE caching for linear pipelines and diamond topologies                                      | 3.0.0  |
 | 3.14 Adaptive Inter-Stage Partition Count   | `DynOp::cardinality_multiplier_hint() -> f64` (default 1.0); `exec_par` tracks `current_parts` updated per barrier (GBK→×0.1, CombineGlobal→1, Flatten→×N, CoGroup→×0.5); Reshuffle uses `current_parts`; `AdaptivePartitionCount { barrier_count }` opt | 3.0.0  |
 | 3.15 Empty / Singleton Source Short-Circuit | `Plan::is_empty` + `Plan::is_singleton` flags; runner fast-paths empty → `Vec::new()` (skips executor); singleton → forces `exec_seq`; `EmptySourceShortCircuit` / `SingletonSourceShortCircuit` opts; empty-guard excludes `CombineGlobal` chains       | 3.0.0  |
-| 4.1 Keys / Values                           | `keys()` — `PCollection<(K, V)>` → `PCollection<K>`; `values()` — `PCollection<(K, V)>` → `PCollection<V>`; thin wrappers over `map`                                                                                                                   | 3.1.0  |
+| 4.1 Keys / Values                           | `keys()` — `PCollection<(K, V)>` → `PCollection<K>`; `values()` — `PCollection<(K, V)>` → `PCollection<V>`; thin wrappers over `map`                                                                                                                     | 3.1.0  |
 | 4.2 KvSwap                                  | `kv_swap()` — `PCollection<(K, V)>` → `PCollection<(V, K)>`; thin wrapper over `map`; permits non-`Hash` keys                                                                                                                                            | 3.1.0  |
 | 4.3 Mean Combiners                          | `Mean<O>` typed `CombineFn` (`f32` / `f64` output) implementing `LiftableCombiner`; `mean_globally::<O>()` / `mean_per_key::<O>()` helpers complementing `average_*`                                                                                     | 3.1.0  |
-| 4.4 Count.PerElement                        | `count_per_element()` — `PCollection<T: Hash + Eq>` → `PCollection<(T, u64)>`; counts occurrences of each distinct element                                                                                                                               | 2.4.0  |
+| 4.4 Count.PerElement                        | `count_per_element()` — `PCollection<T: Hash + Eq>` → `PCollection<(T, u64)>`; counts occurrences of each distinct element                                                                                                                               | 3.1.0  |
 | 4.5 ToDict Combiner                         | `ToDict<K, V>` typed `CombineFn` + `LiftableCombiner` materializing `(K, V)` pairs into a single `HashMap<K, V>`; `to_dict()` helper on `PCollection<(K, V)>`                                                                                            | 3.1.0  |
+| 4.6 GroupIntoBatches                        | `group_into_batches(n)` — `PCollection<(K, V)>` → `PCollection<(K, Vec<V>)>`; per-key chunking with each batch ≤ `n` elements (final per-key batch may be smaller)                                                                                       | 3.1.0  |
 
 ---
 
@@ -82,25 +83,6 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 These transforms were identified in the initial survey of Beam features but not assigned to earlier
 tiers. They are primarily convenience wrappers, less common aggregation patterns, or additional
 serialization formats.
-
-### 4.6 GroupIntoBatches
-
-**Status:** Not implemented.
-
-Group per-key values into fixed-size `Vec` batches of at most `N` elements. Unlike `GroupByKey`
-which collects all values, values are emitted as batches fill; the final batch may be smaller.
-
-**Beam equivalent:** `GroupIntoBatches.of(N)` in `util.py`
-
-**Proposed API:**
-```rust
-kv_collection.group_into_batches(n: usize) // PCollection<(K, V)> -> PCollection<(K, Vec<V>)>
-```
-
-**Estimated complexity:** Medium — requires per-key buffering in the runner and interaction with
-the graph optimizer to avoid excessive memory pressure.
-
----
 
 ### 4.7 BatchElements
 

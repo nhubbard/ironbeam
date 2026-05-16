@@ -12,6 +12,7 @@
 //! - [`batches`] - Process elements in fixed-size batches for efficiency
 //!   - [`PCollection::map_batches`](crate::PCollection::map_batches)
 //!   - [`PCollection::map_values_batches`](crate::PCollection::map_values_batches)
+//!   - [`PCollection::group_into_batches`](crate::PCollection::group_into_batches)
 //!
 //! ### Keyed Operations
 //! - [`keyed`] - Helpers for working with keyed collections `PCollection<(K, V)>`
