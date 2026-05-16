@@ -5,6 +5,7 @@
 //!   `(K, Vec<V>)` per key across the entire dataset.
 //! - [`PCollection<(K, V)>::keys`] extracts only the key component, producing `PCollection<K>`.
 //! - [`PCollection<(K, V)>::values`] extracts only the value component, producing `PCollection<V>`.
+//! - [`PCollection<(K, V)>::kv_swap`] swaps the key and value, producing `PCollection<(V, K)>`.
 //!
 //! ### Notes
 //! * `key_by` **clones** each element to keep ownership for the downstream collection.
@@ -241,5 +242,36 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
             id,
             _t: PhantomData,
         }
+    }
+}
+
+impl<K: RFBound, V: RFBound> PCollection<(K, V)> {
+    /// Swap the key and value of each pair, producing `PCollection<(V, K)>`.
+    ///
+    /// This is a thin wrapper over `map(|(k, v)| (v, k))`. It is the Ironbeam
+    /// equivalent of Apache Beam's `KvSwap.create()` transform.
+    ///
+    /// Unlike [`keys`](Self::keys) and [`values`](Self::values), `kv_swap` does
+    /// not require `K: Hash`; the swap only relies on cloning each component.
+    /// The resulting collection's downstream operations may, of course, impose
+    /// their own bounds on the new key type `V`.
+    ///
+    /// ### Example
+    /// ```no_run
+    /// use ironbeam::*;
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let pairs = from_vec(&p, vec![("a".to_string(), 1u32), ("b".into(), 2)]);
+    ///
+    /// let swapped = pairs.kv_swap(); // PCollection<(u32, String)>
+    /// let mut out = swapped.collect_seq()?;
+    /// out.sort_by_key(|(k, _)| *k);
+    /// assert_eq!(out, vec![(1u32, "a".to_string()), (2, "b".into())]);
+    /// # Ok(()) }
+    /// ```
+    #[must_use]
+    pub fn kv_swap(self) -> PCollection<(V, K)> {
+        self.map(|(k, v)| (v.clone(), k.clone()))
     }
 }
