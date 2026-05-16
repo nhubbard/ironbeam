@@ -3,6 +3,8 @@
 //! - [`PCollection::key_by`] maps each element to a `(K, T)` pair by deriving a key.
 //! - [`PCollection<(K, V)>::group_by_key`] performs a local/merge aggregation to produce
 //!   `(K, Vec<V>)` per key across the entire dataset.
+//! - [`PCollection<(K, V)>::keys`] extracts only the key component, producing `PCollection<K>`.
+//! - [`PCollection<(K, V)>::values`] extracts only the value component, producing `PCollection<V>`.
 //!
 //! ### Notes
 //! * `key_by` **clones** each element to keep ownership for the downstream collection.
@@ -105,6 +107,52 @@ impl<T: RFBound> PCollection<T> {
 }
 
 impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
+    /// Extract only the key from each `(K, V)` pair, discarding the value.
+    ///
+    /// This is a thin wrapper over `map(|(k, _)| k)`. It is the Ironbeam equivalent
+    /// of Apache Beam's `Keys.create()` transform.
+    ///
+    /// ### Example
+    /// ```no_run
+    /// use ironbeam::*;
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let pairs = from_vec(&p, vec![("a".to_string(), 1u32), ("b".into(), 2), ("c".into(), 3)]);
+    /// let keys = pairs.keys();
+    /// let mut out = keys.collect_seq()?;
+    /// out.sort();
+    /// assert_eq!(out, vec!["a".to_string(), "b".into(), "c".into()]);
+    /// # Ok(()) }
+    /// ```
+    #[must_use]
+    pub fn keys(self) -> PCollection<K> {
+        self.map(|(k, _)| k.clone())
+    }
+
+    /// Extract only the value from each `(K, V)` pair, discarding the key.
+    ///
+    /// This is a thin wrapper over `map(|(_, v)| v)`. It is the Ironbeam equivalent
+    /// of Apache Beam's `Values.create()` transform.
+    ///
+    /// ### Example
+    /// ```no_run
+    /// use ironbeam::*;
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let pairs = from_vec(&p, vec![("a".to_string(), 1u32), ("b".into(), 2), ("c".into(), 3)]);
+    /// let vals = pairs.values();
+    /// let mut out = vals.collect_seq()?;
+    /// out.sort();
+    /// assert_eq!(out, vec![1u32, 2, 3]);
+    /// # Ok(()) }
+    /// ```
+    #[must_use]
+    pub fn values(self) -> PCollection<V> {
+        self.map(|(_, v)| v.clone())
+    }
+
     /// Convert a `PCollection<(K, V)>` directly into a `HashMap<K, V>`.
     ///
     /// This is a terminal operation that collects all key-value pairs into a single
