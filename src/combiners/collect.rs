@@ -1,8 +1,8 @@
-//! Collection combiners: `ToList`, `ToSet` for gathering values.
+//! Collection combiners: `ToList`, `ToSet`, `ToDict` for gathering values.
 
 use crate::RFBound;
 use crate::collection::{CombineFn, LiftableCombiner};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
 
@@ -167,6 +167,99 @@ where
     T: RFBound + Hash + Eq,
 {
     fn build_from_group(&self, values: &[T]) -> HashSet<T> {
+        values.iter().cloned().collect()
+    }
+}
+
+/* ===================== ToDict<K, V> ===================== */
+
+/// Collects `(K, V)` pairs into a `HashMap<K, V>`.
+///
+/// Operates as a `CombineFn<(K, V), HashMap<K, V>, HashMap<K, V>>`, i.e. its
+/// input element type is the *pair* `(K, V)`. This makes it suitable for
+/// `combine_globally` on a `PCollection<(K, V)>` to materialize the entire
+/// keyed stream as a single `HashMap` — typically for use as a side input.
+///
+/// This is the Ironbeam equivalent of Apache Beam's `ToDict` combiner.
+///
+/// - Accumulator: `HashMap<K, V>`
+/// - Output: `HashMap<K, V>`
+///
+/// # Requirements
+///
+/// Keys must implement `Hash + Eq`.
+///
+/// # Duplicate keys
+///
+/// When the same key appears more than once, **the last value inserted wins**
+/// at each level (per-partition `add_input` and cross-partition `merge`).
+/// Because partition order is not stable, the surviving value for a duplicated
+/// key under parallel execution is **unspecified** — match Beam's `ToDict`
+/// semantics. If you need deterministic behavior for duplicate keys, combine
+/// values per key first (e.g. `combine_values` with `Sum`, `Latest`, etc.) and
+/// then call `combine_globally(ToDict::new(), None)`.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use anyhow::Result;
+/// use ironbeam::*;
+/// use ironbeam::combiners::ToDict;
+/// use std::collections::HashMap;
+///
+/// # fn main() -> Result<()> {
+/// let p = Pipeline::default();
+///
+/// // Materialize a keyed collection as a single HashMap.
+/// let dict = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3)])
+///     .combine_globally(ToDict::new(), None)
+///     .collect_seq()?;
+///
+/// let expected: HashMap<&str, u32> =
+///     [("a", 1u32), ("b", 2), ("c", 3)].iter().copied().collect();
+/// assert_eq!(dict[0], expected);
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ToDict<K, V>(PhantomData<(K, V)>);
+
+impl<K, V> ToDict<K, V> {
+    /// Creates a new `ToDict` combiner.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<K, V> CombineFn<(K, V), HashMap<K, V>, HashMap<K, V>> for ToDict<K, V>
+where
+    K: RFBound + Hash + Eq,
+    V: RFBound,
+{
+    fn create(&self) -> HashMap<K, V> {
+        HashMap::new()
+    }
+
+    fn add_input(&self, acc: &mut HashMap<K, V>, kv: (K, V)) {
+        acc.insert(kv.0, kv.1);
+    }
+
+    fn merge(&self, acc: &mut HashMap<K, V>, other: HashMap<K, V>) {
+        acc.extend(other);
+    }
+
+    fn finish(&self, acc: HashMap<K, V>) -> HashMap<K, V> {
+        acc
+    }
+}
+
+impl<K, V> LiftableCombiner<(K, V), HashMap<K, V>, HashMap<K, V>> for ToDict<K, V>
+where
+    K: RFBound + Hash + Eq,
+    V: RFBound,
+{
+    fn build_from_group(&self, values: &[(K, V)]) -> HashMap<K, V> {
         values.iter().cloned().collect()
     }
 }
