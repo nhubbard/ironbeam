@@ -56,10 +56,10 @@
 //!     .collect_seq()?;
 //!
 //! // Mean<O> — choose the output floating-point precision (f32 or f64)
-//! let mean_f32 = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
+//! let mean_f32 = from_vec(&p, vec![("a", 1i16), ("a", 2i16), ("a", 3i16)])
 //!     .combine_values(Mean::<f32>::new())
 //!     .collect_seq()?;
-//! let mean_f64 = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
+//! let mean_f64 = from_vec(&p, vec![("a", 1i16), ("a", 2i16), ("a", 3i16)])
 //!     .combine_values(Mean::<f64>::new())
 //!     .collect_seq()?;
 //!
