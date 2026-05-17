@@ -155,6 +155,10 @@
 //!   - [`OperationBuilder`] - Fluent API for operation configuration
 //!   - [`run_with_context`] - Track execution metadata
 //!
+//! ### Display / String Conversion
+//! - [`display`] - `Display`-based string conversion
+//!   - [`PCollection::to_display_string`](crate::PCollection::to_display_string)
+//!
 //! ### Regex Transforms
 //! - [`regex`] - Regex-based transforms for `PCollection<String>`
 //!   - [`PCollection::regex_matches`](crate::PCollection::regex_matches)
@@ -258,6 +262,7 @@ pub mod combine_global;
 pub mod common;
 pub mod count;
 pub mod csv;
+pub mod display;
 pub mod distinct;
 pub mod filter;
 pub mod flatten;

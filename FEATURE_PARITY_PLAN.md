@@ -76,6 +76,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.5 ToDict Combiner                         | `ToDict<K, V>` typed `CombineFn` + `LiftableCombiner` materializing `(K, V)` pairs into a single `HashMap<K, V>`; `to_dict()` helper on `PCollection<(K, V)>`                                                                                            | 3.1.0  |
 | 4.6 GroupIntoBatches                        | `group_into_batches(n)` — `PCollection<(K, V)>` → `PCollection<(K, Vec<V>)>`; per-key chunking with each batch ≤ `n` elements (final per-key batch may be smaller)                                                                                       | 3.1.0  |
 | 4.7 BatchElements                           | `batch_elements(n)` / `batch_by_size(max_bytes, size_fn)` — `PCollection<T>` → `PCollection<Vec<T>>`; partition-local count- or size-bounded batching with explicit size estimator and lone-oversized-element semantics                                  | 3.1.0  |
+| 4.8 ToString                                | `to_display_string()` — `PCollection<T: Display>` → `PCollection<String>`; named to avoid collision with the inherent `ToString::to_string`                                                                                                              | 3.1.0  |
 
 ---
 
@@ -84,24 +85,6 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 These transforms were identified in the initial survey of Beam features but not assigned to earlier
 tiers. They are primarily convenience wrappers, less common aggregation patterns, or additional
 serialization formats.
-
-### 4.8 ToString
-
-**Status:** Not implemented.
-
-Convert each element to its `Display` representation as a `String`.
-
-**Beam equivalent:** `ToString.elements()` in `util.py`
-
-**Proposed API:**
-```rust
-collection.to_display_string() // PCollection<T: Display> -> PCollection<String>
-// Named to_display_string to avoid collision with the inherent to_string() method.
-```
-
-**Estimated complexity:** Very Low
-
----
 
 ### 4.9 Tee
 
