@@ -77,6 +77,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.6 GroupIntoBatches                        | `group_into_batches(n)` — `PCollection<(K, V)>` → `PCollection<(K, Vec<V>)>`; per-key chunking with each batch ≤ `n` elements (final per-key batch may be smaller)                                                                                       | 3.1.0  |
 | 4.7 BatchElements                           | `batch_elements(n)` / `batch_by_size(max_bytes, size_fn)` — `PCollection<T>` → `PCollection<Vec<T>>`; partition-local count- or size-bounded batching with explicit size estimator and lone-oversized-element semantics                                  | 3.1.0  |
 | 4.8 ToString                                | `to_display_string()` — `PCollection<T: Display>` → `PCollection<String>`; named to avoid collision with the inherent `ToString::to_string`                                                                                                              | 3.1.0  |
+| 4.9 Tee                                     | `tee()` → `(PCollection<T>, PCollection<T>)`; `tee_n(n)` → `Vec<PCollection<T>>`; ergonomic fan-out wrappers leveraging the v3.0.0 dominator-based cache placement                                                                                       | 3.1.0  |
 
 ---
 
@@ -85,27 +86,6 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 These transforms were identified in the initial survey of Beam features but not assigned to earlier
 tiers. They are primarily convenience wrappers, less common aggregation patterns, or additional
 serialization formats.
-
-### 4.9 Tee
-
-**Status:** Not implemented.
-
-Duplicate a `PCollection` to N downstream branches without re-executing upstream work. Inserts a
-fan-out node in the execution graph so that the source transform runs exactly once and all branches
-consume from the same materialized output.
-
-**Beam equivalent:** `Tee` in `util.py`
-
-**Proposed API:**
-```rust
-let (branch_a, branch_b) = collection.tee();
-let branches: Vec<PCollection<_>> = collection.tee_n(5);
-```
-
-**Estimated complexity:** Medium — requires runner-level fan-out support and graph optimizer
-awareness of the shared-output semantics.
-
----
 
 ### 4.10 MessagePack I/O
 

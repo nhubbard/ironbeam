@@ -159,6 +159,11 @@
 //! - [`display`] - `Display`-based string conversion
 //!   - [`PCollection::to_display_string`](crate::PCollection::to_display_string)
 //!
+//! ### Fan-out
+//! - [`tee`] - Duplicate a collection for multiple downstream branches
+//!   - [`PCollection::tee`](crate::PCollection::tee)
+//!   - [`PCollection::tee_n`](crate::PCollection::tee_n)
+//!
 //! ### Regex Transforms
 //! - [`regex`] - Regex-based transforms for `PCollection<String>`
 //!   - [`PCollection::regex_matches`](crate::PCollection::regex_matches)
@@ -278,6 +283,7 @@ pub mod sampling;
 pub mod side_inputs;
 pub mod statistical;
 pub mod stdlib;
+pub mod tee;
 pub mod timestamped;
 pub mod topk;
 pub mod try_process;
