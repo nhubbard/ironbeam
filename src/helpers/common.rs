@@ -111,7 +111,7 @@ impl<T: RFBound> PCollection<T> {
     pub fn take(self, n: usize) -> Self {
         let op: Arc<dyn DynOp> = Arc::new(TakeOp::<T> {
             n,
-            _t: std::marker::PhantomData,
+            _t: PhantomData,
         });
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);

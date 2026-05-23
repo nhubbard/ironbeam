@@ -7,24 +7,24 @@
 //!    nodes that have no forward path to the target terminal are pruned from the graph.
 //!    This is most impactful in multi-terminal graphs (e.g. `partition!`, tee patterns)
 //!    where building the plan for terminal A should not include branches leading only to
-//!    terminal B.  Running this before `backwalk_linear` also prevents ambiguous
+//!    terminal B. Running this before `backwalk_linear` also prevents ambiguous
 //!    predecessor selection when dead branches introduce extra incoming edges at a shared
 //!    node.
 //! 1. **Fuse stateless ops** -- adjacent `Node::Stateless` blocks are concatenated.
 //! 2. **`CoGroup` input reordering** -- input subchains of every `Flatten` node are
-//!    sorted by estimated cardinality (ascending).  `cogroup_by_key!` implements N-way
+//!    sorted by estimated cardinality (ascending). `cogroup_by_key!` implements N-way
 //!    grouping as a `Flatten` (one subplan per input collection) followed by a
 //!    `GroupByKey`; placing smaller subchains first reduces peak intermediate memory in
-//!    sequential execution.  Subchains with unknown cardinality are moved to the end.
+//!    sequential execution. Subchains with unknown cardinality are moved to the end.
 //! 3. **Predicate pushdown before barriers** -- within a fused `Stateless` block immediately
 //!    before a `GroupByKey` *or* `Reshuffle`, ops that are `key_preserving + value_only +
 //!    cardinality_reducing` (e.g. `filter_values`) are split into their own earlier block when
-//!    doing so is type-safe and cost-beneficial (cost-hint gate).  Because `Reshuffle` never
+//!    doing so is type-safe and cost-beneficial (cost-hint gate). Because `Reshuffle` never
 //!    alters element content or count, the same pushdown rationale that applies to `GroupByKey`
 //!    applies equally, reducing the volume of elements that flow into the redistribution step.
 //! 4. **Predicate pushdown into Flatten subplans** -- `value_only + cardinality_reducing` ops
 //!    that immediately follow a `Flatten` are cloned into the tail of every Flatten input
-//!    subplan and removed from the post-Flatten block.  Because each subplan produces the same
+//!    subplan and removed from the post-Flatten block. Because each subplan produces the same
 //!    element type that the merge function expects, pushing a filter *before* the fan-in reduces
 //!    the volume of elements that flow into the merge step.
 //! 5. **Reorder value-only runs** -- within a stateless block where *all* ops are
@@ -35,8 +35,8 @@
 //!    `(K, V)` pairs via `local_pairs`.
 //! 7. **Eliminate redundant Reshuffle** -- a `Reshuffle` immediately before a shuffle
 //!    barrier (`GroupByKey`, `CombineValues`, `CoGroup`, `Flatten`) is a no-op because
-//!    the barrier already redistributes all elements.  Two consecutive `Reshuffle` nodes
-//!    reduce to one for the same reason.  Runs after pass 6 so that lifted combiners
+//!    the barrier already redistributes all elements. Two consecutive `Reshuffle` nodes
+//!    reduce to one for the same reason. Runs after pass 6 so that lifted combiners
 //!    (which remove the `GroupByKey`) are visible as `CombineValues` targets.
 //! 8. **Drop mid-materialized** -- only keep a `Materialized` node if it is the final
 //!    terminal in the chain.
@@ -85,10 +85,10 @@ pub struct Plan {
     /// plan-build time.
     ///
     /// Populated by [`build_plan`] from
-    /// [`Pipeline::node_names_snapshot`](crate::Pipeline::node_names_snapshot). The
+    /// [`Pipeline::node_names_snapshot`](Pipeline::node_names_snapshot). The
     /// planner itself does not consume this map — it is forwarded to the
-    /// [`ExecutionExplanation`] so the local explain view and external backends
-    /// (e.g. the Google Dataflow translator) can render meaningful labels next to
+    /// [`ExecutionExplanation`] so the local explainer view and external backends
+    /// (e.g., the Google Dataflow translator) can render meaningful labels next to
     /// generic op categories like `Stateless` / `GroupByKey`.
     pub node_names: HashMap<NodeId, String>,
 }
@@ -166,7 +166,7 @@ pub enum OptimizationDecision {
     /// Dead-subtree nodes were pruned from the pipeline graph before chain extraction.
     ///
     /// Any node that has no forward path to the target terminal is unreachable from
-    /// the perspective of the plan being built, and can be safely removed.  This
+    /// the perspective of the plan being built and can be safely removed. This
     /// optimization is most impactful in multi-terminal graphs (e.g. `partition!`,
     /// tee patterns) where building the plan for terminal A should not pay the cost
     /// of evaluating branches that lead exclusively to terminal B.
@@ -179,13 +179,13 @@ pub enum OptimizationDecision {
     ///
     /// In sequential execution the runner replays subchains one-at-a-time; placing
     /// cheaper (smaller) subchains first reduces peak intermediate memory and can
-    /// allow downstream combiners to see useful data sooner.  Subchains whose
-    /// cardinality cannot be estimated (no `Source` with a known length) are sorted
+    /// allow downstream combiners to see useful data sooner. Subchains, whose
+    /// cardinality cannot be estimated (no `Source` with a known length), are sorted
     /// to the end as a conservative default.
     ///
     /// `original_order[i]` is the original zero-based index of the chain that was
-    /// at position `i` before sorting.  `new_order[i]` is the original index of the
-    /// chain that occupies position `i` after sorting.
+    /// at position `i` before sorting. `new_order[i]` is the original index of the
+    /// chain that occupies the position `i` after sorting.
     ReorderedCoGroupInputs {
         /// Original subchain ordering (always `[0, 1, 2, …, n-1]`).
         original_order: Vec<usize>,
@@ -206,8 +206,8 @@ pub enum OptimizationDecision {
     /// The terminal stateless block ends with a `take(N)` / `first()` operator.
     ///
     /// The runner will stop collecting elements across partitions as soon as `N`
-    /// total have been gathered, providing early termination without executing
-    /// the full pipeline.  Each partition is also individually capped at `N`
+    /// total items have been gathered, providing early termination without
+    /// executing the full pipeline. Each partition is also individually capped at `N`
     /// elements by the internal `TakeOp` stateless operator.
     LimitPushdown {
         /// The maximum number of elements to collect.
@@ -251,19 +251,19 @@ pub enum OptimizationDecision {
     ///
     /// Before the hash-join phase, the `exec` closure builds a Bloom filter from the
     /// keys of the smaller (or semantically-required) join side and discards elements
-    /// from the other side whose key is definitively absent.  Elements eliminated this
+    /// from the other side whose key is definitively absent. Elements eliminated this
     /// way never reach the hash-map construction step, reducing both peak memory and
     /// CPU cost for sparse joins.
     ///
     /// `smaller_side` identifies which side's keys are used to build the filter:
-    /// - **Inner join**: the side with smaller estimated cardinality (or `"left"` /
+    /// - **Inner join**: the side with a smaller estimated cardinality (or `"left"` /
     ///   `"right"` when one or both cardinalities are unknown).
     /// - **Left outer join**: always `"left"` (only the right side is filtered).
     /// - **Right outer join**: always `"right"` (only the left side is filtered).
     ///
     /// `estimated_reduction_pct` is a planner-time upper-bound estimate of the fraction
     /// of the *filtered* side's elements that will be discarded, expressed as a
-    /// percentage `0–100`.  Computed as
+    /// percentage `0–100`. Computed as
     /// `max(0, ⌊(|larger| − |smaller|) / |larger| × 100⌋)` when both cardinalities are
     /// available; `0` otherwise.
     BloomSemiJoin {
@@ -289,7 +289,7 @@ pub struct ExecutionExplanation {
     /// [`PCollection::with_name`](crate::PCollection::with_name).
     ///
     /// Snapshot of the source [`Pipeline`]'s name map at plan-build time
-    /// (see [`Plan::node_names`]).  Empty when no node has been named.  The
+    /// (see [`Plan::node_names`]). Empty when no node has been named. The
     /// [`Display`] impl renders these as a "NAMED OPERATIONS" footer block
     /// when non-empty; external backends consult the same data when
     /// translating the graph to a remote runner.
@@ -921,18 +921,18 @@ fn estimate_subchain_cardinality(chain: &[Node]) -> Option<usize> {
 ///    emits a [`OptimizationDecision::ReorderedCoGroupInputs`] recording both the
 ///    original and new ordering.
 ///
-/// **Why `Flatten` rather than `Node::CoGroup`?**  The `cogroup_by_key!` macro
+/// **Why `Flatten` rather than `Node::CoGroup`?** The `cogroup_by_key!` macro
 /// implements N-way grouping as a `Flatten` (one subplan per input collection) followed
-/// by a `GroupByKey`, **not** as a binary `CoGroup` join tree.  All subchains in such a
-/// `Flatten` produce the same tagged element type — making reordering type-safe.  The
+/// by a `GroupByKey`, **not** as a binary `CoGroup` join tree. All subchains in such a
+/// `Flatten` produce the same tagged element type — making reordering type-safe. The
 /// `Node::CoGroup` binary join has distinct left/right value types baked into its
 /// `exec` closure, so swapping those chains would produce a runtime type mismatch.
 ///
 /// **Performance rationale:** In sequential execution the runner replays subchains
-/// one-at-a-time.  Scheduling cheaper (smaller) subchains first reduces the peak
+/// one-at-a-time. Scheduling cheaper (smaller) subchains first reduces the peak
 /// number of intermediate elements held in memory before the downstream `GroupByKey`
 /// or merge step can consume them, and can surface data to later pipeline stages
-/// sooner.  In parallel execution (rayon) all subplans run concurrently, so ordering
+/// sooner. In parallel execution (rayon) all subplans run concurrently, so ordering
 /// has no effect on wall-clock time but also incurs no overhead.
 fn reorder_cogroup_inputs_pass(chain: Vec<Node>) -> (Vec<Node>, Vec<OptimizationDecision>) {
     let mut out = Vec::with_capacity(chain.len());
@@ -1120,15 +1120,15 @@ fn count_adaptive_barriers(chain: &[Node]) -> usize {
 ///
 /// Performs a backward BFS from `terminal`, following edges in reverse (`to → from`).
 /// Every node reachable by this traversal is an ancestor of `terminal` — i.e. it can
-/// reach `terminal` by following edges forward.  Nodes that are *not* reached are dead:
+/// reach `terminal` by following edges forward. Nodes that are *not* reached are dead:
 /// they belong to branches of the graph that lead exclusively to some other terminal and
 /// can be safely pruned before `backwalk_linear` is called.
 ///
 /// **Why run this before `backwalk_linear`?**  In a multi-terminal graph (e.g. after
 /// `partition!` or a tee), a shared source node has out-degree > 1 — one edge per
-/// branch.  `backwalk_linear` uses `edges.iter().find(|(_, to)| *to == cur)`, which
-/// picks the *first* matching edge.  If a dead-branch edge happens to appear first in
-/// the slice, `backwalk_linear` would follow the wrong predecessor.  Pruning dead nodes
+/// branch. `backwalk_linear` uses `edges.iter().find(|(_, to)| *to == cur)`, which
+/// picks the *first* matching edge. If a dead-branch edge happens to appear first in
+/// the slice, `backwalk_linear` would follow the wrong predecessor. Pruning dead nodes
 /// (and their edges) first guarantees that only one in-edge survives per node on the
 /// live path, making predecessor selection unambiguous.
 ///
@@ -1253,7 +1253,7 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
 /// 1. Splits `ops` into `pushable` (both `value_only` and `cardinality_reducing` are true)
 ///    and `remaining` (everything else).
 /// 2. Clones each `pushable` op and appends them as a new trailing `Stateless` block to
-///    **every** input subplan inside `Flatten`.  Because `Flatten` executes each subplan
+///    **every** input subplan inside `Flatten`. Because `Flatten` executes each subplan
 ///    independently, the filter runs once per subplan, reducing the elements that reach
 ///    the coalesce/merge step.
 /// 3. Reconstructs the `Flatten` node with the augmented subplans.
@@ -1264,7 +1264,7 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
 ///
 /// **Safety invariant:** only `value_only` ops are eligible because `value_only` guarantees
 /// the element type is preserved — the subplan output remains the same type that the
-/// `coalesce` and `merge` closures expect.  A non-`value_only` op (e.g. `map_values`) could
+/// `coalesce` and `merge` closures expect. A non-`value_only` op (e.g. `map_values`) could
 /// silently change the element type and cause a runtime downcast failure inside the runner.
 fn push_down_into_flatten_pass(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
     if chain.len() < 2 {
@@ -1393,7 +1393,7 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
 
 /// Hoist cardinality-reducing ops to run as early as possible before a shuffle barrier.
 ///
-/// Treated barriers: [`Node::GroupByKey`] and [`Node::Reshuffle`].  Both redistribute
+/// Treated barriers: [`Node::GroupByKey`] and [`Node::Reshuffle`]. Both redistribute
 /// all elements but neither alters element content or count, so a filter that would be
 /// beneficial to run before a `GroupByKey` is equally beneficial before a `Reshuffle`.
 ///
@@ -1410,7 +1410,7 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
 ///      is itself `value_only + key_preserving` (guaranteeing the `(K, V)` type is
 ///      intact at the point we insert the filter block).
 ///    - **Cost-beneficial** (the cost-hint gate): at least one such preceding remaining op
-///      has a higher `cost_hint` than the cheapest pushable op.  If the pushable ops are
+///      has a higher `cost_hint` than the cheapest pushable op. If the pushable ops are
 ///      already first, or the preceding ops are equally cheap, splitting would add node
 ///      dispatch overhead with no throughput benefit.
 ///
@@ -1470,7 +1470,7 @@ fn push_down_before_barrier_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
             .all(|op| op.value_only() && op.key_preserving());
 
         // Benefit: at least one preceding op is strictly more expensive than
-        // the cheapest pushable op.  Equal-cost shuffling adds dispatch
+        // the cheapest pushable op. Equal-cost shuffling adds dispatch
         // overhead with no throughput gain.
         let beneficial = pre_pushable
             .iter()
@@ -1553,9 +1553,9 @@ fn lift_gbk_then_combine_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
 ///    [`Node::CombineValues`], [`Node::CoGroup`], or [`Node::Flatten`] — each of
 ///    which already materializes and redistributes all elements across partitions.
 ///    Reshuffling immediately before such a barrier is therefore a wasted O(N) pass.
-/// 2. It immediately precedes another [`Node::Reshuffle`].  After the first pass
+/// 2. It immediately precedes another [`Node::Reshuffle`]. After the first pass
 ///    elements are already evenly distributed; a second pass produces the same
-///    distribution.  The leading (first) `Reshuffle` is dropped, keeping the
+///    distribution. The leading (first) `Reshuffle` is dropped, keeping the
 ///    trailing one so the redistribution still occurs once.
 ///
 /// The pass scans the chain left-to-right and skips (drops) the current node
@@ -1633,7 +1633,7 @@ fn drop_mid_materialized_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
 /// DFS post-order traversal from `source` through the forward edge graph.
 ///
 /// Nodes are appended to `order` after all their successors have been visited
-/// (post-order).  Reversing the result yields *reverse post-order* (RPO), which
+/// (post-order). Reversing the result yields *reverse post-order* (RPO), which
 /// Cooper's dominance algorithm requires.
 fn dfs_postorder(
     node: NodeId,
@@ -1652,7 +1652,7 @@ fn dfs_postorder(
 
 /// Walk up the dominator tree from `b1` and `b2` until they meet.
 ///
-/// This is the *intersect* subroutine of Cooper's dominance algorithm.  Both
+/// This is the *intersect* subroutine of Cooper's dominance algorithm. Both
 /// fingers advance toward the root along the `idom` chain, guided by the RPO
 /// numbering so the deeper finger always moves first.
 fn dominator_intersect(
@@ -1683,13 +1683,13 @@ fn dominator_intersect(
 /// DAGs that Ironbeam produces.
 ///
 /// A node `d` **dominates** node `n` when every directed path from `source` to
-/// `n` passes through `d`.  The *immediate* dominator of `n` is the deepest
+/// `n` passes through `d`. The *immediate* dominator of `n` is the deepest
 /// such `d ≠ n` in the dominator tree.
 ///
 /// # Returns
 ///
 /// A `HashMap<NodeId, NodeId>` where each key maps to its immediate dominator.
-/// The `source` node maps to itself as a sentinel.  Nodes unreachable from
+/// The `source` node maps to itself as a sentinel. Nodes unreachable from
 /// `source` are absent from the map.
 fn build_dominator_tree(edges: &[(NodeId, NodeId)], source: NodeId) -> HashMap<NodeId, NodeId> {
     let mut succs: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
@@ -1752,12 +1752,12 @@ fn build_dominator_tree(edges: &[(NodeId, NodeId)], source: NodeId) -> HashMap<N
 ///
 /// - **Diamond patterns** — when two input branches merge at a join node (e.g. a
 ///   `Flatten`), the join node is the immediate dominator of any terminal beyond
-///   it.  The old heuristic walked backward and found the *fan-out* node (the
-///   fork, not the join), yielding a shallow, near-trivial cache point.  The
+///   it. The old heuristic walked backward and found the *fan-out* node (the
+///   fork, not the join), yielding a shallow, near-trivial cache point. The
 ///   dominator approach correctly identifies the *join* node, caching the full
 ///   merged prefix.
 /// - **Linear pipelines** — for a single chain with no branching, the old
-///   heuristic returned `None` (no caching).  The dominator approach returns the
+///   heuristic returned `None` (no caching). The dominator approach returns the
 ///   node immediately before `terminal`, enabling caching on repeated calls for
 ///   the same terminal.
 ///

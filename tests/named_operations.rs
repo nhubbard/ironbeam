@@ -333,3 +333,189 @@ fn test_no_named_section_when_pipeline_unused() {
     assert!(expl.node_names.is_empty(), "{s}");
     assert!(!s.contains("NAMED OPERATIONS"), "{s}");
 }
+
+// ── named_scope — composite labelling ────────────────────────────────────────
+
+/// Nodes created inside a `named_scope` are auto-labelled `"<path>/<counter>"`,
+/// with the counter starting at `0` per scope frame.
+#[test]
+fn test_named_scope_auto_labels_inserted_nodes() {
+    let p = Pipeline::default();
+    let _coll = p.named_scope("WordCount", |p| {
+        let a = from_vec(p, vec![1u32, 2, 3]); // → "WordCount/0"
+        let b = a.map(|x| x + 1); // → "WordCount/1"
+        b.filter(|x| *x > 0) //          → "WordCount/2"
+    });
+
+    let snap = p.node_names_snapshot();
+    let mut names: Vec<&String> = snap.values().collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec![
+            &String::from("WordCount/0"),
+            &String::from("WordCount/1"),
+            &String::from("WordCount/2"),
+        ]
+    );
+}
+
+/// `with_name` inside a scope replaces the auto-generated label with
+/// `"<path>/<user-supplied>"`.
+#[test]
+fn test_named_scope_with_name_qualifies_user_label() {
+    let p = Pipeline::default();
+    let coll = p.named_scope("WordCount", |p| {
+        from_vec(p, vec![1u32, 2, 3])
+            .with_name("Source")
+            .filter(|x| *x > 0)
+            .with_name("KeepPositive")
+    });
+
+    let snap = p.node_names_snapshot();
+    let names: std::collections::HashSet<&String> = snap.values().collect();
+    assert!(names.contains(&String::from("WordCount/Source")));
+    assert!(names.contains(&String::from("WordCount/KeepPositive")));
+    assert_eq!(
+        p.node_name(coll.node_id()).as_deref(),
+        Some("WordCount/KeepPositive")
+    );
+}
+
+/// `with_name` outside any scope behaves as before — no prefix is added.
+#[test]
+fn test_with_name_outside_scope_is_raw() {
+    let p = Pipeline::default();
+    let coll = from_vec(&p, vec![1u32]).with_name("PlainLabel");
+    assert_eq!(p.node_name(coll.node_id()).as_deref(), Some("PlainLabel"));
+}
+
+/// Nested scopes compose into a "/"-joined path.
+#[test]
+fn test_named_scope_nested() {
+    let p = Pipeline::default();
+    let coll = p.named_scope("WordCount", |p| {
+        p.named_scope("Split", |p| {
+            from_vec(p, vec!["hi there".to_string()])
+                .flat_map(|s: &String| s.split_whitespace().map(String::from).collect())
+                .with_name("Words")
+        })
+    });
+    assert_eq!(
+        p.node_name(coll.node_id()).as_deref(),
+        Some("WordCount/Split/Words")
+    );
+}
+
+/// Per-frame counters: the outer frame's counter is not advanced by
+/// inner-scope inserts.
+#[test]
+fn test_named_scope_per_frame_counters() {
+    let p = Pipeline::default();
+    p.named_scope("Outer", |p| {
+        let _a = from_vec(p, vec![1u32]); // → "Outer/0"
+        p.named_scope("Inner", |p| {
+            let _b = from_vec(p, vec![2u32]); // → "Outer/Inner/0"
+            let _c = from_vec(p, vec![3u32]); // → "Outer/Inner/1"
+        });
+        let _d = from_vec(p, vec![4u32]); // → "Outer/1" (outer counter resumes from 1)
+    });
+
+    let snap = p.node_names_snapshot();
+    let mut values: Vec<&String> = snap.values().collect();
+    values.sort();
+    assert_eq!(
+        values,
+        vec![
+            &String::from("Outer/0"),
+            &String::from("Outer/1"),
+            &String::from("Outer/Inner/0"),
+            &String::from("Outer/Inner/1"),
+        ]
+    );
+}
+
+/// After the scope returns, the scope stack is empty so `with_name` on a
+/// later collection is no longer prefixed.
+#[test]
+fn test_named_scope_pops_on_return() {
+    let p = Pipeline::default();
+    let inside = p.named_scope("MyScope", |p| from_vec(p, vec![1u32]).with_name("Inside"));
+    let outside = from_vec(&p, vec![2u32]).with_name("Outside");
+
+    assert_eq!(
+        p.node_name(inside.node_id()).as_deref(),
+        Some("MyScope/Inside")
+    );
+    assert_eq!(p.node_name(outside.node_id()).as_deref(), Some("Outside"));
+}
+
+/// `named_scope` forwards the closure's return value verbatim.
+#[test]
+fn test_named_scope_forwards_closure_return() {
+    let p = Pipeline::default();
+    let value: u32 = p.named_scope("Whatever", |_| 42);
+    assert_eq!(value, 42);
+}
+
+/// An empty closure is a no-op: no nodes get named, and the scope stack
+/// returns to empty.
+#[test]
+fn test_named_scope_empty_closure_is_noop() {
+    let p = Pipeline::default();
+    p.named_scope("Nope", |_| {});
+    let after = from_vec(&p, vec![1u32]).with_name("AfterEmpty");
+    assert_eq!(p.node_name(after.node_id()).as_deref(), Some("AfterEmpty"));
+}
+
+/// If the closure panics, the scope is still popped before the panic
+/// propagates — proven by checking that a subsequent `with_name` call
+/// outside the scope is not prefixed.
+#[test]
+fn test_named_scope_panic_safe() {
+    use std::panic::AssertUnwindSafe;
+
+    let p = Pipeline::default();
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        p.named_scope("Panicky", |_| panic!("boom"));
+    }));
+    assert!(result.is_err());
+
+    // Scope stack popped — subsequent with_name has no prefix.
+    let coll = from_vec(&p, vec![1u32]).with_name("AfterPanic");
+    assert_eq!(p.node_name(coll.node_id()).as_deref(), Some("AfterPanic"));
+}
+
+/// `set_node_name` is a raw setter: it does not honour the active scope.
+/// (This preserves the "explicit advanced API" contract for backends.)
+#[test]
+fn test_set_node_name_is_raw_inside_scope() {
+    let p = Pipeline::default();
+    let coll = p.named_scope("Outer", |p| {
+        let c = from_vec(p, vec![1u32]);
+        p.set_node_name(c.node_id(), "RawLabel");
+        c
+    });
+    assert_eq!(p.node_name(coll.node_id()).as_deref(), Some("RawLabel"));
+}
+
+/// Names produced inside a scope flow into `ExecutionExplanation::node_names`
+/// and the rendered footer just like un-scoped names do.
+#[test]
+fn test_named_scope_visible_in_explanation() {
+    let p = Pipeline::default();
+    let coll = p.named_scope("Pipeline", |p| {
+        from_vec(p, vec![1u32, 2, 3])
+            .with_name("Source")
+            .filter(|x| *x > 0)
+            .with_name("Filter")
+    });
+
+    let plan = build_plan(&p, coll.node_id()).unwrap();
+    let expl = plan.explain();
+    let s = format!("{expl}");
+
+    assert!(s.contains("NAMED OPERATIONS"), "{s}");
+    assert!(s.contains("Pipeline/Source"), "{s}");
+    assert!(s.contains("Pipeline/Filter"), "{s}");
+}

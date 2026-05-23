@@ -94,7 +94,8 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     #[must_use]
     pub fn with_name(self, name: impl Into<String>) -> Self {
-        self.pipeline.set_node_name(self.id, name);
+        let qualified = self.pipeline.qualify_with_scope(name);
+        self.pipeline.set_node_name(self.id, qualified);
         self
     }
 }

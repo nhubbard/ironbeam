@@ -1,7 +1,7 @@
 //! `Display`-based string conversion helpers for [`PCollection`].
 //!
 //! Provides a single transform — [`PCollection::to_display_string`] — that
-//! formats each element via its [`std::fmt::Display`] implementation and emits
+//! formats each element via its [`Display`] implementation and emits
 //! the resulting `String`. The Ironbeam equivalent of Apache Beam's
 //! `ToString.elements()`.
 //!
