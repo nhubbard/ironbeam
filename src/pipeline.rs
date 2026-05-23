@@ -44,6 +44,12 @@ pub struct Pipeline {
 /// - `node_names`: optional human-readable labels for individual nodes, populated by
 ///   [`PCollection::with_name`](crate::PCollection::with_name); see
 ///   [`Pipeline::set_node_name`] and [`Pipeline::node_name`] for the public accessors.
+/// - `scope_stack`: stack of active [`ScopeFrame`]s for [`Pipeline::named_scope`].
+///   The active scope path is `scope_stack.iter().map(|f| &f.name).join("/")`;
+///   newly inserted nodes inside a scope get an auto-generated name of
+///   `"<path>/<counter>"` (per-frame counter), and
+///   [`PCollection::with_name`](crate::PCollection::with_name) prepends the
+///   active path to user-supplied labels.
 /// - `metrics`: optional metrics collector for tracking execution statistics.
 ///
 /// The parent synchronizes access to the data in the [`Pipeline`].
@@ -52,8 +58,19 @@ pub(crate) struct PipelineInner {
     pub nodes: HashMap<NodeId, Node>,
     pub edges: Vec<(NodeId, NodeId)>,
     pub node_names: HashMap<NodeId, String>,
+    pub scope_stack: Vec<ScopeFrame>,
     #[cfg(feature = "metrics")]
     pub metrics: Option<MetricsCollector>,
+}
+
+/// One frame of the active scope stack used by [`Pipeline::named_scope`].
+///
+/// Each frame carries its own monotonic auto-numbering counter so nested
+/// scopes do not interleave indices with their parents (outer counters
+/// are never incremented by inner-scope inserts).
+pub(crate) struct ScopeFrame {
+    pub name: String,
+    pub counter: u64,
 }
 
 impl Default for Pipeline {
@@ -64,6 +81,7 @@ impl Default for Pipeline {
                 nodes: HashMap::new(),
                 edges: vec![],
                 node_names: HashMap::new(),
+                scope_stack: Vec::new(),
                 #[cfg(feature = "metrics")]
                 metrics: None,
             })),
@@ -84,11 +102,33 @@ impl Pipeline {
     ///
     /// This is typically called by transformation builders like
     /// [`map`](crate::PCollection::map) or [`group_by_key`](crate::PCollection::group_by_key).
+    ///
+    /// When an active [`named_scope`](Self::named_scope) is on the stack, the
+    /// newly inserted node is automatically labelled `"<path>/<counter>"`,
+    /// where `<path>` is the `"/"`-joined scope frame names and `<counter>`
+    /// is the (then-incremented) counter on the innermost frame. Subsequent
+    /// [`PCollection::with_name`](crate::PCollection::with_name) /
+    /// [`set_node_name`](Self::set_node_name) calls overwrite this
+    /// auto-generated label.
     pub(crate) fn insert_node(&self, node: Node) -> NodeId {
         let mut g = self.inner.lock().unwrap();
         let id = NodeId::new(g.next_id);
         g.next_id += 1;
         g.nodes.insert(id, node);
+        if !g.scope_stack.is_empty() {
+            let path = g
+                .scope_stack
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>()
+                .join("/");
+            // Safe: scope_stack is non-empty per the check above.
+            let top = g.scope_stack.last_mut().expect("scope_stack non-empty");
+            let counter = top.counter;
+            top.counter += 1;
+            g.node_names.insert(id, format!("{path}/{counter}"));
+        }
+        drop(g);
         id
     }
 
@@ -169,6 +209,102 @@ impl Pipeline {
     pub fn node_names_snapshot(&self) -> HashMap<NodeId, String> {
         let g = self.inner.lock().unwrap();
         g.node_names.clone()
+    }
+
+    /// Run `f` inside a named scope, returning whatever the closure returns.
+    ///
+    /// While the closure is executing, the supplied `name` is pushed onto an
+    /// internal scope stack. This has two effects:
+    ///
+    /// 1. Every node inserted into the graph during the closure is
+    ///    automatically labelled `"<path>/<counter>"`, where `<path>` is the
+    ///    `"/"`-joined names of all active scope frames and `<counter>` is
+    ///    a per-frame monotonic counter (starting at `0` for each frame).
+    ///    Per-frame counters mean nested scopes do not perturb each other —
+    ///    the outer frame's counter only advances for nodes inserted
+    ///    directly inside the outer scope, never for inner-scope inserts.
+    /// 2. [`PCollection::with_name`](crate::PCollection::with_name) calls
+    ///    inside the closure produce
+    ///    `"<path>/<user-supplied>"`, replacing the auto-generated label
+    ///    with the user's identifier while preserving the scope hierarchy.
+    ///
+    /// `named_scope` is the Ironbeam analogue of Beam's "composite
+    /// `PTransform`": it gives a sub-graph a logical name that external
+    /// runners and the local `explain` view can display as a single
+    /// hierarchical path.
+    ///
+    /// The scope is popped via an [`Drop`] guard, so it is **panic-safe**:
+    /// if `f` panics, the scope is still popped before the panic
+    /// propagates and the pipeline is left in a consistent state.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let counts = p.named_scope("WordCount", |p| {
+    ///     from_vec(p, vec!["a b c".to_string()])
+    ///         .flat_map(|s: &String| s.split_whitespace().map(String::from).collect())
+    ///         .with_name("Split")               // -> "WordCount/Split"
+    ///         .key_by(|w: &String| w.clone())
+    ///         .map_values(|_| 1u64)
+    ///         .combine_values(Sum::<u64>::default())
+    ///         .with_name("Sum")                 // -> "WordCount/Sum"
+    /// });
+    /// assert_eq!(p.node_name(counts.node_id()).as_deref(), Some("WordCount/Sum"));
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline mutex is poisoned by a concurrent panic.
+    pub fn named_scope<R, F>(&self, name: impl Into<String>, f: F) -> R
+    where
+        F: FnOnce(&Self) -> R,
+    {
+        struct ScopeGuard<'a>(&'a Pipeline);
+        impl Drop for ScopeGuard<'_> {
+            fn drop(&mut self) {
+                let mut g = self.0.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                g.scope_stack.pop();
+            }
+        }
+
+        {
+            let mut g = self.inner.lock().unwrap();
+            g.scope_stack.push(ScopeFrame {
+                name: name.into(),
+                counter: 0,
+            });
+        }
+        let _guard = ScopeGuard(self);
+        f(self)
+    }
+
+    /// Prepend the active [`named_scope`](Self::named_scope) path (if any)
+    /// to `name`.
+    ///
+    /// Used internally by
+    /// [`PCollection::with_name`](crate::PCollection::with_name) so the
+    /// fluent setter composes correctly with scopes:
+    /// `with_name("Filter")` inside `p.named_scope("WordCount", …)` yields
+    /// `"WordCount/Filter"`. Outside any scope it returns `name` unchanged.
+    pub(crate) fn qualify_with_scope(&self, name: impl Into<String>) -> String {
+        let name = name.into();
+        let g = self.inner.lock().unwrap();
+        if g.scope_stack.is_empty() {
+            return name;
+        }
+        let path = g
+            .scope_stack
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>()
+            .join("/");
+        drop(g);
+        format!("{path}/{name}")
     }
 
     /// Set the metrics collector for this pipeline.
