@@ -1861,6 +1861,7 @@ fn display_unreachable_branches_render() {
         cost_estimate: cost.clone(),
         optimizations: vec![OptimizationDecision::DroppedMidMaterialized { count: 2 }],
         suggested_partitions: None,
+        node_names: std::collections::HashMap::new(),
     };
     let s = format!("{dropped}");
     assert!(s.contains("Dropped Mid-Pipeline Materialization"), "{s}");
@@ -1874,6 +1875,7 @@ fn display_unreachable_branches_render() {
             by_cost: false,
         }],
         suggested_partitions: None,
+        node_names: std::collections::HashMap::new(),
     };
     let s = format!("{reordered_no_cost}");
     assert!(s.contains("default order"), "{s}");
@@ -1886,6 +1888,7 @@ fn display_unreachable_branches_render() {
             removed_barrier: false,
         }],
         suggested_partitions: None,
+        node_names: std::collections::HashMap::new(),
     };
     let s = format!("{lifted_no_remove}");
     assert!(s.contains("Lifted GroupByKey"), "{s}");
@@ -1901,6 +1904,7 @@ fn display_unreachable_branches_render() {
             partitions: 4,
         }],
         suggested_partitions: Some(4),
+        node_names: std::collections::HashMap::new(),
     };
     let s = format!("{partition_no_len}");
     assert!(s.contains("Suggest 4 partitions"), "{s}");

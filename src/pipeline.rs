@@ -41,6 +41,9 @@ pub struct Pipeline {
 /// - `next_id`: incremental counter for node IDs.
 /// - `nodes`: map of [`NodeId`] -> [`Node`](Node).
 /// - `edges`: ordered list of `(from, to)` directed edges.
+/// - `node_names`: optional human-readable labels for individual nodes, populated by
+///   [`PCollection::with_name`](crate::PCollection::with_name); see
+///   [`Pipeline::set_node_name`] and [`Pipeline::node_name`] for the public accessors.
 /// - `metrics`: optional metrics collector for tracking execution statistics.
 ///
 /// The parent synchronizes access to the data in the [`Pipeline`].
@@ -48,6 +51,7 @@ pub(crate) struct PipelineInner {
     pub next_id: u64,
     pub nodes: HashMap<NodeId, Node>,
     pub edges: Vec<(NodeId, NodeId)>,
+    pub node_names: HashMap<NodeId, String>,
     #[cfg(feature = "metrics")]
     pub metrics: Option<MetricsCollector>,
 }
@@ -59,6 +63,7 @@ impl Default for Pipeline {
                 next_id: 0,
                 nodes: HashMap::new(),
                 edges: vec![],
+                node_names: HashMap::new(),
                 #[cfg(feature = "metrics")]
                 metrics: None,
             })),
@@ -106,6 +111,64 @@ impl Pipeline {
     pub fn snapshot(&self) -> (HashMap<NodeId, Node>, Vec<(NodeId, NodeId)>) {
         let g = self.inner.lock().unwrap();
         (g.nodes.clone(), g.edges.clone())
+    }
+
+    /// Attach a human-readable name to the node identified by `id`.
+    ///
+    /// Names are pure metadata — they do not influence planning or execution.
+    /// They are exposed back to backends and translators (see
+    /// [`node_name`](Self::node_name) /
+    /// [`node_names_snapshot`](Self::node_names_snapshot)) and surfaced in
+    /// [`Plan`](crate::planner::Plan) /
+    /// [`ExecutionExplanation`](crate::planner::ExecutionExplanation) output so
+    /// that external runners and the local `explain` view can render
+    /// meaningful identifiers instead of generic op categories.
+    ///
+    /// Calling this method twice for the same node overwrites the previous
+    /// name (last-write-wins).
+    ///
+    /// Most user code attaches names via the fluent
+    /// [`PCollection::with_name`](crate::PCollection::with_name) helper rather
+    /// than calling this method directly; the explicit form is provided for
+    /// advanced use cases such as labelling nodes built from raw
+    /// [`NodeId`]s.
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline mutex is poisoned by a concurrent panic.
+    pub fn set_node_name(&self, id: NodeId, name: impl Into<String>) {
+        let mut g = self.inner.lock().unwrap();
+        g.node_names.insert(id, name.into());
+    }
+
+    /// Return the human-readable name attached to `id`, if any.
+    ///
+    /// Returns `None` for nodes that have never been named via
+    /// [`set_node_name`](Self::set_node_name) or
+    /// [`PCollection::with_name`](crate::PCollection::with_name).
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline mutex is poisoned by a concurrent panic.
+    #[must_use]
+    pub fn node_name(&self, id: NodeId) -> Option<String> {
+        let g = self.inner.lock().unwrap();
+        g.node_names.get(&id).cloned()
+    }
+
+    /// Return a deep clone of the entire `NodeId -> name` mapping.
+    ///
+    /// Intended for external translators (e.g. the community Google Dataflow
+    /// backend) and other consumers that need a stable view of every named
+    /// node in a single call rather than per-id lookups.
+    ///
+    /// # Panics
+    ///
+    /// If the pipeline mutex is poisoned by a concurrent panic.
+    #[must_use]
+    pub fn node_names_snapshot(&self) -> HashMap<NodeId, String> {
+        let g = self.inner.lock().unwrap();
+        g.node_names.clone()
     }
 
     /// Set the metrics collector for this pipeline.

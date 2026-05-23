@@ -164,6 +164,10 @@
 //!   - [`PCollection::log_elements`](crate::PCollection::log_elements)
 //!   - [`PCollection::log_elements_with`](crate::PCollection::log_elements_with)
 //!
+//! ### Observability / Labeling
+//! - [`named`] - Fluent node naming for external backends and explain output
+//!   - [`PCollection::with_name`](crate::PCollection::with_name)
+//!
 //! ### Fan-out
 //! - [`tee`] - Duplicate a collection for multiple downstream branches
 //!   - [`PCollection::tee`](crate::PCollection::tee)
@@ -281,6 +285,7 @@ pub mod jsonl;
 pub mod keyed;
 pub mod latest;
 pub mod log_elements;
+pub mod named;
 pub mod parquet;
 pub mod partition;
 pub mod regex;
