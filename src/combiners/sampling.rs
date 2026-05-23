@@ -41,8 +41,8 @@ impl SplitMix64 {
 }
 
 /// Accumulator for priority reservoir.
-/// - `heap`: min-heap by (priority asc, seq asc) with entries (key, seq, idx)
-/// - `store`: slot array holding actual items + their (key,seq)
+/// - `heap`: min-heap by (priority asc, seq asc) with tuple entries (key, seq, idx)
+/// - `store`: slot array holding actual items and their (key,seq) tuple
 #[derive(Clone, Debug)]
 pub struct PRAcc<T> {
     k: usize,

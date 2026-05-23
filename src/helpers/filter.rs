@@ -296,7 +296,7 @@ impl<T: RFBound> PCollection<T> {
     /// assert_eq!(affordable.collect_seq().unwrap().len(), 2);
     /// ```
     ///
-    /// # Comparison with separate map + filter
+    /// # Comparison with a separate map and filter
     /// This method is more efficient than using separate map and filter operations.
     ///
     /// With `filter_by`, the extraction and filtering happen in a single pass,

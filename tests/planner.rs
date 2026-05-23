@@ -1400,7 +1400,7 @@ fn bloom_semi_join_opt_absent_for_full_join() -> Result<()> {
 #[test]
 fn bloom_semi_join_smaller_side_and_pct_inner() -> Result<()> {
     let p = Pipeline::default();
-    // Left: 2 elements.  Right: 10 elements.  Left is smaller.
+    // Left: 2 elements. Right: 10 elements. Left is smaller.
     let left = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2)]);
     let right = from_vec(
         &p,
@@ -1485,11 +1485,11 @@ fn cse_fanout_still_works_with_dominator_approach() -> Result<()> {
 }
 
 /// `flatten`-based merge: two branches are combined via `flatten`, followed by a
-/// map.  Verifies correct results when using the dominator-based CSE cache.
+/// map. Verifies correct results when using the dominator-based CSE cache.
 ///
 /// Note: `flatten` embeds its input subchains inside `Node::Flatten` rather than
 /// creating pipeline-graph edges, so the flatten node's subchain work is not
-/// part of the dominator cache key.  The cache node in this topology is the node
+/// part of the dominator cache key. The cache node in this topology is the node
 /// immediately before `terminal` (the post-flatten map).
 #[test]
 fn cse_flatten_pipeline_correct_results() -> Result<()> {

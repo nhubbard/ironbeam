@@ -1,8 +1,8 @@
-//! Multi-way ``CoGroupByKey`` operations supporting up to 10-way joins.
+//! Multi-way `CoGroupByKey` operations supporting up to 10-way joins.
 //!
 //! This module provides tagged enums and macros to perform N-way full outer joins
 //! on keyed collections. Unlike the binary joins in [`crate::helpers::joins`],
-//! ``CoGroupByKey`` returns all values grouped by key from all input collections.
+//! `CoGroupByKey` returns all values grouped by key from all input collections.
 //!
 //! ## How it works
 //!
@@ -231,13 +231,13 @@ generate_tagged_enum!(8);
 generate_tagged_enum!(9);
 generate_tagged_enum!(10);
 
-/// Macro for performing N-way ``CoGroupByKey`` operations.
+/// Macro for performing N-way `CoGroupByKey` operations.
 ///
 /// Supports 2 to 10 input collections. All collections must have the same key type `K`.
 ///
 /// # Examples
 ///
-/// ## 2-way ``CoGroupByKey``
+/// ## 2-way `CoGroupByKey`
 /// ```no_run
 /// # use ironbeam::*;
 /// # let p = Pipeline::default();
@@ -247,7 +247,7 @@ generate_tagged_enum!(10);
 /// // Type: PCollection<(String, (Vec<u32>, Vec<String>))>
 /// ```
 ///
-/// ## 3-way ``CoGroupByKey``
+/// ## 3-way `CoGroupByKey`
 /// ```no_run
 /// # use ironbeam::*;
 /// # let p = Pipeline::default();

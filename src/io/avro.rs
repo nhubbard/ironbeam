@@ -10,7 +10,7 @@
 //! - Avro files can be compressed. Compression is detected automatically based on file extension
 //!   or magic bytes (when respective feature flags are enabled).
 //! - Schema inference is performed automatically on read using `apache-avro`'s native capabilities.
-//! - Sharding is **record-count based**; it does not rely on byte offsets.
+//! - Sharding is **record-count-based**; it does not rely on byte offsets.
 //! - The parallel writer preserves **deterministic file order** by joining shard outputs in index order.
 
 use crate::Partition;
@@ -238,7 +238,7 @@ pub fn write_avro_par<T: Serialize + Sync>(
     let n = data.len();
     let schema = Schema::parse_str(schema.as_ref()).context("parse Avro schema string")?;
 
-    // The shards hint controls rayon's work-stealing chunk size for serde parallelism.
+    // The shard hint controls rayon's work-stealing chunk size for serde parallelism.
     let _ = shards; // rayon auto-scales; explicit chunking not needed for in-memory collect
 
     // Parallel serialization (CPU-bound); collect in index order.

@@ -131,7 +131,7 @@ fn left_right_full_outer() -> Result<()> {
 #[test]
 fn inner_join_sparse_overlap_correctness() -> Result<()> {
     let p = Pipeline::default();
-    // Left: keys 0..5.  Right: keys 3..8.  Overlap: 3, 4.
+    // Left: keys 0..5. Right: keys 3..8. Overlap: 3, 4.
     let left = from_vec(&p, (0u32..5).map(|i| (i, i * 10)).collect::<Vec<_>>());
     let right = from_vec(&p, (3u32..8).map(|i| (i, i * 100)).collect::<Vec<_>>());
     let mut out = left.join_inner(&right).collect_seq()?;

@@ -169,14 +169,14 @@ where
     /// Produces exactly one element — a `HashMap<K, V>` containing every
     /// `(K, V)` pair in the collection. Equivalent to calling
     /// `combine_globally(ToDict::new(), None)`. This is the Ironbeam
-    /// equivalent of Apache Beam's `ToDict` transform, and is typically used
+    /// equivalent of Apache Beam's `ToDict` transform and is typically used
     /// to prepare a side input from a small keyed stream.
     ///
     /// # Duplicate keys
     ///
     /// When the same key appears more than once, **the surviving value is
     /// unspecified** under parallel execution (the per-partition `insert` and
-    /// cross-partition `extend` both follow last-value-wins, but partition
+    /// cross-partition `extend` both follow last-value-wins, but the partition
     /// order is not stable). For deterministic results, fold duplicates with a
     /// `combine_values` step first (e.g. `Sum`, `Latest`) before calling
     /// `to_dict`.
@@ -187,7 +187,7 @@ where
     /// returning `anyhow::Result<HashMap<K, V>>` directly, `to_dict` is a
     /// *transform* that produces a `PCollection<HashMap<K, V>>`. Use it when
     /// the materialized map needs to participate in further pipeline stages
-    /// (e.g. as input to a side-input view).
+    /// (e.g., as input to a side-input view).
     ///
     /// # Examples
     ///

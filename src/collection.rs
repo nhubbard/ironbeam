@@ -278,7 +278,7 @@ where
 ///
 /// Truncates each partition to at most `n` elements. When fused with other
 /// stateless ops, this per-partition truncation bounds the elements that flow
-/// into downstream stages.  The planner also captures `n` in
+/// into downstream stages. The planner also captures `n` in
 /// [`crate::planner::Plan::limit`] so that the runner can stop collecting
 /// across partitions as soon as `n` total elements are gathered.
 pub(crate) struct TakeOp<T> {
@@ -339,7 +339,7 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     /// the same result as a sequential left-fold.
     ///
     /// Override this to return `true` for combiners where `merge` is a monoid
-    /// operation (e.g., addition, set union, min/max).  The default is `false`
+    /// operation (e.g., addition, set union, min/max). The default is `false`
     /// (conservative).
     fn is_associative_commutative(&self) -> bool {
         false

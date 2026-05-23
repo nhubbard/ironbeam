@@ -197,7 +197,7 @@ where
 ///
 /// Returns an error if:
 /// - The bucket doesn't exist
-/// - Permissions are insufficient
+/// - Permissions don't grant access
 /// - Any item fails to serialize
 /// - Compression fails
 /// - The upload fails
@@ -471,7 +471,7 @@ fn compress_jsonl_xz<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Cloud
 ///
 /// Returns an error if:
 /// - The bucket doesn't exist
-/// - Permissions are insufficient
+/// - Permissions don't grant access
 /// - The pattern is invalid
 /// - The listing operation fails
 ///

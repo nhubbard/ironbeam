@@ -62,7 +62,7 @@ where
 /// Generic over both the input value type `V` (via `Into<O>`) and the output
 /// type `O`, which must be a floating-point type (`f32` or `f64`). This is the
 /// Ironbeam equivalent of Apache Beam's `Mean.Globally()` / `Mean.PerKey()`
-/// transforms, and complements [`AverageF64`] by allowing the caller to choose
+/// transforms and complements [`AverageF64`] by allowing the caller to choose
 /// the floating-point precision of the result.
 ///
 /// - Accumulator: `(O, u64)` — running sum and count.

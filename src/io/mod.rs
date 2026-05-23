@@ -73,7 +73,7 @@
 //! `ParquetVecOps<T>`) that enables:
 //! - **Length introspection** - Get total row count without reading data
 //! - **Partitioning** - Split into concrete partitions for parallel execution
-//! - **Sequential fallback** - Read entire dataset for sequential paths
+//! - **Sequential fallback** - Read the entire dataset for sequential paths
 //!
 //! This integration allows streaming sources to work seamlessly with Ironbeam's
 //! execution engine.
@@ -116,9 +116,9 @@
 //! - [`read_jsonl`](crate::read_jsonl) - Create a `PCollection` from JSONL
 //! - [`read_csv`](crate::read_csv) - Create a `PCollection` from CSV
 //! - [`read_parquet_streaming`](crate::read_parquet_streaming) - Streaming Parquet source
-//! - [`PCollection::write_jsonl`](crate::PCollection::write_jsonl) - Write collection to JSONL
-//! - [`PCollection::write_csv`](crate::PCollection::write_csv) - Write collection to CSV
-//! - [`PCollection::write_parquet`](crate::PCollection::write_parquet) - Write collection to Parquet
+//! - [`PCollection::write_jsonl`](crate::PCollection::write_jsonl) - Write a collection to JSONL
+//! - [`PCollection::write_csv`](crate::PCollection::write_csv) - Write a collection to CSV
+//! - [`PCollection::write_parquet`](crate::PCollection::write_parquet) - Write a collection to Parquet
 //!
 //! Most users should use the helper APIs rather than calling these low-level
 //! functions directly.

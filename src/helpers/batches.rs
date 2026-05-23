@@ -266,6 +266,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// summary instead.
     ///
     /// # Panics
+    /// 
     /// Panics if `batch_size == 0`.
     ///
     /// # Example

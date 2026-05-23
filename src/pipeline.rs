@@ -65,7 +65,7 @@ pub(crate) struct PipelineInner {
 
 /// One frame of the active scope stack used by [`Pipeline::named_scope`].
 ///
-/// Each frame carries its own monotonic auto-numbering counter so nested
+/// Each frame carries its own monotonic auto-numbering counter, so nested
 /// scopes do not interleave indices with their parents (outer counters
 /// are never incremented by inner-scope inserts).
 pub(crate) struct ScopeFrame {
@@ -104,7 +104,7 @@ impl Pipeline {
     /// [`map`](crate::PCollection::map) or [`group_by_key`](crate::PCollection::group_by_key).
     ///
     /// When an active [`named_scope`](Self::named_scope) is on the stack, the
-    /// newly inserted node is automatically labelled `"<path>/<counter>"`,
+    /// newly inserted node is automatically labeled `"<path>/<counter>"`,
     /// where `<path>` is the `"/"`-joined scope frame names and `<counter>`
     /// is the (then-incremented) counter on the innermost frame. Subsequent
     /// [`PCollection::with_name`](crate::PCollection::with_name) /
@@ -170,7 +170,7 @@ impl Pipeline {
     /// Most user code attaches names via the fluent
     /// [`PCollection::with_name`](crate::PCollection::with_name) helper rather
     /// than calling this method directly; the explicit form is provided for
-    /// advanced use cases such as labelling nodes built from raw
+    /// advanced use cases such as labeling nodes built from raw
     /// [`NodeId`]s.
     ///
     /// # Panics
@@ -198,7 +198,7 @@ impl Pipeline {
 
     /// Return a deep clone of the entire `NodeId -> name` mapping.
     ///
-    /// Intended for external translators (e.g. the community Google Dataflow
+    /// Intended for external translators (e.g., the community Google Dataflow
     /// backend) and other consumers that need a stable view of every named
     /// node in a single call rather than per-id lookups.
     ///
@@ -217,7 +217,7 @@ impl Pipeline {
     /// internal scope stack. This has two effects:
     ///
     /// 1. Every node inserted into the graph during the closure is
-    ///    automatically labelled `"<path>/<counter>"`, where `<path>` is the
+    ///    automatically labeled `"<path>/<counter>"`, where `<path>` is the
     ///    `"/"`-joined names of all active scope frames and `<counter>` is
     ///    a per-frame monotonic counter (starting at `0` for each frame).
     ///    Per-frame counters mean nested scopes do not perturb each other —
@@ -233,7 +233,7 @@ impl Pipeline {
     /// runners and the local `explain` view can display as a single
     /// hierarchical path.
     ///
-    /// The scope is popped via an [`Drop`] guard, so it is **panic-safe**:
+    /// The scope is popped via a [`Drop`] guard, so it is **panic-safe**:
     /// if `f` panics, the scope is still popped before the panic
     /// propagates and the pipeline is left in a consistent state.
     ///
@@ -309,7 +309,7 @@ impl Pipeline {
 
     /// Set the metrics collector for this pipeline.
     ///
-    /// This enables metrics collection during pipeline execution. Metrics can be
+    /// This enables collecting metrics during pipeline execution. Metrics can be
     /// retrieved after execution using [`take_metrics`](Self::take_metrics).
     ///
     /// # Panics

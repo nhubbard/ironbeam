@@ -76,7 +76,7 @@
 //! - [`map_batches`](PCollection::map_batches) - process elements in batches for efficiency
 //!
 //! #### Stateful (keyed operations)
-//! - [`key_by`](PCollection::key_by) - convert `PCollection<T>` to `PCollection<(K, V)>`
+//! - [`key_by`](PCollection::key_by) - convert a `PCollection<T>` to a `PCollection<(K, V)>`
 //! - [`map_values`](PCollection::map_values) - transform values while preserving keys
 //! - [`filter_values`](PCollection::filter_values) - filter-by-value predicate
 //! - [`group_by_key`](PCollection::group_by_key) - group values by key into `Vec<V>`
@@ -97,7 +97,7 @@
 //!
 //! ### Joins
 //!
-//! Ironbeam supports all standard join types for `PCollection<(K, V)>`:
+//! Ironbeam supports all standard join types for a `PCollection<(K, V)>`:
 //! - [`join_inner`](PCollection::join_inner) - inner join
 //! - [`join_left`](PCollection::join_left) - left outer join
 //! - [`join_right`](PCollection::join_right) - right outer join

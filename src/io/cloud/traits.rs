@@ -734,7 +734,7 @@ pub trait QueueIO: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the queue doesn't exist, permissions are insufficient, or receiving fails
+    /// Returns an error if the queue doesn't exist, permissions don't grant access, or receiving fails
     fn receive(
         &self,
         queue: &str,

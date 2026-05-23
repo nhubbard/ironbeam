@@ -33,7 +33,7 @@ use std::sync::Arc;
 /// composition, [`PCollection::log_elements`]).
 ///
 /// For each element of the incoming partition the configured `formatter` is
-/// invoked and its return value is written to `stdout`, terminated by a
+/// invoked, and its return value is written to `stdout`, terminated by a
 /// newline. The partition is then re-emitted unchanged.
 pub(crate) struct LogElementsOp<T, F> {
     formatter: F,
@@ -76,7 +76,7 @@ impl<T: RFBound> PCollection<T> {
     /// line, formatted via `{value:?}`) as the pipeline executes.
     ///
     /// For custom formatting (including for types that do not implement
-    /// [`Debug`]) use [`PCollection::log_elements_with`].
+    /// [`Debug`]), use [`PCollection::log_elements_with`].
     ///
     /// # Example
     /// ```no_run
@@ -103,7 +103,7 @@ impl<T: RFBound> PCollection<T> {
     /// Apply a user-supplied formatter to each element, write the resulting
     /// `String` to standard output, then pass the element through unchanged.
     ///
-    /// `formatter` is invoked exactly once per element in pipeline order
+    /// `formatter` is invoked exactly once per element in the pipeline order
     /// within each partition; it does not affect the downstream type.
     ///
     /// Unlike [`PCollection::log_elements`], the element type does not need to

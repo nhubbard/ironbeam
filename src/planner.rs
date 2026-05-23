@@ -931,7 +931,7 @@ fn estimate_subchain_cardinality(chain: &[Node]) -> Option<usize> {
 /// **Performance rationale:** In sequential execution the runner replays subchains
 /// one-at-a-time. Scheduling cheaper (smaller) subchains first reduces the peak
 /// number of intermediate elements held in memory before the downstream `GroupByKey`
-/// or merge step can consume them, and can surface data to later pipeline stages
+/// or merge step can consume them and can surface data to later pipeline stages
 /// sooner. In parallel execution (rayon) all subplans run concurrently, so ordering
 /// has no effect on wall-clock time but also incurs no overhead.
 fn reorder_cogroup_inputs_pass(chain: Vec<Node>) -> (Vec<Node>, Vec<OptimizationDecision>) {
@@ -1010,8 +1010,8 @@ fn reorder_cogroup_inputs_pass(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimization
 ///
 /// ## `smaller_side` semantics
 ///
-/// | Estimated cardinalities  | `smaller_side` |
-/// |--------------------------|----------------|
+/// | Estimated cardinalities  | `smaller_side`  |
+/// |--------------------------|-----------------|
 /// | Both known, left < right | `"left"`        |
 /// | Both known, right ≤ left | `"right"`       |
 /// | Only left known          | `"left"`        |
@@ -1119,18 +1119,18 @@ fn count_adaptive_barriers(chain: &[Node]) -> usize {
 /// Remove nodes that have no forward path to `terminal` before chain extraction.
 ///
 /// Performs a backward BFS from `terminal`, following edges in reverse (`to → from`).
-/// Every node reachable by this traversal is an ancestor of `terminal` — i.e. it can
+/// Every node reachable by this traversal is an ancestor of `terminal` — i.e., it can
 /// reach `terminal` by following edges forward. Nodes that are *not* reached are dead:
 /// they belong to branches of the graph that lead exclusively to some other terminal and
 /// can be safely pruned before `backwalk_linear` is called.
 ///
-/// **Why run this before `backwalk_linear`?**  In a multi-terminal graph (e.g. after
+/// **Why run this before `backwalk_linear`?** In a multi-terminal graph (e.g., after
 /// `partition!` or a tee), a shared source node has out-degree > 1 — one edge per
 /// branch. `backwalk_linear` uses `edges.iter().find(|(_, to)| *to == cur)`, which
 /// picks the *first* matching edge. If a dead-branch edge happens to appear first in
 /// the slice, `backwalk_linear` would follow the wrong predecessor. Pruning dead nodes
 /// (and their edges) first guarantees that only one in-edge survives per node on the
-/// live path, making predecessor selection unambiguous.
+/// live path, making predecessor choice unambiguous.
 ///
 /// Returns `(live_nodes, live_edges, count_of_nodes_removed)`.
 fn prune_dead_subtrees(
@@ -1260,7 +1260,7 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
 /// 4. Keeps the post-`Flatten` `Stateless` block only if it still has `remaining` ops;
 ///    drops it entirely when all ops were pushed.
 /// 5. Records a [`OptimizationDecision::PushedDownIntoFlattenSubplans`] when any ops are
-///    pushed, so the explain output reflects the optimization.
+///    pushed, so the explanation output reflects the optimization.
 ///
 /// **Safety invariant:** only `value_only` ops are eligible because `value_only` guarantees
 /// the element type is preserved — the subplan output remains the same type that the
@@ -1394,7 +1394,7 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
 /// Hoist cardinality-reducing ops to run as early as possible before a shuffle barrier.
 ///
 /// Treated barriers: [`Node::GroupByKey`] and [`Node::Reshuffle`]. Both redistribute
-/// all elements but neither alters element content or count, so a filter that would be
+/// all elements but neither alters element content nor count, so a filter that would be
 /// beneficial to run before a `GroupByKey` is equally beneficial before a `Reshuffle`.
 ///
 /// For each consecutive `[Stateless(ops), GroupByKey | Reshuffle]` pair in the chain the pass:
@@ -1402,7 +1402,7 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
 /// 1. Splits `ops` into `pushable` (all three of `key_preserving`, `value_only`,
 ///    `cardinality_reducing` are true) and `remaining` (everything else).
 /// 2. **Records** an [`OptimizationDecision::PushedDownPredicates`] whenever any pushable
-///    ops are found, so the explain output reflects that predicates are in the ideal
+///    ops are found, so the explanation output reflects that predicates are in the ideal
 ///    pre-barrier position.
 /// 3. **Structurally splits** the Stateless block — putting pushable ops in their own
 ///    earlier Stateless node — only when two conditions both hold:
@@ -1411,7 +1411,7 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
 ///      intact at the point we insert the filter block).
 ///    - **Cost-beneficial** (the cost-hint gate): at least one such preceding remaining op
 ///      has a higher `cost_hint` than the cheapest pushable op. If the pushable ops are
-///      already first, or the preceding ops are equally cheap, splitting would add node
+///      already first, or the preceding ops are equally inexpensive, splitting would add node
 ///      dispatch overhead with no throughput benefit.
 ///
 /// No ops are ever moved past the barrier; `remaining` always stays pre-barrier.
@@ -1630,7 +1630,7 @@ fn drop_mid_materialized_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
 
 /* ---------- CSE helpers ---------- */
 
-/// DFS post-order traversal from `source` through the forward edge graph.
+/// DFS post-order traversal from `source` through the forward-edge graph.
 ///
 /// Nodes are appended to `order` after all their successors have been visited
 /// (post-order). Reversing the result yields *reverse post-order* (RPO), which
@@ -1652,7 +1652,7 @@ fn dfs_postorder(
 
 /// Walk up the dominator tree from `b1` and `b2` until they meet.
 ///
-/// This is the *intersect* subroutine of Cooper's dominance algorithm. Both
+/// This is the *intersection* subroutine of Cooper's dominance algorithm. Both
 /// fingers advance toward the root along the `idom` chain, guided by the RPO
 /// numbering so the deeper finger always moves first.
 fn dominator_intersect(
@@ -1684,7 +1684,7 @@ fn dominator_intersect(
 ///
 /// A node `d` **dominates** node `n` when every directed path from `source` to
 /// `n` passes through `d`. The *immediate* dominator of `n` is the deepest
-/// such `d ≠ n` in the dominator tree.
+/// `n` such that `d ≠ n` in the dominator tree.
 ///
 /// # Returns
 ///
@@ -1765,7 +1765,7 @@ fn build_dominator_tree(edges: &[(NodeId, NodeId)], source: NodeId) -> HashMap<N
 /// - `edges` is empty.
 /// - `terminal` is the source itself (no prefix to cache).
 /// - `idom(terminal)` equals the source (the only shared ancestor is the root,
-///   meaning there is no useful shared prefix deeper in the graph).
+///   meaning there is no shared prefix deeper in the graph).
 pub(crate) fn find_cache_node_via_dominators(
     edges: &[(NodeId, NodeId)],
     terminal: NodeId,
@@ -1934,7 +1934,7 @@ mod dominator_tests {
     #[test]
     fn cache_node_diamond_returns_join_not_fork() {
         // Diamond followed by terminal:
-        // 0 → 1 → 3 → 4  and  0 → 2 → 3 → 4
+        // 0 → 1 → 3 → 4 and 0 → 2 → 3 → 4
         // Old fan-out heuristic would return source (0); dominator returns join (3).
         let edges = vec![
             (n(0), n(1)),

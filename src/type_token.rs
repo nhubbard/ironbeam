@@ -56,9 +56,9 @@ impl TypeTag {
 /// Type-erased helpers for `Vec<T>`.
 ///
 /// The runner uses `VecOps` to:
-/// - compute the logical size of the source (`len`)
-/// - split the source into `n` partitions (`split`)
-/// - clone the entire source when executing sequentially (`clone_any`)
+/// - Compute the logical size of the source (`len`)
+/// - Split the source into `n` partitions (`split`)
+/// - Clone the entire source when executing sequentially (`clone_any`)
 ///
 /// Implementations must return `None` when the provided `data` does not match
 /// the concrete `Vec<T>` the implementor expects.
@@ -69,8 +69,8 @@ pub trait VecOps: Send + Sync {
     /// Split `data` (a `Vec<T>`) into up to `n` contiguous partitions.
     ///
     /// Implementations should:
-    /// - gracefully handle `n <= 1` or very small inputs by returning a single chunk
-    /// - preserve element order within each returned chunk
+    /// - Gracefully handle `n <= 1` or very small inputs by returning a single chunk
+    /// - Preserve element order within each returned chunk
     fn split(&self, data: &dyn Any, n: usize) -> Option<Vec<Partition>>;
 
     /// Clone the entire `Vec<T>` behind `data` and return it boxed as a [`Partition`].

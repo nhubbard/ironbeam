@@ -2,8 +2,8 @@
 //!
 //! This module provides ergonomic helpers for selecting the most recent
 //! timestamped values:
-//! - `latest_per_key()` - Select latest value per key
-//! - `latest_globally()` - Select latest value globally
+//! - `latest_per_key()` - Select the latest value per key
+//! - `latest_globally()` - Select the latest value globally
 
 use crate::combiners::Latest;
 use crate::window::Timestamped;
@@ -70,7 +70,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if any key has no values.
+    /// Panics if any key has no value.
     ///
     /// # Examples
     ///
