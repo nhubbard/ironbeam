@@ -78,6 +78,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.7 BatchElements                           | `batch_elements(n)` / `batch_by_size(max_bytes, size_fn)` — `PCollection<T>` → `PCollection<Vec<T>>`; partition-local count- or size-bounded batching with explicit size estimator and lone-oversized-element semantics                                  | 3.1.0  |
 | 4.8 ToString                                | `to_display_string()` — `PCollection<T: Display>` → `PCollection<String>`; named to avoid collision with the inherent `ToString::to_string`                                                                                                              | 3.1.0  |
 | 4.9 Tee                                     | `tee()` → `(PCollection<T>, PCollection<T>)`; `tee_n(n)` → `Vec<PCollection<T>>`; ergonomic fan-out wrappers leveraging the v3.0.0 dominator-based cache placement                                                                                       | 3.1.0  |
+| 4.10 LogElements                            | `log_elements()` (requires `T: Debug`) and `log_elements_with(formatter)` — passthrough debug taps that print each element to stdout (formatted via `{:?}` or a user-supplied `Fn(&T) -> String`) without modifying the downstream collection            | 3.1.0  |
 
 ---
 
@@ -87,25 +88,6 @@ These transforms were identified in the initial survey of Beam features but not 
 earlier tiers. They are primarily convenience wrappers and less common aggregation, sampling,
 and pipeline-shape patterns. All additional I/O formats — both file-based and database — are
 covered separately in Tier 5.
-
-### 4.10 LogElements (Debug Tap)
-
-**Status:** Not implemented.
-
-A passthrough transform that logs each element via `tracing` (or stdout) without modifying the
-collection. Analogous to `tap` in iterator-style pipelines. Primarily a debugging aid.
-
-**Beam equivalent:** `LogElements` in `util.py`
-
-**Proposed API:**
-```rust
-collection.log_elements()                              // debug-prints each element, passes through
-collection.log_elements_with(|e| format!("{e:?}"))    // custom format function
-```
-
-**Estimated complexity:** Very Low
-
----
 
 ### 4.11 WaitOn (Pipeline Dependency Barrier)
 
@@ -327,9 +309,9 @@ the `prost`-generated proto dependency add complexity.
 
 ---
 
-### 5.7 JDBC / SQL Database I/O
+### 5.7 SQL Database I/O
 
-**Status:** Not implemented. Behind `io-jdbc` feature flag.
+**Status:** Not implemented. Behind `io-sql` feature flag.
 
 Read from and write to SQL databases (PostgreSQL, MySQL, SQLite, etc.) using `sqlx`. Covers
 local and self-hosted databases; cloud-managed variants (Cloud SQL, RDS) are out of scope.
@@ -338,8 +320,8 @@ local and self-hosted databases; cloud-managed variants (Cloud SQL, RDS) are out
 
 **Proposed API:**
 ```rust
-read_jdbc::<MyRow>("postgres://localhost/db", "SELECT id, name FROM users WHERE active = true")
-write_jdbc("postgres://localhost/db", "INSERT INTO sink ...", collection)
+read_sql::<MyRow>("postgres://localhost/db", "SELECT id, name FROM users WHERE active = true")
+write_sql("postgres://localhost/db", "INSERT INTO sink ...", collection)
 ```
 
 **Dependencies:** `sqlx` with the appropriate driver features (`postgres`, `mysql`, `sqlite`)

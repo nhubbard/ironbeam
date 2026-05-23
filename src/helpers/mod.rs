@@ -159,6 +159,11 @@
 //! - [`display`] - `Display`-based string conversion
 //!   - [`PCollection::to_display_string`](crate::PCollection::to_display_string)
 //!
+//! ### Debugging
+//! - [`log_elements`] - Passthrough `tap`-style logging
+//!   - [`PCollection::log_elements`](crate::PCollection::log_elements)
+//!   - [`PCollection::log_elements_with`](crate::PCollection::log_elements_with)
+//!
 //! ### Fan-out
 //! - [`tee`] - Duplicate a collection for multiple downstream branches
 //!   - [`PCollection::tee`](crate::PCollection::tee)
@@ -275,6 +280,7 @@ pub mod joins;
 pub mod jsonl;
 pub mod keyed;
 pub mod latest;
+pub mod log_elements;
 pub mod parquet;
 pub mod partition;
 pub mod regex;
