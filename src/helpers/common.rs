@@ -88,8 +88,8 @@ impl<T: RFBound> PCollection<T> {
     /// Keep at most `n` elements from the front of the collection.
     ///
     /// Each partition is truncated to `n` elements, and the runner stops collecting
-    /// across partitions as soon as `n` total elements have been gathered.  In
-    /// **sequential** mode this is equivalent to `Vec::truncate(n)`.  In **parallel**
+    /// across partitions as soon as `n` total elements have been gathered. In
+    /// **sequential** mode this is equivalent to `Vec::truncate(n)`. In **parallel**
     /// mode each partition is individually capped at `n` and then the merged result is
     /// truncated to `n`, so the actual output is always at most `n` elements.
     ///

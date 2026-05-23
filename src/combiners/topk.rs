@@ -131,7 +131,7 @@ where
 /// The smallest bottom-**K** values per key (requires `Ord`).
 ///
 /// The accumulator maintains a **max-heap** (`BinaryHeap<T>`) of size ≤ `k`,
-/// so memory is bounded by `k`. When a new element would exceed capacity the
+/// so memory is bounded by `k`. When a new element exceeds capacity, the
 /// current maximum is evicted, retaining the `k` smallest seen so far.
 ///
 /// - Accumulator: `BinaryHeap<T>`

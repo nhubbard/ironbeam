@@ -175,7 +175,7 @@ where
 
 /// Collects `(K, V)` pairs into a `HashMap<K, V>`.
 ///
-/// Operates as a `CombineFn<(K, V), HashMap<K, V>, HashMap<K, V>>`, i.e. its
+/// Operates as a `CombineFn<(K, V), HashMap<K, V>, HashMap<K, V>>`, i.e., its
 /// input element type is the *pair* `(K, V)`. This makes it suitable for
 /// `combine_globally` on a `PCollection<(K, V)>` to materialize the entire
 /// keyed stream as a single `HashMap` — typically for use as a side input.
@@ -193,7 +193,7 @@ where
 ///
 /// When the same key appears more than once, **the last value inserted wins**
 /// at each level (per-partition `add_input` and cross-partition `merge`).
-/// Because partition order is not stable, the surviving value for a duplicated
+/// Because the partition order is not stable, the surviving value for a duplicated
 /// key under parallel execution is **unspecified** — match Beam's `ToDict`
 /// semantics. If you need deterministic behavior for duplicate keys, combine
 /// values per key first (e.g. `combine_values` with `Sum`, `Latest`, etc.) and

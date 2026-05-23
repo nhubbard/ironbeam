@@ -1,7 +1,7 @@
 //! Windowed combining helpers for timestamped and keyed streams.
 //!
 //! This module provides one-call convenience methods for the most common pattern in
-//! tumbling-window pipelines: assign → group → aggregate. Without these helpers the
+//! tumbling-window pipelines: assign → group → aggregate. Without these helpers, the
 //! caller must chain three explicit steps:
 //!
 //! ```no_run
@@ -448,7 +448,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if any `(key, window)` pair has zero associated values (cannot occur in practice).
+    /// Panics if any `(key, window)` pair has no associated values (cannot occur in practice).
     ///
     /// # Example
     ///
@@ -488,7 +488,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if any `(key, window)` pair has zero associated values (cannot occur in practice).
+    /// Panics if any `(key, window)` pair has no associated values (cannot occur in practice).
     ///
     /// # Example
     ///

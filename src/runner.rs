@@ -33,7 +33,7 @@ use crate::checkpoint::CheckpointConfig;
 ///
 /// Maps a [`NodeId`] to the type-erased `Vec<T>` result materialized at that node.
 /// Pass the **same** `SharedCSECache` to multiple [`Runner::run_collect_cached`] calls
-/// that share a common pipeline prefix so the shared work executes only once.
+/// that share a common pipeline prefix, so the shared work executes only once.
 ///
 /// The cache is correct for the lifetime of the owning [`Pipeline`]: pipelines are
 /// append-only (nodes and edges are never removed), so cached results remain valid.
@@ -207,10 +207,10 @@ impl Runner {
 
     /// Execute the pipeline ending at `terminal` with Common Subexpression Elimination.
     ///
-    /// Identical to [`Runner::run_collect`] for pipelines with no shared prefix.  When
+    /// Identical to [`Runner::run_collect`] for pipelines with no shared prefix. When
     /// the pipeline graph contains shared computation, this method determines the
     /// **immediate dominator** of `terminal` in the pipeline DAG — the deepest node
-    /// that every source-to-terminal path passes through — materializes the result
+    /// that every source-to-terminal path passes through. It materializes the result
     /// of that node on the first call, then reuses it on every subsequent call that
     /// shares the same cache and the same dominator node.
     ///
@@ -243,7 +243,7 @@ impl Runner {
     ///
     /// The cache node (immediate dominator of `terminal`) must produce `Vec<T>`.
     /// If the shared prefix ends with a different intermediate type, the cache
-    /// insertion fails and an error is returned.  In that case use
+    /// insertion fails and an error is returned. In that case use
     /// [`Runner::run_collect`] directly.
     ///
     /// # Errors
@@ -300,7 +300,7 @@ fn run_collect_suffix<T: 'static + Send + Sync + Clone>(
     nodes: &HashMap<NodeId, Node>,
     edges: &[(NodeId, NodeId)],
 ) -> Result<Vec<T>> {
-    // Collect the ordered list of node IDs on the path [fanout_id+1 .. terminal].
+    // Collect the ordered list of node IDs on the path `[fanout_id+1 .. terminal]`.
     let mut suffix_ids = Vec::new();
     let mut cur = terminal;
     while cur != fanout_id {
@@ -493,7 +493,7 @@ fn exec_seq<T: 'static + Send + Sync + Clone>(chain: Vec<Node>) -> Result<Vec<T>
 /// and applies stateless runs with rayon. Barriers (`GroupByKey`, `CombineValues`,
 /// `CoGroup`) perform a parallel local phase followed by a global merge.
 ///
-/// When `limit` is `Some(n)` the final merge step stops accumulating elements as
+/// When `limit` is `Some(n)`, the final merge step stops accumulating elements as
 /// soon as `n` total have been collected — providing early termination for
 /// pipelines that end with `take(n)` / `first()`.
 #[allow(clippy::too_many_lines)]
@@ -648,7 +648,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
         match &rest[i] {
             Node::Stateless(_) => {
                 let mut ops = Vec::new();
-                // Accumulate multiplier hints from all ops in this stateless block.
+                // Accumulate the multiplier hints from all ops in this stateless block.
                 let mut multiplier: f64 = 1.0;
                 while i < rest.len() {
                     if let Node::Stateless(more) = &rest[i] {
@@ -679,7 +679,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
             Node::GroupByKey { local, merge } => {
                 let mids: Vec<Partition> = curr.into_par_iter().map(|p| local(p)).collect();
                 curr = vec![merge(mids)];
-                // GBK collapses to 1 partition then we'll expand downstream; ratio ~0.1.
+                // GBK collapses to a single partition, then expands downstream; ratio ~0.1.
                 #[allow(
                     clippy::cast_precision_loss,
                     clippy::cast_sign_loss,
@@ -846,7 +846,7 @@ fn exec_par<T: 'static + Send + Sync + Clone>(
                 i += 1;
             }
             Node::Reshuffle { reshuffle } => {
-                // Use the adaptively-updated current_parts instead of the original
+                // Use the adaptively updated current_parts instead of the original
                 // `partitions` suggestion, keeping the split count proportional to the
                 // post-barrier cardinality estimate rather than the source size.
                 curr = reshuffle(curr, current_parts);

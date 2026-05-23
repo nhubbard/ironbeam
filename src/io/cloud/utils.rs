@@ -413,7 +413,7 @@ pub fn parse_resource_uri(uri: &str) -> CloudResult<(String, Vec<String>)> {
 ///
 /// # Panics
 ///
-/// Always panics; requires an async runtime dependency (e.g. tokio) to implement.
+/// Always panics; requires an async runtime dependency (e.g., tokio) to implement.
 #[allow(dead_code)]
 pub fn block_on_async<F, T>(_future: F) -> CloudResult<T>
 where

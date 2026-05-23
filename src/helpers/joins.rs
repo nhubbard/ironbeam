@@ -15,12 +15,12 @@
 //! Before the hash-join phase, each `exec` closure builds a Bloom filter from the keys of one
 //! side and discards elements from the other side whose key is *definitively* absent:
 //!
-//! | Join type   | Build side | Filter side | Rationale |
-//! |-------------|-----------|-------------|-----------|
-//! | Inner       | Smaller   | Larger      | Unmatched elements on either side are dropped |
-//! | Left outer  | Left      | Right       | All left rows appear; right rows not in left are dropped |
-//! | Right outer | Right     | Left        | All right rows appear; left rows not in right are dropped |
-//! | Full outer  | —         | —           | Both sides appear completely; no safe filtering |
+//! | Join type   | Build side | Filter side | Rationale                                                 |
+//! |-------------|------------|-------------|-----------------------------------------------------------|
+//! | Inner       | Smaller    | Larger      | Unmatched elements on either side are dropped             |
+//! | Left outer  | Left       | Right       | All left rows appear; right rows not in left are dropped  |
+//! | Right outer | Right      | Left        | All right rows appear; left rows not in right are dropped |
+//! | Full outer  | —          | —           | Both sides appear completely; no safe filtering           |
 //!
 //! False positives in the Bloom filter are harmless (a few extra elements reach the
 //! hash-join step); false negatives are impossible, so join correctness is guaranteed.
@@ -251,8 +251,8 @@ where
     /// Emits all left rows; missing right values appear as `None`.
     ///
     /// Applies a Bloom semi-join pre-filter on the **right** side: left keys are loaded into
-    /// a Bloom filter and right elements whose key is definitively absent from the left are
-    /// discarded before the hash-join step.  All left rows are preserved unconditionally.
+    /// a Bloom filter, and right elements whose key is definitively absent from the left are
+    /// discarded before the hash-join step. All left rows are preserved unconditionally.
     ///
     /// # Example
     /// ```no_run
@@ -290,7 +290,7 @@ where
 
             // Bloom semi-join on the right side only.
             // All left rows must appear in the output, so only the right side can be
-            // pre-filtered.  Right elements whose key is absent from the left will never
+            // pre-filtered. Right elements whose key is absent from the left will never
             // appear in the left-outer-join output, so discarding them is safe.
             let right_rows = {
                 let mut filter = BloomFilter::new(left_rows.len());
@@ -376,8 +376,8 @@ where
     /// Emits all right rows; missing left values appear as `None`.
     ///
     /// Applies a Bloom semi-join pre-filter on the **left** side: right keys are loaded into
-    /// a Bloom filter and left elements whose key is definitively absent from the right are
-    /// discarded before the hash-join step.  All right rows are preserved unconditionally.
+    /// a Bloom filter, and left elements whose key is definitively absent from the right are
+    /// discarded before the hash-join step. All right rows are preserved unconditionally.
     ///
     /// # Example
     /// ```no_run
@@ -415,7 +415,7 @@ where
 
             // Bloom semi-join on the left side only.
             // All right rows must appear in the output, so only the left side can be
-            // pre-filtered.  Left elements whose key is absent from the right will never
+            // pre-filtered. Left elements whose key is absent from the right will never
             // appear in the right-outer-join output, so discarding them is safe.
             let left_rows = {
                 let mut filter = BloomFilter::new(right_rows.len());

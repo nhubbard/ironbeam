@@ -76,7 +76,7 @@ use std::path::Path;
 impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     /// Execute the pipeline, collect results, and write them to a **single Avro file**.
     ///
-    /// The Avro schema is inferred automatically from `T` using Serde's derive feature.
+    /// The Avro schema is inferred automatically from `T` using Serde's `derive` feature.
     /// If you haven't derived the [`Schema`](apache_avro::Schema) for your type,
     /// use [`write_avro_vec`] with an explicit schema string instead.
     ///
@@ -97,7 +97,7 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let rows = from_vec(&p, vec![Row { k: "a".into(), v: 1 }]);
-    /// // For types without schema derive, provide a schema string:
+    /// // For types without schema derivation, provide a schema string:
     /// let n = rows.write_avro_with_schema("data/out.avro", r#"{"type":"record","name":"Row","fields":[{"name":"k","type":"string"},{"name":"v","type":"long"}]}"#)?;
     /// assert_eq!(n, 1);
     /// # Ok(())
@@ -142,7 +142,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let rows = from_vec(&p, vec![Row { k: "a".into(), v: 1 }]);
-    /// // For types without schema derive, provide a schema string:
+    /// // For types without schema derivation, provide a schema string:
     /// rows.write_avro_par("data/out.avro", Some(4), r#"{"type":"record","name":"Row","fields":[{"name":"k","type":"string"},{"name":"v","type":"long"}]}"#)?;
     /// # Ok(())
     /// # }

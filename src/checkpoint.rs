@@ -276,7 +276,7 @@ impl CheckpointManager {
         Ok(checkpoints.last().map(DirEntry::path))
     }
 
-    /// Load and verify a checkpoint from disk.
+    /// Load and verify a checkpoint from persistent storage.
     ///
     /// # Errors
     ///
@@ -402,7 +402,7 @@ pub(crate) fn generate_pipeline_id(pipeline_hash: &str) -> String {
     hash[..16].to_string()
 }
 
-/// Get current timestamp in milliseconds since epoch.
+/// Get the current timestamp in milliseconds since epoch.
 #[cfg(feature = "checkpointing")]
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]

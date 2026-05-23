@@ -7,7 +7,8 @@
 //! # Architecture
 //!
 //! - [`SpillConfig`] - Configuration for spilling behavior (thresholds, directories)
-//! - [`SpillablePartition`] - Wrapper around `Partition` that tracks memory and spills to disk
+//! - [`SpillablePartition`] - Wrapper around `Partition` that tracks memory and spills to
+//!   persistent storage
 //! - [`MemoryTracker`] - Global memory usage tracking across all spillable partitions
 //! - [`SpillManager`] - Manages disk storage and cleanup of spilled data
 //!
@@ -30,7 +31,7 @@
 //! // Initialize the global memory tracker
 //! MemoryTracker::initialize(config);
 //!
-//! // Memory tracking and spilling happens automatically during pipeline execution
+//! // Memory tracking and spilling will happen automatically during pipeline execution
 //! ```
 
 use anyhow::{Context, Result, anyhow};
@@ -93,7 +94,8 @@ impl SpillConfig {
 
     /// Set the memory limit in bytes.
     ///
-    /// When total tracked memory exceeds this limit, partitions will be spilled to disk.
+    /// When total tracked memory exceeds this limit, partitions will be spilled to persistent
+    /// storage.
     #[must_use]
     pub const fn with_memory_limit(mut self, limit: usize) -> Self {
         self.memory_limit = Some(limit);
@@ -315,7 +317,7 @@ impl SpillManager {
         Ok(serialized.len())
     }
 
-    /// Restore a spilled partition from disk.
+    /// Restore a spilled partition from persistent storage.
     ///
     /// # Errors
     ///
@@ -350,7 +352,7 @@ impl SpillManager {
         Ok(data)
     }
 
-    /// Delete a spill file from disk.
+    /// Delete a spill file from persistent storage.
     ///
     /// # Errors
     ///
@@ -370,7 +372,7 @@ enum PartitionState {
     /// Data is in memory
     InMemory,
 
-    /// Data has been spilled to disk
+    /// Data has been spilled to persistent storage
     Spilled {
         spill_id: u64,
         #[allow(dead_code)]
@@ -378,10 +380,10 @@ enum PartitionState {
     },
 }
 
-/// A partition wrapper that supports automatic spilling to disk.
+/// A partition wrapper that supports automatic spilling to persistent storage.
 ///
 /// This wrapper tracks the memory usage of a partition and automatically spills
-/// it to disk when memory pressure is detected. The spilling is transparent to
+/// it to persistent storage when memory pressure is detected. The spilling is transparent to
 /// the rest of the pipeline.
 pub struct SpillablePartition<
     T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>,
@@ -429,7 +431,7 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
         data_size + overhead
     }
 
-    /// Check if this partition should be spilled to disk.
+    /// Check if this partition should be spilled to persistent storage.
     #[must_use]
     pub fn should_spill(&self) -> bool {
         self.tracker.as_ref().is_some_and(|tracker| {
@@ -444,7 +446,7 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
         })
     }
 
-    /// Spill this partition to disk.
+    /// Spill this partition to persistent storage.
     ///
     /// # Errors
     ///
@@ -480,7 +482,7 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
         Ok(())
     }
 
-    /// Restore this partition from disk into memory.
+    /// Restore this partition from persistent storage into memory.
     ///
     /// # Errors
     ///
@@ -510,11 +512,11 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
         Ok(())
     }
 
-    /// Get a reference to the data, restoring from disk if necessary.
+    /// Get a reference to the data, restoring from persistent storage if necessary.
     ///
     /// # Errors
     ///
-    /// Returns an error if restoration from disk fails.
+    /// Returns an error if restoration fails.
     pub fn data(&mut self) -> Result<&[T]> {
         if self.data.is_none() {
             self.restore()?;
@@ -525,11 +527,11 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
             .ok_or_else(|| anyhow!("Failed to access partition data"))
     }
 
-    /// Take ownership of the data, restoring from disk if necessary.
+    /// Take ownership of the data, restoring from persistent storage if necessary.
     ///
     /// # Errors
     ///
-    /// Returns an error if restoration from disk fails.
+    /// Returns an error if restoration fails.
     pub fn into_vec(mut self) -> Result<Vec<T>> {
         if self.data.is_none() {
             self.restore()?;
@@ -546,7 +548,7 @@ impl<T: 'static + Send + Sync + Clone + Serialize + for<'de> Deserialize<'de>>
         matches!(self.state, PartitionState::InMemory)
     }
 
-    /// Check if the data has been spilled to disk.
+    /// Check if the data has been spilled to persistent storage.
     #[must_use]
     pub const fn is_spilled(&self) -> bool {
         matches!(self.state, PartitionState::Spilled { .. })

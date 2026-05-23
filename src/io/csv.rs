@@ -8,7 +8,7 @@
 //!
 //! # Design notes
 //! - All typed I/O is Serde-backed (`DeserializeOwned`/`Serialize`).
-//! - Sharding is **row-count based** (header excluded), not byte-range based.
+//! - Sharding is **row-count-based** (header excluded), not byte-range-based.
 //! - The parallel writer preserves **deterministic final order** by writing shard
 //!   buffers in index order after parallel serialization.
 
@@ -339,7 +339,7 @@ pub fn write_csv_par<T: Serialize + Sync>(
 
 /// Split `[0, len)` into `parts` contiguous ranges as `(chunk_idx, start, end)`.
 ///
-/// Ensures `parts  in  [1, len]` (when `len > 0`) and distributes remainder fairly.
+/// Ensures `parts in [1, len]` (when `len > 0`) and distributes the remainder fairly.
 /// Ranges are non-empty and cover the entire domain.
 ///
 /// This is not published to keep the public API focused on CSV semantics.

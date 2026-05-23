@@ -33,7 +33,7 @@ use std::sync::Arc;
 /// and walking backwards through single-input edges.
 ///
 /// This is an internal helper used to capture each collection's subplan so that
-/// the runner can execute them as independent "subplans" before the flatten step.
+/// the runner can execute them as independent "subplans" before the flattening step.
 ///
 /// # Errors
 /// Returns an error if the pipeline snapshot is missing a referenced node.
@@ -56,11 +56,11 @@ fn chain_from(p: &Pipeline, terminal: NodeId) -> Result<Vec<Node>> {
     Ok(chain)
 }
 
-/// Insert a tiny dummy `Source` so the outer flatten plan always starts with a
+/// Insert a tiny dummy `Source` so the outer flattening plan always starts with a
 /// `Source` node (as expected by the runner).
 ///
 /// The dummy payload is a `Vec<u8>` of length 1. It does not participate in the
-/// flatten transform's semantics--it's only a structural anchor for the execution plan.
+/// flattening transform's semantics--it's only a structural anchor for the execution plan.
 fn insert_dummy_source(p: &Pipeline) -> NodeId {
     p.insert_node(Node::Source {
         payload: Arc::new(vec![0u8]),

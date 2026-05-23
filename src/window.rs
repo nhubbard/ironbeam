@@ -13,7 +13,7 @@
 //! ## Tumbling windows
 //! The function [`Window::tumble`] computes the tumbling window that contains a given
 //! timestamp, parameterized by a **window size** (`size_ms`) and an **alignment offset**
-//! (`offset_ms`).  Windows are aligned so that valid window starts are:
+//! (`offset_ms`). Windows are aligned so that valid window starts are:
 //!
 //! ```text
 //! offset_ms + k * size_ms, for integer k

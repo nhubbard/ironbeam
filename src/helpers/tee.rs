@@ -1,8 +1,8 @@
 //! Pipeline fan-out helpers for [`PCollection`].
 //!
 //! Ironbeam's transforms consume their input by value (`self`), so to feed a
-//! single upstream stream into N independent downstream branches you need
-//! to duplicate the [`PCollection`] handle. [`PCollection::tee`] /
+//! single upstream stream into N independent downstream branches, you need
+//! to duplicate the [`PCollection`] handle. [`PCollection::tee`] and
 //! [`PCollection::tee_n`] provide a concise, intention-revealing way to do
 //! that.
 //!
@@ -18,7 +18,7 @@
 //! feature 3.13 in `FEATURE_PARITY_PLAN.md`) detects this topology and
 //! inserts a cache so the source transform runs **once** and all branches
 //! consume the materialized output. So calling `tee` is functionally
-//! equivalent to two manual `clone` calls, but communicates intent.
+//! equivalent to two manual `clone` calls but communicates intent more clearly.
 
 use crate::{PCollection, RFBound};
 
@@ -28,7 +28,7 @@ impl<T: RFBound> PCollection<T> {
     /// Returns two handles `(a, b)` that both reference the same upstream
     /// node. Each branch can independently apply transforms and trigger
     /// execution; the planner's cache placement ensures upstream work is
-    /// materialized once.
+    /// materialized exactly once.
     ///
     /// This is the Ironbeam equivalent of Apache Beam's `Tee`. See the
     /// module-level docs for details on the execution semantics.

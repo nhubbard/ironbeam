@@ -68,7 +68,7 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     /// Approximate global distinct count using KMV with `k` retained minima.
     ///
     /// * For small cardinalities (`< k`), returns the exact count.
-    /// * For large sets, estimator variance decreases with larger `k`.
+    /// * For large sets, estimator variance decreases with a larger `k`.
     ///
     /// # Example
     /// ```no_run
@@ -196,8 +196,8 @@ where
     /// ```
     #[must_use]
     pub fn distinct_per_key(self) -> Self {
-        // (K,V) -> group_by_key -> (K, Vec<V>) -> combine_values_lifted(DistinctSet) -> (K, Vec<V>)
-        // -> flat_map to (K,V)
+        // (K, V) -> group_by_key -> (K, Vec<V>) -> combine_values_lifted(DistinctSet) -> (K, Vec<V>)
+        // -> flat_map to (K, V)
         self.group_by_key()
             .combine_values_lifted(DistinctSet::<V>::default())
             .flat_map(|kv: &(K, Vec<V>)| {

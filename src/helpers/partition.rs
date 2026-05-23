@@ -148,7 +148,7 @@
 //!
 //! The enum approach creates intermediate collections, but this is efficient because:
 //! - Enums are stack-allocated and have minimal overhead
-//! - Pattern matching is optimized by the compiler
+//! - The compiler optimizes pattern matching
 //! - The planner can fuse operations where possible
 //! - Memory usage is proportional to the largest output, not the sum
 //!

@@ -82,7 +82,7 @@ pub trait DynOp: Send + Sync {
     /// If this op is a hard upper-bound limit (`take(N)`), returns `Some(N)`.
     ///
     /// The planner uses this to set [`crate::planner::Plan::limit`], which the
-    /// runner honours to stop collecting elements as soon as `N` have been
+    /// runner honors to stop collecting elements as soon as `N` elements have been
     /// gathered across all partitions — providing early termination without
     /// executing the full pipeline.
     ///
@@ -188,7 +188,7 @@ pub enum Node {
     /// - `finish`: converts `A` -> `Vec<O>` (typically a singleton)
     /// - `fanout`: optional breadth limit for multi-round parallel reduction
     /// - `tree_reduce`: when `true`, the parallel runner uses Rayon's O(log n)
-    ///   `reduce_with` instead of the sequential fanout loop.  Set automatically
+    ///   `reduce_with` instead of the sequential fanout loop. Set automatically
     ///   when the combiner reports [`crate::collection::CombineFn::is_associative_commutative`].
     CombineGlobal {
         local: Arc<dyn Fn(Partition) -> Partition + Send + Sync>,

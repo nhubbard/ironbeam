@@ -178,7 +178,7 @@ pub fn write_xml_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Result
 
 /// Write XML in parallel while keeping **deterministic final order**.
 ///
-/// Each `T` is serialised to an XML string fragment in parallel via rayon; the
+/// Each `T` is serialized to an XML string fragment in parallel via rayon; the
 /// fragments are then written sequentially inside a single `<records>` root.
 ///
 /// `Serializer::with_root` sets each element's tag to `"item"` regardless of the
@@ -191,7 +191,7 @@ pub fn write_xml_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Result
 ///
 /// # Errors
 /// Returns an error if the file cannot be created/written or any item fails to
-/// serialise.
+/// serialize.
 ///
 /// # Feature
 /// Requires the `parallel-io` feature.
@@ -249,7 +249,7 @@ pub fn write_xml_par<T: Serialize + Sync>(
 /// Produced by [`build_xml_shards`] and consumed by [`read_xml_range`] and the
 /// execution engine via [`XmlVecOps`].
 ///
-/// Because XML is not byte-splittable, `ranges` always contains at most one
+/// Because XML is not byte-splittable, `ranges` will always contain at most one
 /// entry covering the entire file.
 #[derive(Clone)]
 pub struct XmlShards {

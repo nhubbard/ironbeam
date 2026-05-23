@@ -199,9 +199,9 @@ pub fn read_parquet_row_group_range<T: DeserializeOwned>(
 /// `VecOps` adapter for streaming Parquet via [`ParquetShards`].
 ///
 /// Enables the engine to:
-/// - get total length (`len`)
-/// - split into partitions by row-group ranges (`split`)
-/// - read the entire dataset for sequential paths (`clone_any`)
+/// - Get total length (`len`)
+/// - Split into partitions by row-group ranges (`split`)
+/// - Read the entire dataset for sequential paths (`clone_any`)
 #[cfg(feature = "io-parquet")]
 pub struct ParquetVecOps<T>(PhantomData<T>);
 

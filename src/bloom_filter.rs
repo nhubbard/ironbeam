@@ -94,7 +94,7 @@ impl BloomFilter {
 
 /// Compute `K` independent bit positions for `key` in a bit array of size `m`.
 ///
-/// Uses `k` distinct seeds: `H_i(key) = hash(i ‖ key) mod m`.  Seeds are
+/// Uses `k` distinct seeds: `H_i(key) = hash(i ‖ key) mod m`. Seeds are
 /// mixed in as a leading `u64` before hashing `key`, ensuring each of the
 /// `K` positions is derived from an independent hash function.
 fn bit_positions<H: Hash>(key: &H, m: usize) -> [usize; K] {

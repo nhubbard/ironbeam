@@ -9,7 +9,7 @@
 //! - [`PCollection::min_globally`] — minimum element → `PCollection<T>`
 //! - [`PCollection::max_globally`] — maximum element → `PCollection<T>`
 //! - [`PCollection::average_globally`] — arithmetic mean → `PCollection<f64>`
-//! - [`PCollection::mean_globally`] — arithmetic mean with caller-chosen output type → `PCollection<O>`
+//! - [`PCollection::mean_globally`] — arithmetic mean with a caller-chosen output type → `PCollection<O>`
 //!
 //! ## Per-key operations — `PCollection<(K, V)>`
 //! - [`PCollection::sum_per_key`] — sum of values per key → `PCollection<(K, V)>`
@@ -219,7 +219,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if any key has zero associated values (cannot occur when using
+    /// Panics if any key has no associated values (cannot occur when using
     /// `combine_values` over a non-empty source).
     ///
     /// # Examples
@@ -246,7 +246,7 @@ where
     ///
     /// # Panics
     ///
-    /// Panics if any key has zero associated values (cannot occur when using
+    /// Panics if any key has no associated values (cannot occur when using
     /// `combine_values` over a non-empty source).
     ///
     /// # Examples
