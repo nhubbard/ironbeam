@@ -81,6 +81,16 @@ pub struct Plan {
     /// anchor; `is_singleton` intentionally excludes them so their subchains execute via
     /// the parallel `run_subplan_par` path when parallel mode is selected.
     pub is_singleton: bool,
+    /// Snapshot of human-readable node names taken from the source [`Pipeline`] at
+    /// plan-build time.
+    ///
+    /// Populated by [`build_plan`] from
+    /// [`Pipeline::node_names_snapshot`](crate::Pipeline::node_names_snapshot). The
+    /// planner itself does not consume this map — it is forwarded to the
+    /// [`ExecutionExplanation`] so the local explain view and external backends
+    /// (e.g. the Google Dataflow translator) can render meaningful labels next to
+    /// generic op categories like `Stateless` / `GroupByKey`.
+    pub node_names: HashMap<NodeId, String>,
 }
 
 /// Represents an optimization decision made by the planner.
@@ -275,6 +285,15 @@ pub struct ExecutionExplanation {
     pub optimizations: Vec<OptimizationDecision>,
     /// Suggested partition count.
     pub suggested_partitions: Option<usize>,
+    /// Human-readable labels attached to individual nodes via
+    /// [`PCollection::with_name`](crate::PCollection::with_name).
+    ///
+    /// Snapshot of the source [`Pipeline`]'s name map at plan-build time
+    /// (see [`Plan::node_names`]).  Empty when no node has been named.  The
+    /// [`Display`] impl renders these as a "NAMED OPERATIONS" footer block
+    /// when non-empty; external backends consult the same data when
+    /// translating the graph to a remote runner.
+    pub node_names: HashMap<NodeId, String>,
 }
 
 impl Display for ExecutionExplanation {
@@ -503,6 +522,25 @@ impl Display for ExecutionExplanation {
             )?;
         }
 
+        if !self.node_names.is_empty() {
+            writeln!(f)?;
+            writeln!(
+                f,
+                "┌─ NAMED OPERATIONS ───────────────────────────────────────────┐"
+            )?;
+            // Sort by NodeId so the output is deterministic regardless of the
+            // underlying HashMap's iteration order.
+            let mut entries: Vec<(&NodeId, &String)> = self.node_names.iter().collect();
+            entries.sort_by_key(|(id, _)| id.raw());
+            for (id, name) in entries {
+                writeln!(f, "│ • {id:?}: {name}")?;
+            }
+            writeln!(
+                f,
+                "└──────────────────────────────────────────────────────────────┘"
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -680,6 +718,7 @@ impl Plan {
             },
             optimizations: self.optimizations.clone(),
             suggested_partitions: self.suggested_partitions,
+            node_names: self.node_names.clone(),
         }
     }
 }
@@ -848,6 +887,7 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         limit,
         is_empty,
         is_singleton,
+        node_names: p.node_names_snapshot(),
     })
 }
 
