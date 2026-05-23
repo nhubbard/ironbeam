@@ -31,14 +31,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ironbeam = "2.5.0"
+ironbeam = "3"
 ```
 
 By default, all features are enabled. To use a minimal configuration:
 
 ```toml
 [dependencies]
-ironbeam = { version = "2.5.0", default-features = false }
+ironbeam = { version = "3", default-features = false }
 ```
 
 Available feature flags:
