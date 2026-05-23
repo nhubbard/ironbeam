@@ -89,7 +89,91 @@ earlier tiers. They are primarily convenience wrappers and less common aggregati
 and pipeline-shape patterns. All additional I/O formats — both file-based and database — are
 covered separately in Tier 5.
 
-### 4.11 WaitOn (Pipeline Dependency Barrier)
+### 4.11 Named Operations
+
+**Status:** Not implemented.
+
+Allow each pipeline node to carry an optional human-readable name. Ironbeam currently exposes
+only `NodeId` (an opaque integer) and the generic op category — fine for in-process execution,
+but a sharp edge for external backends. A community-built Google Cloud Dataflow translator
+(GitHub feature request) reported that every step renders as a generic "ParDo" / "GroupByKey" in
+the Dataflow UI because there is no per-operation label to forward. Beam's pipelines name each
+applied transform (`data | "Split" >> beam.FlatMap(...)` in Python,
+`data.apply("Split", FlatMapElements.into(...).via(...))` in Java), and that label is the
+identifier shown in dashboards, logs, and metrics.
+
+The constraint here is that **no existing helper currently accepts a name**, and adding one
+would be a breaking change across the entire `PCollection` surface. The design must therefore
+inject names *after* a transform is applied, attaching them to the node the transform produced.
+
+**Proposed API — fluent post-fix labeling:**
+```rust
+let counts = from_vec(&p, lines).with_name("Source")
+    .flat_map(|line: &String| line.split_whitespace().map(String::from).collect())
+    .with_name("Split")
+    .key_by(|w: &String| w.clone())
+    .with_name("KeyByWord")
+    .map_values(|_| 1u64).with_name("AssignOne")
+    .combine_values(Sum::<u64>::default())
+    .with_name("Sum");
+```
+
+`PCollection::with_name(self, name: impl Into<String>) -> Self` records the name against the
+*current* node (`self.id`) and returns `self` unchanged. It is purely metadata: existing planner
+passes, the runner, and the executor never read it, so behavior is unchanged for in-process
+execution. Calling `with_name` twice on the same node overwrites the previous name
+(last-write-wins). Composite helpers that internally fan out into multiple nodes (e.g.
+`combine_values_lifted`, `join_*`) only label the terminal node — see the scope extension below
+for naming sub-graphs.
+
+**Proposed accessor — for backends and translators:**
+```rust
+pipeline.node_name(node_id) -> Option<&str>           // None when unnamed
+pipeline.set_node_name(node_id, name)                 // explicit setter, for advanced use
+```
+
+External translators (the Dataflow backend, future Flink/Spark translators, the existing
+`ExecutionExplanation`, and the metrics layer) consume names through these accessors. When a
+node has no name, the existing fallback — the op category (`ParDo`, `GroupByKey`, …) — is used,
+so untouched pipelines render identically to the present implementation.
+
+**Storage:** add a `HashMap<NodeId, String>` to `Pipeline` rather than a field on `Node`. This
+avoids churning every `Node::*` variant and every helper that constructs one, keeps the change
+fully additive, and leaves room to extend the metadata surface later (descriptions, tags,
+display hints) without re-touching the node enum.
+
+**Surface integration:**
+- `ExplainStep` / `ExecutionExplanation` should print the name (when present) alongside the op
+  category so `explain_pipeline` output stays useful for debugging local pipelines too.
+- `MetricsCollector` should prefer the node name over `NodeId` when labeling per-step counters.
+- `Plan` / `PlannedNode` should carry the name through the optimizer so post-planning passes can
+  preserve it across fusion (fused chains take the *first* named step's label, or the joined
+  list if multiple steps in the chain are named — TBD during implementation).
+
+**Scope / composite naming (optional follow-up, same feature):**
+For named sub-graphs — a recurring user need once `with_name` exists — add a scope helper:
+```rust
+let counts = p.named_scope("WordCount", |_| {
+    from_vec(&p, lines)
+        .flat_map(...)        // node name becomes "WordCount/<auto>"
+        .key_by(...)
+        .combine_values(Sum::<u64>::default())
+});
+```
+Nodes created inside the closure get the scope path as a prefix. This needs the pipeline to
+maintain a scope stack during graph construction. It is a larger lift than `with_name` and is
+worth landing as a second commit on the same feature once the basics are proven.
+
+**Beam equivalent:** the `name` / `label` argument on every applied transform
+(`PTransform.label` in Python; the `String name` first argument in Java's `apply(...)`).
+
+**Estimated complexity:** Low for the core fluent `with_name` API and the pipeline-side
+metadata map. Medium overall once `ExecutionExplanation`, the metrics layer, and the planner
+are made name-aware, and the scope helper is added.
+
+---
+
+### 4.12 WaitOn (Pipeline Dependency Barrier)
 
 **Status:** Not implemented.
 
@@ -109,7 +193,7 @@ the execution graph and the runner to honor them without deadlock.
 
 ---
 
-### 4.12 ApproximateUnique / HyperLogLog Distinct Count
+### 4.13 ApproximateUnique / HyperLogLog Distinct Count
 
 **Status:** Not implemented.
 
@@ -133,7 +217,7 @@ integration and correct serialization of the HLL sketch state need care.
 
 ---
 
-### 4.13 Sample Combiner
+### 4.14 Sample Combiner
 
 **Status:** Not implemented.
 
@@ -152,7 +236,7 @@ collection.sample_per_key(n: usize)   // PCollection<(K, V)> -> PCollection<(K, 
 
 ---
 
-### 4.14 Error Handling / Dead-Letter Pattern
+### 4.15 Error Handling / Dead-Letter Pattern
 
 **Status:** Not implemented.
 
