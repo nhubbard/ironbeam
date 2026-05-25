@@ -168,6 +168,10 @@
 //! - [`named`] - Fluent node naming for external backends and explain output
 //!   - [`PCollection::with_name`](crate::PCollection::with_name)
 //!
+//! ### Dependency Sequencing
+//! - [`wait_on`] - Hold downstream consumers until a signal collection drains
+//!   - [`PCollection::wait_on`](crate::PCollection::wait_on)
+//!
 //! ### Fan-out
 //! - [`tee`] - Duplicate a collection for multiple downstream branches
 //!   - [`PCollection::tee`](crate::PCollection::tee)
@@ -301,6 +305,7 @@ pub mod try_process;
 pub mod tumbling;
 pub mod validation;
 pub mod values;
+pub mod wait_on;
 pub mod windowed_combine;
 pub mod xml;
 
