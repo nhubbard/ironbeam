@@ -9,8 +9,9 @@
 //! - Behavioural invariant: naming a pipeline does not change its results.
 //! - Planner integration: `Plan::node_names` is populated at plan-build time;
 //!   `ExecutionExplanation::node_names` propagates the snapshot.
-//! - `Display` integration: the "NAMED OPERATIONS" footer appears iff any
-//!   node is named, entries are sorted deterministically, and unnamed
+//! - `Display` integration: per-step name annotation appears alongside the
+//!   op category when at least one origin node was named, fused chains
+//!   show the joined names of their contributing origins, and unnamed
 //!   pipelines produce identical explain output to before the feature.
 
 use ironbeam::*;
@@ -239,9 +240,9 @@ fn test_build_plan_snapshot_is_frozen() {
 }
 
 /// An empty `node_names` map on a Plan yields an empty map on the explanation
-/// too — and the rendered Display contains no "NAMED OPERATIONS" block.
+/// too — and no step renders a `[name]` annotation.
 #[test]
-fn test_explanation_no_names_renders_no_section() {
+fn test_explanation_no_names_renders_no_step_annotation() {
     let p = Pipeline::default();
     let coll = from_vec(&p, vec![1u32, 2, 3]).filter(|x| *x > 0);
 
@@ -249,14 +250,15 @@ fn test_explanation_no_names_renders_no_section() {
     let expl = plan.explain();
 
     assert!(expl.node_names.is_empty());
-    let s = format!("{expl}");
-    assert!(!s.contains("NAMED OPERATIONS"), "{s}");
+    for step in &expl.steps {
+        assert!(step.name.is_none(), "unexpected step name: {step:?}");
+    }
 }
 
-/// When at least one node is named, the explanation surfaces the map and the
-/// Display impl renders a "NAMED OPERATIONS" block containing each entry.
+/// When at least one node is named, the matching step carries the label and
+/// the rendered `Display` shows `Step N: NodeType [Name]` inline.
 #[test]
-fn test_explanation_renders_named_section() {
+fn test_explanation_renders_inline_step_names() {
     let p = Pipeline::default();
     let coll = from_vec(&p, vec![1u32, 2, 3])
         .with_name("MySource")
@@ -266,37 +268,75 @@ fn test_explanation_renders_named_section() {
     let plan = build_plan(&p, coll.node_id()).unwrap();
     let expl = plan.explain();
 
-    assert_eq!(expl.node_names.len(), 2);
+    let names: Vec<Option<&str>> = expl.steps.iter().map(|s| s.name.as_deref()).collect();
+    assert!(
+        names.contains(&Some("MySource")),
+        "expected MySource in step names: {names:?}"
+    );
+    // After fusion, the Source and the filter may share a step (the filter
+    // could be pulled into the source's Stateless chain) — either way the
+    // filter's label appears in some step.
+    assert!(
+        expl.steps
+            .iter()
+            .any(|s| s.name.as_deref().is_some_and(|n| n.contains("MyFilter"))),
+        "expected a step labelled with MyFilter: {names:?}"
+    );
+
     let s = format!("{expl}");
-    assert!(s.contains("NAMED OPERATIONS"), "{s}");
-    assert!(s.contains("MySource"), "{s}");
+    assert!(s.contains("[MySource]"), "{s}");
     assert!(s.contains("MyFilter"), "{s}");
 }
 
-/// Entries in the rendered "NAMED OPERATIONS" block are sorted by `NodeId` —
-/// so output is deterministic regardless of `HashMap` iteration order.
+/// Steps render in chain order — so labels appear in the source-to-terminal
+/// sequence the user wrote, not in `HashMap` iteration order.
 #[test]
-fn test_explanation_named_section_is_sorted_deterministic() {
+fn test_explanation_step_names_render_in_chain_order() {
     let p = Pipeline::default();
-    let coll = from_vec(&p, vec![1u32, 2, 3])
-        .with_name("First")
-        .filter(|x| *x > 0)
+    let coll = from_vec(&p, vec![("a", 1u32), ("b", 2)])
+        .with_name("First") // Source
+        .group_by_key() // anonymous barrier blocks downstream fusion
         .with_name("Second")
-        .map(|x| x + 1)
+        .map_values(|vs: &Vec<u32>| vs.iter().sum::<u32>())
         .with_name("Third");
 
     let plan = build_plan(&p, coll.node_id()).unwrap();
-    let expl = plan.explain();
-    let s = format!("{expl}");
+    let s = format!("{}", plan.explain());
 
-    let pos_first = s.find("First").expect("First label rendered");
-    let pos_second = s.find("Second").expect("Second label rendered");
+    let pos_first = s.find("[First]").expect("First label rendered");
+    let pos_second = s.find("[Second]").expect("Second label rendered");
     let pos_third = s.find("Third").expect("Third label rendered");
 
-    // The source was created first (lowest NodeId) and gets rendered first, etc.
     assert!(
         pos_first < pos_second && pos_second < pos_third,
-        "names should render in NodeId order:\n{s}"
+        "labels should appear in chain order:\n{s}"
+    );
+}
+
+/// When the optimizer fuses multiple named nodes into a single chain entry,
+/// the rendered name is the chain-ordered join of their labels with " + ".
+#[test]
+fn test_explanation_fused_step_joins_origin_names() {
+    let p = Pipeline::default();
+    // Two named Stateless transforms in a row — fusion merges them.
+    let coll = from_vec(&p, vec![1u32, 2, 3])
+        .filter(|x| *x > 0)
+        .with_name("Positive")
+        .map(|x| x * 2)
+        .with_name("Double");
+
+    let plan = build_plan(&p, coll.node_id()).unwrap();
+    let expl = plan.explain();
+
+    let joined_present = expl.steps.iter().any(|s| {
+        s.name
+            .as_deref()
+            .is_some_and(|n| n.contains("Positive") && n.contains("Double") && n.contains(" + "))
+    });
+    assert!(
+        joined_present,
+        "expected a fused step joining Positive + Double: {:?}",
+        expl.steps.iter().map(|s| &s.name).collect::<Vec<_>>()
     );
 }
 
@@ -318,9 +358,9 @@ fn test_explanation_node_names_matches_plan() {
 }
 
 /// Existing pipelines that never call `with_name` continue to render exactly
-/// as before — no `NAMED OPERATIONS` header anywhere in the output.
+/// as before — no `[…]` step annotations anywhere in the output.
 #[test]
-fn test_no_named_section_when_pipeline_unused() {
+fn test_no_step_annotations_when_pipeline_unused() {
     let p = Pipeline::default();
     let coll = from_vec(&p, vec![1u32, 2, 3, 4, 5])
         .filter(|x| x % 2 == 0)
@@ -331,7 +371,9 @@ fn test_no_named_section_when_pipeline_unused() {
     let s = format!("{expl}");
 
     assert!(expl.node_names.is_empty(), "{s}");
-    assert!(!s.contains("NAMED OPERATIONS"), "{s}");
+    for step in &expl.steps {
+        assert!(step.name.is_none(), "unexpected step name: {step:?}");
+    }
 }
 
 // ── named_scope — composite labelling ────────────────────────────────────────
@@ -499,8 +541,9 @@ fn test_set_node_name_is_raw_inside_scope() {
     assert_eq!(p.node_name(coll.node_id()).as_deref(), Some("RawLabel"));
 }
 
-/// Names produced inside a scope flow into `ExecutionExplanation::node_names`
-/// and the rendered footer just like un-scoped names do.
+/// Names produced inside a scope flow into the per-step annotations on the
+/// explain output, with the scope path preserved as a `"<scope>/<label>"`
+/// prefix.
 #[test]
 fn test_named_scope_visible_in_explanation() {
     let p = Pipeline::default();
@@ -515,7 +558,15 @@ fn test_named_scope_visible_in_explanation() {
     let expl = plan.explain();
     let s = format!("{expl}");
 
-    assert!(s.contains("NAMED OPERATIONS"), "{s}");
     assert!(s.contains("Pipeline/Source"), "{s}");
     assert!(s.contains("Pipeline/Filter"), "{s}");
+    // At least one step carries a scope-qualified name.
+    assert!(
+        expl.steps.iter().any(|step| step
+            .name
+            .as_deref()
+            .is_some_and(|n| n.starts_with("Pipeline/"))),
+        "expected at least one step name to start with 'Pipeline/': {:?}",
+        expl.steps.iter().map(|s| &s.name).collect::<Vec<_>>()
+    );
 }

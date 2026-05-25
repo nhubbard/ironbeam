@@ -1848,6 +1848,7 @@ fn display_unreachable_branches_render() {
         description: "Read data source (1 elements)".to_string(),
         is_barrier: false,
         cost_hint: 1,
+        name: None,
     };
     let cost = CostEstimate {
         barriers: 0,

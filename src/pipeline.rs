@@ -267,7 +267,11 @@ impl Pipeline {
         struct ScopeGuard<'a>(&'a Pipeline);
         impl Drop for ScopeGuard<'_> {
             fn drop(&mut self) {
-                let mut g = self.0.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut g = self
+                    .0
+                    .inner
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 g.scope_stack.pop();
             }
         }
