@@ -4,26 +4,66 @@ A data processing framework for Rust inspired by Apache Beam and Google Cloud Da
 
 ## Features
 
+### Pipeline & execution
+
 - **Declarative pipeline API** with fluent interface
+- **Type-safe** with compile-time correctness
+- **Sequential and parallel execution** modes, with independent-subgraph parallelism
+- **Optimizing planner**: reshuffle elimination, predicate pushdown (incl. past reshuffle and into flatten subplans), dead-subtree elimination, CoGroup join reordering, tree reduction for associative combiners, limit pushdown, Bloom-filter semi-join, dominator-based CSE cache placement, adaptive inter-stage partition counts, empty/singleton source short-circuits
+
+### Element-wise transformations
+
 - **Stateless operations**: `map`, `filter`, `flat_map`, `map_batches`, `filter_map`
+- **Enhanced filters**: `filter_eq`, `filter_ne`, `filter_lt`, `filter_le`, `filter_gt`, `filter_ge`, `filter_range`, `filter_range_inclusive`, `filter_by`
+- **Keyed projections**: `keys`, `values`, `kv_swap`, `map_values`, `filter_values`
+- **Batching**: `batch_elements`, `batch_by_size`, `group_into_batches`
+- **Fan-out helpers**: `tee()` / `tee_n(n)` for ergonomic graph splits
+
+### Aggregation
+
 - **Stateful operations**: `group_by_key`, `combine_values`, keyed aggregations
-- **Built-in aggregations**: `count_globally`, `count_per_key`, `count_per_element`, `top_k_per_key`, `to_list_per_key`, `to_set_per_key`, `latest_globally`, `latest_per_key`, `sample_reservoir`, `sample_values_reservoir`, `distinct`, `distinct_per_key`, `approx_distinct_count`; lower-level combiners (`Sum`, `Min`, `Max`, `AverageF64`, `ApproxMedian`, `ApproxQuantiles`, `TDigest`) available via `combine_values` / `combine_globally`
+- **Built-in aggregations**: `count_globally`, `count_per_key`, `count_per_element`, `top_k_per_key`, `bottom_k_per_key`, `to_list_per_key`, `to_set_per_key`, `to_dict`, `latest_globally`, `latest_per_key`, `distinct`, `distinct_by`, `distinct_per_key`
+- **Lower-level combiners** for `combine_values` / `combine_globally`: `Sum`, `Min`, `Max`, `Mean`, `AverageF64`, `BottomK`, `TopK`, `ToDict`, `ApproxMedian`, `ApproxQuantiles`, `TDigest`
+- **Approximate algorithms**: `approx_distinct_count` (KMV), `approx_count_distinct` (HyperLogLog++), `approx_median_*`, `approx_quantiles_*`
+- **Reservoir sampling**: `sample_reservoir` (global), `sample_values_reservoir` (per-key), plus Beam-style `sample_globally(n)` / `sample_per_key(n)` helpers
+
+### Multi-collection operations
+
 - **Flatten**: merge multiple `PCollection`s of the same type into one
 - **Multi-output / side outputs**: enum-based routing with the `partition!` macro, compile-time type-safe
 - **N-way CoGroupByKey**: `cogroup_by_key!` macro for 2–10 inputs
-- **Enhanced filters**: `filter_eq`, `filter_ne`, `filter_lt`, `filter_le`, `filter_gt`, `filter_ge`, `filter_range`, `filter_range_inclusive`, `filter_by`
-- **Reservoir sampling**: `sample_reservoir` (global) and `sample_values_reservoir` (per-key)
-- **Join support**: inner, left, right, and full outer joins
-- **Side inputs** for enriching streams with auxiliary data (Vec and HashMap views)
-- **Sequential and parallel execution** modes
-- **Type-safe** with compile-time correctness
-- **Optional I/O backends**: JSON Lines, CSV, Parquet
+- **Join support**: inner, left, right, and full outer joins, with automatic Bloom-filter semi-join pre-filtering
+- **Side inputs** for enriching streams with auxiliary data (Vec, HashMap, singleton, and multimap views)
+
+### Time & windowing
+
+- **Windowing**: fixed/sliding windows with windowed combiner helpers (`sum_per_window`, `combine_per_key_and_window`, …)
+- **Timestamp helpers**: `attach_timestamps`, `Timestamped<T>`, `reify_timestamps`
+
+### Text processing
+
+- **Regex transforms** on `PCollection<String>`: `regex_matches`, `regex_extract`, `regex_extract_kv`, `regex_find`, `regex_replace_all`, `regex_split`
+
+### Control flow & observability
+
+- **Control-flow operators**: `reshuffle` (graph-level fusion barrier), `wait_on` (signal-only dependency barrier)
+- **Named operations**: `with_name` and `Pipeline::named_scope` for human-readable step labels in `explain` output
+- **Debug taps**: `log_elements`, `log_elements_with`, `debug_inspect`, `debug_count`
+- **Error handling**: dead-letter pattern via `map_catching` / `flat_map_catching`, plus `try_map` / `collect_fail_fast` / `collect_skip_errors`
+- **Metrics collection** for runtime introspection
+
+### I/O
+
+- **Optional I/O backends**: JSON Lines, CSV, Parquet, Avro, XML
 - **Optional compression**: gzip, zstd, bzip2, xz
-- **Metrics collection** and **checkpointing** for fault tolerance
-- **Automatic memory spilling** to disk for memory-constrained environments
 - **Cloud I/O abstractions** for provider-agnostic cloud integrations
+
+### Reliability & production
+
+- **Checkpointing** for fault tolerance
+- **Automatic memory spilling** to disk for memory-constrained environments
 - **Data validation utilities** for production-grade error handling
-- **Comprehensive testing framework** with fixtures and assertions
+- **Comprehensive testing framework** with fixtures, `PAssert` fluent assertions, and pre-built data fixtures
 
 ## Installation
 
@@ -46,6 +86,8 @@ Available feature flags:
 - `io-jsonl` - JSON Lines support
 - `io-csv` - CSV support
 - `io-parquet` - Parquet support
+- `io-avro` - Apache Avro support
+- `io-xml` - XML support
 - `compression-gzip` - gzip compression
 - `compression-zstd` - zstd compression
 - `compression-bzip2` - bzip2 compression
@@ -109,15 +151,24 @@ A `PCollection<T>` represents a distributed collection of elements. Collections 
 - `filter` - keep elements matching a predicate
 - `flat_map` - transform each element into zero or more outputs
 - `map_batches` - process elements in batches
+- `batch_elements(n)` / `batch_by_size(max_bytes, size_fn)` - group consecutive elements into `Vec<T>` batches
+- `tee()` / `tee_n(n)` - fan a collection out into multiple identical downstream branches
+- `to_display_string()` - render `T: Display` into `PCollection<String>`
+
+**Keyed projections:**
+
+- `keys()` / `values()` - project a `PCollection<(K, V)>` to its keys or values
+- `kv_swap()` - swap key and value
 
 **Stateful operations** work on keyed data:
 
 - `key_by` / `with_keys` / `with_constant_key` - convert to a keyed collection
 - `map_values` / `filter_values` - transform or filter values while preserving keys
 - `group_by_key` - group values by key
+- `group_into_batches(n)` - per-key batching into `Vec<V>` chunks of size ≤ `n`
 - `combine_values` / `combine_values_lifted` - aggregate values per key
-- `top_k_per_key` - select top K values per key
-- `distinct` / `distinct_per_key` - remove duplicate elements or values
+- `top_k_per_key` / `bottom_k_per_key` - select top/bottom K values per key
+- `distinct` / `distinct_by` / `distinct_per_key` - remove duplicate elements or values
 
 ### Combiners
 
@@ -128,25 +179,29 @@ use with `combine_values` / `combine_globally`.
 - `count_globally()` — total element count → `PCollection<u64>`
 - `count_per_key()` — element count per key → `PCollection<(K, u64)>`
 - `count_per_element()` — frequency of each distinct element → `PCollection<(T, u64)>`
-- `top_k_per_key(k)` — K largest values per key → `PCollection<(K, Vec<V>)>`
-- `to_list_per_key()` — all values per key → `PCollection<(K, Vec<V>)>`
-- `to_set_per_key()` — unique values per key → `PCollection<(K, HashSet<V>)>`
-- `latest_globally()` — value with the latest timestamp → `PCollection<T>`
-- `latest_per_key()` — latest value per key → `PCollection<(K, T)>`
-- `sample_reservoir(k, seed)` — global reservoir sample → `PCollection<T>`
-- `sample_reservoir_vec(k, seed)` — global sample as a single Vec → `PCollection<Vec<T>>`
-- `sample_values_reservoir(k, seed)` — per-key reservoir sample → `PCollection<(K, V)>`
-- `distinct()` — remove global duplicates → `PCollection<T>`
-- `distinct_per_key()` — remove duplicate values per key → `PCollection<(K, V)>`
-- `approx_distinct_count(k)` — estimated cardinality (KMV) → `PCollection<f64>`
-- `approx_distinct_count_per_key(k)` — estimated cardinality per key → `PCollection<(K, f64)>`
+- `sum_globally()` / `sum_per_key()` / `min_*` / `max_*` / `average_*` / `mean_*` — typed numeric aggregations, globally and per-key
+- `top_k_globally(k)` / `top_k_per_key(k)` — the K largest values
+- `bottom_k_globally(k)` / `bottom_k_per_key(k)` — the K smallest values
+- `to_list_globally()` / `to_list_per_key()` — collect all values → `Vec<V>`
+- `to_set_globally()` / `to_set_per_key()` — collect unique values → `HashSet<V>`
+- `to_dict()` — collect `(K, V)` pairs into a single `HashMap<K, V>`
+- `latest_globally()` / `latest_per_key()` — value with the latest timestamp
+- `sample_globally(n)` / `sample_per_key(n)` — Beam-style fixed-size reservoir samples (also `*_with_seed`)
+- `sample_reservoir(k, seed)` / `sample_reservoir_vec(k, seed)` / `sample_values_reservoir(k, seed)` — lower-level reservoir sampling
+- `distinct()` / `distinct_per_key()` / `distinct_by(key_fn)` — exact deduplication
+- `approx_distinct_count(k)` / `approx_distinct_count_per_key(k)` — estimated cardinality (KMV) → `PCollection<f64>`
+- `approx_count_distinct()` / `approx_count_distinct_per_key()` — estimated cardinality (HyperLogLog++) → `PCollection<u64>` (also `*_with_error(e)` variants)
+- `approx_median_*` / `approx_quantiles_*` — quantile estimators globally and per-key
 
 **Lower-level combiners for use with `combine_values` / `combine_globally`:**
 - `Sum` / `Min` / `Max` — basic numeric aggregation
-- `AverageF64` — arithmetic mean
+- `AverageF64` / `Mean<O>` — arithmetic mean (typed output)
+- `TopK` / `BottomK` — extreme-value selection
+- `ToDict<K, V>` — materialize `(K, V)` pairs into a `HashMap<K, V>`
 - `ApproxMedian` / `ApproxQuantiles` / `TDigest` — statistical estimators
+- `DistinctCount` (KMV) / `HllApproxDistinctCount` (HyperLogLog++) — cardinality estimators
 
-Custom combiners can be implemented via the `CombineFn` trait.
+Custom combiners can be implemented via the `CombineFn` trait. Combiners that opt in to `is_associative_commutative()` automatically get tree-reduction at parallel-execution time.
 
 ### Flatten
 
@@ -228,11 +283,104 @@ let enriched = data.map_with_side_map(&lookup, |(k, v), m| {
 Uniform reservoir sampling, deterministic across sequential and parallel execution:
 
 ```rust
-// Sample 1000 elements globally (returns PCollection<Vec<T>>)
-let sample = data.sample_reservoir_vec(1000, /*seed=*/ 42);
+// Beam-style fixed-size sample (returns PCollection<Vec<T>>)
+let sample = data.sample_globally(1000);
+let per_key = keyed.sample_per_key(10);
 
-// Sample 10 values per key
+// Or the lower-level streaming reservoir
+let sample = data.sample_reservoir_vec(1000, /*seed=*/ 42);
 let per_key = keyed.sample_values_reservoir(10, 42);
+```
+
+### Batching
+
+Group adjacent elements into batches for downstream APIs that prefer chunked input:
+
+```rust
+// Count-bounded batches
+let chunks: PCollection<Vec<Record>> = records.batch_elements(500);
+
+// Byte-size-bounded batches with an explicit size estimator
+let chunks = records.batch_by_size(/*max_bytes=*/ 1_048_576, |r: &Record| r.size_estimate());
+
+// Per-key batching: PCollection<(K, V)> -> PCollection<(K, Vec<V>)>
+let keyed_chunks = keyed.group_into_batches(100);
+```
+
+### Tee / Fan-out
+
+Split a collection into multiple identical downstream branches. The optimizer's dominator-based cache placement ensures the upstream pipeline runs once even when both branches consume it:
+
+```rust
+let (a, b) = data.tee();
+let branches: Vec<PCollection<T>> = data.tee_n(4);
+```
+
+### Reshuffle and WaitOn
+
+`reshuffle()` inserts an explicit graph-level barrier — preventing fusion and redistributing
+elements across partitions. `wait_on()` is a signal-only dependency barrier: the returned
+collection has the same elements as the original, but downstream stages don't start until the
+signal collection has fully drained.
+
+```rust
+let balanced = uneven.reshuffle();              // force a fusion barrier
+let after = data.wait_on(&prerequisite_sink);   // gate on completion of another branch
+```
+
+### Named Operations
+
+Annotate steps with human-readable labels that show up in `explain` output. Use `with_name`
+for individual nodes or `Pipeline::named_scope` to qualify every node created inside a closure:
+
+```rust
+let filtered = data
+    .filter(|x: &i32| x > 0)
+    .with_name("positive-only");
+
+let result = p.named_scope("normalize", |_p| {
+    raw.map(parse).filter(valid).map(canonicalize)
+});
+```
+
+### Regex Transforms
+
+String-collection helpers backed by the `regex` crate:
+
+```rust
+let matched = lines.regex_matches(r"^ERROR");
+let codes = lines.regex_extract(r"code=(\d+)", 1);
+let pairs = lines.regex_extract_kv(r"(\w+)=(\w+)", 1, 2);
+let cleaned = lines.regex_replace_all(r"\s+", " ");
+let tokens = lines.regex_split(r"[,;\s]+");
+```
+
+### Error Handling (Dead-Letter)
+
+Split a fallible transform into a good-path collection and a dead-letter collection of failed
+inputs paired with their errors:
+
+```rust
+let (parsed, errors): (PCollection<Record>, PCollection<DeadLetter<String>>) =
+    raw_lines.map_catching(|line: &String| serde_json::from_str::<Record>(line));
+
+parsed.write_jsonl("output/clean.jsonl")?;
+errors.write_jsonl("output/quarantine.jsonl")?;
+```
+
+Use `flat_map_catching` for fallible 1→N transforms. For fail-fast behavior, use the existing
+`try_map` / `collect_fail_fast` / `collect_skip_errors` family.
+
+### Debug Taps
+
+Inspect data passing through the pipeline without affecting downstream results:
+
+```rust
+let result = data
+    .log_elements()                                   // requires T: Debug
+    .filter(|x: &i32| x > 10)
+    .log_elements_with(|x| format!("kept: {x:#x}")) // custom formatter
+    .collect_seq()?;
 ```
 
 ### Execution
@@ -287,6 +435,23 @@ data.write_csv("output.csv")?;
 let data = read_parquet::<Record>(&p, "data.parquet")?;
 data.write_parquet("output.parquet")?;
 ```
+
+### Avro
+
+```rust
+let data = read_avro::<Record>(&p, "data.avro")?;
+data.write_avro("output.avro")?;
+```
+
+### XML
+
+```rust
+let data = read_xml::<Record>(&p, "data.xml")?;
+data.write_xml("output.xml")?;
+```
+
+All I/O helpers support glob patterns (`"data/*.jsonl"`, `"shards/**/*.avro"`) and have
+streaming and parallel-write variants (`read_*_streaming`, `write_*_par`).
 
 ### Compression
 
@@ -417,19 +582,41 @@ let validated = data
 
 [Learn more about validation →](https://github.com/nhubbard/ironbeam/blob/main/src/validation.rs)
 
+### Planner Optimizations
+
+The planner transparently applies a number of rewrites before execution. You can inspect the
+plan and the list of applied optimizations with `Pipeline::explain` (see
+`examples/explain_pipeline.rs`):
+
+- **Reshuffle elimination** — drops redundant reshuffles adjacent to barriers
+- **Predicate pushdown** — past reshuffle and into individual `Flatten` subplans
+- **Dead-subtree elimination** — prunes nodes that don't reach the terminal collection
+- **CoGroup join ordering** — reorders inputs by estimated cardinality
+- **Tree reduction** — O(log n) parallel merge for associative-commutative combiners
+- **Limit pushdown / early termination** — `take(n)` / `first()` stops merge-phase work early
+- **Bloom-filter semi-join** — pre-filters the larger side of `join_inner/left/right`
+- **Dominator-based CSE cache placement** — caches shared subgraphs at the right node
+- **Adaptive inter-stage partition counts** — partition count tracks cardinality across barriers
+- **Empty / singleton source short-circuits** — fast-paths trivially small pipelines
+- **Independent subgraph parallelism** — disjoint subgraphs of a single plan execute concurrently
+
 ## Examples
 
 The `examples/` directory contains complete demonstrations:
 
 - `etl_pipeline.rs` - Extract, transform, load workflow
 - `advanced_joins.rs` - Join operations
+- `co_gbk.rs` - N-way CoGroupByKey
+- `multi_output.rs` - Side outputs via `partition!`
 - `windowing_aggregations.rs` - Time-based windowing
 - `combiners_showcase.rs` - Using built-in combiners
 - `compressed_io.rs` - Working with compressed files
-- `checkpointing_demo.rs` - Checkpoint and recovery
+- `glob_patterns.rs` - Reading sharded inputs with glob patterns
+- `checkpointing_demo.rs` / `checkpoint_recovery_demo.rs` - Checkpoint and recovery
 - `metrics_example.rs` - Collecting metrics
 - `cloud_io_demo.rs` - Cloud service integrations
 - `data_quality_validation.rs` - Production data validation
+- `explain_pipeline.rs` - Inspecting the planned execution graph
 - `testing_pipeline.rs` - Testing patterns
 
 Run examples with:
@@ -457,8 +644,14 @@ fn test_my_pipeline() -> anyhow::Result<()> {
         .collect_seq()?;
 
     // Specialized assertions for collections
-    assert_collections_equal(result, vec![2, 4, 6]);
+    assert_collections_equal(result.clone(), vec![2, 4, 6]);
     assert_all(&result, |x| x % 2 == 0);
+
+    // PAssert fluent assertion builder
+    PAssert::that(&result)
+        .has_count(3)
+        .contains_in_any_order(&[2, 4, 6])
+        .all_match(|x| x % 2 == 0);
 
     Ok(())
 }
@@ -505,9 +698,9 @@ cargo test --features spilling
 For coverage:
 
 ```bash
-cargo tarpaulin --out Html
+cargo llvm-cov --workspace --all-features --html --branch
 ```
 
 ## License
 
-This project uses the Rust 2024 edition and requires a recent Rust toolchain.
+This project uses the Rust 2024 edition and requires at minimum Rust 1.88. It is developed primarily against Rust nightly.
