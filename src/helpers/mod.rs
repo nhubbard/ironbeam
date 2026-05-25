@@ -120,10 +120,14 @@
 //!   - [`PCollection::bottom_k_per_key`](crate::PCollection::bottom_k_per_key)
 //!
 //! ### Error Handling
-//! - [`try_process`] - Fallible transformations
+//! - [`try_process`] - Fallible transformations (Result-typed stream)
 //!   - [`PCollection::try_map`](crate::PCollection::try_map)
 //!   - [`PCollection::try_flat_map`](crate::PCollection::try_flat_map)
 //!   - [`PCollection::collect_fail_fast`](crate::PCollection::collect_fail_fast)
+//! - [`dead_letter`] - Fallible transforms that split good vs. errors
+//!   - [`DeadLetter`]
+//!   - [`PCollection::map_catching`](crate::PCollection::map_catching)
+//!   - [`PCollection::flat_map_catching`](crate::PCollection::flat_map_catching)
 //!
 //! ### Sorting
 //! - [`collect_sorted`] - Collect results in sorted order
@@ -284,6 +288,7 @@ pub mod combine_global;
 pub mod common;
 pub mod count;
 pub mod csv;
+pub mod dead_letter;
 pub mod display;
 pub mod distinct;
 pub mod filter;
@@ -323,3 +328,6 @@ pub use parquet::*;
 pub use side_inputs::*;
 pub use stdlib::*;
 pub use xml::*;
+
+// Type re-exports from helpers that aren't free-function modules.
+pub use dead_letter::DeadLetter;

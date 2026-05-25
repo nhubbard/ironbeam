@@ -82,37 +82,8 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.11 Named Operations                       | `PCollection::with_name(name)` fluent post-fix labeller + `Pipeline::set_node_name` / `node_name` / `node_names_snapshot` accessors backed by a per-`Pipeline` `HashMap<NodeId, String>`; `Pipeline::named_scope(name, \|p\| { … })` composite-naming helper that auto-labels every node inserted in its closure as `"<path>/<counter>"` (per-frame counters, nested via `/`) and qualifies `with_name(...)` calls inside the scope to `"<path>/<user-label>"`, with a panic-safe Drop-guard scope pop; names propagate into `Plan::node_names` / `Plan::chain_origin_ids` (maintained through every optimizer pass) so `ExplainStep::name` annotates each step with the joined labels of its contributing origin nodes, rendered inline by the `Display` impl as `Step N: NodeType [name]` | 3.1.0  |
 | 4.12 WaitOn                                 | `PCollection::wait_on(&signal)` — signal-only data-flow dependency barrier; the returned collection has the same elements and order as `self`, but downstream consumers are blocked until `signal` has fully drained. Implemented via `Node::Flatten` with a type-erased discard-and-emit-empty tail on the signal subchain; back-to-back / user-`flatten()`-preceded `wait_on` calls unwrap the prior Flatten into the new one to keep the runner from encountering nested Flatten in a subplan                                                                                                                                                                                                                                                                                            | 3.1.0  |
 | 4.13 ApproximateUnique (HLL)                | `HllApproxDistinctCount<T>` combiner (HyperLogLog++ via `hyperloglogplus`) with `new` / `with_error(e)` / `with_precision(p)` builders and a fixed-seed `BuildHasherDefault<DefaultHasher>` for cross-partition merge determinism; helpers `approx_count_distinct[_with_error]()` (global, returns `u64`) and `approx_count_distinct_per_key[_with_error]()` (per-key, returns `(K, u64)`) complementing the existing KMV-based `approx_distinct_count*` (f64) family                                                                                                                                                                                                                                                                                                                       | 3.1.0  |
-| 4.14 Sample (fixed-size)                    | Beam-style fixed-size reservoir sampling helpers on top of the existing `PriorityReservoir` combiner: `sample_globally(n)` → `PCollection<Vec<T>>` and `sample_per_key(n)` → `PCollection<(K, Vec<V>)>`, plus `_with_seed(n, seed)` variants. Uses a fixed default seed (SplitMix64 golden ratio) so two runs in the same execution mode return identical samples; per-partition PRNG divergence means sequential and parallel runs may pick different items but always exactly `n` per output (or every item if the input has fewer than `n`)                                                                                                                                                                                                                                                | 3.1.0  |
-
----
-
-## Tier 4: Convenience Transforms and Aggregation Patterns
-
-These transforms were identified in the initial survey of Beam features but not assigned to
-earlier tiers. They are primarily convenience wrappers and less common aggregation, sampling,
-and pipeline-shape patterns. All additional I/O formats — both file-based and database — are
-covered separately in Tier 5.
-
-### 4.15 Error Handling / Dead-Letter Pattern
-
-**Status:** Not implemented.
-
-Route elements that cause processing failures to a separate dead-letter `PCollection` instead of
-panicking or failing the pipeline. This is the foundational pattern for resilient ETL pipelines.
-
-**Beam equivalent:** `error_handling.py`
-
-**Proposed API:**
-```rust
-let (good, errors): (PCollection<Out>, PCollection<DeadLetter<In>>) =
-    collection.map_catching(|elem| my_fallible_fn(elem));
-
-// DeadLetter<T> contains the original element and the error message.
-// errors can be written to a log file, a database, or discarded.
-```
-
-**Estimated complexity:** Medium — requires a well-designed `DeadLetter<T>` type and ergonomic
-integration with the existing side-output / `partition!` machinery.
+| 4.14 Sample (fixed-size)                    | Beam-style fixed-size reservoir sampling helpers on top of the existing `PriorityReservoir` combiner: `sample_globally(n)` → `PCollection<Vec<T>>` and `sample_per_key(n)` → `PCollection<(K, Vec<V>)>`, plus `_with_seed(n, seed)` variants. Uses a fixed default seed (SplitMix64 golden ratio) so two runs in the same execution mode return identical samples; per-partition PRNG divergence means sequential and parallel runs may pick different items but always exactly `n` per output (or every item if the input has fewer than `n`)                                                                                                                                                                                                                                              | 3.1.0  |
+| 4.15 Error Handling (Dead-Letter)           | `DeadLetter<T> { element, error }` record + `PCollection::map_catching(f)` / `flat_map_catching(f)` helpers that split a fallible 1→1 or 1→N transform into `(PCollection<Out>, PCollection<DeadLetter<In>>)`. Errors are rendered via `Display::to_string()` so any error type works; the planner's dominator-based cache placement (3.13) ensures the underlying classification runs once even though both outputs share the upstream node. Complements the existing `try_map`/`collect_fail_fast` family by enabling per-output sinks (good → warehouse, errors → quarantine) instead of fail-fast                                                                                                                                                                                       | 3.1.0  |
 
 ---
 
