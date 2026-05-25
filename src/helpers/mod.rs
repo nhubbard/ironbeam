@@ -107,6 +107,10 @@
 //!   - [`PCollection::sample_reservoir`](crate::PCollection::sample_reservoir)
 //!   - [`PCollection::sample_values_reservoir_vec`](crate::PCollection::sample_values_reservoir_vec)
 //!   - [`PCollection::sample_values_reservoir`](crate::PCollection::sample_values_reservoir)
+//!   - [`PCollection::sample_globally`](crate::PCollection::sample_globally)
+//!   - [`PCollection::sample_globally_with_seed`](crate::PCollection::sample_globally_with_seed)
+//!   - [`PCollection::sample_per_key`](crate::PCollection::sample_per_key)
+//!   - [`PCollection::sample_per_key_with_seed`](crate::PCollection::sample_per_key_with_seed)
 //!
 //! ### Top-K / Bottom-K Operations
 //! - [`topk`] - Convenience API for selecting top or bottom K values globally or per key
