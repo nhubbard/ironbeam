@@ -1,3 +1,28 @@
+## [3.1.0](https://github.com/nhubbard/ironbeam/compare/v3.0.0...v3.1.0) (2026-05-25)
+
+### Features
+
+* **batches:** add batch_elements / batch_by_size (feature 4.7) ([a7a0496](https://github.com/nhubbard/ironbeam/commit/a7a0496ab74bf114366eb23b8430ff3487d8addf))
+* **batches:** add group_into_batches() for PCollection<(K, V)> (feature 4.6) ([c3f4666](https://github.com/nhubbard/ironbeam/commit/c3f466655ca364eb3adf45376be2a8ad11f34624))
+* **collection:** add keys() and values() for PCollection<(K, V)> (feature 4.1) ([f9939fb](https://github.com/nhubbard/ironbeam/commit/f9939fbafa60bb2a81c5aab471d691e65840f51b))
+* **collection:** add kv_swap() for PCollection<(K, V)> (feature 4.2) ([10484b4](https://github.com/nhubbard/ironbeam/commit/10484b47fcf6109c4d4419e63cf2943fa1494f6b))
+* **combiners:** add Mean<O> typed combiner + mean_*_globally/per_key (feature 4.3) ([59b3871](https://github.com/nhubbard/ironbeam/commit/59b387188cf7fe0eecdb65385cafb8efd7413b6c))
+* **combiners:** add ToDict combiner + to_dict() helper (feature 4.5) ([4b969f9](https://github.com/nhubbard/ironbeam/commit/4b969f9d34fd1581d8bef80d556e4ebce40adecb))
+* **dead-letter:** add DeadLetter type + map_catching / flat_map_catching (feature 4.15) ([4616baf](https://github.com/nhubbard/ironbeam/commit/4616baf9d624b035e8117902ae3181828dc985be))
+* **debug:** add log_elements / log_elements_with passthrough tap (feature 4.10) ([c4fd779](https://github.com/nhubbard/ironbeam/commit/c4fd779f8786e71991fd5280ae3e43c931e5367e))
+* **display:** add to_display_string() for PCollection<T: Display> (feature 4.8) ([a16e241](https://github.com/nhubbard/ironbeam/commit/a16e2415d276694814520fc8fd5d9a94b5a6b59f))
+* **distinct:** add HyperLogLog++ approx distinct count combiner + helpers (feature 4.13) ([aa67b66](https://github.com/nhubbard/ironbeam/commit/aa67b66ad406b5edc7a790af6054b4a9909fba63))
+* **naming:** add Pipeline::named_scope composite-naming helper (feature 4.11) ([046f27a](https://github.com/nhubbard/ironbeam/commit/046f27a7e711e996aa52bc8dbc5c74a9387b5375))
+* **naming:** add with_name fluent labeller + Pipeline name accessors (feature 4.11) ([863ab4b](https://github.com/nhubbard/ironbeam/commit/863ab4b16af3e1172fabf87826810ece0ea6f974))
+* **naming:** per-step name annotation in ExplainStep / explain output (feature 4.11) ([2543cb4](https://github.com/nhubbard/ironbeam/commit/2543cb4790ecc8994a99a2df40f6aa70bc9e35fc))
+* **sample:** add Beam-style sample_globally / sample_per_key helpers (feature 4.14) ([daf113b](https://github.com/nhubbard/ironbeam/commit/daf113b7a80c57af64caf3c933e204c0505bb850))
+* **tee:** add tee() / tee_n() fan-out helpers (feature 4.9) ([fc9ccac](https://github.com/nhubbard/ironbeam/commit/fc9ccac7ce9dd01a761d94c9a8461f04fcc8854e))
+* **wait_on:** add PCollection::wait_on signal-only dependency barrier (feature 4.12) ([4aee2c3](https://github.com/nhubbard/ironbeam/commit/4aee2c31f22d987699c83ca0bef80febcd49830a))
+
+### Documentation
+
+* **plan:** reorganize tiers — Tier 4 = non-I/O, Tier 5 = all I/O formats ([1473df4](https://github.com/nhubbard/ironbeam/commit/1473df4d6be40803b6abd5bc443e5a88a6b81537))
+
 ## [3.0.0](https://github.com/nhubbard/ironbeam/compare/v2.11.0...v3.0.0) (2026-05-16)
 
 ### Features
