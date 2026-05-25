@@ -904,6 +904,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyperloglogplus"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "621debdf94dcac33e50475fdd76d34d5ea9c0362a834b9db08c3024696c1fbe3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -968,6 +977,7 @@ dependencies = [
  "csv",
  "flate2",
  "glob",
+ "hyperloglogplus",
  "mark-flaky-tests",
  "num_cpus",
  "ordered-float 5.3.0",

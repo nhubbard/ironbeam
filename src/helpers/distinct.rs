@@ -6,15 +6,22 @@
 //! - [`PCollection::distinct_per_key`](crate::PCollection::distinct_per_key) - Remove duplicate values per key (exact)
 //! - [`PCollection::distinct_count_globally`] - Exact count of distinct elements (global)
 //! - [`PCollection::distinct_count_per_key`] - Exact count of distinct values per key
-//! - [`PCollection::approx_distinct_count`](PCollection::approx_distinct_count) - Approximate global cardinality (f64)
-//! - [`PCollection::approx_distinct_count_per_key`](crate::PCollection::approx_distinct_count_per_key) - Approximate cardinality per key
+//! - [`PCollection::approx_distinct_count`](PCollection::approx_distinct_count) - Approximate global cardinality (KMV, f64)
+//! - [`PCollection::approx_distinct_count_per_key`](crate::PCollection::approx_distinct_count_per_key) - Approximate cardinality per key (KMV, f64)
+//! - [`PCollection::approx_count_distinct`](PCollection::approx_count_distinct) - Approximate global cardinality (`HyperLogLog`++, u64)
+//! - [`PCollection::approx_count_distinct_with_error`](PCollection::approx_count_distinct_with_error) - HLL global cardinality with custom relative error
+//! - [`PCollection::approx_count_distinct_per_key`](crate::PCollection::approx_count_distinct_per_key) - HLL per-key cardinality
+//! - [`PCollection::approx_count_distinct_per_key_with_error`](crate::PCollection::approx_count_distinct_per_key_with_error) - HLL per-key cardinality with custom relative error
 //!
 //! Exact distinct is implemented with the `DistinctSet<T>` combiner and then
 //! expanded back into an element stream via `flat_map`. Exact distinct counts use
-//! `DistinctCount<T>` (returns `u64`). Approximate counts use a KMV estimator
-//! (`KMVApproxDistinctCount<T>`).
+//! `DistinctCount<T>` (returns `u64`). Two approximate-count families are
+//! available: KMV-based (returns `f64`, exact when cardinality `< k`) and
+//! HyperLogLog++-based (returns `u64`, bounded relative error at all scales).
 
-use crate::combiners::{DistinctCount, DistinctSet, KMVApproxDistinctCount};
+use crate::combiners::{
+    DistinctCount, DistinctSet, HllApproxDistinctCount, KMVApproxDistinctCount,
+};
 use crate::{PCollection, RFBound};
 use std::hash::Hash;
 
@@ -82,6 +89,72 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     #[must_use]
     pub fn approx_distinct_count(self, k: usize) -> PCollection<f64> {
         self.combine_globally(KMVApproxDistinctCount::<T>::new(k), None)
+    }
+
+    /// Approximate global distinct count via the `HyperLogLog`++ algorithm.
+    ///
+    /// Returns a `u64` cardinality estimate computed by
+    /// [`HllApproxDistinctCount`] with the default precision (`12`, ~1.6%
+    /// relative standard error). Memory usage is constant in the input
+    /// size (a few kilobytes), so this is well-suited for streams whose
+    /// cardinality is too large for the exact
+    /// [`distinct_count_globally`](Self::distinct_count_globally).
+    ///
+    /// For small cardinalities the HLL++ sparse representation gives
+    /// essentially exact counts; the bounded error only kicks in once the
+    /// register array saturates.
+    ///
+    /// Use [`approx_count_distinct_with_error`](Self::approx_count_distinct_with_error)
+    /// when you need a tighter (or looser) error bound.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let est = from_vec(&p, (0u32..10_000).map(|n| n % 1234).collect::<Vec<_>>())
+    ///     .approx_count_distinct()
+    ///     .collect_seq()?;
+    /// assert!((1200..=1260).contains(&est[0])); // ~1234 ± a few %
+    /// # Ok(()) }
+    /// ```
+    #[must_use]
+    pub fn approx_count_distinct(self) -> PCollection<u64> {
+        self.combine_globally(HllApproxDistinctCount::<T>::new(), None)
+    }
+
+    /// Approximate global distinct count via `HyperLogLog`++ with an explicit
+    /// relative-standard-error target.
+    ///
+    /// `error` must lie in `(0, 1)` (typical values: `0.02` for the
+    /// default, `0.01` for tighter bounds, `0.005` for ~0.5 %). The
+    /// resulting sketch uses ~`2^p` registers where `p` is the smallest
+    /// precision in `[4, 18]` such that
+    /// `1.04 / sqrt(2^p) <= error`. See
+    /// [`HllApproxDistinctCount::with_error`] for the precision table.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `error` is not finite or is outside `(0, 1)`.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let est = from_vec(&p, (0u32..100_000).collect::<Vec<_>>())
+    ///     .approx_count_distinct_with_error(0.01)
+    ///     .collect_seq()?;
+    /// assert!((99_000..=101_000).contains(&est[0]));
+    /// # Ok(()) }
+    /// ```
+    #[must_use]
+    pub fn approx_count_distinct_with_error(self, error: f64) -> PCollection<u64> {
+        self.combine_globally(HllApproxDistinctCount::<T>::with_error(error), None)
     }
 }
 
@@ -216,5 +289,50 @@ where
     #[must_use]
     pub fn approx_distinct_count_per_key(self, k: usize) -> PCollection<(K, f64)> {
         self.combine_values(KMVApproxDistinctCount::<V>::new(k))
+    }
+
+    /// Approximate per-key distinct value count via `HyperLogLog`++.
+    ///
+    /// Produces `(K, u64)` where the value is the estimated cardinality of
+    /// the per-key value set. Uses the default precision (`12`, ~1.6%
+    /// relative standard error). For keys with small cardinality the
+    /// HLL++ sparse representation makes the estimate essentially exact.
+    ///
+    /// Use [`approx_count_distinct_per_key_with_error`](Self::approx_count_distinct_per_key_with_error)
+    /// to tune the error bound.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use anyhow::Result;
+    /// use ironbeam::*;
+    ///
+    /// # fn main() -> Result<()> {
+    /// let p = Pipeline::default();
+    /// let counts = from_vec(&p, vec![
+    ///     ("a", 1u32), ("a", 1), ("a", 2),
+    ///     ("b", 7u32), ("b", 7),
+    /// ])
+    /// .approx_count_distinct_per_key()
+    /// .collect_seq_sorted()?;
+    /// assert_eq!(counts, vec![("a", 2u64), ("b", 1u64)]);
+    /// # Ok(()) }
+    /// ```
+    #[must_use]
+    pub fn approx_count_distinct_per_key(self) -> PCollection<(K, u64)> {
+        self.combine_values(HllApproxDistinctCount::<V>::new())
+    }
+
+    /// Approximate per-key distinct value count via `HyperLogLog`++ with an
+    /// explicit relative-standard-error target.
+    ///
+    /// `error` must lie in `(0, 1)`. See
+    /// [`HllApproxDistinctCount::with_error`] for the precision table.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `error` is not finite or is outside `(0, 1)`.
+    #[must_use]
+    pub fn approx_count_distinct_per_key_with_error(self, error: f64) -> PCollection<(K, u64)> {
+        self.combine_values(HllApproxDistinctCount::<V>::with_error(error))
     }
 }

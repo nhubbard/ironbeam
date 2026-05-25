@@ -80,7 +80,8 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.9 Tee                                     | `tee()` → `(PCollection<T>, PCollection<T>)`; `tee_n(n)` → `Vec<PCollection<T>>`; ergonomic fan-out wrappers leveraging the v3.0.0 dominator-based cache placement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 3.1.0  |
 | 4.10 LogElements                            | `log_elements()` (requires `T: Debug`) and `log_elements_with(formatter)` — passthrough debug taps that print each element to stdout (formatted via `{:?}` or a user-supplied `Fn(&T) -> String`) without modifying the downstream collection                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 3.1.0  |
 | 4.11 Named Operations                       | `PCollection::with_name(name)` fluent post-fix labeller + `Pipeline::set_node_name` / `node_name` / `node_names_snapshot` accessors backed by a per-`Pipeline` `HashMap<NodeId, String>`; `Pipeline::named_scope(name, \|p\| { … })` composite-naming helper that auto-labels every node inserted in its closure as `"<path>/<counter>"` (per-frame counters, nested via `/`) and qualifies `with_name(...)` calls inside the scope to `"<path>/<user-label>"`, with a panic-safe Drop-guard scope pop; names propagate into `Plan::node_names` / `Plan::chain_origin_ids` (maintained through every optimizer pass) so `ExplainStep::name` annotates each step with the joined labels of its contributing origin nodes, rendered inline by the `Display` impl as `Step N: NodeType [name]` | 3.1.0  |
-| 4.12 WaitOn                                 | `PCollection::wait_on(&signal)` — signal-only data-flow dependency barrier; the returned collection has the same elements and order as `self`, but downstream consumers are blocked until `signal` has fully drained. Implemented via `Node::Flatten` with a type-erased discard-and-emit-empty tail on the signal subchain; back-to-back / user-`flatten()`-preceded `wait_on` calls unwrap the prior Flatten into the new one to keep the runner from encountering nested Flatten in a subplan | 3.1.0  |
+| 4.12 WaitOn                                 | `PCollection::wait_on(&signal)` — signal-only data-flow dependency barrier; the returned collection has the same elements and order as `self`, but downstream consumers are blocked until `signal` has fully drained. Implemented via `Node::Flatten` with a type-erased discard-and-emit-empty tail on the signal subchain; back-to-back / user-`flatten()`-preceded `wait_on` calls unwrap the prior Flatten into the new one to keep the runner from encountering nested Flatten in a subplan                                                                                                                                                                                                                                                                                            | 3.1.0  |
+| 4.13 ApproximateUnique (HLL)                | `HllApproxDistinctCount<T>` combiner (HyperLogLog++ via `hyperloglogplus`) with `new` / `with_error(e)` / `with_precision(p)` builders and a fixed-seed `BuildHasherDefault<DefaultHasher>` for cross-partition merge determinism; helpers `approx_count_distinct[_with_error]()` (global, returns `u64`) and `approx_count_distinct_per_key[_with_error]()` (per-key, returns `(K, u64)`) complementing the existing KMV-based `approx_distinct_count*` (f64) family                                                                                                                                                                                                                                                                                                                          | 3.1.0  |
 
 ---
 
@@ -90,30 +91,6 @@ These transforms were identified in the initial survey of Beam features but not 
 earlier tiers. They are primarily convenience wrappers and less common aggregation, sampling,
 and pipeline-shape patterns. All additional I/O formats — both file-based and database — are
 covered separately in Tier 5.
-
-### 4.13 ApproximateUnique / HyperLogLog Distinct Count
-
-**Status:** Not implemented.
-
-Estimate the number of distinct elements using HyperLogLog. Unlike the exact `distinct_count`
-combiner, this runs in `O(1)` space with a configurable relative error bound. Useful for huge
-collections where an exact count is impractical.
-
-**Beam equivalent:** `ApproximateUnique` in `stats.py`
-
-**Proposed API:**
-```rust
-collection.approx_count_distinct()                  // -> PCollection<u64>, ~2% default error
-collection.approx_count_distinct_with_error(0.01)   // 1% relative error
-collection.approx_count_distinct_per_key()          // -> PCollection<(K, u64)>
-```
-
-**Dependencies:** a HyperLogLog crate (`hyperloglogplus`) or a ~200-line in-tree implementation.
-
-**Estimated complexity:** Medium — the algorithm is well-understood, but the Rust CombineFn
-integration and correct serialization of the HLL sketch state need care.
-
----
 
 ### 4.14 Sample Combiner
 

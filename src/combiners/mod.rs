@@ -128,7 +128,7 @@ mod topk;
 pub use basic::{Max, Min, Sum};
 pub use collect::{ToDict, ToList, ToSet};
 pub use count::Count;
-pub use distinct::{DistinctCount, DistinctSet, KMVApproxDistinctCount};
+pub use distinct::{DistinctCount, DistinctSet, HllApproxDistinctCount, KMVApproxDistinctCount};
 pub use latest::Latest;
 pub use quantiles::{ApproxMedian, ApproxQuantiles, TDigest};
 pub use sampling::PriorityReservoir;
