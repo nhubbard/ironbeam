@@ -91,6 +91,33 @@ pub struct Plan {
     /// (e.g., the Google Dataflow translator) can render meaningful labels next to
     /// generic op categories like `Stateless` / `GroupByKey`.
     pub node_names: HashMap<NodeId, String>,
+    /// Per-chain-entry list of the original pipeline [`NodeId`]s that contributed
+    /// to that entry, parallel to [`Plan::chain`] (i.e.
+    /// `chain_origin_ids.len() == chain.len()`).
+    ///
+    /// Captured at chain extraction time (during [`build_plan`]) and maintained
+    /// through every optimizer pass that mutates the chain:
+    ///
+    /// - **Fusion** (`fuse_stateless_tracked`): merging Stateless block `j` into
+    ///   block `i` concatenates `chain_origin_ids[j]` onto `chain_origin_ids[i]`
+    ///   and drops the merged entry.
+    /// - **Predicate pushdown before barrier** (`push_down_before_barrier_pass`):
+    ///   splitting one Stateless block into a "pushed" half plus a "remaining"
+    ///   half clones the same origin set onto both halves — op-level provenance
+    ///   isn't tracked, so this slightly over-attributes but never lies.
+    /// - **Predicate pushdown into Flatten subplans** (`push_down_into_flatten_pass`):
+    ///   if the post-Flatten Stateless block becomes empty and is dropped, its
+    ///   `chain_origin_ids` entry is dropped with it.
+    /// - **GBK→Combine lifting** (`lift_gbk_then_combine_tracked`): the two
+    ///   consecutive entries collapse into one whose origin list is the
+    ///   concatenation of the originals.
+    /// - **Reshuffle / Materialized elimination** (`eliminate_reshuffle_pass`,
+    ///   `drop_mid_materialized_tracked`): removed chain entries also remove
+    ///   their `chain_origin_ids` slots.
+    ///
+    /// Used by [`Plan::explain`] to attach a per-step `name` derived from
+    /// [`Plan::node_names`].
+    pub chain_origin_ids: Vec<Vec<NodeId>>,
 }
 
 /// Represents an optimization decision made by the planner.
@@ -354,11 +381,15 @@ impl Display for ExecutionExplanation {
         )?;
         for step in &self.steps {
             let barrier_marker = if step.is_barrier { " [BARRIER]" } else { "" };
+            let name_suffix = step
+                .name
+                .as_deref()
+                .map_or_else(String::new, |n| format!(" [{n}]"));
             writeln!(f, "│")?;
             writeln!(
                 f,
-                "│ Step {}: {}{}",
-                step.step, step.node_type, barrier_marker
+                "│ Step {}: {}{}{}",
+                step.step, step.node_type, name_suffix, barrier_marker
             )?;
             writeln!(f, "│   {}", step.description)?;
             writeln!(f, "│   Cost: {}", step.cost_hint)?;
@@ -522,25 +553,6 @@ impl Display for ExecutionExplanation {
             )?;
         }
 
-        if !self.node_names.is_empty() {
-            writeln!(f)?;
-            writeln!(
-                f,
-                "┌─ NAMED OPERATIONS ───────────────────────────────────────────┐"
-            )?;
-            // Sort by NodeId so the output is deterministic regardless of the
-            // underlying HashMap's iteration order.
-            let mut entries: Vec<(&NodeId, &String)> = self.node_names.iter().collect();
-            entries.sort_by_key(|(id, _)| id.raw());
-            for (id, name) in entries {
-                writeln!(f, "│ • {id:?}: {name}")?;
-            }
-            writeln!(
-                f,
-                "└──────────────────────────────────────────────────────────────┘"
-            )?;
-        }
-
         Ok(())
     }
 }
@@ -558,6 +570,18 @@ pub struct ExplainStep {
     pub is_barrier: bool,
     /// Cost hint for this step.
     pub cost_hint: u64,
+    /// User-supplied name(s) for this step, derived from
+    /// [`PCollection::with_name`](crate::PCollection::with_name) /
+    /// [`Pipeline::set_node_name`](crate::Pipeline::set_node_name) calls
+    /// against the original nodes that produced this step.
+    ///
+    /// `None` when none of the contributing nodes were named.  When the
+    /// optimizer has fused multiple named nodes into a single chain entry
+    /// (e.g. `fuse_stateless_tracked` rolling several `Stateless` blocks
+    /// together), the rendered label joins the contributing names with
+    /// `" + "` in chain order.  Anonymous fused nodes do not appear, so
+    /// `"A + C"` is a valid label for a fused chain `[A, anon, C]`.
+    pub name: Option<String>,
 }
 
 /// Cost estimates for the execution plan.
@@ -699,12 +723,30 @@ impl Plan {
                 }
             };
 
+            // Build a per-step name by joining the contributing origin nodes'
+            // user-supplied labels (in chain order) with " + ". When the
+            // chain entry's origin slot lies outside `chain_origin_ids`
+            // (defensive guard for hand-constructed plans), or when no
+            // contributing node has been named, leave `name` as `None`.
+            let name = self.chain_origin_ids.get(idx).and_then(|ids| {
+                let parts: Vec<&str> = ids
+                    .iter()
+                    .filter_map(|id| self.node_names.get(id).map(String::as_str))
+                    .collect();
+                if parts.is_empty() {
+                    None
+                } else {
+                    Some(parts.join(" + "))
+                }
+            });
+
             steps.push(ExplainStep {
                 step: idx + 1,
                 node_type: node_type.to_string(),
                 description,
                 is_barrier,
                 cost_hint: cost,
+                name,
             });
         }
 
@@ -754,49 +796,61 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         optimizations.push(OptimizationDecision::PrunedDeadSubtrees { nodes_pruned });
     }
 
-    let mut chain = backwalk_linear(nodes, &edges, terminal)?;
+    let (mut chain, mut chain_origin_ids) = backwalk_linear(nodes, &edges, terminal)?;
     let len_hint = estimate_source_len(&chain);
 
-    let (new_chain, fusion_opt) = fuse_stateless_tracked(chain);
+    let (new_chain, new_ids, fusion_opt) = fuse_stateless_tracked(chain, chain_origin_ids);
     chain = new_chain;
+    chain_origin_ids = new_ids;
     if let Some(opt) = fusion_opt {
         optimizations.push(opt);
     }
 
+    // `reorder_cogroup_inputs_pass` only reorders subplans inside Flatten
+    // nodes; the top-level chain length and positions are unchanged, so
+    // `chain_origin_ids` flows through untouched.
     let (new_chain, cogroup_order_opts) = reorder_cogroup_inputs_pass(chain);
     chain = new_chain;
     optimizations.extend(cogroup_order_opts);
 
-    let (new_chain, pushdown_opt) = push_down_before_barrier_pass(chain);
+    let (new_chain, new_ids, pushdown_opt) = push_down_before_barrier_pass(chain, chain_origin_ids);
     chain = new_chain;
+    chain_origin_ids = new_ids;
     if let Some(opt) = pushdown_opt {
         optimizations.push(opt);
     }
 
-    let (new_chain, flatten_pushdown_opt) = push_down_into_flatten_pass(chain);
+    let (new_chain, new_ids, flatten_pushdown_opt) =
+        push_down_into_flatten_pass(chain, chain_origin_ids);
     chain = new_chain;
+    chain_origin_ids = new_ids;
     if let Some(opt) = flatten_pushdown_opt {
         optimizations.push(opt);
     }
 
-    let (new_chain, reorder_opt) = reorder_value_only_runs_tracked(chain);
+    let (new_chain, new_ids, reorder_opt) =
+        reorder_value_only_runs_tracked(chain, chain_origin_ids);
     chain = new_chain;
+    chain_origin_ids = new_ids;
     optimizations.extend(reorder_opt);
 
-    let (new_chain, lift_opt) = lift_gbk_then_combine_tracked(chain);
+    let (new_chain, new_ids, lift_opt) = lift_gbk_then_combine_tracked(chain, chain_origin_ids);
     chain = new_chain;
+    chain_origin_ids = new_ids;
     if let Some(opt) = lift_opt {
         optimizations.push(opt);
     }
 
-    let (new_chain, reshuffle_opt) = eliminate_reshuffle_pass(chain);
+    let (new_chain, new_ids, reshuffle_opt) = eliminate_reshuffle_pass(chain, chain_origin_ids);
     chain = new_chain;
+    chain_origin_ids = new_ids;
     if let Some(opt) = reshuffle_opt {
         optimizations.push(opt);
     }
 
-    let (new_chain, drop_opt) = drop_mid_materialized_tracked(chain);
+    let (new_chain, new_ids, drop_opt) = drop_mid_materialized_tracked(chain, chain_origin_ids);
     chain = new_chain;
+    chain_origin_ids = new_ids;
     if let Some(opt) = drop_opt {
         optimizations.push(opt);
     }
@@ -888,6 +942,7 @@ pub fn build_plan(p: &Pipeline, terminal: NodeId) -> Result<Plan> {
         is_empty,
         is_singleton,
         node_names: p.node_names_snapshot(),
+        chain_origin_ids,
     })
 }
 
@@ -1169,14 +1224,16 @@ fn backwalk_linear(
     mut nodes: HashMap<NodeId, Node>,
     edges: &[(NodeId, NodeId)],
     terminal: NodeId,
-) -> Result<Vec<Node>> {
+) -> Result<(Vec<Node>, Vec<Vec<NodeId>>)> {
     let mut chain = Vec::<Node>::new();
+    let mut origin_ids = Vec::<Vec<NodeId>>::new();
     let mut cur = terminal;
     loop {
         let n = nodes
             .remove(&cur)
             .ok_or_else(|| anyhow!("planner: missing node {cur:?}"))?;
         chain.push(n);
+        origin_ids.push(vec![cur]);
         if let Some((from, _)) = edges.iter().find(|(_, to)| *to == cur).copied() {
             cur = from;
         } else {
@@ -1184,17 +1241,22 @@ fn backwalk_linear(
         }
     }
     chain.reverse();
-    Ok(chain)
+    origin_ids.reverse();
+    Ok((chain, origin_ids))
 }
 
 /* ---------- Simple stateless fusion ---------- */
 
 /// Merge adjacent `Node::Stateless` blocks and track optimization decisions.
-fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
+fn fuse_stateless_tracked(
+    chain: Vec<Node>,
+    origin_ids: Vec<Vec<NodeId>>,
+) -> (Vec<Node>, Vec<Vec<NodeId>>, Option<OptimizationDecision>) {
     if chain.is_empty() {
-        return (chain, None);
+        return (chain, origin_ids, None);
     }
     let mut out = Vec::<Node>::with_capacity(chain.len());
+    let mut out_ids = Vec::<Vec<NodeId>>::with_capacity(chain.len());
     let mut i = 0usize;
     let mut blocks_before = 0;
     let mut total_ops = 0;
@@ -1204,6 +1266,7 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
             Node::Stateless(first_ops) => {
                 blocks_before += 1;
                 let mut fused = first_ops.clone();
+                let mut fused_ids = origin_ids[i].clone();
                 total_ops += first_ops.len();
                 let mut j = i + 1;
                 while j < chain.len() {
@@ -1211,16 +1274,19 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
                         blocks_before += 1;
                         total_ops += more.len();
                         fused.extend(more.iter().cloned());
+                        fused_ids.extend(origin_ids[j].iter().copied());
                         j += 1;
                     } else {
                         break;
                     }
                 }
                 out.push(Node::Stateless(fused));
+                out_ids.push(fused_ids);
                 i = j;
             }
             n => {
                 out.push(n.clone());
+                out_ids.push(origin_ids[i].clone());
                 i += 1;
             }
         }
@@ -1240,7 +1306,7 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
         None
     };
 
-    (out, optimization)
+    (out, out_ids, optimization)
 }
 
 /* ---------- Predicate pushdown into Flatten subplans ---------- */
@@ -1266,44 +1332,54 @@ fn fuse_stateless_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDe
 /// the element type is preserved — the subplan output remains the same type that the
 /// `coalesce` and `merge` closures expect. A non-`value_only` op (e.g. `map_values`) could
 /// silently change the element type and cause a runtime downcast failure inside the runner.
-fn push_down_into_flatten_pass(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
+fn push_down_into_flatten_pass(
+    chain: Vec<Node>,
+    origin_ids: Vec<Vec<NodeId>>,
+) -> (Vec<Node>, Vec<Vec<NodeId>>, Option<OptimizationDecision>) {
     if chain.len() < 2 {
-        return (chain, None);
+        return (chain, origin_ids, None);
     }
 
     let mut out = Vec::with_capacity(chain.len());
+    let mut out_ids = Vec::with_capacity(chain.len());
     let mut total_ops_pushed = 0usize;
     let mut total_subplans_affected = 0usize;
 
     let is_pushable = |op: &Arc<dyn DynOp>| op.value_only() && op.cardinality_reducing();
 
-    let mut iter = chain.into_iter().peekable();
-    while let Some(node) = iter.next() {
-        let Node::Flatten {
-            chains,
-            coalesce,
-            merge,
-        } = node
-        else {
-            out.push(node);
+    let mut i = 0usize;
+    while i < chain.len() {
+        let Node::Flatten { .. } = &chain[i] else {
+            out.push(chain[i].clone());
+            out_ids.push(origin_ids[i].clone());
+            i += 1;
             continue;
         };
 
         // Only apply the pattern when the very next node is a Stateless block.
-        if !iter
-            .peek()
+        if !chain
+            .get(i + 1)
             .is_some_and(|nx| matches!(nx, Node::Stateless(_)))
         {
-            out.push(Node::Flatten {
-                chains,
-                coalesce,
-                merge,
-            });
+            out.push(chain[i].clone());
+            out_ids.push(origin_ids[i].clone());
+            i += 1;
             continue;
         }
-        let Node::Stateless(ops) = iter.next().expect("peeked Some") else {
+
+        let Node::Flatten {
+            chains,
+            coalesce,
+            merge,
+        } = chain[i].clone()
+        else {
+            unreachable!("matched Flatten above");
+        };
+        let Node::Stateless(ops) = chain[i + 1].clone() else {
             unreachable!("matched Stateless above");
         };
+        let flatten_origins = origin_ids[i].clone();
+        let stateless_origins = origin_ids[i + 1].clone();
 
         let (pushable, remaining): (Vec<_>, Vec<_>) = ops.iter().cloned().partition(is_pushable);
 
@@ -1314,7 +1390,10 @@ fn push_down_into_flatten_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimizat
                 coalesce,
                 merge,
             });
+            out_ids.push(flatten_origins);
             out.push(Node::Stateless(ops));
+            out_ids.push(stateless_origins);
+            i += 2;
             continue;
         }
 
@@ -1339,11 +1418,15 @@ fn push_down_into_flatten_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimizat
             coalesce,
             merge,
         });
+        out_ids.push(flatten_origins);
 
-        // Keep remaining ops in the outer chain; drop the block if nothing is left.
+        // Keep remaining ops in the outer chain; drop the block (and its origin
+        // slot) if nothing is left.
         if !remaining.is_empty() {
             out.push(Node::Stateless(remaining));
+            out_ids.push(stateless_origins);
         }
+        i += 2;
     }
 
     let opt =
@@ -1351,13 +1434,20 @@ fn push_down_into_flatten_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimizat
             ops_pushed: total_ops_pushed,
             subplan_count: total_subplans_affected,
         });
-    (out, opt)
+    (out, out_ids, opt)
 }
 
 /* ---------- Reorder value-only runs ---------- */
 
 /// Reorder value-only operations and track optimization decisions.
-fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<OptimizationDecision>) {
+///
+/// Only reorders ops *within* an existing Stateless block — the outer chain
+/// length and positions are unchanged, so `origin_ids` flows through
+/// untouched.
+fn reorder_value_only_runs_tracked(
+    chain: Vec<Node>,
+    origin_ids: Vec<Vec<NodeId>>,
+) -> (Vec<Node>, Vec<Vec<NodeId>>, Vec<OptimizationDecision>) {
     let mut out = Vec::with_capacity(chain.len());
     let mut optimizations = Vec::new();
 
@@ -1386,7 +1476,7 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
             out.push(n);
         }
     }
-    (out, optimizations)
+    (out, origin_ids, optimizations)
 }
 
 /* ---------- Predicate pushdown before shuffle barriers ---------- */
@@ -1415,17 +1505,23 @@ fn reorder_value_only_runs_tracked(chain: Vec<Node>) -> (Vec<Node>, Vec<Optimiza
 ///      dispatch overhead with no throughput benefit.
 ///
 /// No ops are ever moved past the barrier; `remaining` always stays pre-barrier.
-fn push_down_before_barrier_pass(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
-    let mut out = Vec::with_capacity(chain.len() + 1);
+fn push_down_before_barrier_pass(
+    chain: Vec<Node>,
+    origin_ids: Vec<Vec<NodeId>>,
+) -> (Vec<Node>, Vec<Vec<NodeId>>, Option<OptimizationDecision>) {
+    let cap = chain.len() + 1;
+    let mut out = Vec::with_capacity(cap);
+    let mut out_ids = Vec::with_capacity(cap);
     let mut pushed_count = 0usize;
 
     let is_pushable =
         |op: &Arc<dyn DynOp>| op.key_preserving() && op.value_only() && op.cardinality_reducing();
 
-    let mut iter = chain.into_iter().peekable();
-    while let Some(node) = iter.next() {
+    let mut iter = chain.into_iter().zip(origin_ids).peekable();
+    while let Some((node, node_ids)) = iter.next() {
         let Node::Stateless(ops) = node else {
             out.push(node);
+            out_ids.push(node_ids);
             continue;
         };
 
@@ -1434,19 +1530,22 @@ fn push_down_before_barrier_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
         // cardinality-reducing filter is equally beneficial before either one.
         if !iter
             .peek()
-            .is_some_and(|nx| matches!(nx, Node::GroupByKey { .. } | Node::Reshuffle { .. }))
+            .is_some_and(|(nx, _)| matches!(nx, Node::GroupByKey { .. } | Node::Reshuffle { .. }))
         {
             out.push(Node::Stateless(ops));
+            out_ids.push(node_ids);
             continue;
         }
-        let barrier = iter.next().expect("peeked Some");
+        let (barrier, barrier_origins) = iter.next().expect("peeked Some");
 
         let (pushable, remaining): (Vec<_>, Vec<_>) = ops.iter().cloned().partition(is_pushable);
 
         if pushable.is_empty() {
             // No pushable ops in this block — pass through unchanged.
             out.push(Node::Stateless(ops));
+            out_ids.push(node_ids);
             out.push(barrier);
+            out_ids.push(barrier_origins);
             continue;
         }
 
@@ -1478,29 +1577,38 @@ fn push_down_before_barrier_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
 
         if !remaining.is_empty() && type_safe && beneficial {
             // Structural split: filters first, remaining pre-barrier ops second.
+            // We don't track per-op provenance, so both halves carry the
+            // original block's full origin list (overshoot rather than lose data).
             out.push(Node::Stateless(pushable));
+            out_ids.push(node_ids.clone());
             out.push(Node::Stateless(remaining));
         } else {
             // Already optimal or unsafe to split; keep the fused block as-is.
             out.push(Node::Stateless(ops));
         }
+        out_ids.push(node_ids);
         out.push(barrier);
+        out_ids.push(barrier_origins);
     }
 
     let opt = (pushed_count > 0).then_some(OptimizationDecision::PushedDownPredicates {
         ops_pushed: pushed_count,
     });
-    (out, opt)
+    (out, out_ids, opt)
 }
 
 /* ---------- GBK -> Combine lifting ---------- */
 
 /// Lift GBK->Combine pattern and track optimization decisions.
-fn lift_gbk_then_combine_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
+fn lift_gbk_then_combine_tracked(
+    chain: Vec<Node>,
+    origin_ids: Vec<Vec<NodeId>>,
+) -> (Vec<Node>, Vec<Vec<NodeId>>, Option<OptimizationDecision>) {
     if chain.len() < 2 {
-        return (chain, None);
+        return (chain, origin_ids, None);
     }
     let mut out = Vec::with_capacity(chain.len());
+    let mut out_ids = Vec::with_capacity(chain.len());
     let mut i = 0usize;
     let mut lifted = false;
 
@@ -1521,6 +1629,10 @@ fn lift_gbk_then_combine_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
                         local_groups: None,
                         merge: merge.clone(),
                     });
+                    // Merge both predecessors' origin lists into the surviving slot.
+                    let mut merged = origin_ids[i].clone();
+                    merged.extend(origin_ids[i + 1].iter().copied());
+                    out_ids.push(merged);
                     lifted = true;
                     i += 2;
                     continue;
@@ -1529,6 +1641,7 @@ fn lift_gbk_then_combine_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
             }
         }
         out.push(chain[i].clone());
+        out_ids.push(origin_ids[i].clone());
         i += 1;
     }
 
@@ -1540,7 +1653,7 @@ fn lift_gbk_then_combine_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
         None
     };
 
-    (out, optimization)
+    (out, out_ids, optimization)
 }
 
 /* ---------- Reshuffle elimination ---------- */
@@ -1562,11 +1675,15 @@ fn lift_gbk_then_combine_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
 /// whenever it is a `Reshuffle` whose successor matches one of the above patterns.
 /// Greedy left-to-right scanning handles chains of three or more consecutive
 /// reshuffles in a single pass.
-fn eliminate_reshuffle_pass(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
+fn eliminate_reshuffle_pass(
+    chain: Vec<Node>,
+    origin_ids: Vec<Vec<NodeId>>,
+) -> (Vec<Node>, Vec<Vec<NodeId>>, Option<OptimizationDecision>) {
     if chain.len() < 2 {
-        return (chain, None);
+        return (chain, origin_ids, None);
     }
     let mut out = Vec::with_capacity(chain.len());
+    let mut out_ids = Vec::with_capacity(chain.len());
     let mut i = 0usize;
     let mut eliminated = 0usize;
 
@@ -1582,40 +1699,45 @@ fn eliminate_reshuffle_pass(chain: Vec<Node>) -> (Vec<Node>, Option<Optimization
             );
             if successor_absorbs {
                 eliminated += 1;
-                i += 1; // skip the leading Reshuffle; process successor on next iteration
+                i += 1; // skip the leading Reshuffle (and its origin slot)
                 continue;
             }
         }
         out.push(chain[i].clone());
+        out_ids.push(origin_ids[i].clone());
         i += 1;
     }
 
     let opt =
         (eliminated > 0).then_some(OptimizationDecision::EliminatedReshuffle { count: eliminated });
-    (out, opt)
+    (out, out_ids, opt)
 }
 
 /* ---------- Keep only terminal Materialized ---------- */
 
 /// Drop mid-materialized nodes and track optimization decisions.
-fn drop_mid_materialized_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<OptimizationDecision>) {
+fn drop_mid_materialized_tracked(
+    chain: Vec<Node>,
+    origin_ids: Vec<Vec<NodeId>>,
+) -> (Vec<Node>, Vec<Vec<NodeId>>, Option<OptimizationDecision>) {
     if chain.len() <= 1 {
-        return (chain, None);
+        return (chain, origin_ids, None);
     }
     let last = chain.len() - 1;
     let mut dropped_count = 0;
 
-    let result: Vec<Node> = chain
+    let (result, result_ids): (Vec<Node>, Vec<Vec<NodeId>>) = chain
         .into_iter()
+        .zip(origin_ids)
         .enumerate()
-        .filter_map(|(i, n)| match (i, &n) {
+        .filter_map(|(i, (n, ids))| match (i, &n) {
             (idx, Node::Materialized(_)) if idx != last => {
                 dropped_count += 1;
                 None
             }
-            _ => Some(n),
+            _ => Some((n, ids)),
         })
-        .collect();
+        .unzip();
 
     let optimization = if dropped_count > 0 {
         Some(OptimizationDecision::DroppedMidMaterialized {
@@ -1625,7 +1747,7 @@ fn drop_mid_materialized_tracked(chain: Vec<Node>) -> (Vec<Node>, Option<Optimiz
         None
     };
 
-    (result, optimization)
+    (result, result_ids, optimization)
 }
 
 /* ---------- CSE helpers ---------- */
