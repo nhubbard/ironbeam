@@ -194,7 +194,7 @@ impl Runner {
                     let parts = partitions
                         .or(suggested_parts)
                         .unwrap_or(self.default_partitions);
-                    exec_par::<T>(chain, parts, limit)
+                    exec_par::<T>(&chain, parts, limit)
                 }
             }
         };

@@ -55,6 +55,55 @@ jobs:
             -W clippy::nursery \
             -D warnings
 
+  feature-matrix:
+    name: Feature Matrix
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-feature-matrix-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --no-self-update
+          rustup default nightly
+
+      - name: Cache cargo registry
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-hack
+        run: cargo install cargo-hack --locked
+
+      # Every feature toggled independently (each alone, none, all) must compile.
+      # A full powerset is intractable in CI; --each-feature catches the
+      # feature-coupling class of bugs in N+2 builds.
+      - name: Check all feature combinations compile
+        run: cargo hack check --each-feature --no-dev-deps --keep-going
+
+      # With the I/O features off, the always-present API must fail at runtime.
+      - name: Verify disabled-feature runtime stubs
+        run: cargo test --no-default-features --test feature_gating
+
   test:
     name: Test Suite with Coverage
     runs-on: ubuntu-latest

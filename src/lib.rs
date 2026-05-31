@@ -563,57 +563,45 @@ pub use extensions::CompositeTransform;
 pub use node::DynOp;
 pub use type_token::{TypeTag, VecOps};
 
-// Gated re-exports
-#[cfg(feature = "io-jsonl")]
+// I/O re-exports. The API surface is always present (the modules compile
+// unconditionally and stub at runtime when their feature is disabled); only the
+// `*_par` writers stay behind `parallel-io`, which remains a compile gate.
 pub use io::jsonl::{read_jsonl_range, read_jsonl_vec};
 
-#[cfg(feature = "io-jsonl")]
 pub use helpers::jsonl::read_jsonl_streaming;
 
-#[cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
+#[cfg(feature = "parallel-io")]
 pub use io::jsonl::write_jsonl_par;
 
-#[cfg(feature = "io-csv")]
 pub use io::csv::{read_csv_vec, write_csv, write_csv_vec};
 
-#[cfg(all(feature = "io-csv", feature = "parallel-io"))]
+#[cfg(feature = "parallel-io")]
 pub use io::csv::write_csv_par;
 
-#[cfg(feature = "io-parquet")]
 pub use io::parquet::{read_parquet_vec, write_parquet_vec};
 
-#[cfg(feature = "io-csv")]
 pub use helpers::csv::read_csv;
-#[cfg(feature = "io-csv")]
 pub use helpers::csv::read_csv_streaming;
-#[cfg(feature = "io-jsonl")]
 pub use helpers::jsonl::read_jsonl;
-#[cfg(feature = "io-parquet")]
 pub use helpers::parquet::read_parquet_streaming;
 
-#[cfg(feature = "io-avro")]
 pub use io::avro::{read_avro_vec, write_avro_vec};
 
-#[cfg(feature = "io-avro")]
 pub use helpers::avro::{read_avro, read_avro_streaming};
 
-#[cfg(all(feature = "io-avro", feature = "parallel-io"))]
+#[cfg(feature = "parallel-io")]
 pub use io::avro::write_avro_par;
 
-#[cfg(feature = "io-xml")]
 pub use io::xml::{read_xml_vec, write_xml_vec};
 
-#[cfg(feature = "io-xml")]
 pub use helpers::xml::{read_xml, read_xml_streaming};
 
-#[cfg(all(feature = "io-xml", feature = "parallel-io"))]
+#[cfg(feature = "parallel-io")]
 pub use io::xml::write_xml_par;
 
-#[cfg(feature = "io-msgpack")]
 pub use io::msgpack::{read_msgpack_vec, write_msgpack_vec};
 
-#[cfg(feature = "io-msgpack")]
 pub use helpers::msgpack::{read_msgpack, read_msgpack_streaming};
 
-#[cfg(all(feature = "io-msgpack", feature = "parallel-io"))]
+#[cfg(feature = "parallel-io")]
 pub use io::msgpack::write_msgpack_par;

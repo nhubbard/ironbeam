@@ -72,7 +72,6 @@ use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::path::Path;
 
-#[cfg(feature = "io-avro")]
 impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     /// Execute the pipeline, collect results, and write them to a **single Avro file**.
     ///
@@ -117,8 +116,8 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     }
 }
 
-#[cfg_attr(docsrs, doc(cfg(all(feature = "io-avro", feature = "parallel-io"))))]
-#[cfg(all(feature = "io-avro", feature = "parallel-io"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
+#[cfg(feature = "parallel-io")]
 impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the pipeline in parallel and write the result as Avro.
     ///
@@ -224,8 +223,6 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// # Ok(())
 /// # }
 /// ```
-#[cfg_attr(docsrs, doc(cfg(feature = "io-avro")))]
-#[cfg(feature = "io-avro")]
 pub fn read_avro<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
     T: RFBound + DeserializeOwned,
@@ -289,8 +286,6 @@ where
 /// # Ok(())
 /// # }
 /// ```
-#[cfg_attr(docsrs, doc(cfg(feature = "io-avro")))]
-#[cfg(feature = "io-avro")]
 pub fn read_avro_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,

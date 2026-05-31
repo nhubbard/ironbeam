@@ -152,12 +152,12 @@ pub struct SpillingExecutor;
 #[cfg(not(feature = "spilling"))]
 impl SpillingExecutor {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 
     #[must_use]
-    pub fn is_enabled(&self) -> bool {
+    pub const fn is_enabled(&self) -> bool {
         false
     }
 }

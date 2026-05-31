@@ -12,23 +12,41 @@
 //! - Schema inference is performed automatically on read using `apache-avro`'s native capabilities.
 //! - Sharding is **record-count-based**; it does not rely on byte offsets.
 //! - The parallel writer preserves **deterministic file order** by joining shard outputs in index order.
+//!
+//! # Feature gating
+//! The dependency-free portions of this module's public surface are **always
+//! available in the ABI**, regardless of whether the `io-avro` feature is enabled.
+//! When the feature is disabled, those read/write functions are compiled as stubs
+//! that return an error at runtime instead of breaking compilation. Functions whose
+//! signatures name [`Schema`] cannot exist in the ABI without the
+//! dependency compiled in, so those remain fully `io-avro`-gated.
 
 use crate::Partition;
-use crate::io::compression::{auto_detect_reader, auto_detect_writer};
 use crate::type_token::VecOps;
-use anyhow::{Context, Result};
-use apache_avro::{Schema, Writer, from_value, to_value, types::Value};
+use anyhow::Result;
 use serde::{Serialize, de::DeserializeOwned};
 use std::any::Any;
-use std::fs::{File, create_dir_all};
-use std::io::{BufReader, BufWriter, Read};
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
-// ── Private helpers ────────────────────────────────────────────────────────────
+#[cfg(feature = "io-avro")]
+use crate::io::compression::{auto_detect_reader, auto_detect_writer};
+#[cfg(feature = "io-avro")]
+use anyhow::Context;
+#[cfg(feature = "io-avro")]
+use apache_avro::{Schema, Writer, from_value, to_value, types::Value};
+#[cfg(feature = "io-avro")]
+use std::fs::{File, create_dir_all};
+#[cfg(feature = "io-avro")]
+use std::io::{BufReader, Read};
+#[cfg(feature = "io-avro")]
+use std::path::Path;
+
+// ── Private helpers (only compiled with the feature) ─────────────────────────────
 
 /// Deserialize every record from an already-constructed [`apache_avro::Reader`].
+#[cfg(feature = "io-avro")]
 fn avro_read_loop<T: DeserializeOwned, R: Read>(
     reader: apache_avro::Reader<'_, R>,
     path: &Path,
@@ -52,6 +70,7 @@ fn avro_read_loop<T: DeserializeOwned, R: Read>(
 }
 
 /// Count every record in an already-constructed [`apache_avro::Reader`].
+#[cfg(feature = "io-avro")]
 fn avro_count_records<R: Read>(reader: apache_avro::Reader<'_, R>) -> u64 {
     let mut n = 0u64;
     for _ in reader {
@@ -61,6 +80,7 @@ fn avro_count_records<R: Read>(reader: apache_avro::Reader<'_, R>) -> u64 {
 }
 
 /// Build [`AvroShards`] from a pre-counted total and `records_per_shard`.
+#[cfg(feature = "io-avro")]
 fn make_avro_shards(path: PathBuf, total: u64, records_per_shard: usize) -> AvroShards {
     if total == 0 {
         return AvroShards {
@@ -82,6 +102,7 @@ fn make_avro_shards(path: PathBuf, total: u64, records_per_shard: usize) -> Avro
 }
 
 /// Open `path` with compression auto-detection and return a buffered reader.
+#[cfg(feature = "io-avro")]
 fn open_avro_reader(path: &Path) -> Result<BufReader<Box<dyn Read>>> {
     let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let inner = auto_detect_reader(f, path)
@@ -95,7 +116,9 @@ fn open_avro_reader(path: &Path) -> Result<BufReader<Box<dyn Read>>> {
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened, read, or any record fails to
-/// deserialize into `T`.
+/// deserialize into `T`. When the `io-avro` feature is disabled, always returns an
+/// error.
+#[cfg(feature = "io-avro")]
 pub fn read_avro_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
     let mut rdr = open_avro_reader(path)?;
@@ -109,7 +132,9 @@ pub fn read_avro_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<
 ///
 /// # Errors
 /// Returns an error if the schema string is invalid, the file cannot be opened or
-/// read, or any record fails to deserialize.
+/// read, or any record fails to deserialize. When the `io-avro` feature is disabled,
+/// always returns an error.
+#[cfg(feature = "io-avro")]
 pub fn read_avro_vec_with_schema<T: DeserializeOwned>(
     path: impl AsRef<Path>,
     schema: impl AsRef<str>,
@@ -129,6 +154,7 @@ pub fn read_avro_vec_with_schema<T: DeserializeOwned>(
 /// # Errors
 /// Returns an error if the file cannot be opened or read, or any record fails to
 /// deserialize.
+#[cfg(feature = "io-avro")]
 pub fn read_avro_vec_with_schema_obj<T: DeserializeOwned>(
     path: impl AsRef<Path>,
     schema: &Schema,
@@ -150,7 +176,9 @@ pub fn read_avro_vec_with_schema_obj<T: DeserializeOwned>(
 ///
 /// # Errors
 /// Returns an error if the schema string is invalid, the file/dirs cannot be
-/// created, or any item fails to serialize.
+/// created, or any item fails to serialize. When the `io-avro` feature is disabled,
+/// always returns an error.
+#[cfg(feature = "io-avro")]
 pub fn write_avro_vec<T: Serialize>(
     path: impl AsRef<Path>,
     data: &[T],
@@ -171,6 +199,7 @@ pub fn write_avro_vec<T: Serialize>(
 /// # Errors
 /// Returns an error if the file/dirs cannot be created or any item fails to
 /// serialize.
+#[cfg(feature = "io-avro")]
 pub fn write_avro_vec_with_schema<T: Serialize>(
     path: impl AsRef<Path>,
     data: &[T],
@@ -221,7 +250,7 @@ pub fn write_avro_vec_with_schema<T: Serialize>(
 ///
 /// # Feature
 /// Requires the `parallel-io` feature.
-#[cfg(feature = "parallel-io")]
+#[cfg(all(feature = "parallel-io", feature = "io-avro"))]
 pub fn write_avro_par<T: Serialize + Sync>(
     path: impl AsRef<Path>,
     data: &[T],
@@ -229,6 +258,8 @@ pub fn write_avro_par<T: Serialize + Sync>(
     schema: impl AsRef<str>,
 ) -> Result<usize> {
     use rayon::prelude::*;
+    use std::io::BufWriter;
+
     let path = path.as_ref();
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -288,6 +319,7 @@ pub struct AvroShards {
 /// # Panics
 ///
 /// If the shard calculation overflows.
+#[cfg(feature = "io-avro")]
 pub fn build_avro_shards(path: impl AsRef<Path>, records_per_shard: usize) -> Result<AvroShards> {
     let path = path.as_ref().to_path_buf();
     let mut rdr = open_avro_reader(&path)?;
@@ -303,9 +335,11 @@ pub fn build_avro_shards(path: impl AsRef<Path>, records_per_shard: usize) -> Re
 ///
 /// # Errors
 /// Returns an error if the schema string is invalid or the file cannot be opened/read.
+/// When the `io-avro` feature is disabled, always returns an error.
 ///
 /// # Panics
 /// If the shard calculation overflows.
+#[cfg(feature = "io-avro")]
 pub fn build_avro_shards_with_schema(
     path: impl AsRef<Path>,
     schema: impl AsRef<str>,
@@ -326,6 +360,7 @@ pub fn build_avro_shards_with_schema(
 ///
 /// # Panics
 /// If the shard calculation overflows.
+#[cfg(feature = "io-avro")]
 pub fn build_avro_shards_with_schema_obj(
     path: impl AsRef<Path>,
     schema: &Schema,
@@ -346,7 +381,9 @@ pub fn build_avro_shards_with_schema_obj(
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened or if any selected record fails to
-/// deserialize into `T`.
+/// deserialize into `T`. When the `io-avro` feature is disabled, always returns an
+/// error.
+#[cfg(feature = "io-avro")]
 pub fn read_avro_range<T: DeserializeOwned>(
     src: &AvroShards,
     start: u64,
@@ -378,6 +415,102 @@ pub fn read_avro_range<T: DeserializeOwned>(
         out.push(v);
     }
     Ok(out)
+}
+
+// ── Disabled-feature stubs ───────────────────────────────────────────────────
+//
+// When `io-avro` is off, the dependency-free functions above are not compiled.
+// These stubs keep the public ABI identical and fail at runtime instead. Functions
+// whose signatures name `apache_avro::Schema` are intentionally absent here: an
+// external type cannot appear in the ABI without the dependency compiled in.
+
+/// Stub returned when the `io-avro` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-avro` feature is not enabled.
+#[cfg(not(feature = "io-avro"))]
+pub fn read_avro_vec<T: DeserializeOwned>(_path: impl AsRef<std::path::Path>) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-avro` feature is not enabled")
+}
+
+/// Stub returned when the `io-avro` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-avro` feature is not enabled.
+#[cfg(not(feature = "io-avro"))]
+pub fn read_avro_vec_with_schema<T: DeserializeOwned>(
+    _path: impl AsRef<std::path::Path>,
+    _schema: impl AsRef<str>,
+) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-avro` feature is not enabled")
+}
+
+/// Stub returned when the `io-avro` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-avro` feature is not enabled.
+#[cfg(not(feature = "io-avro"))]
+pub fn write_avro_vec<T: Serialize>(
+    _path: impl AsRef<std::path::Path>,
+    _data: &[T],
+    _schema: impl AsRef<str>,
+) -> Result<usize> {
+    anyhow::bail!("the `io-avro` feature is not enabled")
+}
+
+/// Stub returned when the `io-avro` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-avro` feature is not enabled.
+///
+/// # Feature
+/// Requires the `parallel-io` feature.
+#[cfg(all(feature = "parallel-io", not(feature = "io-avro")))]
+pub fn write_avro_par<T: Serialize + Sync>(
+    _path: impl AsRef<std::path::Path>,
+    _data: &[T],
+    _shards: Option<usize>,
+    _schema: impl AsRef<str>,
+) -> Result<usize> {
+    anyhow::bail!("the `io-avro` feature is not enabled")
+}
+
+/// Stub returned when the `io-avro` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-avro` feature is not enabled.
+#[cfg(not(feature = "io-avro"))]
+pub fn build_avro_shards(
+    _path: impl AsRef<std::path::Path>,
+    _records_per_shard: usize,
+) -> Result<AvroShards> {
+    anyhow::bail!("the `io-avro` feature is not enabled")
+}
+
+/// Stub returned when the `io-avro` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-avro` feature is not enabled.
+#[cfg(not(feature = "io-avro"))]
+pub fn build_avro_shards_with_schema(
+    _path: impl AsRef<std::path::Path>,
+    _schema: impl AsRef<str>,
+    _records_per_shard: usize,
+) -> Result<AvroShards> {
+    anyhow::bail!("the `io-avro` feature is not enabled")
+}
+
+/// Stub returned when the `io-avro` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-avro` feature is not enabled.
+#[cfg(not(feature = "io-avro"))]
+pub fn read_avro_range<T: DeserializeOwned>(
+    _src: &AvroShards,
+    _start: u64,
+    _end: u64,
+) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-avro` feature is not enabled")
 }
 
 /// `VecOps` adapter for streaming Avro via [`AvroShards`].

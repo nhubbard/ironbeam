@@ -199,28 +199,16 @@
 //! - [`type_token::VecOps`](crate::type_token::VecOps) - Partition operations trait
 //! - [`runner`](crate::runner) - Execution engine that consumes these primitives
 
-#[cfg_attr(docsrs, doc(cfg(feature = "io-jsonl")))]
-#[cfg(feature = "io-jsonl")]
 pub mod jsonl;
 
-#[cfg_attr(docsrs, doc(cfg(feature = "io-csv")))]
-#[cfg(feature = "io-csv")]
 pub mod csv;
 
-#[cfg_attr(docsrs, doc(cfg(feature = "io-parquet")))]
-#[cfg(feature = "io-parquet")]
 pub mod parquet;
 
-#[cfg_attr(docsrs, doc(cfg(feature = "io-avro")))]
-#[cfg(feature = "io-avro")]
 pub mod avro;
 
-#[cfg_attr(docsrs, doc(cfg(feature = "io-xml")))]
-#[cfg(feature = "io-xml")]
 pub mod xml;
 
-#[cfg_attr(docsrs, doc(cfg(feature = "io-msgpack")))]
-#[cfg(feature = "io-msgpack")]
 pub mod msgpack;
 
 pub mod cloud;

@@ -58,9 +58,6 @@
 //! # }
 //! ```
 
-#![cfg_attr(docsrs, doc(cfg(feature = "io-msgpack")))]
-#![cfg(feature = "io-msgpack")]
-
 use crate::io::glob::expand_glob;
 pub use crate::io::msgpack::{
     MsgpackShards, MsgpackVecOps, build_msgpack_shards, read_msgpack_vec, write_msgpack_vec,
@@ -204,8 +201,6 @@ where
 /// # Ok(())
 /// # }
 /// ```
-#[cfg_attr(docsrs, doc(cfg(feature = "io-msgpack")))]
-#[cfg(feature = "io-msgpack")]
 pub fn read_msgpack_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,
@@ -227,7 +222,6 @@ where
     })
 }
 
-#[cfg(feature = "io-msgpack")]
 impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the collection and write it to a `MessagePack` file (sequential).
     ///
@@ -262,8 +256,8 @@ impl<T: RFBound + Serialize> PCollection<T> {
     }
 }
 
-#[cfg_attr(docsrs, doc(cfg(all(feature = "io-msgpack", feature = "parallel-io"))))]
-#[cfg(all(feature = "io-msgpack", feature = "parallel-io"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
+#[cfg(feature = "parallel-io")]
 impl<T: RFBound + Serialize + Send + Sync> PCollection<T> {
     /// Execute the collection sequentially (to lock in a deterministic order),
     /// then write `MessagePack` **in parallel** while preserving that order.

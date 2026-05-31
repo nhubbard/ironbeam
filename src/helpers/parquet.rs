@@ -36,7 +36,6 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(feature = "io-parquet")]
 impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
     /// Execute the pipeline, collect results, and write them to a **single Parquet file**.
     ///
@@ -142,7 +141,6 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 /// # Panics
 ///
 /// Panics if the regex engine fails.
-#[cfg(feature = "io-parquet")]
 pub fn read_parquet_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,

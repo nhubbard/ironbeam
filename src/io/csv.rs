@@ -13,20 +13,25 @@
 //!   buffers in index order after parallel serialization.
 
 use crate::Partition;
-use crate::io::compression::{auto_detect_reader, auto_detect_writer};
 use crate::type_token::VecOps;
-use anyhow::{Context, Error, Result};
-use csv::{ReaderBuilder, WriterBuilder};
-use rayon::iter::IntoParallelIterator;
-use rayon::iter::ParallelIterator;
+use anyhow::Result;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::any::Any;
-use std::fs::{File, create_dir_all};
-use std::io::Write;
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
+
+#[cfg(feature = "io-csv")]
+use crate::io::compression::{auto_detect_reader, auto_detect_writer};
+#[cfg(feature = "io-csv")]
+use anyhow::Context;
+#[cfg(feature = "io-csv")]
+use csv::{ReaderBuilder, WriterBuilder};
+#[cfg(feature = "io-csv")]
+use std::fs::{File, create_dir_all};
+#[cfg(feature = "io-csv")]
+use std::path::Path;
 
 /// Read a CSV file into a typed `Vec<T>`.
 ///
@@ -41,7 +46,9 @@ use std::sync::Arc;
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened or if any row fails to
-/// deserialize into `T`.
+/// deserialize into `T`. When the `io-csv` feature is disabled, always returns
+/// an error.
+#[cfg(feature = "io-csv")]
 pub fn read_csv_vec<T: DeserializeOwned>(
     path: impl AsRef<Path>,
     has_headers: bool,
@@ -77,7 +84,9 @@ pub fn read_csv_vec<T: DeserializeOwned>(
 ///
 /// # Errors
 /// Returns an error if the file/dirs cannot be created or any row fails to
-/// serialize/flush.
+/// serialize/flush. When the `io-csv` feature is disabled, always returns an
+/// error.
+#[cfg(feature = "io-csv")]
 pub fn write_csv_vec<T: Serialize>(
     path: impl AsRef<Path>,
     has_headers: bool,
@@ -128,10 +137,12 @@ pub struct CsvShards {
 /// Note that compressed files require full decompression during this step.
 ///
 /// # Errors
-/// Returns an error if the file cannot be opened or read as CSV.
+/// Returns an error if the file cannot be opened or read as CSV. When the
+/// `io-csv` feature is disabled, always returns an error.
 ///
 /// # Panics
 /// If the shard calculation overflows.
+#[cfg(feature = "io-csv")]
 pub fn build_csv_shards(
     path: impl AsRef<Path>,
     has_headers: bool,
@@ -183,7 +194,9 @@ pub fn build_csv_shards(
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened or if deserialization of any
-/// row in the range fails.
+/// row in the range fails. When the `io-csv` feature is disabled, always returns
+/// an error.
+#[cfg(feature = "io-csv")]
 pub fn read_csv_range<T: DeserializeOwned>(
     src: &CsvShards,
     start: u64,
@@ -259,7 +272,9 @@ where
 /// Equivalent to `write_csv_vec(path, has_headers, data.as_slice())`.
 ///
 /// # Errors
-/// See [`write_csv_vec`].
+/// See [`write_csv_vec`]. When the `io-csv` feature is disabled, always returns
+/// an error.
+#[cfg(feature = "io-csv")]
 pub fn write_csv<T: Serialize>(
     path: impl AsRef<Path>,
     has_headers: bool,
@@ -283,17 +298,23 @@ pub fn write_csv<T: Serialize>(
 /// The number of rows written (i.e., `data.len()`).
 ///
 /// # Errors
-/// Returns an error on serialization or file I/O failures.
+/// Returns an error on serialization or file I/O failures. When the `io-csv`
+/// feature is disabled, always returns an error.
 ///
 /// # Feature
 /// Requires the `parallel-io` feature.
-#[cfg(feature = "parallel-io")]
+#[cfg(all(feature = "parallel-io", feature = "io-csv"))]
 pub fn write_csv_par<T: Serialize + Sync>(
     path: impl AsRef<Path>,
     data: &[T],
     shards: Option<usize>,
     has_headers: bool,
 ) -> Result<usize> {
+    use anyhow::Error;
+    use rayon::iter::IntoParallelIterator;
+    use rayon::iter::ParallelIterator;
+    use std::io::Write;
+
     let n = data.len();
     let path = path.as_ref();
 
@@ -343,6 +364,7 @@ pub fn write_csv_par<T: Serialize + Sync>(
 /// Ranges are non-empty and cover the entire domain.
 ///
 /// This is not published to keep the public API focused on CSV semantics.
+#[cfg(all(feature = "parallel-io", feature = "io-csv"))]
 fn split_ranges(len: usize, parts: usize) -> Vec<(usize, usize, usize)> {
     let parts = parts.max(1).min(len.max(1));
     let base = len / parts;
@@ -359,4 +381,90 @@ fn split_ranges(len: usize, parts: usize) -> Vec<(usize, usize, usize)> {
         start = end;
     }
     out
+}
+
+// ── Disabled-feature stubs ───────────────────────────────────────────────────
+//
+// When `io-csv` is off, the functions above are not compiled. These stubs keep
+// the public ABI identical and fail at runtime instead.
+
+/// Stub returned when the `io-csv` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-csv` feature is not enabled.
+#[cfg(not(feature = "io-csv"))]
+pub fn read_csv_vec<T: DeserializeOwned>(
+    _path: impl AsRef<std::path::Path>,
+    _has_headers: bool,
+) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-csv` feature is not enabled")
+}
+
+/// Stub returned when the `io-csv` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-csv` feature is not enabled.
+#[cfg(not(feature = "io-csv"))]
+pub fn write_csv_vec<T: Serialize>(
+    _path: impl AsRef<std::path::Path>,
+    _has_headers: bool,
+    _data: &[T],
+) -> Result<usize> {
+    anyhow::bail!("the `io-csv` feature is not enabled")
+}
+
+/// Stub returned when the `io-csv` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-csv` feature is not enabled.
+#[cfg(not(feature = "io-csv"))]
+pub fn build_csv_shards(
+    _path: impl AsRef<std::path::Path>,
+    _has_headers: bool,
+    _rows_per_shard: usize,
+) -> Result<CsvShards> {
+    anyhow::bail!("the `io-csv` feature is not enabled")
+}
+
+/// Stub returned when the `io-csv` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-csv` feature is not enabled.
+#[cfg(not(feature = "io-csv"))]
+pub fn read_csv_range<T: DeserializeOwned>(
+    _src: &CsvShards,
+    _start: u64,
+    _end: u64,
+) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-csv` feature is not enabled")
+}
+
+/// Stub returned when the `io-csv` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-csv` feature is not enabled.
+#[cfg(not(feature = "io-csv"))]
+pub fn write_csv<T: Serialize>(
+    _path: impl AsRef<std::path::Path>,
+    _has_headers: bool,
+    _data: &Vec<T>,
+) -> Result<usize> {
+    anyhow::bail!("the `io-csv` feature is not enabled")
+}
+
+/// Stub returned when the `io-csv` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-csv` feature is not enabled.
+///
+/// # Feature
+/// Requires the `parallel-io` feature.
+#[cfg(all(feature = "parallel-io", not(feature = "io-csv")))]
+pub fn write_csv_par<T: Serialize + Sync>(
+    _path: impl AsRef<std::path::Path>,
+    _data: &[T],
+    _shards: Option<usize>,
+    _has_headers: bool,
+) -> Result<usize> {
+    anyhow::bail!("the `io-csv` feature is not enabled")
 }

@@ -6,6 +6,15 @@
 //! - **Streaming ingestion** by line ranges: [`JsonlShards`], [`build_jsonl_shards`], [`read_jsonl_range`]
 //! - **Execution runner integration**: [`JsonlVecOps<T>`] implements [`VecOps`] over `JsonlShards`
 //!
+//! # Feature gating
+//! The entire public surface of this module is **always available in the ABI**,
+//! regardless of whether the `io-jsonl` feature is enabled. When the feature is
+//! disabled, the read/write functions are compiled as stubs that return an error
+//! at runtime instead of breaking compilation. This lets dependent code (the
+//! [`helpers`](crate::helpers) layer, the runner) link unconditionally. `io-jsonl`
+//! pulls in no optional crate (`serde_json` is always present), but the stub
+//! pattern still lets disabling the feature turn the functionality off at runtime.
+//!
 //! # Notes
 //! - Files are newline-delimited JSON; empty/whitespace-only lines are skipped on read.
 //! - Sharding is **line-count based**; it does not rely on byte offsets.
@@ -13,16 +22,26 @@
 //!   outputs in index order.
 
 use crate::Partition;
-use crate::io::compression::{auto_detect_reader, auto_detect_writer};
 use crate::type_token::VecOps;
-use anyhow::{Context, Result};
-use serde::{Serialize, de::DeserializeOwned};
-use serde_json::{from_str, to_writer};
+use anyhow::Result;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::any::Any;
-use std::fs::{File, create_dir_all, remove_file};
-use std::io::{BufRead, BufReader, BufWriter, Write, copy};
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+#[cfg(feature = "io-jsonl")]
+use crate::io::compression::{auto_detect_reader, auto_detect_writer};
+#[cfg(feature = "io-jsonl")]
+use anyhow::Context;
+#[cfg(feature = "io-jsonl")]
+use serde_json::{from_str, to_writer};
+#[cfg(feature = "io-jsonl")]
+use std::fs::{File, create_dir_all};
+#[cfg(feature = "io-jsonl")]
+use std::io::{BufRead, BufReader, Write};
+#[cfg(feature = "io-jsonl")]
+use std::path::Path;
 use std::sync::Arc;
 
 /// Read a JSONL file into a typed `Vec<T>`.
@@ -34,7 +53,9 @@ use std::sync::Arc;
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened, read, or if any line fails
-/// to parse into `T`. Errors include contextual information (line number).
+/// to parse into `T`. Errors include contextual information (line number). When
+/// the `io-jsonl` feature is disabled, always returns an error.
+#[cfg(feature = "io-jsonl")]
 pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
     let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
@@ -68,7 +89,9 @@ pub fn read_jsonl_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec
 ///
 /// # Errors
 /// Returns an error if the file/dirs cannot be created or any item fails to
-/// serialize/flush.
+/// serialize/flush. When the `io-jsonl` feature is disabled, always returns an
+/// error.
+#[cfg(feature = "io-jsonl")]
 pub fn write_jsonl_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Result<usize> {
     let path = path.as_ref();
     if let Some(parent) = path.parent()
@@ -100,17 +123,21 @@ pub fn write_jsonl_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Resu
 /// The number of items written (`data.len()`).
 ///
 /// # Errors
-/// Returns an error if part or output files cannot be created/written.
+/// Returns an error if part or output files cannot be created/written. When the
+/// `io-jsonl` feature is disabled, always returns an error.
 ///
 /// # Feature
 /// Requires the `parallel-io` feature.
-#[cfg(feature = "parallel-io")]
+#[cfg(all(feature = "parallel-io", feature = "io-jsonl"))]
 pub fn write_jsonl_par<T: Serialize + Send + Sync>(
     path: impl AsRef<Path>,
     data: &[T],
     shards: Option<usize>,
 ) -> Result<usize> {
     use rayon::prelude::*;
+    use std::fs::remove_file;
+    use std::io::{BufWriter, copy};
+
     let path = path.as_ref();
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -192,6 +219,7 @@ pub struct JsonlShards {
 /// # Panics
 ///
 /// If the shard calculation overflows.
+#[cfg(feature = "io-jsonl")]
 pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Result<JsonlShards> {
     let path = path.as_ref().to_path_buf();
     let f = File::open(&path).with_context(|| format!("open {}", path.display()))?;
@@ -235,7 +263,9 @@ pub fn build_jsonl_shards(path: impl AsRef<Path>, lines_per_shard: usize) -> Res
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened or any selected line fails to
-/// parse into `T`.
+/// parse into `T`. When the `io-jsonl` feature is disabled, always returns an
+/// error.
+#[cfg(feature = "io-jsonl")]
 pub fn read_jsonl_range<T: DeserializeOwned>(
     src: &JsonlShards,
     start: u64,
@@ -263,6 +293,73 @@ pub fn read_jsonl_range<T: DeserializeOwned>(
         out.push(v);
     }
     Ok(out)
+}
+
+// ── Disabled-feature stubs ───────────────────────────────────────────────────
+//
+// When `io-jsonl` is off, the functions above are not compiled. These stubs
+// keep the public ABI identical and fail at runtime instead.
+
+/// Stub returned when the `io-jsonl` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-jsonl` feature is not enabled.
+#[cfg(not(feature = "io-jsonl"))]
+pub fn read_jsonl_vec<T: DeserializeOwned>(_path: impl AsRef<std::path::Path>) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-jsonl` feature is not enabled")
+}
+
+/// Stub returned when the `io-jsonl` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-jsonl` feature is not enabled.
+#[cfg(not(feature = "io-jsonl"))]
+pub fn write_jsonl_vec<T: Serialize>(
+    _path: impl AsRef<std::path::Path>,
+    _data: &[T],
+) -> Result<usize> {
+    anyhow::bail!("the `io-jsonl` feature is not enabled")
+}
+
+/// Stub returned when the `io-jsonl` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-jsonl` feature is not enabled.
+///
+/// # Feature
+/// Requires the `parallel-io` feature.
+#[cfg(all(feature = "parallel-io", not(feature = "io-jsonl")))]
+pub fn write_jsonl_par<T: Serialize + Send + Sync>(
+    _path: impl AsRef<std::path::Path>,
+    _data: &[T],
+    _shards: Option<usize>,
+) -> Result<usize> {
+    anyhow::bail!("the `io-jsonl` feature is not enabled")
+}
+
+/// Stub returned when the `io-jsonl` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-jsonl` feature is not enabled.
+#[cfg(not(feature = "io-jsonl"))]
+pub fn build_jsonl_shards(
+    _path: impl AsRef<std::path::Path>,
+    _lines_per_shard: usize,
+) -> Result<JsonlShards> {
+    anyhow::bail!("the `io-jsonl` feature is not enabled")
+}
+
+/// Stub returned when the `io-jsonl` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-jsonl` feature is not enabled.
+#[cfg(not(feature = "io-jsonl"))]
+pub fn read_jsonl_range<T: DeserializeOwned>(
+    _src: &JsonlShards,
+    _start: u64,
+    _end: u64,
+) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-jsonl` feature is not enabled")
 }
 
 /// `VecOps` adapter for streaming JSONL via [`JsonlShards`].

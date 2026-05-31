@@ -303,7 +303,6 @@ pub mod jsonl;
 pub mod keyed;
 pub mod latest;
 pub mod log_elements;
-#[cfg(feature = "io-msgpack")]
 pub mod msgpack;
 pub mod named;
 pub mod parquet;
@@ -331,7 +330,6 @@ pub use cloud::*;
 pub use csv::*;
 pub use flatten::*;
 pub use jsonl::*;
-#[cfg(feature = "io-msgpack")]
 pub use msgpack::*;
 pub use parquet::*;
 pub use side_inputs::*;
