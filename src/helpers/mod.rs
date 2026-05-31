@@ -152,6 +152,11 @@
 //!   - [`read_avro_streaming`]
 //!   - [`PCollection::write_avro_with_schema`](crate::PCollection::write_avro_with_schema)
 //!   - [`PCollection::write_avro_par`](crate::PCollection::write_avro_par)
+//! - [`msgpack`] - `MessagePack` I/O utilities (feature: `io-msgpack`, opt-in)
+//!   - [`read_msgpack`]
+//!   - [`read_msgpack_streaming`]
+//!   - [`PCollection::write_msgpack`](crate::PCollection::write_msgpack)
+//!   - [`PCollection::write_msgpack_par`](crate::PCollection::write_msgpack_par)
 //!
 //! ### Cloud Operations
 //! - [`cloud`] - Helpers for running custom cloud operations
@@ -298,6 +303,8 @@ pub mod jsonl;
 pub mod keyed;
 pub mod latest;
 pub mod log_elements;
+#[cfg(feature = "io-msgpack")]
+pub mod msgpack;
 pub mod named;
 pub mod parquet;
 pub mod partition;
@@ -324,6 +331,8 @@ pub use cloud::*;
 pub use csv::*;
 pub use flatten::*;
 pub use jsonl::*;
+#[cfg(feature = "io-msgpack")]
+pub use msgpack::*;
 pub use parquet::*;
 pub use side_inputs::*;
 pub use stdlib::*;

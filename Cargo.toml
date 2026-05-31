@@ -17,6 +17,13 @@ io-parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow"]
 io-avro = ["dep:apache-avro"]
 io-xml = ["dep:quick-xml"]
 
+# Additional I/O formats (Tier 5).
+#
+# Deliberate exception to the usual "everything on by default" tenant: these
+# less-common connectors are intentionally absent from `default`. Each pulls in
+# extra dependencies that would bloat the common build, so users opt in.
+io-msgpack = ["dep:rmp-serde"]
+
 # Compression codecs (pluggable)
 compression-gzip = ["dep:flate2"]
 compression-zstd = ["dep:zstd"]
@@ -48,6 +55,7 @@ hyperloglogplus = "0.4"
 apache-avro = { version = "0.21", optional = true }
 quick-xml = { version = "0.40", features = ["serialize"], optional = true }
 csv = { version = "1", optional = true }
+rmp-serde = { version = "1", optional = true }
 arrow = { version = "58", optional = true }
 parquet = { version = "58", optional = true }
 serde_arrow = { version = "0.14", optional = true, features = ["arrow-58"] }
@@ -66,3 +74,6 @@ mark-flaky-tests = "1"
 
 [package.metadata.docs.rs]
 all-features = true
+
+[lints.rust]
+unused_imports = "allow"

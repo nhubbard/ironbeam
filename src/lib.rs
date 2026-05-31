@@ -608,3 +608,12 @@ pub use helpers::xml::{read_xml, read_xml_streaming};
 
 #[cfg(all(feature = "io-xml", feature = "parallel-io"))]
 pub use io::xml::write_xml_par;
+
+#[cfg(feature = "io-msgpack")]
+pub use io::msgpack::{read_msgpack_vec, write_msgpack_vec};
+
+#[cfg(feature = "io-msgpack")]
+pub use helpers::msgpack::{read_msgpack, read_msgpack_streaming};
+
+#[cfg(all(feature = "io-msgpack", feature = "parallel-io"))]
+pub use io::msgpack::write_msgpack_par;

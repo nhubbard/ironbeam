@@ -219,6 +219,10 @@ pub mod avro;
 #[cfg(feature = "io-xml")]
 pub mod xml;
 
+#[cfg_attr(docsrs, doc(cfg(feature = "io-msgpack")))]
+#[cfg(feature = "io-msgpack")]
+pub mod msgpack;
+
 pub mod cloud;
 pub mod compression;
 pub mod glob;
