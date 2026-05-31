@@ -17,7 +17,7 @@ A data processing framework for Rust inspired by Apache Beam and Google Cloud Da
 - **Side inputs** for enriching streams with auxiliary data (Vec and HashMap views)
 - **Sequential and parallel execution** modes
 - **Type-safe** with compile-time correctness
-- **Optional I/O backends**: JSON Lines, CSV, Parquet
+- **Default I/O backends**: JSON Lines, CSV, Parquet, Avro, XML; plus opt-in additional formats (MessagePack)
 - **Optional compression**: gzip, zstd, bzip2, xz
 - **Metrics collection** and **checkpointing** for fault tolerance
 - **Automatic memory spilling** to disk for memory-constrained environments
@@ -34,18 +34,22 @@ Add to your `Cargo.toml`:
 ironbeam = "3"
 ```
 
-By default, all features are enabled. To use a minimal configuration:
+By default, all features are enabled **except the additional I/O formats listed
+under "Opt-in I/O connectors" below** (see the note there for why). To use a
+minimal configuration:
 
 ```toml
 [dependencies]
 ironbeam = { version = "3", default-features = false }
 ```
 
-Available feature flags:
+The following feature flags are enabled by default:
 
 - `io-jsonl` - JSON Lines support
 - `io-csv` - CSV support
 - `io-parquet` - Parquet support
+- `io-avro` - Avro support
+- `io-xml` - XML support
 - `compression-gzip` - gzip compression
 - `compression-zstd` - zstd compression
 - `compression-bzip2` - bzip2 compression
@@ -54,6 +58,22 @@ Available feature flags:
 - `metrics` - pipeline metrics collection
 - `checkpointing` - checkpoint and recovery support
 - `spilling` - automatic memory spilling to disk
+
+### Opt-in I/O connectors
+
+Most features follow the "everything on by default" convention. The additional
+I/O formats are a deliberate **exception**: they are less commonly used and each
+pulls in extra dependencies that would bloat a typical build, so they are **not**
+part of the default feature set and must be enabled explicitly.
+
+- `io-msgpack` - MessagePack support (adds `rmp-serde`)
+
+Enable one like so:
+
+```toml
+[dependencies]
+ironbeam = { version = "3", features = ["io-msgpack"] }
+```
 
 ## Quick Start
 

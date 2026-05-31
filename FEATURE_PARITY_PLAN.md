@@ -84,6 +84,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.13 ApproximateUnique (HLL)                | `HllApproxDistinctCount<T>` combiner (HyperLogLog++ via `hyperloglogplus`) with `new` / `with_error(e)` / `with_precision(p)` builders and a fixed-seed `BuildHasherDefault<DefaultHasher>` for cross-partition merge determinism; helpers `approx_count_distinct[_with_error]()` (global, returns `u64`) and `approx_count_distinct_per_key[_with_error]()` (per-key, returns `(K, u64)`) complementing the existing KMV-based `approx_distinct_count*` (f64) family                                                                                                                                                                                                                                                                                                                       | 3.1.0  |
 | 4.14 Sample (fixed-size)                    | Beam-style fixed-size reservoir sampling helpers on top of the existing `PriorityReservoir` combiner: `sample_globally(n)` → `PCollection<Vec<T>>` and `sample_per_key(n)` → `PCollection<(K, Vec<V>)>`, plus `_with_seed(n, seed)` variants. Uses a fixed default seed (SplitMix64 golden ratio) so two runs in the same execution mode return identical samples; per-partition PRNG divergence means sequential and parallel runs may pick different items but always exactly `n` per output (or every item if the input has fewer than `n`)                                                                                                                                                                                                                                              | 3.1.0  |
 | 4.15 Error Handling (Dead-Letter)           | `DeadLetter<T> { element, error }` record + `PCollection::map_catching(f)` / `flat_map_catching(f)` helpers that split a fallible 1→1 or 1→N transform into `(PCollection<Out>, PCollection<DeadLetter<In>>)`. Errors are rendered via `Display::to_string()` so any error type works; the planner's dominator-based cache placement (3.13) ensures the underlying classification runs once even though both outputs share the upstream node. Complements the existing `try_map`/`collect_fail_fast` family by enabling per-output sinks (good → warehouse, errors → quarantine) instead of fail-fast                                                                                                                                                                                       | 3.1.0  |
+| 5.1 MessagePack I/O                         | `read_msgpack`/`read_msgpack_streaming` sources and `PCollection::write_msgpack`/`write_msgpack_par` sinks over `rmp-serde`, plus low-level `read_msgpack_vec`/`write_msgpack_vec`, `MsgpackShards`/`build_msgpack_shards`/`read_msgpack_range`, and a `MsgpackVecOps<T>` runner adapter. Files are a flat concatenation of self-delimiting MessagePack values (byte-concatenable shards like JSONL); record-count sharding, glob support, and compression auto-detection mirror the Avro/XML modules. Behind the **opt-in** `io-msgpack` feature flag — the first I/O backend intentionally excluded from `default` to avoid dependency bloat                                                                                                                                                | 3.2.0  |
 
 ---
 
@@ -92,25 +93,6 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 These features provide read/write support for additional serialization formats and storage
 backends. All are non-streaming and non-cloud-specific (self-hosted databases only), and live
 behind feature flags to minimize default dependencies.
-
-### 5.1 MessagePack I/O
-
-**Status:** Not implemented. Behind `io-msgpack` feature flag.
-
-Read and write `PCollection<T: Serialize + DeserializeOwned>` as MessagePack files using
-the `rmp-serde` crate. A compact binary format, common in cache/streaming systems.
-
-**Proposed API:**
-```rust
-read_msgpack::<T>("path/*.msgpack")
-write_msgpack("output/part-*.msgpack", collection)
-```
-
-**Dependencies:** `rmp-serde`
-
-**Estimated complexity:** Low — same pattern as the existing Avro and XML I/O modules.
-
----
 
 ### 5.2 CBOR I/O
 
