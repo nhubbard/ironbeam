@@ -75,6 +75,17 @@ Enable one like so:
 ironbeam = { version = "3", features = ["io-msgpack"] }
 ```
 
+Every feature can be toggled independently — the public API stays present in all
+configurations, and a disabled I/O backend simply returns a runtime error rather
+than failing to compile. CI verifies this with
+[`cargo-hack`](https://github.com/taiki-e/cargo-hack); to check feature
+combinations locally:
+
+```sh
+cargo hack check --each-feature --no-dev-deps   # each feature alone, none, all
+cargo hack check --feature-powerset --depth 2   # pairwise interactions
+```
+
 ## Quick Start
 
 ```rust

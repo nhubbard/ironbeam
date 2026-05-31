@@ -10,8 +10,10 @@
 //! - [`PCollection::write_jsonl_par`](PCollection::write_jsonl_par) - Execute sequentially, write in parallel (feature: `parallel-io`)
 //!
 //! ### Feature gates
-//! - All functions in this module require `io-jsonl`.
-//! - The parallel writer additionally requires `parallel-io`.
+//! - These helpers are **always available in the ABI**. When the `io-jsonl`
+//!   feature is disabled, the underlying read/write functions are compiled as
+//!   stubs that return a runtime error instead of breaking compilation.
+//! - The parallel writer additionally requires `parallel-io` (a compile gate).
 //!
 //! ### Examples
 //! Read and write (sequential):
@@ -67,7 +69,7 @@ use crate::io::glob::expand_glob;
 pub use crate::io::jsonl::{JsonlShards, JsonlVecOps, build_jsonl_shards, write_jsonl_vec};
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{PCollection, Pipeline, RFBound, from_vec, read_jsonl_vec, write_jsonl_par};
+use crate::{PCollection, Pipeline, RFBound, from_vec, read_jsonl_vec};
 use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 use serde::Serialize;
@@ -135,7 +137,6 @@ use std::sync::Arc;
 ///
 /// Returns an error if `path` contains invalid UTF-8, if a glob pattern does
 /// not match any files, or if any matched file cannot be read or parsed.
-#[cfg(feature = "io-jsonl")]
 pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
     T: RFBound + DeserializeOwned,
@@ -167,7 +168,6 @@ where
     }
 }
 
-#[cfg(feature = "io-jsonl")]
 impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the collection and write it to a JSONL file (sequential).
     ///
@@ -206,7 +206,6 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// let out = pc.collect_par_sorted(None, None)?;
 /// # Ok(()) }
 /// ```
-#[cfg(feature = "io-jsonl")]
 pub fn read_jsonl_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,
@@ -228,8 +227,8 @@ where
     })
 }
 
-#[cfg_attr(docsrs, doc(cfg(all(feature = "io-jsonl", feature = "parallel-io"))))]
-#[cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
+#[cfg(feature = "parallel-io")]
 impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the collection sequentially (to lock in a deterministic order),
     /// then write JSONL **in parallel** while preserving that order.
@@ -242,6 +241,6 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// Propagates I/O and serialization errors.
     pub fn write_jsonl_par(self, path: impl AsRef<Path>, shards: Option<usize>) -> Result<usize> {
         let data = self.collect_seq()?; // deterministic order of elements
-        write_jsonl_par(path, &data, shards)
+        crate::io::jsonl::write_jsonl_par(path, &data, shards)
     }
 }

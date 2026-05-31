@@ -75,7 +75,6 @@ use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::path::Path;
 
-#[cfg(feature = "io-xml")]
 impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the pipeline, collect results, and write them to a single XML file.
     ///
@@ -111,8 +110,8 @@ impl<T: RFBound + Serialize> PCollection<T> {
     }
 }
 
-#[cfg_attr(docsrs, doc(cfg(all(feature = "io-xml", feature = "parallel-io"))))]
-#[cfg(all(feature = "io-xml", feature = "parallel-io"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
+#[cfg(feature = "parallel-io")]
 impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the pipeline in parallel and write the result as XML.
     ///
@@ -145,9 +144,8 @@ impl<T: RFBound + Serialize> PCollection<T> {
     /// Returns an error if the pipeline cannot be executed or the file cannot
     /// be written.
     pub fn write_xml_par(self, path: impl AsRef<Path>, shards: Option<usize>) -> Result<usize> {
-        use crate::io::xml::write_xml_par;
         let data = self.collect_par(shards, None)?;
-        write_xml_par(path, &data, None)
+        crate::io::xml::write_xml_par(path, &data, None)
     }
 }
 
@@ -209,8 +207,6 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// # Ok(())
 /// # }
 /// ```
-#[cfg_attr(docsrs, doc(cfg(feature = "io-xml")))]
-#[cfg(feature = "io-xml")]
 pub fn read_xml<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
     T: RFBound + DeserializeOwned,
@@ -274,8 +270,6 @@ where
 /// # Ok(())
 /// # }
 /// ```
-#[cfg_attr(docsrs, doc(cfg(feature = "io-xml")))]
-#[cfg(feature = "io-xml")]
 pub fn read_xml_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,

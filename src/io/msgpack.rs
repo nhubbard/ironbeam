@@ -6,6 +6,14 @@
 //! - **Streaming ingestion** by record ranges: [`MsgpackShards`], [`build_msgpack_shards`], [`read_msgpack_range`]
 //! - **Execution runner integration**: [`MsgpackVecOps<T>`] implements [`VecOps`] over `MsgpackShards`
 //!
+//! # Feature gating
+//! The entire public surface of this module is **always available in the ABI**,
+//! regardless of whether the `io-msgpack` feature is enabled. When the feature is
+//! disabled, the read/write functions are compiled as stubs that return an error
+//! at runtime instead of breaking compilation. This lets dependent code (the
+//! [`helpers`](crate::helpers) layer, the runner) link unconditionally while the
+//! `rmp-serde` dependency stays out of builds that don't opt in.
+//!
 //! # Notes
 //! - A `MessagePack` file is a flat concatenation of self-delimiting `MessagePack`
 //!   values (one per record). Unlike Avro, there is no per-file header or sync
@@ -13,30 +21,59 @@
 //! - Sharding is **record-count-based**; it does not rely on byte offsets.
 //! - Compression is detected automatically based on file extension or magic bytes
 //!   (when the respective feature flags are enabled).
-//! - Values are encoded with [`rmp_serde::encode::write`], which serializes
-//!   structs compactly as arrays; reads use the matching default decoder.
+//! - Values are encoded with `rmp_serde::encode::write`, which serializes structs
+//!   compactly as arrays; reads use the matching default decoder.
 
 use crate::Partition;
-use crate::io::compression::{auto_detect_reader, auto_detect_writer};
 use crate::type_token::VecOps;
-use anyhow::{Context, Result};
-use rmp_serde::Deserializer;
-use rmp_serde::decode::Error as DecodeError;
-use serde::{Serialize, de::Deserialize, de::DeserializeOwned, de::IgnoredAny};
+use anyhow::Result;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::any::Any;
-use std::fs::{File, create_dir_all, remove_file};
-use std::io::{BufReader, BufWriter, ErrorKind, Read, Write, copy};
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
 
-// ── Private helpers ────────────────────────────────────────────────────────────
+#[cfg(feature = "io-msgpack")]
+use crate::io::compression::{auto_detect_reader, auto_detect_writer};
+#[cfg(feature = "io-msgpack")]
+use anyhow::Context;
+#[cfg(feature = "io-msgpack")]
+use rmp_serde::Deserializer;
+#[cfg(feature = "io-msgpack")]
+use rmp_serde::decode::Error as DecodeError;
+#[cfg(feature = "io-msgpack")]
+use serde::de::{Deserialize, IgnoredAny};
+#[cfg(feature = "io-msgpack")]
+use std::fs::{File, create_dir_all};
+#[cfg(feature = "io-msgpack")]
+use std::io::{BufReader, ErrorKind, Read, Write};
+#[cfg(feature = "io-msgpack")]
+use std::path::Path;
+
+// ── Streaming sharding metadata (always available) ──────────────────────────────
+
+/// Streaming `MessagePack` sharding metadata.
+///
+/// Produced by [`build_msgpack_shards`] and consumed by [`read_msgpack_range`]
+/// and the execution engine via [`MsgpackVecOps`].
+#[derive(Clone)]
+pub struct MsgpackShards {
+    /// Source file path.
+    pub path: PathBuf,
+    /// Record ranges `(start, end)` (0-based, end-exclusive).
+    pub ranges: Vec<(u64, u64)>,
+    /// Total number of records considered for sharding.
+    pub total_records: u64,
+}
+
+// ── Private helpers (only compiled with the feature) ─────────────────────────────
 
 /// Return `true` if `err` represents a clean end-of-stream at a record boundary.
 ///
-/// `rmp-serde` reports this as an [`DecodeError::InvalidMarkerRead`] whose inner
-/// I/O error has kind [`ErrorKind::UnexpectedEof`]: the decoder tried to read the
-/// marker byte of the next value, but the stream was already exhausted.
+/// `rmp-serde` reports this as an `InvalidMarkerRead` whose inner I/O error has
+/// kind [`ErrorKind::UnexpectedEof`]: the decoder tried to read the marker byte of
+/// the next value, but the stream was already exhausted.
+#[cfg(feature = "io-msgpack")]
 fn is_clean_eof(err: &DecodeError) -> bool {
     matches!(err, DecodeError::InvalidMarkerRead(io) if io.kind() == ErrorKind::UnexpectedEof)
 }
@@ -45,6 +82,7 @@ fn is_clean_eof(err: &DecodeError) -> bool {
 ///
 /// Stops cleanly when the stream is exhausted at a record boundary; any other
 /// decode error is propagated with the offending record index.
+#[cfg(feature = "io-msgpack")]
 fn msgpack_read_loop<T: DeserializeOwned, R: Read>(reader: R, path: &Path) -> Result<Vec<T>> {
     let mut de = Deserializer::new(reader);
     let mut out = Vec::<T>::new();
@@ -68,6 +106,7 @@ fn msgpack_read_loop<T: DeserializeOwned, R: Read>(reader: R, path: &Path) -> Re
 ///
 /// Decodes each value into [`IgnoredAny`] purely to advance past it, so the count
 /// never depends on a concrete `T`.
+#[cfg(feature = "io-msgpack")]
 fn msgpack_count_records<R: Read>(reader: R, path: &Path) -> Result<u64> {
     let mut de = Deserializer::new(reader);
     let mut n = 0u64;
@@ -88,6 +127,7 @@ fn msgpack_count_records<R: Read>(reader: R, path: &Path) -> Result<u64> {
 }
 
 /// Build [`MsgpackShards`] from a pre-counted total and `records_per_shard`.
+#[cfg(feature = "io-msgpack")]
 fn make_msgpack_shards(path: PathBuf, total: u64, records_per_shard: usize) -> MsgpackShards {
     if total == 0 {
         return MsgpackShards {
@@ -109,6 +149,7 @@ fn make_msgpack_shards(path: PathBuf, total: u64, records_per_shard: usize) -> M
 }
 
 /// Open `path` with compression auto-detection and return a buffered reader.
+#[cfg(feature = "io-msgpack")]
 fn open_msgpack_reader(path: &Path) -> Result<BufReader<Box<dyn Read>>> {
     let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let inner = auto_detect_reader(f, path)
@@ -125,7 +166,9 @@ fn open_msgpack_reader(path: &Path) -> Result<BufReader<Box<dyn Read>>> {
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened or read, or if any record fails
-/// to deserialize into `T`.
+/// to deserialize into `T`. When the `io-msgpack` feature is disabled, always
+/// returns an error.
+#[cfg(feature = "io-msgpack")]
 pub fn read_msgpack_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
     let rdr = open_msgpack_reader(path)?;
@@ -134,17 +177,22 @@ pub fn read_msgpack_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<V
 
 /// Write a typed slice as a `MessagePack` file (one value per record).
 ///
-/// Each element is serialized with [`rmp_serde::encode::write`] and appended to
-/// the file. Parent directories are created as needed. Compression is
-/// auto-detected from the file extension (e.g., `.gz`, `.zst`).
+/// Each element is serialized with `rmp_serde::encode::write` and appended to the
+/// file. Parent directories are created as needed. Compression is auto-detected
+/// from the file extension (e.g., `.gz`, `.zst`).
 ///
 /// # Returns
 /// The number of items written (`data.len()`).
 ///
 /// # Errors
 /// Returns an error if the file/dirs cannot be created or any item fails to
-/// serialize/flush.
-pub fn write_msgpack_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Result<usize> {
+/// serialize/flush. When the `io-msgpack` feature is disabled, always returns an
+/// error.
+#[cfg(feature = "io-msgpack")]
+pub fn write_msgpack_vec<T: Serialize>(
+    path: impl AsRef<std::path::Path>,
+    data: &[T],
+) -> Result<usize> {
     let path = path.as_ref();
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -166,8 +214,8 @@ pub fn write_msgpack_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Re
 /// Write `MessagePack` in parallel while keeping **deterministic final order**.
 ///
 /// The input slice is split into contiguous shards; each shard is serialized to a
-/// temporary part file in parallel, then all parts are concatenated in shard
-/// index order into the final file. Temporary files are removed at the end.
+/// temporary part file in parallel, then all parts are concatenated in shard index
+/// order into the final file. Temporary files are removed at the end.
 ///
 /// Because `MessagePack` records are self-delimiting and carry no per-file framing,
 /// concatenating shard byte streams yields a valid combined file.
@@ -178,17 +226,21 @@ pub fn write_msgpack_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Re
 /// The number of items written (`data.len()`).
 ///
 /// # Errors
-/// Returns an error if part or output files cannot be created/written.
+/// Returns an error if part or output files cannot be created/written. When the
+/// `io-msgpack` feature is disabled, always returns an error.
 ///
 /// # Feature
 /// Requires the `parallel-io` feature.
-#[cfg(feature = "parallel-io")]
+#[cfg(all(feature = "parallel-io", feature = "io-msgpack"))]
 pub fn write_msgpack_par<T: Serialize + Send + Sync>(
     path: impl AsRef<Path>,
     data: &[T],
     shards: Option<usize>,
 ) -> Result<usize> {
     use rayon::prelude::*;
+    use std::fs::remove_file;
+    use std::io::{BufWriter, copy};
+
     let path = path.as_ref();
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -242,20 +294,6 @@ pub fn write_msgpack_par<T: Serialize + Send + Sync>(
 
 // ── Streaming sharding ─────────────────────────────────────────────────────────
 
-/// Streaming `MessagePack` sharding metadata.
-///
-/// Produced by [`build_msgpack_shards`] and consumed by [`read_msgpack_range`]
-/// and the execution engine via [`MsgpackVecOps`].
-#[derive(Clone)]
-pub struct MsgpackShards {
-    /// Source file path.
-    pub path: PathBuf,
-    /// Record ranges `(start, end)` (0-based, end-exclusive).
-    pub ranges: Vec<(u64, u64)>,
-    /// Total number of records considered for sharding.
-    pub total_records: u64,
-}
-
 /// Build [`MsgpackShards`] by counting records and slicing into `records_per_shard`.
 ///
 /// For an empty file, returns an empty set of ranges.
@@ -264,10 +302,12 @@ pub struct MsgpackShards {
 /// record counting. Note that compressed files require full decompression here.
 ///
 /// # Errors
-/// Returns an error if the file cannot be opened or read.
+/// Returns an error if the file cannot be opened or read. When the `io-msgpack`
+/// feature is disabled, always returns an error.
 ///
 /// # Panics
 /// If the shard calculation overflows.
+#[cfg(feature = "io-msgpack")]
 pub fn build_msgpack_shards(
     path: impl AsRef<Path>,
     records_per_shard: usize,
@@ -285,7 +325,9 @@ pub fn build_msgpack_shards(
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened or if any selected record fails
-/// to deserialize into `T`.
+/// to deserialize into `T`. When the `io-msgpack` feature is disabled, always
+/// returns an error.
+#[cfg(feature = "io-msgpack")]
 pub fn read_msgpack_range<T: DeserializeOwned>(
     src: &MsgpackShards,
     start: u64,
@@ -319,20 +361,93 @@ pub fn read_msgpack_range<T: DeserializeOwned>(
     Ok(out)
 }
 
+// ── Disabled-feature stubs ───────────────────────────────────────────────────
+//
+// When `io-msgpack` is off, the functions above are not compiled. These stubs
+// keep the public ABI identical and fail at runtime instead.
+
+/// Stub returned when the `io-msgpack` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-msgpack` feature is not enabled.
+#[cfg(not(feature = "io-msgpack"))]
+pub fn read_msgpack_vec<T: DeserializeOwned>(_path: impl AsRef<std::path::Path>) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-msgpack` feature is not enabled")
+}
+
+/// Stub returned when the `io-msgpack` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-msgpack` feature is not enabled.
+#[cfg(not(feature = "io-msgpack"))]
+pub fn write_msgpack_vec<T: Serialize>(
+    _path: impl AsRef<std::path::Path>,
+    _data: &[T],
+) -> Result<usize> {
+    anyhow::bail!("the `io-msgpack` feature is not enabled")
+}
+
+/// Stub returned when the `io-msgpack` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-msgpack` feature is not enabled.
+///
+/// # Feature
+/// Requires the `parallel-io` feature.
+#[cfg(all(feature = "parallel-io", not(feature = "io-msgpack")))]
+pub fn write_msgpack_par<T: Serialize + Send + Sync>(
+    _path: impl AsRef<std::path::Path>,
+    _data: &[T],
+    _shards: Option<usize>,
+) -> Result<usize> {
+    anyhow::bail!("the `io-msgpack` feature is not enabled")
+}
+
+/// Stub returned when the `io-msgpack` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-msgpack` feature is not enabled.
+#[cfg(not(feature = "io-msgpack"))]
+pub fn build_msgpack_shards(
+    _path: impl AsRef<std::path::Path>,
+    _records_per_shard: usize,
+) -> Result<MsgpackShards> {
+    anyhow::bail!("the `io-msgpack` feature is not enabled")
+}
+
+/// Stub returned when the `io-msgpack` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-msgpack` feature is not enabled.
+#[cfg(not(feature = "io-msgpack"))]
+pub fn read_msgpack_range<T: DeserializeOwned>(
+    _src: &MsgpackShards,
+    _start: u64,
+    _end: u64,
+) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-msgpack` feature is not enabled")
+}
+
+// ── VecOps adapter (always available) ────────────────────────────────────────
+
 /// `VecOps` adapter for streaming `MessagePack` via [`MsgpackShards`].
 ///
 /// This enables the execution engine to determine total length (`len`), split
-/// into concrete partitions (`split`) by record range, and read the entire
-/// dataset (`clone_any`) for sequential paths.
+/// into concrete partitions (`split`) by record range, and read the entire dataset
+/// (`clone_any`) for sequential paths.
 ///
 /// Requires `T: DeserializeOwned + Clone + Send + Sync + 'static`.
+///
+/// When the `io-msgpack` feature is disabled, `split`/`clone_any` yield `None`
+/// because the underlying range reader stub errors — but a disabled source can
+/// never be constructed in the first place.
 pub struct MsgpackVecOps<T>(PhantomData<T>);
 
 impl<T> MsgpackVecOps<T> {
     /// Construct an `Arc` to the adapter.
     #[must_use]
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self(PhantomData))
+    pub fn new() -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self(PhantomData))
     }
 }
 

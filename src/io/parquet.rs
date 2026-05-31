@@ -13,24 +13,44 @@
 //!
 //! Uses Arrow 56 and `serde_arrow` 0.13 (`SchemaLike::from_type` and
 //! `to_record_batch`/`from_record_batch`).
+//!
+//! # Feature gating
+//! The entire public surface of this module is **always available in the ABI**,
+//! regardless of whether the `io-parquet` feature is enabled. When the feature is
+//! disabled, the read/write functions are compiled as stubs that return an error
+//! at runtime instead of breaking compilation. This lets dependent code (the
+//! [`helpers`](crate::helpers) layer, the runner) link unconditionally while the
+//! `arrow`/`parquet`/`serde_arrow` dependencies stay out of builds that don't opt in.
 
 use crate::Partition;
 use crate::type_token::VecOps;
-use anyhow::{Context, Result};
-use arrow::datatypes::FieldRef;
-use arrow::record_batch::RecordBatch;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use parquet::arrow::arrow_writer::ArrowWriter;
-use parquet::file::properties::WriterProperties;
-use parquet::file::reader::{FileReader, SerializedFileReader};
+use anyhow::Result;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_arrow::schema::{SchemaLike, TracingOptions};
-use serde_arrow::{from_record_batch, to_record_batch};
 use std::any::Any;
-use std::fs::File;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+#[cfg(feature = "io-parquet")]
+use anyhow::Context;
+#[cfg(feature = "io-parquet")]
+use arrow::datatypes::FieldRef;
+#[cfg(feature = "io-parquet")]
+use arrow::record_batch::RecordBatch;
+#[cfg(feature = "io-parquet")]
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+#[cfg(feature = "io-parquet")]
+use parquet::arrow::arrow_writer::ArrowWriter;
+#[cfg(feature = "io-parquet")]
+use parquet::file::properties::WriterProperties;
+#[cfg(feature = "io-parquet")]
+use parquet::file::reader::{FileReader, SerializedFileReader};
+#[cfg(feature = "io-parquet")]
+use serde_arrow::schema::{SchemaLike, TracingOptions};
+#[cfg(feature = "io-parquet")]
+use serde_arrow::{from_record_batch, to_record_batch};
+#[cfg(feature = "io-parquet")]
+use std::fs::File;
 
 /// Write a typed `Vec<T>` to a Parquet file.
 ///
@@ -49,6 +69,8 @@ use std::sync::Arc;
 ///
 /// # Errors
 /// An error is returned if the schema inference, conversion, file creation, or writing fails.
+/// When the `io-parquet` feature is disabled, always returns an error.
+#[cfg(feature = "io-parquet")]
 pub fn write_parquet_vec<T: Serialize + Deserialize<'static>>(
     path: impl AsRef<Path>,
     data: &Vec<T>,
@@ -84,7 +106,9 @@ pub fn write_parquet_vec<T: Serialize + Deserialize<'static>>(
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened, the reader cannot be built,
-/// batch iteration fails, or conversion to `T` fails.
+/// batch iteration fails, or conversion to `T` fails. When the `io-parquet`
+/// feature is disabled, always returns an error.
+#[cfg(feature = "io-parquet")]
 pub fn read_parquet_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
@@ -126,6 +150,8 @@ pub struct ParquetShards {
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened or metadata cannot be read.
+/// When the `io-parquet` feature is disabled, always returns an error.
+#[cfg(feature = "io-parquet")]
 pub fn build_parquet_shards(
     path: impl AsRef<Path>,
     groups_per_shard: usize,
@@ -172,7 +198,9 @@ pub fn build_parquet_shards(
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened, the range reader cannot be
-/// built, batch iteration fails, or conversion to `T` fails.
+/// built, batch iteration fails, or conversion to `T` fails. When the
+/// `io-parquet` feature is disabled, always returns an error.
+#[cfg(feature = "io-parquet")]
 pub fn read_parquet_row_group_range<T: DeserializeOwned>(
     src: &ParquetShards,
     start_group: usize,
@@ -196,16 +224,67 @@ pub fn read_parquet_row_group_range<T: DeserializeOwned>(
     Ok(out)
 }
 
+// ── Disabled-feature stubs ───────────────────────────────────────────────────
+//
+// When `io-parquet` is off, the functions above are not compiled. These stubs
+// keep the public ABI identical and fail at runtime instead.
+
+/// Stub returned when the `io-parquet` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-parquet` feature is not enabled.
+#[cfg(not(feature = "io-parquet"))]
+pub fn write_parquet_vec<T: Serialize + Deserialize<'static>>(
+    _path: impl AsRef<Path>,
+    _data: &Vec<T>,
+) -> Result<usize> {
+    anyhow::bail!("the `io-parquet` feature is not enabled")
+}
+
+/// Stub returned when the `io-parquet` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-parquet` feature is not enabled.
+#[cfg(not(feature = "io-parquet"))]
+pub fn read_parquet_vec<T: DeserializeOwned>(_path: impl AsRef<Path>) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-parquet` feature is not enabled")
+}
+
+/// Stub returned when the `io-parquet` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-parquet` feature is not enabled.
+#[cfg(not(feature = "io-parquet"))]
+pub fn build_parquet_shards(
+    _path: impl AsRef<Path>,
+    _groups_per_shard: usize,
+) -> Result<ParquetShards> {
+    anyhow::bail!("the `io-parquet` feature is not enabled")
+}
+
+/// Stub returned when the `io-parquet` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-parquet` feature is not enabled.
+#[cfg(not(feature = "io-parquet"))]
+pub fn read_parquet_row_group_range<T: DeserializeOwned>(
+    _src: &ParquetShards,
+    _start_group: usize,
+    _end_group: usize,
+) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-parquet` feature is not enabled")
+}
+
+// ── VecOps adapter (always available) ────────────────────────────────────────
+
 /// `VecOps` adapter for streaming Parquet via [`ParquetShards`].
 ///
 /// Enables the engine to:
 /// - Get total length (`len`)
 /// - Split into partitions by row-group ranges (`split`)
 /// - Read the entire dataset for sequential paths (`clone_any`)
-#[cfg(feature = "io-parquet")]
 pub struct ParquetVecOps<T>(PhantomData<T>);
 
-#[cfg(feature = "io-parquet")]
 impl<T> ParquetVecOps<T> {
     /// Construct an `Arc` to the adapter.
     #[must_use]
@@ -214,7 +293,6 @@ impl<T> ParquetVecOps<T> {
     }
 }
 
-#[cfg(feature = "io-parquet")]
 impl<T> VecOps for ParquetVecOps<T>
 where
     T: DeserializeOwned + Send + Sync + Clone + 'static,

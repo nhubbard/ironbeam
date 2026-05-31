@@ -130,7 +130,6 @@ use std::sync::Arc;
 /// let out = rows.collect_seq()?;
 /// # Ok(()) }
 /// ```
-#[cfg(feature = "io-csv")]
 pub fn read_csv<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,
@@ -166,7 +165,6 @@ where
     }
 }
 
-#[cfg(feature = "io-csv")]
 impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the pipeline sequentially and write the result as CSV (vector mode).
     ///
@@ -201,8 +199,8 @@ impl<T: RFBound + Serialize> PCollection<T> {
     }
 }
 
-#[cfg_attr(docsrs, doc(cfg(all(feature = "io-csv", feature = "parallel-io"))))]
-#[cfg(all(feature = "io-csv", feature = "parallel-io"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
+#[cfg(feature = "parallel-io")]
 impl<T: RFBound + Serialize> PCollection<T> {
     /// Execute the pipeline in parallel and write the result as CSV.
     ///
@@ -275,7 +273,6 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// let out = stream.collect_seq()?; // materialize after transforms
 /// # Ok(()) }
 /// ```
-#[cfg(feature = "io-csv")]
 pub fn read_csv_streaming<T>(
     p: &Pipeline,
     path: impl AsRef<Path>,

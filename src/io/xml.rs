@@ -25,27 +25,49 @@
 //!   when the respective feature flags are enabled.
 //! - The parallel writer parallelizes the CPU-bound serde step; the final file
 //!   is written sequentially.
+//!
+//! # Feature gating
+//! The entire public surface of this module is **always available in the ABI**,
+//! regardless of whether the `io-xml` feature is enabled. When the feature is
+//! disabled, the read/write functions are compiled as stubs that return an error
+//! at runtime instead of breaking compilation. This lets dependent code (the
+//! [`helpers`](crate::helpers) layer, the runner) link unconditionally while the
+//! `quick-xml` dependency stays out of builds that don't opt in.
 
 use crate::Partition;
-use crate::io::compression::{auto_detect_reader, auto_detect_writer};
 use crate::type_token::VecOps;
-use anyhow::{Context, Result};
-use quick_xml::events::Event;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use anyhow::Result;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::any::Any;
-use std::fs::{File, create_dir_all};
-use std::io::{BufReader, Read, Write};
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
-// ── Internal Serde wrappers ────────────────────────────────────────────────────
+#[cfg(feature = "io-xml")]
+use crate::io::compression::{auto_detect_reader, auto_detect_writer};
+#[cfg(feature = "io-xml")]
+use anyhow::Context;
+#[cfg(feature = "io-xml")]
+use quick_xml::events::Event;
+#[cfg(feature = "io-xml")]
+use serde::Deserialize;
+#[cfg(feature = "io-xml")]
+use std::fs::{File, create_dir_all};
+#[cfg(feature = "io-xml")]
+use std::io::{BufReader, Read, Write};
+#[cfg(feature = "io-xml")]
+use std::path::Path;
 
+// ── Internal Serde wrappers (only compiled with the feature) ─────────────────────
+
+#[cfg(feature = "io-xml")]
 const fn default_items<T>() -> Vec<T> {
     Vec::new()
 }
 
 /// Wire-format read wrapper: `<records><item>…</item>…</records>`.
+#[cfg(feature = "io-xml")]
 #[derive(Deserialize)]
 #[serde(rename = "records")]
 struct XmlFileRead<T> {
@@ -54,6 +76,7 @@ struct XmlFileRead<T> {
 }
 
 /// Wire-format write wrapper that borrows the slice to avoid cloning.
+#[cfg(feature = "io-xml")]
 #[derive(Serialize)]
 #[serde(rename = "records")]
 struct XmlFileWrite<'a, T>
@@ -64,9 +87,10 @@ where
     item: &'a [T],
 }
 
-// ── Private helpers ────────────────────────────────────────────────────────────
+// ── Private helpers (only compiled with the feature) ─────────────────────────────
 
 /// Open `path` with compression auto-detection and return a buffered reader.
+#[cfg(feature = "io-xml")]
 fn open_xml_reader(path: &Path) -> Result<BufReader<Box<dyn Read>>> {
     let f = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let inner = auto_detect_reader(f, path)
@@ -77,6 +101,7 @@ fn open_xml_reader(path: &Path) -> Result<BufReader<Box<dyn Read>>> {
 /// Count direct child elements of the root element using the event-based reader.
 ///
 /// Works purely on XML structure — no type parameter required.
+#[cfg(feature = "io-xml")]
 fn xml_count_items(path: &Path) -> Result<u64> {
     let rdr = open_xml_reader(path)?;
     let mut reader = quick_xml::Reader::from_reader(rdr);
@@ -112,6 +137,7 @@ fn xml_count_items(path: &Path) -> Result<u64> {
 /// Build [`XmlShards`] from a counted total.
 ///
 /// XML is not splittable, so this always produces at most one shard.
+#[cfg(feature = "io-xml")]
 fn make_xml_shards(path: PathBuf, total: u64) -> XmlShards {
     if total == 0 {
         return XmlShards {
@@ -136,7 +162,9 @@ fn make_xml_shards(path: PathBuf, total: u64) -> XmlShards {
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened, read, or any item fails to
-/// deserialize into `T`.
+/// deserialize into `T`. When the `io-xml` feature is disabled, always returns
+/// an error.
+#[cfg(feature = "io-xml")]
 pub fn read_xml_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T>> {
     let path = path.as_ref();
     let rdr = open_xml_reader(path)?;
@@ -155,6 +183,8 @@ pub fn read_xml_vec<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<Vec<T
 ///
 /// # Errors
 /// Returns an error if the file/dirs cannot be created or serialization fails.
+/// When the `io-xml` feature is disabled, always returns an error.
+#[cfg(feature = "io-xml")]
 pub fn write_xml_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Result<usize> {
     let path = path.as_ref();
     if let Some(parent) = path.parent()
@@ -191,11 +221,11 @@ pub fn write_xml_vec<T: Serialize>(path: impl AsRef<Path>, data: &[T]) -> Result
 ///
 /// # Errors
 /// Returns an error if the file cannot be created/written or any item fails to
-/// serialize.
+/// serialize. When the `io-xml` feature is disabled, always returns an error.
 ///
 /// # Feature
 /// Requires the `parallel-io` feature.
-#[cfg(feature = "parallel-io")]
+#[cfg(all(feature = "parallel-io", feature = "io-xml"))]
 pub fn write_xml_par<T: Serialize + Sync>(
     path: impl AsRef<Path>,
     data: &[T],
@@ -270,7 +300,9 @@ pub struct XmlShards {
 /// - `records_per_shard`: accepted for API consistency; XML always uses one shard.
 ///
 /// # Errors
-/// Returns an error if the file cannot be opened or read.
+/// Returns an error if the file cannot be opened or read. When the `io-xml`
+/// feature is disabled, always returns an error.
+#[cfg(feature = "io-xml")]
 pub fn build_xml_shards(path: impl AsRef<Path>, records_per_shard: usize) -> Result<XmlShards> {
     let _ = records_per_shard;
     let path = path.as_ref().to_path_buf();
@@ -285,6 +317,8 @@ pub fn build_xml_shards(path: impl AsRef<Path>, records_per_shard: usize) -> Res
 ///
 /// # Errors
 /// Returns an error if the file cannot be opened or items fail to deserialize.
+/// When the `io-xml` feature is disabled, always returns an error.
+#[cfg(feature = "io-xml")]
 pub fn read_xml_range<T: DeserializeOwned + Clone>(
     src: &XmlShards,
     start: u64,
@@ -294,6 +328,73 @@ pub fn read_xml_range<T: DeserializeOwned + Clone>(
     let s = usize::try_from(start).unwrap_or(0).min(all.len());
     let e = usize::try_from(end).unwrap_or(all.len()).min(all.len());
     Ok(all[s..e].to_vec())
+}
+
+// ── Disabled-feature stubs ───────────────────────────────────────────────────
+//
+// When `io-xml` is off, the functions above are not compiled. These stubs
+// keep the public ABI identical and fail at runtime instead.
+
+/// Stub returned when the `io-xml` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-xml` feature is not enabled.
+#[cfg(not(feature = "io-xml"))]
+pub fn read_xml_vec<T: DeserializeOwned>(_path: impl AsRef<std::path::Path>) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-xml` feature is not enabled")
+}
+
+/// Stub returned when the `io-xml` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-xml` feature is not enabled.
+#[cfg(not(feature = "io-xml"))]
+pub fn write_xml_vec<T: Serialize>(
+    _path: impl AsRef<std::path::Path>,
+    _data: &[T],
+) -> Result<usize> {
+    anyhow::bail!("the `io-xml` feature is not enabled")
+}
+
+/// Stub returned when the `io-xml` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-xml` feature is not enabled.
+///
+/// # Feature
+/// Requires the `parallel-io` feature.
+#[cfg(all(feature = "parallel-io", not(feature = "io-xml")))]
+pub fn write_xml_par<T: Serialize + Sync>(
+    _path: impl AsRef<std::path::Path>,
+    _data: &[T],
+    _shards: Option<usize>,
+) -> Result<usize> {
+    anyhow::bail!("the `io-xml` feature is not enabled")
+}
+
+/// Stub returned when the `io-xml` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-xml` feature is not enabled.
+#[cfg(not(feature = "io-xml"))]
+pub fn build_xml_shards(
+    _path: impl AsRef<std::path::Path>,
+    _records_per_shard: usize,
+) -> Result<XmlShards> {
+    anyhow::bail!("the `io-xml` feature is not enabled")
+}
+
+/// Stub returned when the `io-xml` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-xml` feature is not enabled.
+#[cfg(not(feature = "io-xml"))]
+pub fn read_xml_range<T: DeserializeOwned + Clone>(
+    _src: &XmlShards,
+    _start: u64,
+    _end: u64,
+) -> Result<Vec<T>> {
+    anyhow::bail!("the `io-xml` feature is not enabled")
 }
 
 // ── VecOps adapter ─────────────────────────────────────────────────────────────
