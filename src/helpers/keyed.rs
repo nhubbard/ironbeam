@@ -188,6 +188,11 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
 
         let id = self.pipeline.insert_node(Node::GroupByKey { local, merge });
         self.pipeline.connect(self.id, id);
+        // The pre-GBK edge is emitted as `kv<lp, lp>`, so upgrade the
+        // predecessor's coder to split each `(K, V)` into independently
+        // length-prefixed halves. The GBK's own output is `(K, Vec<V>)`.
+        self.pipeline.set_kv_coder::<K, V>(self.id);
+        self.pipeline.set_coder::<(K, Vec<V>)>(id);
         PCollection {
             pipeline: self.pipeline,
             id,

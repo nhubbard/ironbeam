@@ -49,6 +49,7 @@ impl<T: RFBound> PCollection<T> {
         let op: Arc<dyn DynOp> = Arc::new(MapOp::<T, O, F>(f, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<O>(id);
         PCollection {
             pipeline: self.pipeline,
             id,
@@ -78,6 +79,7 @@ impl<T: RFBound> PCollection<T> {
         let op: Arc<dyn DynOp> = Arc::new(FilterOp::<T, F>(pred, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<T>(id);
         Self {
             pipeline: self.pipeline,
             id,
@@ -110,6 +112,7 @@ impl<T: RFBound> PCollection<T> {
         let op: Arc<dyn DynOp> = Arc::new(FlatMapOp::<T, O, F>(f, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<O>(id);
         PCollection {
             pipeline: self.pipeline,
             id,
