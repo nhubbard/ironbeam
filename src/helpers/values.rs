@@ -72,6 +72,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
         let op: Arc<dyn DynOp> = Arc::new(MapValuesOp::<K, V, O, F>(f, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<(K, O)>(id);
         PCollection {
             pipeline: self.pipeline,
             id,
@@ -108,6 +109,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
         let op: Arc<dyn DynOp> = Arc::new(FilterValuesOp::<K, V, F>(pred, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<(K, V)>(id);
         Self {
             pipeline: self.pipeline,
             id,

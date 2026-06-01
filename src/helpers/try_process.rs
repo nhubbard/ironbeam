@@ -67,7 +67,7 @@ impl<T: RFBound> PCollection<T> {
     pub fn try_map<O, E, F>(self, f: F) -> PCollection<Result<O, E>>
     where
         O: RFBound,
-        E: 'static + Send + Sync + Clone + Display,
+        E: RFBound + Display,
         F: 'static + Send + Sync + Fn(&T) -> Result<O, E>,
     {
         // Result<O,E> now satisfies RFBound because E: Clone
@@ -99,7 +99,7 @@ impl<T: RFBound> PCollection<T> {
     pub fn try_flat_map<O, E, F>(self, f: F) -> PCollection<Result<Vec<O>, E>>
     where
         O: RFBound,
-        E: 'static + Send + Sync + Clone + Display,
+        E: RFBound + Display,
         F: 'static + Send + Sync + Fn(&T) -> Result<Vec<O>, E>,
     {
         self.map(move |t| f(t))
@@ -109,7 +109,7 @@ impl<T: RFBound> PCollection<T> {
 // Fail-fast terminal (keeps errors ergonomic)
 impl<T: RFBound, E> PCollection<Result<T, E>>
 where
-    E: 'static + Send + Sync + Clone + Display,
+    E: RFBound + Display,
 {
     /// Collect all `Ok` values or return the first `Err` encountered.
     ///

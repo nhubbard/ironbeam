@@ -49,8 +49,26 @@ use std::sync::Arc;
 /// ]);
 /// # Result::<()>::Ok(())
 /// ```
+/// With the `serde-coders` feature enabled, elements must additionally be
+/// `serde::{Serialize, DeserializeOwned}` so each combinator can attach a
+/// bincode coder for its output type (see [`crate::coders`]). This lets wire
+/// backends (the Dataflow harness) encode/decode every PCollection without
+/// the user registering types by hand.
+#[cfg(not(feature = "serde-coders"))]
 pub trait RFBound: 'static + Send + Sync + Clone {}
+#[cfg(not(feature = "serde-coders"))]
 impl<T> RFBound for T where T: 'static + Send + Sync + Clone {}
+
+#[cfg(feature = "serde-coders")]
+pub trait RFBound:
+    'static + Send + Sync + Clone + serde::Serialize + serde::de::DeserializeOwned
+{
+}
+#[cfg(feature = "serde-coders")]
+impl<T> RFBound for T where
+    T: 'static + Send + Sync + Clone + serde::Serialize + serde::de::DeserializeOwned
+{
+}
 
 /// A typed, logical dataset (the basic building block of a flow).
 ///
@@ -137,6 +155,7 @@ impl<T: RFBound> PCollection<T> {
         use crate::node::Node;
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<O>(id);
         PCollection {
             pipeline: self.pipeline.clone(),
             id,

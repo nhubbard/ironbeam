@@ -70,6 +70,7 @@ where
         vec_ops: vec_ops_for::<T>(),
         elem_tag: TypeTag::of::<T>(),
     });
+    p.set_coder::<T>(id);
     PCollection {
         pipeline: p.clone(),
         id,
@@ -170,6 +171,7 @@ where
         vec_ops,
         elem_tag: TypeTag::of::<T>(),
     });
+    p.set_coder::<T>(id);
     PCollection {
         pipeline: p.clone(),
         id,

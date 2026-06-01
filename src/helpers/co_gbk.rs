@@ -59,6 +59,7 @@ macro_rules! generate_tagged_enum {
     (2) => {
         /// Tagged enum for `2`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde-coders", derive(serde::Serialize, serde::Deserialize))]
         pub enum Tagged2<V1, V2> {
             /// Value from input V1
             V1(V1),
@@ -69,6 +70,7 @@ macro_rules! generate_tagged_enum {
     (3) => {
         /// Tagged enum for `3`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde-coders", derive(serde::Serialize, serde::Deserialize))]
         pub enum Tagged3<V1, V2, V3> {
             /// Value from input V1
             V1(V1),
@@ -81,6 +83,7 @@ macro_rules! generate_tagged_enum {
     (4) => {
         /// Tagged enum for `4`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde-coders", derive(serde::Serialize, serde::Deserialize))]
         pub enum Tagged4<V1, V2, V3, V4> {
             /// Value from input V1
             V1(V1),
@@ -95,6 +98,7 @@ macro_rules! generate_tagged_enum {
     (5) => {
         /// Tagged enum for `5`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde-coders", derive(serde::Serialize, serde::Deserialize))]
         pub enum Tagged5<V1, V2, V3, V4, V5> {
             /// Value from input V1
             V1(V1),
@@ -111,6 +115,7 @@ macro_rules! generate_tagged_enum {
     (6) => {
         /// Tagged enum for `6`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde-coders", derive(serde::Serialize, serde::Deserialize))]
         pub enum Tagged6<V1, V2, V3, V4, V5, V6> {
             /// Value from input V1
             V1(V1),
@@ -129,6 +134,7 @@ macro_rules! generate_tagged_enum {
     (7) => {
         /// Tagged enum for `7`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde-coders", derive(serde::Serialize, serde::Deserialize))]
         pub enum Tagged7<V1, V2, V3, V4, V5, V6, V7> {
             /// Value from input V1
             V1(V1),
@@ -149,6 +155,7 @@ macro_rules! generate_tagged_enum {
     (8) => {
         /// Tagged enum for `8`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde-coders", derive(serde::Serialize, serde::Deserialize))]
         pub enum Tagged8<V1, V2, V3, V4, V5, V6, V7, V8> {
             /// Value from input V1
             V1(V1),
@@ -171,6 +178,7 @@ macro_rules! generate_tagged_enum {
     (9) => {
         /// Tagged enum for `9`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde-coders", derive(serde::Serialize, serde::Deserialize))]
         pub enum Tagged9<V1, V2, V3, V4, V5, V6, V7, V8, V9> {
             /// Value from input V1
             V1(V1),
@@ -195,6 +203,7 @@ macro_rules! generate_tagged_enum {
     (10) => {
         /// Tagged enum for `10`-way `CoGroupByKey`
         #[derive(Clone, Debug)]
+        #[cfg_attr(feature = "serde-coders", derive(serde::Serialize, serde::Deserialize))]
         pub enum Tagged10<V1, V2, V3, V4, V5, V6, V7, V8, V9, V10> {
             /// Value from input V1
             V1(V1),
