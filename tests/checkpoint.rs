@@ -183,6 +183,154 @@ mod checkpoint_tests {
     }
 
     #[test]
+    fn test_checkpoint_disabled_skips_all() {
+        let tmp = TempDir::new().unwrap();
+        let config = CheckpointConfig {
+            enabled: false,
+            directory: tmp.path().to_path_buf(),
+            ..Default::default()
+        };
+        let mut manager = CheckpointManager::new(config).unwrap();
+        // should_checkpoint must return false regardless of barrier status or policy
+        assert!(!manager.should_checkpoint(0, true, 10));
+        assert!(!manager.should_checkpoint(0, false, 10));
+        assert!(!manager.should_checkpoint(100, true, 10));
+        // find_latest_checkpoint must return None immediately
+        assert!(manager.find_latest_checkpoint("any").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_new_disabled_does_not_create_directory() {
+        let tmp = TempDir::new().unwrap();
+        let checkpoint_dir = tmp.path().join("should_not_exist");
+        let config = CheckpointConfig {
+            enabled: false,
+            directory: checkpoint_dir.clone(),
+            ..Default::default()
+        };
+        let _manager = CheckpointManager::new(config).unwrap();
+        assert!(!checkpoint_dir.exists());
+    }
+
+    #[test]
+    fn test_should_checkpoint_time_interval() {
+        let tmp = TempDir::new().unwrap();
+
+        // Interval of 0 seconds: always fires (no prior time recorded)
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: tmp.path().to_path_buf(),
+            policy: CheckpointPolicy::TimeInterval(0),
+            ..Default::default()
+        };
+        let mut manager = CheckpointManager::new(config).unwrap();
+        assert!(manager.should_checkpoint(0, false, 10));
+
+        // Interval of 9999 seconds: only fires on the very first call when last_checkpoint_time is None
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: tmp.path().to_path_buf(),
+            policy: CheckpointPolicy::TimeInterval(9999),
+            ..Default::default()
+        };
+        let mut manager = CheckpointManager::new(config).unwrap();
+        // first call: no prior time → should fire
+        assert!(manager.should_checkpoint(0, false, 10));
+        // simulate a checkpoint having just been recorded
+        manager.last_checkpoint_time = Some(std::time::SystemTime::now());
+        // second call: elapsed is ~0, far below 9999 s → should not fire
+        assert!(!manager.should_checkpoint(1, false, 10));
+    }
+
+    #[test]
+    fn test_should_checkpoint_hybrid() {
+        let tmp = TempDir::new().unwrap();
+
+        // Triggers on barrier when barriers=true, even with a huge time interval
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: tmp.path().to_path_buf(),
+            policy: CheckpointPolicy::Hybrid { barriers: true, interval_secs: 9999 },
+            ..Default::default()
+        };
+        let mut manager = CheckpointManager::new(config).unwrap();
+        // first call with no prior time: time condition is true as well
+        assert!(manager.should_checkpoint(0, false, 10));
+        // set a very recent last checkpoint time so the time branch is suppressed
+        manager.last_checkpoint_time = Some(std::time::SystemTime::now());
+        // not a barrier: neither branch fires
+        assert!(!manager.should_checkpoint(1, false, 10));
+        // is a barrier: barrier branch fires
+        assert!(manager.should_checkpoint(1, true, 10));
+
+        // Triggers by time (interval_secs=0) even without a barrier
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: tmp.path().to_path_buf(),
+            policy: CheckpointPolicy::Hybrid { barriers: false, interval_secs: 0 },
+            ..Default::default()
+        };
+        let mut manager = CheckpointManager::new(config).unwrap();
+        assert!(manager.should_checkpoint(0, false, 10));
+        assert!(manager.should_checkpoint(0, true, 10));
+    }
+
+    #[test]
+    fn test_find_latest_checkpoint_nonexistent_directory() {
+        let tmp = TempDir::new().unwrap();
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: tmp.path().to_path_buf(),
+            ..Default::default()
+        };
+        let manager = CheckpointManager::new(config).unwrap();
+        // Remove the directory after creation to exercise the exists() guard
+        fs::remove_dir_all(tmp.path()).unwrap();
+        assert!(manager.find_latest_checkpoint("test").unwrap().is_none());
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn test_cleanup_unlimited_retention() {
+        let tmp = TempDir::new().unwrap();
+        let config = CheckpointConfig {
+            enabled: true,
+            directory: tmp.path().to_path_buf(),
+            max_checkpoints: None, // unlimited
+            ..Default::default()
+        };
+        let mut manager = CheckpointManager::new(config).unwrap();
+
+        // Create 5 checkpoints — none should be deleted
+        for i in 0..5u64 {
+            let timestamp = current_timestamp_ms() + i * 1000;
+            let metadata_str = format!("test:{i}:{timestamp}:1");
+            let checksum = compute_checksum(metadata_str.as_bytes());
+            let state = CheckpointState {
+                pipeline_id: "test".to_string(),
+                completed_node_index: i as usize,
+                timestamp,
+                partition_count: 1,
+                checksum,
+                exec_mode: "sequential".to_string(),
+                metadata: CheckpointMetadata {
+                    total_nodes: 10,
+                    last_node_type: "Stateless".to_string(),
+                    progress_percent: (i * 20) as u8,
+                },
+            };
+            manager.save_checkpoint(&state).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        let checkpoints: Vec<_> = fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert_eq!(checkpoints.len(), 5);
+    }
+
+    #[test]
     fn test_checksum_verification() {
         let tmp = TempDir::new().unwrap();
         let config = CheckpointConfig {
