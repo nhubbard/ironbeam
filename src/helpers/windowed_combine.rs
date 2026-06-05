@@ -64,7 +64,6 @@
 //! | [`max_per_key_and_window`](PCollection::max_per_key_and_window) | `((K, Window), V)` | `V: Ord` |
 //! | [`average_per_key_and_window`](PCollection::average_per_key_and_window) | `((K, Window), f64)` | `V: Into<f64>` |
 
-use crate::collection::LiftableCombiner;
 use crate::combiners::{AverageF64, Count, Max, Min, Sum};
 use crate::{CombineFn, PCollection, RFBound, Timestamped, Window};
 use std::hash::Hash;
@@ -81,13 +80,8 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
     ///     .combine_values_lifted(comb)           // (Window, O)
     /// ```
     ///
-    /// The combiner must also implement [`LiftableCombiner`] so that it can be
-    /// applied efficiently to the grouped `Vec<T>` without a redundant per-element
-    /// loop. All built-in combiners (`Sum`, `Min`, `Max`, `AverageF64`, `Count`) satisfy
-    /// this requirement.
-    ///
     /// # Type Parameters
-    /// - `C`: combiner implementing both `CombineFn<T, A, O>` and `LiftableCombiner<T, A, O>`.
+    /// - `C`: combiner implementing `CombineFn<T, A, O>`.
     /// - `A`: accumulator type (must be `Send + Sync + 'static`).
     /// - `O`: output value per window.
     ///
@@ -124,7 +118,7 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
         comb: C,
     ) -> PCollection<(Window, O)>
     where
-        C: CombineFn<T, A, O> + LiftableCombiner<T, A, O> + 'static,
+        C: CombineFn<T, A, O> + 'static,
         A: Send + Sync + 'static,
         O: RFBound,
     {
@@ -329,10 +323,8 @@ where
     ///     .combine_values_lifted(comb)                   // ((K, Window), O)
     /// ```
     ///
-    /// The combiner must also implement [`LiftableCombiner`].
-    ///
     /// # Type Parameters
-    /// - `C`: combiner implementing both `CombineFn<V, A, O>` and `LiftableCombiner<V, A, O>`.
+    /// - `C`: combiner implementing `CombineFn<V, A, O>`.
     /// - `A`: accumulator type (must be `Send + Sync + 'static`).
     /// - `O`: output value per `(key, window)` pair.
     ///
@@ -367,7 +359,7 @@ where
         comb: C,
     ) -> PCollection<((K, Window), O)>
     where
-        C: CombineFn<V, A, O> + LiftableCombiner<V, A, O> + 'static,
+        C: CombineFn<V, A, O> + 'static,
         A: Send + Sync + 'static,
         O: RFBound,
     {

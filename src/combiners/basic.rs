@@ -1,7 +1,7 @@
 //! Basic arithmetic combiners: Sum, Min, Max
 
 use crate::RFBound;
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use std::cmp::Ord;
 use std::marker::PhantomData;
 use std::mem::take;
@@ -50,14 +50,6 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, T, T> for Sum<T>
-where
-    T: RFBound + Add<Output = T> + Default,
-{
-    fn build_from_group(&self, values: &[T]) -> T {
-        values.iter().cloned().fold(T::default(), |a, v| a + v)
-    }
-}
 
 /* ===================== Min<T> ===================== */
 
@@ -116,14 +108,6 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, Option<T>, T> for Min<T>
-where
-    T: RFBound + Ord,
-{
-    fn build_from_group(&self, values: &[T]) -> Option<T> {
-        values.iter().cloned().min()
-    }
-}
 
 /* ===================== Max<T> ===================== */
 
@@ -182,11 +166,3 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, Option<T>, T> for Max<T>
-where
-    T: RFBound + Ord,
-{
-    fn build_from_group(&self, values: &[T]) -> Option<T> {
-        values.iter().cloned().max()
-    }
-}

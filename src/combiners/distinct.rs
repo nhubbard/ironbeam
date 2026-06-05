@@ -2,7 +2,7 @@
 //! `KMVApproxDistinctCount`, `HllApproxDistinctCount`.
 
 use crate::RFBound;
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use hyperloglogplus::{HyperLogLog, HyperLogLogPlus};
 use ordered_float::NotNan;
 use std::collections::{BinaryHeap, HashSet};
@@ -56,14 +56,6 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, HashSet<T>, u64> for DistinctCount<T>
-where
-    T: RFBound + Eq + Hash,
-{
-    fn build_from_group(&self, values: &[T]) -> HashSet<T> {
-        values.iter().cloned().collect()
-    }
-}
 
 /* ===================== DistinctSet<T> (exact set) ===================== */
 
@@ -111,14 +103,6 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, HashSet<T>, Vec<T>> for DistinctSet<T>
-where
-    T: RFBound + Eq + Hash,
-{
-    fn build_from_group(&self, values: &[T]) -> HashSet<T> {
-        values.iter().cloned().collect()
-    }
-}
 
 /* ===================== KMVApproxDistinctCount<T> (approximate count) ===================== */
 
@@ -245,18 +229,6 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, KMVAcc, f64> for KMVApproxDistinctCount<T>
-where
-    T: RFBound + Hash,
-{
-    fn build_from_group(&self, values: &[T]) -> KMVAcc {
-        let mut acc = self.create();
-        for v in values {
-            acc.try_insert(rank_from_value(v));
-        }
-        acc
-    }
-}
 
 /* ===================== HllApproxDistinctCount<T> (HyperLogLog++) ===================== */
 
@@ -419,15 +391,3 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, Hll<T>, u64> for HllApproxDistinctCount<T>
-where
-    T: RFBound + Hash,
-{
-    fn build_from_group(&self, values: &[T]) -> Hll<T> {
-        let mut hll = self.create();
-        for v in values {
-            hll.insert(v);
-        }
-        hll
-    }
-}

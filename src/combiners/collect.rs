@@ -1,7 +1,7 @@
 //! Collection combiners: `ToList`, `ToSet`, `ToDict` for gathering values.
 
 use crate::RFBound;
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -78,14 +78,6 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, Vec<T>, Vec<T>> for ToList<T>
-where
-    T: RFBound,
-{
-    fn build_from_group(&self, values: &[T]) -> Vec<T> {
-        values.to_vec()
-    }
-}
 
 /* ===================== ToSet<T> ===================== */
 
@@ -162,14 +154,6 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, HashSet<T>, HashSet<T>> for ToSet<T>
-where
-    T: RFBound + Hash + Eq,
-{
-    fn build_from_group(&self, values: &[T]) -> HashSet<T> {
-        values.iter().cloned().collect()
-    }
-}
 
 /* ===================== ToDict<K, V> ===================== */
 
@@ -254,12 +238,3 @@ where
     }
 }
 
-impl<K, V> LiftableCombiner<(K, V), HashMap<K, V>, HashMap<K, V>> for ToDict<K, V>
-where
-    K: RFBound + Hash + Eq,
-    V: RFBound,
-{
-    fn build_from_group(&self, values: &[(K, V)]) -> HashMap<K, V> {
-        values.iter().cloned().collect()
-    }
-}

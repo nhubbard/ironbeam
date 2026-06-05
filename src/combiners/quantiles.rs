@@ -4,7 +4,7 @@
 //! distributed streaming data processing.
 
 use crate::RFBound;
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 /* ===================== TDigest ===================== */
@@ -381,19 +381,6 @@ where
     }
 }
 
-impl<V> LiftableCombiner<V, TDigest, Vec<f64>> for ApproxQuantiles<V>
-where
-    V: RFBound + Into<f64>,
-{
-    fn build_from_group(&self, values: &[V]) -> TDigest {
-        let mut digest = TDigest::new(self.compression);
-        for v in values {
-            digest.add(v.clone().into());
-        }
-        digest.compress();
-        digest
-    }
-}
 
 /* ===================== ApproxMedian ===================== */
 
@@ -454,16 +441,3 @@ where
     }
 }
 
-impl<V> LiftableCombiner<V, TDigest, f64> for ApproxMedian<V>
-where
-    V: RFBound + Into<f64>,
-{
-    fn build_from_group(&self, values: &[V]) -> TDigest {
-        let mut digest = TDigest::new(self.compression);
-        for v in values {
-            digest.add(v.clone().into());
-        }
-        digest.compress();
-        digest
-    }
-}

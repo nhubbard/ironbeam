@@ -1,7 +1,7 @@
 //! Top-K and Bottom-K combiners for selecting the largest or smallest values
 
 use crate::RFBound;
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use std::cmp::{Ord, Reverse};
 use std::collections::BinaryHeap;
 use std::marker::PhantomData;
@@ -110,22 +110,6 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, BinaryHeap<Reverse<T>>, Vec<T>> for TopK<T>
-where
-    T: RFBound + Ord,
-{
-    fn build_from_group(&self, values: &[T]) -> BinaryHeap<Reverse<T>> {
-        let mut heap: BinaryHeap<Reverse<T>> = BinaryHeap::new();
-        for v in values.iter().cloned() {
-            heap.push(Reverse(v));
-            if heap.len() > self.k {
-                heap.pop();
-            }
-        }
-        heap
-    }
-}
-
 /* ===================== BottomK<T> ===================== */
 
 /// The smallest bottom-**K** values per key (requires `Ord`).
@@ -220,18 +204,3 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, BinaryHeap<T>, Vec<T>> for BottomK<T>
-where
-    T: RFBound + Ord,
-{
-    fn build_from_group(&self, values: &[T]) -> BinaryHeap<T> {
-        let mut heap: BinaryHeap<T> = BinaryHeap::new();
-        for v in values.iter().cloned() {
-            heap.push(v);
-            if heap.len() > self.k {
-                heap.pop();
-            }
-        }
-        heap
-    }
-}

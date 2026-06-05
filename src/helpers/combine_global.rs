@@ -1,11 +1,10 @@
 //! Ironbeam – global (non-keyed) combiners
 //!
-//! Adds Beam-style `CombineGlobally` with optional fanout and a lifted
-//! fast-path that can build accumulators from whole partitions.
+//! Adds Beam-style `CombineGlobally` with optional fanout.
 //!
 //! ## Available operations
 //! - [`PCollection::combine_globally`](PCollection::combine_globally) - Fold all elements into a single output via `CombineFn<V, A, O>`
-//! - [`PCollection::combine_globally_lifted`](PCollection::combine_globally_lifted) - Same as above but uses `LiftableCombiner::build_from_group` for better locality
+//! - [`PCollection::combine_globally_lifted`](PCollection::combine_globally_lifted) - Same as above, accepting a pre-collected `Vec<T>` partition
 //!
 //! Both APIs accept an optional `fanout`: during parallel execution we reduce
 //! accumulators in rounds, merging at most `fanout` accumulators per round to
@@ -14,7 +13,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use crate::node::Node;
 use crate::{PCollection, Partition, RFBound};
 
@@ -120,11 +119,10 @@ impl<T: RFBound> PCollection<T> {
         }
     }
 
-    /// Combine all elements (no key) with a **lifted** local path.
+    /// Combine all elements (no key) — identical semantics to [`Self::combine_globally`].
     ///
-    /// Uses [`LiftableCombiner::build_from_group`] to build each partition
-    /// accumulator directly from `&[T]`, skipping per-element calls when
-    /// profitable (e.g., `Count`, `TopK`, etc.).
+    /// This entry point is kept for API compatibility. It uses the same `add_input` loop
+    /// as `combine_globally`; the distinction between the two methods is now purely nominal.
     ///
     /// See [`Self::combine_globally`] for fanout semantics and example usage.
     ///
@@ -133,20 +131,23 @@ impl<T: RFBound> PCollection<T> {
     /// This function panics if incorrect types are used on its input.
     pub fn combine_globally_lifted<C, A, O>(self, comb: C, fanout: Option<usize>) -> PCollection<O>
     where
-        C: CombineFn<T, A, O> + LiftableCombiner<T, A, O> + 'static,
+        C: CombineFn<T, A, O> + 'static,
         A: Send + Sync + 'static,
         O: RFBound,
     {
         let comb = Arc::new(comb);
 
-        // local (lifted): Vec<T> -> A via build_from_group(&[T])
+        // local: Vec<T> -> A
         let local = {
             let comb = Arc::clone(&comb);
             Arc::new(move |p: Partition| -> Partition {
                 let rows = *p
                     .downcast::<Vec<T>>()
                     .expect("CombineGlobally(lifted) local: expected Vec<T>");
-                let acc = comb.build_from_group(&rows);
+                let mut acc = comb.create();
+                for v in rows {
+                    comb.add_input(&mut acc, v);
+                }
                 Box::new(acc) as Partition
             })
         };

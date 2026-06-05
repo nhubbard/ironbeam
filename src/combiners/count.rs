@@ -1,7 +1,7 @@
 //! Count combiner for counting elements per key or globally.
 
 use crate::RFBound;
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use std::marker::PhantomData;
 
 /* ===================== Count<T> ===================== */
@@ -74,11 +74,3 @@ where
     }
 }
 
-impl<T> LiftableCombiner<T, u64, u64> for Count<T>
-where
-    T: RFBound,
-{
-    fn build_from_group(&self, values: &[T]) -> u64 {
-        values.len() as u64
-    }
-}

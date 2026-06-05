@@ -1,7 +1,7 @@
 //! Built-in combiners for `combine_values` and `combine_values_lifted`.
 //!
 //! These are reusable implementations of [`crate::collection::CombineFn`] (and many also implement
-//! [`crate::collection::LiftableCombiner`]) that operate over per-key value streams:
+//! that operate over per-key value streams:
 //!
 //! - [`Sum<T>`] -- sum of values.
 //! - [`Min<T>`] -- minimum value.
@@ -20,8 +20,6 @@
 //! - [`ApproxMedian<T>`] -- approximate median using t-digest.
 //!
 //! Each combiner specifies its accumulator type (`A`) and output type (`O`).
-//! Many provide a `build_from_group` optimization via [`crate::collection::LiftableCombiner`],
-//! enabling efficient `group_by_key().combine_values_lifted(...)` plans.
 //!
 //! # Examples
 //! ```no_run

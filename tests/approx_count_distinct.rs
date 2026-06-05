@@ -345,33 +345,7 @@ fn test_approx_count_distinct_per_key_seq_par_identical() {
     assert_eq!(seq, par);
 }
 
-// ── LiftableCombiner trait ──────────────────────────────────────────────────
-
-/// `HllApproxDistinctCount` implements `LiftableCombiner`, allowing it to
-/// build an accumulator directly from a full group of values. Exercise that
-/// trait method directly — the planner's lift pass currently re-routes
-/// keyed `combine_values_lifted` chains through `CombineFn::add_input`, so
-/// this is the cleanest way to hit `build_from_group`.
-#[test]
-fn test_hll_build_from_group_direct() {
-    use ironbeam::collection::{CombineFn, LiftableCombiner};
-
-    let comb: HllApproxDistinctCount<u32> = HllApproxDistinctCount::new();
-    let values: Vec<u32> = (0u32..500).collect(); // sparse-mode exact
-    let acc = comb.build_from_group(&values);
-    let est = comb.finish(acc);
-    assert_eq!(est, 500u64);
-
-    // All-duplicate group ⇒ exactly one distinct value.
-    let dup = vec![42u32; 100];
-    let acc = comb.build_from_group(&dup);
-    let est = comb.finish(acc);
-    assert_eq!(est, 1u64);
-}
-
-/// Compose `combine_values_lifted` end-to-end: even though the planner
-/// elides `build_from_group` in favour of incremental `add_input`, the
-/// counts must agree with the lifted-trait result.
+/// Compose `combine_values_lifted` end-to-end.
 #[test]
 fn test_hll_combine_values_lifted_end_to_end() {
     let p = Pipeline::default();
