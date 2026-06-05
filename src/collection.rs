@@ -6,8 +6,7 @@
 //! - [`PCollection<T>`]: the typed, logical dataset that flows through the graph.
 //! - **Stateless ops** (crate-visible): internal dynamic operators used by the
 //!   planner/runner for `map`, `filter`, `flat_map`, and value-only variants.
-//! - **Combine traits**: [`CombineFn`] for user-supplied combiners and
-//!   [`LiftableCombiner`] for optional GBK lifting.
+//! - **Combine traits**: [`CombineFn`] for user-supplied combiners.
 //! - **Side inputs**: [`SideInput`] and [`SideMap`] thin wrappers for read-only vectors/maps.
 //! - **Batch ops**: crate-visible operators for batch mapping (element-wise and value-only).
 //!
@@ -315,8 +314,7 @@ impl<T: RFBound> DynOp for TakeOp<T> {
 /// Combiners must be associative (and preferably commutative) to support
 /// parallel execution.
 ///
-/// See also [`LiftableCombiner`] to construct accumulators from full groups of
-/// values (enabling GBK lifting).
+
 pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     /// Create a fresh accumulator.
     fn create(&self) -> A;
@@ -380,45 +378,6 @@ impl<V> CombineFn<V, u64, u64> for Count {
     }
     fn is_associative_commutative(&self) -> bool {
         true
-    }
-}
-
-/// The optional ability of a combiner to *construct its accumulator from an
-/// entire group* of values at once.
-///
-/// Using `build_from_group` lets the planner skip some shuffle barriers in
-/// `group_by_key().combine_values_lifted(...)`. By default, this folds the
-/// slice via `add_input`; combiners can override it for more efficient logic.
-///
-/// # Example
-/// ```no_run
-/// use ironbeam::*;
-/// use anyhow::Result;
-///
-/// // Count overrides build_from_group to use values.len()
-/// let p = Pipeline::default();
-/// let grouped = from_vec(&p, vec![("a", 1u8), ("a", 2u8)]).group_by_key();
-/// let counts = grouped.combine_values_lifted(Count).collect_seq_sorted()?;
-/// # let _ = counts;
-/// # Result::<()>::Ok(())
-/// ```
-pub trait LiftableCombiner<V, A, O>: CombineFn<V, A, O>
-where
-    V: RFBound,
-{
-    /// Build an accumulator directly from a slice of all values in a group.
-    fn build_from_group(&self, values: &[V]) -> A {
-        let mut acc = self.create();
-        for v in values {
-            self.add_input(&mut acc, v.clone());
-        }
-        acc
-    }
-}
-
-impl<V: RFBound> LiftableCombiner<V, u64, u64> for Count {
-    fn build_from_group(&self, values: &[V]) -> u64 {
-        values.len() as u64
     }
 }
 

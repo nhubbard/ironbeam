@@ -3,7 +3,7 @@
 //! This test suite validates:
 //! - `Mean<O>` as a `CombineFn` used directly with `combine_globally` /
 //!   `combine_values` (both `f64` and `f32` output flavors).
-//! - The `LiftableCombiner` path via `combine_globally_lifted` /
+//! - The `combine_globally_lifted` /
 //!   `combine_values_lifted`.
 //! - The `mean_globally::<O>()` and `mean_per_key::<O>()` helpers.
 //! - Edge cases: empty, single element, parallel, large collections.
@@ -133,7 +133,7 @@ fn test_mean_globally_combiner_f32_single() {
     assert!((out[0] - 21.0_f32).abs() < F32_EPS);
 }
 
-// ── Mean via combine_globally_lifted (LiftableCombiner path) ─────────────────
+// ── Mean via combine_globally_lifted ─────────────────────────────────────────
 
 /// Lifted-combiner path for `Mean<f64>` produces the same result.
 #[test]

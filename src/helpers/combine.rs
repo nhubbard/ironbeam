@@ -4,14 +4,11 @@
 //!
 //! - [`PCollection::<(K, V)>::combine_values`] -- **classic** combine-by-key over `(K, V)` pairs.
 //! - [`PCollection::<(K, Vec<V>)>::combine_values_lifted`] -- **lifted** combine that consumes
-//!   grouped input `(K, Vec<V>)` (typically right after `group_by_key()`), allowing a
-//!   [`LiftableCombiner`] to build its accumulator directly from the full group.
+//!   already-grouped input `(K, Vec<V>)`, building each accumulator from the full group slice
+//!   via `add_input`.
 //!
-//! Both forms ultimately produce a `(K, O)` stream by aggregating values per key. The lifted
-//! variant can avoid an extra per-element pass when the combiner can initialize from a slice
-//! (e.g., min/max/top-k over a group).
+//! Both forms ultimately produce a `(K, O)` stream by aggregating values per key.
 
-use crate::collection::LiftableCombiner;
 use crate::node::Node;
 use crate::{CombineFn, PCollection, Partition, RFBound};
 use rayon::prelude::*;
@@ -161,14 +158,14 @@ where
     K: RFBound + Eq + Hash,
     V: RFBound,
 {
-    /// **Lifted combine** to be used after `group_by_key()` on `(K, Vec<V>)`.
+    /// **Lifted combine** to be used on already-grouped `(K, Vec<V>)` input.
     ///
-    /// This variant lets a combiner that implements [`LiftableCombiner`] build its accumulator
-    /// **once per group** from the entire slice `&[V]`, avoiding a per-element `add_input` loop in
-    /// the local pass. It retains the same merge/finalization semantics as the classic form.
+    /// Accepts input produced by `group_by_key()` or any source that already yields
+    /// `(K, Vec<V>)` pairs. Each group's accumulator is built by calling `add_input`
+    /// once per value, then merged across partitions and finished in the usual way.
     ///
     /// # Type Parameters
-    /// - `C`: A combiner implementing both `CombineFn<V, A, O>` and `LiftableCombiner<V, A, O>`.
+    /// - `C`: A combiner implementing `CombineFn<V, A, O>`.
     /// - `A`: Accumulator type created/merged by the combiner.
     /// - `O`: Output value produced per key.
     ///
@@ -178,9 +175,8 @@ where
     /// # Example
     /// ```no_run
     /// use ironbeam::*;
-    /// use ironbeam::collection::LiftableCombiner;
     ///
-    /// // A simple min combiner that can be lifted: build from an entire group.
+    /// // A simple min combiner.
     /// #[derive(Clone, Default)]
     /// struct MinU64;
     /// impl CombineFn<u64, Option<u64>, u64> for MinU64 {
@@ -192,16 +188,9 @@ where
     ///         }
     ///     }
     ///     fn merge(&self, acc: &mut Option<u64>, other: Option<u64>) {
-    ///         if let Some(o) = other {
-    ///             self.add_input(acc, o);
-    ///         }
+    ///         if let Some(o) = other { self.add_input(acc, o); }
     ///     }
     ///     fn finish(&self, acc: Option<u64>) -> u64 { acc.unwrap_or(0) }
-    /// }
-    /// impl LiftableCombiner<u64, Option<u64>, u64> for MinU64 {
-    ///     fn build_from_group(&self, vs: &[u64]) -> Option<u64> {
-    ///         vs.iter().copied().min()
-    ///     }
     /// }
     ///
     /// let p = Pipeline::default();
@@ -222,7 +211,7 @@ where
     /// This function panics if incorrect types are used on its input.
     pub fn combine_values_lifted<C, A, O>(self, comb: C) -> PCollection<(K, O)>
     where
-        C: CombineFn<V, A, O> + LiftableCombiner<V, A, O> + 'static,
+        C: CombineFn<V, A, O> + 'static,
         A: Send + Sync + 'static,
         O: RFBound,
     {
@@ -243,7 +232,7 @@ where
             })
         };
 
-        // Lifted local: Vec<(K, Vec<V>)> -> HashMap<K, A> using `build_from_group`
+        // Lifted local: Vec<(K, Vec<V>)> -> HashMap<K, A>
         let local_groups = {
             let comb = Arc::clone(&comb);
             Arc::new(move |p: Partition| -> Partition {
@@ -252,7 +241,10 @@ where
                     .expect("lifted combine local: expected Vec<(K, Vec<V>)>");
                 let mut map: HashMap<K, A> = HashMap::new();
                 for (k, vs) in kvv {
-                    let acc = comb.build_from_group(&vs);
+                    let mut acc = comb.create();
+                    for v in vs {
+                        comb.add_input(&mut acc, v);
+                    }
                     map.insert(k, acc);
                 }
                 Box::new(map) as Partition

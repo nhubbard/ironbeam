@@ -1,7 +1,7 @@
 //! Statistical combiners: `AverageF64`, `Mean<O>`.
 
 use crate::RFBound;
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use std::marker::PhantomData;
 
 /* ===================== AverageF64 ===================== */
@@ -42,16 +42,6 @@ where
         } else {
             acc.0 / (acc.1 as f64)
         }
-    }
-}
-
-impl<V> LiftableCombiner<V, (f64, u64), f64> for AverageF64
-where
-    V: RFBound + Into<f64>,
-{
-    fn build_from_group(&self, values: &[V]) -> (f64, u64) {
-        let sum: f64 = values.iter().map(|v| v.clone().into()).sum();
-        (sum, values.len() as u64)
     }
 }
 
@@ -132,16 +122,6 @@ macro_rules! impl_mean_for_float {
             }
         }
 
-        impl<V> LiftableCombiner<V, ($float, u64), $float> for Mean<$float>
-        where
-            V: RFBound + Into<$float>,
-        {
-            #[allow(clippy::cast_precision_loss)]
-            fn build_from_group(&self, values: &[V]) -> ($float, u64) {
-                let sum: $float = values.iter().map(|v| v.clone().into()).sum();
-                (sum, values.len() as u64)
-            }
-        }
     };
 }
 

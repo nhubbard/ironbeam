@@ -1,7 +1,7 @@
 //! Latest combiner for selecting the most recent timestamped value.
 
 use crate::RFBound;
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use crate::window::Timestamped;
 use std::marker::PhantomData;
 
@@ -105,11 +105,3 @@ where
     }
 }
 
-impl<T> LiftableCombiner<Timestamped<T>, Option<Timestamped<T>>, T> for Latest<T>
-where
-    T: RFBound,
-{
-    fn build_from_group(&self, values: &[Timestamped<T>]) -> Option<Timestamped<T>> {
-        values.iter().max_by_key(|v| v.ts).cloned()
-    }
-}

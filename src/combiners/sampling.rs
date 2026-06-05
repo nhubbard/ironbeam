@@ -1,7 +1,7 @@
 //! Priority-based reservoir sampling combiner
 
 use crate::RFBound;
-use crate::collection::{CombineFn, LiftableCombiner};
+use crate::collection::CombineFn;
 use crate::utils::OrdF64;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -187,12 +187,3 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
     }
 }
 
-impl<T: RFBound> LiftableCombiner<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
-    fn build_from_group(&self, values: &[T]) -> PRAcc<T> {
-        let mut acc = self.create();
-        for v in values.iter().cloned() {
-            self.add_input(&mut acc, v);
-        }
-        acc
-    }
-}

@@ -2,7 +2,7 @@
 //!
 //! This test suite validates:
 //! - `ToDict<K, V>` as a `CombineFn` used directly with `combine_globally`.
-//! - The `LiftableCombiner` path via `combine_globally_lifted`.
+//! - The `combine_globally_lifted` path.
 //! - The `to_dict()` convenience helper on `PCollection<(K, V)>`.
 //! - Edge cases: empty / single / parallel / duplicates / large input.
 //! - Composition: chaining `to_dict()` with downstream transforms.
@@ -133,7 +133,7 @@ fn test_to_dict_combiner_numeric_keys_string_values() {
     assert_eq!(dict[0].get(&3).map(String::as_str), Some("three"));
 }
 
-// ── ToDict via combine_globally_lifted (LiftableCombiner path) ────────────────
+// ── ToDict via combine_globally_lifted ────────────────────────────────────────
 
 /// Lifted combiner produces the same map.
 #[test]

@@ -39,7 +39,7 @@ fn combine_globally_average_lifted() -> Result<()> {
     let input = vec![1u32, 2, 3, 4]; // avg = 2.5
 
     let pc = from_vec(&p, input);
-    // AverageF64 implements LiftableCombiner, so the lifted local path is exercised
+    // AverageF64 exercises the combine_globally_lifted path
     let avg = pc.combine_globally(AverageF64, None);
     let out: Vec<f64> = avg.collect_seq()?;
 
