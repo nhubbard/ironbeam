@@ -3,12 +3,12 @@
 //! Covers:
 //! - Basic functionality and batch-boundary semantics.
 //! - Parallel execution.
-//! - Planner reorder optimisation (triggers `cost_hint` on `BatchMapValuesOp`).
+//! - Planner reorder optimization (triggers `cost_hint` on `BatchMapValuesOp`).
 //! - Contract enforcement: wrong output length panics at runtime.
 
 use ironbeam::*;
 
-/// Basic: square every value; single-key, batch_size covers all elements.
+/// Basic: square every value; single-key, `batch_size` covers all elements.
 #[test]
 fn test_map_values_batches_basic() {
     let p = Pipeline::default();
@@ -20,7 +20,7 @@ fn test_map_values_batches_basic() {
     assert_eq!(result, vec![("a".to_string(), 4u32), ("a".to_string(), 9u32)]);
 }
 
-/// batch_size=1 forces one call per element; verifies chunking correctness.
+/// `batch_size=1` forces one call per element; verifies chunking correctness.
 #[test]
 fn test_map_values_batches_one_per_batch() {
     let p = Pipeline::default();
@@ -76,7 +76,7 @@ fn test_map_values_batches_multiple_keys() {
 #[test]
 fn test_map_values_batches_parallel_matches_sequential() {
     let items: Vec<(String, u32)> = (0..200)
-        .map(|i| (format!("k{}", i % 5), i as u32))
+        .map(|i| (format!("k{}", i % 5), i.cast_unsigned()))
         .collect();
 
     let p = Pipeline::default();
@@ -103,7 +103,7 @@ fn test_map_values_batches_parallel_matches_sequential() {
     assert_eq!(seq, par);
 }
 
-/// `map_values_batches` (cost_hint=2) followed by `filter_values` (cost_hint=1):
+/// `map_values_batches` (`cost_hint=2`) followed by `filter_values` (`cost_hint=1)`:
 /// the planner fuses them into one stateless block and reorders by cost, calling
 /// `cost_hint()` on `BatchMapValuesOp`. The predicate is designed so that both
 /// orderings (filter-first and map-first) yield the same result — this is the
@@ -121,7 +121,7 @@ fn test_map_values_batches_reordered_before_filter_values() {
             ("b".to_string(), 3u32),
         ],
     )
-    .map_values_batches(10, |vals: &[u32]| vals.iter().map(|v| v + 0).collect::<Vec<_>>())
+    .map_values_batches(10, |vals: &[u32]| vals.iter().copied().collect::<Vec<_>>())
     .filter_values(|v: &u32| *v > 0)
     .collect_seq()
     .unwrap();
@@ -141,7 +141,7 @@ fn test_map_values_batches_panics_on_wrong_length() {
     let _ = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 2u32)])
         .map_values_batches(10, |vals: &[u32]| {
             // Returns fewer elements than the input — contract violation.
-            vals.iter().take(1).map(|v| *v).collect::<Vec<_>>()
+            vals.iter().take(1).copied().collect::<Vec<_>>()
         })
         .collect_seq()
         .unwrap();
