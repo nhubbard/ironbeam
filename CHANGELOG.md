@@ -1,3 +1,17 @@
+## [3.2.0](https://github.com/nhubbard/ironbeam/compare/v3.1.0...v3.2.0) (2026-06-20)
+
+### Features
+
+* **msgpack:** add opt-in MessagePack I/O connector (feature 5.1) ([9aeff2f](https://github.com/nhubbard/ironbeam/commit/9aeff2f2467866813d8fb539ee20bf530980b316))
+
+### Bug Fixes
+
+* **features:** make every feature permutation compile (ABI + runtime stubs) ([9cfab9e](https://github.com/nhubbard/ironbeam/commit/9cfab9e68488a5a892561711f0a5a2035119e606))
+
+### Code Refactoring
+
+* remove LiftableCombiner trait ([404f7df](https://github.com/nhubbard/ironbeam/commit/404f7dfcf72f0b3464f6ab274f6f833b85c1f200))
+
 ## [3.1.0](https://github.com/nhubbard/ironbeam/compare/v3.0.0...v3.1.0) (2026-05-25)
 
 ### Features
