@@ -314,7 +314,6 @@ impl<T: RFBound> DynOp for TakeOp<T> {
 /// Combiners must be associative (and preferably commutative) to support
 /// parallel execution.
 ///
-
 pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     /// Create a fresh accumulator.
     fn create(&self) -> A;
