@@ -74,9 +74,10 @@ fn test_map_values_batches_multiple_keys() {
 
 /// Parallel execution produces the same element set as sequential.
 #[test]
+#[allow(clippy::cast_sign_loss)]
 fn test_map_values_batches_parallel_matches_sequential() {
     let items: Vec<(String, u32)> = (0..200)
-        .map(|i| (format!("k{}", i % 5), i.cast_unsigned()))
+        .map(|i| (format!("k{}", i % 5), i as u32))
         .collect();
 
     let p = Pipeline::default();
@@ -121,7 +122,7 @@ fn test_map_values_batches_reordered_before_filter_values() {
             ("b".to_string(), 3u32),
         ],
     )
-    .map_values_batches(10, |vals: &[u32]| vals.iter().copied().collect::<Vec<_>>())
+    .map_values_batches(10, |vals: &[u32]| vals.to_vec())
     .filter_values(|v: &u32| *v > 0)
     .collect_seq()
     .unwrap();
