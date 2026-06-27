@@ -68,6 +68,7 @@ use std::fmt::Display;
 /// match-based extraction; treat the struct as a value type rather than
 /// an opaque handle.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "coders", derive(serde::Serialize, serde::Deserialize))]
 pub struct DeadLetter<T> {
     /// The original input element that the transform was applied to.
     pub element: T,
@@ -93,6 +94,7 @@ impl<T> DeadLetter<T> {
 /// the user's fallible function and the two output `filter_map`s. Never
 /// appears in any public type signature.
 #[derive(Clone)]
+#[cfg_attr(feature = "coders", derive(serde::Serialize, serde::Deserialize))]
 enum Classified<O, T> {
     Ok(O),
     Err(DeadLetter<T>),
