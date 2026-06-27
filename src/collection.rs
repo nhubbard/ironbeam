@@ -51,7 +51,7 @@ use std::sync::Arc;
 /// ```
 /// With the `coders` feature enabled, elements must additionally be
 /// `serde::{Serialize, DeserializeOwned}` so each combinator can attach a
-/// bincode coder for its output type (see [`crate::coders`]). This lets wire
+/// postcard coder for its output type (see [`crate::coders`]). This lets wire
 /// backends (the Dataflow harness) encode/decode every PCollection without
 /// the user registering types by hand.
 #[cfg(not(feature = "coders"))]
