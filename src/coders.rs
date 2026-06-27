@@ -1,5 +1,5 @@
 //! Per-PCollection element coders, attached automatically at build time when
-//! the `serde-coders` feature is on.
+//! the `coders` feature is on.
 //!
 //! ironbeam erases every element type behind `Partition = Box<dyn Any>` (a
 //! boxed `Vec<T>`), and ops are `Arc<dyn DynOp>` closures that expose only
@@ -8,7 +8,7 @@
 //! and `bincode` is monomorphic, so the concrete `T` must be captured where it
 //! is still statically known — at each combinator call site.
 //!
-//! Under `serde-coders`, [`RFBound`](crate::RFBound) is tightened to also
+//! Under `coders`, [`RFBound`](crate::RFBound) is tightened to also
 //! require `serde::{Serialize, DeserializeOwned}`, and every node-creating
 //! combinator stashes an [`ElementCoder`] for its output type on the pipeline
 //! graph keyed by [`NodeId`]. The pre-`GroupByKey` node is upgraded to a
