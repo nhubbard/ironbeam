@@ -69,6 +69,7 @@ impl<T: Element> PCollection<T> {
         let op: Arc<dyn DynOp> = Arc::new(BatchMapOp::<T, O, F>(batch_size, f, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<O>(id);
         PCollection {
             pipeline: self.pipeline,
             id,
@@ -120,6 +121,7 @@ impl<T: Element> PCollection<T> {
         let op: Arc<dyn DynOp> = Arc::new(BatchElementsOp::<T>(batch_size, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<Vec<T>>(id);
         PCollection {
             pipeline: self.pipeline,
             id,
@@ -185,6 +187,7 @@ impl<T: Element> PCollection<T> {
         let op: Arc<dyn DynOp> = Arc::new(BatchBySizeOp::<T, F>(max_bytes, size_fn, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<Vec<T>>(id);
         PCollection {
             pipeline: self.pipeline,
             id,
@@ -234,6 +237,7 @@ impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
             Arc::new(BatchMapValuesOp::<K, V, O, F>(batch_size, f, PhantomData));
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<(K, O)>(id);
         PCollection {
             pipeline: self.pipeline,
             id,

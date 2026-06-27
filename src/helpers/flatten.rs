@@ -148,6 +148,7 @@ where
         merge,
     });
     pipeline.connect(source_id, id);
+    pipeline.set_coder::<T>(id);
 
     PCollection {
         pipeline: pipeline.clone(),

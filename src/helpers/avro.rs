@@ -300,6 +300,7 @@ where
         vec_ops: AvroVecOps::<T>::new(),
         elem_tag: TypeTag::of::<T>(),
     });
+    p.set_coder::<T>(id);
     Ok(PCollection {
         pipeline: p.clone(),
         id,
