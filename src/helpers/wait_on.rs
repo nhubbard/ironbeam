@@ -230,6 +230,7 @@ impl<T: Element> PCollection<T> {
             merge,
         });
         pipeline.connect(source_id, id);
+        pipeline.set_coder::<T>(id);
 
         Self {
             pipeline,

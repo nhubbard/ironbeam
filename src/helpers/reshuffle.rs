@@ -96,6 +96,7 @@ impl<T: Element> PCollection<T> {
             reshuffle: reshuffle_fn,
         });
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<T>(id);
         Self {
             pipeline: self.pipeline,
             id,

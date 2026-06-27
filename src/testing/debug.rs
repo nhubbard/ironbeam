@@ -240,6 +240,7 @@ impl<T: Element> PCollectionDebugExt<T> for PCollection<T> {
             .pipeline
             .insert_node(Node::Stateless(vec![Arc::new(op)]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<T>(id);
 
         Self {
             pipeline: self.pipeline.clone(),
@@ -254,6 +255,7 @@ impl<T: Element> PCollectionDebugExt<T> for PCollection<T> {
             .pipeline
             .insert_node(Node::Stateless(vec![Arc::new(op)]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<T>(id);
 
         Self {
             pipeline: self.pipeline.clone(),
@@ -271,6 +273,7 @@ impl<T: Element> PCollectionDebugExt<T> for PCollection<T> {
             .pipeline
             .insert_node(Node::Stateless(vec![Arc::new(op)]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<T>(id);
 
         Self {
             pipeline: self.pipeline.clone(),

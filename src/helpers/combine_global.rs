@@ -112,6 +112,7 @@ impl<T: Element> PCollection<T> {
             tree_reduce,
         });
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<O>(id);
         PCollection {
             pipeline: self.pipeline,
             id,
@@ -196,6 +197,7 @@ impl<T: Element> PCollection<T> {
             tree_reduce,
         });
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<O>(id);
         PCollection {
             pipeline: self.pipeline,
             id,

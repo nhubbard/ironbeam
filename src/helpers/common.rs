@@ -114,6 +114,7 @@ impl<T: Element> PCollection<T> {
         let op: Arc<dyn DynOp> = Arc::new(TakeOp::<T> { n, _t: PhantomData });
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<T>(id);
         Self {
             pipeline: self.pipeline,
             id,

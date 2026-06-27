@@ -239,6 +239,11 @@ where
             uses_bloom_semi_join: true,
         });
         self.pipeline.connect(source_id, id);
+        // CoGroup inputs are read as `kv<lp, lp>`; upgrade both predecessors
+        // (mirrors `group_by_key`). The join's own output is the joined tuple.
+        self.pipeline.set_kv_coder::<K, V>(self.id);
+        self.pipeline.set_kv_coder::<K, W>(right.id);
+        self.pipeline.set_coder::<(K, (V, W))>(id);
         PCollection {
             pipeline: self.pipeline.clone(),
             id,
@@ -364,6 +369,11 @@ where
             uses_bloom_semi_join: true,
         });
         self.pipeline.connect(source_id, id);
+        // CoGroup inputs are read as `kv<lp, lp>`; upgrade both predecessors
+        // (mirrors `group_by_key`). The join's own output is the joined tuple.
+        self.pipeline.set_kv_coder::<K, V>(self.id);
+        self.pipeline.set_kv_coder::<K, W>(right.id);
+        self.pipeline.set_coder::<(K, (V, Option<W>))>(id);
         PCollection {
             pipeline: self.pipeline.clone(),
             id,
@@ -490,6 +500,11 @@ where
             uses_bloom_semi_join: true,
         });
         self.pipeline.connect(source_id, id);
+        // CoGroup inputs are read as `kv<lp, lp>`; upgrade both predecessors
+        // (mirrors `group_by_key`). The join's own output is the joined tuple.
+        self.pipeline.set_kv_coder::<K, V>(self.id);
+        self.pipeline.set_kv_coder::<K, W>(right.id);
+        self.pipeline.set_coder::<(K, (Option<V>, W))>(id);
         PCollection {
             pipeline: self.pipeline.clone(),
             id,
@@ -617,6 +632,11 @@ where
             uses_bloom_semi_join: false,
         });
         self.pipeline.connect(source_id, id);
+        // CoGroup inputs are read as `kv<lp, lp>`; upgrade both predecessors
+        // (mirrors `group_by_key`). The join's own output is the joined tuple.
+        self.pipeline.set_kv_coder::<K, V>(self.id);
+        self.pipeline.set_kv_coder::<K, W>(right.id);
+        self.pipeline.set_coder::<(K, (Option<V>, Option<W>))>(id);
         PCollection {
             pipeline: self.pipeline.clone(),
             id,

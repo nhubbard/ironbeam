@@ -145,6 +145,7 @@ impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
             merge,              // shared merge logic
         });
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<(K, O)>(id);
         PCollection {
             pipeline: self.pipeline,
             id,
@@ -162,7 +163,7 @@ where
     ///
     /// Accepts input produced by `group_by_key()` or any source that already yields
     /// `(K, Vec<V>)` pairs. Each group's accumulator is built by calling `add_input`
-    /// once per value, then merged across partitions and finished in the usual way.
+    /// once per value, then merged across partitions, and finished in the usual way.
     ///
     /// # Type Parameters
     /// - `C`: A combiner implementing `CombineFn<V, A, O>`.
@@ -276,6 +277,7 @@ where
             merge,
         });
         self.pipeline.connect(self.id, id);
+        self.pipeline.set_coder::<(K, O)>(id);
         PCollection {
             pipeline: self.pipeline,
             id,

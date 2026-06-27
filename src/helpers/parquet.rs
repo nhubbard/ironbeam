@@ -177,6 +177,7 @@ where
             vec_ops: ParquetVecOps::<T>::new(),
             elem_tag: TypeTag::of::<T>(),
         });
+        p.set_coder::<T>(id);
         Ok(PCollection {
             pipeline: p.clone(),
             id,
