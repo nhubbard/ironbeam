@@ -49,22 +49,22 @@ use std::sync::Arc;
 /// ]);
 /// # Result::<()>::Ok(())
 /// ```
-/// With the `serde-coders` feature enabled, elements must additionally be
+/// With the `coders` feature enabled, elements must additionally be
 /// `serde::{Serialize, DeserializeOwned}` so each combinator can attach a
 /// bincode coder for its output type (see [`crate::coders`]). This lets wire
 /// backends (the Dataflow harness) encode/decode every PCollection without
 /// the user registering types by hand.
-#[cfg(not(feature = "serde-coders"))]
+#[cfg(not(feature = "coders"))]
 pub trait RFBound: 'static + Send + Sync + Clone {}
-#[cfg(not(feature = "serde-coders"))]
+#[cfg(not(feature = "coders"))]
 impl<T> RFBound for T where T: 'static + Send + Sync + Clone {}
 
-#[cfg(feature = "serde-coders")]
+#[cfg(feature = "coders")]
 pub trait RFBound:
     'static + Send + Sync + Clone + serde::Serialize + serde::de::DeserializeOwned
 {
 }
-#[cfg(feature = "serde-coders")]
+#[cfg(feature = "coders")]
 impl<T> RFBound for T where
     T: 'static + Send + Sync + Clone + serde::Serialize + serde::de::DeserializeOwned
 {

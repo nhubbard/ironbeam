@@ -18,9 +18,9 @@ use crate::node::Node;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "serde-coders")]
+#[cfg(feature = "coders")]
 use crate::coders::{BincodeCoder, BincodeKvCoder, ElementCoder};
-#[cfg(feature = "serde-coders")]
+#[cfg(feature = "coders")]
 use crate::collection::RFBound;
 
 #[cfg(feature = "metrics")]
@@ -65,9 +65,9 @@ pub(crate) struct PipelineInner {
     pub node_names: HashMap<NodeId, String>,
     pub scope_stack: Vec<ScopeFrame>,
     /// Per-node element coder, keyed by output [`NodeId`]. Populated by the
-    /// combinators when `serde-coders` is on; consumed by wire backends via
+    /// combinators when `coders` is on; consumed by wire backends via
     /// [`Pipeline::snapshot_coders`].
-    #[cfg(feature = "serde-coders")]
+    #[cfg(feature = "coders")]
     pub coders: HashMap<NodeId, Arc<dyn ElementCoder>>,
     #[cfg(feature = "metrics")]
     pub metrics: Option<MetricsCollector>,
@@ -92,7 +92,7 @@ impl Default for Pipeline {
                 edges: vec![],
                 node_names: HashMap::new(),
                 scope_stack: Vec::new(),
-                #[cfg(feature = "serde-coders")]
+                #[cfg(feature = "coders")]
                 coders: HashMap::new(),
                 #[cfg(feature = "metrics")]
                 metrics: None,
@@ -154,9 +154,9 @@ impl Pipeline {
     /// Attach the default bincode coder for output type `T` to `id`.
     ///
     /// Combinators call this unconditionally right after `insert_node`; without
-    /// the `serde-coders` feature it compiles to a no-op so the call sites stay
+    /// the `coders` feature it compiles to a no-op so the call sites stay
     /// feature-agnostic.
-    #[cfg(feature = "serde-coders")]
+    #[cfg(feature = "coders")]
     pub(crate) fn set_coder<T: RFBound>(&self, id: NodeId) {
         self.inner
             .lock()
@@ -165,13 +165,13 @@ impl Pipeline {
             .insert(id, Arc::new(BincodeCoder::<T>::new()));
     }
 
-    #[cfg(not(feature = "serde-coders"))]
+    #[cfg(not(feature = "coders"))]
     pub(crate) fn set_coder<T>(&self, _id: NodeId) {}
 
     /// Upgrade `id` to a KV-aware coder. Called by `group_by_key` on its
     /// predecessor so the pre-GBK edge can emit each `(K, V)` as two
     /// independently length-prefixed bincode halves (Beam's `kv<lp, lp>`).
-    #[cfg(feature = "serde-coders")]
+    #[cfg(feature = "coders")]
     pub(crate) fn set_kv_coder<K: RFBound, V: RFBound>(&self, id: NodeId) {
         self.inner
             .lock()
@@ -180,13 +180,13 @@ impl Pipeline {
             .insert(id, Arc::new(BincodeKvCoder::<K, V>::new()));
     }
 
-    #[cfg(not(feature = "serde-coders"))]
+    #[cfg(not(feature = "coders"))]
     pub(crate) fn set_kv_coder<K, V>(&self, _id: NodeId) {}
 
     /// Override the coder attached to `id` with a hand-built one. Escape hatch
     /// for custom `DynOp`s whose output partition is not the declared `Vec<O>`,
     /// or for non-default wire coders.
-    #[cfg(feature = "serde-coders")]
+    #[cfg(feature = "coders")]
     pub fn set_coder_override(&self, id: NodeId, coder: Arc<dyn ElementCoder>) {
         self.inner.lock().unwrap().coders.insert(id, coder);
     }
@@ -196,7 +196,7 @@ impl Pipeline {
     ///
     /// # Panics
     /// If the pipeline lock is poisoned by a panicking concurrent builder.
-    #[cfg(feature = "serde-coders")]
+    #[cfg(feature = "coders")]
     #[must_use]
     pub fn snapshot_coders(&self) -> HashMap<NodeId, Arc<dyn ElementCoder>> {
         self.inner.lock().unwrap().coders.clone()

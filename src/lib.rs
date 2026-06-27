@@ -516,7 +516,7 @@
 
 pub mod bloom_filter;
 pub mod collection;
-#[cfg(feature = "serde-coders")]
+#[cfg(feature = "coders")]
 pub mod coders;
 pub mod combiners;
 pub mod extensions;
@@ -565,7 +565,7 @@ pub use extensions::CompositeTransform;
 pub use node::DynOp;
 pub use type_token::{TypeTag, VecOps};
 
-#[cfg(feature = "serde-coders")]
+#[cfg(feature = "coders")]
 pub use coders::{BincodeCoder, BincodeKvCoder, ElementCoder};
 
 // I/O re-exports. The API surface is always present (the modules compile
