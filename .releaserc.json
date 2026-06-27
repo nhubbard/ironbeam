@@ -30,6 +30,7 @@
         "preset": "conventionalcommits",
         "presetConfig": {
           "types": [
+            { "type": "major", "section": "⚠ BREAKING CHANGES" },
             { "type": "feat", "section": "Features" },
             { "type": "feature", "section": "Features" },
             { "type": "fix", "section": "Bug Fixes" },
@@ -61,8 +62,8 @@
     [
       "@semantic-release/github",
       {
-        "successComment": false,
-        "failComment": false,
+        "successCommentCondition": false,
+        "failCommentCondition": false,
         "releasedLabels": false
       }
     ]
