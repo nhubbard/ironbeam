@@ -270,7 +270,7 @@ fn test_key_by_with_count_per_key() {
         ],
     );
 
-    let keyed = data.key_by(|s: &String| s.to_string());
+    let keyed = data.key_by(|s: &String| s.clone());
     let counts = keyed.map_values(|_| 1u64).combine_values(Sum::default());
     let result = counts.collect_seq().unwrap();
 

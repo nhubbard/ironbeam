@@ -13,11 +13,16 @@ use ironbeam::*;
 fn test_map_values_batches_basic() {
     let p = Pipeline::default();
     let mut result = from_vec(&p, vec![("a".to_string(), 2u32), ("a".to_string(), 3u32)])
-        .map_values_batches(10, |vals: &[u32]| vals.iter().map(|v| v * v).collect::<Vec<_>>())
+        .map_values_batches(10, |vals: &[u32]| {
+            vals.iter().map(|v| v * v).collect::<Vec<_>>()
+        })
         .collect_seq()
         .unwrap();
     result.sort_unstable();
-    assert_eq!(result, vec![("a".to_string(), 4u32), ("a".to_string(), 9u32)]);
+    assert_eq!(
+        result,
+        vec![("a".to_string(), 4u32), ("a".to_string(), 9u32)]
+    );
 }
 
 /// `batch_size=1` forces one call per element; verifies chunking correctness.
@@ -32,7 +37,9 @@ fn test_map_values_batches_one_per_batch() {
             ("k".to_string(), 3u32),
         ],
     )
-    .map_values_batches(1, |vals: &[u32]| vals.iter().map(|v| v + 100).collect::<Vec<_>>())
+    .map_values_batches(1, |vals: &[u32]| {
+        vals.iter().map(|v| v + 100).collect::<Vec<_>>()
+    })
     .collect_seq()
     .unwrap();
     result.sort_unstable();
@@ -58,7 +65,9 @@ fn test_map_values_batches_multiple_keys() {
             ("x".to_string(), 30u32),
         ],
     )
-    .map_values_batches(5, |vals: &[u32]| vals.iter().map(|v| v * 2).collect::<Vec<_>>())
+    .map_values_batches(5, |vals: &[u32]| {
+        vals.iter().map(|v| v * 2).collect::<Vec<_>>()
+    })
     .collect_seq()
     .unwrap();
     result.sort_unstable();
@@ -82,7 +91,9 @@ fn test_map_values_batches_parallel_matches_sequential() {
 
     let p = Pipeline::default();
     let mut seq = from_vec(&p, items.clone())
-        .map_values_batches(8, |vals: &[u32]| vals.iter().map(|v| v + 1).collect::<Vec<_>>())
+        .map_values_batches(8, |vals: &[u32]| {
+            vals.iter().map(|v| v + 1).collect::<Vec<_>>()
+        })
         .collect_seq()
         .unwrap();
     seq.sort_unstable();
@@ -96,7 +107,9 @@ fn test_map_values_batches_parallel_matches_sequential() {
     };
     let p2 = Pipeline::default();
     let node = from_vec(&p2, items)
-        .map_values_batches(8, |vals: &[u32]| vals.iter().map(|v| v + 1).collect::<Vec<_>>())
+        .map_values_batches(8, |vals: &[u32]| {
+            vals.iter().map(|v| v + 1).collect::<Vec<_>>()
+        })
         .node_id();
     let mut par: Vec<(String, u32)> = runner.run_collect(&p2, node).unwrap();
     par.sort_unstable();

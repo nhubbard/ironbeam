@@ -250,7 +250,10 @@ mod checkpoint_tests {
         let config = CheckpointConfig {
             enabled: true,
             directory: tmp.path().to_path_buf(),
-            policy: CheckpointPolicy::Hybrid { barriers: true, interval_secs: 9999 },
+            policy: CheckpointPolicy::Hybrid {
+                barriers: true,
+                interval_secs: 9999,
+            },
             ..Default::default()
         };
         let mut manager = CheckpointManager::new(config).unwrap();
@@ -267,7 +270,10 @@ mod checkpoint_tests {
         let config = CheckpointConfig {
             enabled: true,
             directory: tmp.path().to_path_buf(),
-            policy: CheckpointPolicy::Hybrid { barriers: false, interval_secs: 0 },
+            policy: CheckpointPolicy::Hybrid {
+                barriers: false,
+                interval_secs: 0,
+            },
             ..Default::default()
         };
         let mut manager = CheckpointManager::new(config).unwrap();

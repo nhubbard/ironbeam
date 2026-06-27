@@ -138,9 +138,9 @@ fn test_manual_partition_two_outputs() -> Result<()> {
 
     let classified = data.flat_map(|s: &String| {
         if s.len() > 3 {
-            vec![SimpleOutput::Good(s.to_string())]
+            vec![SimpleOutput::Good(s.clone())]
         } else {
-            vec![SimpleOutput::Bad(s.to_string())]
+            vec![SimpleOutput::Bad(s.clone())]
         }
     });
 
@@ -223,9 +223,9 @@ fn test_partition_macro_two_outputs() -> Result<()> {
 
     let classified = data.flat_map(|s: &String| {
         if s.len() > 3 {
-            vec![SimpleOutput::Good(s.to_string())]
+            vec![SimpleOutput::Good(s.clone())]
         } else {
-            vec![SimpleOutput::Bad(s.to_string())]
+            vec![SimpleOutput::Bad(s.clone())]
         }
     });
 
@@ -283,9 +283,9 @@ fn test_partition_macro_with_trailing_comma() -> Result<()> {
 
     let classified = data.flat_map(|s: &String| {
         if s.len() > 2 {
-            vec![SimpleOutput::Good(s.to_string())]
+            vec![SimpleOutput::Good(s.clone())]
         } else {
-            vec![SimpleOutput::Bad(s.to_string())]
+            vec![SimpleOutput::Bad(s.clone())]
         }
     });
 
@@ -321,7 +321,7 @@ fn test_partition_mixed_types() -> Result<()> {
         } else if let Ok(f) = s.parse::<f64>() {
             vec![MixedTypeOutput::Float(f)]
         } else {
-            vec![MixedTypeOutput::Text(s.to_string())]
+            vec![MixedTypeOutput::Text(s.clone())]
         }
     });
 
@@ -412,7 +412,7 @@ fn test_partition_empty_variant() -> Result<()> {
         ],
     );
 
-    let classified = data.flat_map(|s: &String| vec![SimpleOutput::Good(s.to_string())]);
+    let classified = data.flat_map(|s: &String| vec![SimpleOutput::Good(s.clone())]);
 
     partition!(classified, SimpleOutput, {
         Good => good,
@@ -553,11 +553,11 @@ fn test_log_processing_pipeline() -> Result<()> {
 
     let classified = logs.flat_map(|log: &String| {
         if log.starts_with("ERROR") {
-            vec![LogLevel::Error(log.to_string())]
+            vec![LogLevel::Error(log.clone())]
         } else if log.starts_with("WARNING") {
-            vec![LogLevel::Warning(log.to_string())]
+            vec![LogLevel::Warning(log.clone())]
         } else {
-            vec![LogLevel::Info(log.to_string())]
+            vec![LogLevel::Info(log.clone())]
         }
     });
 
