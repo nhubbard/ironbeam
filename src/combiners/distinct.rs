@@ -1,7 +1,7 @@
 //! Distinct value combiners: `DistinctCount`, `DistinctSet`,
 //! `KMVApproxDistinctCount`, `HllApproxDistinctCount`.
 
-use crate::RFBound;
+use crate::Element;
 use crate::collection::CombineFn;
 use hyperloglogplus::{HyperLogLog, HyperLogLogPlus};
 use ordered_float::NotNan;
@@ -29,7 +29,7 @@ impl<T> DistinctCount<T> {
 
 impl<T> CombineFn<T, HashSet<T>, u64> for DistinctCount<T>
 where
-    T: RFBound + Eq + Hash,
+    T: Element + Eq + Hash,
 {
     fn create(&self) -> HashSet<T> {
         HashSet::new()
@@ -56,7 +56,6 @@ where
     }
 }
 
-
 /* ===================== DistinctSet<T> (exact set) ===================== */
 
 /// Get the distinct elements over a stream: accumulates a `HashSet<T>` and outputs a `Vec<T>`.
@@ -80,7 +79,7 @@ impl<T> Default for DistinctSet<T> {
 
 impl<T> CombineFn<T, HashSet<T>, Vec<T>> for DistinctSet<T>
 where
-    T: RFBound + Eq + Hash,
+    T: Element + Eq + Hash,
 {
     fn create(&self) -> HashSet<T> {
         HashSet::new()
@@ -102,7 +101,6 @@ where
         true
     }
 }
-
 
 /* ===================== KMVApproxDistinctCount<T> (approximate count) ===================== */
 
@@ -201,7 +199,7 @@ impl KMVAcc {
 
 impl<T> CombineFn<T, KMVAcc, f64> for KMVApproxDistinctCount<T>
 where
-    T: RFBound + Hash,
+    T: Element + Hash,
 {
     fn create(&self) -> KMVAcc {
         KMVAcc {
@@ -228,7 +226,6 @@ where
         true
     }
 }
-
 
 /* ===================== HllApproxDistinctCount<T> (HyperLogLog++) ===================== */
 
@@ -263,7 +260,7 @@ type Hll<T> = HyperLogLogPlus<T, DeterministicHasher>;
 /// Use [`HllApproxDistinctCount::new`] for a sensible default
 /// (`precision = 12`, ~1.6 % error), or
 /// [`HllApproxDistinctCount::with_error`] / [`HllApproxDistinctCount::with_precision`]
-/// to tune. Requires `T: RFBound + Hash`.
+/// to tune. Requires `T: Element + Hash`.
 ///
 /// # Determinism
 ///
@@ -357,7 +354,7 @@ impl<T> Default for HllApproxDistinctCount<T> {
 
 impl<T> CombineFn<T, Hll<T>, u64> for HllApproxDistinctCount<T>
 where
-    T: RFBound + Hash,
+    T: Element + Hash,
 {
     fn create(&self) -> Hll<T> {
         // Precision is range-checked by every constructor, so `new` always
@@ -390,4 +387,3 @@ where
         true
     }
 }
-

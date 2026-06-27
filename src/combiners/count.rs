@@ -1,6 +1,6 @@
 //! Count combiner for counting elements per key or globally.
 
-use crate::RFBound;
+use crate::Element;
 use crate::collection::CombineFn;
 use std::marker::PhantomData;
 
@@ -51,7 +51,7 @@ impl<T> Count<T> {
 
 impl<T> CombineFn<T, u64, u64> for Count<T>
 where
-    T: RFBound,
+    T: Element,
 {
     fn create(&self) -> u64 {
         0
@@ -73,4 +73,3 @@ where
         true
     }
 }
-

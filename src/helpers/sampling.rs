@@ -24,7 +24,7 @@
 //! pass an explicit seed via the `_with_seed` variants to vary the choice.
 
 use crate::combiners::PriorityReservoir;
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use core::hash::Hash;
 
 /// Default seed used by [`PCollection::sample_globally`] and
@@ -35,7 +35,7 @@ use core::hash::Hash;
 /// execution mode pick the same sample.
 const DEFAULT_SAMPLE_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Sample **k** elements globally using a priority reservoir and return a single `Vec<T>`.
     ///
     /// Deterministic across seq/par for a given `seed` and input multiset.
@@ -102,7 +102,7 @@ impl<T: RFBound> PCollection<T> {
     }
 }
 
-impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
+impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
     /// Per-key reservoir sample of values (size **k** per key), returns `(K, Vec<V>)`.
     ///
     /// Implemented via **lifted** combine so it can skip an explicit `group_by_key`

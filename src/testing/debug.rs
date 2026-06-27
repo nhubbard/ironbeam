@@ -3,7 +3,7 @@
 //! This module provides extension traits that add debugging methods to
 //! [`PCollection`] for use during testing.
 
-use crate::collection::{PCollection, RFBound};
+use crate::collection::{Element, PCollection};
 use crate::node::{DynOp, Node};
 use crate::type_token::Partition;
 use std::fmt::Debug;
@@ -29,7 +29,7 @@ impl<T, F> DebugInspectOp<T, F> {
 
 impl<T, F> DynOp for DebugInspectOp<T, F>
 where
-    T: RFBound + Debug,
+    T: Element + Debug,
     F: Fn(&T) + Send + Sync + 'static,
 {
     fn apply(&self, input: Partition) -> Partition {
@@ -74,7 +74,7 @@ impl<T> DebugCountOp<T> {
     }
 }
 
-impl<T: RFBound> DynOp for DebugCountOp<T> {
+impl<T: Element> DynOp for DebugCountOp<T> {
     fn apply(&self, input: Partition) -> Partition {
         let v = input.downcast::<Vec<T>>().expect("DebugCountOp input type");
 
@@ -101,7 +101,7 @@ impl<T> DebugSampleOp<T> {
     }
 }
 
-impl<T: RFBound + Debug> DynOp for DebugSampleOp<T> {
+impl<T: Element + Debug> DynOp for DebugSampleOp<T> {
     fn apply(&self, input: Partition) -> Partition {
         let v = input
             .downcast::<Vec<T>>()
@@ -126,7 +126,7 @@ impl<T: RFBound + Debug> DynOp for DebugSampleOp<T> {
 ///
 /// These methods allow you to inspect data flowing through your pipeline
 /// during test execution without consuming the collection.
-pub trait PCollectionDebugExt<T: RFBound> {
+pub trait PCollectionDebugExt<T: Element> {
     /// Insert a debug inspection point that prints elements to stderr.
     ///
     /// This is a pass-through operation that logs elements as they flow through
@@ -222,7 +222,7 @@ pub trait PCollectionDebugExt<T: RFBound> {
         T: Debug;
 }
 
-impl<T: RFBound> PCollectionDebugExt<T> for PCollection<T> {
+impl<T: Element> PCollectionDebugExt<T> for PCollection<T> {
     fn debug_inspect(&self, label: &str) -> Self
     where
         T: Debug,

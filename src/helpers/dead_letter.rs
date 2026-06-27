@@ -51,14 +51,14 @@
 //! # Ok(()) }
 //! ```
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::fmt::Display;
 
 /// A record diverted to the dead-letter branch of a fallible transform.
 ///
 /// Carries the *original* input element alongside a human-readable error
 /// message rendered from the failure value's [`Display`] implementation.
-/// `DeadLetter<T>` itself implements [`RFBound`] when `T` does, so it can
+/// `DeadLetter<T>` itself implements [`Element`] when `T` does, so it can
 /// flow through the rest of the pipeline like any other element type —
 /// you can `map` it, `key_by` it, `write_jsonl` it, and so on.
 ///
@@ -98,7 +98,7 @@ enum Classified<O, T> {
     Err(DeadLetter<T>),
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Fallible 1→1 transform that routes failures to a dead-letter
     /// collection instead of failing the pipeline.
     ///
@@ -114,7 +114,7 @@ impl<T: RFBound> PCollection<T> {
     /// though both collections share the same upstream node.
     ///
     /// # Type bounds
-    /// - `O: RFBound` — the success element type.
+    /// - `O: Element` — the success element type.
     /// - `E: Display` — used only to render the error message. The
     ///   error value does not propagate through any collection, so no
     ///   `Send + Sync` bounds are required on `E` itself.
@@ -139,7 +139,7 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn map_catching<O, E, F>(self, f: F) -> (PCollection<O>, PCollection<DeadLetter<T>>)
     where
-        O: RFBound,
+        O: Element,
         E: Display,
         F: 'static + Send + Sync + Fn(&T) -> Result<O, E>,
     {
@@ -188,7 +188,7 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn flat_map_catching<O, E, F>(self, f: F) -> (PCollection<O>, PCollection<DeadLetter<T>>)
     where
-        O: RFBound,
+        O: Element,
         E: Display,
         F: 'static + Send + Sync + Fn(&T) -> Result<Vec<O>, E>,
     {

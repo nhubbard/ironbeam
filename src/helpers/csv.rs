@@ -60,7 +60,7 @@ use crate::io::csv::{CsvShards, CsvVecOps, build_csv_shards, read_csv_vec, write
 use crate::io::glob::expand_glob;
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{PCollection, Pipeline, RFBound, from_vec};
+use crate::{Element, PCollection, Pipeline, from_vec};
 use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 use serde::Serialize;
@@ -136,7 +136,7 @@ pub fn read_csv<T>(
     has_headers: bool,
 ) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let path_str = path
         .as_ref()
@@ -165,7 +165,7 @@ where
     }
 }
 
-impl<T: RFBound + Serialize> PCollection<T> {
+impl<T: Element + Serialize> PCollection<T> {
     /// Execute the pipeline sequentially and write the result as CSV (vector mode).
     ///
     /// This collects the entire result into memory and writes it to `path` using `serde`.
@@ -201,7 +201,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 
 #[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
 #[cfg(feature = "parallel-io")]
-impl<T: RFBound + Serialize> PCollection<T> {
+impl<T: Element + Serialize> PCollection<T> {
     /// Execute the pipeline in parallel and write the result as CSV.
     ///
     /// This collects the result in parallel (respecting the runner's partition settings),
@@ -280,7 +280,7 @@ pub fn read_csv_streaming<T>(
     rows_per_shard: usize,
 ) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let shards: CsvShards = build_csv_shards(path, has_headers, rows_per_shard)?;
     let id = p.insert_node(Node::Source {

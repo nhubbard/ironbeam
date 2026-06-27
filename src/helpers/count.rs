@@ -6,10 +6,10 @@
 //! - `count_per_element()` - Count occurrences of each distinct element
 
 use crate::combiners::Count;
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::hash::Hash;
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Count all elements globally, producing a single count.
     ///
     /// This is more efficient than collecting all elements and then counting them,
@@ -81,8 +81,8 @@ impl<T: RFBound> PCollection<T> {
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Hash + Eq,
-    V: RFBound,
+    K: Element + Hash + Eq,
+    V: Element,
 {
     /// Count values per key.
     ///

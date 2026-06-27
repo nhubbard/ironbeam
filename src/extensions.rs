@@ -8,7 +8,7 @@
 //! These extension points allow you to build higher-level abstractions on top of
 //! the core pipeline API without modifying the framework itself.
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 
 /// A reusable, packaged sequence of transformations.
 ///
@@ -87,7 +87,7 @@ use crate::{PCollection, RFBound};
 /// # Ok(())
 /// # }
 /// ```
-pub trait CompositeTransform<I: RFBound, O: RFBound>: Send + Sync {
+pub trait CompositeTransform<I: Element, O: Element>: Send + Sync {
     /// Expand this composite transform into a sequence of operations.
     ///
     /// This method receives the input collection and must return the transformed
@@ -103,7 +103,7 @@ pub trait CompositeTransform<I: RFBound, O: RFBound>: Send + Sync {
     fn expand(&self, input: PCollection<I>) -> PCollection<O>;
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Apply a composite transform to this collection.
     ///
     /// Composite transforms are packaged sequences of operations that can be
@@ -144,7 +144,7 @@ impl<T: RFBound> PCollection<T> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn apply_composite<O: RFBound, CT>(&self, transform: &CT) -> PCollection<O>
+    pub fn apply_composite<O: Element, CT>(&self, transform: &CT) -> PCollection<O>
     where
         CT: CompositeTransform<T, O>,
     {

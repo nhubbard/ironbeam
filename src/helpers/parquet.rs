@@ -27,7 +27,7 @@ use crate::io::parquet::{
 };
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{PCollection, Pipeline, RFBound, from_vec};
+use crate::{Element, PCollection, Pipeline, from_vec};
 use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 use serde::Serialize;
@@ -36,7 +36,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
-impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
+impl<T: Element + DeserializeOwned + Serialize> PCollection<T> {
     /// Execute the pipeline, collect results, and write them to a **single Parquet file**.
     ///
     /// The Arrow schema is inferred from `T` (via `serde-arrow`). The entire collection
@@ -147,7 +147,7 @@ pub fn read_parquet_streaming<T>(
     groups_per_shard: usize,
 ) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let path_str = path
         .as_ref()

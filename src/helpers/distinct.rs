@@ -22,10 +22,10 @@
 use crate::combiners::{
     DistinctCount, DistinctSet, HllApproxDistinctCount, KMVApproxDistinctCount,
 };
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::hash::Hash;
 
-impl<T: RFBound + Eq + Hash> PCollection<T> {
+impl<T: Element + Eq + Hash> PCollection<T> {
     /// Count the exact number of distinct elements globally.
     ///
     /// Unlike [`approx_distinct_count`](Self::approx_distinct_count) (which uses a KMV
@@ -158,7 +158,7 @@ impl<T: RFBound + Eq + Hash> PCollection<T> {
     }
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Deduplicate elements by a computed projection, keeping one arbitrary element per
     /// distinct key value.
     ///
@@ -199,7 +199,7 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn distinct_by<K, F>(self, key_fn: F) -> Self
     where
-        K: RFBound + Eq + Hash,
+        K: Element + Eq + Hash,
         F: 'static + Send + Sync + Fn(&T) -> K,
     {
         self.key_by(key_fn)
@@ -210,8 +210,8 @@ impl<T: RFBound> PCollection<T> {
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound + Eq + Hash,
+    K: Element + Eq + Hash,
+    V: Element + Eq + Hash,
 {
     /// Count the exact number of distinct values per key.
     ///

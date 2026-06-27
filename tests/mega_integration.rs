@@ -30,7 +30,7 @@ struct DoubleAndFilter;
 
 impl<T> CompositeTransform<T, u32> for DoubleAndFilter
 where
-    T: RFBound + 'static + Clone + Into<u32>,
+    T: Element + 'static + Clone + Into<u32>,
 {
     fn expand(&self, input: PCollection<T>) -> PCollection<u32> {
         input

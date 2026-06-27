@@ -6,8 +6,8 @@
 //! 3) applies a Bloom semi-join pre-filter where semantically safe (see below), and
 //! 4) executes a join-specific closure over those buffers to emit the final joined rows.
 //!
-//! All joins are **key-based** and require `K: Eq + Hash + RFBound`. The left and right value
-//! types must satisfy `RFBound` as usual. The resulting collection is another `PCollection` in
+//! All joins are **key-based** and require `K: Eq + Hash + Element`. The left and right value
+//! types must satisfy `Element` as usual. The resulting collection is another `PCollection` in
 //! the same pipeline.
 //!
 //! ## Bloom Semi-Join Pre-Filter
@@ -66,7 +66,7 @@
 use crate::bloom_filter::BloomFilter;
 use crate::node::Node;
 use crate::type_token::{TypeTag, vec_ops_for};
-use crate::{NodeId, PCollection, Partition, Pipeline, RFBound};
+use crate::{Element, NodeId, PCollection, Partition, Pipeline};
 use anyhow::{Result, anyhow};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -115,8 +115,8 @@ fn insert_dummy_source(p: &Pipeline) -> NodeId {
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound,
+    K: Element + Eq + Hash,
+    V: Element,
 {
     /// Inner join on a key with another `(K, W)` -> `(K, (V, W))`.
     ///
@@ -147,7 +147,7 @@ where
     #[must_use]
     pub fn join_inner<W>(&self, right: &PCollection<(K, W)>) -> PCollection<(K, (V, W))>
     where
-        W: RFBound,
+        W: Element,
     {
         let left_chain = chain_from(&self.pipeline, self.id).expect("left chain build");
         let right_chain = chain_from(&right.pipeline, right.id).expect("right chain build");
@@ -275,7 +275,7 @@ where
     #[must_use]
     pub fn join_left<W>(&self, right: &PCollection<(K, W)>) -> PCollection<(K, (V, Option<W>))>
     where
-        W: RFBound,
+        W: Element,
     {
         let left_chain = chain_from(&self.pipeline, self.id).expect("left chain build");
         let right_chain = chain_from(&right.pipeline, right.id).expect("right chain build");
@@ -400,7 +400,7 @@ where
     #[must_use]
     pub fn join_right<W>(&self, right: &PCollection<(K, W)>) -> PCollection<(K, (Option<V>, W))>
     where
-        W: RFBound,
+        W: Element,
     {
         let left_chain = chain_from(&self.pipeline, self.id).expect("left chain build");
         let right_chain = chain_from(&right.pipeline, right.id).expect("right chain build");
@@ -530,7 +530,7 @@ where
         right: &PCollection<(K, W)>,
     ) -> PCollection<(K, (Option<V>, Option<W>))>
     where
-        W: RFBound,
+        W: Element,
     {
         let left_chain = chain_from(&self.pipeline, self.id).expect("left chain build");
         let right_chain = chain_from(&right.pipeline, right.id).expect("right chain build");

@@ -47,7 +47,7 @@
 //! # }
 //! ```
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use regex::Regex;
 use std::sync::Arc;
 
@@ -175,7 +175,7 @@ impl PCollection<String> {
         val_group: usize,
     ) -> PCollection<(String, String)>
     where
-        (String, String): RFBound,
+        (String, String): Element,
     {
         let re = Arc::new(Regex::new(pattern).expect("regex_extract_kv: invalid pattern"));
         self.filter_map(move |line: &String| {
@@ -301,7 +301,7 @@ impl PCollection<String> {
     #[must_use]
     pub fn regex_split(self, pattern: &str) -> PCollection<Vec<String>>
     where
-        Vec<String>: RFBound,
+        Vec<String>: Element,
     {
         let re = Arc::new(Regex::new(pattern).expect("regex_split: invalid pattern"));
         self.map(move |line: &String| re.split(line).map(String::from).collect())

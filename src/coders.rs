@@ -8,16 +8,18 @@
 //! a wire codec is monomorphic, so the concrete `T` must be captured where it
 //! is still statically known — at each combinator call site.
 //!
-//! Under `coders`, [`RFBound`](crate::RFBound) is tightened to also
+//! Under `coders`, [`Element`](crate::Element) is tightened to also
 //! require `serde::{Serialize, DeserializeOwned}`, and every node-creating
 //! combinator stashes an [`ElementCoder`] for its output type on the pipeline
 //! graph keyed by [`NodeId`]. The pre-`GroupByKey` node is upgraded to a
 //! KV-aware coder so the value can be emitted as two independently
 //! length-prefixed halves, mirroring Beam's `kv<lp, lp>` coder concept.
 
+use std::any::type_name;
 use std::marker::PhantomData;
 
 use anyhow::{Context, Result, anyhow};
+use postcard::{from_bytes, to_allocvec};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::type_token::Partition;
@@ -81,8 +83,8 @@ where
     T: Serialize + DeserializeOwned + 'static + Send + Sync + Clone,
 {
     fn decode_one(&self, bytes: &[u8]) -> Result<Partition> {
-        let v: T = postcard::from_bytes(bytes)
-            .with_context(|| format!("postcard decode into {}", std::any::type_name::<T>()))?;
+        let v: T = from_bytes(bytes)
+            .with_context(|| format!("postcard decode into {}", type_name::<T>()))?;
         Ok(Box::new(vec![v]))
     }
 
@@ -90,21 +92,20 @@ where
         let vec = partition.downcast::<Vec<T>>().map_err(|_| {
             anyhow!(
                 "partition downcast failed: expected Vec<{}>",
-                std::any::type_name::<T>()
+                type_name::<T>()
             )
         })?;
         let mut out = Vec::with_capacity(vec.len());
         for v in vec.into_iter() {
             out.push(
-                postcard::to_allocvec(&v)
-                    .with_context(|| format!("postcard encode {}", std::any::type_name::<T>()))?,
+                to_allocvec(&v).with_context(|| format!("postcard encode {}", type_name::<T>()))?,
             );
         }
         Ok(out)
     }
 
     fn type_name(&self) -> &'static str {
-        std::any::type_name::<T>()
+        type_name::<T>()
     }
 }
 
@@ -135,8 +136,8 @@ where
     V: Serialize + DeserializeOwned + 'static + Send + Sync + Clone,
 {
     fn decode_one(&self, bytes: &[u8]) -> Result<Partition> {
-        let pair: (K, V) = postcard::from_bytes(bytes)
-            .with_context(|| format!("postcard decode into {}", std::any::type_name::<(K, V)>()))?;
+        let pair: (K, V) = from_bytes(bytes)
+            .with_context(|| format!("postcard decode into {}", type_name::<(K, V)>()))?;
         Ok(Box::new(vec![pair]))
     }
 
@@ -144,22 +145,21 @@ where
         let vec = partition.downcast::<Vec<(K, V)>>().map_err(|_| {
             anyhow!(
                 "partition downcast failed: expected Vec<{}>",
-                std::any::type_name::<(K, V)>()
+                type_name::<(K, V)>()
             )
         })?;
         let mut out = Vec::with_capacity(vec.len());
         for pair in vec.into_iter() {
             out.push(
-                postcard::to_allocvec(&pair).with_context(|| {
-                    format!("postcard encode {}", std::any::type_name::<(K, V)>())
-                })?,
+                to_allocvec(&pair)
+                    .with_context(|| format!("postcard encode {}", type_name::<(K, V)>()))?,
             );
         }
         Ok(out)
     }
 
     fn type_name(&self) -> &'static str {
-        std::any::type_name::<(K, V)>()
+        type_name::<(K, V)>()
     }
 
     fn is_kv(&self) -> bool {
@@ -170,15 +170,15 @@ where
         let vec = partition.downcast::<Vec<(K, V)>>().map_err(|_| {
             anyhow!(
                 "partition downcast failed: expected Vec<{}>",
-                std::any::type_name::<(K, V)>()
+                type_name::<(K, V)>()
             )
         })?;
         let mut out = Vec::with_capacity(vec.len());
         for (k, v) in vec.into_iter() {
-            let kb = postcard::to_allocvec(&k)
-                .with_context(|| format!("postcard encode key {}", std::any::type_name::<K>()))?;
-            let vb = postcard::to_allocvec(&v)
-                .with_context(|| format!("postcard encode value {}", std::any::type_name::<V>()))?;
+            let kb = to_allocvec(&k)
+                .with_context(|| format!("postcard encode key {}", type_name::<K>()))?;
+            let vb = to_allocvec(&v)
+                .with_context(|| format!("postcard encode value {}", type_name::<V>()))?;
             out.push((kb, vb));
         }
         Ok(out)
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn postcard_coder_roundtrip_u64() {
         let c = PostcardCoder::<u64>::new();
-        let bytes = postcard::to_allocvec(&42u64).unwrap();
+        let bytes = to_allocvec(&42u64).unwrap();
         let partition = c.decode_one(&bytes).unwrap();
         let encoded = c.encode_all(partition).unwrap();
         assert_eq!(encoded, vec![bytes]);
@@ -221,18 +221,15 @@ mod tests {
         assert!(c.is_kv());
         let pairs = c.encode_kv_pairs(partition).unwrap();
         assert_eq!(pairs.len(), 2);
-        assert_eq!(
-            postcard::from_bytes::<String>(&pairs[0].0).unwrap(),
-            "alice"
-        );
-        assert_eq!(postcard::from_bytes::<u64>(&pairs[0].1).unwrap(), 1);
+        assert_eq!(from_bytes::<String>(&pairs[0].0).unwrap(), "alice");
+        assert_eq!(from_bytes::<u64>(&pairs[0].1).unwrap(), 1);
     }
 
     #[test]
     fn kv_coder_intermediate_tuple_roundtrip_matches_postcard() {
         let c = PostcardKvCoder::<String, u64>::new();
         let tuple = ("x".to_string(), 42u64);
-        let bytes = postcard::to_allocvec(&tuple).unwrap();
+        let bytes = to_allocvec(&tuple).unwrap();
         let partition = c.decode_one(&bytes).unwrap();
         assert_eq!(c.encode_all(partition).unwrap(), vec![bytes]);
     }

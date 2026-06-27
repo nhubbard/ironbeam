@@ -59,9 +59,9 @@
 //! assert_eq!(adults.collect_seq().unwrap().len(), 2);
 //! ```
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Keep only elements equal to the given value.
     ///
     /// This is a convenience method equivalent to `filter(|elem| elem == &value)`.
@@ -113,7 +113,7 @@ impl<T: RFBound> PCollection<T> {
     }
 }
 
-impl<T: RFBound + PartialOrd> PCollection<T> {
+impl<T: Element + PartialOrd> PCollection<T> {
     /// Keep only elements less than the given value.
     ///
     /// This is a convenience method equivalent to `filter(|elem| elem < &value)`.
@@ -253,7 +253,7 @@ impl<T: RFBound + PartialOrd> PCollection<T> {
     }
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Filter elements by applying a comparison predicate to a computed value.
     ///
     /// This is particularly useful when working with structs where you want to filter

@@ -1,6 +1,6 @@
 //! Statistical combiners: `AverageF64`, `Mean<O>`.
 
-use crate::RFBound;
+use crate::Element;
 use crate::collection::CombineFn;
 use std::marker::PhantomData;
 
@@ -19,7 +19,7 @@ pub struct AverageF64;
 
 impl<V> CombineFn<V, (f64, u64), f64> for AverageF64
 where
-    V: RFBound + Into<f64>,
+    V: Element + Into<f64>,
 {
     fn create(&self) -> (f64, u64) {
         (0.0, 0)
@@ -96,7 +96,7 @@ macro_rules! impl_mean_for_float {
     ($float:ty) => {
         impl<V> CombineFn<V, ($float, u64), $float> for Mean<$float>
         where
-            V: RFBound + Into<$float>,
+            V: Element + Into<$float>,
         {
             fn create(&self) -> ($float, u64) {
                 (0.0, 0)
@@ -121,7 +121,6 @@ macro_rules! impl_mean_for_float {
                 }
             }
         }
-
     };
 }
 

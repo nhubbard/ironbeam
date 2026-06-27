@@ -50,10 +50,10 @@
 //! # }
 //! ```
 
-use crate::{PCollection, RFBound, Timestamped, Window};
+use crate::{Element, PCollection, Timestamped, Window};
 use std::hash::Hash;
 
-impl<T: RFBound> PCollection<Timestamped<T>> {
+impl<T: Element> PCollection<Timestamped<T>> {
     /// Attach a tumbling window key computed from each element's timestamp.
     ///
     /// For each `Timestamped<T>` input element, computes `Window::tumble(ts, size_ms, offset_ms)`
@@ -119,7 +119,7 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
 
 // -------------- Tumbling windows: keyed --------------
 // Input: (K, Timestamped<V>) -> output: ((K, Window), V)
-impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, Timestamped<V>)> {
+impl<K: Element + Eq + Hash, V: Element> PCollection<(K, Timestamped<V>)> {
     /// Attach a `(K, Window)` key to each `(K, Timestamped<V>)` element.
     ///
     /// Computes the tumbling window from the element's timestamp, returning

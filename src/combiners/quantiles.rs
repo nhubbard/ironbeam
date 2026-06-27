@@ -3,7 +3,7 @@
 //! Provides memory-efficient approximate quantile estimation suitable for large-scale
 //! distributed streaming data processing.
 
-use crate::RFBound;
+use crate::Element;
 use crate::collection::CombineFn;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -357,7 +357,7 @@ impl<V> ApproxQuantiles<V> {
 
 impl<V> CombineFn<V, TDigest, Vec<f64>> for ApproxQuantiles<V>
 where
-    V: RFBound + Into<f64>,
+    V: Element + Into<f64>,
 {
     fn create(&self) -> TDigest {
         TDigest::new(self.compression)
@@ -380,7 +380,6 @@ where
         acc.quantiles(&self.quantiles)
     }
 }
-
 
 /* ===================== ApproxMedian ===================== */
 
@@ -418,7 +417,7 @@ impl<V> Default for ApproxMedian<V> {
 
 impl<V> CombineFn<V, TDigest, f64> for ApproxMedian<V>
 where
-    V: RFBound + Into<f64>,
+    V: Element + Into<f64>,
 {
     fn create(&self) -> TDigest {
         TDigest::new(self.compression)
@@ -440,4 +439,3 @@ where
         acc.quantile(0.5)
     }
 }
-

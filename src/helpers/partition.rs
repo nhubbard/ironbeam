@@ -323,7 +323,7 @@
 ///
 /// # Type Requirements
 ///
-/// - The enum must implement `Clone` (required by [`RFBound`](crate::RFBound))
+/// - The enum must implement `Clone` (required by [`Element`](crate::Element))
 /// - Each variant must be a tuple variant with exactly one field
 /// - The inner type of each variant must also implement `Clone`
 ///

@@ -45,9 +45,9 @@
 //! // tuples: PCollection<(TimestampMs, String)>
 //! ```
 
-use crate::{PCollection, RFBound, TimestampMs, Timestamped};
+use crate::{Element, PCollection, TimestampMs, Timestamped};
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Attach event timestamps using a user-provided function.
     ///
     /// This converts a `PCollection<T>` into a `PCollection<Timestamped<T>>` by
@@ -87,7 +87,7 @@ impl<T: RFBound> PCollection<T> {
     }
 }
 
-impl<T: RFBound> PCollection<(TimestampMs, T)> {
+impl<T: Element> PCollection<(TimestampMs, T)> {
     /// Normalize a `(timestamp, value)` stream into `Timestamped<T>`.
     ///
     /// This is a convenience adapter when your upstream already produces
@@ -113,7 +113,7 @@ impl<T: RFBound> PCollection<(TimestampMs, T)> {
     }
 }
 
-impl<T: RFBound> PCollection<Timestamped<T>> {
+impl<T: Element> PCollection<Timestamped<T>> {
     /// Make event-time timestamps explicit in the data stream.
     ///
     /// Projects each [`Timestamped<T>`] element into a `(timestamp_ms, value)` tuple,

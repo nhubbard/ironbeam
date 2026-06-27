@@ -1,6 +1,6 @@
 //! Latest combiner for selecting the most recent timestamped value.
 
-use crate::RFBound;
+use crate::Element;
 use crate::collection::CombineFn;
 use crate::window::Timestamped;
 use std::marker::PhantomData;
@@ -70,7 +70,7 @@ impl<T> Latest<T> {
 
 impl<T> CombineFn<Timestamped<T>, Option<Timestamped<T>>, T> for Latest<T>
 where
-    T: RFBound,
+    T: Element,
 {
     fn create(&self) -> Option<Timestamped<T>> {
         None
@@ -104,4 +104,3 @@ where
         acc.expect("Latest::finish called on empty group").value
     }
 }
-

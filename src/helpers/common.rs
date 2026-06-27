@@ -17,12 +17,12 @@
 
 use crate::collection::{FilterOp, FlatMapOp, MapOp, TakeOp};
 use crate::node::{DynOp, Node};
-use crate::{ExecMode, PCollection, RFBound, Runner};
+use crate::{Element, ExecMode, PCollection, Runner};
 use anyhow::Result;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Apply a function to each element of the collection.
     ///
     /// This is the simplest transform -- it applies `f(&T) -> O` to each element independently,
@@ -43,7 +43,7 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     pub fn map<O, F>(self, f: F) -> PCollection<O>
     where
-        O: RFBound,
+        O: Element,
         F: 'static + Send + Sync + Fn(&T) -> O,
     {
         let op: Arc<dyn DynOp> = Arc::new(MapOp::<T, O, F>(f, PhantomData));
@@ -162,7 +162,7 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     pub fn flat_map<O, F>(self, f: F) -> PCollection<O>
     where
-        O: RFBound,
+        O: Element,
         F: 'static + Send + Sync + Fn(&T) -> Vec<O>,
     {
         let op: Arc<dyn DynOp> = Arc::new(FlatMapOp::<T, O, F>(f, PhantomData));
@@ -177,7 +177,7 @@ impl<T: RFBound> PCollection<T> {
     }
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Collect elements from this collection using the default (sequential) mode.
     ///
     /// Equivalent to calling [`PCollection::collect_seq`].

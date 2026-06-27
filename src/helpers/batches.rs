@@ -22,12 +22,12 @@
 
 use crate::collection::{BatchBySizeOp, BatchElementsOp, BatchMapOp, BatchMapValuesOp};
 use crate::node::{DynOp, Node};
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Apply a **batched map** over elements of this collection.
     ///
     /// Instead of applying a function `f: T -> O` per element, this groups the
@@ -63,7 +63,7 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     pub fn map_batches<O, F>(self, batch_size: usize, f: F) -> PCollection<O>
     where
-        O: RFBound,
+        O: Element,
         F: 'static + Send + Sync + Fn(&[T]) -> Vec<O>,
     {
         let op: Arc<dyn DynOp> = Arc::new(BatchMapOp::<T, O, F>(batch_size, f, PhantomData));
@@ -193,7 +193,7 @@ impl<T: RFBound> PCollection<T> {
     }
 }
 
-impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
+impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
     /// Apply a **batched map** over the *values* of a keyed collection.
     ///
     /// Similar to [`map_batches`](PCollection::map_batches), but operates only
@@ -227,7 +227,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     /// ```
     pub fn map_values_batches<O, F>(self, batch_size: usize, f: F) -> PCollection<(K, O)>
     where
-        O: RFBound,
+        O: Element,
         F: 'static + Send + Sync + Fn(&[V]) -> Vec<O>,
     {
         let op: Arc<dyn DynOp> =

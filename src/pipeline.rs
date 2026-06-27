@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "coders")]
 use crate::coders::{ElementCoder, PostcardCoder, PostcardKvCoder};
 #[cfg(feature = "coders")]
-use crate::collection::RFBound;
+use crate::collection::Element;
 
 #[cfg(feature = "metrics")]
 use crate::metrics::MetricsCollector;
@@ -157,7 +157,7 @@ impl Pipeline {
     /// the `coders` feature it compiles to a no-op so the call sites stay
     /// feature-agnostic.
     #[cfg(feature = "coders")]
-    pub(crate) fn set_coder<T: RFBound>(&self, id: NodeId) {
+    pub(crate) fn set_coder<T: Element>(&self, id: NodeId) {
         self.inner
             .lock()
             .unwrap()
@@ -173,7 +173,7 @@ impl Pipeline {
     /// independently length-prefixed postcard halves (mirroring Beam's
     /// `kv<lp, lp>` coder concept).
     #[cfg(feature = "coders")]
-    pub(crate) fn set_kv_coder<K: RFBound, V: RFBound>(&self, id: NodeId) {
+    pub(crate) fn set_kv_coder<K: Element, V: Element>(&self, id: NodeId) {
         self.inner
             .lock()
             .unwrap()

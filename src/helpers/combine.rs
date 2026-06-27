@@ -10,14 +10,14 @@
 //! Both forms ultimately produce a `(K, O)` stream by aggregating values per key.
 
 use crate::node::Node;
-use crate::{CombineFn, PCollection, Partition, RFBound};
+use crate::{CombineFn, Element, PCollection, Partition};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
+impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
     /// Combine-by-key using a user-supplied [`CombineFn`].
     ///
     /// This is the **classic** combine: the input is a stream of `(K, V)` pairs, and the combiner
@@ -67,7 +67,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     where
         C: CombineFn<V, A, O> + 'static,
         A: Send + 'static + Sync,
-        O: RFBound,
+        O: Element,
     {
         let comb = Arc::new(comb);
 
@@ -155,8 +155,8 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
 
 impl<K, V> PCollection<(K, Vec<V>)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound,
+    K: Element + Eq + Hash,
+    V: Element,
 {
     /// **Lifted combine** to be used on already-grouped `(K, Vec<V>)` input.
     ///
@@ -213,7 +213,7 @@ where
     where
         C: CombineFn<V, A, O> + 'static,
         A: Send + Sync + 'static,
-        O: RFBound,
+        O: Element,
     {
         let comb = Arc::new(comb);
 

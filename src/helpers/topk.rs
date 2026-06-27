@@ -36,11 +36,11 @@
 //! ```
 
 use crate::combiners::{BottomK, TopK};
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::cmp::Ord;
 use std::hash::Hash;
 
-impl<T: RFBound + Ord> PCollection<T> {
+impl<T: Element + Ord> PCollection<T> {
     /// Select the top-K largest elements globally.
     ///
     /// Returns a single `Vec<T>` containing at most `k` elements sorted in
@@ -73,8 +73,8 @@ impl<T: RFBound + Ord> PCollection<T> {
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound + Ord,
+    K: Element + Eq + Hash,
+    V: Element + Ord,
 {
     /// Select the top-K largest values per key.
     ///
@@ -124,7 +124,7 @@ where
     }
 }
 
-impl<T: RFBound + Ord> PCollection<T> {
+impl<T: Element + Ord> PCollection<T> {
     /// Select the bottom-K smallest elements globally.
     ///
     /// Returns a single `Vec<T>` containing at most `k` elements sorted in
@@ -157,8 +157,8 @@ impl<T: RFBound + Ord> PCollection<T> {
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound + Ord,
+    K: Element + Eq + Hash,
+    V: Element + Ord,
 {
     /// Select the bottom-K smallest values per key.
     ///

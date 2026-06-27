@@ -420,7 +420,7 @@ fn test_kv_swap_then_aggregate() {
 ///
 /// This is the key differentiator over `keys()` / `values()` (which both
 /// require `K: Hash` because they live in the keyed impl block). `kv_swap`
-/// only requires `RFBound`, so a non-hashable key type works.
+/// only requires `Element`, so a non-hashable key type works.
 #[test]
 fn test_kv_swap_non_hash_key() {
     #[derive(Clone, Debug, PartialEq, PartialOrd)]

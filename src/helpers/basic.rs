@@ -20,7 +20,7 @@
 
 use crate::collection::CombineFn;
 use crate::combiners::{AverageF64, Max, Mean, Min, Sum};
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::hash::Hash;
 use std::ops::Add;
 
@@ -28,7 +28,7 @@ use std::ops::Add;
 
 impl<T> PCollection<T>
 where
-    T: RFBound + Add<Output = T> + Default,
+    T: Element + Add<Output = T> + Default,
 {
     /// Sum all elements globally into a single value.
     ///
@@ -57,7 +57,7 @@ where
 
 impl<T> PCollection<T>
 where
-    T: RFBound + Ord,
+    T: Element + Ord,
 {
     /// Return the minimum element globally as a single-element collection.
     ///
@@ -110,7 +110,7 @@ where
 
 impl<T> PCollection<T>
 where
-    T: RFBound + Into<f64>,
+    T: Element + Into<f64>,
 {
     /// Compute the arithmetic mean of all elements globally.
     ///
@@ -137,7 +137,7 @@ where
 
 impl<T> PCollection<T>
 where
-    T: RFBound,
+    T: Element,
 {
     /// Compute the arithmetic mean of all elements globally with a caller-chosen
     /// floating-point output type.
@@ -169,7 +169,7 @@ where
     #[must_use]
     pub fn mean_globally<O>(self) -> PCollection<O>
     where
-        O: RFBound,
+        O: Element,
         Mean<O>: CombineFn<T, (O, u64), O> + 'static,
     {
         self.combine_globally(Mean::<O>::new(), None)
@@ -180,8 +180,8 @@ where
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound + Add<Output = V> + Default,
+    K: Element + Eq + Hash,
+    V: Element + Add<Output = V> + Default,
 {
     /// Sum values per key.
     ///
@@ -212,8 +212,8 @@ where
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound + Ord,
+    K: Element + Eq + Hash,
+    V: Element + Ord,
 {
     /// Select the minimum value per key.
     ///
@@ -272,8 +272,8 @@ where
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound + Into<f64>,
+    K: Element + Eq + Hash,
+    V: Element + Into<f64>,
 {
     /// Compute the arithmetic mean of values per key, producing `(K, f64)`.
     ///
@@ -305,8 +305,8 @@ where
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound,
+    K: Element + Eq + Hash,
+    V: Element,
 {
     /// Compute the arithmetic mean of values per key with a caller-chosen
     /// floating-point output type, producing `(K, O)`.
@@ -340,7 +340,7 @@ where
     #[must_use]
     pub fn mean_per_key<O>(self) -> PCollection<(K, O)>
     where
-        O: RFBound,
+        O: Element,
         Mean<O>: CombineFn<V, (O, u64), O> + 'static,
     {
         self.combine_values(Mean::<O>::new())
