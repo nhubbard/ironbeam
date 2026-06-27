@@ -5,36 +5,37 @@
 
 use anyhow::Result;
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
 // Test fixtures and helper types
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 enum SimpleOutput {
     Good(String),
     Bad(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 enum TripleOutput {
     High(i32),
     Medium(i32),
     Low(i32),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 enum MixedTypeOutput {
     Integer(i64),
     Float(f64),
     Text(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Record {
     id: u32,
     value: i32,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 enum ValidationResult {
     Valid(Record),
     InvalidId(Record),
@@ -47,9 +48,19 @@ enum ValidationResult {
 #[test]
 fn test_filter_map_basic() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["1", "2", "not_a_number", "3", "invalid", "4"]);
+    let data = from_vec(
+        &p,
+        vec![
+            "1".to_string(),
+            "2".to_string(),
+            "not_a_number".to_string(),
+            "3".to_string(),
+            "invalid".to_string(),
+            "4".to_string(),
+        ],
+    );
 
-    let parsed = data.filter_map(|s: &&str| s.parse::<i32>().ok());
+    let parsed = data.filter_map(|s: &String| s.parse::<i32>().ok());
 
     let result = parsed.collect_seq()?;
     assert_eq!(result, vec![1, 2, 3, 4]);
@@ -59,10 +70,10 @@ fn test_filter_map_basic() -> Result<()> {
 #[test]
 fn test_filter_map_empty_input() -> Result<()> {
     let p = Pipeline::default();
-    let data: Vec<&str> = vec![];
+    let data: Vec<String> = vec![];
     let collection = from_vec(&p, data);
 
-    let parsed = collection.filter_map(|s: &&str| s.parse::<i32>().ok());
+    let parsed = collection.filter_map(|s: &String| s.parse::<i32>().ok());
 
     let result = parsed.collect_seq()?;
     assert_eq!(result, Vec::<i32>::new());
@@ -72,9 +83,12 @@ fn test_filter_map_empty_input() -> Result<()> {
 #[test]
 fn test_filter_map_all_filtered() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["not", "a", "number"]);
+    let data = from_vec(
+        &p,
+        vec!["not".to_string(), "a".to_string(), "number".to_string()],
+    );
 
-    let parsed = data.filter_map(|s: &&str| s.parse::<i32>().ok());
+    let parsed = data.filter_map(|s: &String| s.parse::<i32>().ok());
 
     let result = parsed.collect_seq()?;
     assert_eq!(result, Vec::<i32>::new());
@@ -84,9 +98,9 @@ fn test_filter_map_all_filtered() -> Result<()> {
 #[test]
 fn test_filter_map_none_filtered() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["1", "2", "3"]);
+    let data = from_vec(&p, vec!["1".to_string(), "2".to_string(), "3".to_string()]);
 
-    let parsed = data.filter_map(|s: &&str| s.parse::<i32>().ok());
+    let parsed = data.filter_map(|s: &String| s.parse::<i32>().ok());
 
     let result = parsed.collect_seq()?;
     assert_eq!(result, vec![1, 2, 3]);
@@ -111,9 +125,18 @@ fn test_filter_map_transform() -> Result<()> {
 #[test]
 fn test_manual_partition_two_outputs() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["valid", "invalid", "ok", "bad", "good"]);
+    let data = from_vec(
+        &p,
+        vec![
+            "valid".to_string(),
+            "invalid".to_string(),
+            "ok".to_string(),
+            "bad".to_string(),
+            "good".to_string(),
+        ],
+    );
 
-    let classified = data.flat_map(|s: &&str| {
+    let classified = data.flat_map(|s: &String| {
         if s.len() > 3 {
             vec![SimpleOutput::Good(s.to_string())]
         } else {
@@ -187,9 +210,18 @@ fn test_manual_partition_three_outputs() -> Result<()> {
 #[test]
 fn test_partition_macro_two_outputs() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["valid", "invalid", "ok", "bad", "good"]);
+    let data = from_vec(
+        &p,
+        vec![
+            "valid".to_string(),
+            "invalid".to_string(),
+            "ok".to_string(),
+            "bad".to_string(),
+            "good".to_string(),
+        ],
+    );
 
-    let classified = data.flat_map(|s: &&str| {
+    let classified = data.flat_map(|s: &String| {
         if s.len() > 3 {
             vec![SimpleOutput::Good(s.to_string())]
         } else {
@@ -247,9 +279,9 @@ fn test_partition_macro_three_outputs() -> Result<()> {
 #[test]
 fn test_partition_macro_with_trailing_comma() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["a", "bbb"]);
+    let data = from_vec(&p, vec!["a".to_string(), "bbb".to_string()]);
 
-    let classified = data.flat_map(|s: &&str| {
+    let classified = data.flat_map(|s: &String| {
         if s.len() > 2 {
             vec![SimpleOutput::Good(s.to_string())]
         } else {
@@ -272,9 +304,18 @@ fn test_partition_macro_with_trailing_comma() -> Result<()> {
 #[test]
 fn test_partition_mixed_types() -> Result<()> {
     let p = Pipeline::default();
-    let inputs = from_vec(&p, vec!["42", "3.15", "not_a_number", "100", "2.72"]);
+    let inputs = from_vec(
+        &p,
+        vec![
+            "42".to_string(),
+            "3.15".to_string(),
+            "not_a_number".to_string(),
+            "100".to_string(),
+            "2.72".to_string(),
+        ],
+    );
 
-    let parsed = inputs.flat_map(|s: &&str| {
+    let parsed = inputs.flat_map(|s: &String| {
         if let Ok(i) = s.parse::<i64>() {
             vec![MixedTypeOutput::Integer(i)]
         } else if let Ok(f) = s.parse::<f64>() {
@@ -362,9 +403,16 @@ fn test_partition_complex_validation() -> Result<()> {
 #[test]
 fn test_partition_empty_variant() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["valid", "good", "excellent"]);
+    let data = from_vec(
+        &p,
+        vec![
+            "valid".to_string(),
+            "good".to_string(),
+            "excellent".to_string(),
+        ],
+    );
 
-    let classified = data.flat_map(|s: &&str| vec![SimpleOutput::Good(s.to_string())]);
+    let classified = data.flat_map(|s: &String| vec![SimpleOutput::Good(s.to_string())]);
 
     partition!(classified, SimpleOutput, {
         Good => good,
@@ -405,14 +453,14 @@ fn test_partition_all_empty() -> Result<()> {
 
 #[test]
 fn test_data_quality_pipeline() -> Result<()> {
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct User {
         id: u32,
         email: String,
         age: i32,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     enum UserValidation {
         Valid(User),
         InvalidEmail(User),
@@ -483,7 +531,7 @@ fn test_data_quality_pipeline() -> Result<()> {
 
 #[test]
 fn test_log_processing_pipeline() -> Result<()> {
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     enum LogLevel {
         Info(String),
         Warning(String),
@@ -494,16 +542,16 @@ fn test_log_processing_pipeline() -> Result<()> {
     let logs = from_vec(
         &p,
         vec![
-            "INFO: Server started",
-            "ERROR: Connection failed",
-            "INFO: Request received",
-            "WARNING: High memory usage",
-            "ERROR: Database timeout",
-            "INFO: Request completed",
+            "INFO: Server started".to_string(),
+            "ERROR: Connection failed".to_string(),
+            "INFO: Request received".to_string(),
+            "WARNING: High memory usage".to_string(),
+            "ERROR: Database timeout".to_string(),
+            "INFO: Request completed".to_string(),
         ],
     );
 
-    let classified = logs.flat_map(|log: &&str| {
+    let classified = logs.flat_map(|log: &String| {
         if log.starts_with("ERROR") {
             vec![LogLevel::Error(log.to_string())]
         } else if log.starts_with("WARNING") {

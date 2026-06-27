@@ -11,6 +11,7 @@
 //! `Debug`-based default.
 
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -97,11 +98,25 @@ fn test_log_elements_parallel_passthrough() {
 #[test]
 fn test_log_elements_on_keyed_collection() {
     let p = Pipeline::default();
-    let out = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3)])
-        .log_elements()
-        .collect_seq_sorted()
-        .unwrap();
-    assert_eq!(out, vec![("a", 1u32), ("b", 2), ("c", 3)]);
+    let out = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    )
+    .log_elements()
+    .collect_seq_sorted()
+    .unwrap();
+    assert_eq!(
+        out,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3)
+        ]
+    );
 }
 
 // ── log_elements_with(formatter) — user-supplied formatter ───────────────────
@@ -149,7 +164,7 @@ fn test_log_elements_with_empty_does_not_invoke_formatter() {
 #[test]
 fn test_log_elements_with_works_for_non_debug_type() {
     // A deliberately non-`Debug` payload.
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct NotDebug {
         n: u32,
     }

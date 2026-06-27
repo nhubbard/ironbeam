@@ -163,9 +163,16 @@ fn test_with_name_last_write_wins_via_fluent() {
 #[test]
 fn test_with_name_after_barrier() {
     let p = Pipeline::default();
-    let grouped = from_vec(&p, vec![("a", 1u32), ("a", 2), ("b", 3)])
-        .group_by_key()
-        .with_name("GroupedByKey");
+    let grouped = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    )
+    .group_by_key()
+    .with_name("GroupedByKey");
 
     assert_eq!(
         p.node_name(grouped.node_id()).as_deref(),
@@ -293,7 +300,7 @@ fn test_explanation_renders_inline_step_names() {
 #[test]
 fn test_explanation_step_names_render_in_chain_order() {
     let p = Pipeline::default();
-    let coll = from_vec(&p, vec![("a", 1u32), ("b", 2)])
+    let coll = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2)])
         .with_name("First") // Source
         .group_by_key() // anonymous barrier blocks downstream fusion
         .with_name("Second")

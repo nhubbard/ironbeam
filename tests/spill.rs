@@ -458,7 +458,13 @@ fn test_spilling_with_key_value_operations() -> Result<()> {
     let p = Pipeline::default();
 
     // Create key-value data
-    let data = vec![("a", 1), ("b", 2), ("a", 3), ("b", 4), ("c", 5)];
+    let data = vec![
+        ("a".to_string(), 1),
+        ("b".to_string(), 2),
+        ("a".to_string(), 3),
+        ("b".to_string(), 4),
+        ("c".to_string(), 5),
+    ];
 
     let collection = from_vec(&p, data);
 
@@ -467,7 +473,14 @@ fn test_spilling_with_key_value_operations() -> Result<()> {
         .combine_values(Sum::<i32>::default())
         .collect_seq_sorted()?;
 
-    assert_eq!(result, vec![("a", 4), ("b", 6), ("c", 5)]);
+    assert_eq!(
+        result,
+        vec![
+            ("a".to_string(), 4),
+            ("b".to_string(), 6),
+            ("c".to_string(), 5)
+        ]
+    );
 
     cleanup_test(&config);
     Ok(())

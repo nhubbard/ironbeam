@@ -174,11 +174,19 @@ fn test_mean_globally_lifted_with_fanout() {
 #[test]
 fn test_mean_combine_values_f64() {
     let p = Pipeline::default();
-    let mut out = from_vec(&p, vec![("a", 1u32), ("a", 3), ("b", 10), ("b", 30)])
-        .combine_values(Mean::<f64>::new())
-        .collect_seq()
-        .unwrap();
-    out.sort_by_key(|(k, _)| *k);
+    let mut out = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 3),
+            ("b".to_string(), 10),
+            ("b".to_string(), 30),
+        ],
+    )
+    .combine_values(Mean::<f64>::new())
+    .collect_seq()
+    .unwrap();
+    out.sort_by_key(|(k, _)| k.clone());
     assert_eq!(out.len(), 2);
     assert_eq!(out[0].0, "a");
     assert!((out[0].1 - 2.0).abs() < F64_EPS);
@@ -190,11 +198,19 @@ fn test_mean_combine_values_f64() {
 #[test]
 fn test_mean_combine_values_f32() {
     let p = Pipeline::default();
-    let mut out = from_vec(&p, vec![("a", 2u8), ("a", 4), ("b", 6), ("b", 8)])
-        .combine_values(Mean::<f32>::new())
-        .collect_seq()
-        .unwrap();
-    out.sort_by_key(|(k, _)| *k);
+    let mut out = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 2u8),
+            ("a".to_string(), 4),
+            ("b".to_string(), 6),
+            ("b".to_string(), 8),
+        ],
+    )
+    .combine_values(Mean::<f32>::new())
+    .collect_seq()
+    .unwrap();
+    out.sort_by_key(|(k, _)| k.clone());
     assert!((out[0].1 - 3.0_f32).abs() < F32_EPS);
     assert!((out[1].1 - 7.0_f32).abs() < F32_EPS);
 }
@@ -205,12 +221,20 @@ fn test_mean_combine_values_f32() {
 #[test]
 fn test_mean_combine_values_lifted_f64() {
     let p = Pipeline::default();
-    let mut out = from_vec(&p, vec![("x", 10i32), ("x", 20), ("y", 30), ("y", 40)])
-        .group_by_key()
-        .combine_values_lifted(Mean::<f64>::new())
-        .collect_seq()
-        .unwrap();
-    out.sort_by_key(|(k, _)| *k);
+    let mut out = from_vec(
+        &p,
+        vec![
+            ("x".to_string(), 10i32),
+            ("x".to_string(), 20),
+            ("y".to_string(), 30),
+            ("y".to_string(), 40),
+        ],
+    )
+    .group_by_key()
+    .combine_values_lifted(Mean::<f64>::new())
+    .collect_seq()
+    .unwrap();
+    out.sort_by_key(|(k, _)| k.clone());
     assert!((out[0].1 - 15.0).abs() < F64_EPS);
     assert!((out[1].1 - 35.0).abs() < F64_EPS);
 }
@@ -219,12 +243,20 @@ fn test_mean_combine_values_lifted_f64() {
 #[test]
 fn test_mean_combine_values_lifted_f32() {
     let p = Pipeline::default();
-    let mut out = from_vec(&p, vec![("x", 10u16), ("x", 20), ("y", 30), ("y", 40)])
-        .group_by_key()
-        .combine_values_lifted(Mean::<f32>::new())
-        .collect_seq()
-        .unwrap();
-    out.sort_by_key(|(k, _)| *k);
+    let mut out = from_vec(
+        &p,
+        vec![
+            ("x".to_string(), 10u16),
+            ("x".to_string(), 20),
+            ("y".to_string(), 30),
+            ("y".to_string(), 40),
+        ],
+    )
+    .group_by_key()
+    .combine_values_lifted(Mean::<f32>::new())
+    .collect_seq()
+    .unwrap();
+    out.sort_by_key(|(k, _)| k.clone());
     assert!((out[0].1 - 15.0_f32).abs() < F32_EPS);
     assert!((out[1].1 - 35.0_f32).abs() < F32_EPS);
 }
@@ -296,11 +328,18 @@ fn test_mean_globally_helper_large() {
 #[test]
 fn test_mean_per_key_helper_f64() {
     let p = Pipeline::default();
-    let mut out = from_vec(&p, vec![("a", 1u32), ("a", 3), ("b", 10)])
-        .mean_per_key::<f64>()
-        .collect_seq()
-        .unwrap();
-    out.sort_by_key(|(k, _)| *k);
+    let mut out = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 3),
+            ("b".to_string(), 10),
+        ],
+    )
+    .mean_per_key::<f64>()
+    .collect_seq()
+    .unwrap();
+    out.sort_by_key(|(k, _)| k.clone());
     assert!((out[0].1 - 2.0).abs() < F64_EPS);
     assert!((out[1].1 - 10.0).abs() < F64_EPS);
 }
@@ -309,11 +348,19 @@ fn test_mean_per_key_helper_f64() {
 #[test]
 fn test_mean_per_key_helper_f32() {
     let p = Pipeline::default();
-    let mut out = from_vec(&p, vec![("a", 2u16), ("a", 4), ("b", 6), ("b", 8)])
-        .mean_per_key::<f32>()
-        .collect_seq()
-        .unwrap();
-    out.sort_by_key(|(k, _)| *k);
+    let mut out = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 2u16),
+            ("a".to_string(), 4),
+            ("b".to_string(), 6),
+            ("b".to_string(), 8),
+        ],
+    )
+    .mean_per_key::<f32>()
+    .collect_seq()
+    .unwrap();
+    out.sort_by_key(|(k, _)| k.clone());
     assert!((out[0].1 - 3.0_f32).abs() < F32_EPS);
     assert!((out[1].1 - 7.0_f32).abs() < F32_EPS);
 }
@@ -322,11 +369,18 @@ fn test_mean_per_key_helper_f32() {
 #[test]
 fn test_mean_per_key_helper_single_value_per_key() {
     let p = Pipeline::default();
-    let mut out = from_vec(&p, vec![("a", 42u32), ("b", 7), ("c", 100)])
-        .mean_per_key::<f64>()
-        .collect_seq()
-        .unwrap();
-    out.sort_by_key(|(k, _)| *k);
+    let mut out = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 42u32),
+            ("b".to_string(), 7),
+            ("c".to_string(), 100),
+        ],
+    )
+    .mean_per_key::<f64>()
+    .collect_seq()
+    .unwrap();
+    out.sort_by_key(|(k, _)| k.clone());
     assert!((out[0].1 - 42.0).abs() < F64_EPS);
     assert!((out[1].1 - 7.0).abs() < F64_EPS);
     assert!((out[2].1 - 100.0).abs() < F64_EPS);
@@ -337,13 +391,13 @@ fn test_mean_per_key_helper_single_value_per_key() {
 fn test_mean_per_key_helper_parallel() {
     let p = Pipeline::default();
     // Two keys, 100 values each: "a" averages 50.5, "b" averages 150.5
-    let mut data: Vec<(&str, u32)> = (1..=100).map(|i| ("a", i)).collect();
-    data.extend((101..=200).map(|i| ("b", i)));
+    let mut data: Vec<(String, u32)> = (1..=100).map(|i| ("a".to_string(), i)).collect();
+    data.extend((101..=200).map(|i| ("b".to_string(), i)));
     let mut out = from_vec(&p, data)
         .mean_per_key::<f64>()
         .collect_par(Some(4), Some(4))
         .unwrap();
-    out.sort_by_key(|(k, _)| *k);
+    out.sort_by_key(|(k, _)| k.clone());
     assert!((out[0].1 - 50.5).abs() < F64_EPS);
     assert!((out[1].1 - 150.5).abs() < F64_EPS);
 }
@@ -392,11 +446,19 @@ fn test_mean_globally_helper_chained_with_map() {
 #[test]
 fn test_mean_per_key_helper_then_values() {
     let p = Pipeline::default();
-    let mut out = from_vec(&p, vec![("a", 1u32), ("a", 3), ("b", 4), ("b", 8)])
-        .mean_per_key::<f64>()
-        .values()
-        .collect_seq()
-        .unwrap();
+    let mut out = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 3),
+            ("b".to_string(), 4),
+            ("b".to_string(), 8),
+        ],
+    )
+    .mean_per_key::<f64>()
+    .values()
+    .collect_seq()
+    .unwrap();
     out.sort_by(|a, b| a.partial_cmp(b).unwrap());
     assert!((out[0] - 2.0).abs() < F64_EPS);
     assert!((out[1] - 6.0).abs() < F64_EPS);

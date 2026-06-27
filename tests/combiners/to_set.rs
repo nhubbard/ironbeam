@@ -15,10 +15,17 @@ use std::collections::HashSet;
 #[test]
 fn test_to_set_basic() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    );
 
     let mut sets = data.combine_values(ToSet::new()).collect_seq()?;
-    sets.sort_by_key(|x| x.0);
+    sets.sort_by_key(|x| x.0.clone());
 
     assert_eq!(sets.len(), 2);
     assert_eq!(sets[0].0, "a");
@@ -34,7 +41,7 @@ fn test_to_set_basic() -> Result<()> {
 #[test]
 fn test_to_set_empty() -> Result<()> {
     let p = Pipeline::default();
-    let data: PCollection<(&str, i32)> = from_vec(&p, vec![]);
+    let data: PCollection<(String, i32)> = from_vec(&p, vec![]);
 
     let sets = data.combine_values(ToSet::new()).collect_seq()?;
 
@@ -45,7 +52,15 @@ fn test_to_set_empty() -> Result<()> {
 #[test]
 fn test_to_set_deduplicates() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 1), ("a", 2), ("a", 1)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("a".to_string(), 1),
+        ],
+    );
 
     let sets = data.combine_values(ToSet::new()).collect_seq()?;
 
@@ -60,7 +75,15 @@ fn test_to_set_deduplicates() -> Result<()> {
 #[test]
 fn test_to_set_all_duplicates() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 5), ("a", 5), ("a", 5), ("a", 5)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 5),
+            ("a".to_string(), 5),
+            ("a".to_string(), 5),
+            ("a".to_string(), 5),
+        ],
+    );
 
     let sets = data.combine_values(ToSet::new()).collect_seq()?;
 
@@ -74,7 +97,12 @@ fn test_to_set_all_duplicates() -> Result<()> {
 #[test]
 fn test_to_set_many_unique_values() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, (1..=100).map(|i| ("key", i)).collect::<Vec<_>>());
+    let data = from_vec(
+        &p,
+        (1..=100)
+            .map(|i| ("key".to_string(), i))
+            .collect::<Vec<_>>(),
+    );
 
     let sets = data.combine_values(ToSet::new()).collect_seq()?;
 
@@ -90,10 +118,18 @@ fn test_to_set_many_unique_values() -> Result<()> {
 #[test]
 fn test_to_set_per_key_convenience_method() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 1), ("a", 2), ("b", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    );
 
     let mut sets = data.to_set_per_key().collect_seq()?;
-    sets.sort_by_key(|x| x.0);
+    sets.sort_by_key(|x| x.0.clone());
 
     assert_eq!(sets.len(), 2);
     assert_eq!(sets[0].0, "a");
@@ -109,15 +145,15 @@ fn test_to_set_string_values() -> Result<()> {
     let data = from_vec(
         &p,
         vec![
-            ("a", "foo".to_string()),
-            ("a", "bar".to_string()),
-            ("a", "foo".to_string()),
-            ("b", "baz".to_string()),
+            ("a".to_string(), "foo".to_string()),
+            ("a".to_string(), "bar".to_string()),
+            ("a".to_string(), "foo".to_string()),
+            ("b".to_string(), "baz".to_string()),
         ],
     );
 
     let mut sets = data.combine_values(ToSet::new()).collect_seq()?;
-    sets.sort_by_key(|x| x.0);
+    sets.sort_by_key(|x| x.0.clone());
 
     assert_eq!(sets.len(), 2);
     assert_eq!(sets[0].0, "a");
@@ -133,13 +169,20 @@ fn test_to_set_string_values() -> Result<()> {
 #[test]
 fn test_to_set_returns_hashset() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 2), ("a", 1)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("a".to_string(), 1),
+        ],
+    );
 
     let sets = data.combine_values(ToSet::new()).collect_seq()?;
 
     // Verify the type is HashSet
     assert_eq!(sets.len(), 1);
-    let (_key, set): (&str, HashSet<i32>) = sets[0].clone();
+    let (_key, set): (String, HashSet<i32>) = sets[0].clone();
     assert_eq!(set.len(), 2);
     Ok(())
 }
@@ -147,7 +190,14 @@ fn test_to_set_returns_hashset() -> Result<()> {
 #[test]
 fn test_to_set_with_combine_values_lifted() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 1), ("a", 2)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+        ],
+    );
 
     let grouped = data.group_by_key();
     let sets = grouped.combine_values_lifted(ToSet::new());

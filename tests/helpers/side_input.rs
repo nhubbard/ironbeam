@@ -247,7 +247,11 @@ fn singleton_can_be_shared_across_two_collections() -> Result<()> {
 
 #[test]
 fn side_multimap_groups_duplicate_keys() {
-    let m = side_multimap(vec![("alice", "admin"), ("alice", "user"), ("bob", "user")]);
+    let m = side_multimap(vec![
+        ("alice".to_string(), "admin".to_string()),
+        ("alice".to_string(), "user".to_string()),
+        ("bob".to_string(), "user".to_string()),
+    ]);
     let inner = &*m.0;
     let mut alice_tags = inner["alice"].clone();
     alice_tags.sort_unstable();

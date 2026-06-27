@@ -4,6 +4,7 @@
 //! `String` and that the transform composes correctly with other operators.
 
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 // ── Basic correctness across `Display`-implementing types ────────────────────
@@ -141,7 +142,7 @@ fn test_to_display_string_single_element() {
 /// Custom struct with a manual `Display` impl.
 #[test]
 fn test_to_display_string_custom_display_struct() {
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     struct Point {
         x: i32,
         y: i32,
@@ -174,7 +175,7 @@ fn test_to_display_string_custom_display_struct() {
 /// Custom enum with a manual `Display` impl.
 #[test]
 fn test_to_display_string_custom_display_enum() {
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     enum Color {
         Red,
         Green,

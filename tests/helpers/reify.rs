@@ -119,7 +119,9 @@ fn reify_string_values() -> Result<()> {
 
 #[test]
 fn reify_struct_values() -> Result<()> {
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    )]
     struct Point {
         x: i32,
         y: i32,

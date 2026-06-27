@@ -9,6 +9,7 @@
 
 use ironbeam::combiners::ToDict;
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ── ToDict via combine_globally ──────────────────────────────────────────────
@@ -17,13 +18,26 @@ use std::collections::HashMap;
 #[test]
 fn test_to_dict_combiner_basic() {
     let p = Pipeline::default();
-    let dict = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3)])
-        .combine_globally(ToDict::new(), None)
-        .collect_seq()
-        .unwrap();
+    let dict = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    )
+    .combine_globally(ToDict::new(), None)
+    .collect_seq()
+    .unwrap();
 
     assert_eq!(dict.len(), 1);
-    let expected: HashMap<&str, u32> = [("a", 1u32), ("b", 2), ("c", 3)].iter().copied().collect();
+    let expected: HashMap<String, u32> = [
+        ("a".to_string(), 1u32),
+        ("b".to_string(), 2),
+        ("c".to_string(), 3),
+    ]
+    .into_iter()
+    .collect();
     assert_eq!(dict[0], expected);
 }
 
@@ -31,7 +45,7 @@ fn test_to_dict_combiner_basic() {
 #[test]
 fn test_to_dict_combiner_empty() {
     let p = Pipeline::default();
-    let input: Vec<(&str, u32)> = vec![];
+    let input: Vec<(String, u32)> = vec![];
     let dict = from_vec(&p, input)
         .combine_globally(ToDict::new(), None)
         .collect_seq()
@@ -44,7 +58,7 @@ fn test_to_dict_combiner_empty() {
 #[test]
 fn test_to_dict_combiner_single_pair() {
     let p = Pipeline::default();
-    let dict = from_vec(&p, vec![("only", 42u32)])
+    let dict = from_vec(&p, vec![("only".to_string(), 42u32)])
         .combine_globally(ToDict::new(), None)
         .collect_seq()
         .unwrap();
@@ -75,10 +89,17 @@ fn test_to_dict_combiner_parallel_distinct_keys() {
 #[test]
 fn test_to_dict_combiner_duplicates_unspecified() {
     let p = Pipeline::default();
-    let dict = from_vec(&p, vec![("k", 1u32), ("k", 2), ("k", 3)])
-        .combine_globally(ToDict::new(), None)
-        .collect_seq()
-        .unwrap();
+    let dict = from_vec(
+        &p,
+        vec![
+            ("k".to_string(), 1u32),
+            ("k".to_string(), 2),
+            ("k".to_string(), 3),
+        ],
+    )
+    .combine_globally(ToDict::new(), None)
+    .collect_seq()
+    .unwrap();
 
     assert_eq!(dict.len(), 1);
     assert_eq!(dict[0].len(), 1);
@@ -139,11 +160,24 @@ fn test_to_dict_combiner_numeric_keys_string_values() {
 #[test]
 fn test_to_dict_combiner_lifted() {
     let p = Pipeline::default();
-    let dict = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3)])
-        .combine_globally_lifted(ToDict::new(), None)
-        .collect_seq()
-        .unwrap();
-    let expected: HashMap<&str, u32> = [("a", 1u32), ("b", 2), ("c", 3)].iter().copied().collect();
+    let dict = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    )
+    .combine_globally_lifted(ToDict::new(), None)
+    .collect_seq()
+    .unwrap();
+    let expected: HashMap<String, u32> = [
+        ("a".to_string(), 1u32),
+        ("b".to_string(), 2),
+        ("c".to_string(), 3),
+    ]
+    .into_iter()
+    .collect();
     assert_eq!(dict[0], expected);
 }
 
@@ -168,12 +202,25 @@ fn test_to_dict_combiner_lifted_with_fanout() {
 #[test]
 fn test_to_dict_helper_basic() {
     let p = Pipeline::default();
-    let dict = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3)])
-        .to_dict()
-        .collect_seq()
-        .unwrap();
+    let dict = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    )
+    .to_dict()
+    .collect_seq()
+    .unwrap();
 
-    let expected: HashMap<&str, u32> = [("a", 1u32), ("b", 2), ("c", 3)].iter().copied().collect();
+    let expected: HashMap<String, u32> = [
+        ("a".to_string(), 1u32),
+        ("b".to_string(), 2),
+        ("c".to_string(), 3),
+    ]
+    .into_iter()
+    .collect();
     assert_eq!(dict[0], expected);
 }
 
@@ -181,7 +228,7 @@ fn test_to_dict_helper_basic() {
 #[test]
 fn test_to_dict_helper_empty() {
     let p = Pipeline::default();
-    let input: Vec<(&str, u32)> = vec![];
+    let input: Vec<(String, u32)> = vec![];
     let dict = from_vec(&p, input).to_dict().collect_seq().unwrap();
     assert_eq!(dict.len(), 1);
     assert!(dict[0].is_empty());
@@ -217,7 +264,7 @@ fn test_to_dict_helper_large() {
 /// Helper: struct key + primitive value.
 #[test]
 fn test_to_dict_helper_struct_key() {
-    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
     struct CompositeKey {
         region: String,
         shard: u32,
@@ -267,17 +314,26 @@ fn test_to_dict_helper_struct_key() {
 #[test]
 fn test_to_dict_after_sum_per_key_is_stable() {
     let p = Pipeline::default();
-    let data = vec![("a", 1u64), ("a", 2), ("b", 10), ("b", 20), ("c", 100)];
+    let data = vec![
+        ("a".to_string(), 1u64),
+        ("a".to_string(), 2),
+        ("b".to_string(), 10),
+        ("b".to_string(), 20),
+        ("c".to_string(), 100),
+    ];
     let dict = from_vec(&p, data)
         .sum_per_key()
         .to_dict()
         .collect_seq()
         .unwrap();
 
-    let expected: HashMap<&str, u64> = [("a", 3u64), ("b", 30), ("c", 100)]
-        .iter()
-        .copied()
-        .collect();
+    let expected: HashMap<String, u64> = [
+        ("a".to_string(), 3u64),
+        ("b".to_string(), 30),
+        ("c".to_string(), 100),
+    ]
+    .into_iter()
+    .collect();
     assert_eq!(dict[0], expected);
 }
 
@@ -285,11 +341,18 @@ fn test_to_dict_after_sum_per_key_is_stable() {
 #[test]
 fn test_to_dict_then_map_extract_key() {
     let p = Pipeline::default();
-    let out = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3)])
-        .to_dict()
-        .map(|m: &HashMap<&str, u32>| m.get("b").copied().unwrap_or_default())
-        .collect_seq()
-        .unwrap();
+    let out = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    )
+    .to_dict()
+    .map(|m: &HashMap<String, u32>| m.get("b").copied().unwrap_or_default())
+    .collect_seq()
+    .unwrap();
     assert_eq!(out, vec![2u32]);
 }
 
@@ -297,11 +360,19 @@ fn test_to_dict_then_map_extract_key() {
 #[test]
 fn test_to_dict_then_map_size() {
     let p = Pipeline::default();
-    let out = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3), ("d", 4)])
-        .to_dict()
-        .map(|m: &HashMap<&str, u32>| m.len())
-        .collect_seq()
-        .unwrap();
+    let out = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+            ("d".to_string(), 4),
+        ],
+    )
+    .to_dict()
+    .map(|m: &HashMap<String, u32>| m.len())
+    .collect_seq()
+    .unwrap();
     assert_eq!(out, vec![4usize]);
 }
 
@@ -313,12 +384,12 @@ fn test_to_dict_default_equals_new() {
     let p1 = Pipeline::default();
     let p2 = Pipeline::default();
 
-    let from_new = from_vec(&p1, vec![("a", 1u32), ("b", 2)])
-        .combine_globally(ToDict::<&str, u32>::new(), None)
+    let from_new = from_vec(&p1, vec![("a".to_string(), 1u32), ("b".to_string(), 2)])
+        .combine_globally(ToDict::<String, u32>::new(), None)
         .collect_seq()
         .unwrap();
-    let from_default = from_vec(&p2, vec![("a", 1u32), ("b", 2)])
-        .combine_globally(ToDict::<&str, u32>::default(), None)
+    let from_default = from_vec(&p2, vec![("a".to_string(), 1u32), ("b".to_string(), 2)])
+        .combine_globally(ToDict::<String, u32>::default(), None)
         .collect_seq()
         .unwrap();
 

@@ -147,10 +147,10 @@ fn count_per_window_basic() -> Result<()> {
     let events = from_vec(
         &p,
         vec![
-            Timestamped::new(1_000u64, "a"),
-            Timestamped::new(5_000u64, "b"),
-            Timestamped::new(11_000u64, "c"),
-            Timestamped::new(14_000u64, "d"),
+            Timestamped::new(1_000u64, "a".to_string()),
+            Timestamped::new(5_000u64, "b".to_string()),
+            Timestamped::new(11_000u64, "c".to_string()),
+            Timestamped::new(14_000u64, "d".to_string()),
         ],
     );
 
@@ -170,9 +170,9 @@ fn count_per_window_single_window() -> Result<()> {
     let events = from_vec(
         &p,
         vec![
-            Timestamped::new(100u64, "x"),
-            Timestamped::new(200u64, "y"),
-            Timestamped::new(300u64, "z"),
+            Timestamped::new(100u64, "x".to_string()),
+            Timestamped::new(200u64, "y".to_string()),
+            Timestamped::new(300u64, "z".to_string()),
         ],
     );
 
@@ -480,9 +480,18 @@ fn count_per_key_and_window_basic() -> Result<()> {
     let events = from_vec(
         &p,
         vec![
-            ("k1".to_string(), Timestamped::new(1_000u64, "a")),
-            ("k1".to_string(), Timestamped::new(5_000u64, "b")),
-            ("k2".to_string(), Timestamped::new(3_000u64, "c")),
+            (
+                "k1".to_string(),
+                Timestamped::new(1_000u64, "a".to_string()),
+            ),
+            (
+                "k1".to_string(),
+                Timestamped::new(5_000u64, "b".to_string()),
+            ),
+            (
+                "k2".to_string(),
+                Timestamped::new(3_000u64, "c".to_string()),
+            ),
         ],
     );
 
@@ -732,9 +741,9 @@ fn windowed_combine_count_matches_explicit_group_by() -> Result<()> {
 
     let make_events = || {
         vec![
-            Timestamped::new(0u64, "x"),
-            Timestamped::new(5_000u64, "y"),
-            Timestamped::new(11_000u64, "z"),
+            Timestamped::new(0u64, "x".to_string()),
+            Timestamped::new(5_000u64, "y".to_string()),
+            Timestamped::new(11_000u64, "z".to_string()),
         ]
     };
 
@@ -747,7 +756,7 @@ fn windowed_combine_count_matches_explicit_group_by() -> Result<()> {
     // Approach 2: explicit three-step pipeline
     let mut explicit_result = from_vec(&p2, make_events())
         .group_by_window(10_000, 0)
-        .map_values(|vs: &Vec<&'static str>| vs.len() as u64)
+        .map_values(|vs: &Vec<String>| vs.len() as u64)
         .collect_seq()?;
     explicit_result.sort_by_key(|(win, _)| win.start);
 

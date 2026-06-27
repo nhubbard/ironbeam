@@ -246,19 +246,22 @@ fn test_approx_count_distinct_per_key_small() {
     let counts = from_vec(
         &p,
         vec![
-            ("a", 1u32),
-            ("a", 1),
-            ("a", 2),
-            ("a", 3),
-            ("b", 7u32),
-            ("b", 7),
-            ("b", 8),
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+            ("b".to_string(), 7u32),
+            ("b".to_string(), 7),
+            ("b".to_string(), 8),
         ],
     )
     .approx_count_distinct_per_key()
     .collect_seq_sorted()
     .unwrap();
-    assert_eq!(counts, vec![("a", 3u64), ("b", 2u64)]);
+    assert_eq!(
+        counts,
+        vec![("a".to_string(), 3u64), ("b".to_string(), 2u64)]
+    );
 }
 
 /// Per-key version with a custom error bound still produces correct counts
@@ -269,26 +272,29 @@ fn test_approx_count_distinct_per_key_with_error() {
     let counts = from_vec(
         &p,
         vec![
-            ("x", 1u64),
-            ("x", 2),
-            ("x", 2),
-            ("y", 100u64),
-            ("y", 200),
-            ("y", 300),
-            ("y", 300),
+            ("x".to_string(), 1u64),
+            ("x".to_string(), 2),
+            ("x".to_string(), 2),
+            ("y".to_string(), 100u64),
+            ("y".to_string(), 200),
+            ("y".to_string(), 300),
+            ("y".to_string(), 300),
         ],
     )
     .approx_count_distinct_per_key_with_error(0.005)
     .collect_seq_sorted()
     .unwrap();
-    assert_eq!(counts, vec![("x", 2u64), ("y", 3u64)]);
+    assert_eq!(
+        counts,
+        vec![("x".to_string(), 2u64), ("y".to_string(), 3u64)]
+    );
 }
 
 /// Empty input ⇒ no output (no keys to aggregate).
 #[test]
 fn test_approx_count_distinct_per_key_empty() {
     let p = Pipeline::default();
-    let out = from_vec(&p, Vec::<(&str, u32)>::new())
+    let out = from_vec(&p, Vec::<(String, u32)>::new())
         .approx_count_distinct_per_key()
         .collect_seq()
         .unwrap();
@@ -301,10 +307,10 @@ fn test_approx_count_distinct_per_key_large_within_error() {
     const N: u32 = 20_000;
     let p = Pipeline::default();
     // 2 keys, each with N distinct values.
-    let mut data: Vec<(&str, u32)> = Vec::with_capacity((N as usize) * 2);
+    let mut data: Vec<(String, u32)> = Vec::with_capacity((N as usize) * 2);
     for v in 0..N {
-        data.push(("L", v));
-        data.push(("R", N + v));
+        data.push(("L".to_string(), v));
+        data.push(("R".to_string(), N + v));
     }
 
     let counts = from_vec(&p, data)
@@ -327,9 +333,9 @@ fn test_approx_count_distinct_per_key_large_within_error() {
 #[test]
 fn test_approx_count_distinct_per_key_seq_par_identical() {
     const N: u32 = 5_000;
-    let mut data: Vec<(&str, u32)> = Vec::with_capacity(N as usize);
+    let mut data: Vec<(String, u32)> = Vec::with_capacity(N as usize);
     for v in 0..N {
-        data.push((if v % 2 == 0 { "even" } else { "odd" }, v));
+        data.push((if v % 2 == 0 { "even" } else { "odd" }.to_string(), v));
     }
 
     let p1 = Pipeline::default();
@@ -352,14 +358,14 @@ fn test_hll_combine_values_lifted_end_to_end() {
     let counts = from_vec(
         &p,
         vec![
-            ("a", 1u32),
-            ("a", 1),
-            ("a", 2),
-            ("a", 3),
-            ("b", 7u32),
-            ("b", 7),
-            ("b", 8),
-            ("c", 1u32),
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+            ("b".to_string(), 7u32),
+            ("b".to_string(), 7),
+            ("b".to_string(), 8),
+            ("c".to_string(), 1u32),
         ],
     )
     .group_by_key()
@@ -367,5 +373,12 @@ fn test_hll_combine_values_lifted_end_to_end() {
     .collect_seq_sorted()
     .unwrap();
 
-    assert_eq!(counts, vec![("a", 3u64), ("b", 2u64), ("c", 1u64)]);
+    assert_eq!(
+        counts,
+        vec![
+            ("a".to_string(), 3u64),
+            ("b".to_string(), 2u64),
+            ("c".to_string(), 1u64)
+        ]
+    );
 }

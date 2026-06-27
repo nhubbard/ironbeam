@@ -85,19 +85,19 @@ fn approx_median_per_key_basic() -> Result<()> {
     let mut result = from_vec(
         &p,
         vec![
-            ("a", 1.0f64),
-            ("a", 2.0),
-            ("a", 3.0),
-            ("a", 4.0),
-            ("a", 5.0),
-            ("b", 10.0),
-            ("b", 20.0),
-            ("b", 30.0),
+            ("a".to_string(), 1.0f64),
+            ("a".to_string(), 2.0),
+            ("a".to_string(), 3.0),
+            ("a".to_string(), 4.0),
+            ("a".to_string(), 5.0),
+            ("b".to_string(), 10.0),
+            ("b".to_string(), 20.0),
+            ("b".to_string(), 30.0),
         ],
     )
     .approx_median_per_key(100.0)
     .collect_seq()?;
-    result.sort_by(|a, b| a.0.cmp(b.0));
+    result.sort_by(|a, b| a.0.cmp(&b.0));
 
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].0, "a");
@@ -114,10 +114,10 @@ fn approx_median_per_key_basic() -> Result<()> {
 #[test]
 fn approx_median_per_key_single_entry_per_key() -> Result<()> {
     let p = Pipeline::default();
-    let mut result = from_vec(&p, vec![("x", 7.0f64), ("y", 42.0)])
+    let mut result = from_vec(&p, vec![("x".to_string(), 7.0f64), ("y".to_string(), 42.0)])
         .approx_median_per_key(100.0)
         .collect_seq()?;
-    result.sort_by(|a, b| a.0.cmp(b.0));
+    result.sort_by(|a, b| a.0.cmp(&b.0));
     assert!((result[0].1 - 7.0).abs() < 1.0);
     assert!((result[1].1 - 42.0).abs() < 1.0);
     Ok(())
@@ -189,16 +189,16 @@ fn approx_quantiles_per_key_basic() -> Result<()> {
     let mut result = from_vec(
         &p,
         vec![
-            ("a", 1.0f64),
-            ("a", 2.0),
-            ("a", 3.0),
-            ("a", 4.0),
-            ("a", 5.0),
+            ("a".to_string(), 1.0f64),
+            ("a".to_string(), 2.0),
+            ("a".to_string(), 3.0),
+            ("a".to_string(), 4.0),
+            ("a".to_string(), 5.0),
         ],
     )
     .approx_quantiles_per_key(vec![0.0, 0.5, 1.0], 100.0)
     .collect_seq()?;
-    result.sort_by(|a, b| a.0.cmp(b.0));
+    result.sort_by(|a, b| a.0.cmp(&b.0));
 
     assert_eq!(result.len(), 1);
     let qs = &result[0].1;
@@ -216,17 +216,17 @@ fn approx_quantiles_per_key_multiple_keys() -> Result<()> {
     let mut result = from_vec(
         &p,
         vec![
-            ("a", 1.0f64),
-            ("a", 2.0),
-            ("a", 3.0),
-            ("b", 10.0),
-            ("b", 20.0),
-            ("b", 30.0),
+            ("a".to_string(), 1.0f64),
+            ("a".to_string(), 2.0),
+            ("a".to_string(), 3.0),
+            ("b".to_string(), 10.0),
+            ("b".to_string(), 20.0),
+            ("b".to_string(), 30.0),
         ],
     )
     .approx_quantiles_per_key(vec![0.5], 100.0)
     .collect_seq()?;
-    result.sort_by(|a, b| a.0.cmp(b.0));
+    result.sort_by(|a, b| a.0.cmp(&b.0));
 
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].1.len(), 1); // "a" median
