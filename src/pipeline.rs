@@ -16,7 +16,7 @@
 use crate::NodeId;
 use crate::node::Node;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 #[cfg(feature = "coders")]
 use crate::coders::{ElementCoder, PostcardCoder, PostcardKvCoder};
@@ -335,7 +335,7 @@ impl Pipeline {
                     .0
                     .inner
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    .unwrap_or_else(PoisonError::into_inner);
                 g.scope_stack.pop();
             }
         }
