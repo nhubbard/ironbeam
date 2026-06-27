@@ -1,3 +1,5 @@
+#![cfg(feature = "io-csv")]
+
 use anyhow::Result;
 use ironbeam::io::csv::*;
 use serde::{Deserialize, Serialize};

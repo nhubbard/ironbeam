@@ -1,3 +1,5 @@
+#![cfg(any(feature = "io-csv", feature = "io-jsonl", feature = "io-parquet"))]
+
 use ironbeam::testing::*;
 
 #[test]

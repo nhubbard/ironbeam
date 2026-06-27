@@ -1,5 +1,7 @@
 //! Tests for the metrics module.
 
+#![cfg(feature = "metrics")]
+
 use ironbeam::metrics::{
     CounterMetric, GaugeMetric, HistogramMetric, HistogramStats, Metric, MetricsCollector,
 };

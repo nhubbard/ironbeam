@@ -170,15 +170,16 @@ fn test_write_compressed_zstd() {
 
 #[test]
 fn test_compression_feature_error() {
-    let _storage = FakeObjectIO::new();
-    let _records = [TestRecord {
-        id: 1,
-        name: "Test".to_string(),
-    }];
-
-    // Try to write with a compression format that's not enabled
+    // Only meaningful when gzip is disabled: writing a `.gz` object must
+    // surface a runtime "not enabled" error. With gzip on, there is nothing
+    // to assert, so the bindings live inside the cfg block to stay used.
     #[cfg(not(feature = "compression-gzip"))]
     {
+        let storage = FakeObjectIO::new();
+        let records = [TestRecord {
+            id: 1,
+            name: "Test".to_string(),
+        }];
         let result = write_cloud_jsonl_vec(&storage, "bucket", "data.jsonl.gz", &records);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("not enabled"));

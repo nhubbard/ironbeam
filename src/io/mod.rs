@@ -176,8 +176,8 @@
 //! # }
 //! ```
 //!
-//! ### Parallel Writing
-//! ```no_run
+//! ### Parallel Writing (requires the `parallel-io` feature)
+//! ```ignore
 //! use ironbeam::io::jsonl::write_jsonl_par;
 //! use serde::Serialize;
 //! use anyhow::Result;

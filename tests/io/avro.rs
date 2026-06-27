@@ -8,6 +8,8 @@
 //! - Compression support
 //! - Error handling
 
+#![cfg(feature = "io-avro")]
+
 use anyhow::{Result, anyhow};
 use apache_avro::Schema;
 use ironbeam::io::avro::{

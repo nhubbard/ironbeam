@@ -48,8 +48,8 @@
 //! # Ok(()) }
 //! ```
 //!
-//! Parallel write with stable order:
-//! ```no_run
+//! Parallel write with stable order (requires the `parallel-io` feature):
+//! ```ignore
 //! use ironbeam::*;
 //! use serde::{Deserialize, Serialize};
 //! use anyhow::Result;

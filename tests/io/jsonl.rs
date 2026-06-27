@@ -1,3 +1,5 @@
+#![cfg(feature = "io-jsonl")]
+
 use anyhow::Result;
 use ironbeam::io::jsonl::*;
 use ironbeam::testing::*;
