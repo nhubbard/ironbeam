@@ -1,7 +1,7 @@
 //! Per-PCollection element coders, attached automatically at build time when
 //! the `coders` feature is on.
 //!
-//! ironbeam erases every element type behind `Partition = Box<dyn Any>` (a
+//! Ironbeam erases every element type behind `Partition = Box<dyn Any>` (a
 //! boxed `Vec<T>`), and ops are `Arc<dyn DynOp>` closures that expose only
 //! `apply`. A backend that ships elements across a wire (the Dataflow harness)
 //! therefore has no static knowledge of `T`. Rust has no runtime reflection and

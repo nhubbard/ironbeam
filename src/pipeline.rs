@@ -151,7 +151,7 @@ impl Pipeline {
         self.inner.lock().unwrap().edges.push((from, to));
     }
 
-    /// Attach the default bincode coder for output type `T` to `id`.
+    /// Attach the default postcard coder for output type `T` to `id`.
     ///
     /// Combinators call this unconditionally right after `insert_node`; without
     /// the `coders` feature it compiles to a no-op so the call sites stay
@@ -170,7 +170,8 @@ impl Pipeline {
 
     /// Upgrade `id` to a KV-aware coder. Called by `group_by_key` on its
     /// predecessor so the pre-GBK edge can emit each `(K, V)` as two
-    /// independently length-prefixed bincode halves (Beam's `kv<lp, lp>`).
+    /// independently length-prefixed postcard halves (mirroring Beam's
+    /// `kv<lp, lp>` coder concept).
     #[cfg(feature = "coders")]
     pub(crate) fn set_kv_coder<K: RFBound, V: RFBound>(&self, id: NodeId) {
         self.inner
