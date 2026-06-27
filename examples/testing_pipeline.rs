@@ -323,7 +323,7 @@ fn example_joins() -> Result<()> {
 
     let left_join = left_pc.join_left(&right_pc).collect_seq_sorted()?;
     assert_collection_size(&left_join, 3);
-    assert_any(&left_join.clone(), |(k, _)| *k == "c"); // c should be present with None
+    assert_any(&left_join, |(k, _)| *k == "c"); // c should be present with None
     println!("  ✓ Left join test passed");
 
     // Test with realistic fixture data

@@ -38,7 +38,7 @@ enum Shape {
 
 /// Encode a partition of `elems`, then decode each one-element blob back and
 /// assert the recovered elements equal the originals in order.
-fn assert_roundtrip<T>(elems: Vec<T>)
+fn assert_roundtrip<T>(elems: &[T])
 where
     T: Serialize
         + serde::de::DeserializeOwned
@@ -50,7 +50,7 @@ where
         + std::fmt::Debug,
 {
     let coder = PostcardCoder::<T>::new();
-    let part: Partition = Box::new(elems.clone());
+    let part: Partition = Box::new(elems.to_vec());
     let encoded = coder.encode_all(part).expect("encode_all");
     assert_eq!(encoded.len(), elems.len(), "one byte-vec per element");
 
@@ -61,17 +61,17 @@ where
         assert_eq!(v.len(), 1, "decode_one yields a one-element partition");
         decoded.push(v.into_iter().next().unwrap());
     }
-    assert_eq!(decoded, elems);
+    assert_eq!(decoded.as_slice(), elems);
 }
 
 #[test]
 fn roundtrip_primitives_strings_tuples_structs_enums() {
-    assert_roundtrip(vec![1u64, 2, 3, u64::MAX]);
-    assert_roundtrip(vec![-1i32, 0, 7]);
-    assert_roundtrip(vec!["a".to_string(), String::new(), "héllo".to_string()]);
-    assert_roundtrip(vec![(1u64, "x".to_string()), (2, "y".to_string())]);
-    assert_roundtrip(vec![Point { x: 1, y: -2 }, Point { x: 0, y: 0 }]);
-    assert_roundtrip(vec![Shape::Dot, Shape::Line(3), Shape::Named("s".into())]);
+    assert_roundtrip(&[1u64, 2, 3, u64::MAX]);
+    assert_roundtrip(&[-1i32, 0, 7]);
+    assert_roundtrip(&["a".to_string(), String::new(), "héllo".to_string()]);
+    assert_roundtrip(&[(1u64, "x".to_string()), (2, "y".to_string())]);
+    assert_roundtrip(&[Point { x: 1, y: -2 }, Point { x: 0, y: 0 }]);
+    assert_roundtrip(&[Shape::Dot, Shape::Line(3), Shape::Named("s".into())]);
 }
 
 #[test]
@@ -170,9 +170,9 @@ fn every_combinator_registers_a_coder_for_its_output() {
     coded.push(src.clone().batch_elements(2).node_id());
     coded.push(src.clone().batch_by_size(8, |_| 4).node_id());
     coded.push(src.clone().log_elements_with(|x| format!("{x}")).node_id());
-    coded.push(src.clone().debug_inspect_with("inspect", |_| {}).node_id());
-    coded.push(src.clone().debug_count("count").node_id());
-    coded.push(src.clone().debug_sample(2, "sample").node_id());
+    coded.push(src.debug_inspect_with("inspect", |_| {}).node_id());
+    coded.push(src.debug_count("count").node_id());
+    coded.push(src.debug_sample(2, "sample").node_id());
     coded.push(src.clone().reshuffle().node_id());
 
     // wait_on (signal-only barrier).
@@ -194,11 +194,10 @@ fn every_combinator_registers_a_coder_for_its_output() {
 
     // group_by_key (upgrades its predecessor to KV) + lifted combine.
     let gbk_pred = kv.node_id();
-    let grouped = kv.clone().group_by_key(); // PCollection<(u64, Vec<u64>)>
+    let grouped = kv.group_by_key(); // PCollection<(u64, Vec<u64>)>
     coded.push(grouped.node_id());
     coded.push(
         grouped
-            .clone()
             .combine_values_lifted(Sum::<u64>::default())
             .node_id(),
     );
@@ -210,8 +209,7 @@ fn every_combinator_registers_a_coder_for_its_output() {
             .node_id(),
     );
     coded.push(
-        src.clone()
-            .combine_globally_lifted(Sum::<u64>::default(), Some(4))
+        src.combine_globally_lifted(Sum::<u64>::default(), Some(4))
             .node_id(),
     );
 

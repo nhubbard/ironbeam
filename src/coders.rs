@@ -11,7 +11,7 @@
 //! Under `coders`, [`Element`](crate::Element) is tightened to also
 //! require `serde::{Serialize, DeserializeOwned}`, and every node-creating
 //! combinator stashes an [`ElementCoder`] for its output type on the pipeline
-//! graph keyed by [`NodeId`]. The pre-`GroupByKey` node is upgraded to a
+//! graph keyed by [`NodeId`](crate::node_id::NodeId). The pre-`GroupByKey` node is upgraded to a
 //! KV-aware coder so the value can be emitted as two independently
 //! length-prefixed halves, mirroring Beam's `kv<lp, lp>` coder concept.
 
@@ -30,10 +30,18 @@ use crate::type_token::Partition;
 pub trait ElementCoder: Send + Sync {
     /// Wrap one postcard-encoded element as a `Partition` of `Vec<T>` holding a
     /// single element.
+    ///
+    /// # Errors
+    /// Returns an error if `bytes` is not a valid postcard encoding of the
+    /// coder's element type.
     fn decode_one(&self, bytes: &[u8]) -> Result<Partition>;
 
     /// Downcast `partition` to `Vec<T>` and postcard-encode every element,
     /// returning one byte-vec per element.
+    ///
+    /// # Errors
+    /// Returns an error if `partition` is not the expected `Vec<T>`, or if an
+    /// element fails to postcard-encode.
     fn encode_all(&self, partition: Partition) -> Result<Vec<Vec<u8>>>;
 
     /// Debug-friendly name of the `T` this coder handles. Used in error
@@ -47,9 +55,14 @@ pub trait ElementCoder: Send + Sync {
         false
     }
 
-    /// For sinks whose PCollection coder is `kv<lp<bytes>, lp<bytes>>`, split
+    /// For sinks whose `PCollection` coder is `kv<lp<bytes>, lp<bytes>>`, split
     /// each element into separately-encoded `(key, value)` halves. The default
     /// errors; only KV-aware coders implement it.
+    ///
+    /// # Errors
+    /// The default implementation always errors (the coder is not KV-aware).
+    /// KV-aware implementations error if `partition` is not the expected
+    /// `Vec<(K, V)>`, or if a half fails to postcard-encode.
     fn encode_kv_pairs(&self, _partition: Partition) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         Err(anyhow!(
             "coder for {} is not KV-aware; this node must carry a KV coder \
@@ -59,10 +72,12 @@ pub trait ElementCoder: Send + Sync {
     }
 }
 
-/// Default coder: pairs `T` with postcard. Matches ironbeam's
-/// `Partition = Box<Vec<T>>` shape. Encoding is deterministic for every element
-/// type **except** those containing a `HashMap`/`HashSet` (their iteration
-/// order is unstable), which matters when the type is used as a grouping key.
+/// Default coder: pairs `T` with postcard.
+///
+/// Matches ironbeam's `Partition = Box<Vec<T>>` shape. Encoding is
+/// deterministic for every element type **except** those containing a
+/// `HashMap`/`HashSet` (their iteration order is unstable), which matters when
+/// the type is used as a grouping key.
 pub struct PostcardCoder<T>(PhantomData<fn() -> T>);
 
 impl<T> PostcardCoder<T> {
@@ -109,7 +124,9 @@ where
     }
 }
 
-/// KV-aware coder. Wire-identical to `PostcardCoder<(K, V)>` for the in-bundle
+/// KV-aware coder.
+///
+/// Wire-identical to `PostcardCoder<(K, V)>` for the in-bundle
 /// paths (`decode_one`/`encode_all` round-trip a postcard-encoded tuple), but
 /// also implements [`ElementCoder::encode_kv_pairs`], returning the `K` and `V`
 /// halves encoded separately. The pre-`GroupByKey` node carries this so the

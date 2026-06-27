@@ -187,6 +187,9 @@ impl Pipeline {
     /// Override the coder attached to `id` with a hand-built one. Escape hatch
     /// for custom `DynOp`s whose output partition is not the declared `Vec<O>`,
     /// or for non-default wire coders.
+    ///
+    /// # Panics
+    /// If the pipeline lock is poisoned by a panicking concurrent builder.
     #[cfg(feature = "coders")]
     pub fn set_coder_override(&self, id: NodeId, coder: Arc<dyn ElementCoder>) {
         self.inner.lock().unwrap().coders.insert(id, coder);
@@ -331,11 +334,7 @@ impl Pipeline {
         struct ScopeGuard<'a>(&'a Pipeline);
         impl Drop for ScopeGuard<'_> {
             fn drop(&mut self) {
-                let mut g = self
-                    .0
-                    .inner
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
+                let mut g = self.0.inner.lock().unwrap_or_else(PoisonError::into_inner);
                 g.scope_stack.pop();
             }
         }
