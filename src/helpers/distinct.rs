@@ -175,7 +175,7 @@ impl<T: Element> PCollection<T> {
     /// # use anyhow::Result;
     /// use ironbeam::*;
     ///
-    /// #[derive(Clone, Debug, PartialEq)]
+    /// #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
     /// struct Event { user_id: u32, payload: String }
     ///
     /// # fn main() -> Result<()> {
@@ -231,12 +231,12 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let counts = from_vec(&p, vec![
-    ///     ("a", 1u32), ("a", 1), ("a", 2),
-    ///     ("b", 7u32), ("b", 7),
+    ///     ("a".to_string(), 1u32), ("a".to_string(), 1), ("a".to_string(), 2),
+    ///     ("b".to_string(), 7u32), ("b".to_string(), 7),
     /// ])
     /// .distinct_count_per_key()
     /// .collect_seq_sorted()?;
-    /// assert_eq!(counts, vec![("a", 2u64), ("b", 1u64)]);
+    /// assert_eq!(counts, vec![("a".to_string(), 2u64), ("b".to_string(), 1u64)]);
     /// # Ok(())
     /// # }
     /// ```
@@ -309,12 +309,12 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let counts = from_vec(&p, vec![
-    ///     ("a", 1u32), ("a", 1), ("a", 2),
-    ///     ("b", 7u32), ("b", 7),
+    ///     ("a".to_string(), 1u32), ("a".to_string(), 1), ("a".to_string(), 2),
+    ///     ("b".to_string(), 7u32), ("b".to_string(), 7),
     /// ])
     /// .approx_count_distinct_per_key()
     /// .collect_seq_sorted()?;
-    /// assert_eq!(counts, vec![("a", 2u64), ("b", 1u64)]);
+    /// assert_eq!(counts, vec![("a".to_string(), 2u64), ("b".to_string(), 1u64)]);
     /// # Ok(()) }
     /// ```
     #[must_use]

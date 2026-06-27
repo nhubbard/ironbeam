@@ -36,9 +36,9 @@ impl<T: Element> PCollection<Timestamped<T>> {
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let events = from_vec(&p, vec![
-    ///     Timestamped::new(100, "event1"),
-    ///     Timestamped::new(300, "event2"),
-    ///     Timestamped::new(200, "event3"),
+    ///     Timestamped::new(100, "event1".to_string()),
+    ///     Timestamped::new(300, "event2".to_string()),
+    ///     Timestamped::new(200, "event3".to_string()),
     /// ]);
     ///
     /// let latest = events.latest_globally().collect_seq()?;
@@ -82,16 +82,16 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let events = from_vec(&p, vec![
-    ///     ("user1", Timestamped::new(100, "login")),
-    ///     ("user1", Timestamped::new(200, "click")),
-    ///     ("user2", Timestamped::new(150, "purchase")),
-    ///     ("user1", Timestamped::new(180, "view")),
+    ///     ("user1".to_string(), Timestamped::new(100, "login".to_string())),
+    ///     ("user1".to_string(), Timestamped::new(200, "click".to_string())),
+    ///     ("user2".to_string(), Timestamped::new(150, "purchase".to_string())),
+    ///     ("user1".to_string(), Timestamped::new(180, "view".to_string())),
     /// ]);
     ///
     /// let latest = events.latest_per_key().collect_seq_sorted()?;
     /// assert_eq!(latest, vec![
-    ///     ("user1", "click"),  // timestamp 200 is latest
-    ///     ("user2", "purchase")
+    ///     ("user1".to_string(), "click".to_string()),  // timestamp 200 is latest
+    ///     ("user2".to_string(), "purchase".to_string())
     /// ]);
     /// # Ok(())
     /// # }

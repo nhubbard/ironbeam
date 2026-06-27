@@ -17,9 +17,9 @@
 //! let p = Pipeline::default();
 //!
 //! let kv = from_vec(&p, vec![
-//!     ("a", 1u32),
-//!     ("b", 5),
-//!     ("c", 8),
+//!     ("a".to_string(), 1u32),
+//!     ("b".to_string(), 5),
+//!     ("c".to_string(), 8),
 //! ]);
 //!
 //! // Double all values
@@ -29,7 +29,7 @@
 //! let evens = doubled.filter_values(|v| v % 2 == 0);
 //!
 //! let out = evens.collect_seq()?;
-//! assert_eq!(out, vec![("a", 2u32), ("c", 16u32)]);
+//! assert_eq!(out, vec![("a".to_string(), 2u32), ("c".to_string(), 16u32)]);
 //! # Ok::<()>(())
 //! ```
 
@@ -57,10 +57,10 @@ impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
     /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
-    /// let kv = from_vec(&p, vec![("x", 1u32), ("y", 2u32)]);
+    /// let kv = from_vec(&p, vec![("x".to_string(), 1u32), ("y".to_string(), 2u32)]);
     ///
     /// let out = kv.map_values(|v| v + 1).collect_seq()?;
-    /// assert_eq!(out, vec![("x", 2u32), ("y", 3u32)]);
+    /// assert_eq!(out, vec![("x".to_string(), 2u32), ("y".to_string(), 3u32)]);
     /// # use anyhow::Ok; Ok::<()>(())
     /// ```
     #[must_use]
@@ -95,10 +95,10 @@ impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
     /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
-    /// let kv = from_vec(&p, vec![("x", 3u32), ("y", 8u32)]);
+    /// let kv = from_vec(&p, vec![("x".to_string(), 3u32), ("y".to_string(), 8u32)]);
     ///
     /// let out = kv.filter_values(|v| *v > 5).collect_seq()?;
-    /// assert_eq!(out, vec![("y", 8u32)]);
+    /// assert_eq!(out, vec![("y".to_string(), 8u32)]);
     /// # use anyhow::Ok; Ok::<()>(())
     /// ```
     #[must_use]

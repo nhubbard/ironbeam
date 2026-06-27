@@ -25,10 +25,10 @@ use std::marker::PhantomData;
 /// let p = Pipeline::default();
 ///
 /// // Count values per key
-/// let counts = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3), ("a", 4)])
+/// let counts = from_vec(&p, vec![("a".to_string(), 1), ("a".to_string(), 2), ("b".to_string(), 3), ("a".to_string(), 4)])
 ///     .combine_values(Count::new())
 ///     .collect_seq_sorted()?;
-/// assert_eq!(counts, vec![("a", 3), ("b", 1)]);
+/// assert_eq!(counts, vec![("a".to_string(), 3), ("b".to_string(), 1)]);
 ///
 /// // Count globally
 /// let total = from_vec(&p, vec![1, 2, 3, 4, 5])

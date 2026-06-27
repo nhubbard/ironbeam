@@ -156,7 +156,7 @@ impl<T: Element> PCollection<T> {
     /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
-    /// let words = from_vec(&p, vec!["a b", "c d"]);
+    /// let words = from_vec(&p, vec!["a b".to_string(), "c d".to_string()]);
     /// let split = words.flat_map(|s| s.split_whitespace().map(String::from).collect());
     /// let out = split.collect_seq_sorted().unwrap();
     /// assert_eq!(out, vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()]);

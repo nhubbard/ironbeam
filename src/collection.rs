@@ -369,7 +369,7 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
 /// use anyhow::Result;
 ///
 /// let p = Pipeline::default();
-/// let kv = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3)]);
+/// let kv = from_vec(&p, vec![("a".to_string(), 1), ("a".to_string(), 2), ("b".to_string(), 3)]);
 /// let counts = kv.combine_values(Count).collect_seq_sorted()?;
 /// // e.g., [("a", 2), ("b", 1)]
 /// # let _ = counts;

@@ -149,8 +149,8 @@ impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let mut data: Vec<(&str, u32)> = Vec::new();
-    /// for i in 0..100 { data.push(("a", i)); data.push(("b", i + 1_000)); }
+    /// let mut data: Vec<(String, u32)> = Vec::new();
+    /// for i in 0..100 { data.push(("a".to_string(), i)); data.push(("b".to_string(), i + 1_000)); }
     ///
     /// let samples = from_vec(&p, data)
     ///     .sample_per_key(5)

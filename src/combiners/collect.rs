@@ -33,7 +33,7 @@ use std::marker::PhantomData;
 /// let p = Pipeline::default();
 ///
 /// // Collect all values per key into a list
-/// let lists = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3), ("a", 4)])
+/// let lists = from_vec(&p, vec![("a".to_string(), 1), ("a".to_string(), 2), ("b".to_string(), 3), ("a".to_string(), 4)])
 ///     .combine_values(ToList::new())
 ///     .collect_seq_sorted()?;
 ///
@@ -104,10 +104,10 @@ where
 /// let p = Pipeline::default();
 ///
 /// // Collect unique values per key into a set
-/// let mut sets = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3), ("a", 1)])
+/// let mut sets = from_vec(&p, vec![("a".to_string(), 1), ("a".to_string(), 2), ("b".to_string(), 3), ("a".to_string(), 1)])
 ///     .combine_values(ToSet::new())
 ///     .collect_seq()?;
-/// sets.sort_by_key(|x| x.0);
+/// sets.sort_by_key(|x| x.0.clone());
 ///
 /// assert_eq!(sets.len(), 2);
 /// assert_eq!(sets[0].0, "a");
@@ -193,12 +193,12 @@ where
 /// let p = Pipeline::default();
 ///
 /// // Materialize a keyed collection as a single HashMap.
-/// let dict = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3)])
+/// let dict = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2), ("c".to_string(), 3)])
 ///     .combine_globally(ToDict::new(), None)
 ///     .collect_seq()?;
 ///
-/// let expected: HashMap<&str, u32> =
-///     [("a", 1u32), ("b", 2), ("c", 3)].iter().copied().collect();
+/// let expected: HashMap<String, u32> =
+///     [("a".to_string(), 1u32), ("b".to_string(), 2), ("c".to_string(), 3)].into_iter().collect();
 /// assert_eq!(dict[0], expected);
 /// # Ok(())
 /// # }

@@ -21,11 +21,12 @@
 //! ### Quick start
 //! ```no_run
 //! use ironbeam::*;
+//! use serde::{Deserialize, Serialize};
 //!
 //! let p = Pipeline::default();
 //!
 //! // From plain values: attach event-time from a field/computed fn
-//! #[derive(Clone)]
+//! #[derive(Clone, Serialize, Deserialize)]
 //! struct Rec { ts: u64, v: String }
 //!
 //! let events = from_vec(&p, vec![
@@ -66,8 +67,9 @@ impl<T: Element> PCollection<T> {
     /// ### Example
     /// ```no_run
     /// use ironbeam::*;
+    /// use serde::{Deserialize, Serialize};
     ///
-    /// #[derive(Clone)]
+    /// #[derive(Clone, Serialize, Deserialize)]
     /// struct LogLine { ts_ms: u64, msg: String }
     ///
     /// let p = Pipeline::default();

@@ -24,7 +24,7 @@
 //! use anyhow::Result;
 //!
 //! let p = Pipeline::default();
-//! let lines = from_vec(&p, vec!["1","x","3","4"]);
+//! let lines = from_vec(&p, vec!["1".to_string(), "x".to_string(), "3".to_string(), "4".to_string()]);
 //!
 //! // Parse each line -> Result<u64, String>
 //! let parsed = lines
@@ -56,7 +56,7 @@ impl<T: Element> PCollection<T> {
     /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
-    /// let raw = from_vec(&p, vec!["10", "oops", "42"]);
+    /// let raw = from_vec(&p, vec!["10".to_string(), "oops".to_string(), "42".to_string()]);
     ///
     /// let maybe_nums = raw.try_map::<u64, String, _>(|s| {
     ///     s.parse::<u64>().map_err(|e| e.to_string())
@@ -86,7 +86,7 @@ impl<T: Element> PCollection<T> {
     /// use ironbeam::*;
     ///
     /// let p = Pipeline::default();
-    /// let raw = from_vec(&p, vec!["1,2,3", "bad", "4,5"]);
+    /// let raw = from_vec(&p, vec!["1,2,3".to_string(), "bad".to_string(), "4,5".to_string()]);
     ///
     /// let maybe_lists = raw.try_flat_map::<u32, String, _>(|s| {
     ///     s.split(',')
@@ -123,7 +123,7 @@ where
     /// use anyhow::Result;
     ///
     /// let p = Pipeline::default();
-    /// let raw = from_vec(&p, vec!["1","x","3"]);
+    /// let raw = from_vec(&p, vec!["1".to_string(), "x".to_string(), "3".to_string()]);
     ///
     /// let parsed = raw.try_map::<u64, String, _>(|s| {
     ///     s.parse::<u64>().map_err(|e| format!("bad int: {e}"))

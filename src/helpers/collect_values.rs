@@ -104,7 +104,7 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec![
-    ///     ("a", 1), ("a", 2), ("b", 3), ("a", 4)
+    ///     ("a".to_string(), 1), ("a".to_string(), 2), ("b".to_string(), 3), ("a".to_string(), 4)
     /// ]);
     ///
     /// let lists = data.to_list_per_key().collect_seq_sorted()?;
@@ -144,11 +144,11 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec![
-    ///     ("a", 1), ("a", 2), ("b", 3), ("a", 1)
+    ///     ("a".to_string(), 1), ("a".to_string(), 2), ("b".to_string(), 3), ("a".to_string(), 1)
     /// ]);
     ///
     /// let mut sets = data.to_set_per_key().collect_seq()?;
-    /// sets.sort_by_key(|x| x.0);
+    /// sets.sort_by_key(|x| x.0.clone());
     /// assert_eq!(sets[0].0, "a");
     /// assert_eq!(sets[0].1.len(), 2); // Only 1 and 2
     /// assert_eq!(sets[1].0, "b");
@@ -198,12 +198,12 @@ where
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let dict = from_vec(&p, vec![("a", 1u32), ("b", 2), ("c", 3)])
+    /// let dict = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2), ("c".to_string(), 3)])
     ///     .to_dict()
     ///     .collect_seq()?;
     ///
-    /// let expected: HashMap<&str, u32> =
-    ///     [("a", 1u32), ("b", 2), ("c", 3)].iter().copied().collect();
+    /// let expected: HashMap<String, u32> =
+    ///     [("a".to_string(), 1u32), ("b".to_string(), 2), ("c".to_string(), 3)].into_iter().collect();
     /// assert_eq!(dict[0], expected);
     /// # Ok(())
     /// # }

@@ -35,11 +35,15 @@
 //!     .filter_with_singleton(&threshold, |x, t| x > t);
 //!
 //! // Multimap: one key → many values
-//! let tags = side_multimap(vec![("alice", "admin"), ("alice", "user"), ("bob", "user")]);
-//! let with_tags = from_vec(&p, vec!["alice", "bob", "carol"])
+//! let tags = side_multimap(vec![
+//!     ("alice".to_string(), "admin".to_string()),
+//!     ("alice".to_string(), "user".to_string()),
+//!     ("bob".to_string(), "user".to_string()),
+//! ]);
+//! let with_tags = from_vec(&p, vec!["alice".to_string(), "bob".to_string(), "carol".to_string()])
 //!     .map_with_side_multimap(&tags, |name, m| {
 //!         let ts = m.get(name).map(Vec::as_slice).unwrap_or(&[]);
-//!         (*name, ts.to_vec())
+//!         (name.clone(), ts.to_vec())
 //!     });
 //! ```
 

@@ -14,9 +14,10 @@
 
 use anyhow::Result;
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
 // Define an enum with variants for each output type
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 enum RecordValidation {
     Valid(String),
     Warning(String),
@@ -24,14 +25,14 @@ enum RecordValidation {
 }
 
 // User struct for data quality example
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct User {
     id: u32,
     email: String,
     age: i32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 enum UserValidation {
     Valid(User),
     InvalidEmail(User),
@@ -48,18 +49,18 @@ fn main() -> Result<()> {
     let logs = from_vec(
         &p,
         vec![
-            "GET /api/users 200",
-            "POST /api/login 401",
-            "GET /api/data 500",
-            "GET /index.html 200",
-            "POST /api/upload 403",
-            "GET /api/status 200",
-            "DELETE /api/users/123 500",
+            "GET /api/users 200".to_string(),
+            "POST /api/login 401".to_string(),
+            "GET /api/data 500".to_string(),
+            "GET /index.html 200".to_string(),
+            "POST /api/upload 403".to_string(),
+            "GET /api/status 200".to_string(),
+            "DELETE /api/users/123 500".to_string(),
         ],
     );
 
     // Step 1: Classify each log entry into an enum variant
-    let classified = logs.flat_map(|log: &&str| {
+    let classified = logs.flat_map(|log: &String| {
         let parts: Vec<&str> = log.split_whitespace().collect();
         if parts.len() >= 3 {
             let status_code = parts[2];

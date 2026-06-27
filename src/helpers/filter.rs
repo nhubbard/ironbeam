@@ -40,7 +40,7 @@
 //! ```no_run
 //! use ironbeam::*;
 //!
-//! #[derive(Clone)]
+//! #[derive(Clone, serde::Serialize, serde::Deserialize)]
 //! struct Person {
 //!     name: String,
 //!     age: u32,
@@ -274,7 +274,7 @@ impl<T: Element> PCollection<T> {
     /// ```no_run
     /// use ironbeam::*;
     ///
-    /// #[derive(Clone)]
+    /// #[derive(Clone, serde::Serialize, serde::Deserialize)]
     /// struct Product {
     ///     name: String,
     ///     price: f64,

@@ -175,10 +175,10 @@ impl<T: Element> PCollection<Timestamped<T>> {
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let events = from_vec(&p, vec![
-    ///     Timestamped::new(1_000u64, "a"),
-    ///     Timestamped::new(5_000u64, "b"),
-    ///     Timestamped::new(11_000u64, "c"),
-    ///     Timestamped::new(14_000u64, "d"),
+    ///     Timestamped::new(1_000u64, "a".to_string()),
+    ///     Timestamped::new(5_000u64, "b".to_string()),
+    ///     Timestamped::new(11_000u64, "c".to_string()),
+    ///     Timestamped::new(14_000u64, "d".to_string()),
     /// ]);
     ///
     /// let counts = events.count_per_window(10_000, 0);
@@ -414,9 +414,9 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let events = from_vec(&p, vec![
-    ///     ("k1".to_string(), Timestamped::new(1_000u64, "a")),
-    ///     ("k1".to_string(), Timestamped::new(5_000u64, "b")),
-    ///     ("k2".to_string(), Timestamped::new(3_000u64, "c")),
+    ///     ("k1".to_string(), Timestamped::new(1_000u64, "a".to_string())),
+    ///     ("k1".to_string(), Timestamped::new(5_000u64, "b".to_string())),
+    ///     ("k2".to_string(), Timestamped::new(3_000u64, "c".to_string())),
     /// ]);
     ///
     /// let counts = events.count_per_key_and_window(10_000, 0);

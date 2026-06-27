@@ -283,8 +283,8 @@ impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
     /// let pairs = from_vec(
     ///     &p,
     ///     vec![
-    ///         ("a", 1u32), ("a", 2), ("a", 3), ("a", 4), ("a", 5),
-    ///         ("b", 10), ("b", 20), ("b", 30),
+    ///         ("a".to_string(), 1u32), ("a".to_string(), 2), ("a".to_string(), 3), ("a".to_string(), 4), ("a".to_string(), 5),
+    ///         ("b".to_string(), 10), ("b".to_string(), 20), ("b".to_string(), 30),
     ///     ],
     /// );
     /// let batched = pairs.group_into_batches(2);

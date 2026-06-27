@@ -101,10 +101,10 @@ use std::sync::Arc;
 /// Single file:
 /// ```no_run
 /// use ironbeam::*;
-/// use serde::Deserialize;
+/// use serde::{Serialize, Deserialize};
 /// use anyhow::{Result, Ok};
 ///
-/// #[derive(Clone, Deserialize)]
+/// #[derive(Clone, Serialize, Deserialize)]
 /// struct Row { k: String, v: u64 }
 ///
 /// # fn main() -> Result<()> {
@@ -117,10 +117,10 @@ use std::sync::Arc;
 /// Glob pattern:
 /// ```no_run
 /// use ironbeam::*;
-/// use serde::Deserialize;
+/// use serde::{Serialize, Deserialize};
 /// use anyhow::{Result, Ok};
 ///
-/// #[derive(Clone, Deserialize)]
+/// #[derive(Clone, Serialize, Deserialize)]
 /// struct Row { k: String, v: u64 }
 ///
 /// # fn main() -> Result<()> {
@@ -181,10 +181,10 @@ impl<T: Element + Serialize> PCollection<T> {
     /// # Example
     /// ```no_run
     /// use ironbeam::*;
-    /// use serde::Serialize;
+    /// use serde::{Serialize, Deserialize};
     /// use anyhow::{Result, Ok};
     ///
-    /// #[derive(Clone, Serialize)]
+    /// #[derive(Clone, Serialize, Deserialize)]
     /// struct Row { k: String, v: u64 }
     ///
     /// # fn main() -> Result<()> {
@@ -218,10 +218,10 @@ impl<T: Element + Serialize> PCollection<T> {
     /// # Example
     /// ```no_run
     /// use ironbeam::*;
-    /// use serde::Serialize;
+    /// use serde::{Serialize, Deserialize};
     /// use anyhow::{Result, Ok};
     ///
-    /// #[derive(Clone, Serialize)]
+    /// #[derive(Clone, Serialize, Deserialize)]
     /// struct Row { k: String, v: u64 }
     ///
     /// # fn main() -> Result<()> {
@@ -261,10 +261,10 @@ impl<T: Element + Serialize> PCollection<T> {
 /// # Example
 /// ```no_run
 /// use ironbeam::*;
-/// use serde::Deserialize;
+/// use serde::{Serialize, Deserialize};
 /// use anyhow::{Result, Ok};
 ///
-/// #[derive(Clone, Deserialize)]
+/// #[derive(Clone, Serialize, Deserialize)]
 /// struct Row { k: String, v: u64 }
 ///
 /// # fn main() -> Result<()> {

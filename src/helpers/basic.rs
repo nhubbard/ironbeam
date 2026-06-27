@@ -197,10 +197,10 @@ where
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let sums = from_vec(&p, vec![("a", 1u64), ("a", 2), ("b", 10)])
+    /// let sums = from_vec(&p, vec![("a".to_string(), 1u64), ("a".to_string(), 2), ("b".to_string(), 10)])
     ///     .sum_per_key()
     ///     .collect_seq_sorted()?;
-    /// assert_eq!(sums, vec![("a", 3u64), ("b", 10u64)]);
+    /// assert_eq!(sums, vec![("a".to_string(), 3u64), ("b".to_string(), 10u64)]);
     /// # Ok(())
     /// # }
     /// ```
@@ -230,10 +230,10 @@ where
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let mins = from_vec(&p, vec![("a", 5i32), ("a", 2), ("b", 8)])
+    /// let mins = from_vec(&p, vec![("a".to_string(), 5i32), ("a".to_string(), 2), ("b".to_string(), 8)])
     ///     .min_per_key()
     ///     .collect_seq_sorted()?;
-    /// assert_eq!(mins, vec![("a", 2i32), ("b", 8i32)]);
+    /// assert_eq!(mins, vec![("a".to_string(), 2i32), ("b".to_string(), 8i32)]);
     /// # Ok(())
     /// # }
     /// ```
@@ -257,10 +257,10 @@ where
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let maxs = from_vec(&p, vec![("a", 5i32), ("a", 2), ("b", 8)])
+    /// let maxs = from_vec(&p, vec![("a".to_string(), 5i32), ("a".to_string(), 2), ("b".to_string(), 8)])
     ///     .max_per_key()
     ///     .collect_seq_sorted()?;
-    /// assert_eq!(maxs, vec![("a", 5i32), ("b", 8i32)]);
+    /// assert_eq!(maxs, vec![("a".to_string(), 5i32), ("b".to_string(), 8i32)]);
     /// # Ok(())
     /// # }
     /// ```
@@ -287,7 +287,7 @@ where
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let avgs = from_vec(&p, vec![("a", 1u32), ("a", 3), ("b", 10)])
+    /// let avgs = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 3), ("b".to_string(), 10)])
     ///     .average_per_key()
     ///     .collect_seq()?;
     /// assert_eq!(avgs[0].0, "a");
@@ -329,7 +329,7 @@ where
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let avgs = from_vec(&p, vec![("a", 1u32), ("a", 3), ("b", 10)])
+    /// let avgs = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 3), ("b".to_string(), 10)])
     ///     .mean_per_key::<f64>()
     ///     .collect_seq()?;
     /// // "a" -> (1 + 3) / 2 = 2.0, "b" -> 10.0

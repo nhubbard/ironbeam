@@ -39,11 +39,11 @@ fn example_with_grouping() -> Result<()> {
     let data = from_vec(
         &p,
         vec![
-            ("apple", 5),
-            ("banana", 3),
-            ("apple", 2),
-            ("banana", 7),
-            ("cherry", 1),
+            ("apple".to_string(), 5),
+            ("banana".to_string(), 3),
+            ("apple".to_string(), 2),
+            ("banana".to_string(), 7),
+            ("cherry".to_string(), 1),
         ],
     );
     let result = data.group_by_key();

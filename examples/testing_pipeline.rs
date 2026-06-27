@@ -98,9 +98,9 @@ fn example_test_data_builders() -> Result<()> {
 
     // Build key-value test data
     let kv_data = KVTestDataBuilder::new()
-        .add_kv("a", 1)
-        .add_kv("b", 2)
-        .add_key_with_values("a", vec![3, 4])
+        .add_kv("a".to_string(), 1)
+        .add_kv("b".to_string(), 2)
+        .add_key_with_values("a".to_string(), vec![3, 4])
         .build();
 
     let result = from_vec(&p, kv_data).collect_seq()?;
@@ -121,19 +121,38 @@ fn example_key_value_testing() -> Result<()> {
 
     let p = TestPipeline::new();
 
-    let kvs = vec![("b", 2), ("a", 1), ("c", 3)];
+    let kvs = vec![
+        ("b".to_string(), 2),
+        ("a".to_string(), 1),
+        ("c".to_string(), 3),
+    ];
     let result = from_vec(&p, kvs).collect_seq()?;
 
     // Use KV-specific assertion (automatically sorts)
-    assert_kv_collections_equal(result, vec![("a", 1), ("b", 2), ("c", 3)]);
+    assert_kv_collections_equal(
+        result,
+        vec![
+            ("a".to_string(), 1),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    );
     println!("  ✓ KV collections assertion test passed");
 
     // Test grouped data
-    let kvs = vec![("a", 1), ("b", 2), ("a", 3), ("b", 4)];
+    let kvs = vec![
+        ("a".to_string(), 1),
+        ("b".to_string(), 2),
+        ("a".to_string(), 3),
+        ("b".to_string(), 4),
+    ];
     let grouped = from_vec(&p, kvs).group_by_key().collect_seq()?;
 
     // Values within each group can be in any order
-    assert_grouped_kv_equal(grouped, vec![("a", vec![1, 3]), ("b", vec![2, 4])]);
+    assert_grouped_kv_equal(
+        grouped,
+        vec![("a".to_string(), vec![1, 3]), ("b".to_string(), vec![2, 4])],
+    );
     println!("  ✓ Grouped KV assertion test passed\n");
 
     Ok(())
@@ -241,12 +260,16 @@ fn example_aggregations() -> Result<()> {
     println!("  ✓ Count combiner test passed");
 
     // Test with Sum combiner
-    let kvs = vec![("a", 10), ("b", 20), ("a", 30)];
+    let kvs = vec![
+        ("a".to_string(), 10),
+        ("b".to_string(), 20),
+        ("a".to_string(), 30),
+    ];
     let sums = from_vec(&p, kvs)
         .combine_values(Sum::<i32>::default())
         .collect_seq_sorted()?;
 
-    assert_kv_collections_equal(sums, vec![("a", 40), ("b", 20)]);
+    assert_kv_collections_equal(sums, vec![("a".to_string(), 40), ("b".to_string(), 20)]);
     println!("  ✓ Sum combiner test passed\n");
 
     Ok(())
@@ -258,20 +281,45 @@ fn example_joins() -> Result<()> {
 
     let p = TestPipeline::new();
 
-    let left = vec![("a", 1), ("b", 2), ("c", 3)];
-    let right = vec![("a", 10), ("b", 20), ("d", 40)];
+    let left = vec![
+        ("a".to_string(), 1),
+        ("b".to_string(), 2),
+        ("c".to_string(), 3),
+    ];
+    let right = vec![
+        ("a".to_string(), 10),
+        ("b".to_string(), 20),
+        ("d".to_string(), 40),
+    ];
 
     let left_pc = from_vec(&p, left);
     let right_pc = from_vec(&p, right);
 
     // Inner join
     let inner = left_pc.join_inner(&right_pc).collect_seq_sorted()?;
-    assert_kv_collections_equal(inner, vec![("a", (1, 10)), ("b", (2, 20))]);
+    assert_kv_collections_equal(
+        inner,
+        vec![("a".to_string(), (1, 10)), ("b".to_string(), (2, 20))],
+    );
     println!("  ✓ Inner join test passed");
 
     // Left join
-    let left_pc = from_vec(&p, vec![("a", 1), ("b", 2), ("c", 3)]);
-    let right_pc = from_vec(&p, vec![("a", 10), ("b", 20), ("d", 40)]);
+    let left_pc = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    );
+    let right_pc = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 10),
+            ("b".to_string(), 20),
+            ("d".to_string(), 40),
+        ],
+    );
 
     let left_join = left_pc.join_left(&right_pc).collect_seq_sorted()?;
     assert_collection_size(&left_join, 3);
