@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "coders")]
-use crate::coders::{BincodeCoder, BincodeKvCoder, ElementCoder};
+use crate::coders::{ElementCoder, PostcardCoder, PostcardKvCoder};
 #[cfg(feature = "coders")]
 use crate::collection::RFBound;
 
@@ -162,7 +162,7 @@ impl Pipeline {
             .lock()
             .unwrap()
             .coders
-            .insert(id, Arc::new(BincodeCoder::<T>::new()));
+            .insert(id, Arc::new(PostcardCoder::<T>::new()));
     }
 
     #[cfg(not(feature = "coders"))]
@@ -177,7 +177,7 @@ impl Pipeline {
             .lock()
             .unwrap()
             .coders
-            .insert(id, Arc::new(BincodeKvCoder::<K, V>::new()));
+            .insert(id, Arc::new(PostcardKvCoder::<K, V>::new()));
     }
 
     #[cfg(not(feature = "coders"))]
