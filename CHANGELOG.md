@@ -1,3 +1,28 @@
+## [4.0.0](https://github.com/nhubbard/ironbeam/compare/v3.2.0...v4.0.0) (2026-06-27)
+
+### ⚠ BREAKING CHANGES
+
+* per-PCollection serde coders (default-on); rename RFBound to Element ([2a25dad](https://github.com/nhubbard/ironbeam/commit/2a25dad7e394f589a6e4de94b95ba8e8a1bab45d))
+
+### Features
+
+* **coders:** register coders on all remaining combinators ([d861d38](https://github.com/nhubbard/ironbeam/commit/d861d38308c8175a04d48c759246b994b66d6b90))
+
+### Bug Fixes
+
+* **coders:** derive Serde for the OrdF64 element wrapper ([be1faf1](https://github.com/nhubbard/ironbeam/commit/be1faf1e8a5611a3082dec544bc8b784c44217c4))
+* **coders:** make internal element types Serde-aware ([600fdcc](https://github.com/nhubbard/ironbeam/commit/600fdcc379a0700494ecc47eecf9dd6b01873be8))
+
+### Documentation
+
+* **coders:** replace stale bincode codec mentions with postcard ([7980492](https://github.com/nhubbard/ironbeam/commit/79804922fca620a76569ce0e6c431f9e389bdca9))
+* **coders:** Serde-migrate examples and doc examples ([157d8bd](https://github.com/nhubbard/ironbeam/commit/157d8bd1e0dafa6716bb7fb344a3f212ea0cf1e4))
+
+### Code Refactoring
+
+* **coders:** switch coder codec to postcard and rename coder types ([7025bd0](https://github.com/nhubbard/ironbeam/commit/7025bd0205fff3cb252d75536e5a3f748a843c4c))
+* rename element bound RFBound to Element ([7a51652](https://github.com/nhubbard/ironbeam/commit/7a5165272a9b8e86e4c0c38b954e22017d6ae154)), closes [rust-lang/rust#30827](https://github.com/rust-lang/rust/issues/30827)
+
 ## [3.2.0](https://github.com/nhubbard/ironbeam/compare/v3.1.0...v3.2.0) (2026-06-20)
 
 ### Features
