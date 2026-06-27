@@ -515,9 +515,9 @@
 //! ```
 
 pub mod bloom_filter;
-pub mod collection;
 #[cfg(feature = "coders")]
 pub mod coders;
+pub mod collection;
 pub mod combiners;
 pub mod extensions;
 pub mod helpers;
@@ -566,7 +566,7 @@ pub use node::DynOp;
 pub use type_token::{TypeTag, VecOps};
 
 #[cfg(feature = "coders")]
-pub use coders::{BincodeCoder, BincodeKvCoder, ElementCoder};
+pub use coders::{ElementCoder, PostcardCoder, PostcardKvCoder};
 
 // I/O re-exports. The API surface is always present (the modules compile
 // unconditionally and stub at runtime when their feature is disabled); only the
