@@ -10,11 +10,19 @@
 use anyhow::Result;
 use ironbeam::combiners::ToList;
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn test_to_list_basic() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    );
 
     let lists = data.combine_values(ToList::new()).collect_seq_sorted()?;
 
@@ -31,7 +39,7 @@ fn test_to_list_basic() -> Result<()> {
 #[test]
 fn test_to_list_empty() -> Result<()> {
     let p = Pipeline::default();
-    let data: PCollection<(&str, i32)> = from_vec(&p, vec![]);
+    let data: PCollection<(String, i32)> = from_vec(&p, vec![]);
 
     let lists = data.combine_values(ToList::new()).collect_seq()?;
 
@@ -42,12 +50,26 @@ fn test_to_list_empty() -> Result<()> {
 #[test]
 fn test_to_list_single_value_per_key() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("b", 2), ("c", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+        ],
+    );
 
     let mut lists = data.combine_values(ToList::new()).collect_seq()?;
-    lists.sort_by_key(|x| x.0);
+    lists.sort_by_key(|x| x.0.clone());
 
-    assert_eq!(lists, vec![("a", vec![1]), ("b", vec![2]), ("c", vec![3])]);
+    assert_eq!(
+        lists,
+        vec![
+            ("a".to_string(), vec![1]),
+            ("b".to_string(), vec![2]),
+            ("c".to_string(), vec![3])
+        ]
+    );
     Ok(())
 }
 
@@ -57,14 +79,14 @@ fn test_to_list_many_values_per_key() -> Result<()> {
     let data = from_vec(
         &p,
         vec![
-            ("a", 1),
-            ("a", 2),
-            ("a", 3),
-            ("a", 4),
-            ("a", 5),
-            ("a", 6),
-            ("a", 7),
-            ("a", 8),
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+            ("a".to_string(), 4),
+            ("a".to_string(), 5),
+            ("a".to_string(), 6),
+            ("a".to_string(), 7),
+            ("a".to_string(), 8),
         ],
     );
 
@@ -83,7 +105,15 @@ fn test_to_list_many_values_per_key() -> Result<()> {
 #[test]
 fn test_to_list_preserves_duplicates() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 1), ("a", 2), ("a", 1)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("a".to_string(), 1),
+        ],
+    );
 
     let lists = data.combine_values(ToList::new()).collect_seq()?;
 
@@ -98,7 +128,14 @@ fn test_to_list_preserves_duplicates() -> Result<()> {
 #[test]
 fn test_to_list_per_key_convenience_method() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    );
 
     let lists = data.to_list_per_key().collect_seq_sorted()?;
 
@@ -112,7 +149,7 @@ fn test_to_list_per_key_convenience_method() -> Result<()> {
 
 #[test]
 fn test_to_list_complex_values() -> Result<()> {
-    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
     struct Value {
         id: i32,
         name: String,
@@ -123,21 +160,21 @@ fn test_to_list_complex_values() -> Result<()> {
         &p,
         vec![
             (
-                "key1",
+                "key1".to_string(),
                 Value {
                     id: 1,
                     name: "first".to_string(),
                 },
             ),
             (
-                "key1",
+                "key1".to_string(),
                 Value {
                     id: 2,
                     name: "second".to_string(),
                 },
             ),
             (
-                "key2",
+                "key2".to_string(),
                 Value {
                     id: 3,
                     name: "third".to_string(),
@@ -147,7 +184,7 @@ fn test_to_list_complex_values() -> Result<()> {
     );
 
     let mut lists = data.combine_values(ToList::new()).collect_seq()?;
-    lists.sort_by_key(|x| x.0);
+    lists.sort_by_key(|x| x.0.clone());
 
     assert_eq!(lists.len(), 2);
     assert_eq!(lists[0].0, "key1");
@@ -160,7 +197,14 @@ fn test_to_list_complex_values() -> Result<()> {
 #[test]
 fn test_to_list_with_unit_values() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", ()), ("a", ()), ("b", ())]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), ()),
+            ("a".to_string(), ()),
+            ("b".to_string(), ()),
+        ],
+    );
 
     let lists = data.combine_values(ToList::new()).collect_seq_sorted()?;
 
@@ -175,13 +219,13 @@ fn test_to_list_with_unit_values() -> Result<()> {
 #[test]
 fn test_to_list_returns_vec() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 2)]);
+    let data = from_vec(&p, vec![("a".to_string(), 1), ("a".to_string(), 2)]);
 
     let lists = data.combine_values(ToList::new()).collect_seq()?;
 
     // Verify the type is Vec
     assert_eq!(lists.len(), 1);
-    let (_key, list): (&str, Vec<i32>) = lists[0].clone();
+    let (_key, list): (String, Vec<i32>) = lists[0].clone();
     assert_eq!(list.len(), 2);
     Ok(())
 }
@@ -189,7 +233,14 @@ fn test_to_list_returns_vec() -> Result<()> {
 #[test]
 fn test_to_list_with_combine_values_lifted() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    );
 
     let grouped = data.group_by_key();
     let lists = grouped.combine_values_lifted(ToList::new());

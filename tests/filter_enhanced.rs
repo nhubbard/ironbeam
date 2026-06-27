@@ -4,6 +4,7 @@
 //! including comparison operators and the `filter_by` method for struct fields.
 
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
 /// Test basic equality filtering
 #[test]
@@ -128,20 +129,28 @@ fn test_filter_range_edge_cases() {
 #[test]
 fn test_filter_strings() {
     let p = Pipeline::default();
-    let words = from_vec(&p, vec!["apple", "banana", "cherry", "date"]);
+    let words = from_vec(
+        &p,
+        vec![
+            "apple".to_string(),
+            "banana".to_string(),
+            "cherry".to_string(),
+            "date".to_string(),
+        ],
+    );
 
     // Test equality
-    let bananas = words.clone().filter_eq(&"banana");
+    let bananas = words.clone().filter_eq(&"banana".to_string());
     assert_eq!(bananas.collect_seq().unwrap(), vec!["banana"]);
 
     // Test less-than (lexicographic)
-    let before_cherry = words.clone().filter_lt(&"cherry");
+    let before_cherry = words.clone().filter_lt(&"cherry".to_string());
     let mut result = before_cherry.collect_seq().unwrap();
     result.sort_unstable();
     assert_eq!(result, vec!["apple", "banana"]);
 
     // Test greater-than
-    let after_banana = words.filter_gt(&"banana");
+    let after_banana = words.filter_gt(&"banana".to_string());
     let mut result = after_banana.collect_seq().unwrap();
     result.sort_unstable();
     assert_eq!(result, vec!["cherry", "date"]);
@@ -150,7 +159,7 @@ fn test_filter_strings() {
 /// Test filtering with custom struct - basic field access
 #[test]
 fn test_filter_by_struct_field() {
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct Person {
         name: String,
         age: u32,
@@ -212,7 +221,7 @@ fn test_filter_by_computed_value() {
 /// Test filtering with a complex struct
 #[test]
 fn test_filter_by_complex_struct() {
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     struct Product {
         name: String,
         price: f64,
@@ -310,7 +319,7 @@ fn test_filter_matches_everything() {
 /// Test `filter_by` with Option extraction
 #[test]
 fn test_filter_by_option_field() {
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct Record {
         id: u32,
         value: Option<i32>,
@@ -348,13 +357,13 @@ fn test_filter_by_option_field() {
 /// Test `filter_by` with nested struct
 #[test]
 fn test_filter_by_nested_struct() {
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct Address {
         city: String,
         zip: u32,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct Customer {
         name: String,
         address: Address,
@@ -402,7 +411,7 @@ fn test_filter_by_nested_struct() {
 /// Test combining `filter_by` with regular filter
 #[test]
 fn test_filter_by_with_regular_filter() {
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct Score {
         player: String,
         points: u32,
@@ -467,9 +476,9 @@ fn test_filter_type_safety() {
     let numbers = from_vec(&p, vec![1, 2, 3]);
     let _ = numbers.filter_gt(&2);
 
-    // This should compile - &str implements PartialOrd and PartialEq
-    let strings = from_vec(&p, vec!["a", "b", "c"]);
-    let _ = strings.filter_eq(&"b");
+    // This should compile - String implements PartialOrd and PartialEq
+    let strings = from_vec(&p, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    let _ = strings.filter_eq(&"b".to_string());
 }
 
 /// Test `filter_range` with negative numbers
@@ -490,7 +499,12 @@ fn test_filter_tuples() {
     let p = Pipeline::default();
     let data = from_vec(
         &p,
-        vec![("apple", 5), ("banana", 3), ("cherry", 8), ("date", 2)],
+        vec![
+            ("apple".to_string(), 5),
+            ("banana".to_string(), 3),
+            ("cherry".to_string(), 8),
+            ("date".to_string(), 2),
+        ],
     );
 
     // Filter by second element (count) > 3

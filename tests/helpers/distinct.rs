@@ -2,8 +2,9 @@
 
 use anyhow::Result;
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct Event {
     user_id: u32,
     payload: String,
@@ -126,10 +127,16 @@ fn distinct_by_string_key_projection() -> Result<()> {
     // Deduplicate by first character of a string
     let words = from_vec(
         &p,
-        vec!["apple", "avocado", "banana", "blueberry", "cherry"],
+        vec![
+            "apple".to_string(),
+            "avocado".to_string(),
+            "banana".to_string(),
+            "blueberry".to_string(),
+            "cherry".to_string(),
+        ],
     );
     let result_count = words
-        .distinct_by(|w: &&str| w.chars().next().unwrap())
+        .distinct_by(|w: &String| w.chars().next().unwrap())
         .collect_seq()?
         .len();
     // 'a', 'b', 'c' → 3 distinct groups

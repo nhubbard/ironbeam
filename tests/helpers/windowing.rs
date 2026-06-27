@@ -19,9 +19,9 @@ fn tumbling_non_keyed_counts() -> Result<()> {
     let p = TestPipeline::new();
 
     // Create events at timestamps 0..30 step 5; window size 10 → windows [0,10), [10,20), [20,30)
-    let events: Vec<Timestamped<&'static str>> = (0..30)
+    let events: Vec<Timestamped<String>> = (0..30)
         .step_by(5)
-        .map(|t| Timestamped::new(mk_ts(t), "x"))
+        .map(|t| Timestamped::new(mk_ts(t), "x".to_string()))
         .collect();
 
     let pc = from_vec(&p, events)

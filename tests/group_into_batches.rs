@@ -8,6 +8,7 @@
 //! - `batch_size == 0` panics.
 
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Helper: collect output into `HashMap<K, Vec<Vec<V>>>` so tests can assert on
@@ -31,7 +32,13 @@ fn test_group_into_batches_basic() {
     let p = Pipeline::default();
     let pairs = from_vec(
         &p,
-        vec![("a", 1u32), ("a", 2), ("a", 3), ("a", 4), ("a", 5)],
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+            ("a".to_string(), 4),
+            ("a".to_string(), 5),
+        ],
     );
 
     let out = pairs.group_into_batches(2).collect_seq().unwrap();
@@ -57,15 +64,15 @@ fn test_group_into_batches_multiple_keys() {
     let pairs = from_vec(
         &p,
         vec![
-            ("a", 1u32),
-            ("a", 2),
-            ("a", 3),
-            ("a", 4),
-            ("a", 5),
-            ("b", 10),
-            ("b", 20),
-            ("b", 30),
-            ("c", 100),
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+            ("a".to_string(), 4),
+            ("a".to_string(), 5),
+            ("b".to_string(), 10),
+            ("b".to_string(), 20),
+            ("b".to_string(), 30),
+            ("c".to_string(), 100),
         ],
     );
 
@@ -90,7 +97,10 @@ fn test_group_into_batches_multiple_keys() {
 #[test]
 fn test_group_into_batches_size_bound() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, (0..17u32).map(|i| ("k", i)).collect::<Vec<_>>());
+    let pairs = from_vec(
+        &p,
+        (0..17u32).map(|i| ("k".to_string(), i)).collect::<Vec<_>>(),
+    );
 
     let batch_size = 4;
     let out = pairs.group_into_batches(batch_size).collect_seq().unwrap();
@@ -113,7 +123,7 @@ fn test_group_into_batches_size_bound() {
 #[test]
 fn test_group_into_batches_empty() {
     let p = Pipeline::default();
-    let pairs: Vec<(&str, u32)> = vec![];
+    let pairs: Vec<(String, u32)> = vec![];
     let out = from_vec(&p, pairs)
         .group_into_batches(5)
         .collect_seq()
@@ -125,16 +135,23 @@ fn test_group_into_batches_empty() {
 #[test]
 fn test_group_into_batches_single_value() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![("a", 42u32)]);
+    let pairs = from_vec(&p, vec![("a".to_string(), 42u32)]);
     let out = pairs.group_into_batches(10).collect_seq().unwrap();
-    assert_eq!(out, vec![("a", vec![42u32])]);
+    assert_eq!(out, vec![("a".to_string(), vec![42u32])]);
 }
 
 /// `batch_size` == 1 → one batch per value.
 #[test]
 fn test_group_into_batches_size_one() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+        ],
+    );
     let out = pairs.group_into_batches(1).collect_seq().unwrap();
     assert_eq!(out.len(), 3);
     for (k, batch) in &out {
@@ -150,7 +167,14 @@ fn test_group_into_batches_size_one() {
 #[test]
 fn test_group_into_batches_size_larger_than_input() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+        ],
+    );
     let out = pairs.group_into_batches(100).collect_seq().unwrap();
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].0, "a");
@@ -167,12 +191,12 @@ fn test_group_into_batches_size_equal_to_input() {
     let pairs = from_vec(
         &p,
         vec![
-            ("a", 1u32),
-            ("a", 2),
-            ("a", 3),
-            ("b", 10),
-            ("b", 20),
-            ("b", 30),
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+            ("b".to_string(), 10),
+            ("b".to_string(), 20),
+            ("b".to_string(), 30),
         ],
     );
 
@@ -190,7 +214,7 @@ fn test_group_into_batches_size_equal_to_input() {
 #[should_panic(expected = "group_into_batches requires batch_size > 0")]
 fn test_group_into_batches_zero_size_panics() {
     let p = Pipeline::default();
-    let _ = from_vec(&p, vec![("a", 1u32)]).group_into_batches(0);
+    let _ = from_vec(&p, vec![("a".to_string(), 1u32)]).group_into_batches(0);
 }
 
 // ── Parallel and large inputs ───────────────────────────────────────────────
@@ -234,7 +258,7 @@ fn test_group_into_batches_parallel() {
 fn test_group_into_batches_large() {
     const N: u32 = 1_000;
     let p = Pipeline::default();
-    let data: Vec<(&str, u32)> = (0..N).map(|i| ("k", i)).collect();
+    let data: Vec<(String, u32)> = (0..N).map(|i| ("k".to_string(), i)).collect();
     let out = from_vec(&p, data)
         .group_into_batches(33)
         .collect_seq()
@@ -285,9 +309,9 @@ fn test_group_into_batches_integer_keys_string_values() {
 /// Struct values pass through.
 #[test]
 fn test_group_into_batches_struct_values() {
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct Event {
-        kind: &'static str,
+        kind: String,
         id: u32,
     }
 
@@ -295,9 +319,27 @@ fn test_group_into_batches_struct_values() {
     let pairs = from_vec(
         &p,
         vec![
-            ("svc", Event { kind: "a", id: 1 }),
-            ("svc", Event { kind: "b", id: 2 }),
-            ("svc", Event { kind: "c", id: 3 }),
+            (
+                "svc".to_string(),
+                Event {
+                    kind: "a".to_string(),
+                    id: 1,
+                },
+            ),
+            (
+                "svc".to_string(),
+                Event {
+                    kind: "b".to_string(),
+                    id: 2,
+                },
+            ),
+            (
+                "svc".to_string(),
+                Event {
+                    kind: "c".to_string(),
+                    id: 3,
+                },
+            ),
         ],
     );
 
@@ -318,13 +360,19 @@ fn test_group_into_batches_then_map_sum_per_batch() {
     let p = Pipeline::default();
     let pairs = from_vec(
         &p,
-        vec![("a", 1u32), ("a", 2), ("a", 3), ("a", 4), ("a", 5)],
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+            ("a".to_string(), 4),
+            ("a".to_string(), 5),
+        ],
     );
 
     // Per batch, compute the sum of values.
-    let sums: Vec<(&str, u32)> = pairs
+    let sums: Vec<(String, u32)> = pairs
         .group_into_batches(2)
-        .map(|(k, batch): &(&str, Vec<u32>)| (*k, batch.iter().sum()))
+        .map(|(k, batch): &(String, Vec<u32>)| (k.clone(), batch.iter().sum()))
         .collect_seq()
         .unwrap();
 
@@ -339,7 +387,14 @@ fn test_group_into_batches_then_map_sum_per_batch() {
 #[test]
 fn test_group_into_batches_then_values() {
     let p = Pipeline::default();
-    let pairs = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)]);
+    let pairs = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+        ],
+    );
     let mut batches = pairs.group_into_batches(2).values().collect_seq().unwrap();
     batches.sort_by_key(Vec::len);
     assert_eq!(batches.len(), 2);

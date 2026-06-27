@@ -33,14 +33,17 @@ fn test_kv_operations() -> Result<()> {
     let p = TestPipeline::new();
 
     let kvs = KVTestDataBuilder::new()
-        .add_kv("a", 1)
-        .add_kv("b", 2)
-        .add_kv("a", 3)
+        .add_kv("a".to_string(), 1)
+        .add_kv("b".to_string(), 2)
+        .add_kv("a".to_string(), 3)
         .build();
 
     let grouped = from_vec(&p, kvs).group_by_key().collect_seq()?;
 
-    assert_grouped_kv_equal(grouped, vec![("a", vec![1, 3]), ("b", vec![2])]);
+    assert_grouped_kv_equal(
+        grouped,
+        vec![("a".to_string(), vec![1, 3]), ("b".to_string(), vec![2])],
+    );
     Ok(())
 }
 
@@ -135,12 +138,17 @@ fn test_word_count_with_fixtures() -> Result<()> {
 fn test_aggregation_with_sum() -> Result<()> {
     let p = TestPipeline::new();
 
-    let kvs = vec![("a", 10), ("b", 20), ("a", 30), ("b", 40)];
+    let kvs = vec![
+        ("a".to_string(), 10),
+        ("b".to_string(), 20),
+        ("a".to_string(), 30),
+        ("b".to_string(), 40),
+    ];
     let sums = from_vec(&p, kvs)
         .combine_values(Sum::<i32>::default())
         .collect_seq_sorted()?;
 
-    assert_kv_collections_equal(sums, vec![("a", 40), ("b", 60)]);
+    assert_kv_collections_equal(sums, vec![("a".to_string(), 40), ("b".to_string(), 60)]);
     Ok(())
 }
 

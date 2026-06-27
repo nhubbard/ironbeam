@@ -6,6 +6,7 @@
 //! handling for oversized single elements.
 
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
 // ── batch_elements (count-based) ─────────────────────────────────────────────
 
@@ -148,14 +149,19 @@ fn test_batch_elements_large_sequential() {
 /// Struct elements pass through faithfully.
 #[test]
 fn test_batch_elements_struct_elements() {
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct Item {
         id: u32,
-        tag: &'static str,
+        tag: String,
     }
 
     let p = Pipeline::default();
-    let items: Vec<Item> = (0..5u32).map(|i| Item { id: i, tag: "x" }).collect();
+    let items: Vec<Item> = (0..5u32)
+        .map(|i| Item {
+            id: i,
+            tag: "x".to_string(),
+        })
+        .collect();
     let batches = from_vec(&p, items).batch_elements(2).collect_seq().unwrap();
 
     assert_eq!(batches.len(), 3);

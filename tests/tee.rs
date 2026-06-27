@@ -123,13 +123,23 @@ fn test_tee_mixed_execution_modes() {
 #[test]
 fn test_tee_keyed_collection() {
     let p = Pipeline::default();
-    let source = from_vec(&p, vec![("a", 1u32), ("a", 2), ("b", 3)]);
+    let source = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    );
     let (a, b) = source.tee();
 
     let sums = a.sum_per_key().collect_seq_sorted().unwrap();
     let counts = b.count_per_key().collect_seq_sorted().unwrap();
-    assert_eq!(sums, vec![("a", 3u32), ("b", 3u32)]);
-    assert_eq!(counts, vec![("a", 2u64), ("b", 1u64)]);
+    assert_eq!(sums, vec![("a".to_string(), 3u32), ("b".to_string(), 3u32)]);
+    assert_eq!(
+        counts,
+        vec![("a".to_string(), 2u64), ("b".to_string(), 1u64)]
+    );
 }
 
 // ── tee_n(n) — N-way split ───────────────────────────────────────────────────

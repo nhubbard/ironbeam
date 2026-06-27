@@ -71,7 +71,9 @@ fn reshuffle_string_elements() -> Result<()> {
 
 #[test]
 fn reshuffle_struct_elements() -> Result<()> {
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    )]
     struct Record {
         id: u32,
         label: String,

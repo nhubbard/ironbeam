@@ -147,10 +147,10 @@ fn test_sample_globally_parallel_shape_and_subset() {
 #[test]
 fn test_sample_per_key_returns_exactly_n_per_key() {
     let p = Pipeline::default();
-    let mut data: Vec<(&str, u32)> = Vec::new();
+    let mut data: Vec<(String, u32)> = Vec::new();
     for i in 0..200 {
-        data.push(("a", i));
-        data.push(("b", 1_000 + i));
+        data.push(("a".to_string(), i));
+        data.push(("b".to_string(), 1_000 + i));
     }
     let samples = from_vec(&p, data)
         .sample_per_key(5)
@@ -167,17 +167,17 @@ fn test_sample_per_key_returns_exactly_n_per_key() {
 #[test]
 fn test_sample_per_key_values_belong_to_their_key() {
     let p = Pipeline::default();
-    let mut data: Vec<(&str, u32)> = Vec::new();
+    let mut data: Vec<(String, u32)> = Vec::new();
     for i in 0..50 {
-        data.push(("low", i)); // 0..50
-        data.push(("high", 1_000 + i)); // 1000..1050
+        data.push(("low".to_string(), i)); // 0..50
+        data.push(("high".to_string(), 1_000 + i)); // 1000..1050
     }
     let samples = from_vec(&p, data)
         .sample_per_key(10)
         .collect_seq_sorted()
         .unwrap();
     for (k, vs) in &samples {
-        match *k {
+        match k.as_str() {
             "low" => assert!(vs.iter().all(|v| *v < 1_000), "low contained {vs:?}"),
             "high" => assert!(vs.iter().all(|v| *v >= 1_000), "high contained {vs:?}"),
             other => panic!("unexpected key {other}"),
@@ -190,10 +190,17 @@ fn test_sample_per_key_values_belong_to_their_key() {
 #[test]
 fn test_sample_per_key_smaller_than_n() {
     let p = Pipeline::default();
-    let samples = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
-        .sample_per_key(10)
-        .collect_seq_sorted()
-        .unwrap();
+    let samples = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+        ],
+    )
+    .sample_per_key(10)
+    .collect_seq_sorted()
+    .unwrap();
     assert_eq!(samples.len(), 1);
     let (_, mut vs) = samples.into_iter().next().unwrap();
     vs.sort_unstable();
@@ -204,7 +211,7 @@ fn test_sample_per_key_smaller_than_n() {
 #[test]
 fn test_sample_per_key_zero() {
     let p = Pipeline::default();
-    let samples = from_vec(&p, vec![("a", 1u32), ("b", 2)])
+    let samples = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2)])
         .sample_per_key(0)
         .collect_seq_sorted()
         .unwrap();
@@ -218,7 +225,7 @@ fn test_sample_per_key_zero() {
 #[test]
 fn test_sample_per_key_empty() {
     let p = Pipeline::default();
-    let out = from_vec(&p, Vec::<(&str, u32)>::new())
+    let out = from_vec(&p, Vec::<(String, u32)>::new())
         .sample_per_key(5)
         .collect_seq()
         .unwrap();
@@ -228,9 +235,9 @@ fn test_sample_per_key_empty() {
 /// Default-seed determinism for per-key sampling.
 #[test]
 fn test_sample_per_key_is_deterministic() {
-    let mut data: Vec<(&str, u32)> = Vec::new();
+    let mut data: Vec<(String, u32)> = Vec::new();
     for i in 0..200 {
-        data.push(("k", i));
+        data.push(("k".to_string(), i));
     }
     let p1 = Pipeline::default();
     let a = from_vec(&p1, data.clone())
@@ -248,9 +255,9 @@ fn test_sample_per_key_is_deterministic() {
 /// Different seeds produce different per-key samples.
 #[test]
 fn test_sample_per_key_with_seed_varies() {
-    let mut data: Vec<(&str, u32)> = Vec::new();
+    let mut data: Vec<(String, u32)> = Vec::new();
     for i in 0..200 {
-        data.push(("k", i));
+        data.push(("k".to_string(), i));
     }
     let p1 = Pipeline::default();
     let a = from_vec(&p1, data.clone())
@@ -272,15 +279,15 @@ fn test_sample_per_key_with_seed_varies() {
 /// guarantees.
 #[test]
 fn test_sample_per_key_parallel_shape_and_subset() {
-    let mut data: Vec<(&str, u32)> = Vec::new();
+    let mut data: Vec<(String, u32)> = Vec::new();
     let mut even_set: HashSet<u32> = HashSet::new();
     let mut odd_set: HashSet<u32> = HashSet::new();
     for i in 0..400 {
         if i % 2 == 0 {
-            data.push(("even", i));
+            data.push(("even".to_string(), i));
             even_set.insert(i);
         } else {
-            data.push(("odd", i));
+            data.push(("odd".to_string(), i));
             odd_set.insert(i);
         }
     }
@@ -295,7 +302,7 @@ fn test_sample_per_key_parallel_shape_and_subset() {
     for (k, vs) in samples {
         assert_eq!(vs.len(), 10);
         let vs_set: HashSet<u32> = vs.iter().copied().collect();
-        match k {
+        match k.as_str() {
             "even" => assert!(vs_set.is_subset(&even_set)),
             "odd" => assert!(vs_set.is_subset(&odd_set)),
             other => panic!("unexpected key {other}"),

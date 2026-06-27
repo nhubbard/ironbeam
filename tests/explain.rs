@@ -28,7 +28,14 @@ fn test_explain_simple_pipeline() -> Result<()> {
 #[test]
 fn test_explain_with_grouping() -> Result<()> {
     let p = TestPipeline::new();
-    let data = from_vec(&p, vec![("a", 1u64), ("b", 2u64), ("a", 3u64)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u64),
+            ("b".to_string(), 2u64),
+            ("a".to_string(), 3u64),
+        ],
+    );
     let grouped = data.group_by_key();
 
     // Build the plan and explain it

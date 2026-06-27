@@ -265,12 +265,12 @@ fn topk_convenience_api() -> Result<()> {
 
     // Basic usage of the top_k_per_key convenience method
     let data = vec![
-        ("alice", 95),
-        ("alice", 87),
-        ("alice", 92),
-        ("bob", 78),
-        ("bob", 88),
-        ("bob", 82),
+        ("alice".to_string(), 95),
+        ("alice".to_string(), 87),
+        ("alice".to_string(), 92),
+        ("bob".to_string(), 78),
+        ("bob".to_string(), 88),
+        ("bob".to_string(), 82),
     ];
 
     let top2 = from_vec(&p, data).top_k_per_key(2).collect_seq_sorted()?;
@@ -283,12 +283,12 @@ fn topk_convenience_api() -> Result<()> {
 
     // Compare with explicit combiner approach
     let data2 = vec![
-        ("alice", 95),
-        ("alice", 87),
-        ("alice", 92),
-        ("bob", 78),
-        ("bob", 88),
-        ("bob", 82),
+        ("alice".to_string(), 95),
+        ("alice".to_string(), 87),
+        ("alice".to_string(), 92),
+        ("bob".to_string(), 78),
+        ("bob".to_string(), 88),
+        ("bob".to_string(), 82),
     ];
 
     let top2_explicit = from_vec(&p, data2)
@@ -502,17 +502,17 @@ fn bottom_k_correctness_large_dataset() -> Result<()> {
 #[test]
 fn bottom_k_inverse_of_topk() -> Result<()> {
     let p = TestPipeline::new();
-    let data: Vec<(&str, i32)> = vec![
-        ("a", 10),
-        ("a", 3),
-        ("a", 7),
-        ("a", 1),
-        ("a", 5),
-        ("b", 8),
-        ("b", 2),
-        ("b", 9),
-        ("b", 4),
-        ("b", 6),
+    let data: Vec<(String, i32)> = vec![
+        ("a".to_string(), 10),
+        ("a".to_string(), 3),
+        ("a".to_string(), 7),
+        ("a".to_string(), 1),
+        ("a".to_string(), 5),
+        ("b".to_string(), 8),
+        ("b".to_string(), 2),
+        ("b".to_string(), 9),
+        ("b".to_string(), 4),
+        ("b".to_string(), 6),
     ];
 
     let top3 = from_vec(&p, data.clone())

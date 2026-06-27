@@ -1141,19 +1141,26 @@ fn tree_reduce_keyed_combine_correct_par() -> Result<()> {
     let data = from_vec(
         &p,
         vec![
-            ("a", 1u64),
-            ("b", 10u64),
-            ("a", 2u64),
-            ("b", 20u64),
-            ("a", 3u64),
-            ("c", 100u64),
+            ("a".to_string(), 1u64),
+            ("b".to_string(), 10u64),
+            ("a".to_string(), 2u64),
+            ("b".to_string(), 20u64),
+            ("a".to_string(), 3u64),
+            ("c".to_string(), 100u64),
         ],
     );
     let mut result = data
         .combine_values(Sum::<u64>::default())
         .collect_par_sorted(Some(4), None)?;
-    result.sort_by_key(|(k, _)| *k);
-    assert_eq!(result, vec![("a", 6u64), ("b", 30u64), ("c", 100u64)]);
+    result.sort_by_key(|(k, _)| k.clone());
+    assert_eq!(
+        result,
+        vec![
+            ("a".to_string(), 6u64),
+            ("b".to_string(), 30u64),
+            ("c".to_string(), 100u64)
+        ]
+    );
     Ok(())
 }
 
@@ -1568,7 +1575,14 @@ fn cse_linear_pipeline_caches_on_repeated_calls() -> Result<()> {
 #[test]
 fn adaptive_partition_count_opt_fires_for_gbk() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1u32), ("b", 2), ("a", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("b".to_string(), 2),
+            ("a".to_string(), 3),
+        ],
+    );
     let grouped = data.group_by_key();
     let plan = build_plan(&p, grouped.node_id())?;
     assert!(
@@ -1602,7 +1616,7 @@ fn adaptive_partition_count_absent_for_stateless_only() -> Result<()> {
 fn adaptive_partition_count_barrier_count_correct() -> Result<()> {
     let p = Pipeline::default();
     // GroupByKey (1) + CombineValues would lift GBK so use a simple GBK only here.
-    let data = from_vec(&p, vec![("k", 1u32), ("k", 2)]);
+    let data = from_vec(&p, vec![("k".to_string(), 1u32), ("k".to_string(), 2)]);
     let grouped = data.group_by_key();
     let plan = build_plan(&p, grouped.node_id())?;
     let barrier_count = plan.optimizations.iter().find_map(|o| {
@@ -1624,7 +1638,7 @@ fn adaptive_partition_count_barrier_count_correct() -> Result<()> {
 #[test]
 fn adaptive_partition_count_appears_in_explain() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1u32), ("a", 2)]);
+    let data = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 2)]);
     let grouped = data.group_by_key();
     let plan = build_plan(&p, grouped.node_id())?;
     let explanation = plan.explain();

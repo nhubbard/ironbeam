@@ -4,6 +4,7 @@
 //! `(K, V)` pair, producing `PCollection<(V, K)>`.
 
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
 /// Basic: swap `(String, u32)` -> `(u32, String)`.
 #[test]
@@ -253,7 +254,7 @@ fn test_kv_swap_then_filter_by_new_key() {
 /// Struct key, primitive value — verifies swap works with non-trivial types.
 #[test]
 fn test_kv_swap_struct_key() {
-    #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
     struct CompositeKey {
         region: String,
         shard: u32,
@@ -307,7 +308,7 @@ fn test_kv_swap_struct_key() {
 /// Primitive key, struct value — swap moves the struct into the key position.
 #[test]
 fn test_kv_swap_struct_value() {
-    #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
     struct Payload {
         kind: String,
         size: u32,
@@ -423,7 +424,7 @@ fn test_kv_swap_then_aggregate() {
 /// only requires `Element`, so a non-hashable key type works.
 #[test]
 fn test_kv_swap_non_hash_key() {
-    #[derive(Clone, Debug, PartialEq, PartialOrd)]
+    #[derive(Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
     struct NonHashKey(f64);
 
     let p = Pipeline::default();

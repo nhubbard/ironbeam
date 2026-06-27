@@ -6,6 +6,7 @@
 //! various element types, chaining, and large inputs.
 
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
 // ── Basic correctness ───────────────────────────────────────────────────────
 
@@ -13,9 +14,26 @@ use ironbeam::*;
 #[test]
 fn test_count_per_element_str_basic() {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["a", "b", "a", "c", "a", "b"]);
+    let data = from_vec(
+        &p,
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "a".to_string(),
+            "c".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+        ],
+    );
     let counts = data.count_per_element().collect_seq_sorted().unwrap();
-    assert_eq!(counts, vec![("a", 3u64), ("b", 2), ("c", 1)]);
+    assert_eq!(
+        counts,
+        vec![
+            ("a".to_string(), 3u64),
+            ("b".to_string(), 2),
+            ("c".to_string(), 1)
+        ]
+    );
 }
 
 /// Basic: distinct count of `u32` elements.
@@ -60,7 +78,7 @@ fn test_count_per_element_string() {
 #[test]
 fn test_count_per_element_empty() {
     let p = Pipeline::default();
-    let data: Vec<&str> = vec![];
+    let data: Vec<String> = vec![];
     let counts = from_vec(&p, data)
         .count_per_element()
         .collect_seq()
@@ -72,11 +90,11 @@ fn test_count_per_element_empty() {
 #[test]
 fn test_count_per_element_single_element() {
     let p = Pipeline::default();
-    let counts = from_vec(&p, vec!["only"])
+    let counts = from_vec(&p, vec!["only".to_string()])
         .count_per_element()
         .collect_seq()
         .unwrap();
-    assert_eq!(counts, vec![("only", 1u64)]);
+    assert_eq!(counts, vec![("only".to_string(), 1u64)]);
 }
 
 /// All distinct elements: each has count 1.
@@ -94,11 +112,11 @@ fn test_count_per_element_all_distinct() {
 #[test]
 fn test_count_per_element_all_same() {
     let p = Pipeline::default();
-    let counts = from_vec(&p, vec!["x"; 100])
+    let counts = from_vec(&p, vec!["x".to_string(); 100])
         .count_per_element()
         .collect_seq()
         .unwrap();
-    assert_eq!(counts, vec![("x", 100u64)]);
+    assert_eq!(counts, vec![("x".to_string(), 100u64)]);
 }
 
 // ── Parallel execution ──────────────────────────────────────────────────────
@@ -152,27 +170,31 @@ fn test_count_per_element_tuple_elements() {
     let data = from_vec(
         &p,
         vec![
-            ("a", 1u32),
-            ("a", 1), // duplicate
-            ("a", 2),
-            ("b", 1),
-            ("b", 1), // duplicate
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 1), // duplicate
+            ("a".to_string(), 2),
+            ("b".to_string(), 1),
+            ("b".to_string(), 1), // duplicate
         ],
     );
     let mut counts = data.count_per_element().collect_seq().unwrap();
     counts.sort_unstable();
     assert_eq!(
         counts,
-        vec![(("a", 1u32), 2u64), (("a", 2), 1), (("b", 1), 2),]
+        vec![
+            (("a".to_string(), 1u32), 2u64),
+            (("a".to_string(), 2), 1),
+            (("b".to_string(), 1), 2),
+        ]
     );
 }
 
 /// Counts over a custom struct (verifies `Hash + Eq` on derived types).
 #[test]
 fn test_count_per_element_struct_elements() {
-    #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
     struct Tag {
-        scope: &'static str,
+        scope: String,
         id: u32,
     }
 
@@ -180,9 +202,18 @@ fn test_count_per_element_struct_elements() {
     let data = from_vec(
         &p,
         vec![
-            Tag { scope: "x", id: 1 },
-            Tag { scope: "x", id: 1 },
-            Tag { scope: "y", id: 2 },
+            Tag {
+                scope: "x".to_string(),
+                id: 1,
+            },
+            Tag {
+                scope: "x".to_string(),
+                id: 1,
+            },
+            Tag {
+                scope: "y".to_string(),
+                id: 2,
+            },
         ],
     );
     let mut counts = data.count_per_element().collect_seq().unwrap();
@@ -190,8 +221,20 @@ fn test_count_per_element_struct_elements() {
     assert_eq!(
         counts,
         vec![
-            (Tag { scope: "x", id: 1 }, 2u64,),
-            (Tag { scope: "y", id: 2 }, 1,),
+            (
+                Tag {
+                    scope: "x".to_string(),
+                    id: 1
+                },
+                2u64,
+            ),
+            (
+                Tag {
+                    scope: "y".to_string(),
+                    id: 2
+                },
+                1,
+            ),
         ]
     );
 }
@@ -214,15 +257,26 @@ fn test_count_per_element_then_filter_frequent() {
     let p = Pipeline::default();
     let data = from_vec(
         &p,
-        vec!["a", "b", "a", "c", "a", "b", "d"], // counts: a=3, b=2, c=1, d=1
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "a".to_string(),
+            "c".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "d".to_string(),
+        ], // counts: a=3, b=2, c=1, d=1
     );
     let mut frequent = data
         .count_per_element()
-        .filter(|(_, c): &(&str, u64)| *c >= 2)
+        .filter(|(_, c): &(String, u64)| *c >= 2)
         .collect_seq()
         .unwrap();
     frequent.sort_unstable();
-    assert_eq!(frequent, vec![("a", 3u64), ("b", 2)]);
+    assert_eq!(
+        frequent,
+        vec![("a".to_string(), 3u64), ("b".to_string(), 2)]
+    );
 }
 
 /// `count_per_element` chained with `keys()` returns the distinct values
@@ -240,7 +294,16 @@ fn test_count_per_element_then_keys_yields_distinct() {
 #[test]
 fn test_count_per_element_then_values_yields_counts() {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["a", "b", "a", "a", "c"]);
+    let data = from_vec(
+        &p,
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "a".to_string(),
+            "a".to_string(),
+            "c".to_string(),
+        ],
+    );
     let mut counts = data.count_per_element().values().collect_seq().unwrap();
     counts.sort_unstable();
     assert_eq!(counts, vec![1u64, 1, 3]);

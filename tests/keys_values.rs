@@ -5,6 +5,7 @@
 //! - `values()` — extracts the value component from `PCollection<(K, V)>`
 
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
 // ── keys() ───────────────────────────────────────────────────────────────────
 
@@ -174,7 +175,7 @@ fn test_keys_then_rekey_and_group() {
 /// Struct value type — `keys()` discards the struct, keeping only the key.
 #[test]
 fn test_keys_struct_value_discarded() {
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     struct Payload {
         _data: Vec<u8>,
     }
@@ -386,7 +387,7 @@ fn test_values_then_rekey_and_group() {
 /// Struct key type — `values()` discards the struct, keeping only the value.
 #[test]
 fn test_values_struct_key_discarded() {
-    #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
     struct CompositeKey {
         region: String,
         shard: u32,

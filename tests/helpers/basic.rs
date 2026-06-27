@@ -45,28 +45,41 @@ fn sum_globally_negatives() -> Result<()> {
 #[test]
 fn sum_per_key_basic() -> Result<()> {
     let p = Pipeline::default();
-    let result = from_vec(&p, vec![("a", 1u64), ("a", 2), ("b", 10)])
-        .sum_per_key()
-        .collect_seq_sorted()?;
-    assert_eq!(result, vec![("a", 3u64), ("b", 10u64)]);
+    let result = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u64),
+            ("a".to_string(), 2),
+            ("b".to_string(), 10),
+        ],
+    )
+    .sum_per_key()
+    .collect_seq_sorted()?;
+    assert_eq!(
+        result,
+        vec![("a".to_string(), 3u64), ("b".to_string(), 10u64)]
+    );
     Ok(())
 }
 
 #[test]
 fn sum_per_key_single_entry_per_key() -> Result<()> {
     let p = Pipeline::default();
-    let mut result = from_vec(&p, vec![("x", 7i32), ("y", -3)])
+    let mut result = from_vec(&p, vec![("x".to_string(), 7i32), ("y".to_string(), -3)])
         .sum_per_key()
         .collect_seq()?;
-    result.sort_by_key(|kv| kv.0);
-    assert_eq!(result, vec![("x", 7i32), ("y", -3i32)]);
+    result.sort_by_key(|kv| kv.0.clone());
+    assert_eq!(
+        result,
+        vec![("x".to_string(), 7i32), ("y".to_string(), -3i32)]
+    );
     Ok(())
 }
 
 #[test]
 fn sum_per_key_empty() -> Result<()> {
     let p = Pipeline::default();
-    let result: Vec<(&str, i32)> = from_vec(&p, vec![]).sum_per_key().collect_seq()?;
+    let result: Vec<(String, i32)> = from_vec(&p, vec![]).sum_per_key().collect_seq()?;
     assert!(result.is_empty());
     Ok(())
 }
@@ -106,22 +119,35 @@ fn min_globally_negative_values() -> Result<()> {
 #[test]
 fn min_per_key_basic() -> Result<()> {
     let p = Pipeline::default();
-    let mut result = from_vec(&p, vec![("a", 5i32), ("a", 2), ("b", 8)])
-        .min_per_key()
-        .collect_seq()?;
-    result.sort_by_key(|kv| kv.0);
-    assert_eq!(result, vec![("a", 2i32), ("b", 8i32)]);
+    let mut result = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 5i32),
+            ("a".to_string(), 2),
+            ("b".to_string(), 8),
+        ],
+    )
+    .min_per_key()
+    .collect_seq()?;
+    result.sort_by_key(|kv| kv.0.clone());
+    assert_eq!(
+        result,
+        vec![("a".to_string(), 2i32), ("b".to_string(), 8i32)]
+    );
     Ok(())
 }
 
 #[test]
 fn min_per_key_single_entry_per_key() -> Result<()> {
     let p = Pipeline::default();
-    let mut result = from_vec(&p, vec![("x", 42u64), ("y", 1)])
+    let mut result = from_vec(&p, vec![("x".to_string(), 42u64), ("y".to_string(), 1)])
         .min_per_key()
         .collect_seq()?;
-    result.sort_by_key(|kv| kv.0);
-    assert_eq!(result, vec![("x", 42u64), ("y", 1u64)]);
+    result.sort_by_key(|kv| kv.0.clone());
+    assert_eq!(
+        result,
+        vec![("x".to_string(), 42u64), ("y".to_string(), 1u64)]
+    );
     Ok(())
 }
 
@@ -160,22 +186,35 @@ fn max_globally_negative_values() -> Result<()> {
 #[test]
 fn max_per_key_basic() -> Result<()> {
     let p = Pipeline::default();
-    let mut result = from_vec(&p, vec![("a", 5i32), ("a", 2), ("b", 8)])
-        .max_per_key()
-        .collect_seq()?;
-    result.sort_by_key(|kv| kv.0);
-    assert_eq!(result, vec![("a", 5i32), ("b", 8i32)]);
+    let mut result = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 5i32),
+            ("a".to_string(), 2),
+            ("b".to_string(), 8),
+        ],
+    )
+    .max_per_key()
+    .collect_seq()?;
+    result.sort_by_key(|kv| kv.0.clone());
+    assert_eq!(
+        result,
+        vec![("a".to_string(), 5i32), ("b".to_string(), 8i32)]
+    );
     Ok(())
 }
 
 #[test]
 fn max_per_key_single_entry_per_key() -> Result<()> {
     let p = Pipeline::default();
-    let mut result = from_vec(&p, vec![("x", 42u64), ("y", 1)])
+    let mut result = from_vec(&p, vec![("x".to_string(), 42u64), ("y".to_string(), 1)])
         .max_per_key()
         .collect_seq()?;
-    result.sort_by_key(|kv| kv.0);
-    assert_eq!(result, vec![("x", 42u64), ("y", 1u64)]);
+    result.sort_by_key(|kv| kv.0.clone());
+    assert_eq!(
+        result,
+        vec![("x".to_string(), 42u64), ("y".to_string(), 1u64)]
+    );
     Ok(())
 }
 
@@ -225,10 +264,17 @@ fn average_globally_empty_returns_zero() -> Result<()> {
 #[test]
 fn average_per_key_basic() -> Result<()> {
     let p = Pipeline::default();
-    let mut result = from_vec(&p, vec![("a", 1u32), ("a", 3), ("b", 10)])
-        .average_per_key()
-        .collect_seq()?;
-    result.sort_by(|a, b| a.0.cmp(b.0));
+    let mut result = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 3),
+            ("b".to_string(), 10),
+        ],
+    )
+    .average_per_key()
+    .collect_seq()?;
+    result.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(result[0].0, "a");
     assert!((result[0].1 - 2.0).abs() < 1e-12);
     assert_eq!(result[1].0, "b");
@@ -239,10 +285,10 @@ fn average_per_key_basic() -> Result<()> {
 #[test]
 fn average_per_key_single_entry_per_key() -> Result<()> {
     let p = Pipeline::default();
-    let mut result = from_vec(&p, vec![("x", 5u32), ("y", 20)])
+    let mut result = from_vec(&p, vec![("x".to_string(), 5u32), ("y".to_string(), 20)])
         .average_per_key()
         .collect_seq()?;
-    result.sort_by(|a, b| a.0.cmp(b.0));
+    result.sort_by(|a, b| a.0.cmp(&b.0));
     assert!((result[0].1 - 5.0).abs() < 1e-12);
     assert!((result[1].1 - 20.0).abs() < 1e-12);
     Ok(())
@@ -295,23 +341,39 @@ fn distinct_count_per_key_basic() -> Result<()> {
     let p = Pipeline::default();
     let mut result = from_vec(
         &p,
-        vec![("a", 1u32), ("a", 1), ("a", 2), ("b", 7u32), ("b", 7)],
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 7u32),
+            ("b".to_string(), 7),
+        ],
     )
     .distinct_count_per_key()
     .collect_seq()?;
-    result.sort_by_key(|kv| kv.0);
-    assert_eq!(result, vec![("a", 2u64), ("b", 1u64)]);
+    result.sort_by_key(|kv| kv.0.clone());
+    assert_eq!(
+        result,
+        vec![("a".to_string(), 2u64), ("b".to_string(), 1u64)]
+    );
     Ok(())
 }
 
 #[test]
 fn distinct_count_per_key_all_unique_per_key() -> Result<()> {
     let p = Pipeline::default();
-    let mut result = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
-        .distinct_count_per_key()
-        .collect_seq()?;
-    result.sort_by_key(|kv| kv.0);
-    assert_eq!(result, vec![("a", 3u64)]);
+    let mut result = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("a".to_string(), 3),
+        ],
+    )
+    .distinct_count_per_key()
+    .collect_seq()?;
+    result.sort_by_key(|kv| kv.0.clone());
+    assert_eq!(result, vec![("a".to_string(), 3u64)]);
     Ok(())
 }
 
@@ -444,7 +506,7 @@ fn sum_globally_matches_per_key_with_single_key() -> Result<()> {
     let data: Vec<u64> = (1..=10).collect();
     let global = from_vec(&p, data.clone()).sum_globally().collect_seq()?[0];
     let per_key = from_vec(&p, data)
-        .key_by(|_| "k")
+        .key_by(|_| "k".to_string())
         .sum_per_key()
         .collect_seq()?[0]
         .1;
@@ -520,12 +582,12 @@ fn bottom_k_globally_matches_manual() -> Result<()> {
 fn bottom_k_per_key_basic() -> Result<()> {
     let p = Pipeline::default();
     let data = vec![
-        ("alice", 95),
-        ("alice", 87),
-        ("alice", 92),
-        ("bob", 78),
-        ("bob", 88),
-        ("bob", 82),
+        ("alice".to_string(), 95),
+        ("alice".to_string(), 87),
+        ("alice".to_string(), 92),
+        ("bob".to_string(), 78),
+        ("bob".to_string(), 88),
+        ("bob".to_string(), 82),
     ];
 
     let bot2 = from_vec(&p, data)

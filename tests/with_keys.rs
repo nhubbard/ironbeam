@@ -6,6 +6,7 @@
 //! - `with_keys()` as an alias for Apache Beam familiarity
 
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Test basic `key_by` functionality with string length
@@ -70,7 +71,7 @@ fn test_with_constant_key_global_grouping() {
     let p = Pipeline::default();
     let numbers = from_vec(&p, vec![1, 2, 3, 4, 5]);
 
-    let keyed = numbers.with_constant_key("all");
+    let keyed = numbers.with_constant_key("all".to_string());
     let grouped = keyed.group_by_key();
     let result = grouped.collect_seq().unwrap();
 
@@ -101,12 +102,12 @@ fn test_with_constant_key_single_element() {
     let p = Pipeline::default();
     let single = from_vec(&p, vec![100]);
 
-    let keyed = single.with_constant_key("key");
+    let keyed = single.with_constant_key("key".to_string());
     let grouped = keyed.group_by_key();
     let result = grouped.collect_seq().unwrap();
 
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0], ("key", vec![100]));
+    assert_eq!(result[0], ("key".to_string(), vec![100]));
 }
 
 /// Test `with_constant_key` for global sum aggregation
@@ -151,7 +152,7 @@ fn test_with_keys_alias() {
 /// Test `key_by` with struct field extraction
 #[test]
 fn test_key_by_struct_field() {
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct Person {
         name: String,
         age: u32,
@@ -200,7 +201,7 @@ fn test_key_by_struct_field() {
 /// Test `key_by` with computed value
 #[test]
 fn test_key_by_computed_value() {
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     #[allow(dead_code)]
     struct Product {
         name: String,
@@ -233,11 +234,11 @@ fn test_key_by_computed_value() {
     // Key by price category (cheap < 10, mid < 100, expensive >= 100)
     let by_category = products.key_by(|p| {
         if p.price < 10.0 {
-            "cheap"
+            "cheap".to_string()
         } else if p.price < 100.0 {
-            "mid"
+            "mid".to_string()
         } else {
-            "expensive"
+            "expensive".to_string()
         }
     });
 
@@ -247,18 +248,29 @@ fn test_key_by_computed_value() {
     let map: HashMap<_, _> = result.into_iter().collect();
 
     assert_eq!(map.len(), 3);
-    assert_eq!(map.get(&"cheap").unwrap().len(), 1);
-    assert_eq!(map.get(&"mid").unwrap().len(), 2);
-    assert_eq!(map.get(&"expensive").unwrap().len(), 1);
+    assert_eq!(map.get("cheap").unwrap().len(), 1);
+    assert_eq!(map.get("mid").unwrap().len(), 2);
+    assert_eq!(map.get("expensive").unwrap().len(), 1);
 }
 
 /// Test `key_by` followed by counting per key
 #[test]
 fn test_key_by_with_count_per_key() {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["a", "b", "a", "c", "a", "b", "d"]);
+    let data = from_vec(
+        &p,
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "a".to_string(),
+            "c".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+            "d".to_string(),
+        ],
+    );
 
-    let keyed = data.key_by(|s: &&str| s.to_string());
+    let keyed = data.key_by(|s: &String| s.to_string());
     let counts = keyed.map_values(|_| 1u64).combine_values(Sum::default());
     let result = counts.collect_seq().unwrap();
 
@@ -274,7 +286,7 @@ fn test_key_by_with_count_per_key() {
 /// Test `key_by` with Option values
 #[test]
 fn test_key_by_option() {
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     #[allow(dead_code)]
     struct Record {
         id: u32,
@@ -329,13 +341,13 @@ fn test_with_constant_key_various_types() {
 
     // With string key
     let data1 = from_vec(&p, vec![1, 2, 3]);
-    let keyed1 = data1.with_constant_key("global");
+    let keyed1 = data1.with_constant_key("global".to_string());
     let result1 = keyed1.collect_seq().unwrap();
     assert_eq!(result1.len(), 3);
     assert_eq!(result1[0].0, "global");
 
     // With numeric key
-    let data2 = from_vec(&p, vec!["a", "b", "c"]);
+    let data2 = from_vec(&p, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     let keyed2 = data2.with_constant_key(42u64);
     let result2 = keyed2.collect_seq().unwrap();
     assert_eq!(result2.len(), 3);
@@ -343,16 +355,16 @@ fn test_with_constant_key_various_types() {
 
     // With tuple key
     let data3 = from_vec(&p, vec![1.0, 2.0, 3.0]);
-    let keyed3 = data3.with_constant_key(("region", 1));
+    let keyed3 = data3.with_constant_key(("region".to_string(), 1));
     let result3 = keyed3.collect_seq().unwrap();
     assert_eq!(result3.len(), 3);
-    assert_eq!(result3[0].0, ("region", 1));
+    assert_eq!(result3[0].0, ("region".to_string(), 1));
 }
 
 /// Test `key_by` with composite keys (tuples)
 #[test]
 fn test_key_by_composite_key() {
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     #[allow(dead_code)]
     struct Event {
         user_id: u32,
@@ -460,7 +472,7 @@ fn test_with_constant_key_parallel() {
 /// Test chaining `key_by` operations
 #[test]
 fn test_key_by_chaining() {
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     struct Item {
         category: String,
         subcategory: String,
@@ -504,14 +516,14 @@ fn test_key_by_chaining() {
 /// Test `key_by` with enum discriminant
 #[test]
 fn test_key_by_enum() {
-    #[derive(Clone, Debug)]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     enum Status {
         Pending,
         Active,
         Complete,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     #[allow(dead_code)]
     struct Task {
         id: u32,

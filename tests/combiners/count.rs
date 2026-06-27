@@ -10,8 +10,9 @@
 use anyhow::Result;
 use ironbeam::combiners::Count;
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct ComplexValue {
     field: i32,
 }
@@ -19,18 +20,26 @@ struct ComplexValue {
 #[test]
 fn test_count_per_key_basic() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3), ("a", 4)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+            ("a".to_string(), 4),
+        ],
+    );
 
     let counts = data.combine_values(Count::new()).collect_seq_sorted()?;
 
-    assert_eq!(counts, vec![("a", 3), ("b", 1)]);
+    assert_eq!(counts, vec![("a".to_string(), 3), ("b".to_string(), 1)]);
     Ok(())
 }
 
 #[test]
 fn test_count_per_key_empty() -> Result<()> {
     let p = Pipeline::default();
-    let data: PCollection<(&str, i32)> = from_vec(&p, vec![]);
+    let data: PCollection<(String, i32)> = from_vec(&p, vec![]);
 
     let counts = data.combine_values(Count::new()).collect_seq()?;
 
@@ -41,11 +50,18 @@ fn test_count_per_key_empty() -> Result<()> {
 #[test]
 fn test_count_per_key_single_key() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("only", 1), ("only", 2), ("only", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("only".to_string(), 1),
+            ("only".to_string(), 2),
+            ("only".to_string(), 3),
+        ],
+    );
 
     let counts = data.combine_values(Count::new()).collect_seq()?;
 
-    assert_eq!(counts, vec![("only", 3)]);
+    assert_eq!(counts, vec![("only".to_string(), 3)]);
     Ok(())
 }
 
@@ -55,15 +71,15 @@ fn test_count_per_key_many_keys() -> Result<()> {
     let data = from_vec(
         &p,
         vec![
-            ("a", 1),
-            ("b", 2),
-            ("c", 3),
-            ("d", 4),
-            ("e", 5),
-            ("a", 6),
-            ("c", 7),
-            ("e", 8),
-            ("e", 9),
+            ("a".to_string(), 1),
+            ("b".to_string(), 2),
+            ("c".to_string(), 3),
+            ("d".to_string(), 4),
+            ("e".to_string(), 5),
+            ("a".to_string(), 6),
+            ("c".to_string(), 7),
+            ("e".to_string(), 8),
+            ("e".to_string(), 9),
         ],
     );
 
@@ -72,7 +88,13 @@ fn test_count_per_key_many_keys() -> Result<()> {
 
     assert_eq!(
         counts,
-        vec![("a", 2), ("b", 1), ("c", 2), ("d", 1), ("e", 3)]
+        vec![
+            ("a".to_string(), 2),
+            ("b".to_string(), 1),
+            ("c".to_string(), 2),
+            ("d".to_string(), 1),
+            ("e".to_string(), 3)
+        ]
     );
     Ok(())
 }
@@ -124,22 +146,46 @@ fn test_count_globally_convenience_method() -> Result<()> {
 #[test]
 fn test_count_per_key_convenience_method() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    );
 
     let counts = data.count_per_key().collect_seq_sorted()?;
 
-    assert_eq!(counts, vec![("a", 2), ("b", 1)]);
+    assert_eq!(counts, vec![("a".to_string(), 2), ("b".to_string(), 1)]);
     Ok(())
 }
 
 #[test]
 fn test_count_per_element() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec!["a", "b", "a", "c", "a", "b"]);
+    let data = from_vec(
+        &p,
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "a".to_string(),
+            "c".to_string(),
+            "a".to_string(),
+            "b".to_string(),
+        ],
+    );
 
     let counts = data.count_per_element().collect_seq_sorted()?;
 
-    assert_eq!(counts, vec![("a", 3), ("b", 2), ("c", 1)]);
+    assert_eq!(
+        counts,
+        vec![
+            ("a".to_string(), 3),
+            ("b".to_string(), 2),
+            ("c".to_string(), 1)
+        ]
+    );
     Ok(())
 }
 
@@ -160,20 +206,26 @@ fn test_count_different_value_types() -> Result<()> {
     let p = Pipeline::default();
 
     // Test with strings
-    let string_data = from_vec(&p, vec![("k", "v1"), ("k", "v2")]);
+    let string_data = from_vec(
+        &p,
+        vec![
+            ("k".to_string(), "v1".to_string()),
+            ("k".to_string(), "v2".to_string()),
+        ],
+    );
     let string_count = string_data.combine_values(Count::new()).collect_seq()?;
-    assert_eq!(string_count, vec![("k", 2)]);
+    assert_eq!(string_count, vec![("k".to_string(), 2)]);
 
     // Test with complex structs
     let complex_data = from_vec(
         &p,
         vec![
-            ("k", ComplexValue { field: 1 }),
-            ("k", ComplexValue { field: 2 }),
+            ("k".to_string(), ComplexValue { field: 1 }),
+            ("k".to_string(), ComplexValue { field: 2 }),
         ],
     );
     let complex_count = complex_data.combine_values(Count::new()).collect_seq()?;
-    assert_eq!(complex_count, vec![("k", 2)]);
+    assert_eq!(complex_count, vec![("k".to_string(), 2)]);
 
     Ok(())
 }
@@ -181,18 +233,33 @@ fn test_count_different_value_types() -> Result<()> {
 #[test]
 fn test_count_with_zero_length_key() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("", 1), ("", 2), ("", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("".to_string(), 1),
+            ("".to_string(), 2),
+            ("".to_string(), 3),
+        ],
+    );
 
     let counts = data.count_per_key().collect_seq()?;
 
-    assert_eq!(counts, vec![("", 3)]);
+    assert_eq!(counts, vec![("".to_string(), 3)]);
     Ok(())
 }
 
 #[test]
 fn test_count_with_numeric_keys() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![(1, "a"), (2, "b"), (1, "c"), (2, "d")]);
+    let data = from_vec(
+        &p,
+        vec![
+            (1, "a".to_string()),
+            (2, "b".to_string()),
+            (1, "c".to_string()),
+            (2, "d".to_string()),
+        ],
+    );
 
     let counts = data.count_per_key().collect_seq_sorted()?;
 
@@ -203,23 +270,35 @@ fn test_count_with_numeric_keys() -> Result<()> {
 #[test]
 fn test_very_large_count() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, (0..100_000).map(|i| ("key", i)).collect::<Vec<_>>());
+    let data = from_vec(
+        &p,
+        (0..100_000)
+            .map(|i| ("key".to_string(), i))
+            .collect::<Vec<_>>(),
+    );
 
     let counts = data.count_per_key().collect_seq()?;
 
-    assert_eq!(counts, vec![("key", 100_000)]);
+    assert_eq!(counts, vec![("key".to_string(), 100_000)]);
     Ok(())
 }
 
 #[test]
 fn test_count_with_combine_values_lifted() -> Result<()> {
     let p = Pipeline::default();
-    let data = from_vec(&p, vec![("a", 1), ("a", 2), ("b", 3)]);
+    let data = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    );
 
     let grouped = data.group_by_key();
     let counts = grouped.combine_values_lifted(Count::new());
     let result = counts.collect_seq_sorted()?;
 
-    assert_eq!(result, vec![("a", 2), ("b", 1)]);
+    assert_eq!(result, vec![("a".to_string(), 2), ("b".to_string(), 1)]);
     Ok(())
 }

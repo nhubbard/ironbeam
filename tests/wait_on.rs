@@ -110,7 +110,15 @@ fn test_wait_on_signal_ending_at_barrier() {
     let p = Pipeline::default();
     let data = from_vec(&p, vec![1u32, 2, 3]);
     // Signal terminates in a per-key sum — a `CombineValues` barrier.
-    let signal = from_vec(&p, vec![("a", 1u32), ("a", 2), ("b", 3)]).sum_per_key();
+    let signal = from_vec(
+        &p,
+        vec![
+            ("a".to_string(), 1u32),
+            ("a".to_string(), 2),
+            ("b".to_string(), 3),
+        ],
+    )
+    .sum_per_key();
     let out = data.wait_on(&signal).collect_seq().unwrap();
     assert_eq!(out, vec![1u32, 2, 3]);
 }

@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use ironbeam::*;
+use serde::{Deserialize, Serialize};
 
 /// Test basic 2-way flatten with simple integers
 #[test]
@@ -244,7 +245,7 @@ fn test_flatten_type_safety() -> Result<()> {
 /// Test flatten with structs
 #[test]
 fn test_flatten_with_structs() -> Result<()> {
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
     struct Record {
         id: u32,
         name: String,
