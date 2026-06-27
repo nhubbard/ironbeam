@@ -65,9 +65,9 @@ fn main() -> Result<()> {
         if parts.len() >= 3 {
             let status_code = parts[2];
             match status_code {
-                "401" | "403" => vec![RecordValidation::Warning(log.to_string())],
-                "500" => vec![RecordValidation::Error(log.to_string())],
-                _ => vec![RecordValidation::Valid(log.to_string())],
+                "401" | "403" => vec![RecordValidation::Warning(log.clone())],
+                "500" => vec![RecordValidation::Error(log.clone())],
+                _ => vec![RecordValidation::Valid(log.clone())],
             }
         } else {
             vec![RecordValidation::Error(format!(

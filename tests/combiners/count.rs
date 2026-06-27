@@ -235,16 +235,12 @@ fn test_count_with_zero_length_key() -> Result<()> {
     let p = Pipeline::default();
     let data = from_vec(
         &p,
-        vec![
-            ("".to_string(), 1),
-            ("".to_string(), 2),
-            ("".to_string(), 3),
-        ],
+        vec![(String::new(), 1), (String::new(), 2), (String::new(), 3)],
     );
 
     let counts = data.count_per_key().collect_seq()?;
 
-    assert_eq!(counts, vec![("".to_string(), 3)]);
+    assert_eq!(counts, vec![(String::new(), 3)]);
     Ok(())
 }
 

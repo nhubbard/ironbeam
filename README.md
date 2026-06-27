@@ -21,6 +21,7 @@ A data processing framework for Rust inspired by Apache Beam and Google Cloud Da
 - **Optional compression**: gzip, zstd, bzip2, xz
 - **Metrics collection** and **checkpointing** for fault tolerance
 - **Automatic memory spilling** to disk for memory-constrained environments
+- **Per-PCollection element coders** (`coders`, on by default) for wire/distributed backends — see [Element coders](#element-coders-coders)
 - **Cloud I/O abstractions** for provider-agnostic cloud integrations
 - **Data validation utilities** for production-grade error handling
 - **Comprehensive testing framework** with fixtures and assertions
@@ -31,7 +32,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ironbeam = "3"
+ironbeam = "4"
 ```
 
 By default, all features are enabled **except the additional I/O formats listed
@@ -40,7 +41,7 @@ minimal configuration:
 
 ```toml
 [dependencies]
-ironbeam = { version = "3", default-features = false }
+ironbeam = { version = "4", default-features = false }
 ```
 
 The following feature flags are enabled by default:
@@ -58,6 +59,7 @@ The following feature flags are enabled by default:
 - `metrics` - pipeline metrics collection
 - `checkpointing` - checkpoint and recovery support
 - `spilling` - automatic memory spilling to disk
+- `coders` - per-PCollection element coders for wire backends (tightens the element bound — see [Element coders](#element-coders-coders))
 
 ### Opt-in I/O connectors
 
@@ -72,7 +74,7 @@ Enable one like so:
 
 ```toml
 [dependencies]
-ironbeam = { version = "3", features = ["io-msgpack"] }
+ironbeam = { version = "4", features = ["io-msgpack"] }
 ```
 
 Every feature can be toggled independently — the public API stays present in all
@@ -85,6 +87,38 @@ combinations locally:
 cargo hack check --each-feature --no-dev-deps   # each feature alone, none, all
 cargo hack check --feature-powerset --depth 2   # pairwise interactions
 ```
+
+### Element coders (`coders`)
+
+The `coders` feature (**on by default**) attaches a per-`PCollection` element
+coder to every node as the pipeline is built, so a backend that ships elements
+across a wire — such as a Google Cloud Dataflow harness — can encode and decode
+each collection without the user registering types by hand. Coders use
+[`postcard`](https://crates.io/crates/postcard) (the same wire codec Ironbeam
+uses for checkpointing and spilling) and are surfaced to backend authors via
+`Pipeline::snapshot_coders()`.
+
+Because every element must be encodable, enabling `coders` **tightens the
+universal element bound**: with the feature on, every `PCollection<T>` element
+type must implement `serde::{Serialize, DeserializeOwned}` in addition to
+`'static + Send + Sync + Clone`. Most types satisfy this with a
+`#[derive(Serialize, Deserialize)]`. Note that **borrowed types such as `&str`
+are not `DeserializeOwned`** — use owned element types (e.g. `String`).
+
+To restore the looser `'static + Send + Sync + Clone` bound, opt out by
+disabling the feature (for example, build with `default-features = false` and
+re-enable just the features you need without `coders`):
+
+```toml
+[dependencies]
+ironbeam = { version = "4", default-features = false, features = ["io-jsonl", "io-csv"] }
+```
+
+> **Breaking changes in 4.0.** `coders` is default-on, so the tightened element
+> bound applies to the **default** build — every PCollection element type must
+> now be `Serialize + DeserializeOwned` unless you opt out as above. The
+> universal element trait was also renamed **`RFBound` → `Element`**; update any
+> `T: RFBound` bounds to `T: Element` (there is no compatibility alias).
 
 ## Quick Start
 
