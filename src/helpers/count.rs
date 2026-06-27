@@ -61,10 +61,10 @@ impl<T: Element> PCollection<T> {
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let data = from_vec(&p, vec!["a", "b", "a", "c", "a", "b"]);
+    /// let data = from_vec(&p, vec!["a".to_string(), "b".to_string(), "a".to_string(), "c".to_string(), "a".to_string(), "b".to_string()]);
     ///
     /// let counts = data.count_per_element().collect_seq_sorted()?;
-    /// assert_eq!(counts, vec![("a", 3), ("b", 2), ("c", 1)]);
+    /// assert_eq!(counts, vec![("a".to_string(), 3u64), ("b".to_string(), 2u64), ("c".to_string(), 1u64)]);
     /// # Ok(())
     /// # }
     /// ```
@@ -104,11 +104,11 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec![
-    ///     ("a", 1), ("a", 2), ("b", 3), ("a", 4), ("c", 5)
+    ///     ("a".to_string(), 1), ("a".to_string(), 2), ("b".to_string(), 3), ("a".to_string(), 4), ("c".to_string(), 5)
     /// ]);
     ///
     /// let counts = data.count_per_key().collect_seq_sorted()?;
-    /// assert_eq!(counts, vec![("a", 3), ("b", 1), ("c", 1)]);
+    /// assert_eq!(counts, vec![("a".to_string(), 3u64), ("b".to_string(), 1u64), ("c".to_string(), 1u64)]);
     /// # Ok(())
     /// # }
     /// ```

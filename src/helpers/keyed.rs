@@ -68,7 +68,7 @@ impl<T: Element> PCollection<T> {
     /// let input = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
     ///
     /// // Assign constant key "all" to every element
-    /// let keyed = input.with_constant_key("all");
+    /// let keyed = input.with_constant_key("all".to_string());
     /// let grouped = keyed.group_by_key();
     /// let out = grouped.collect_seq()?; // [("all", vec![1, 2, 3, 4, 5])]
     /// # Ok(()) }

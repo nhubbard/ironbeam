@@ -115,7 +115,7 @@ where
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let medians = from_vec(&p, vec![("a", 1.0f64), ("a", 3.0), ("b", 10.0)])
+    /// let medians = from_vec(&p, vec![("a".to_string(), 1.0f64), ("a".to_string(), 3.0), ("b".to_string(), 10.0)])
     ///     .approx_median_per_key(100.0)
     ///     .collect_seq()?;
     /// assert_eq!(medians[0].0, "a");
@@ -145,7 +145,7 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let qs = from_vec(&p, vec![
-    ///     ("a", 1.0f64), ("a", 2.0), ("a", 3.0), ("a", 4.0), ("a", 5.0),
+    ///     ("a".to_string(), 1.0f64), ("a".to_string(), 2.0), ("a".to_string(), 3.0), ("a".to_string(), 4.0), ("a".to_string(), 5.0),
     /// ])
     /// .approx_quantiles_per_key(vec![0.25, 0.5, 0.75], 100.0)
     /// .collect_seq()?;

@@ -300,8 +300,8 @@ impl TDigest {
 ///
 /// // Compute median and quartiles per key
 /// let quantiles = from_vec(&p, vec![
-///     ("a", 1.0), ("a", 2.0), ("a", 3.0), ("a", 4.0), ("a", 5.0),
-///     ("b", 10.0), ("b", 20.0), ("b", 30.0),
+///     ("a".to_string(), 1.0), ("a".to_string(), 2.0), ("a".to_string(), 3.0), ("a".to_string(), 4.0), ("a".to_string(), 5.0),
+///     ("b".to_string(), 10.0), ("b".to_string(), 20.0), ("b".to_string(), 30.0),
 /// ])
 ///     .combine_values(ApproxQuantiles::new(vec![0.25, 0.5, 0.75], 100.0))
 ///     .collect_seq()?;

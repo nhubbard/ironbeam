@@ -31,81 +31,81 @@
 //! let p = Pipeline::default();
 //!
 //! // Sum
-//! let s = from_vec(&p, vec![("a", 1u64), ("a", 2), ("b", 10)])
+//! let s = from_vec(&p, vec![("a".to_string(), 1u64), ("a".to_string(), 2), ("b".to_string(), 10)])
 //!     .combine_values(Sum::<u64>::default())
 //!     .collect_seq_sorted()?;
 //!
 //! // Min / Max (require Ord)
-//! let mn = from_vec(&p, vec![("a", 3u64), ("a", 2), ("a", 5)])
+//! let mn = from_vec(&p, vec![("a".to_string(), 3u64), ("a".to_string(), 2), ("a".to_string(), 5)])
 //!     .combine_values(Min::<u64>::default())
 //!     .collect_seq()?;
-//! let mx = from_vec(&p, vec![("a", 3u64), ("a", 2), ("a", 5)])
+//! let mx = from_vec(&p, vec![("a".to_string(), 3u64), ("a".to_string(), 2), ("a".to_string(), 5)])
 //!     .combine_values(Max::<u64>::default())
 //!     .collect_seq()?;
 //!
 //! // Count
-//! let cnt = from_vec(&p, vec![("a", 1u64), ("a", 2), ("a", 3)])
+//! let cnt = from_vec(&p, vec![("a".to_string(), 1u64), ("a".to_string(), 2), ("a".to_string(), 3)])
 //!     .combine_values(Count::new())
 //!     .collect_seq()?;
 //!
 //! // AverageF64 (values must be Into<f64>)
-//! let avg = from_vec(&p, vec![("a", 1u32), ("a", 2), ("a", 3)])
+//! let avg = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 2), ("a".to_string(), 3)])
 //!     .combine_values(AverageF64::default())
 //!     .collect_seq()?;
 //!
 //! // Mean<O> — choose the output floating-point precision (f32 or f64)
-//! let mean_f32 = from_vec(&p, vec![("a", 1i16), ("a", 2i16), ("a", 3i16)])
+//! let mean_f32 = from_vec(&p, vec![("a".to_string(), 1i16), ("a".to_string(), 2i16), ("a".to_string(), 3i16)])
 //!     .combine_values(Mean::<f32>::new())
 //!     .collect_seq()?;
-//! let mean_f64 = from_vec(&p, vec![("a", 1i16), ("a", 2i16), ("a", 3i16)])
+//! let mean_f64 = from_vec(&p, vec![("a".to_string(), 1i16), ("a".to_string(), 2i16), ("a".to_string(), 3i16)])
 //!     .combine_values(Mean::<f64>::new())
 //!     .collect_seq()?;
 //!
 //! // DistinctCount (values must be Eq + Hash)
-//! let dc = from_vec(&p, vec![("a", 1u32), ("a", 1), ("a", 2)])
+//! let dc = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 1), ("a".to_string(), 2)])
 //!     .combine_values(DistinctCount::<u32>::default())
 //!     .collect_seq()?;
 //!
 //! // ToList - collect all values into a Vec
-//! let lst = from_vec(&p, vec![("a", 1u32), ("a", 2), ("b", 3)])
+//! let lst = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 2), ("b".to_string(), 3)])
 //!     .combine_values(ToList::new())
 //!     .collect_seq()?;
 //!
 //! // ToSet - collect unique values into a HashSet
-//! let set = from_vec(&p, vec![("a", 1u32), ("a", 1), ("a", 2)])
+//! let set = from_vec(&p, vec![("a".to_string(), 1u32), ("a".to_string(), 1), ("a".to_string(), 2)])
 //!     .combine_values(ToSet::new())
 //!     .collect_seq()?;
 //!
 //! // ToDict - materialize a keyed collection as a single HashMap
-//! let dict = from_vec(&p, vec![("a", 1u32), ("b", 2)])
+//! let dict = from_vec(&p, vec![("a".to_string(), 1u32), ("b".to_string(), 2)])
 //!     .combine_globally(ToDict::new(), None)
 //!     .collect_seq()?;
 //!
 //! // Latest - select value with latest timestamp
 //! let latest = from_vec(&p, vec![
-//!     ("user", Timestamped::new(100, "login")),
-//!     ("user", Timestamped::new(200, "click"))
+//!     ("user".to_string(), Timestamped::new(100, "login".to_string())),
+//!     ("user".to_string(), Timestamped::new(200, "click".to_string()))
 //! ])
 //!     .combine_values(Latest::new())
 //!     .collect_seq()?;
 //!
 //! // TopK (values must be Ord)
-//! let top = from_vec(&p, vec![("a", 3u32), ("a", 7), ("a", 5)])
+//! let top = from_vec(&p, vec![("a".to_string(), 3u32), ("a".to_string(), 7), ("a".to_string(), 5)])
 //!     .combine_values(TopK::<u32>::new(2))
 //!     .collect_seq()?;
 //!
 //! // BottomK (values must be Ord)
-//! let bot = from_vec(&p, vec![("a", 3u32), ("a", 7), ("a", 5)])
+//! let bot = from_vec(&p, vec![("a".to_string(), 3u32), ("a".to_string(), 7), ("a".to_string(), 5)])
 //!     .combine_values(BottomK::<u32>::new(2))
 //!     .collect_seq()?;
 //!
 //! // Approximate quantiles (values must be Into<f64>)
-//! let quantiles = from_vec(&p, vec![("a", 1.0), ("a", 2.0), ("a", 3.0), ("a", 4.0)])
+//! let quantiles = from_vec(&p, vec![("a".to_string(), 1.0), ("a".to_string(), 2.0), ("a".to_string(), 3.0), ("a".to_string(), 4.0)])
 //!     .combine_values(ApproxQuantiles::<f64>::new(vec![0.25, 0.5, 0.75], 100.0))
 //!     .collect_seq()?;
 //!
 //! // Approximate median
-//! let median = from_vec(&p, vec![("a", 1.0), ("a", 2.0), ("a", 3.0)])
+//! let median = from_vec(&p, vec![("a".to_string(), 1.0), ("a".to_string(), 2.0), ("a".to_string(), 3.0)])
 //!     .combine_values(ApproxMedian::<f64>::default())
 //!     .collect_seq()?;
 //!

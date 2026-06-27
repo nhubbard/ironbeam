@@ -17,11 +17,11 @@
 //! # fn main() -> Result<()> {
 //! let p = Pipeline::default();
 //! let scores = from_vec(&p, vec![
-//!     ("alice", 95),
-//!     ("alice", 87),
-//!     ("alice", 92),
-//!     ("bob", 78),
-//!     ("bob", 88),
+//!     ("alice".to_string(), 95),
+//!     ("alice".to_string(), 87),
+//!     ("alice".to_string(), 92),
+//!     ("bob".to_string(), 78),
+//!     ("bob".to_string(), 88),
 //! ]);
 //!
 //! // Get top 2 scores per person
@@ -97,12 +97,12 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec![
-    ///     ("a", 5),
-    ///     ("a", 2),
-    ///     ("a", 8),
-    ///     ("a", 1),
-    ///     ("b", 10),
-    ///     ("b", 7),
+    ///     ("a".to_string(), 5),
+    ///     ("a".to_string(), 2),
+    ///     ("a".to_string(), 8),
+    ///     ("a".to_string(), 1),
+    ///     ("b".to_string(), 10),
+    ///     ("b".to_string(), 7),
     /// ]);
     ///
     /// let top3 = data.top_k_per_key(3).collect_seq_sorted()?;
@@ -180,12 +180,12 @@ where
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
     /// let data = from_vec(&p, vec![
-    ///     ("a", 5),
-    ///     ("a", 2),
-    ///     ("a", 8),
-    ///     ("a", 1),
-    ///     ("b", 10),
-    ///     ("b", 7),
+    ///     ("a".to_string(), 5),
+    ///     ("a".to_string(), 2),
+    ///     ("a".to_string(), 8),
+    ///     ("a".to_string(), 1),
+    ///     ("b".to_string(), 10),
+    ///     ("b".to_string(), 7),
     /// ]);
     ///
     /// let bottom3 = data.bottom_k_per_key(3).collect_seq_sorted()?;

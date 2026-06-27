@@ -20,7 +20,7 @@
 //! let p = Pipeline::default();
 //!
 //! // Create a PCollection directly from a Vec
-//! let words = from_vec(&p, vec!["alpha", "beta", "gamma"]);
+//! let words = from_vec(&p, vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()]);
 //!
 //! // Or from any iterable sequence
 //! let numbers = from_iter(&p, 1..=5);
@@ -97,7 +97,7 @@ where
 /// assert_eq!(nums.collect_seq().unwrap(), vec![1, 2, 3, 4]);
 ///
 /// // Build from a vector of strings
-/// let strs = from_iter(&p, vec!["x", "y", "z"]);
+/// let strs = from_iter(&p, vec!["x".to_string(), "y".to_string(), "z".to_string()]);
 /// assert_eq!(strs.collect_seq().unwrap(), vec!["x", "y", "z"]);
 /// ```
 pub fn from_iter<T, I>(p: &Pipeline, iter: I) -> PCollection<T>
@@ -204,9 +204,9 @@ impl<T: Element> PCollection<T> {
     ///
     /// # fn main() -> Result<()> {
     /// let p = Pipeline::default();
-    /// let data = from_vec(&p, vec!["1", "2", "not a number", "3"]);
+    /// let data = from_vec(&p, vec!["1".to_string(), "2".to_string(), "not a number".to_string(), "3".to_string()]);
     ///
-    /// let parsed = data.filter_map(|s: &&str| s.parse::<i32>().ok());
+    /// let parsed = data.filter_map(|s: &String| s.parse::<i32>().ok());
     ///
     /// assert_eq!(parsed.collect_seq()?, vec![1, 2, 3]);
     /// # Ok(())
@@ -219,9 +219,10 @@ impl<T: Element> PCollection<T> {
     /// ```no_run
     /// use ironbeam::*;
     /// # use anyhow::Result;
+    /// use serde::{Deserialize, Serialize};
     ///
     /// # fn main() -> Result<()> {
-    /// #[derive(Clone)]
+    /// #[derive(Clone, Serialize, Deserialize)]
     /// enum RecordOutput {
     ///     Good(String),
     ///     Bad(String),

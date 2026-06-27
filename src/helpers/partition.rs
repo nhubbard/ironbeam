@@ -30,13 +30,13 @@
 //! # use anyhow::Result;
 //!
 //! # fn main() -> Result<()> {
-//! #[derive(Clone)]
+//! #[derive(Clone, serde::Serialize, serde::Deserialize)]
 //! struct Record {
 //!     id: u32,
 //!     value: i32,
 //! }
 //!
-//! #[derive(Clone)]
+//! #[derive(Clone, serde::Serialize, serde::Deserialize)]
 //! enum RecordOutput {
 //!     Valid(String),
 //!     Invalid(String),
@@ -96,16 +96,16 @@
 //! # use anyhow::Result;
 //!
 //! # fn main() -> Result<()> {
-//! #[derive(Clone)]
+//! #[derive(Clone, serde::Serialize, serde::Deserialize)]
 //! enum Output {
 //!     Good(String),
 //!     Bad(String),
 //! }
 //!
 //! let p = Pipeline::default();
-//! let data = from_vec(&p, vec!["valid", "invalid", "ok"]);
+//! let data = from_vec(&p, vec!["valid".to_string(), "invalid".to_string(), "ok".to_string()]);
 //!
-//! let classified = data.flat_map(|s: &&str| {
+//! let classified = data.flat_map(|s: &String| {
 //!     if s.len() > 4 {
 //!         vec![Output::Good(s.to_string())]
 //!     } else {
@@ -195,16 +195,16 @@
 /// # use anyhow::Result;
 ///
 /// # fn main() -> Result<()> {
-/// #[derive(Clone)]
+/// #[derive(Clone, serde::Serialize, serde::Deserialize)]
 /// enum Quality {
 ///     High(String),
 ///     Low(String),
 /// }
 ///
 /// let p = Pipeline::default();
-/// let data = from_vec(&p, vec!["a", "bbb", "cc"]);
+/// let data = from_vec(&p, vec!["a".to_string(), "bbb".to_string(), "cc".to_string()]);
 ///
-/// let classified = data.flat_map(|s: &&str| {
+/// let classified = data.flat_map(|s: &String| {
 ///     if s.len() > 2 {
 ///         vec![Quality::High(s.to_string())]
 ///     } else {
@@ -230,7 +230,7 @@
 /// # use anyhow::Result;
 ///
 /// # fn main() -> Result<()> {
-/// #[derive(Clone)]
+/// #[derive(Clone, serde::Serialize, serde::Deserialize)]
 /// enum ParseResult {
 ///     Integer(i64),
 ///     Float(f64),
@@ -238,9 +238,9 @@
 /// }
 ///
 /// let p = Pipeline::default();
-/// let inputs = from_vec(&p, vec!["42", "3.14", "not_a_number", "100"]);
+/// let inputs = from_vec(&p, vec!["42".to_string(), "3.14".to_string(), "not_a_number".to_string(), "100".to_string()]);
 ///
-/// let parsed = inputs.flat_map(|s: &&str| {
+/// let parsed = inputs.flat_map(|s: &String| {
 ///     if let Ok(i) = s.parse::<i64>() {
 ///         vec![ParseResult::Integer(i)]
 ///     } else if let Ok(f) = s.parse::<f64>() {
@@ -270,14 +270,14 @@
 /// # use anyhow::Result;
 ///
 /// # fn main() -> Result<()> {
-/// #[derive(Clone)]
+/// #[derive(Clone, serde::Serialize, serde::Deserialize)]
 /// struct User {
 ///     id: u32,
 ///     email: String,
 ///     age: i32,
 /// }
 ///
-/// #[derive(Clone)]
+/// #[derive(Clone, serde::Serialize, serde::Deserialize)]
 /// enum ValidationResult {
 ///     Valid(User),
 ///     InvalidEmail(User),
