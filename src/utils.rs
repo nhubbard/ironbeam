@@ -20,6 +20,7 @@ use std::cmp::Ordering;
 /// assert_eq!(heap.pop().unwrap().0, 3.14);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "coders", derive(serde::Serialize, serde::Deserialize))]
 pub struct OrdF64(pub f64);
 
 impl Eq for OrdF64 {}
