@@ -146,6 +146,50 @@ fn plain_coder_rejects_kv_split_with_clear_message() {
     assert!(format!("{err}").contains("not KV-aware"), "got: {err}");
 }
 
+#[test]
+fn kv_coder_decode_one_roundtrips_and_reports_type_name() {
+    let coder = PostcardKvCoder::<String, u64>::new();
+    assert!(
+        coder.type_name().contains("u64"),
+        "got: {}",
+        coder.type_name()
+    );
+
+    // In-bundle path: encode a single (k, v) then decode_one it back.
+    let one: Partition = Box::new(vec![("k".to_string(), 9u64)]);
+    let bytes = coder.encode_all(one).expect("encode_all");
+    let part = coder.decode_one(&bytes[0]).expect("decode_one");
+    let v = *part
+        .downcast::<Vec<(String, u64)>>()
+        .expect("downcast Vec<(String, u64)>");
+    assert_eq!(v, vec![("k".to_string(), 9u64)]);
+}
+
+#[test]
+fn kv_coder_downcast_mismatch_is_error_on_both_paths() {
+    let coder = PostcardKvCoder::<String, u64>::new();
+    let wrong: Partition = Box::new(vec![1u64, 2, 3]);
+    assert!(
+        coder.encode_all(wrong).is_err(),
+        "encode_all must reject the wrong partition type"
+    );
+    let wrong_again: Partition = Box::new(vec![1u64, 2, 3]);
+    assert!(
+        coder.encode_kv_pairs(wrong_again).is_err(),
+        "encode_kv_pairs must reject the wrong partition type"
+    );
+}
+
+#[test]
+fn default_constructs_working_coders() {
+    let c = PostcardCoder::<u64>::default();
+    let part: Partition = Box::new(vec![5u64, 6]);
+    assert_eq!(c.encode_all(part).unwrap().len(), 2);
+
+    let kv = PostcardKvCoder::<String, u64>::default();
+    assert!(kv.is_kv());
+}
+
 // ─────────────────────── 3. Registration completeness ───────────────────────
 
 #[test]
