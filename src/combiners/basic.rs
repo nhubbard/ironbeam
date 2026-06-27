@@ -1,6 +1,6 @@
 //! Basic arithmetic combiners: Sum, Min, Max
 
-use crate::RFBound;
+use crate::Element;
 use crate::collection::CombineFn;
 use std::cmp::Ord;
 use std::marker::PhantomData;
@@ -27,7 +27,7 @@ impl<T> Sum<T> {
 
 impl<T> CombineFn<T, T, T> for Sum<T>
 where
-    T: RFBound + Add<Output = T> + Default,
+    T: Element + Add<Output = T> + Default,
 {
     fn create(&self) -> T {
         T::default()
@@ -50,7 +50,6 @@ where
     }
 }
 
-
 /* ===================== Min<T> ===================== */
 
 /// Minimum value per key (requires `Ord`).
@@ -69,7 +68,7 @@ impl<T> Min<T> {
 
 impl<T> CombineFn<T, Option<T>, T> for Min<T>
 where
-    T: RFBound + Ord,
+    T: Element + Ord,
 {
     fn create(&self) -> Option<T> {
         None
@@ -108,7 +107,6 @@ where
     }
 }
 
-
 /* ===================== Max<T> ===================== */
 
 /// Maximum value per key (requires `Ord`).
@@ -127,7 +125,7 @@ impl<T> Max<T> {
 
 impl<T> CombineFn<T, Option<T>, T> for Max<T>
 where
-    T: RFBound + Ord,
+    T: Element + Ord,
 {
     fn create(&self) -> Option<T> {
         None
@@ -165,4 +163,3 @@ where
         true
     }
 }
-

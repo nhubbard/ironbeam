@@ -64,7 +64,7 @@ pub use crate::io::msgpack::{
 };
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{PCollection, Pipeline, RFBound, from_vec};
+use crate::{Element, PCollection, Pipeline, from_vec};
 use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 use serde::Serialize;
@@ -139,7 +139,7 @@ use std::sync::Arc;
 /// ```
 pub fn read_msgpack<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let path_str = path
         .as_ref()
@@ -207,7 +207,7 @@ pub fn read_msgpack_streaming<T>(
     records_per_shard: usize,
 ) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let shards: MsgpackShards = build_msgpack_shards(path, records_per_shard)?;
     let id = p.insert_node(Node::Source {
@@ -222,7 +222,7 @@ where
     })
 }
 
-impl<T: RFBound + Serialize> PCollection<T> {
+impl<T: Element + Serialize> PCollection<T> {
     /// Execute the collection and write it to a `MessagePack` file (sequential).
     ///
     /// The entire collection is first collected into memory (sequentially) to
@@ -258,7 +258,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 
 #[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
 #[cfg(feature = "parallel-io")]
-impl<T: RFBound + Serialize + Send + Sync> PCollection<T> {
+impl<T: Element + Serialize + Send + Sync> PCollection<T> {
     /// Execute the collection sequentially (to lock in a deterministic order),
     /// then write `MessagePack` **in parallel** while preserving that order.
     ///

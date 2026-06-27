@@ -64,7 +64,7 @@ use crate::io::avro::{AvroShards, AvroVecOps, build_avro_shards, read_avro_vec, 
 use crate::io::glob::expand_glob;
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{PCollection, Pipeline, RFBound, from_vec};
+use crate::{Element, PCollection, Pipeline, from_vec};
 use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 use serde::Serialize;
@@ -72,7 +72,7 @@ use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::path::Path;
 
-impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
+impl<T: Element + DeserializeOwned + Serialize> PCollection<T> {
     /// Execute the pipeline, collect results, and write them to a **single Avro file**.
     ///
     /// The Avro schema is inferred automatically from `T` using Serde's `derive` feature.
@@ -118,7 +118,7 @@ impl<T: RFBound + DeserializeOwned + Serialize> PCollection<T> {
 
 #[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
 #[cfg(feature = "parallel-io")]
-impl<T: RFBound + Serialize> PCollection<T> {
+impl<T: Element + Serialize> PCollection<T> {
     /// Execute the pipeline in parallel and write the result as Avro.
     ///
     /// This collects the result in parallel (respecting the runner's partition settings),
@@ -225,7 +225,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// ```
 pub fn read_avro<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let path_str = path
         .as_ref()
@@ -292,7 +292,7 @@ pub fn read_avro_streaming<T>(
     records_per_shard: usize,
 ) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let shards: AvroShards = build_avro_shards(path, records_per_shard)?;
     let id = p.insert_node(Node::Source {

@@ -1,6 +1,6 @@
 //! Top-K and Bottom-K combiners for selecting the largest or smallest values
 
-use crate::RFBound;
+use crate::Element;
 use crate::collection::CombineFn;
 use std::cmp::{Ord, Reverse};
 use std::collections::BinaryHeap;
@@ -36,7 +36,7 @@ impl<T> TopK<T> {
 // We store a min-heap of size ≤ k using Reverse to keep the largest k elements.
 impl<T> CombineFn<T, BinaryHeap<Reverse<T>>, Vec<T>> for TopK<T>
 where
-    T: RFBound + Ord,
+    T: Element + Ord,
 {
     fn create(&self) -> BinaryHeap<Reverse<T>> {
         BinaryHeap::new()
@@ -142,7 +142,7 @@ impl<T> BottomK<T> {
 // We store a max-heap of size ≤ k; popping evicts the largest, keeping the smallest k.
 impl<T> CombineFn<T, BinaryHeap<T>, Vec<T>> for BottomK<T>
 where
-    T: RFBound + Ord,
+    T: Element + Ord,
 {
     fn create(&self) -> BinaryHeap<T> {
         BinaryHeap::new()
@@ -203,4 +203,3 @@ where
         true
     }
 }
-

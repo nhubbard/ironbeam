@@ -27,6 +27,7 @@
 //! The filter is not serializable and must not be stored across pipeline runs.
 //! It is valid only for the duration of a single `exec` call.
 
+use std::array::from_fn;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -98,7 +99,7 @@ impl BloomFilter {
 /// mixed in as a leading `u64` before hashing `key`, ensuring each of the
 /// `K` positions is derived from an independent hash function.
 fn bit_positions<H: Hash>(key: &H, m: usize) -> [usize; K] {
-    std::array::from_fn(|i| {
+    from_fn(|i| {
         let mut h = DefaultHasher::new();
         (i as u64).hash(&mut h);
         key.hash(&mut h);

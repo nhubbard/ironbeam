@@ -30,11 +30,11 @@
 //! source splitter. There is no `HashMap` allocation or key-assignment overhead.
 
 use crate::node::Node;
-use crate::{PCollection, Partition, RFBound};
+use crate::{Element, PCollection, Partition};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Insert a shuffle barrier, re-distributing elements evenly across output partitions.
     ///
     /// This is a true graph-level barrier backed by [`Node::Reshuffle`]:

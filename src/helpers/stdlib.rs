@@ -33,7 +33,7 @@
 use crate::collection::FlatMapOp;
 use crate::node::Node;
 use crate::type_token::{TypeTag, VecOps, vec_ops_for};
-use crate::{PCollection, Pipeline, RFBound};
+use crate::{Element, PCollection, Pipeline};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -63,7 +63,7 @@ use std::sync::Arc;
 #[must_use]
 pub fn from_vec<T>(p: &Pipeline, data: Vec<T>) -> PCollection<T>
 where
-    T: RFBound,
+    T: Element,
 {
     let id = p.insert_node(Node::Source {
         payload: Arc::new(data),
@@ -102,7 +102,7 @@ where
 /// ```
 pub fn from_iter<T, I>(p: &Pipeline, iter: I) -> PCollection<T>
 where
-    T: RFBound,
+    T: Element,
     I: IntoIterator<Item = T>,
 {
     from_vec(p, iter.into_iter().collect::<Vec<T>>())
@@ -163,7 +163,7 @@ pub fn from_custom_source<T, P>(
     vec_ops: Arc<dyn VecOps>,
 ) -> PCollection<T>
 where
-    T: RFBound,
+    T: Element,
     P: 'static + Send + Sync,
 {
     let id = p.insert_node(Node::Source {
@@ -179,7 +179,7 @@ where
     }
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Filter and transform elements in one step using an `Option`-returning function.
     ///
     /// This is a convenience method that combines [`filter`](PCollection::filter) and
@@ -246,7 +246,7 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     pub fn filter_map<O, F>(&self, f: F) -> PCollection<O>
     where
-        O: RFBound,
+        O: Element,
         F: Fn(&T) -> Option<O> + Send + Sync + 'static,
     {
         self.apply_transform(Arc::new(FlatMapOp(

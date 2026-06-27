@@ -10,10 +10,10 @@
 //! These helpers are typically used in tests or final sinks where deterministic
 //! output ordering is desired for validation or snapshot comparison.
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use anyhow::Result;
 
-impl<T: RFBound + Ord> PCollection<T> {
+impl<T: Element + Ord> PCollection<T> {
     /// Collect all elements **sequentially** and return a **sorted** `Vec<T>`.
     ///
     /// Internally calls [`PCollection::collect_seq`] to materialize the entire
@@ -76,7 +76,7 @@ impl<T: RFBound + Ord> PCollection<T> {
     }
 }
 
-impl<K: RFBound + Ord, V: RFBound> PCollection<(K, V)> {
+impl<K: Element + Ord, V: Element> PCollection<(K, V)> {
     /// Collect all `(K, V)` pairs **in parallel** and return a vector sorted by **key**.
     ///
     /// Sorting is stable across partitions and uses [`[T]::sort_by`] with `K`'s

@@ -39,7 +39,7 @@ spilling = ["dep:postcard"]
 # Attach a per-PCollection Postcard-backed coder to every node at build time, so
 # backends that ship elements across a wire (e.g., the Dataflow harness) can
 # encode/decode each PCollection without the user registering types by hand.
-# Tightens `RFBound` to require `serde::{Serialize, DeserializeOwned}`.
+# Tightens `Element` to require `serde::{Serialize, DeserializeOwned}`.
 coders = ["dep:postcard"]
 
 [dependencies]

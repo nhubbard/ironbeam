@@ -1,6 +1,6 @@
 //! Priority-based reservoir sampling combiner
 
-use crate::RFBound;
+use crate::Element;
 use crate::collection::CombineFn;
 use crate::utils::OrdF64;
 use std::cmp::Reverse;
@@ -83,7 +83,7 @@ impl<T> PriorityReservoir<T> {
     }
 }
 
-impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
+impl<T: Element> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
     fn create(&self) -> PRAcc<T> {
         PRAcc {
             k: self.k,
@@ -186,4 +186,3 @@ impl<T: RFBound> CombineFn<T, PRAcc<T>, Vec<T>> for PriorityReservoir<T> {
         items.into_iter().map(|(_, _, v)| v).collect()
     }
 }
-

@@ -1,6 +1,6 @@
 //! Collection combiners: `ToList`, `ToSet`, `ToDict` for gathering values.
 
-use crate::RFBound;
+use crate::Element;
 use crate::collection::CombineFn;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -59,7 +59,7 @@ impl<T> ToList<T> {
 
 impl<T> CombineFn<T, Vec<T>, Vec<T>> for ToList<T>
 where
-    T: RFBound,
+    T: Element,
 {
     fn create(&self) -> Vec<T> {
         Vec::new()
@@ -77,7 +77,6 @@ where
         acc
     }
 }
-
 
 /* ===================== ToSet<T> ===================== */
 
@@ -131,7 +130,7 @@ impl<T> ToSet<T> {
 
 impl<T> CombineFn<T, HashSet<T>, HashSet<T>> for ToSet<T>
 where
-    T: RFBound + Hash + Eq,
+    T: Element + Hash + Eq,
 {
     fn create(&self) -> HashSet<T> {
         HashSet::new()
@@ -153,7 +152,6 @@ where
         true
     }
 }
-
 
 /* ===================== ToDict<K, V> ===================== */
 
@@ -218,8 +216,8 @@ impl<K, V> ToDict<K, V> {
 
 impl<K, V> CombineFn<(K, V), HashMap<K, V>, HashMap<K, V>> for ToDict<K, V>
 where
-    K: RFBound + Hash + Eq,
-    V: RFBound,
+    K: Element + Hash + Eq,
+    V: Element,
 {
     fn create(&self) -> HashMap<K, V> {
         HashMap::new()
@@ -237,4 +235,3 @@ where
         acc
     }
 }
-

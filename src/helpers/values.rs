@@ -35,12 +35,12 @@
 
 use crate::collection::{FilterValuesOp, MapValuesOp};
 use crate::node::{DynOp, Node};
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
+impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
     /// Transform only the *value* component of each key–value pair.
     ///
     /// Applies a function `f: &V -> O` to every value in `(K, V)`, keeping
@@ -66,7 +66,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     #[must_use]
     pub fn map_values<O, F>(self, f: F) -> PCollection<(K, O)>
     where
-        O: RFBound,
+        O: Element,
         F: 'static + Send + Sync + Fn(&V) -> O,
     {
         let op: Arc<dyn DynOp> = Arc::new(MapValuesOp::<K, V, O, F>(f, PhantomData));

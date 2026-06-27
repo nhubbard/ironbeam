@@ -546,7 +546,7 @@ pub mod spill_integration;
 
 // General re-exports
 pub use collection::{
-    CombineFn, Count, PCollection, RFBound, SideInput, SideMap, SideMultimap, SideSingleton,
+    CombineFn, Count, Element, PCollection, SideInput, SideMap, SideMultimap, SideSingleton,
 };
 pub use combiners::{AverageF64, BottomK, DistinctCount, Max, Min, Sum, TopK};
 pub use helpers::*;

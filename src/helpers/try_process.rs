@@ -35,11 +35,11 @@
 //! assert!(res.is_err());
 //! ```
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use anyhow::{Result, anyhow};
 use std::fmt::Display;
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Fallible 1->1 transform: `T -> Result<O, E>`.
     ///
     /// Converts a `PCollection<T>` into a `PCollection<Result<O, E>>` by
@@ -66,11 +66,11 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     pub fn try_map<O, E, F>(self, f: F) -> PCollection<Result<O, E>>
     where
-        O: RFBound,
-        E: RFBound + Display,
+        O: Element,
+        E: Element + Display,
         F: 'static + Send + Sync + Fn(&T) -> Result<O, E>,
     {
-        // Result<O,E> now satisfies RFBound because E: Clone
+        // Result<O,E> now satisfies Element because E: Clone
         self.map(move |t| f(t))
     }
 
@@ -98,8 +98,8 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     pub fn try_flat_map<O, E, F>(self, f: F) -> PCollection<Result<Vec<O>, E>>
     where
-        O: RFBound,
-        E: RFBound + Display,
+        O: Element,
+        E: Element + Display,
         F: 'static + Send + Sync + Fn(&T) -> Result<Vec<O>, E>,
     {
         self.map(move |t| f(t))
@@ -107,9 +107,9 @@ impl<T: RFBound> PCollection<T> {
 }
 
 // Fail-fast terminal (keeps errors ergonomic)
-impl<T: RFBound, E> PCollection<Result<T, E>>
+impl<T: Element, E> PCollection<Result<T, E>>
 where
-    E: RFBound + Display,
+    E: Element + Display,
 {
     /// Collect all `Ok` values or return the first `Err` encountered.
     ///

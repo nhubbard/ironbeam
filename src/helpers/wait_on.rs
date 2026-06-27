@@ -48,7 +48,7 @@
 //! of the data type. The downstream collection's element type, ordering,
 //! and content are exactly the data collection's.
 
-use crate::collection::RFBound;
+use crate::collection::Element;
 use crate::node::{DynOp, Node};
 use crate::type_token::{Partition, TypeTag, vec_ops_for};
 use crate::{NodeId, PCollection, Pipeline};
@@ -72,7 +72,7 @@ impl<T> DiscardAndEmitEmptyOp<T> {
     }
 }
 
-impl<T: RFBound> DynOp for DiscardAndEmitEmptyOp<T> {
+impl<T: Element> DynOp for DiscardAndEmitEmptyOp<T> {
     fn apply(&self, _input: Partition) -> Partition {
         Box::new(Vec::<T>::new()) as Partition
     }
@@ -111,7 +111,7 @@ fn insert_dummy_source(p: &Pipeline) -> NodeId {
     })
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Return a new `PCollection<T>` containing exactly the elements of
     /// `self`, but whose downstream consumers are blocked until `signal`
     /// has fully drained.
@@ -162,7 +162,7 @@ impl<T: RFBound> PCollection<T> {
     /// `PCollection<T>` chain, which the builder API guarantees terminates
     /// in `Vec<T>`.
     #[must_use]
-    pub fn wait_on<S: RFBound>(self, signal: &PCollection<S>) -> Self {
+    pub fn wait_on<S: Element>(self, signal: &PCollection<S>) -> Self {
         let data_chain = chain_from(&self.pipeline, self.id);
 
         // Build the signal subchain with the discard-and-emit-empty tail so

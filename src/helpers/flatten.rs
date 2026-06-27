@@ -24,7 +24,7 @@
 
 use crate::node::Node;
 use crate::type_token::{TypeTag, vec_ops_for};
-use crate::{NodeId, PCollection, Partition, Pipeline, RFBound};
+use crate::{Element, NodeId, PCollection, Partition, Pipeline};
 use anyhow::{Result, anyhow};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -109,7 +109,7 @@ fn insert_dummy_source(p: &Pipeline) -> NodeId {
 #[must_use]
 pub fn flatten<T>(collections: &[&PCollection<T>]) -> PCollection<T>
 where
-    T: RFBound,
+    T: Element,
 {
     assert!(
         !collections.is_empty(),

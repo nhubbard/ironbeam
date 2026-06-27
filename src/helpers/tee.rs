@@ -20,9 +20,9 @@
 //! consume the materialized output. So calling `tee` is functionally
 //! equivalent to two manual `clone` calls but communicates intent more clearly.
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Split this collection into two independent downstream branches.
     ///
     /// Returns two handles `(a, b)` that both reference the same upstream

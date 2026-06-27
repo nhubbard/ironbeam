@@ -22,7 +22,7 @@
 //!   rendered representation (truncation, structured prefixes, redaction of
 //!   sensitive fields, …) or when `T` does not implement [`Debug`].
 
-use crate::collection::{PCollection, RFBound};
+use crate::collection::{Element, PCollection};
 use crate::node::{DynOp, Node};
 use crate::type_token::Partition;
 use std::fmt::Debug;
@@ -51,7 +51,7 @@ impl<T, F> LogElementsOp<T, F> {
 
 impl<T, F> DynOp for LogElementsOp<T, F>
 where
-    T: RFBound,
+    T: Element,
     F: Fn(&T) -> String + Send + Sync + 'static,
 {
     fn apply(&self, input: Partition) -> Partition {
@@ -65,7 +65,7 @@ where
     }
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Print each element to standard output using its [`Debug`] representation,
     /// passing the collection through unchanged.
     ///

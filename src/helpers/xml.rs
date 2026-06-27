@@ -67,7 +67,7 @@ use crate::io::glob::expand_glob;
 use crate::io::xml::{XmlShards, XmlVecOps, build_xml_shards, read_xml_vec, write_xml_vec};
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{PCollection, Pipeline, RFBound, from_vec};
+use crate::{Element, PCollection, Pipeline, from_vec};
 use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 use serde::Serialize;
@@ -75,7 +75,7 @@ use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::path::Path;
 
-impl<T: RFBound + Serialize> PCollection<T> {
+impl<T: Element + Serialize> PCollection<T> {
     /// Execute the pipeline, collect results, and write them to a single XML file.
     ///
     /// The collection is first gathered into memory sequentially to preserve
@@ -112,7 +112,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 
 #[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
 #[cfg(feature = "parallel-io")]
-impl<T: RFBound + Serialize> PCollection<T> {
+impl<T: Element + Serialize> PCollection<T> {
     /// Execute the pipeline in parallel and write the result as XML.
     ///
     /// Collects results in parallel, serializes each record to an XML fragment
@@ -209,7 +209,7 @@ impl<T: RFBound + Serialize> PCollection<T> {
 /// ```
 pub fn read_xml<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let path_str = path
         .as_ref()
@@ -276,7 +276,7 @@ pub fn read_xml_streaming<T>(
     records_per_shard: usize,
 ) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let shards: XmlShards = build_xml_shards(path, records_per_shard)?;
     let id = p.insert_node(Node::Source {

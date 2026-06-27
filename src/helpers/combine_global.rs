@@ -15,9 +15,9 @@ use std::sync::Arc;
 
 use crate::collection::CombineFn;
 use crate::node::Node;
-use crate::{PCollection, Partition, RFBound};
+use crate::{Element, PCollection, Partition};
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Combine all elements (no key) into a single output using a [`CombineFn`].
     ///
     /// # Parameters
@@ -51,7 +51,7 @@ impl<T: RFBound> PCollection<T> {
     where
         C: CombineFn<T, A, O> + 'static,
         A: Send + Sync + 'static,
-        O: RFBound,
+        O: Element,
     {
         let comb = Arc::new(comb);
 
@@ -133,7 +133,7 @@ impl<T: RFBound> PCollection<T> {
     where
         C: CombineFn<T, A, O> + 'static,
         A: Send + Sync + 'static,
-        O: RFBound,
+        O: Element,
     {
         let comb = Arc::new(comb);
 

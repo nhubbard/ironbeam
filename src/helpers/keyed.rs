@@ -13,13 +13,13 @@
 //!   large per-key fan-in, prefer a combiner that summarizes incrementally.
 
 use crate::node::Node;
-use crate::{PCollection, Partition, RFBound};
+use crate::{Element, PCollection, Partition};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Derive a key for each element and emit `(K, T)` pairs.
     ///
     /// The provided `key_fn` runs once per element, and its result becomes the
@@ -44,7 +44,7 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     pub fn key_by<K, F>(self, key_fn: F) -> PCollection<(K, T)>
     where
-        K: RFBound + Eq + Hash,
+        K: Element + Eq + Hash,
         F: 'static + Send + Sync + Fn(&T) -> K,
     {
         self.map(move |t| (key_fn(t), t.clone()))
@@ -75,7 +75,7 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     pub fn with_constant_key<K>(self, key: K) -> PCollection<(K, T)>
     where
-        K: RFBound + Eq + Hash,
+        K: Element + Eq + Hash,
     {
         self.map(move |t| (key.clone(), t.clone()))
     }
@@ -100,14 +100,14 @@ impl<T: RFBound> PCollection<T> {
     /// ```
     pub fn with_keys<K, F>(self, key_fn: F) -> PCollection<(K, T)>
     where
-        K: RFBound + Eq + Hash,
+        K: Element + Eq + Hash,
         F: 'static + Send + Sync + Fn(&T) -> K,
     {
         self.key_by(key_fn)
     }
 }
 
-impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
+impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
     /// Extract only the key from each `(K, V)` pair, discarding the value.
     ///
     /// This is a thin wrapper over `map(|(k, _)| k)`. It is the Ironbeam equivalent
@@ -250,7 +250,7 @@ impl<K: RFBound + Eq + Hash, V: RFBound> PCollection<(K, V)> {
     }
 }
 
-impl<K: RFBound, V: RFBound> PCollection<(K, V)> {
+impl<K: Element, V: Element> PCollection<(K, V)> {
     /// Swap the key and value of each pair, producing `PCollection<(V, K)>`.
     ///
     /// This is a thin wrapper over `map(|(k, v)| (v, k))`. It is the Ironbeam

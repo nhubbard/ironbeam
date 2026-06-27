@@ -17,14 +17,14 @@
 //! - [`PCollection::approx_quantiles_per_key`] — approximate quantile set per key → `PCollection<(K, Vec<f64>)>`
 
 use crate::combiners::{ApproxMedian, ApproxQuantiles};
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::hash::Hash;
 
 /* ─────────────────────────────── Unkeyed (global) ─────────────────────────────── */
 
 impl<T> PCollection<T>
 where
-    T: RFBound + Into<f64>,
+    T: Element + Into<f64>,
 {
     /// Compute the approximate median (50th percentile) of all elements globally.
     ///
@@ -96,8 +96,8 @@ where
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound + Into<f64>,
+    K: Element + Eq + Hash,
+    V: Element + Into<f64>,
 {
     /// Compute the approximate median of values per key.
     ///

@@ -65,9 +65,9 @@
 //! # Ok(()) }
 //! ```
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Attach a human-readable name to the node backing this collection.
     ///
     /// This labels `self.id` — the [`NodeId`](crate::NodeId) of the most

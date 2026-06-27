@@ -69,7 +69,7 @@ use crate::io::glob::expand_glob;
 pub use crate::io::jsonl::{JsonlShards, JsonlVecOps, build_jsonl_shards, write_jsonl_vec};
 use crate::node::Node;
 use crate::type_token::TypeTag;
-use crate::{PCollection, Pipeline, RFBound, from_vec, read_jsonl_vec};
+use crate::{Element, PCollection, Pipeline, from_vec, read_jsonl_vec};
 use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 use serde::Serialize;
@@ -139,7 +139,7 @@ use std::sync::Arc;
 /// not match any files, or if any matched file cannot be read or parsed.
 pub fn read_jsonl<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let path_str = path
         .as_ref()
@@ -168,7 +168,7 @@ where
     }
 }
 
-impl<T: RFBound + Serialize> PCollection<T> {
+impl<T: Element + Serialize> PCollection<T> {
     /// Execute the collection and write it to a JSONL file (sequential).
     ///
     /// Returns the number of records written. The output order matches the
@@ -212,7 +212,7 @@ pub fn read_jsonl_streaming<T>(
     lines_per_shard: usize,
 ) -> Result<PCollection<T>>
 where
-    T: RFBound + DeserializeOwned,
+    T: Element + DeserializeOwned,
 {
     let shards: JsonlShards = build_jsonl_shards(path, lines_per_shard)?;
     let id = p.insert_node(Node::Source {
@@ -229,7 +229,7 @@ where
 
 #[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
 #[cfg(feature = "parallel-io")]
-impl<T: RFBound + Serialize> PCollection<T> {
+impl<T: Element + Serialize> PCollection<T> {
     /// Execute the collection sequentially (to lock in a deterministic order),
     /// then write JSONL **in parallel** while preserving that order.
     ///

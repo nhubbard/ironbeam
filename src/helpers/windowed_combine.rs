@@ -65,13 +65,13 @@
 //! | [`average_per_key_and_window`](PCollection::average_per_key_and_window) | `((K, Window), f64)` | `V: Into<f64>` |
 
 use crate::combiners::{AverageF64, Count, Max, Min, Sum};
-use crate::{CombineFn, PCollection, RFBound, Timestamped, Window};
+use crate::{CombineFn, Element, PCollection, Timestamped, Window};
 use std::hash::Hash;
 use std::ops::Add;
 
 /* ─────────────────────────── Unkeyed: PCollection<Timestamped<T>> ─────────────────────────── */
 
-impl<T: RFBound> PCollection<Timestamped<T>> {
+impl<T: Element> PCollection<Timestamped<T>> {
     /// Aggregate elements into tumbling windows using a custom [`CombineFn`].
     ///
     /// This is the generic building block. It is equivalent to:
@@ -120,7 +120,7 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
     where
         C: CombineFn<T, A, O> + 'static,
         A: Send + Sync + 'static,
-        O: RFBound,
+        O: Element,
     {
         self.group_by_window(size_ms, offset_ms)
             .combine_values_lifted(comb)
@@ -312,8 +312,8 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
 
 impl<K, V> PCollection<(K, Timestamped<V>)>
 where
-    K: RFBound + Eq + Hash,
-    V: RFBound,
+    K: Element + Eq + Hash,
+    V: Element,
 {
     /// Aggregate keyed elements into tumbling windows using a custom [`CombineFn`].
     ///
@@ -361,7 +361,7 @@ where
     where
         C: CombineFn<V, A, O> + 'static,
         A: Send + Sync + 'static,
-        O: RFBound,
+        O: Element,
     {
         self.group_by_key_and_window(size_ms, offset_ms)
             .combine_values_lifted(comb)

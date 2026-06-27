@@ -10,10 +10,10 @@
 //! on every `Display` type. Calling `pcoll.to_string()` would otherwise be
 //! ambiguous in trait resolution and surprising at call sites.
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::fmt::Display;
 
-impl<T: RFBound + Display> PCollection<T> {
+impl<T: Element + Display> PCollection<T> {
     /// Convert each element to its [`Display`] representation as a `String`.
     ///
     /// This is the Ironbeam equivalent of Apache Beam's `ToString.elements()`.

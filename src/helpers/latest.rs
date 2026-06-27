@@ -7,10 +7,10 @@
 
 use crate::combiners::Latest;
 use crate::window::Timestamped;
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::hash::Hash;
 
-impl<T: RFBound> PCollection<Timestamped<T>> {
+impl<T: Element> PCollection<Timestamped<T>> {
     /// Select the value with the latest (most recent) timestamp globally.
     ///
     /// This aggregates all timestamped elements and returns the single element
@@ -54,8 +54,8 @@ impl<T: RFBound> PCollection<Timestamped<T>> {
 
 impl<K, T> PCollection<(K, Timestamped<T>)>
 where
-    K: RFBound + Hash + Eq,
-    T: RFBound,
+    K: Element + Hash + Eq,
+    T: Element,
 {
     /// Select the value with the latest (most recent) timestamp per key.
     ///

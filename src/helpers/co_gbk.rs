@@ -50,7 +50,7 @@
 #![allow(clippy::similar_names)]
 #![allow(clippy::type_complexity)]
 
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::hash::Hash;
 
 // Macro to generate a single Tagged enum with N type parameters
@@ -306,8 +306,8 @@ macro_rules! generate_cogroup_impls {
                 $($param: &PCollection<(K, $variant)>),+
             ) -> PCollection<(K, ($(Vec<$variant>),+))>
             where
-                K: RFBound + Hash + Eq,
-                $($variant: RFBound),+
+                K: Element + Hash + Eq,
+                $($variant: Element),+
             {
                 use crate::helpers::flatten::flatten;
 

@@ -2,7 +2,7 @@
 //!
 //! This module defines:
 //!
-//! - [`RFBound`]: the blanket trait bound we use for data elements in pipelines.
+//! - [`Element`]: the blanket trait bound we use for data elements in pipelines.
 //! - [`PCollection<T>`]: the typed, logical dataset that flows through the graph.
 //! - **Stateless ops** (crate-visible): internal dynamic operators used by the
 //!   planner/runner for `map`, `filter`, `flat_map`, and value-only variants.
@@ -18,9 +18,12 @@ use crate::NodeId;
 use crate::node::DynOp;
 use crate::pipeline::Pipeline;
 use crate::type_token::Partition;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::mem::take;
 use std::sync::Arc;
 
 /// The standard trait bound for elements carried by a `PCollection`.
@@ -55,20 +58,14 @@ use std::sync::Arc;
 /// backends (the Dataflow harness) encode/decode every PCollection without
 /// the user registering types by hand.
 #[cfg(not(feature = "coders"))]
-pub trait RFBound: 'static + Send + Sync + Clone {}
+pub trait Element: 'static + Send + Sync + Clone {}
 #[cfg(not(feature = "coders"))]
-impl<T> RFBound for T where T: 'static + Send + Sync + Clone {}
+impl<T> Element for T where T: 'static + Send + Sync + Clone {}
 
 #[cfg(feature = "coders")]
-pub trait RFBound:
-    'static + Send + Sync + Clone + serde::Serialize + serde::de::DeserializeOwned
-{
-}
+pub trait Element: 'static + Send + Sync + Clone + Serialize + DeserializeOwned {}
 #[cfg(feature = "coders")]
-impl<T> RFBound for T where
-    T: 'static + Send + Sync + Clone + serde::Serialize + serde::de::DeserializeOwned
-{
-}
+impl<T> Element for T where T: 'static + Send + Sync + Clone + Serialize + DeserializeOwned {}
 
 /// A typed, logical dataset (the basic building block of a flow).
 ///
@@ -98,7 +95,7 @@ pub struct PCollection<T> {
     pub(crate) _t: PhantomData<T>,
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Get the internal node ID for this collection.
     ///
     /// This is primarily used for advanced use cases like custom runner execution.
@@ -151,7 +148,7 @@ impl<T: RFBound> PCollection<T> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn apply_transform<O: RFBound>(&self, op: Arc<dyn DynOp>) -> PCollection<O> {
+    pub fn apply_transform<O: Element>(&self, op: Arc<dyn DynOp>) -> PCollection<O> {
         use crate::node::Node;
         let id = self.pipeline.insert_node(Node::Stateless(vec![op]));
         self.pipeline.connect(self.id, id);
@@ -173,8 +170,8 @@ pub(crate) struct MapOp<I, O, F>(pub F, pub PhantomData<(I, O)>);
 
 impl<I, O, F> DynOp for MapOp<I, O, F>
 where
-    I: RFBound,
-    O: RFBound,
+    I: Element,
+    O: Element,
     F: Send + Sync + Fn(&I) -> O + 'static,
 {
     fn apply(&self, input: Partition) -> Partition {
@@ -189,9 +186,9 @@ pub(crate) struct MapValuesOp<K, V, O, F>(pub F, pub PhantomData<(K, V, O)>);
 
 impl<K, V, O, F> DynOp for MapValuesOp<K, V, O, F>
 where
-    K: RFBound,
-    V: RFBound,
-    O: RFBound,
+    K: Element,
+    V: Element,
+    O: Element,
     F: 'static + Send + Sync + Fn(&V) -> O,
 {
     fn apply(&self, p: Partition) -> Partition {
@@ -223,7 +220,7 @@ pub(crate) struct FilterOp<T, P>(pub P, pub PhantomData<T>);
 
 impl<T, P> DynOp for FilterOp<T, P>
 where
-    T: RFBound,
+    T: Element,
     P: Send + Sync + Fn(&T) -> bool + 'static,
 {
     fn apply(&self, input: Partition) -> Partition {
@@ -242,8 +239,8 @@ pub(crate) struct FilterValuesOp<K, V, F>(pub F, pub PhantomData<(K, V)>);
 
 impl<K, V, F> DynOp for FilterValuesOp<K, V, F>
 where
-    K: RFBound,
-    V: RFBound,
+    K: Element,
+    V: Element,
     F: 'static + Send + Sync + Fn(&V) -> bool,
 {
     fn apply(&self, p: Partition) -> Partition {
@@ -278,8 +275,8 @@ pub(crate) struct FlatMapOp<I, O, F>(pub F, pub PhantomData<(I, O)>);
 
 impl<I, O, F> DynOp for FlatMapOp<I, O, F>
 where
-    I: RFBound,
-    O: RFBound,
+    I: Element,
+    O: Element,
     F: Send + Sync + Fn(&I) -> Vec<O> + 'static,
 {
     fn apply(&self, input: Partition) -> Partition {
@@ -304,7 +301,7 @@ pub(crate) struct TakeOp<T> {
     pub _t: PhantomData<T>,
 }
 
-impl<T: RFBound> DynOp for TakeOp<T> {
+impl<T: Element> DynOp for TakeOp<T> {
     fn apply(&self, input: Partition) -> Partition {
         let mut v = *input.downcast::<Vec<T>>().expect("TakeOp input type");
         v.truncate(self.n);
@@ -408,28 +405,28 @@ impl<V> CombineFn<V, u64, u64> for Count {
 /// Constructed via helper `side_vec(v)`, then consumed by APIs like
 /// `map_with_side` / `filter_with_side`.
 #[derive(Clone)]
-pub struct SideInput<T: RFBound>(pub Arc<Vec<T>>);
+pub struct SideInput<T: Element>(pub Arc<Vec<T>>);
 
 /// A read-only hash map side input.
 ///
 /// Constructed via helper `side_hashmap(pairs)`, then consumed by
 /// `map_with_side_map` / `filter_with_side_map`.
 #[derive(Clone)]
-pub struct SideMap<K: RFBound + Eq + Hash, V: RFBound>(pub Arc<HashMap<K, V>>);
+pub struct SideMap<K: Element + Eq + Hash, V: Element>(pub Arc<HashMap<K, V>>);
 
 /// A read-only singleton side input — broadcasts a single scalar value to all elements.
 ///
 /// Constructed via [`side_singleton`](crate::side_singleton), then consumed by
 /// `map_with_singleton` / `filter_with_singleton`.
 #[derive(Clone)]
-pub struct SideSingleton<T: RFBound>(pub Arc<T>);
+pub struct SideSingleton<T: Element>(pub Arc<T>);
 
 /// A read-only multimap side input — maps each key to a `Vec` of associated values.
 ///
 /// Constructed via [`side_multimap`](crate::side_multimap), then consumed by
 /// `map_with_side_multimap` / `filter_with_side_multimap`.
 #[derive(Clone)]
-pub struct SideMultimap<K: RFBound + Eq + Hash, V: RFBound>(pub Arc<HashMap<K, Vec<V>>>);
+pub struct SideMultimap<K: Element + Eq + Hash, V: Element>(pub Arc<HashMap<K, Vec<V>>>);
 
 // |---------------------|
 // | Batch map operators |
@@ -596,7 +593,7 @@ where
             // overflow the limit, flush the current batch first. This still
             // allows a single oversized element to be emitted in its own batch.
             if !current.is_empty() && current_bytes.saturating_add(elem_size) > max_bytes {
-                out.push(std::mem::take(&mut current));
+                out.push(take(&mut current));
                 current_bytes = 0;
             }
             current_bytes = current_bytes.saturating_add(elem_size);

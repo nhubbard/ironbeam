@@ -44,7 +44,7 @@
 //! ```
 
 use crate::collection::{SideInput, SideMap, SideMultimap, SideSingleton};
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -66,11 +66,11 @@ use std::sync::Arc;
 ///     .map_with_side(&primes, |n, ps| if ps.contains(n) { n + 100 } else { *n });
 /// ```
 #[must_use]
-pub fn side_vec<T: RFBound>(v: Vec<T>) -> SideInput<T> {
+pub fn side_vec<T: Element>(v: Vec<T>) -> SideInput<T> {
     SideInput(Arc::new(v))
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Map with a read-only **vector** side input.
     ///
     /// The closure receives each element and a shared slice view of the side vector.
@@ -95,8 +95,8 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn map_with_side<O, S, F>(self, side: &SideInput<S>, f: F) -> PCollection<O>
     where
-        O: RFBound,
-        S: RFBound,
+        O: Element,
+        S: Element,
         F: 'static + Send + Sync + Fn(&T, &[S]) -> O,
     {
         let side_arc = side.0.clone();
@@ -119,7 +119,7 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn filter_with_side<S, F>(self, side: &SideInput<S>, pred: F) -> Self
     where
-        S: RFBound,
+        S: Element,
         F: 'static + Send + Sync + Fn(&T, &[S]) -> bool,
     {
         let side_arc = side.0.clone();
@@ -148,7 +148,7 @@ impl<T: RFBound> PCollection<T> {
 /// });
 /// ```
 #[must_use]
-pub fn side_hashmap<K: RFBound + Eq + Hash, V: RFBound>(pairs: Vec<(K, V)>) -> SideMap<K, V> {
+pub fn side_hashmap<K: Element + Eq + Hash, V: Element>(pairs: Vec<(K, V)>) -> SideMap<K, V> {
     SideMap(Arc::new(pairs.into_iter().collect()))
 }
 
@@ -168,7 +168,7 @@ pub fn side_hashmap<K: RFBound + Eq + Hash, V: RFBound>(pairs: Vec<(K, V)>) -> S
 /// let above = data.filter_with_singleton(&threshold, |x, t| x > t);
 /// ```
 #[must_use]
-pub fn side_singleton<T: RFBound>(value: T) -> SideSingleton<T> {
+pub fn side_singleton<T: Element>(value: T) -> SideSingleton<T> {
     SideSingleton(Arc::new(value))
 }
 
@@ -194,7 +194,7 @@ pub fn side_singleton<T: RFBound>(value: T) -> SideSingleton<T> {
 /// });
 /// ```
 #[must_use]
-pub fn side_multimap<K: RFBound + Eq + Hash, V: RFBound>(pairs: Vec<(K, V)>) -> SideMultimap<K, V> {
+pub fn side_multimap<K: Element + Eq + Hash, V: Element>(pairs: Vec<(K, V)>) -> SideMultimap<K, V> {
     let mut map: HashMap<K, Vec<V>> = HashMap::new();
     for (k, v) in pairs {
         map.entry(k).or_default().push(v);
@@ -202,7 +202,7 @@ pub fn side_multimap<K: RFBound + Eq + Hash, V: RFBound>(pairs: Vec<(K, V)>) -> 
     SideMultimap(Arc::new(map))
 }
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Map with a read-only **hash map** side input.
     ///
     /// The closure receives each element and an `&HashMap<K, V>` for O(1) lookups.
@@ -230,9 +230,9 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn map_with_side_map<O, K, V, F>(self, side: &SideMap<K, V>, f: F) -> PCollection<O>
     where
-        O: RFBound,
-        K: RFBound + Eq + Hash,
-        V: RFBound,
+        O: Element,
+        K: Element + Eq + Hash,
+        V: Element,
         F: 'static + Send + Sync + Fn(&T, &HashMap<K, V>) -> O,
     {
         let side_map = side.0.clone();
@@ -260,8 +260,8 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn filter_with_side_map<K, V, F>(self, side: &SideMap<K, V>, pred: F) -> Self
     where
-        K: RFBound + Eq + Hash,
-        V: RFBound,
+        K: Element + Eq + Hash,
+        V: Element,
         F: 'static + Send + Sync + Fn(&T, &HashMap<K, V>) -> bool,
     {
         let side_map = side.0.clone();
@@ -288,8 +288,8 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn map_with_singleton<O, S, F>(self, side: &SideSingleton<S>, f: F) -> PCollection<O>
     where
-        O: RFBound,
-        S: RFBound,
+        O: Element,
+        S: Element,
         F: 'static + Send + Sync + Fn(&T, &S) -> O,
     {
         let arc = side.0.clone();
@@ -316,7 +316,7 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn filter_with_singleton<S, F>(self, side: &SideSingleton<S>, pred: F) -> Self
     where
-        S: RFBound,
+        S: Element,
         F: 'static + Send + Sync + Fn(&T, &S) -> bool,
     {
         let arc = side.0.clone();
@@ -354,9 +354,9 @@ impl<T: RFBound> PCollection<T> {
         f: F,
     ) -> PCollection<O>
     where
-        O: RFBound,
-        K: RFBound + Eq + Hash,
-        V: RFBound,
+        O: Element,
+        K: Element + Eq + Hash,
+        V: Element,
         F: 'static + Send + Sync + Fn(&T, &HashMap<K, Vec<V>>) -> O,
     {
         let arc = side.0.clone();
@@ -383,8 +383,8 @@ impl<T: RFBound> PCollection<T> {
     #[must_use]
     pub fn filter_with_side_multimap<K, V, F>(self, side: &SideMultimap<K, V>, pred: F) -> Self
     where
-        K: RFBound + Eq + Hash,
-        V: RFBound,
+        K: Element + Eq + Hash,
+        V: Element,
         F: 'static + Send + Sync + Fn(&T, &HashMap<K, Vec<V>>) -> bool,
     {
         let arc = side.0.clone();

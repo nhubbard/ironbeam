@@ -8,11 +8,11 @@
 //! - `to_dict()` - Materialize a `PCollection<(K, V)>` as a single `HashMap<K, V>`
 
 use crate::combiners::{ToDict, ToList, ToSet};
-use crate::{PCollection, RFBound};
+use crate::{Element, PCollection};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
-impl<T: RFBound> PCollection<T> {
+impl<T: Element> PCollection<T> {
     /// Collect all elements globally into a single `Vec<T>`.
     ///
     /// Produces exactly one element — a `Vec<T>` containing every element in the
@@ -76,8 +76,8 @@ impl<T: RFBound> PCollection<T> {
 
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound + Hash + Eq,
-    V: RFBound,
+    K: Element + Hash + Eq,
+    V: Element,
 {
     /// Collect all values per key into a `Vec<V>`.
     ///

@@ -3,14 +3,14 @@
 //! These helpers add validation capabilities to pipelines, allowing you to
 //! handle bad data gracefully with configurable error handling modes.
 
-use crate::collection::{PCollection, RFBound};
+use crate::collection::{Element, PCollection};
 use crate::node::DynOp;
 use crate::type_token::Partition;
 use crate::validation::{ErrorCollector, Validate, ValidationError, ValidationMode};
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
-impl<T: RFBound + Validate> PCollection<T> {
+impl<T: Element + Validate> PCollection<T> {
     /// Validate elements in the collection using the provided validation mode.
     ///
     /// This method applies validation rules defined by the [`Validate`] trait
@@ -145,13 +145,13 @@ impl<T: RFBound + Validate> PCollection<T> {
 }
 
 /// Internal operator for validation.
-struct ValidateOp<T: RFBound + Validate> {
+struct ValidateOp<T: Element + Validate> {
     mode: ValidationMode,
     collector: Option<Arc<Mutex<ErrorCollector>>>,
     _phantom: PhantomData<T>,
 }
 
-impl<T: RFBound + Validate> DynOp for ValidateOp<T> {
+impl<T: Element + Validate> DynOp for ValidateOp<T> {
     fn apply(&self, input: Partition) -> Partition {
         let elements = *input
             .downcast::<Vec<T>>()
@@ -201,8 +201,8 @@ impl<T: RFBound + Validate> DynOp for ValidateOp<T> {
 /// Helper to validate keyed collections.
 impl<K, V> PCollection<(K, V)>
 where
-    K: RFBound,
-    V: RFBound + Validate,
+    K: Element,
+    V: Element + Validate,
 {
     /// Validate the values in a keyed collection, preserving keys for valid records.
     ///
@@ -261,13 +261,13 @@ where
 }
 
 /// Internal operator for validating values in keyed collections.
-struct ValidateValuesOp<K: RFBound, V: RFBound + Validate> {
+struct ValidateValuesOp<K: Element, V: Element + Validate> {
     mode: ValidationMode,
     collector: Option<Arc<Mutex<ErrorCollector>>>,
     _phantom: PhantomData<(K, V)>,
 }
 
-impl<K: RFBound, V: RFBound + Validate> DynOp for ValidateValuesOp<K, V> {
+impl<K: Element, V: Element + Validate> DynOp for ValidateValuesOp<K, V> {
     fn apply(&self, input: Partition) -> Partition {
         let pairs = *input
             .downcast::<Vec<(K, V)>>()
