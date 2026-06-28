@@ -213,6 +213,8 @@ pub mod msgpack;
 
 pub mod cbor;
 
+pub mod protobuf;
+
 pub mod cloud;
 pub mod compression;
 pub mod glob;

@@ -620,3 +620,14 @@ pub use helpers::cbor::{read_cbor, read_cbor_streaming};
 
 #[cfg(feature = "parallel-io")]
 pub use io::cbor::write_cbor_par;
+
+pub use helpers::protobuf::{ProtoShards, ProtoVecOps, build_proto_shards};
+
+#[cfg(feature = "io-protobuf")]
+pub use io::protobuf::{read_proto_vec, write_proto_vec};
+
+#[cfg(feature = "io-protobuf")]
+pub use helpers::protobuf::{read_proto, read_proto_streaming};
+
+#[cfg(all(feature = "parallel-io", feature = "io-protobuf"))]
+pub use io::protobuf::write_proto_par;

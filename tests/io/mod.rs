@@ -14,4 +14,5 @@ mod jsonl_streaming;
 mod msgpack;
 mod parquet;
 mod parquet_streaming;
+mod protobuf;
 mod xml;
