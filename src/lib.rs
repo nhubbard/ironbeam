@@ -631,3 +631,20 @@ pub use helpers::protobuf::{read_proto, read_proto_streaming};
 
 #[cfg(all(feature = "parallel-io", feature = "io-protobuf"))]
 pub use io::protobuf::write_proto_par;
+
+pub use io::tfrecord::{TFRecordShards, TFRecordVecOps, build_tfrecord_shards};
+
+pub use io::tfrecord::{read_tfrecord_vec, write_tfrecord_vec};
+
+pub use helpers::tfrecord::{read_tfrecord, read_tfrecord_streaming};
+
+#[cfg(feature = "parallel-io")]
+pub use io::tfrecord::write_tfrecord_par;
+
+#[cfg(all(feature = "io-tfrecord", feature = "io-protobuf"))]
+pub use helpers::tfrecord::{
+    BytesList, Example, Feature, Features, FloatList, Int64List, read_tfrecord_examples,
+};
+
+#[cfg(all(feature = "io-tfrecord", feature = "io-protobuf"))]
+pub use io::tfrecord::read_tfrecord_examples_vec;

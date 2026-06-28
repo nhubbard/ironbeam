@@ -88,6 +88,7 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 5.5 Parquet I/O (gap-fill)                  | `read_parquet` eager glob source + `PCollection::write_parquet_par` parallel sink added to the existing serde-based row API. Low-level `write_parquet_par` in `io::parquet` serializes shards in parallel to temp files and merges them into a final Parquet file; `read_parquet` mirrors `read_msgpack` with single-file and glob-expand paths. Behind the existing `io-parquet` feature flag; parallel write additionally requires `parallel-io`.                                                                                                                                                                                                                                                                                                                                      | next   |
 | 5.2 CBOR I/O                                | `read_cbor`/`read_cbor_streaming` sources and `PCollection::write_cbor`/`write_cbor_par` sinks over `ciborium`, plus low-level `read_cbor_vec`/`write_cbor_vec`, `CborShards`/`build_cbor_shards`/`read_cbor_range`, and a `CborVecOps<T>` runner adapter. Files are a flat concatenation of self-delimiting CBOR values (byte-concatenable shards); record-count sharding, glob support, and compression auto-detection mirror the MsgPack module. Behind the **opt-in** `io-cbor` feature flag.                                                                                                                                                                                                                                                                                                                                                       | next   |
 | 5.4 Protocol Buffers I/O                    | `read_proto`/`read_proto_streaming` sources and `PCollection::write_proto`/`write_proto_par` sinks over `prost`, plus low-level `read_proto_vec`/`write_proto_vec`, `ProtoShards`/`build_proto_shards`/`read_proto_range`, and a `ProtoVecOps<T>` runner adapter. Files are a flat concatenation of varint-length-delimited records (self-delimiting, byte-concatenable shards); record-count sharding, glob support, and compression auto-detection mirror the CBOR/MsgPack modules. `prost::Message` encode/decode bypasses serde entirely; function stubs are absent for prost-typed APIs when the feature is off (only `build_proto_shards` has a stub). Behind the **opt-in** `io-protobuf` feature flag.                                                                                                                                      | next   |
+| 5.6 TFRecord I/O                            | `read_tfrecord`/`read_tfrecord_streaming` sources and `PCollection::<Vec<u8>>::write_tfrecord`/`write_tfrecord_par` sinks, plus low-level `read_tfrecord_vec`/`write_tfrecord_vec`, `TFRecordShards`/`build_tfrecord_shards`/`read_tfrecord_range`, and a `TFRecordVecOps` runner adapter. Element type is always `Vec<u8>` (raw bytes). Hand-written prost structs for `tf.Example`/`BytesList`/`FloatList`/`Int64List` (no protoc, no code generation) behind the combined `io-tfrecord + io-protobuf` gate. Masked CRC-32C framing verified on every record. Byte-concatenable shards enable the same parallel-write strategy as MsgPack/CBOR. Behind the **opt-in** `io-tfrecord` feature flag.                                                                                                                                                  | next   |
 
 ---
 
@@ -180,22 +181,25 @@ collection.write_parquet_par("output.parquet", Some(4))  // parallel (feature: p
 
 ### 5.6 TFRecord I/O
 
-**Status:** Not implemented. Behind `io-tfrecord` feature flag.
+**Status:** Implemented. Behind `io-tfrecord` feature flag.
 
 Read and write TensorFlow TFRecord files. TFRecord is a simple length-prefixed binary container
 using masked CRC-32C checksums; it does not require a TensorFlow installation. Each record is
-either raw `Bytes` or a `tf.Example` proto message.
+raw `Vec<u8>` bytes. For `tf.Example` records, use `read_tfrecord_examples` (requires both
+`io-tfrecord` and `io-protobuf`).
 
 **Beam equivalent:** `tfrecordio.py`
 
-**Proposed API:**
+**Implemented API:**
 ```rust
-read_tfrecord("path/*.tfrecord")          // -> PCollection<Bytes>
-write_tfrecord("output/", collection)
-read_tfrecord_examples("path/*.tfrecord") // -> PCollection<Example> (prost-generated)
+read_tfrecord(&p, "path/*.tfrecord")                // -> PCollection<Vec<u8>>
+read_tfrecord_streaming(&p, "path.tfrecord", 1000)  // -> PCollection<Vec<u8>> (sharded)
+collection.write_tfrecord("output.tfrecord")
+collection.write_tfrecord_par("output.tfrecord", None)  // feature: parallel-io
+read_tfrecord_examples(&p, "path/*.tfrecord")       // -> PCollection<Example> (io-protobuf)
 ```
 
-**Dependencies:** `prost` (for `tf.Example`), custom masked CRC-32C framing (~100 LOC).
+**Dependencies:** `crc32c`, `prost` (for `tf.Example` types).
 
 **Estimated complexity:** Medium — the container format is straightforward, but CRC verification and
 the `prost`-generated proto dependency add complexity.
