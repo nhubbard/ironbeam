@@ -1,11 +1,13 @@
 //! Parquet helpers (feature `io-parquet`).
 //!
-//! These helpers let you **write** a typed `PCollection<T>` to a Parquet file and
-//! **read** a Parquet file as a *streaming* source that shards by **row groups**.
+//! These helpers let you **read** and **write** a typed `PCollection<T>` to/from
+//! Parquet files.
 //!
 //! ## Available operations
+//! - [`read_parquet`] - Eager glob-aware source (loads all matching files into memory)
 //! - [`read_parquet_streaming`] - Read Parquet file(s) as a streaming source
 //! - [`PCollection::write_parquet`](PCollection::write_parquet) - Write a collection to a Parquet file
+//! - [`PCollection::write_parquet_par`](PCollection::write_parquet_par) - Write in parallel (feature: `parallel-io`)
 //!
 //! ### Notes
 //! - Requires the `io-parquet` feature (Arrow/Parquet + serde-arrow integration).
@@ -17,9 +19,12 @@
 //!   writes a single Parquet file.
 //!
 //! ### When to use
+//! - Use `read_parquet` to eagerly load one or more Parquet files (glob support).
 //! - Use `write_parquet` to export final results in a columnar, analytics-friendly format.
 //! - Use `read_parquet_streaming` for large datasets where loading the entire file
 //!   would be too expensive; processing happens partition-by-partition.
+//! - Use `write_parquet_par` for faster multi-shard writes when ordering within
+//!   a shard is acceptable (element order is preserved across shards).
 
 use crate::io::glob::expand_glob;
 use crate::io::parquet::{
@@ -35,6 +40,99 @@ use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
+
+/// Read one or more Parquet files into a typed `PCollection<T>` (eager mode).
+///
+/// This eagerly loads the entire file(s) into memory using `serde_arrow` and
+/// returns a source collection. For very large files, prefer
+/// [`read_parquet_streaming`].
+///
+/// ### Glob Pattern Support
+///
+/// The `path` parameter can be either:
+/// - A single file path: `"data/input.parquet"`
+/// - A glob pattern: `"data/*.parquet"` or `"data/year=2024/**/*.parquet"`
+///
+/// When a glob pattern is provided, all matching files are read and concatenated
+/// in sorted (lexicographic) order for deterministic results.
+///
+/// # Arguments
+/// - `p`: Pipeline to attach the source to.
+/// - `path`: File path or glob pattern to read.
+///
+/// # Errors
+/// Returns an error if `path` contains invalid UTF-8, if a glob pattern does not
+/// match any files, or if any matched file cannot be read or deserialized.
+///
+/// # Panics
+/// Panics if the internal glob-detection regex cannot be compiled — not reachable
+/// in practice because the pattern is a compile-time constant.
+///
+/// # Examples
+///
+/// Single file:
+/// ```no_run
+/// use ironbeam::*;
+/// use serde::{Deserialize, Serialize};
+/// use anyhow::Result;
+///
+/// #[derive(Clone, Serialize, Deserialize)]
+/// struct Row { k: String, v: u64 }
+///
+/// # fn main() -> Result<()> {
+/// let p = Pipeline::default();
+/// let rows = read_parquet::<Row>(&p, "data/input.parquet")?;
+/// let out = rows.collect_seq()?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Glob pattern:
+/// ```no_run
+/// use ironbeam::*;
+/// use serde::{Deserialize, Serialize};
+/// use anyhow::Result;
+///
+/// #[derive(Clone, Serialize, Deserialize)]
+/// struct Row { k: String, v: u64 }
+///
+/// # fn main() -> Result<()> {
+/// let p = Pipeline::default();
+/// let rows = read_parquet::<Row>(&p, "data/*.parquet")?;
+/// let out = rows.collect_seq()?;
+/// # Ok(())
+/// # }
+/// ```
+pub fn read_parquet<T>(p: &Pipeline, path: impl AsRef<Path>) -> Result<PCollection<T>>
+where
+    T: Element + DeserializeOwned,
+{
+    let path_str = path
+        .as_ref()
+        .to_str()
+        .ok_or_else(|| anyhow!("path contains invalid UTF-8"))?;
+
+    let glob_regex = Regex::new(r"[*?\[]").expect("valid glob regex");
+    if glob_regex.is_match(path_str) {
+        let files =
+            expand_glob(path_str).with_context(|| format!("expanding glob pattern: {path_str}"))?;
+
+        if files.is_empty() {
+            bail!("no files found matching pattern: {path_str}");
+        }
+
+        let mut all_data = Vec::new();
+        for file in files {
+            let data: Vec<T> =
+                read_parquet_vec(&file).with_context(|| format!("reading {}", file.display()))?;
+            all_data.extend(data);
+        }
+        Ok(from_vec(p, all_data))
+    } else {
+        let v = read_parquet_vec::<T>(path)?;
+        Ok(from_vec(p, v))
+    }
+}
 
 impl<T: Element + DeserializeOwned + Serialize> PCollection<T> {
     /// Execute the pipeline, collect results, and write them to a **single Parquet file**.
@@ -73,6 +171,50 @@ impl<T: Element + DeserializeOwned + Serialize> PCollection<T> {
     pub fn write_parquet(self, path: impl AsRef<Path>) -> Result<usize> {
         let rows: Vec<T> = self.collect_seq()?;
         write_parquet_vec(path, &rows)
+    }
+}
+
+#[cfg_attr(docsrs, doc(cfg(feature = "parallel-io")))]
+#[cfg(feature = "parallel-io")]
+impl<T: Element + DeserializeOwned + Serialize + Send + Sync> PCollection<T> {
+    /// Execute the collection and write it to a **single Parquet file** using parallel
+    /// shard writers.
+    ///
+    /// The collection is first collected into memory (sequentially) to establish a
+    /// deterministic element order. The data is then split into `shards` temporary
+    /// Parquet files written concurrently via Rayon. The temp files are merged back
+    /// into one final Parquet file in shard-index order, preserving the original order.
+    ///
+    /// Returns the number of rows written.
+    ///
+    /// ### Example
+    /// ```no_run
+    /// use ironbeam::*;
+    /// use anyhow::Result;
+    /// # fn main() -> Result<()> {
+    /// #[cfg(all(feature = "io-parquet", feature = "parallel-io"))]
+    /// {
+    ///     #[derive(serde::Serialize, serde::Deserialize, Clone)]
+    ///     struct Row { k: String, v: u64 }
+    ///
+    ///     let p = Pipeline::default();
+    ///     let out = ironbeam::from_vec(&p, vec![
+    ///         Row { k: "a".into(), v: 1 },
+    ///         Row { k: "b".into(), v: 2 },
+    ///     ]);
+    ///
+    ///     let n = out.write_parquet_par("data/out.parquet", Some(2))?;
+    ///     assert_eq!(n, 2);
+    /// }
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Propagates I/O and serialization errors from shard writing or the merge step.
+    pub fn write_parquet_par(self, path: impl AsRef<Path>, shards: Option<usize>) -> Result<usize> {
+        let data = self.collect_seq()?;
+        crate::io::parquet::write_parquet_par(path, &data, shards)
     }
 }
 

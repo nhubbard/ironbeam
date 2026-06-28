@@ -224,10 +224,108 @@ pub fn read_parquet_row_group_range<T: DeserializeOwned>(
     Ok(out)
 }
 
+/// Write a `Vec<T>` (or any slice) to Parquet **in parallel**, preserving order.
+///
+/// The input is split into up to `shards` temporary Parquet files written
+/// concurrently via Rayon; each temp file is a complete, valid Parquet file.
+/// Afterwards all temp files are read back in shard-index order and merged
+/// into a single final Parquet file before the temp files are removed.
+///
+/// Because Parquet carries a footer/schema block it is **not** byte-concatenable
+/// like `MessagePack` or CBOR, so the merge step re-reads and re-writes rows.
+///
+/// * `shards`: if `None`, defaults to `num_cpus::get().max(2)`, clamped to
+///   `[1, data.len()]`.
+///
+/// # Returns
+/// The number of rows written (`data.len()`).
+///
+/// # Errors
+/// Returns an error if temp or output files cannot be created or written, or
+/// if any shard file cannot be read back during the merge step. When the
+/// `io-parquet` feature is disabled, always returns an error.
+///
+/// # Feature
+/// Requires the `parallel-io` **and** `io-parquet` features.
+#[cfg(all(feature = "parallel-io", feature = "io-parquet"))]
+pub fn write_parquet_par<T>(
+    path: impl AsRef<Path>,
+    data: &[T],
+    shards: Option<usize>,
+) -> Result<usize>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + Sync,
+{
+    use rayon::prelude::*;
+    use std::fs::{create_dir_all, remove_file};
+
+    let path = path.as_ref();
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        create_dir_all(parent).with_context(|| format!("mkdir -p {}", parent.display()))?;
+    }
+    let n = data.len();
+    if n == 0 {
+        let empty: Vec<T> = vec![];
+        write_parquet_vec::<T>(path, &empty)?;
+        return Ok(0);
+    }
+    let requested_shards = shards.unwrap_or_else(|| num_cpus::get().max(2));
+    let actual_shards = requested_shards.clamp(1, n);
+    let chunk = n.div_ceil(actual_shards);
+    let non_empty_shards = n.div_ceil(chunk);
+
+    let shard_paths: Vec<PathBuf> = (0..non_empty_shards)
+        .map(|i| path.with_extension(format!("parquet.part{i}")))
+        .collect();
+
+    shard_paths
+        .par_iter()
+        .enumerate()
+        .try_for_each(|(i, part_path)| -> Result<()> {
+            let start = i * chunk;
+            let end = ((i + 1) * chunk).min(n);
+            let chunk_data: Vec<T> = data[start..end].to_vec();
+            write_parquet_vec::<T>(part_path, &chunk_data)
+                .with_context(|| format!("write shard {i} to {}", part_path.display()))
+                .map(|_| ())
+        })?;
+
+    let mut merged: Vec<T> = Vec::with_capacity(n);
+    for part_path in &shard_paths {
+        let mut chunk_data: Vec<T> = read_parquet_vec::<T>(part_path)
+            .with_context(|| format!("read shard from {}", part_path.display()))?;
+        merged.append(&mut chunk_data);
+    }
+    write_parquet_vec::<T>(path, &merged)?;
+
+    for part_path in &shard_paths {
+        let _ = remove_file(part_path);
+    }
+    Ok(n)
+}
+
 // ── Disabled-feature stubs ───────────────────────────────────────────────────
 //
 // When `io-parquet` is off, the functions above are not compiled. These stubs
 // keep the public ABI identical and fail at runtime instead.
+
+/// Stub returned when the `io-parquet` feature is disabled.
+///
+/// # Errors
+/// Always returns an error: the `io-parquet` feature is not enabled.
+#[cfg(all(feature = "parallel-io", not(feature = "io-parquet")))]
+pub fn write_parquet_par<T>(
+    _path: impl AsRef<Path>,
+    _data: &[T],
+    _shards: Option<usize>,
+) -> Result<usize>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + Sync,
+{
+    anyhow::bail!("the `io-parquet` feature is not enabled")
+}
 
 /// Stub returned when the `io-parquet` feature is disabled.
 ///
