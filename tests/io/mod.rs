@@ -15,4 +15,5 @@ mod msgpack;
 mod parquet;
 mod parquet_streaming;
 mod protobuf;
+mod tfrecord;
 mod xml;

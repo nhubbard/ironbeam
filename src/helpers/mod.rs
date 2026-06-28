@@ -316,6 +316,7 @@ pub mod side_inputs;
 pub mod statistical;
 pub mod stdlib;
 pub mod tee;
+pub mod tfrecord;
 pub mod timestamped;
 pub mod topk;
 pub mod try_process;
@@ -338,6 +339,7 @@ pub use parquet::*;
 pub use protobuf::*;
 pub use side_inputs::*;
 pub use stdlib::*;
+pub use tfrecord::*;
 pub use xml::*;
 
 // Type re-exports from helpers that aren't free-function modules.
