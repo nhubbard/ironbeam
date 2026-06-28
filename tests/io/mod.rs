@@ -1,5 +1,6 @@
 // IO module tests
 mod avro;
+mod cbor;
 mod cloud;
 mod cloud_readers;
 mod cloud_traits;

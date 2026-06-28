@@ -23,6 +23,7 @@ io-xml = ["dep:quick-xml"]
 # less-common connectors are intentionally absent from `default`. Each pulls in
 # extra dependencies that would bloat the common build, so users opt in.
 io-msgpack = ["dep:rmp-serde"]
+io-cbor = ["dep:ciborium"]
 
 # Compression codecs (pluggable)
 compression-gzip = ["dep:flate2"]
@@ -62,6 +63,7 @@ apache-avro = { version = "0.21", optional = true }
 quick-xml = { version = "0.40", features = ["serialize"], optional = true }
 csv = { version = "1", optional = true }
 rmp-serde = { version = "1", optional = true }
+ciborium = { version = "0.2", optional = true }
 arrow = { version = "59", optional = true }
 parquet = { version = "59", optional = true }
 serde_arrow = { version = "0.14", optional = true, features = ["arrow-59"] }
