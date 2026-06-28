@@ -585,10 +585,13 @@ pub use io::csv::write_csv_par;
 
 pub use io::parquet::{read_parquet_vec, write_parquet_vec};
 
+#[cfg(feature = "parallel-io")]
+pub use io::parquet::write_parquet_par;
+
 pub use helpers::csv::read_csv;
 pub use helpers::csv::read_csv_streaming;
 pub use helpers::jsonl::read_jsonl;
-pub use helpers::parquet::read_parquet_streaming;
+pub use helpers::parquet::{read_parquet, read_parquet_streaming};
 
 pub use io::avro::{read_avro_vec, write_avro_vec};
 
@@ -610,3 +613,4 @@ pub use helpers::msgpack::{read_msgpack, read_msgpack_streaming};
 
 #[cfg(feature = "parallel-io")]
 pub use io::msgpack::write_msgpack_par;
+

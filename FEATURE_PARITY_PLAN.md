@@ -84,7 +84,8 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 4.13 ApproximateUnique (HLL)                | `HllApproxDistinctCount<T>` combiner (HyperLogLog++ via `hyperloglogplus`) with `new` / `with_error(e)` / `with_precision(p)` builders and a fixed-seed `BuildHasherDefault<DefaultHasher>` for cross-partition merge determinism; helpers `approx_count_distinct[_with_error]()` (global, returns `u64`) and `approx_count_distinct_per_key[_with_error]()` (per-key, returns `(K, u64)`) complementing the existing KMV-based `approx_distinct_count*` (f64) family                                                                                                                                                                                                                                                                                                                       | 3.1.0  |
 | 4.14 Sample (fixed-size)                    | Beam-style fixed-size reservoir sampling helpers on top of the existing `PriorityReservoir` combiner: `sample_globally(n)` → `PCollection<Vec<T>>` and `sample_per_key(n)` → `PCollection<(K, Vec<V>)>`, plus `_with_seed(n, seed)` variants. Uses a fixed default seed (SplitMix64 golden ratio) so two runs in the same execution mode return identical samples; per-partition PRNG divergence means sequential and parallel runs may pick different items but always exactly `n` per output (or every item if the input has fewer than `n`)                                                                                                                                                                                                                                              | 3.1.0  |
 | 4.15 Error Handling (Dead-Letter)           | `DeadLetter<T> { element, error }` record + `PCollection::map_catching(f)` / `flat_map_catching(f)` helpers that split a fallible 1→1 or 1→N transform into `(PCollection<Out>, PCollection<DeadLetter<In>>)`. Errors are rendered via `Display::to_string()` so any error type works; the planner's dominator-based cache placement (3.13) ensures the underlying classification runs once even though both outputs share the upstream node. Complements the existing `try_map`/`collect_fail_fast` family by enabling per-output sinks (good → warehouse, errors → quarantine) instead of fail-fast                                                                                                                                                                                       | 3.1.0  |
-| 5.1 MessagePack I/O                         | `read_msgpack`/`read_msgpack_streaming` sources and `PCollection::write_msgpack`/`write_msgpack_par` sinks over `rmp-serde`, plus low-level `read_msgpack_vec`/`write_msgpack_vec`, `MsgpackShards`/`build_msgpack_shards`/`read_msgpack_range`, and a `MsgpackVecOps<T>` runner adapter. Files are a flat concatenation of self-delimiting MessagePack values (byte-concatenable shards like JSONL); record-count sharding, glob support, and compression auto-detection mirror the Avro/XML modules. Behind the **opt-in** `io-msgpack` feature flag — the first I/O backend intentionally excluded from `default` to avoid dependency bloat                                                                                                                                                | 3.2.0  |
+| 5.1 MessagePack I/O                         | `read_msgpack`/`read_msgpack_streaming` sources and `PCollection::write_msgpack`/`write_msgpack_par` sinks over `rmp-serde`, plus low-level `read_msgpack_vec`/`write_msgpack_vec`, `MsgpackShards`/`build_msgpack_shards`/`read_msgpack_range`, and a `MsgpackVecOps<T>` runner adapter. Files are a flat concatenation of self-delimiting MessagePack values (byte-concatenable shards like JSONL); record-count sharding, glob support, and compression auto-detection mirror the Avro/XML modules. Behind the **opt-in** `io-msgpack` feature flag — the first I/O backend intentionally excluded from `default` to avoid dependency bloat                                                                                                                                              | 3.2.0  |
+| 5.5 Parquet I/O (gap-fill)                  | `read_parquet` eager glob source + `PCollection::write_parquet_par` parallel sink added to the existing serde-based row API. Low-level `write_parquet_par` in `io::parquet` serializes shards in parallel to temp files and merges them into a final Parquet file; `read_parquet` mirrors `read_msgpack` with single-file and glob-expand paths. Behind the existing `io-parquet` feature flag; parallel write additionally requires `parallel-io`.                                                                                                                                                                                                                                                                                                                                      | next   |
 
 ---
 
@@ -157,25 +158,22 @@ non-Serde encode path and integration with the I/O framework require custom work
 
 ### 5.5 Parquet I/O
 
-**Status:** Not implemented. Behind `io-parquet` feature flag.
+**Status:** Implemented (gap-fill). Behind `io-parquet` feature flag.
 
 Read and write Apache Parquet files using the `parquet` crate (part of the Arrow ecosystem).
-Parquet is a columnar format with excellent compression and broad toolchain support. The natural
-element type is `RecordBatch`; a row-level generic wrapper maps to `T` via Arrow's type system.
+Parquet is a columnar format with excellent compression and broad toolchain support. The serde-based
+row API (`T: Serialize + DeserializeOwned`) is fully implemented including glob-aware eager reads
+and parallel writes.
 
-**Beam equivalent:** `parquetio.py`
-
-**Proposed API:**
+**Implemented API:**
 ```rust
-read_parquet("path/**/*.parquet")             // -> PCollection<RecordBatch>
-read_parquet_rows::<T>("path/**/*.parquet")   // -> PCollection<T> via Arrow row conversion
-write_parquet("output/", collection)
+read_parquet::<T>("path/**/*.parquet")        // -> PCollection<T> (eager glob)
+read_parquet_streaming::<T>("path/*.parquet", groups_per_shard)  // -> PCollection<T>
+collection.write_parquet("output.parquet")    // sequential
+collection.write_parquet_par("output.parquet", Some(4))  // parallel (feature: parallel-io)
 ```
 
-**Dependencies:** `parquet`, `arrow`
-
-**Estimated complexity:** Medium — row-group-level parallelism, predicate pushdown, and schema
-mapping between Arrow types and Rust structs add non-trivial complexity.
+**Dependencies:** `parquet`, `arrow`, `serde_arrow`
 
 ---
 
