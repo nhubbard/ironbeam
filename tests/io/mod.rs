@@ -1,4 +1,5 @@
 // IO module tests
+mod arrow_ipc;
 mod avro;
 mod cbor;
 mod cloud;
