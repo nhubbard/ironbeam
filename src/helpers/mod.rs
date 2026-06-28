@@ -284,6 +284,7 @@
 pub mod avro;
 pub mod basic;
 pub mod batches;
+pub mod cbor;
 pub mod cloud;
 pub mod co_gbk;
 pub mod collect_sorted;
@@ -326,6 +327,7 @@ pub mod xml;
 
 // Only re-export files with top-level functions
 pub use avro::*;
+pub use cbor::*;
 pub use cloud::*;
 pub use csv::*;
 pub use flatten::*;

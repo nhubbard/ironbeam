@@ -614,3 +614,9 @@ pub use helpers::msgpack::{read_msgpack, read_msgpack_streaming};
 #[cfg(feature = "parallel-io")]
 pub use io::msgpack::write_msgpack_par;
 
+pub use io::cbor::{read_cbor_vec, write_cbor_vec};
+
+pub use helpers::cbor::{read_cbor, read_cbor_streaming};
+
+#[cfg(feature = "parallel-io")]
+pub use io::cbor::write_cbor_par;
