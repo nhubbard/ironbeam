@@ -281,6 +281,7 @@
 //! - [`combiners`](crate::combiners) - Built-in aggregation functions
 //! - [`Pipeline`](crate::Pipeline) - Pipeline construction
 
+pub mod arrow_ipc;
 pub mod avro;
 pub mod basic;
 pub mod batches;
@@ -328,6 +329,8 @@ pub mod windowed_combine;
 pub mod xml;
 
 // Only re-export files with top-level functions
+#[cfg(feature = "io-arrow")]
+pub use arrow_ipc::*;
 pub use avro::*;
 pub use cbor::*;
 pub use cloud::*;

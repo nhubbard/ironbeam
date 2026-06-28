@@ -218,6 +218,8 @@ pub mod protobuf;
 pub mod tfrecord;
 pub mod tfrecord_proto;
 
+pub mod arrow_ipc;
+
 pub mod cloud;
 pub mod compression;
 pub mod glob;

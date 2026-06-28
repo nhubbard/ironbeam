@@ -26,6 +26,7 @@ io-msgpack = ["dep:rmp-serde"]
 io-cbor = ["dep:ciborium"]
 io-protobuf = ["dep:prost"]
 io-tfrecord = ["dep:crc32c"]
+io-arrow = ["dep:arrow", "dep:serde_arrow"]
 
 # Compression codecs (pluggable)
 compression-gzip = ["dep:flate2"]

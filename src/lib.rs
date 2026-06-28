@@ -648,3 +648,15 @@ pub use helpers::tfrecord::{
 
 #[cfg(all(feature = "io-tfrecord", feature = "io-protobuf"))]
 pub use io::tfrecord::read_tfrecord_examples_vec;
+
+#[cfg(feature = "io-arrow")]
+pub use helpers::arrow_ipc::{read_arrow_ipc, read_arrow_ipc_batches, read_arrow_ipc_streaming};
+pub use io::arrow_ipc::ArrowShards;
+#[cfg(feature = "io-arrow")]
+pub use io::arrow_ipc::{
+    ArrowBatch, ArrowBatchVecOps, build_arrow_shards, read_arrow_ipc_range,
+    read_arrow_ipc_rows_range, read_arrow_ipc_rows_vec, read_arrow_ipc_vec,
+    write_arrow_ipc_rows_vec, write_arrow_ipc_vec,
+};
+#[cfg(all(feature = "io-arrow", feature = "parallel-io"))]
+pub use io::arrow_ipc::{write_arrow_ipc_par, write_arrow_ipc_rows_par};
