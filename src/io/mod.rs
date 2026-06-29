@@ -215,6 +215,8 @@ pub mod cbor;
 
 pub mod protobuf;
 
+pub mod sql;
+
 pub mod tfrecord;
 pub mod tfrecord_proto;
 
