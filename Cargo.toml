@@ -27,6 +27,8 @@ io-cbor = ["dep:ciborium"]
 io-protobuf = ["dep:prost"]
 io-tfrecord = ["dep:crc32c"]
 io-arrow = ["dep:arrow", "dep:serde_arrow"]
+io-sql = ["dep:sqlx", "dep:tokio"]
+io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
 
 # Compression codecs (pluggable)
 compression-gzip = ["dep:flate2"]
@@ -73,6 +75,16 @@ arrow = { version = "59", optional = true }
 parquet = { version = "59", optional = true }
 serde_arrow = { version = "0.14", optional = true, features = ["arrow-59"] }
 
+# SQL I/O (Tier 5, opt-in)
+sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
+
+# MongoDB I/O (Tier 5, opt-in)
+mongodb = { version = "3", optional = true }
+bson = { version = "3", optional = true }
+
+# Async runtime bridge (shared by io-sql and io-mongodb)
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+
 # Compression codecs
 flate2 = { version = "1", optional = true }
 zstd = { version = "0.13", optional = true }
@@ -84,6 +96,9 @@ tempfile = "3"
 
 [dev-dependencies]
 mark-flaky-tests = "1"
+# MongoDB integration tests require a live server via testcontainers/Docker.
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["mongo"] }
 
 [package.metadata.docs.rs]
 all-features = true
