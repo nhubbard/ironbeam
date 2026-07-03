@@ -16,5 +16,7 @@ mod msgpack;
 mod parquet;
 mod parquet_streaming;
 mod protobuf;
+mod sql;
+mod sql_containers;
 mod tfrecord;
 mod xml;

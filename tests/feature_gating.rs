@@ -21,3 +21,17 @@ fn msgpack_disabled_returns_runtime_error() {
         "unexpected error message: {err}"
     );
 }
+
+/// With `io-sql` disabled, `build_sql_shards` (the only `io::sql` item with a
+/// primitive-typed signature) must surface a clear runtime error instead of failing to
+/// compile or silently succeeding.
+#[cfg(not(feature = "io-sql"))]
+#[test]
+fn sql_disabled_returns_runtime_error() {
+    let result = ironbeam::build_sql_shards("does-not-matter", "SELECT 1", 10);
+    let err = result.expect_err("disabled `io-sql` must return an error");
+    assert!(
+        format!("{err}").contains("`io-sql` feature is not enabled"),
+        "unexpected error message: {err}"
+    );
+}
