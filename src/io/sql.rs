@@ -75,15 +75,12 @@ pub struct SqlShards {
 
 #[cfg(feature = "io-sql")]
 #[allow(clippy::missing_panics_doc)] // panics only if the OS is out of threads
-static SQL_RUNTIME: std::sync::LazyLock<tokio::runtime::Runtime> =
-    std::sync::LazyLock::new(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect(
-                "failed to create SQL I/O tokio runtime — check OS thread limits (ulimit -u)",
-            )
-    });
+static SQL_RUNTIME: std::sync::LazyLock<tokio::runtime::Runtime> = std::sync::LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to create SQL I/O tokio runtime — check OS thread limits (ulimit -u)")
+});
 
 // ── Private helpers (only compiled with the feature) ─────────────────────────
 
@@ -99,8 +96,7 @@ fn make_sql_shards(url: String, query: String, total: u64, rows_per_shard: usize
         };
     }
     let rps = (rows_per_shard.max(1)) as u64;
-    let n_shards =
-        usize::try_from(total.div_ceil(rps)).expect("shard count overflow");
+    let n_shards = usize::try_from(total.div_ceil(rps)).expect("shard count overflow");
     let ranges = (0..n_shards)
         .map(|i| {
             let offset = i as u64 * rps;
@@ -128,7 +124,7 @@ async fn sql_count(pool: &sqlx::AnyPool, query: &str) -> Result<u64> {
         .fetch_one(pool)
         .await
         .map_err(|e| anyhow::anyhow!("sql_count: {e}"))?;
-    Ok(count.max(0) as u64)
+    Ok(count.max(0).cast_unsigned())
 }
 
 /// Fetch rows `[offset, offset+limit)` from the result of `query`.
@@ -145,8 +141,7 @@ async fn sql_fetch_range<T>(
 where
     T: for<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> + Send + Sync + Unpin,
 {
-    let range_query =
-        format!("SELECT * FROM ({query}) AS _q LIMIT {limit} OFFSET {offset}");
+    let range_query = format!("SELECT * FROM ({query}) AS _q LIMIT {limit} OFFSET {offset}");
     sqlx::query_as::<sqlx::Any, T>(sqlx::AssertSqlSafe(range_query))
         .fetch_all(pool)
         .await
@@ -199,11 +194,7 @@ where
 pub fn write_sql_with<T, F>(url: &str, insert_prefix: &str, data: &[T], bind_fn: F) -> Result<usize>
 where
     T: Send + Sync,
-    F: for<'q> Fn(
-            sqlx::query_builder::Separated<'q, sqlx::Any, &'static str>,
-            &T,
-        ) + Send
-        + Sync,
+    F: for<'q> Fn(sqlx::query_builder::Separated<'q, sqlx::Any, &'static str>, &T) + Send + Sync,
 {
     if data.is_empty() {
         return Ok(0);
@@ -222,7 +213,8 @@ where
             .execute(&pool)
             .await
             .map_err(|e| anyhow::anyhow!("write_sql_with execute: {e}"))?;
-        Ok(result.rows_affected() as usize)
+        usize::try_from(result.rows_affected())
+            .map_err(|e| anyhow::anyhow!("write_sql_with: rows_affected overflowed usize: {e}"))
     })
 }
 
@@ -249,11 +241,7 @@ pub fn write_sql_par_with<T, F>(
 ) -> Result<usize>
 where
     T: Send + Sync,
-    F: for<'q> Fn(
-            sqlx::query_builder::Separated<'q, sqlx::Any, &'static str>,
-            &T,
-        ) + Send
-        + Sync,
+    F: for<'q> Fn(sqlx::query_builder::Separated<'q, sqlx::Any, &'static str>, &T) + Send + Sync,
 {
     use rayon::prelude::*;
 
@@ -291,7 +279,12 @@ pub fn build_sql_shards(url: &str, query: &str, rows_per_shard: usize) -> Result
             .await
             .map_err(|e| anyhow::anyhow!("connect to {url_owned}: {e}"))?;
         let total = sql_count(&pool, &query_owned).await?;
-        Ok(make_sql_shards(url_owned, query_owned, total, rows_per_shard))
+        Ok(make_sql_shards(
+            url_owned,
+            query_owned,
+            total,
+            rows_per_shard,
+        ))
     })
 }
 
@@ -350,12 +343,7 @@ impl<T> SqlVecOps<T> {
 #[cfg(feature = "io-sql")]
 impl<T> VecOps for SqlVecOps<T>
 where
-    T: for<'r> sqlx::FromRow<'r, sqlx::any::AnyRow>
-        + Send
-        + Sync
-        + Clone
-        + Unpin
-        + 'static,
+    T: for<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> + Send + Sync + Clone + Unpin + 'static,
 {
     fn len(&self, data: &dyn Any) -> Option<usize> {
         data.downcast_ref::<SqlShards>()

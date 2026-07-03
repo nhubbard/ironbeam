@@ -157,6 +157,11 @@
 //!   - [`read_msgpack_streaming`]
 //!   - [`PCollection::write_msgpack`](crate::PCollection::write_msgpack)
 //!   - [`PCollection::write_msgpack_par`](crate::PCollection::write_msgpack_par)
+//! - [`sql`] - SQL database I/O utilities (feature: `io-sql`, opt-in)
+//!   - [`read_sql`]
+//!   - [`read_sql_streaming`]
+//!   - [`PCollection::write_sql_with`](crate::PCollection::write_sql_with)
+//!   - [`PCollection::write_sql_par_with`](crate::PCollection::write_sql_par_with)
 //!
 //! ### Cloud Operations
 //! - [`cloud`] - Helpers for running custom cloud operations
@@ -314,6 +319,7 @@ pub mod regex;
 pub mod reshuffle;
 pub mod sampling;
 pub mod side_inputs;
+pub mod sql;
 pub mod statistical;
 pub mod stdlib;
 pub mod tee;
@@ -341,6 +347,7 @@ pub use msgpack::*;
 pub use parquet::*;
 pub use protobuf::*;
 pub use side_inputs::*;
+pub use sql::*;
 pub use stdlib::*;
 pub use tfrecord::*;
 pub use xml::*;

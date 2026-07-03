@@ -632,6 +632,17 @@ pub use helpers::protobuf::{read_proto, read_proto_streaming};
 #[cfg(all(feature = "parallel-io", feature = "io-protobuf"))]
 pub use io::protobuf::write_proto_par;
 
+pub use io::sql::{SqlShards, SqlVecOps, build_sql_shards};
+
+#[cfg(feature = "io-sql")]
+pub use io::sql::{read_sql_vec, write_sql_with};
+
+#[cfg(feature = "io-sql")]
+pub use helpers::sql::{read_sql, read_sql_streaming};
+
+#[cfg(all(feature = "io-sql", feature = "parallel-io"))]
+pub use io::sql::write_sql_par_with;
+
 pub use io::tfrecord::{TFRecordShards, TFRecordVecOps, build_tfrecord_shards};
 
 pub use io::tfrecord::{read_tfrecord_vec, write_tfrecord_vec};
