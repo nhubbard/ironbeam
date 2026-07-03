@@ -96,9 +96,10 @@ tempfile = "3"
 
 [dev-dependencies]
 mark-flaky-tests = "1"
-# MongoDB integration tests require a live server via testcontainers/Docker.
-testcontainers = "0.27"
-testcontainers-modules = { version = "0.15", features = ["mongo"] }
+# MongoDB and Postgres (cross-database `sqlx::Any` dispatch) integration tests require
+# a live server via testcontainers/Docker.
+testcontainers = { version = "0.27", features = ["blocking"] }
+testcontainers-modules = { version = "0.15", features = ["mongo", "postgres"] }
 
 [package.metadata.docs.rs]
 all-features = true
