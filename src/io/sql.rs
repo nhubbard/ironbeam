@@ -9,7 +9,7 @@
 //! # Feature gating
 //!
 //! [`SqlShards`] and [`SqlVecOps<T>`] are **always available** regardless of the `io-sql`
-//! feature, so the helpers layer and runner can link unconditionally. Functions that require
+//! feature, so the helper layer and runner can link unconditionally. Functions that require
 //! `sqlx` types in their signature (e.g., `T: sqlx::FromRow`) are gated with
 //! `#[cfg(feature = "io-sql")]` and **have no stub** — they simply do not exist when the
 //! feature is off.
@@ -44,9 +44,13 @@
 //! function that opens a connection. The `Any` driver dispatches on the URL scheme at
 //! runtime and silently fails with "unsupported URL scheme" if this call is omitted.
 
+#[cfg(feature = "io-sql")]
 use crate::Partition;
 use crate::type_token::VecOps;
 use anyhow::Result;
+#[cfg(feature = "io-sql")]
+use sqlx::Execute;
+#[cfg(feature = "io-sql")]
 use std::any::Any;
 use std::marker::PhantomData;
 
@@ -57,8 +61,8 @@ use std::marker::PhantomData;
 /// Produced by [`build_sql_shards`] and consumed by `read_sql_range`
 /// and the execution engine via [`SqlVecOps`].
 ///
-/// All fields use primitive types so this struct compiles regardless of whether
-/// the `io-sql` feature is enabled.
+/// All fields use primitive types, so this struct compiles regardless of
+/// the `io-sql` feature being enabled.
 #[derive(Clone, Debug)]
 pub struct SqlShards {
     /// Database URL (e.g. `sqlite::memory:` or `postgres://user:pass@host/db`).
@@ -152,7 +156,7 @@ where
 
 /// Read all rows returned by `query` against the database at `url` into a `Vec<T>`.
 ///
-/// `T` must derive [`sqlx::FromRow`] and the database driver is selected by the URL
+/// `T` must derive [`sqlx::FromRow`], and the database driver is selected by the URL
 /// scheme (e.g. `sqlite:`, `postgres:`, `mysql:`).
 ///
 /// # Errors
@@ -174,6 +178,36 @@ where
             .await
             .map_err(|e| anyhow::anyhow!("read_sql_vec query: {e}"))
     })
+}
+
+/// Whether `url` addresses a Postgres server (`postgres://` or `postgresql://`).
+#[cfg(feature = "io-sql")]
+fn is_postgres_url(url: &str) -> bool {
+    url.starts_with("postgres://") || url.starts_with("postgresql://")
+}
+
+/// Rewrite the sequential `?` placeholders emitted by `QueryBuilder<sqlx::Any>` into
+/// Postgres's numbered `$1, $2, ...` form.
+///
+/// `sqlx::Any`'s `QueryBuilder` always emits `?` regardless of the target database, since
+/// `AnyArguments` has no way to know the backend dialect at placeholder-formatting time.
+/// Postgres's wire protocol only recognizes `$N` placeholders, so this text-level rewrite
+/// is applied before executing against a `postgres://` URL. Assumes the caller's
+/// `insert_prefix` contains no literal `?` characters (true for ordinary column lists).
+#[cfg(feature = "io-sql")]
+fn to_postgres_placeholders(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len() + 8);
+    let mut n = 0usize;
+    for ch in sql.chars() {
+        if ch == '?' {
+            n += 1;
+            out.push('$');
+            out.push_str(&n.to_string());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 /// Insert `data` into the database at `url` using a `QueryBuilder` bulk-insert.
@@ -208,8 +242,19 @@ where
             .map_err(|e| anyhow::anyhow!("connect to {url_owned}: {e}"))?;
         let mut qb = sqlx::QueryBuilder::<sqlx::Any>::new(prefix_owned);
         qb.push_values(data.iter(), &bind_fn);
-        let result = qb
+
+        let sql = if is_postgres_url(&url_owned) {
+            to_postgres_placeholders(qb.sql().as_str())
+        } else {
+            qb.sql().as_str().to_owned()
+        };
+        let arguments = qb
             .build()
+            .take_arguments()
+            .map_err(|e| anyhow::anyhow!("write_sql_with: encode arguments: {e}"))?
+            .unwrap_or_default();
+
+        let result = sqlx::query_with::<sqlx::Any, _>(sqlx::AssertSqlSafe(sql), arguments)
             .execute(&pool)
             .await
             .map_err(|e| anyhow::anyhow!("write_sql_with execute: {e}"))?;
@@ -222,12 +267,12 @@ where
 ///
 /// Each shard opens its own pool and calls [`write_sql_with`] independently.
 /// `bind_fn` is passed by reference so it can be shared across Rayon threads;
-/// `F: Sync` is required. The total affected rows is returned.
+/// `F: Sync` is required. The total affected rows are returned.
 ///
-/// * `shards`: if `None`, defaults to `num_cpus::get().max(2)`.
+/// * `shards`: if `None`, it defaults to `num_cpus::get().max(2)`.
 ///
 /// # Errors
-/// Returns an error if any shard fails. If `data` is empty, returns `Ok(0)`.
+/// Returns an error if any shard fails. If `data` is empty, it returns `Ok(0)`.
 ///
 /// # Feature
 /// Requires both `io-sql` and `parallel-io`.
