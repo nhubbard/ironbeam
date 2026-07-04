@@ -162,6 +162,11 @@
 //!   - [`read_sql_streaming`]
 //!   - [`PCollection::write_sql_with`](crate::PCollection::write_sql_with)
 //!   - [`PCollection::write_sql_par_with`](crate::PCollection::write_sql_par_with)
+//! - [`mongodb`] - MongoDB I/O utilities (feature: `io-mongodb`, opt-in)
+//!   - [`read_mongodb`]
+//!   - [`read_mongodb_streaming`]
+//!   - [`PCollection::write_mongodb`](crate::PCollection::write_mongodb)
+//!   - [`PCollection::write_mongodb_par`](crate::PCollection::write_mongodb_par)
 //!
 //! ### Cloud Operations
 //! - [`cloud`] - Helpers for running custom cloud operations
@@ -310,6 +315,7 @@ pub mod jsonl;
 pub mod keyed;
 pub mod latest;
 pub mod log_elements;
+pub mod mongodb;
 pub mod msgpack;
 pub mod named;
 pub mod parquet;
@@ -343,6 +349,7 @@ pub use cloud::*;
 pub use csv::*;
 pub use flatten::*;
 pub use jsonl::*;
+pub use mongodb::*;
 pub use msgpack::*;
 pub use parquet::*;
 pub use protobuf::*;
