@@ -1813,6 +1813,7 @@ fn dominator_intersect(
 /// A `HashMap<NodeId, NodeId>` where each key maps to its immediate dominator.
 /// The `source` node maps to itself as a sentinel. Nodes unreachable from
 /// `source` are absent from the map.
+#[must_use]
 pub fn build_dominator_tree(edges: &[(NodeId, NodeId)], source: NodeId) -> HashMap<NodeId, NodeId> {
     let mut succs: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
     let mut preds: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
@@ -1888,6 +1889,7 @@ pub fn build_dominator_tree(edges: &[(NodeId, NodeId)], source: NodeId) -> HashM
 /// - `terminal` is the source itself (no prefix to cache).
 /// - `idom(terminal)` equals the source (the only shared ancestor is the root,
 ///   meaning there is no shared prefix deeper in the graph).
+#[must_use]
 pub fn find_cache_node_via_dominators(
     edges: &[(NodeId, NodeId)],
     terminal: NodeId,
