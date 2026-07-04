@@ -1,10 +1,10 @@
 use anyhow::Result;
-use ironbeam::from_vec;
 use ironbeam::node::Node;
+use ironbeam::planner::{build_dominator_tree, find_cache_node_via_dominators};
 use ironbeam::testing::*;
 use ironbeam::{
-    OptimizationDecision, PCollection, Pipeline, Runner, SharedCSECache, build_plan,
-    cogroup_by_key, flatten,
+    NodeId, OptimizationDecision, PCollection, Pipeline, Runner, SharedCSECache, build_plan,
+    cogroup_by_key, flatten, from_vec,
 };
 
 #[test]
@@ -1953,4 +1953,124 @@ fn adaptive_partition_count_correctness_gbk() -> Result<()> {
         ]
     );
     Ok(())
+}
+
+fn n(v: u64) -> NodeId {
+    NodeId::new(v)
+}
+
+// ── build_dominator_tree ───────────────────────────────────────────────
+
+#[test]
+fn dominator_linear_chain() {
+    // 0 → 1 → 2 → 3
+    let edges = vec![(n(0), n(1)), (n(1), n(2)), (n(2), n(3))];
+    let idom = build_dominator_tree(&edges, n(0));
+    assert_eq!(idom[&n(0)], n(0)); // source maps to itself
+    assert_eq!(idom[&n(1)], n(0));
+    assert_eq!(idom[&n(2)], n(1));
+    assert_eq!(idom[&n(3)], n(2));
+}
+
+#[test]
+fn dominator_simple_fanout() {
+    // 0 → 1 → 2
+    //       ↘ 3
+    let edges = vec![(n(0), n(1)), (n(1), n(2)), (n(1), n(3))];
+    let idom = build_dominator_tree(&edges, n(0));
+    assert_eq!(idom[&n(1)], n(0));
+    assert_eq!(idom[&n(2)], n(1));
+    assert_eq!(idom[&n(3)], n(1));
+}
+
+#[test]
+fn dominator_diamond_join_point() {
+    // 0 → 1 → 3 → 4
+    //   ↘ 2 ↗
+    // dom(3) = {0, 3} → idom(3) = 0 (source is the only shared ancestor)
+    // dom(4) = {0, 3, 4} → idom(4) = 3
+    let edges = vec![
+        (n(0), n(1)),
+        (n(0), n(2)),
+        (n(1), n(3)),
+        (n(2), n(3)),
+        (n(3), n(4)),
+    ];
+    let idom = build_dominator_tree(&edges, n(0));
+    assert_eq!(idom[&n(1)], n(0));
+    assert_eq!(idom[&n(2)], n(0));
+    assert_eq!(idom[&n(3)], n(0)); // join node: idom = source
+    assert_eq!(idom[&n(4)], n(3)); // post-join terminal: idom = join
+}
+
+#[test]
+fn dominator_double_diamond() {
+    // Two back-to-back diamonds:
+    // 0 → 1 → 3 → 4 → 6 → 7
+    //   ↘ 2 ↗   ↘ 5 ↗
+    let edges = vec![
+        (n(0), n(1)),
+        (n(0), n(2)),
+        (n(1), n(3)),
+        (n(2), n(3)),
+        (n(3), n(4)),
+        (n(3), n(5)),
+        (n(4), n(6)),
+        (n(5), n(6)),
+        (n(6), n(7)),
+    ];
+    let idom = build_dominator_tree(&edges, n(0));
+    assert_eq!(idom[&n(3)], n(0)); // first join: idom = source
+    assert_eq!(idom[&n(6)], n(3)); // second join: idom = first join
+    assert_eq!(idom[&n(7)], n(6)); // terminal: idom = second join
+}
+
+// ── find_cache_node_via_dominators ────────────────────────────────────
+
+#[test]
+fn cache_node_empty_edges() {
+    assert_eq!(find_cache_node_via_dominators(&[], n(5)), None);
+}
+
+#[test]
+fn cache_node_terminal_is_source() {
+    let edges = vec![(n(0), n(1))];
+    assert_eq!(find_cache_node_via_dominators(&edges, n(0)), None);
+}
+
+#[test]
+fn cache_node_idom_is_source_returns_none() {
+    // Diamond: 0 → 1 → 3 and 0 → 2 → 3. idom(3) = 0 = source → None.
+    let edges = vec![(n(0), n(1)), (n(0), n(2)), (n(1), n(3)), (n(2), n(3))];
+    assert_eq!(find_cache_node_via_dominators(&edges, n(3)), None);
+}
+
+#[test]
+fn cache_node_linear_pipeline() {
+    // 0 → 1 → 2: idom(2) = 1 (not source) → Some(1)
+    let edges = vec![(n(0), n(1)), (n(1), n(2))];
+    assert_eq!(find_cache_node_via_dominators(&edges, n(2)), Some(n(1)));
+}
+
+#[test]
+fn cache_node_fanout_returns_shared_ancestor() {
+    // 0 → 1 → 2 and 0 → 1 → 3: idom(2) = idom(3) = 1 → same cache key.
+    let edges = vec![(n(0), n(1)), (n(1), n(2)), (n(1), n(3))];
+    assert_eq!(find_cache_node_via_dominators(&edges, n(2)), Some(n(1)));
+    assert_eq!(find_cache_node_via_dominators(&edges, n(3)), Some(n(1)));
+}
+
+#[test]
+fn cache_node_diamond_returns_join_not_fork() {
+    // Diamond followed by terminal:
+    // 0 → 1 → 3 → 4 and 0 → 2 → 3 → 4
+    // Old fan-out heuristic would return source (0); dominator returns join (3).
+    let edges = vec![
+        (n(0), n(1)),
+        (n(0), n(2)),
+        (n(1), n(3)),
+        (n(2), n(3)),
+        (n(3), n(4)),
+    ];
+    assert_eq!(find_cache_node_via_dominators(&edges, n(4)), Some(n(3)));
 }

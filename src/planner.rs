@@ -572,7 +572,7 @@ pub struct ExplainStep {
     pub cost_hint: u64,
     /// User-supplied name(s) for this step, derived from
     /// [`PCollection::with_name`](crate::PCollection::with_name) /
-    /// [`Pipeline::set_node_name`](crate::Pipeline::set_node_name) calls
+    /// [`Pipeline::set_node_name`](Pipeline::set_node_name) calls
     /// against the original nodes that produced this step.
     ///
     /// `None` when none of the contributing nodes were named.  When the
@@ -1813,7 +1813,7 @@ fn dominator_intersect(
 /// A `HashMap<NodeId, NodeId>` where each key maps to its immediate dominator.
 /// The `source` node maps to itself as a sentinel. Nodes unreachable from
 /// `source` are absent from the map.
-fn build_dominator_tree(edges: &[(NodeId, NodeId)], source: NodeId) -> HashMap<NodeId, NodeId> {
+pub fn build_dominator_tree(edges: &[(NodeId, NodeId)], source: NodeId) -> HashMap<NodeId, NodeId> {
     let mut succs: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
     let mut preds: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
     for &(from, to) in edges {
@@ -1888,7 +1888,7 @@ fn build_dominator_tree(edges: &[(NodeId, NodeId)], source: NodeId) -> HashMap<N
 /// - `terminal` is the source itself (no prefix to cache).
 /// - `idom(terminal)` equals the source (the only shared ancestor is the root,
 ///   meaning there is no shared prefix deeper in the graph).
-pub(crate) fn find_cache_node_via_dominators(
+pub fn find_cache_node_via_dominators(
     edges: &[(NodeId, NodeId)],
     terminal: NodeId,
 ) -> Option<NodeId> {
@@ -1942,129 +1942,4 @@ fn suggest_partitions(len_hint: Option<usize>) -> Option<usize> {
     let hw = num_cpus::get().max(2);
     parts = parts.clamp(hw, hw * 8);
     Some(parts)
-}
-
-#[cfg(test)]
-mod dominator_tests {
-    use super::*;
-
-    fn n(v: u64) -> NodeId {
-        NodeId::new(v)
-    }
-
-    // ── build_dominator_tree ───────────────────────────────────────────────
-
-    #[test]
-    fn dominator_linear_chain() {
-        // 0 → 1 → 2 → 3
-        let edges = vec![(n(0), n(1)), (n(1), n(2)), (n(2), n(3))];
-        let idom = build_dominator_tree(&edges, n(0));
-        assert_eq!(idom[&n(0)], n(0)); // source maps to itself
-        assert_eq!(idom[&n(1)], n(0));
-        assert_eq!(idom[&n(2)], n(1));
-        assert_eq!(idom[&n(3)], n(2));
-    }
-
-    #[test]
-    fn dominator_simple_fanout() {
-        // 0 → 1 → 2
-        //       ↘ 3
-        let edges = vec![(n(0), n(1)), (n(1), n(2)), (n(1), n(3))];
-        let idom = build_dominator_tree(&edges, n(0));
-        assert_eq!(idom[&n(1)], n(0));
-        assert_eq!(idom[&n(2)], n(1));
-        assert_eq!(idom[&n(3)], n(1));
-    }
-
-    #[test]
-    fn dominator_diamond_join_point() {
-        // 0 → 1 → 3 → 4
-        //   ↘ 2 ↗
-        // dom(3) = {0, 3} → idom(3) = 0 (source is the only shared ancestor)
-        // dom(4) = {0, 3, 4} → idom(4) = 3
-        let edges = vec![
-            (n(0), n(1)),
-            (n(0), n(2)),
-            (n(1), n(3)),
-            (n(2), n(3)),
-            (n(3), n(4)),
-        ];
-        let idom = build_dominator_tree(&edges, n(0));
-        assert_eq!(idom[&n(1)], n(0));
-        assert_eq!(idom[&n(2)], n(0));
-        assert_eq!(idom[&n(3)], n(0)); // join node: idom = source
-        assert_eq!(idom[&n(4)], n(3)); // post-join terminal: idom = join
-    }
-
-    #[test]
-    fn dominator_double_diamond() {
-        // Two back-to-back diamonds:
-        // 0 → 1 → 3 → 4 → 6 → 7
-        //   ↘ 2 ↗   ↘ 5 ↗
-        let edges = vec![
-            (n(0), n(1)),
-            (n(0), n(2)),
-            (n(1), n(3)),
-            (n(2), n(3)),
-            (n(3), n(4)),
-            (n(3), n(5)),
-            (n(4), n(6)),
-            (n(5), n(6)),
-            (n(6), n(7)),
-        ];
-        let idom = build_dominator_tree(&edges, n(0));
-        assert_eq!(idom[&n(3)], n(0)); // first join: idom = source
-        assert_eq!(idom[&n(6)], n(3)); // second join: idom = first join
-        assert_eq!(idom[&n(7)], n(6)); // terminal: idom = second join
-    }
-
-    // ── find_cache_node_via_dominators ────────────────────────────────────
-
-    #[test]
-    fn cache_node_empty_edges() {
-        assert_eq!(find_cache_node_via_dominators(&[], n(5)), None);
-    }
-
-    #[test]
-    fn cache_node_terminal_is_source() {
-        let edges = vec![(n(0), n(1))];
-        assert_eq!(find_cache_node_via_dominators(&edges, n(0)), None);
-    }
-
-    #[test]
-    fn cache_node_idom_is_source_returns_none() {
-        // Diamond: 0 → 1 → 3 and 0 → 2 → 3. idom(3) = 0 = source → None.
-        let edges = vec![(n(0), n(1)), (n(0), n(2)), (n(1), n(3)), (n(2), n(3))];
-        assert_eq!(find_cache_node_via_dominators(&edges, n(3)), None);
-    }
-
-    #[test]
-    fn cache_node_linear_pipeline() {
-        // 0 → 1 → 2: idom(2) = 1 (not source) → Some(1)
-        let edges = vec![(n(0), n(1)), (n(1), n(2))];
-        assert_eq!(find_cache_node_via_dominators(&edges, n(2)), Some(n(1)));
-    }
-
-    #[test]
-    fn cache_node_fanout_returns_shared_ancestor() {
-        // 0 → 1 → 2 and 0 → 1 → 3: idom(2) = idom(3) = 1 → same cache key.
-        let edges = vec![(n(0), n(1)), (n(1), n(2)), (n(1), n(3))];
-        assert_eq!(find_cache_node_via_dominators(&edges, n(2)), Some(n(1)));
-        assert_eq!(find_cache_node_via_dominators(&edges, n(3)), Some(n(1)));
-    }
-
-    #[test]
-    fn cache_node_diamond_returns_join_not_fork() {
-        // Diamond followed by terminal:
-        // 0 → 1 → 3 → 4 and 0 → 2 → 3 → 4
-        // Old fan-out heuristic would return source (0); dominator returns join (3).
-        let edges = vec![
-            (n(0), n(1)),
-            (n(0), n(2)),
-            (n(1), n(3)),
-            (n(2), n(3)),
-            (n(3), n(4)),
-        ];
-        assert_eq!(find_cache_node_via_dominators(&edges, n(4)), Some(n(3)));
-    }
 }
