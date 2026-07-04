@@ -79,7 +79,11 @@ serde_arrow = { version = "0.14", optional = true, features = ["arrow-59"] }
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
 
 # MongoDB I/O (Tier 5, opt-in)
-mongodb = { version = "3", optional = true }
+#
+# `mongodb` defaults to its `bson-2` compatibility feature; `bson-3` is enabled explicitly so
+# `mongodb::bson::Document` resolves to the same `bson` 3.1.0 crate instance as our own `bson`
+# dependency below (otherwise cargo would link two incompatible `Document` types).
+mongodb = { version = "3", features = ["bson-3"], optional = true }
 bson = { version = "3", optional = true }
 
 # Async runtime bridge (shared by io-sql and io-mongodb)
