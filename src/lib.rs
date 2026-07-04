@@ -643,6 +643,19 @@ pub use helpers::sql::{read_sql, read_sql_streaming};
 #[cfg(all(feature = "io-sql", feature = "parallel-io"))]
 pub use io::sql::write_sql_par_with;
 
+pub use io::mongodb::{MongoShards, MongoVecOps};
+
+#[cfg(feature = "io-mongodb")]
+pub use io::mongodb::{
+    build_mongodb_shards, read_mongodb_range, read_mongodb_vec, write_mongodb_vec,
+};
+
+#[cfg(feature = "io-mongodb")]
+pub use helpers::mongodb::{read_mongodb, read_mongodb_streaming};
+
+#[cfg(all(feature = "io-mongodb", feature = "parallel-io"))]
+pub use io::mongodb::write_mongodb_par;
+
 pub use io::tfrecord::{TFRecordShards, TFRecordVecOps, build_tfrecord_shards};
 
 pub use io::tfrecord::{read_tfrecord_vec, write_tfrecord_vec};
