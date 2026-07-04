@@ -8,11 +8,17 @@
 //! `mongodb://localhost:27017`; override with the `MONGODB_URI` environment variable (e.g. to
 //! point at a `testcontainers`-managed instance, or a remote server).
 //!
+//! No MongoDB service is available in this crate's CI, so this example first runs a fast (2
+//! second timeout) connectivity check and prints a graceful skip message instead of running the
+//! demo if no server is reachable, rather than failing (or hanging on the driver's much longer
+//! default server-selection timeout).
+//!
 //! Run with:
 //! ```bash
 //! cargo run --example mongodb_pipeline --features io-mongodb
 //! ```
 
+#[cfg(feature = "io-mongodb")]
 use anyhow::Result;
 
 #[cfg(feature = "io-mongodb")]
@@ -21,6 +27,31 @@ struct Person {
     id: i64,
     name: String,
     age: i32,
+}
+
+/// Quickly check whether a MongoDB server is reachable at `uri`, using a short
+/// `server_selection_timeout` instead of the driver's ~30 second default so an unreachable
+/// server (e.g. in CI, where none is running) fails fast.
+#[cfg(feature = "io-mongodb")]
+fn mongodb_reachable(uri: &str) -> Result<bool> {
+    use std::time::Duration;
+
+    let rt = tokio::runtime::Runtime::new()?;
+    Ok(rt.block_on(async {
+        let Ok(mut options) = mongodb::options::ClientOptions::parse(uri).await else {
+            return false;
+        };
+        options.server_selection_timeout = Some(Duration::from_secs(2));
+
+        let Ok(client) = mongodb::Client::with_options(options) else {
+            return false;
+        };
+        client
+            .database("admin")
+            .run_command(bson::doc! { "ping": 1 })
+            .await
+            .is_ok()
+    }))
 }
 
 #[cfg(feature = "io-mongodb")]
@@ -33,6 +64,12 @@ fn main() -> Result<()> {
 
     println!("🚀 MongoDB Pipeline Example: Person Processing");
     println!("   Connecting to {uri}\n");
+
+    if !mongodb_reachable(&uri)? {
+        println!("⚠️  No MongoDB server reachable at {uri}; skipping example.");
+        println!("   Start a MongoDB server and re-run, optionally setting MONGODB_URI.");
+        return Ok(());
+    }
 
     let p = Pipeline::default();
 
