@@ -199,29 +199,19 @@
 //! - [`type_token::VecOps`](crate::type_token::VecOps) - Partition operations trait
 //! - [`runner`](crate::runner) - Execution engine that consumes these primitives
 
-pub mod jsonl;
-
-pub mod csv;
-
-pub mod parquet;
-
-pub mod avro;
-
-pub mod xml;
-
-pub mod msgpack;
-
-pub mod cbor;
-
-pub mod protobuf;
-
-pub mod sql;
-
-pub mod tfrecord;
-pub mod tfrecord_proto;
-
 pub mod arrow_ipc;
-
+pub mod avro;
+pub mod cbor;
 pub mod cloud;
 pub mod compression;
+pub mod csv;
 pub mod glob;
+pub mod jsonl;
+pub mod mongodb;
+pub mod msgpack;
+pub mod parquet;
+pub mod protobuf;
+pub mod sql;
+pub mod tfrecord;
+pub mod tfrecord_proto;
+pub mod xml;
