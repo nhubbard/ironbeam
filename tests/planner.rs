@@ -1955,7 +1955,7 @@ fn adaptive_partition_count_correctness_gbk() -> Result<()> {
     Ok(())
 }
 
-fn n(v: u64) -> NodeId {
+const fn n(v: u64) -> NodeId {
     NodeId::new(v)
 }
 
