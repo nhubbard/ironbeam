@@ -12,6 +12,7 @@ mod csv_streaming;
 mod glob;
 mod jsonl;
 mod jsonl_streaming;
+mod mongodb;
 mod msgpack;
 mod parquet;
 mod parquet_streaming;
