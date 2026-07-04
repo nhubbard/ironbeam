@@ -90,53 +90,5 @@ To expedite analysis and ensure that errors are caught, you must do the followin
 | 5.4 Protocol Buffers I/O                    | `read_proto`/`read_proto_streaming` sources and `PCollection::write_proto`/`write_proto_par` sinks over `prost`, plus low-level `read_proto_vec`/`write_proto_vec`, `ProtoShards`/`build_proto_shards`/`read_proto_range`, and a `ProtoVecOps<T>` runner adapter. Files are a flat concatenation of varint-length-delimited records (self-delimiting, byte-concatenable shards); record-count sharding, glob support, and compression auto-detection mirror the CBOR/MsgPack modules. `prost::Message` encode/decode bypasses serde entirely; function stubs are absent for prost-typed APIs when the feature is off (only `build_proto_shards` has a stub). Behind the **opt-in** `io-protobuf` feature flag.                                                                                                                                                           | next   |
 | 5.6 TFRecord I/O                            | `read_tfrecord`/`read_tfrecord_streaming` sources and `PCollection::<Vec<u8>>::write_tfrecord`/`write_tfrecord_par` sinks, plus low-level `read_tfrecord_vec`/`write_tfrecord_vec`, `TFRecordShards`/`build_tfrecord_shards`/`read_tfrecord_range`, and a `TFRecordVecOps` runner adapter. Element type is always `Vec<u8>` (raw bytes). Hand-written prost structs for `tf.Example`/`BytesList`/`FloatList`/`Int64List` (no protoc, no code generation) behind the combined `io-tfrecord + io-protobuf` gate. Masked CRC-32C framing verified on every record. Byte-concatenable shards enable the same parallel-write strategy as MsgPack/CBOR. Behind the **opt-in** `io-tfrecord` feature flag.                                                                                                                                                                      | next   |
 | 5.3 Arrow IPC I/O                           | `read_arrow_ipc`/`read_arrow_ipc_batches`/`read_arrow_ipc_streaming` sources and `PCollection::write_arrow_ipc_rows`/`write_arrow_ipc_batches`/`write_arrow_ipc_rows_par`/`write_arrow_ipc_batches_par` sinks, plus low-level `read_arrow_ipc_vec`/`write_arrow_ipc_vec`/`read_arrow_ipc_rows_vec`/`write_arrow_ipc_rows_vec`, `ArrowShards`/`build_arrow_shards`/`read_arrow_ipc_range`/`read_arrow_ipc_rows_range`, and `ArrowBatchVecOps`/`ArrowRowVecOps` runner adapters. `ArrowBatch` newtype wraps `RecordBatch` with IPC-byte serde so it satisfies `Element`. All Arrow-typed public API is behind `io-arrow`; `ArrowShards` is always compiled. Parallel writes serialize each shard to a complete temp IPC file in parallel (Rayon), then merge sequentially. Behind the **opt-in** `io-arrow` feature flag (shares `arrow`/`serde_arrow` with `io-parquet`). | next   |
-
----
-
-## Tier 5: Additional I/O Formats
-
-These features provide read/write support for additional serialization formats and storage
-backends. All are non-streaming and non-cloud-specific (self-hosted databases only), and live
-behind feature flags to minimize default dependencies.
-
-### 5.7 SQL Database I/O
-
-**Status:** Not implemented. Behind `io-sql` feature flag.
-
-Read from and write to SQL databases (PostgreSQL, MySQL, SQLite, etc.) using `sqlx`. Covers
-local and self-hosted databases; cloud-managed variants (Cloud SQL, RDS) are out of scope.
-
-**Beam equivalent:** `jdbc.py` (implemented via external Java transforms in Beam)
-
-**Proposed API:**
-```rust
-read_sql::<MyRow>("postgres://localhost/db", "SELECT id, name FROM users WHERE active = true")
-write_sql("postgres://localhost/db", "INSERT INTO sink ...", collection)
-```
-
-**Dependencies:** `sqlx` with the appropriate driver features (`postgres`, `mysql`, `sqlite`)
-
-**Estimated complexity:** High. Connection pooling, type mapping via `sqlx::FromRow`, and
-parallel read strategies (cursor-based or `LIMIT`/`OFFSET` splitting) are all non-trivial.
-
----
-
-### 5.8 MongoDB I/O
-
-**Status:** Not implemented. Behind `io-mongodb` feature flag.
-
-Read from and write to self-hosted MongoDB collections as batch operations using the official
-async Rust driver.
-
-**Beam equivalent:** `mongodbio.py`
-
-**Proposed API:**
-```rust
-read_mongodb::<T>(uri: &str, db: &str, coll: &str, filter: Document) // -> PCollection<T>
-write_mongodb(uri: &str, db: &str, coll: &str, collection: PCollection<T>)
-```
-
-**Dependencies:** `mongodb` (official async driver), `bson`
-
-**Estimated complexity:** High. Parallel reads via `_id`-range splitting or `$sample`, BSON↔Rust
-type mapping, and handling of schema heterogeneity all require significant effort.
+| 5.7 SQL Database I/O                        | `read_sql`/`read_sql_streaming` sources and `PCollection::write_sql_with`/`write_sql_par_with` sinks over `sqlx` with the `Any` driver (PostgreSQL, MySQL, SQLite). `SqlShards`/`build_sql_shards`/`read_sql_range`, `SqlVecOps<T>`, and `LIMIT`/`OFFSET` sharding. `sqlx::FromRow` type mapping; writes take a user-supplied `bind_fn` closure over `sqlx::query_builder::Separated`. Behind the **opt-in** `io-sql` feature flag.                                                                                                                                                                                                                                                                                                                                                                                                                                      | next   |
+| 5.8 MongoDB I/O                             | `read_mongodb`/`read_mongodb_streaming` sources and `PCollection::write_mongodb`/`write_mongodb_par` sinks over the official async `mongodb` 3.x driver. `MongoShards`/`build_mongodb_shards`/`read_mongodb_range`, `MongoVecOps<T>`, and skip/limit sharding. BSON serde bridge via `T: Serialize + DeserializeOwned`; filters built with the `bson::doc!` macro. Behind the **opt-in** `io-mongodb` feature flag.                                                                                                                                                                                                                                                                                                                                                                                                                                                      | next   |

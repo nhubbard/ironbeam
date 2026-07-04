@@ -186,6 +186,8 @@
 //! - `io-jsonl` - Enable JSON Lines I/O support
 //! - `io-csv` - Enable CSV I/O support
 //! - `io-parquet` - Enable Parquet I/O support (requires Arrow)
+//! - `io-sql` - Enable SQL database I/O support (PostgreSQL, MySQL, SQLite via `sqlx`)
+//! - `io-mongodb` - Enable MongoDB I/O support
 //! - `parallel-io` - Enable parallel I/O operations (`write_*_par` methods)
 //! - `metrics` - Enable metrics collection and reporting (enabled by default)
 //! - `checkpointing` - Enable automatic checkpointing for fault tolerance (enabled by default)
