@@ -1,3 +1,27 @@
+## [4.1.0](https://github.com/nhubbard/ironbeam/compare/v4.0.0...v4.1.0) (2026-07-05)
+
+### Features
+
+* **io:** 5.2 CBOR I/O connector — ciborium-backed read/write/stream/par ([943b2ff](https://github.com/nhubbard/ironbeam/commit/943b2ff63abeea1487c1f5494d7f48b9c76925ee))
+* **io:** 5.3 Arrow IPC connector — batch and row-level read/write/stream/par ([c44ee7d](https://github.com/nhubbard/ironbeam/commit/c44ee7dee03cfd794310abadf6b97b5cf8520a57))
+* **io:** 5.4 Protocol Buffers I/O connector — prost-backed read/write/stream/par ([a9afd2c](https://github.com/nhubbard/ironbeam/commit/a9afd2c8333b0fe1f40e2c215c420ab2446d9a7d))
+* **io:** 5.5 Parquet gap-fill — read_parquet glob source + write_parquet_par ([0157a7f](https://github.com/nhubbard/ironbeam/commit/0157a7fa02792f0994efc18b201adc2c6f74b082))
+* **io:** 5.6 TFRecord I/O connector — CRC-masked framing, raw bytes, tf.Example support ([35a123f](https://github.com/nhubbard/ironbeam/commit/35a123f197889b399daef89b758ed7b302e6fb01))
+* **io:** 5.7 SQL I/O connector — helpers layer, PCollection write methods, lib.rs re-exports ([c272429](https://github.com/nhubbard/ironbeam/commit/c272429e01950f2d431aaa3147b27f4b0a84166b))
+* **io:** 5.7 SQL I/O connector — low-level module, SqlShards, SqlVecOps, feature stubs ([b3cee0f](https://github.com/nhubbard/ironbeam/commit/b3cee0fde16865459a1d13f418a4ed477729a244))
+* **io:** 5.8 MongoDB I/O connector — helpers layer, PCollection write methods, lib.rs re-exports ([ef6b7dc](https://github.com/nhubbard/ironbeam/commit/ef6b7dcb894845b1bd1f754d0b9aa4ba0ef49a5c))
+* **io:** 5.8 MongoDB I/O connector — low-level module, MongoShards, MongoVecOps, async bridge ([3dc24e5](https://github.com/nhubbard/ironbeam/commit/3dc24e5930f64186f87ea84dc32f50287d79e090))
+
+### Bug Fixes
+
+* **examples:** make mongodb_pipeline CI-safe with no database running ([260039d](https://github.com/nhubbard/ironbeam/commit/260039dd4d4bd1dd75954bc4a99f4f304a2c5b81))
+* **io:** correct Postgres placeholder syntax in write_sql_with, verify MySQL container tests ([e7e5938](https://github.com/nhubbard/ironbeam/commit/e7e5938023e43d85c055be9893ea1eed25295b85))
+* **planner:** satisfy clippy pedantic/nursery on dominator-tree helpers ([5233976](https://github.com/nhubbard/ironbeam/commit/5233976dc3d6410a0281c86f4499e3ebb6dc29e6))
+
+### Documentation
+
+* **io:** mark 5.7 SQL and 5.8 MongoDB as implemented, add pipeline examples ([d47ca91](https://github.com/nhubbard/ironbeam/commit/d47ca9152cedf3249752e3b9986593ac40b38cf8))
+
 ## [4.0.0](https://github.com/nhubbard/ironbeam/compare/v3.2.0...v4.0.0) (2026-06-27)
 
 ### ⚠ BREAKING CHANGES
