@@ -65,11 +65,11 @@ hyperloglogplus = "0.4"
 
 # Optional encoding formats
 apache-avro = { version = "0.21", optional = true }
-quick-xml = { version = "0.40", features = ["serialize"], optional = true }
+quick-xml = { version = "0.41", features = ["serialize"], optional = true }
 csv = { version = "1", optional = true }
 rmp-serde = { version = "1", optional = true }
 ciborium = { version = "0.2", optional = true }
-prost = { version = "0.13", optional = true }
+prost = { version = "0.14", optional = true }
 crc32c = { version = "0.6", optional = true }
 arrow = { version = "59", optional = true }
 parquet = { version = "59", optional = true }
