@@ -466,7 +466,7 @@ fn test_to_hashmap_float_values() {
         vec![
             ("pi".to_string(), std::f64::consts::PI),
             ("e".to_string(), std::f64::consts::E),
-            ("phi".to_string(), 1.61803),
+            ("phi".to_string(), std::f64::consts::GOLDEN_RATIO),
         ],
     );
 
@@ -475,7 +475,7 @@ fn test_to_hashmap_float_values() {
     assert_eq!(map.len(), 3);
     assert_eq!(map.get("pi"), Some(&std::f64::consts::PI));
     assert_eq!(map.get("e"), Some(&std::f64::consts::E));
-    assert_eq!(map.get("phi"), Some(&1.61803));
+    assert_eq!(map.get("phi"), Some(&std::f64::consts::GOLDEN_RATIO));
 }
 
 /// Test `to_hashmap` maintains all values when keys are distinct
