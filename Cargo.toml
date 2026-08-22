@@ -73,7 +73,7 @@ prost = { version = "0.14", optional = true }
 crc32c = { version = "0.6", optional = true }
 arrow = { version = "59", optional = true }
 parquet = { version = "59", optional = true }
-serde_arrow = { version = "0.14", optional = true, features = ["arrow-59"] }
+serde_arrow = { version = "0.15", optional = true, features = ["arrow-59"] }
 
 # SQL I/O (Tier 5, opt-in)
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
