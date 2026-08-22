@@ -64,7 +64,7 @@ paste = "1"
 hyperloglogplus = "0.4"
 
 # Optional encoding formats
-apache-avro = { version = "0.21", optional = true }
+apache-avro = { version = "0.22", optional = true }
 quick-xml = { version = "0.41", features = ["serialize"], optional = true }
 csv = { version = "1", optional = true }
 rmp-serde = { version = "1", optional = true }
