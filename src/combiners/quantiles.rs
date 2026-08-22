@@ -220,7 +220,7 @@ impl TDigest {
                     self.centroids[i + 1].mean
                 };
 
-                return left + fraction * (right - left);
+                return fraction.mul_add(right - left, left);
             }
 
             cumulative = next_cumulative;
