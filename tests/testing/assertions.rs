@@ -1,3 +1,5 @@
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::testing::PAssert;
 
 // ── is_empty ──────────────────────────────────────────────────────────────────

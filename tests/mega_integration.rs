@@ -17,6 +17,8 @@
 //! - All collection methods (`collect_seq`, `collect_par`, sorted variants)
 //! - Sequential and parallel execution equivalence
 
+#![allow(clippy::assert_is_empty)]
+
 use anyhow::Result;
 use ironbeam::combiners::*;
 use ironbeam::*;

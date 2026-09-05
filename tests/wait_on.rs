@@ -6,6 +6,8 @@
 //! side-effect counter); and that the dependency works regardless of the
 //! signal's element type, signal cardinality, or execution mode.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -11,6 +11,8 @@
 //! - `DeadLetter` survives further pipeline transforms (`map`, `key_by`, …).
 //! - Custom error types via `Display`.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use std::fmt;
 

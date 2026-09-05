@@ -1,5 +1,7 @@
 //! Tests for `distinct_by`: deduplication by a computed key projection.
 
+#![allow(clippy::assert_is_empty)]
+
 use anyhow::Result;
 use ironbeam::*;
 use serde::{Deserialize, Serialize};

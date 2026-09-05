@@ -15,6 +15,7 @@
 //! DDL step: databases and collections are created implicitly on first insert.
 
 #![cfg(feature = "io-mongodb")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
 use ironbeam::io::mongodb::*;

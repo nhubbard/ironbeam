@@ -1,6 +1,7 @@
 //! Tests for the Arrow IPC I/O connector (feature `io-arrow`).
 
 #![cfg(feature = "io-arrow")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
 use arrow::datatypes::FieldRef;

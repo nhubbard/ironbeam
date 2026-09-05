@@ -4,6 +4,8 @@
 //! - `keys()` — extracts the key component from `PCollection<(K, V)>`
 //! - `values()` — extracts the value component from `PCollection<(K, V)>`
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use serde::{Deserialize, Serialize};
 

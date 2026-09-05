@@ -9,6 +9,7 @@
 //! - Error handling
 
 #![cfg(feature = "io-avro")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::{Result, anyhow};
 use apache_avro::Schema;

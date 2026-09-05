@@ -4,6 +4,8 @@
 //! upstream contents, can apply distinct transforms, and triggers the
 //! pipeline's existing cache-placement behavior for shared upstream nodes.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 
 // ── tee() — two-way split ────────────────────────────────────────────────────

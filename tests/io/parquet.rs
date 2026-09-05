@@ -1,4 +1,5 @@
 #![cfg(feature = "io-parquet")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
 use ironbeam::from_vec;

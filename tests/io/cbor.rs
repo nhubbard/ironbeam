@@ -1,6 +1,7 @@
 //! Tests for the CBOR I/O connector (feature `io-cbor`).
 
 #![cfg(feature = "io-cbor")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::{Result, anyhow};
 use ironbeam::io::cbor::*;

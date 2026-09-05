@@ -5,6 +5,8 @@
 //!
 //! Run with: `cargo run --example testing_pipeline`
 
+#![allow(clippy::assert_is_empty)]
+
 use anyhow::Result;
 use ironbeam::testing::{
     KVTestDataBuilder, PCollectionDebugExt, TestDataBuilder, TestPipeline, assert_all, assert_any,
