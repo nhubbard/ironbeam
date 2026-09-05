@@ -142,8 +142,10 @@ pub fn read_avro_vec_with_schema<T: DeserializeOwned>(
     let path = path.as_ref();
     let schema = Schema::parse_str(schema.as_ref()).context("parse Avro schema string")?;
     let mut rdr = open_avro_reader(path)?;
-    let reader =
-        apache_avro::Reader::with_schema(&schema, &mut rdr).context("create Avro reader")?;
+    let reader = apache_avro::Reader::builder(&mut rdr)
+        .reader_schema(&schema)
+        .build()
+        .context("create Avro reader")?;
     avro_read_loop(reader, path)
 }
 
@@ -161,8 +163,10 @@ pub fn read_avro_vec_with_schema_obj<T: DeserializeOwned>(
 ) -> Result<Vec<T>> {
     let path = path.as_ref();
     let mut rdr = open_avro_reader(path)?;
-    let reader =
-        apache_avro::Reader::with_schema(schema, &mut rdr).context("create Avro reader")?;
+    let reader = apache_avro::Reader::builder(&mut rdr)
+        .reader_schema(schema)
+        .build()
+        .context("create Avro reader")?;
     avro_read_loop(reader, path)
 }
 
@@ -214,12 +218,12 @@ pub fn write_avro_vec_with_schema<T: Serialize>(
     let f = File::create(path).with_context(|| format!("create {}", path.display()))?;
     let mut w = auto_detect_writer(f, path)
         .with_context(|| format!("setup compression for {}", path.display()))?;
-    let mut writer = Writer::new(schema, &mut w);
+    let mut writer = Writer::new(schema, &mut w).context("create Avro writer")?;
     for (i, item) in data.iter().enumerate() {
         let value: Value = to_value(item)
             .with_context(|| format!("serialize item #{} to Avro in {}", i, path.display()))?;
         writer
-            .append(value)
+            .append_value(value)
             .with_context(|| format!("write record #{} to Avro in {}", i, path.display()))?;
     }
     writer.flush().context("flush Avro writer")?;
@@ -281,10 +285,10 @@ pub fn write_avro_par<T: Serialize + Sync>(
 
     let f = File::create(path).with_context(|| format!("create {}", path.display()))?;
     let mut w = BufWriter::new(f);
-    let mut writer = Writer::new(&schema, &mut w);
+    let mut writer = Writer::new(&schema, &mut w).context("create Avro writer")?;
     for (i, value) in values.into_iter().enumerate() {
         writer
-            .append(value)
+            .append_value(value)
             .with_context(|| format!("write record #{} to {}", i, path.display()))?;
     }
     writer.flush().context("flush Avro writer")?;
@@ -368,8 +372,10 @@ pub fn build_avro_shards_with_schema_obj(
 ) -> Result<AvroShards> {
     let path = path.as_ref().to_path_buf();
     let mut rdr = open_avro_reader(&path)?;
-    let reader =
-        apache_avro::Reader::with_schema(schema, &mut rdr).context("create Avro reader")?;
+    let reader = apache_avro::Reader::builder(&mut rdr)
+        .reader_schema(schema)
+        .build()
+        .context("create Avro reader")?;
     let total = avro_count_records(reader);
     Ok(make_avro_shards(path, total, records_per_shard))
 }

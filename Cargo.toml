@@ -64,7 +64,7 @@ paste = "1"
 hyperloglogplus = "0.4"
 
 # Optional encoding formats
-apache-avro = { version = "0.21", optional = true }
+apache-avro = { version = "0.22", optional = true }
 quick-xml = { version = "0.41", features = ["serialize"], optional = true }
 csv = { version = "1", optional = true }
 rmp-serde = { version = "1", optional = true }
@@ -73,7 +73,7 @@ prost = { version = "0.14", optional = true }
 crc32c = { version = "0.6", optional = true }
 arrow = { version = "59", optional = true }
 parquet = { version = "59", optional = true }
-serde_arrow = { version = "0.14", optional = true, features = ["arrow-59"] }
+serde_arrow = { version = "0.15", optional = true, features = ["arrow-59"] }
 
 # SQL I/O (Tier 5, opt-in)
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
@@ -99,7 +99,6 @@ xz2 = { version = "0.1", optional = true }
 tempfile = "3"
 
 [dev-dependencies]
-mark-flaky-tests = "1"
 # MongoDB, Postgres, and MySQL (cross-database `sqlx::Any` dispatch) integration tests
 # require a live server via testcontainers/Docker.
 testcontainers = { version = "0.27", features = ["blocking"] }
