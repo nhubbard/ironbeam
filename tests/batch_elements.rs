@@ -5,6 +5,8 @@
 //! batch boundaries, invariants under parallel execution, and well-defined
 //! handling for oversized single elements.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use serde::{Deserialize, Serialize};
 

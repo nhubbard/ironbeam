@@ -10,6 +10,8 @@
 //! verify invocation count, which exercises the same code path as the
 //! `Debug`-based default.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

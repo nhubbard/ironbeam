@@ -3,6 +3,8 @@
 //! This test suite validates `kv_swap()` — swaps the key and value of each
 //! `(K, V)` pair, producing `PCollection<(V, K)>`.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use serde::{Deserialize, Serialize};
 

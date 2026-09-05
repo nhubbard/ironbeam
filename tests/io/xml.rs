@@ -8,6 +8,8 @@
 //! - Compression support
 //! - Error handling
 
+#![allow(clippy::assert_is_empty)]
+
 use anyhow::Result;
 use ironbeam::io::xml::{XmlVecOps, build_xml_shards, read_xml_range, read_xml_vec, write_xml_vec};
 use ironbeam::*;

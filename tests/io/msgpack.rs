@@ -1,6 +1,7 @@
 //! Tests for the `MessagePack` I/O connector (feature `io-msgpack`).
 
 #![cfg(feature = "io-msgpack")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::{Result, anyhow};
 use ironbeam::io::msgpack::*;

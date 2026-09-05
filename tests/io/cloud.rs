@@ -3,6 +3,8 @@
 // These tests demonstrate real-world usage patterns with fake implementations
 // that run entirely within the test process, simulating a complete cloud environment.
 
+#![allow(clippy::assert_is_empty)]
+
 use anyhow::Result;
 use ironbeam::io::cloud::*;
 use std::collections::HashMap;

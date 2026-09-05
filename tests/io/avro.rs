@@ -9,6 +9,7 @@
 //! - Error handling
 
 #![cfg(feature = "io-avro")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::{Result, anyhow};
 use apache_avro::Schema;
@@ -33,7 +34,7 @@ struct TestRecord {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 struct SimpleRecord {
     k: String,
-    v: u64,
+    v: i64,
 }
 
 // Avro schemas for test types
@@ -802,7 +803,7 @@ fn test_avro_complex_pipeline() -> Result<()> {
     #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
     struct OutputRecord {
         k: String,
-        v: u64,
+        v: i64,
     }
 
     let processed = pc
@@ -813,8 +814,8 @@ fn test_avro_complex_pipeline() -> Result<()> {
             value: r.value * 1.1,
         })
         .key_by(|r: &TestRecord| r.name.clone())
-        .map_values(|v: &TestRecord| (v.value as u64).saturating_sub(10))
-        .combine_values(Sum::<u64>::default());
+        .map_values(|v: &TestRecord| (v.value as i64).saturating_sub(10))
+        .combine_values(Sum::<i64>::default());
 
     // Write using kv_schema for OutputRecord output
     let kv_schema = r#"{
@@ -826,7 +827,7 @@ fn test_avro_complex_pipeline() -> Result<()> {
       ]
     }"#;
 
-    let processed_with_struct = processed.map(|(k, v): &(String, u64)| OutputRecord {
+    let processed_with_struct = processed.map(|(k, v): &(String, i64)| OutputRecord {
         k: k.clone(),
         v: *v,
     });
@@ -836,11 +837,11 @@ fn test_avro_complex_pipeline() -> Result<()> {
     // Read and verify results
     let output_data: Vec<OutputRecord> = read_avro_vec(&output_path)?;
     assert_eq!(output_data.len(), 2);
-    assert!(output_data.iter().any(|r| r.k == "Bob" && r.v == 210u64));
+    assert!(output_data.iter().any(|r| r.k == "Bob" && r.v == 210i64));
     assert!(
         output_data
             .iter()
-            .any(|r| r.k == "Charlie" && r.v == 320u64)
+            .any(|r| r.k == "Charlie" && r.v == 320i64)
     );
 
     Ok(())

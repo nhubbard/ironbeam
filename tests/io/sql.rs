@@ -8,6 +8,7 @@
 //! the same data. No Docker or external process is required.
 
 #![cfg(feature = "io-sql")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
 use ironbeam::io::sql::*;

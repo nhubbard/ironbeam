@@ -7,6 +7,8 @@
 //! - Edge cases (empty / single / `batch_size` == values / large) behave correctly.
 //! - `batch_size == 0` panics.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

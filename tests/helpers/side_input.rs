@@ -1,3 +1,5 @@
+#![allow(clippy::assert_is_empty)]
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

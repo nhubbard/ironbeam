@@ -1,4 +1,5 @@
 //! Tests for pipeline graph functionality.
+#![allow(clippy::assert_is_empty)]
 
 use ironbeam::testing::*;
 use ironbeam::*;

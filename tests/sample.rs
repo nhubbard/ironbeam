@@ -9,6 +9,8 @@
 //! - Sequential / parallel produce identical samples.
 //! - Edge cases: `n = 0`, `n` larger than input, empty input.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use std::collections::HashSet;
 

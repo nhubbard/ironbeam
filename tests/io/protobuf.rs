@@ -1,6 +1,7 @@
 //! Tests for the Protocol Buffers I/O connector (feature `io-protobuf`).
 
 #![cfg(feature = "io-protobuf")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::{Result, anyhow};
 use ironbeam::io::protobuf::*;

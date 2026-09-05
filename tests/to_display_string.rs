@@ -3,6 +3,8 @@
 //! Validates that each element's [`Display`] representation is emitted as a
 //! `String` and that the transform composes correctly with other operators.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;

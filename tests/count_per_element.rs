@@ -5,6 +5,8 @@
 //! helper API at the `PCollection` level: edge cases, parallel execution,
 //! various element types, chaining, and large inputs.
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::*;
 use serde::{Deserialize, Serialize};
 

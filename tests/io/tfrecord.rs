@@ -1,6 +1,7 @@
 //! Tests for the `TFRecord` I/O connector (feature `io-tfrecord`).
 
 #![cfg(feature = "io-tfrecord")]
+#![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
 use ironbeam::io::tfrecord::*;

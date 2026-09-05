@@ -13,6 +13,8 @@
 //!   (the combiner uses a fixed-seed `BuildHasherDefault<DefaultHasher>`).
 //! - Element types beyond primitive ints (strings).
 
+#![allow(clippy::assert_is_empty)]
+
 use ironbeam::combiners::HllApproxDistinctCount;
 use ironbeam::*;
 

@@ -1,3 +1,5 @@
+#![allow(clippy::assert_is_empty)]
+
 use anyhow::Result;
 use ironbeam::node::Node;
 use ironbeam::planner::{build_dominator_tree, find_cache_node_via_dominators};
