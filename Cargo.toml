@@ -112,4 +112,3 @@ unused_imports = "allow"
 
 [lints.clippy]
 large_futures = "allow"
-assert_is_empty = "allow"
