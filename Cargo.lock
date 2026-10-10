@@ -2225,6 +2225,7 @@ dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
  "regex",
+ "serde",
 ]
 
 [[package]]

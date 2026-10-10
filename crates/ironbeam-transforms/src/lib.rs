@@ -49,6 +49,11 @@ pub use side_inputs::{
 };
 mod log_elements;
 pub use log_elements::LogElementsExt;
+mod validation;
+pub use validation::{
+    ErrorCollector, KeyedValidationExt, RecordError, Validate, ValidationError, ValidationExt,
+    ValidationMode, ValidationResult,
+};
 
 pub trait ElementwiseExt<T: Element> {
     fn key_by_named<K: Element>(

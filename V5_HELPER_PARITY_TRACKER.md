@@ -29,7 +29,7 @@ remains available until every required family is closed.
 | `batches`, `reshuffle`, `tee`, `wait_on` | direct | Pending | Specify scheduling, ordering, buffer limits, and dependency semantics. |
 | `collect_sorted` | direct | Present | Sequential/parallel sorted collection and stable keyed sorting exist. |
 | `log_elements` | transforms/direct | Present for Direct debug use | Formatted/default passthroughs print at node execution. Like v4, retries or re-execution can repeat output; this is a debug aid. |
-| `dead_letter`, `try_process`, `validation` | core, transforms, direct | Partial | `try_map`, `try_flat_map`, and fail-fast collection work with a tagged Result coder; dead-letter side outputs and validation policies remain. |
+| `dead_letter`, `try_process`, `validation` | core, transforms, direct | Partial | `try_map`, `try_flat_map`, fail-fast collection, and validation skip/log/fail policies exist; dead-letter side outputs remain. |
 | `jsonl`, `csv`, `xml`, `avro`, `parquet` | I/O | Partial | Bounded source and deferred sink work; v4 shard/lazy reader and immediate writer variants need parity checks. |
 | `cbor`, `msgpack`, `protobuf`, `tfrecord` | optional I/O | Partial | Bounded source/sink adapters and format tests pass; shard/lazy readers, parallel writers, and compression need parity checks. |
 | `arrow_ipc` | optional I/O | Pending | Define record-batch versus row API and add bounded source/sink adapters. |
