@@ -440,6 +440,113 @@ pub fn arrow_ipc_sink<T: Element + Serialize + DeserializeOwned>(
     sink(input, key, path, write_arrow_ipc::<T>)
 }
 
+#[cfg(feature = "arrow-ipc")]
+#[derive(Clone, Debug)]
+pub struct ArrowBatch(pub arrow::record_batch::RecordBatch);
+
+#[cfg(feature = "arrow-ipc")]
+impl Serialize for ArrowBatch {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        encode_arrow_batch(&self.0)
+            .map_err(serde::ser::Error::custom)?
+            .serialize(serializer)
+    }
+}
+#[cfg(feature = "arrow-ipc")]
+impl<'de> serde::Deserialize<'de> for ArrowBatch {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes = <Vec<u8> as serde::Deserialize>::deserialize(deserializer)?;
+        Self::decode(&bytes).map_err(serde::de::Error::custom)
+    }
+}
+
+#[cfg(feature = "arrow-ipc")]
+fn encode_arrow_batch(batch: &arrow::record_batch::RecordBatch) -> Result<Vec<u8>, Error> {
+    use arrow::ipc::writer::FileWriter;
+    let mut bytes = Vec::new();
+    let mut writer =
+        FileWriter::try_new(&mut bytes, &batch.schema()).map_err(|e| io("arrow-ipc", e))?;
+    writer.write(batch).map_err(|e| io("arrow-ipc", e))?;
+    writer.finish().map_err(|e| io("arrow-ipc", e))?;
+    Ok(bytes)
+}
+
+#[cfg(feature = "arrow-ipc")]
+impl Element for ArrowBatch {
+    const TYPE_ID: &'static str = "arrow/record-batch";
+    const CODER_ID: &'static str = "ironbeam/arrow-ipc-file-v1";
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        encode_arrow_batch(&self.0)
+    }
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        use arrow::ipc::reader::FileReader;
+        let mut reader = FileReader::try_new(std::io::Cursor::new(bytes), None)
+            .map_err(|e| io("arrow-ipc", e))?;
+        let batch = reader
+            .next()
+            .ok_or_else(|| Error::incompatible("empty Arrow batch coder payload"))?
+            .map_err(|e| io("arrow-ipc", e))?;
+        if reader.next().is_some() {
+            return Err(Error::incompatible(
+                "multiple batches in Arrow batch coder payload",
+            ));
+        }
+        Ok(Self(batch))
+    }
+}
+
+#[cfg(feature = "arrow-ipc")]
+fn read_arrow_ipc_batches(bytes: &[u8]) -> Result<Vec<ArrowBatch>, Error> {
+    use arrow::ipc::reader::FileReader;
+    FileReader::try_new(std::io::Cursor::new(bytes), None)
+        .map_err(|e| io("arrow-ipc", e))?
+        .map(|batch| batch.map(ArrowBatch).map_err(|e| io("arrow-ipc", e)))
+        .collect()
+}
+#[cfg(feature = "arrow-ipc")]
+fn write_arrow_ipc_batches(path: &Path, values: &[ArrowBatch]) -> Result<(), Error> {
+    use arrow::{
+        datatypes::{FieldRef, Schema},
+        ipc::writer::FileWriter,
+    };
+    let schema = values.first().map_or_else(
+        || std::sync::Arc::new(Schema::new(Vec::<FieldRef>::new())),
+        |batch| batch.0.schema(),
+    );
+    let file = fs::File::create(path).map_err(|e| io("arrow-ipc", e))?;
+    let mut writer = FileWriter::try_new(file, &schema).map_err(|e| io("arrow-ipc", e))?;
+    for batch in values {
+        writer.write(&batch.0).map_err(|e| io("arrow-ipc", e))?;
+    }
+    writer.finish().map_err(|e| io("arrow-ipc", e))?;
+    Ok(())
+}
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_batches_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<ArrowBatch>, Error> {
+    source(
+        pipeline,
+        key,
+        path,
+        "arrow-ipc-batches",
+        read_arrow_ipc_batches,
+    )
+}
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_batches_sink(
+    input: &PCollection<ArrowBatch>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<ArrowBatch>, Error> {
+    sink(input, key, path, write_arrow_ipc_batches)
+}
+
 #[cfg(feature = "msgpack")]
 fn read_msgpack<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     let mut cursor = std::io::Cursor::new(bytes);

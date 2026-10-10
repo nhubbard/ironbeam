@@ -396,6 +396,53 @@ fn arrow_ipc_row_contract() {
     );
 }
 
+#[cfg(feature = "arrow-ipc")]
+#[test]
+fn arrow_ipc_batch_contract_and_coder() {
+    let directory = tempfile::tempdir().unwrap();
+    let input_path = directory.path().join("input.arrow");
+    let output_path = directory.path().join("output.arrow");
+    let write_pipeline = Pipeline::default();
+    let row_collection = write_pipeline.from_vec("rows", rows()).unwrap();
+    let row_sink = arrow_ipc_sink(&row_collection, "row-sink", &input_path).unwrap();
+    DirectRunner
+        .run_sink(&row_sink, &JobConfig::default())
+        .unwrap();
+
+    let batch_pipeline = Pipeline::default();
+    let batches = arrow_ipc_batches_source(&batch_pipeline, "batches", &input_path).unwrap();
+    let output = batches.output("batches-out").unwrap();
+    let collected = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap()
+        .0;
+    assert_eq!(collected.len(), 1);
+    assert_eq!(collected[0].0.num_rows(), 2);
+    let encoded = collected[0].encode().unwrap();
+    assert_eq!(ArrowBatch::decode(&encoded).unwrap().0.num_rows(), 2);
+    assert!(ArrowBatch::decode(&encoded[..encoded.len() - 1]).is_err());
+    let serialized = serde_json::to_vec(&collected[0]).unwrap();
+    let restored_batch: ArrowBatch = serde_json::from_slice(&serialized).unwrap();
+    assert_eq!(restored_batch.0.num_rows(), 2);
+    let batch_sink = arrow_ipc_batches_sink(&batches, "batch-sink", &output_path).unwrap();
+    DirectRunner
+        .run_sink(&batch_sink, &JobConfig::default())
+        .unwrap();
+
+    let read_pipeline = Pipeline::default();
+    let restored = arrow_ipc_source::<Row>(&read_pipeline, "restored", &output_path)
+        .unwrap()
+        .output("restored-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&restored, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows()
+    );
+}
+
 #[cfg(feature = "jsonl")]
 #[test]
 fn malformed_source_never_replaces_existing_sink_output() {
