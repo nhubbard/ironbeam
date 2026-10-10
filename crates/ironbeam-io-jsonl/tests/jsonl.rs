@@ -26,6 +26,33 @@ fn rows() -> Vec<Row> {
     ]
 }
 
+#[test]
+fn append_sink_commits_json_lines_and_marks_replay_semantics() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rows.jsonl");
+    fs::write(&path, "{\"id\":0,\"name\":\"old\"}\n").unwrap();
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("values", rows()).unwrap();
+    let sink = jsonl_append_sink(&input, "append", &path).unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert!(matches!(
+        &graph.node("append").unwrap().operation,
+        Operation::Sink { spec } if spec.mode == SinkMode::Append && spec.replay == ironbeam_core::Replay::AtLeastOnce && spec.commit
+    ));
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "{\"id\":0,\"name\":\"old\"}\n{\"id\":1,\"name\":\"Ada\"}\n{\"id\":2,\"name\":\"Lin\"}\n"
+    );
+    assert_eq!(
+        jsonl_append_sink(&input, "compressed", dir.path().join("rows.jsonl.gz"))
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+}
+
 type MakeSink = fn(
     &ironbeam_core::PCollection<Row>,
     &str,

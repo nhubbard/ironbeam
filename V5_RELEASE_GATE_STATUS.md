@@ -32,10 +32,13 @@ staged locally.
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for two sources, two branches, native Flatten,
-  event-time assignment, and four terminal append sinks. An extracted CSV
-  source crosses the mock worker coder contract; CSV globs lower to multiple
-  source nodes and native Flatten. This is a local runner proof.
+  separately launched v5 worker for three bounded sources, two branches,
+  native Flatten, event-time assignment, and five terminal append sinks. A
+  user-defined record passes through the extracted JSONL source and append
+  sink in that live job. An extracted CSV source also crosses the mock worker
+  coder contract; CSV globs lower to multiple source nodes and native Flatten.
+  The JSONL append sink uses a shared filesystem and may duplicate records on
+  replay. This is a local runner proof of this bounded slice.
 - `ironbeam-cloud` now has URI routing, registered provider handles, and a
   filesystem-backed local adapter. A JSONL graph source and sink round-trip
   through that adapter. Opt-in `ironbeam-cloud-object-store` builds S3, GCS,
@@ -70,9 +73,9 @@ staged locally.
    extraction, API migration, and the focused v4 removal gate in
    `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
 5. **Execution proof:** The user chose local Prism proof for now. The existing
-   Prism job reaches `DONE` only for the bounded elementwise and Flatten slice;
-   the expanded portable feature corpus and arbitrary source/sink data still
-   need local Prism runs. No real Dataflow cloud job has reached `DONE` with the
+   Prism job reaches `DONE` for the bounded elementwise and Flatten slice,
+   including a JSONL connector round-trip. The remaining portable feature
+   corpus and other source/sink data still need local Prism runs. No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.
 
