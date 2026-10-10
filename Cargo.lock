@@ -2211,6 +2211,7 @@ dependencies = [
  "ciborium",
  "crc32c",
  "csv",
+ "glob",
  "ironbeam-cloud",
  "ironbeam-core",
  "ironbeam-direct",

@@ -38,6 +38,72 @@ fn rows() -> Vec<Row> {
     ]
 }
 
+#[cfg(all(feature = "jsonl", feature = "csv"))]
+#[test]
+fn file_globs_expand_in_sorted_order_and_reject_empty_matches() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("b.jsonl"), b"{\"id\":2,\"name\":\"Lin\"}\n").unwrap();
+    fs::write(dir.path().join("a.jsonl"), b"{\"id\":1,\"name\":\"Ada\"}\n").unwrap();
+    let pattern = dir.path().join("*.jsonl").to_string_lossy().to_string();
+    let pipeline = Pipeline::default();
+    let output = jsonl_glob_source::<Row>(&pipeline, "all-jsonl", &pattern)
+        .unwrap()
+        .output("jsonl-out")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let original_keys = graph
+        .nodes
+        .iter()
+        .filter(|node| node.key.starts_with("all-jsonl/file-"))
+        .map(|node| node.key.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(original_keys.len(), 2);
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows()
+    );
+    fs::write(
+        dir.path().join("0.jsonl"),
+        b"{\"id\":0,\"name\":\"Zero\"}\n",
+    )
+    .unwrap();
+    let revised = Pipeline::default();
+    jsonl_glob_source::<Row>(&revised, "all-jsonl", &pattern).unwrap();
+    let (revised_graph, _) = revised.snapshot().unwrap();
+    assert!(
+        original_keys
+            .iter()
+            .all(|key| revised_graph.node(key).is_some())
+    );
+
+    fs::write(dir.path().join("b.csv"), b"id,name\n2,Lin\n").unwrap();
+    fs::write(dir.path().join("a.csv"), b"id,name\n1,Ada\n").unwrap();
+    let csv_pattern = dir.path().join("*.csv").to_string_lossy().to_string();
+    let pipeline = Pipeline::default();
+    let output = csv_glob_source::<Row>(&pipeline, "all-csv", &csv_pattern)
+        .unwrap()
+        .output("csv-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows()
+    );
+    let empty_pattern = dir.path().join("*.missing").to_string_lossy().to_string();
+    assert_eq!(
+        jsonl_glob_source::<Row>(&pipeline, "none", &empty_pattern)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+}
+
 #[cfg(all(feature = "jsonl", feature = "csv", feature = "compression-gzip"))]
 #[test]
 fn compressed_jsonl_and_csv_round_trip_with_lazy_sources() {

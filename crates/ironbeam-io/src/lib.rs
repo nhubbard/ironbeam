@@ -260,6 +260,122 @@ fn lazy_source<T: Element>(
         },
     )
 }
+
+/// Expand a local file glob in sorted order and flatten its bounded sources.
+/// Each matched file receives a stable child key under `key`.
+pub fn file_glob_source<T: Element>(
+    pipeline: &Pipeline,
+    key: &str,
+    pattern: &str,
+    make_source: impl Fn(&Pipeline, &str, &Path) -> Result<PCollection<T>, Error>,
+) -> Result<PCollection<T>, Error> {
+    let mut paths = glob::glob(pattern)
+        .map_err(|error| Error::graph(key, error.to_string()))?
+        .map(|path| path.map_err(|error| io(key, error)))
+        .collect::<Result<Vec<_>, _>>()?;
+    paths.sort();
+    if paths.is_empty() {
+        return Err(io(key, format!("no files matched {pattern}")));
+    }
+    let mut sources = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let digest = Sha256::digest(path.to_string_lossy().as_bytes());
+        let path_hash = digest.iter().fold(String::new(), |mut output, byte| {
+            let _ = write!(output, "{byte:02x}");
+            output
+        });
+        let path_key = format!("{key}/file-{path_hash}");
+        sources.push(make_source(pipeline, &path_key, path)?);
+    }
+    let first = sources.remove(0);
+    first.flatten_named(key, &sources)
+}
+
+macro_rules! glob_source {
+    ($(#[$feature:meta])? $name:ident, $source:ident) => {
+        $(#[$feature])?
+        pub fn $name<T: Element + DeserializeOwned>(
+            pipeline: &Pipeline,
+            key: &str,
+            pattern: &str,
+        ) -> Result<PCollection<T>, Error> {
+            file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
+                $source(pipeline, key, path)
+            })
+        }
+    };
+}
+glob_source!(
+    #[cfg(feature = "jsonl")]
+    jsonl_glob_source,
+    jsonl_source
+);
+glob_source!(
+    #[cfg(feature = "csv")]
+    csv_glob_source,
+    csv_source
+);
+glob_source!(
+    #[cfg(feature = "xml")]
+    xml_glob_source,
+    xml_source
+);
+glob_source!(
+    #[cfg(feature = "avro")]
+    avro_glob_source,
+    avro_source
+);
+glob_source!(
+    #[cfg(feature = "parquet")]
+    parquet_glob_source,
+    parquet_source
+);
+glob_source!(
+    #[cfg(feature = "arrow-ipc")]
+    arrow_ipc_glob_source,
+    arrow_ipc_source
+);
+glob_source!(
+    #[cfg(feature = "msgpack")]
+    msgpack_glob_source,
+    msgpack_source
+);
+glob_source!(
+    #[cfg(feature = "cbor")]
+    cbor_glob_source,
+    cbor_source
+);
+
+#[cfg(feature = "protobuf")]
+pub fn protobuf_glob_source<T: Element + prost::Message + Default>(
+    pipeline: &Pipeline,
+    key: &str,
+    pattern: &str,
+) -> Result<PCollection<T>, Error> {
+    file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
+        protobuf_source(pipeline, key, path)
+    })
+}
+#[cfg(feature = "tfrecord")]
+pub fn tfrecord_glob_source(
+    pipeline: &Pipeline,
+    key: &str,
+    pattern: &str,
+) -> Result<PCollection<Vec<u8>>, Error> {
+    file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
+        tfrecord_source(pipeline, key, path)
+    })
+}
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_batches_glob_source(
+    pipeline: &Pipeline,
+    key: &str,
+    pattern: &str,
+) -> Result<PCollection<ArrowBatch>, Error> {
+    file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
+        arrow_ipc_batches_source(pipeline, key, path)
+    })
+}
 struct FileSink<T> {
     path: PathBuf,
     key: String,
