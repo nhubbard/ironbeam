@@ -1,7 +1,6 @@
 #![cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "xml",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -18,7 +17,6 @@ use ironbeam_core::{
 };
 #[cfg(any(
     feature = "jsonl",
-    feature = "xml",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -408,11 +406,6 @@ glob_source!(
     jsonl_source
 );
 glob_source!(
-    #[cfg(feature = "xml")]
-    xml_glob_source,
-    xml_source
-);
-glob_source!(
     #[cfg(feature = "msgpack")]
     msgpack_glob_source,
     msgpack_source
@@ -604,7 +597,7 @@ fn framed_parallel_sink<T: Element + Sync>(
     })
 }
 
-#[cfg(all(feature = "parallel-io", any(feature = "file", feature = "xml")))]
+#[cfg(all(feature = "parallel-io", feature = "file"))]
 #[doc(hidden)]
 pub fn parallel_container_writer<T: Sync>(
     path: &Path,
@@ -818,89 +811,6 @@ pub fn jsonl_parallel_sink<T: Element + Serialize + Sync>(
         parallel_file_writer(path, values, shards, |part, chunk, _| {
             write_jsonl(part, chunk)
         })
-    })
-}
-
-#[cfg(feature = "xml")]
-#[derive(serde::Deserialize)]
-#[serde(rename = "records")]
-#[serde(bound(deserialize = "T: serde::Deserialize<'de>"))]
-struct XmlRead<T> {
-    #[serde(rename = "item", default = "empty_items")]
-    item: Vec<T>,
-}
-#[cfg(feature = "xml")]
-const fn empty_items<T>() -> Vec<T> {
-    Vec::new()
-}
-#[cfg(feature = "xml")]
-#[derive(Serialize)]
-#[serde(rename = "records")]
-struct XmlWrite<'a, T> {
-    #[serde(rename = "item")]
-    item: &'a [T],
-}
-#[cfg(feature = "xml")]
-fn read_xml<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
-    let contents = std::str::from_utf8(bytes).map_err(|e| io("xml", e))?;
-    quick_xml::de::from_str::<XmlRead<T>>(contents)
-        .map(|v| v.item)
-        .map_err(|e| io("xml", e))
-}
-#[cfg(feature = "xml")]
-fn write_xml<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
-    let contents =
-        quick_xml::se::to_string(&XmlWrite { item: values }).map_err(|e| io("xml", e))?;
-    use std::io::Write;
-    let mut writer = open_encoded_output(path, "xml")?;
-    writer
-        .write_all(contents.as_bytes())
-        .map_err(|e| io("xml", e))
-}
-#[cfg(feature = "xml")]
-pub fn xml_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    source(pipeline, key, path, "xml", read_xml::<T>)
-}
-#[cfg(feature = "xml")]
-/// V4-compatible bounded XML source. XML uses one whole-file shard; the
-/// shard-size hint is accepted for migration compatibility.
-pub fn xml_streaming_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-    records_per_shard: usize,
-) -> Result<PCollection<T>, Error> {
-    let _ = records_per_shard;
-    xml_source(pipeline, key, path)
-}
-#[cfg(feature = "xml")]
-pub fn xml_sink<T: Element + Serialize>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<Sink<T>, Error> {
-    sink(input, key, path, write_xml::<T>)
-}
-
-#[cfg(all(feature = "xml", feature = "parallel-io"))]
-pub fn xml_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-    shards: usize,
-) -> Result<Sink<T>, Error> {
-    if shards == 0 {
-        return Err(Error::graph(
-            key,
-            "parallel writer needs at least one shard",
-        ));
-    }
-    sink(input, key, path, move |path, values| {
-        parallel_container_writer(path, values, shards, "xml", write_xml::<T>, read_xml::<T>)
     })
 }
 

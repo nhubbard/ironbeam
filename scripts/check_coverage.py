@@ -18,7 +18,7 @@ DIRECT_FILES = {
     "spill.rs", "spill_integration.rs",
 }
 DIRECT_HELPERS = {"collect_sorted.rs", "reshuffle.rs", "tee.rs", "wait_on.rs"}
-V5_PACKAGES = {"ironbeam-core", "ironbeam-direct", "ironbeam-transforms", "ironbeam-io", "ironbeam-io-csv", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
+V5_PACKAGES = {"ironbeam-core", "ironbeam-direct", "ironbeam-transforms", "ironbeam-io", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
 
 
 def area_for(package: str, relative: Path) -> str:
@@ -28,7 +28,7 @@ def area_for(package: str, relative: Path) -> str:
         return "direct-runner"
     if package == "ironbeam-transforms":
         return "transforms"
-    if package in {"ironbeam-io", "ironbeam-io-csv", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow"}:
+    if package in {"ironbeam-io", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow"}:
         return "bounded-io"
     if package == "ironbeam-compat":
         return "compatibility"

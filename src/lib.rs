@@ -552,6 +552,8 @@ pub mod v5 {
     pub use ironbeam_io_parquet::*;
     #[cfg(feature = "v5-io-sql")]
     pub use ironbeam_io_sql::*;
+    #[cfg(feature = "v5-io-xml")]
+    pub use ironbeam_io_xml::*;
     pub use ironbeam_transforms::*;
 }
 

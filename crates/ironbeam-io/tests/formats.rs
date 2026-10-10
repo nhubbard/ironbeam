@@ -1,6 +1,5 @@
 #![cfg(any(
     feature = "jsonl",
-    feature = "xml",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -351,52 +350,6 @@ fn record_format_shards_match_bounded_readers() {
     }
 }
 
-#[cfg(all(feature = "parallel-io", feature = "xml"))]
-#[test]
-fn parallel_xml_sink_merges_valid_ordered_files() {
-    let dir = tempfile::tempdir().unwrap();
-    type ParallelSink = fn(
-        &ironbeam_core::PCollection<Row>,
-        &str,
-        &std::path::Path,
-        usize,
-    ) -> Result<ironbeam_core::Sink<Row>, ironbeam_core::Error>;
-    let (extension, make_sink, make_source) = (
-        "xml",
-        (|i, k, p, n| xml_parallel_sink(i, k, p, n)) as ParallelSink,
-        (|p, k, f| xml_source::<Row>(p, k, f)) as MakeSource,
-    );
-    let path = dir.path().join(format!("rows.{extension}"));
-    let expected = (0..7)
-        .map(|id| Row {
-            id,
-            name: format!("row-{id}"),
-        })
-        .collect::<Vec<_>>();
-    let pipeline = Pipeline::default();
-    let input = pipeline.from_vec("input", expected.clone()).unwrap();
-    assert!(make_sink(&input, "bad", &path, 0).is_err());
-    DirectRunner
-        .run_sink(
-            &make_sink(&input, "write", &path, 5).unwrap(),
-            &JobConfig::default(),
-        )
-        .unwrap();
-    let reader = Pipeline::default();
-    let output = make_source(&reader, "read", &path)
-        .unwrap()
-        .output("out")
-        .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .unwrap()
-            .0,
-        expected,
-        "{extension}"
-    );
-}
-
 #[cfg(all(feature = "jsonl", feature = "compression-gzip"))]
 #[test]
 fn compressed_jsonl_round_trip_with_lazy_sources() {
@@ -443,19 +396,9 @@ fn compressed_jsonl_round_trip_with_lazy_sources() {
     );
 }
 
-#[cfg(all(
-    feature = "compression-gzip",
-    feature = "xml",
-    feature = "msgpack",
-    feature = "cbor"
-))]
+#[cfg(all(feature = "compression-gzip", feature = "msgpack", feature = "cbor"))]
 #[test]
-fn gzip_round_trips_xml_msgpack_and_cbor() {
-    round_trip(
-        "xml.gz",
-        |i, k, p| xml_sink(i, k, p),
-        |p, k, f| xml_streaming_source(p, k, f, 1),
-    );
+fn gzip_round_trips_msgpack_and_cbor() {
     round_trip(
         "msgpack.gz",
         |i, k, p| msgpack_sink(i, k, p),
@@ -902,24 +845,6 @@ fn tfrecord_crc_and_truncation_are_checked() {
         ErrorKind::Io
     );
 }
-#[cfg(feature = "xml")]
-#[test]
-fn xml_contract() {
-    round_trip(
-        "xml",
-        |i, k, p| xml_sink(i, k, p),
-        |p, k, f| xml_source(p, k, f),
-    );
-}
-#[cfg(feature = "xml")]
-#[test]
-fn xml_streaming_spelling_uses_one_whole_file_shard() {
-    round_trip(
-        "xml",
-        |i, k, p| xml_sink(i, k, p),
-        |p, k, f| xml_streaming_source(p, k, f, 1),
-    );
-}
 #[cfg(feature = "jsonl")]
 #[test]
 fn jsonl_lazy_reader_defers_parse_errors_until_execution() {
@@ -1008,25 +933,4 @@ fn jsonl_blank_lines_and_file_commit_error_are_explicit() {
         ErrorKind::Io
     );
     assert!(dir.path().is_dir());
-}
-
-#[cfg(feature = "xml")]
-#[test]
-fn malformed_xml_is_an_io_error() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("invalid.xml");
-    fs::write(&path, b"<records><item><id>bad</id></item>").unwrap();
-    let pipeline = Pipeline::default();
-    let output = xml_source::<Row>(&pipeline, "source", &path)
-        .unwrap()
-        .output("out")
-        .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .err()
-            .unwrap()
-            .kind,
-        ErrorKind::Io
-    );
 }

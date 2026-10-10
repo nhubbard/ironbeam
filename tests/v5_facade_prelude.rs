@@ -50,6 +50,25 @@ fn facade_exposes_isolated_csv_connector() {
     );
 }
 
+#[cfg(feature = "v5-io-xml")]
+#[test]
+fn facade_exposes_isolated_xml_connector() {
+    use ironbeam::v5::{DirectRunner, JobConfig, xml_sink, xml_source};
+    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Row { value: i32 }
+    impl ironbeam::v5::Element for Row {
+        const TYPE_ID: &'static str = "facade/xml-row";
+        const CODER_ID: &'static str = "facade/xml-row";
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("values.xml");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![Row { value: 1 }, Row { value: 2 }]).unwrap();
+    DirectRunner.run_sink(&xml_sink(&input, "write", &path).unwrap(), &JobConfig::default()).unwrap();
+    let output = xml_source::<Row>(&Pipeline::default(), "read", &path).unwrap().output("out").unwrap();
+    assert_eq!(output.collect_seq().unwrap(), vec![Row { value: 1 }, Row { value: 2 }]);
+}
+
 #[cfg(feature = "v5-io-avro")]
 #[test]
 fn facade_exposes_native_avro_without_v4_bridge() {

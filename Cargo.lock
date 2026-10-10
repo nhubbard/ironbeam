@@ -2116,6 +2116,7 @@ dependencies = [
  "ironbeam-io-mongodb",
  "ironbeam-io-parquet",
  "ironbeam-io-sql",
+ "ironbeam-io-xml",
  "ironbeam-transforms",
  "mongodb",
  "num_cpus",
@@ -2217,7 +2218,6 @@ dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
  "prost 0.13.5",
- "quick-xml",
  "rmp-serde",
  "serde",
  "serde_json",
@@ -2306,6 +2306,18 @@ dependencies = [
  "testcontainers",
  "testcontainers-modules",
  "tokio",
+]
+
+[[package]]
+name = "ironbeam-io-xml"
+version = "0.1.0"
+dependencies = [
+ "ironbeam-core",
+ "ironbeam-direct",
+ "ironbeam-io",
+ "quick-xml",
+ "serde",
+ "tempfile",
 ]
 
 [[package]]
