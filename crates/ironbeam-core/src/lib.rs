@@ -1996,6 +1996,50 @@ impl<T: Element> PCollection<T> {
             aggregate,
         )
     }
+    pub fn latest_globally_named(&self, key: &str) -> Result<Self, Error> {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let node_key = key.to_owned();
+        let aggregate: Aggregate = Arc::new(move |mut inputs| {
+            let values = inputs
+                .pop()
+                .ok_or_else(|| Error::execution(&node_key, "direct", "latest input missing"))?;
+            let mut latest: BTreeMap<Option<i64>, Envelope> = BTreeMap::new();
+            for event in values {
+                let scope = event.assigned_window.map(|interval| interval.start_ns);
+                match latest.entry(scope) {
+                    std::collections::btree_map::Entry::Occupied(mut slot) => {
+                        if event.timestamp_ns > slot.get().timestamp_ns {
+                            slot.insert(event);
+                        }
+                    }
+                    std::collections::btree_map::Entry::Vacant(slot) => {
+                        slot.insert(event);
+                    }
+                }
+            }
+            if latest.is_empty() {
+                return Err(Error::execution(
+                    &node_key,
+                    "direct",
+                    "latest on empty input",
+                ));
+            }
+            Ok(latest.into_values().collect())
+        });
+        self.next_aggregate(
+            key,
+            Operation::GlobalCombine,
+            Vec::new(),
+            parent.boundedness,
+            aggregate,
+        )
+    }
     pub fn map_with_side_named<S: Element, U: Element>(
         &self,
         key: &str,
@@ -2211,6 +2255,62 @@ macro_rules! cogroup_by_key_named {
 }
 
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
+    pub fn latest_per_key_named(&self, key: &str) -> Result<Self, Error> {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let node_key = key.to_owned();
+        let aggregate: Aggregate = Arc::new(move |mut inputs| {
+            let events = inputs.pop().ok_or_else(|| {
+                Error::execution(&node_key, "direct", "latest keyed input missing")
+            })?;
+            let mut indices: HashMap<(K, Option<WindowInterval>), usize> = HashMap::new();
+            let mut rows: Vec<(K, V, i64, Window, Option<WindowInterval>)> = Vec::new();
+            for event in events {
+                let Envelope {
+                    value,
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                } = event;
+                let (row_key, row_value) = *value.downcast::<(K, V)>().map_err(|_| {
+                    Error::execution(&node_key, "direct", "latest keyed input type mismatch")
+                })?;
+                let scope = (row_key.clone(), assigned_window);
+                if let Some(&position) = indices.get(&scope) {
+                    if timestamp_ns > rows[position].2 {
+                        rows[position] =
+                            (row_key, row_value, timestamp_ns, window, assigned_window);
+                    }
+                } else {
+                    indices.insert(scope, rows.len());
+                    rows.push((row_key, row_value, timestamp_ns, window, assigned_window));
+                }
+            }
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(key, value, timestamp_ns, window, assigned_window)| Envelope {
+                        value: Box::new((key, value)),
+                        timestamp_ns,
+                        window,
+                        assigned_window,
+                    },
+                )
+                .collect())
+        });
+        self.next_aggregate(
+            key,
+            Operation::GroupByKey,
+            Vec::new(),
+            parent.boundedness,
+            aggregate,
+        )
+    }
     pub fn group_by_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error> {
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {

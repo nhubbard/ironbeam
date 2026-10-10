@@ -36,7 +36,8 @@ fn grouping_join_and_combine_execute_from_typed_graph() {
     assert_eq!(
         graph
             .validate_for("other", &Capabilities::default())
-            .unwrap_err()
+            .err()
+            .unwrap()
             .kind,
         ErrorKind::UnsupportedCapability {
             capability: "group-by-key".into()
@@ -305,6 +306,82 @@ fn cogroup_scopes_values_by_fixed_window() {
             (1, (vec![12], vec![])),
             (1, (vec![], vec![25]))
         ]
+    );
+}
+
+#[test]
+fn latest_uses_event_time_globally_per_key_and_per_window() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec(
+            "latest-values",
+            vec![
+                (3_i32, "third".to_string()),
+                (1, "first".into()),
+                (3, "tie".into()),
+                (12, "next".into()),
+            ],
+        )
+        .unwrap()
+        .assign_timestamps_named("latest-time", |(timestamp, _)| i64::from(*timestamp))
+        .unwrap();
+    let global = values
+        .latest_globally_named("latest-global")
+        .unwrap()
+        .output("latest-global-out")
+        .unwrap();
+    let keyed = values
+        .map_named("latest-key", |(timestamp, value)| {
+            (value.len() as i32, (timestamp, value))
+        })
+        .unwrap()
+        .latest_per_key_named("latest-keyed")
+        .unwrap()
+        .output("latest-keyed-out")
+        .unwrap();
+    let windowed = values
+        .fixed_windows("latest-window", 10)
+        .unwrap()
+        .latest_globally_named("latest-window-global")
+        .unwrap()
+        .output("latest-window-out")
+        .unwrap();
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&global, &config).unwrap().0,
+            vec![(12, "next".into())]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&keyed, &config).unwrap().0,
+            vec![
+                (5, (3, "third".into())),
+                (3, (3, "tie".into())),
+                (4, (12, "next".into()))
+            ]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&windowed, &config).unwrap().0,
+            vec![(3, "third".into()), (12, "next".into())]
+        );
+    }
+    let empty = pipeline
+        .from_vec::<i32>("latest-empty", vec![])
+        .unwrap()
+        .latest_globally_named("latest-empty-op")
+        .unwrap()
+        .output("latest-empty-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&empty, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
     );
 }
 
