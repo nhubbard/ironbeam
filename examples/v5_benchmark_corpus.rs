@@ -53,4 +53,27 @@ fn main() {
             .map(|(_, (a, b))| u64::from(*a) + u64::from(*b))
             .sum::<u64>()
     );
+
+    #[cfg(feature = "io-jsonl")]
+    {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("rows.jsonl");
+        let p = Pipeline::default();
+        let start = Instant::now();
+        let written = from_vec(&p, (0..count).collect())
+            .write_jsonl(&path)
+            .unwrap();
+        let p = Pipeline::default();
+        let read = ironbeam::read_jsonl::<u32>(&p, &path)
+            .unwrap()
+            .collect_seq()
+            .unwrap();
+        assert_eq!(written, read.len());
+        println!(
+            "jsonl_roundtrip,{count},{},{},{}",
+            start.elapsed().as_nanos(),
+            read.len(),
+            read.iter().map(|&n| u64::from(n)).sum::<u64>()
+        );
+    }
 }
