@@ -114,6 +114,7 @@ jobs:
           cargo build -p ironbeam --no-default-features
           cargo build -p ironbeam --no-default-features --features v5-preview
           cargo build -p ironbeam --no-default-features --features v5-io-csv
+          cargo build -p ironbeam --no-default-features --features v5-io-xml
           cargo build -p ironbeam
           cargo build -p ironbeam --features v5-preview
           cargo build -p ironbeam --all-features
