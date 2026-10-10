@@ -7,9 +7,9 @@ staged locally.
 
 ## Verified in this checkout
 
-- `bash scripts/check_v5_packages.sh` passed after XML extraction: workspace
-  tests, selected feature variants, all-feature documentation, and local
-  package verification for fourteen v5 crates. No package was published.
+- `bash scripts/check_v5_packages.sh` passed after MessagePack extraction:
+  workspace tests, selected feature variants, all-feature documentation, and
+  local package verification for fifteen v5 crates. No package was published.
 - `ironbeam-io-csv` is isolated from the common file lifecycle package. Its
   minimal and all-feature tests, package verification, strict lint, and
   85/86 source-location plus 8/8 branch coverage passed. Scalar and tuple
@@ -17,6 +17,9 @@ staged locally.
 - `ironbeam-io-xml` is isolated from common I/O. Its all-feature tests measure
   42/43 source locations and 2/2 branches. Strict lint and local package
   verification pass; shared I/O's default tree has no `quick-xml` dependency.
+- `ironbeam-io-msgpack` is isolated from common I/O. Its all-feature tests
+  measure 63/66 source locations and 5/6 branches. The complete package gate
+  passes. Shared I/O's default tree has no `rmp-serde` dependency.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
   separately launched v5 worker for two sources, two branches, native Flatten,
   event-time assignment, and four terminal append sinks. An extracted CSV

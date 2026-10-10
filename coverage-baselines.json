@@ -76,6 +76,17 @@
       "count": 2
     }
   },
+  "ironbeam-io-msgpack": {
+    "source": "crates/ironbeam-io-msgpack/src",
+    "lines": {
+      "covered": 63,
+      "count": 66
+    },
+    "branches": {
+      "covered": 5,
+      "count": 6
+    }
+  },
   "ironbeam-io-avro": {
     "source": "crates/ironbeam-io-avro/src",
     "lines": {

@@ -2114,6 +2114,7 @@ dependencies = [
  "ironbeam-io-avro",
  "ironbeam-io-csv",
  "ironbeam-io-mongodb",
+ "ironbeam-io-msgpack",
  "ironbeam-io-parquet",
  "ironbeam-io-sql",
  "ironbeam-io-xml",
@@ -2218,7 +2219,6 @@ dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
  "prost 0.13.5",
- "rmp-serde",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -2277,6 +2277,18 @@ dependencies = [
  "testcontainers",
  "testcontainers-modules",
  "tokio",
+]
+
+[[package]]
+name = "ironbeam-io-msgpack"
+version = "0.1.0"
+dependencies = [
+ "ironbeam-core",
+ "ironbeam-direct",
+ "ironbeam-io",
+ "rmp-serde",
+ "serde",
+ "tempfile",
 ]
 
 [[package]]

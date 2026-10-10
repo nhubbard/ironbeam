@@ -1,0 +1,26 @@
+[package]
+name = "ironbeam-io-msgpack"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "MessagePack sources and deferred sinks for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[features]
+default = []
+parallel-io = ["ironbeam-io/parallel-io"]
+compression-gzip = ["ironbeam-io/compression-gzip"]
+compression-zstd = ["ironbeam-io/compression-zstd"]
+compression-bzip2 = ["ironbeam-io/compression-bzip2"]
+compression-xz = ["ironbeam-io/compression-xz"]
+
+[dependencies]
+ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
+ironbeam-io = { version = "0.1.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+tempfile = "3"

@@ -11,7 +11,6 @@ repository = "https://github.com/nhubbard/ironbeam"
 default = ["jsonl", "parallel-io"]
 file = []
 jsonl = []
-msgpack = ["dep:rmp-serde"]
 cbor = ["dep:ciborium"]
 protobuf = ["dep:prost"]
 tfrecord = ["dep:crc32c"]
@@ -30,7 +29,6 @@ serde_json = "1"
 sha2 = "0.11"
 tempfile = "3"
 glob = "0.3"
-rmp-serde = { version = "1", optional = true }
 ciborium = { version = "0.2", optional = true }
 prost = { version = "0.13", optional = true }
 crc32c = { version = "0.6", optional = true }

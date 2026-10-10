@@ -1,7 +1,6 @@
 #![cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord",
@@ -17,7 +16,6 @@ use ironbeam_core::{
 };
 #[cfg(any(
     feature = "jsonl",
-    feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord"
@@ -183,7 +181,6 @@ pub fn source<T: Element>(
 #[cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord"
@@ -207,7 +204,6 @@ pub fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
 #[cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord"
@@ -287,7 +283,6 @@ pub fn file_glob_source<T: Element>(
 #[cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord"
@@ -349,7 +344,6 @@ pub fn file_sharded_source<T: Element>(
 
 #[cfg(any(
     feature = "file",
-    feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord"
@@ -371,7 +365,6 @@ pub fn count_lazy_records<T: Element>(
 
 #[cfg(any(
     feature = "file",
-    feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord"
@@ -404,11 +397,6 @@ glob_source!(
     #[cfg(feature = "jsonl")]
     jsonl_glob_source,
     jsonl_source
-);
-glob_source!(
-    #[cfg(feature = "msgpack")]
-    msgpack_glob_source,
-    msgpack_source
 );
 glob_source!(
     #[cfg(feature = "cbor")]
@@ -507,8 +495,7 @@ pub fn sink<T: Element>(
     any(
         feature = "file",
         feature = "jsonl",
-        feature = "msgpack",
-        feature = "cbor",
+            feature = "cbor",
         feature = "protobuf",
         feature = "tfrecord"
     )
@@ -573,13 +560,14 @@ pub fn parallel_file_writer<T: Sync>(
 #[cfg(all(
     feature = "parallel-io",
     any(
-        feature = "msgpack",
+        feature = "file",
         feature = "cbor",
         feature = "protobuf",
         feature = "tfrecord"
     )
 ))]
-fn framed_parallel_sink<T: Element + Sync>(
+#[doc(hidden)]
+pub fn framed_parallel_sink<T: Element + Sync>(
     input: &PCollection<T>,
     key: &str,
     path: impl AsRef<Path>,
@@ -814,91 +802,6 @@ pub fn jsonl_parallel_sink<T: Element + Serialize + Sync>(
     })
 }
 
-#[cfg(feature = "msgpack")]
-fn read_msgpack<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
-    let mut cursor = std::io::Cursor::new(bytes);
-    let mut rows = Vec::new();
-    while (cursor.position() as usize) < bytes.len() {
-        rows.push(rmp_serde::from_read(&mut cursor).map_err(|e| io("msgpack", e))?);
-    }
-    Ok(rows)
-}
-#[cfg(feature = "msgpack")]
-fn write_msgpack<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
-    let mut file = open_encoded_output(path, "msgpack")?;
-    for value in values {
-        rmp_serde::encode::write(&mut file, value).map_err(|e| io("msgpack", e))?;
-    }
-    Ok(())
-}
-#[cfg(feature = "msgpack")]
-pub fn msgpack_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    source(pipeline, key, path, "msgpack", read_msgpack::<T>)
-}
-#[cfg(feature = "msgpack")]
-fn read_msgpack_lazy<T: Element + DeserializeOwned>(
-    path: PathBuf,
-) -> Result<TypedSourceIterator<T>, Error> {
-    use std::io::BufRead;
-    let file = open_lazy_input(&path, "msgpack")?;
-    let mut reader = std::io::BufReader::new(file);
-    let mut done = false;
-    Ok(Box::new(std::iter::from_fn(move || {
-        if done {
-            return None;
-        }
-        match reader.fill_buf() {
-            Ok([]) => None,
-            Ok(_) => {
-                let item = rmp_serde::from_read(&mut reader).map_err(|e| io("msgpack", e));
-                if item.is_err() {
-                    done = true;
-                }
-                Some(item)
-            }
-            Err(error) => {
-                done = true;
-                Some(Err(io("msgpack", error)))
-            }
-        }
-    })))
-}
-#[cfg(feature = "msgpack")]
-pub fn msgpack_streaming_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    lazy_source(
-        pipeline,
-        key,
-        path,
-        "msgpack-streaming",
-        read_msgpack_lazy::<T>,
-    )
-}
-#[cfg(feature = "msgpack")]
-pub fn msgpack_sink<T: Element + Serialize>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<Sink<T>, Error> {
-    sink(input, key, path, write_msgpack::<T>)
-}
-
-#[cfg(all(feature = "msgpack", feature = "parallel-io"))]
-pub fn msgpack_parallel_sink<T: Element + Serialize + Sync>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-    shards: usize,
-) -> Result<Sink<T>, Error> {
-    framed_parallel_sink(input, key, path, shards, write_msgpack::<T>)
-}
 
 #[cfg(feature = "cbor")]
 fn read_cbor<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
@@ -1389,14 +1292,6 @@ macro_rules! shardable_serde_source {
         }
     };
 }
-shardable_serde_source!(
-    "msgpack",
-    msgpack_sharded_source,
-    count_msgpack_records,
-    read_msgpack_range,
-    read_msgpack_lazy,
-    "msgpack"
-);
 shardable_serde_source!(
     "cbor",
     cbor_sharded_source,
