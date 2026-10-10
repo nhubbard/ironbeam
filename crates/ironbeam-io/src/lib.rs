@@ -30,6 +30,11 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
+pub mod tfrecord_proto;
+#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
+pub use tfrecord_proto::{BytesList, Example, Feature, Features, FloatList, Int64List};
+
 fn read_decoded_file(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     #[cfg(any(
         feature = "compression-gzip",
@@ -2056,6 +2061,87 @@ pub fn tfrecord_parallel_sink(
     shards: usize,
 ) -> Result<Sink<Vec<u8>>, Error> {
     framed_parallel_sink(input, key, path, shards, write_tfrecord)
+}
+
+#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
+fn read_tfrecord_examples(bytes: &[u8]) -> Result<Vec<Example>, Error> {
+    read_tfrecord(bytes)?
+        .into_iter()
+        .enumerate()
+        .map(|(index, bytes)| {
+            <Example as prost::Message>::decode(bytes.as_slice())
+                .map_err(|e| io("tfrecord-examples", format!("record {}: {e}", index + 1)))
+        })
+        .collect()
+}
+#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
+fn read_tfrecord_examples_lazy(path: PathBuf) -> Result<TypedSourceIterator<Example>, Error> {
+    Ok(Box::new(read_tfrecord_lazy(path)?.enumerate().map(
+        |(index, result)| {
+            let bytes = result?;
+            <Example as prost::Message>::decode(bytes.as_slice())
+                .map_err(|e| io("tfrecord-examples", format!("record {}: {e}", index + 1)))
+        },
+    )))
+}
+#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
+/// Read TensorFlow `tf.Example` messages from a bounded TFRecord file.
+pub fn tfrecord_examples_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<Example>, Error> {
+    source(
+        pipeline,
+        key,
+        path,
+        "tfrecord-examples",
+        read_tfrecord_examples,
+    )
+}
+#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
+/// Lazily decode TensorFlow `tf.Example` messages from a bounded TFRecord file.
+pub fn tfrecord_examples_streaming_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<Example>, Error> {
+    lazy_source(
+        pipeline,
+        key,
+        path,
+        "tfrecord-examples-streaming",
+        read_tfrecord_examples_lazy,
+    )
+}
+#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
+fn count_tfrecord_examples(path: &Path) -> Result<usize, Error> {
+    count_lazy_records(path, read_tfrecord_examples_lazy)
+}
+#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
+fn read_tfrecord_examples_range(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<Example>, Error> {
+    read_lazy_range(path, start, end, read_tfrecord_examples_lazy)
+}
+#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
+pub fn tfrecord_examples_sharded_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    records_per_shard: usize,
+) -> Result<PCollection<Example>, Error> {
+    file_sharded_source(
+        pipeline,
+        key,
+        path,
+        records_per_shard,
+        "tfrecord-examples",
+        count_tfrecord_examples,
+        read_tfrecord_examples_range,
+    )
 }
 
 macro_rules! shardable_serde_source {
