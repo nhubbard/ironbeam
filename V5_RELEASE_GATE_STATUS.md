@@ -25,16 +25,17 @@ staged locally.
   measure 60/63 source locations and 5/6 branches. The full package gate
   passes. Shared I/O's default tree has no `ciborium` dependency.
 - `ironbeam-io-jsonl` owns file and object adapters. Its all-feature tests
-  measure 177/190 source locations and 12/14 branches. Protobuf is now in
+  now measure 220/235 source locations and 14/16 branches, including append
+  failure cleanup; both exceed its existing CI coverage ratios. Protobuf is now in
   `ironbeam-io-protobuf` with 93/100 source locations and 16/18 branches
   measured under all features. TFRecord now has its own crate with 164/179
   source locations and 16/18 branches. Shared lifecycle I/O measures 265/276
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for three bounded sources, two branches,
-  native Flatten, event-time assignment, and five terminal append sinks. A
-  user-defined record passes through the extracted JSONL source and append
+  separately launched v5 worker for four bounded sources, two branches,
+  native Flatten and GroupByKey, event-time assignment, and six terminal
+  append sinks. A user-defined record passes through the extracted JSONL source and append
   sink in that live job. An extracted CSV source also crosses the mock worker
   coder contract; CSV globs lower to multiple source nodes and native Flatten.
   The JSONL append sink uses a shared filesystem and may duplicate records on
@@ -54,17 +55,21 @@ staged locally.
    The three-package corpus covers the same core paths as the full workspace
    corpus. After adversarial coder tests, it measures 1,794/1,868 source
    locations (96.04%) and 324/376 branches (86.17%). CI now gates this
-   three-package corpus at the measured baseline. The changed percentage is
-   disclosed rather than treated as an unchanged quality level; 74 source
-   locations and 52 branch outcomes remain to audit before release.
-2. **Portable feature corpus:** The v5 translator still rejects grouping,
+   three-package corpus at the measured baseline. A new measurement after
+   subsequent core expansion is 2,057/2,461 source locations (83.58%) and
+   326/378 branches (86.24%). The source-location CI threshold of 96.04%
+   currently fails; 404 source locations need additional execution coverage
+   or a reviewed disposition before release. The branch threshold still passes.
+2. **Portable feature corpus:** The v5 translator now supports bounded,
+   global-window `group_by_key_named` through native Beam KV/iterable coders
+   and a live Prism shuffle proof. It still rejects keyed input fan-out,
    joins, side inputs, window changes, unbounded sources, update sinks, and
    whole-job final-result sinks. Core now registers typed split/reassembly
    coders for actual `group_by_key_named` nodes, distinct from
-   `latest_per_key_named`, which uses the same local operation marker. Beam
-   lowering still needs KV/iterable coder declarations, worker runner-boundary
-   conversion, and state-backed or chunked iterable handling. The Prism proof
-   does not cover these features.
+   `latest_per_key_named`, which uses the same local operation marker. The
+   worker decodes fixed and chunked inline iterables but still rejects Beam
+   state-backed iterables, which require the Fn State API. Grouping across
+   non-global windows and full time-metadata parity remain open.
 3. **Remote I/O:** Provider clients can access hosted object storage from the
    bounded `ObjectIO` interface, but the local Prism worker still shares the
    driver's filesystem. Driver-local file paths are not staged to cloud
@@ -76,8 +81,9 @@ staged locally.
    extraction, API migration, and the focused v4 removal gate in
    `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
 5. **Execution proof:** The user chose local Prism proof for now. The existing
-   Prism job reaches `DONE` for the bounded elementwise and Flatten slice,
-   including a JSONL connector round-trip. The remaining portable feature
+   Prism job reaches `DONE` for the bounded elementwise, Flatten, and
+   global-window GroupByKey slice, including a JSONL connector round-trip.
+   The remaining portable feature
    corpus and other source/sink data still need local Prism runs. No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.

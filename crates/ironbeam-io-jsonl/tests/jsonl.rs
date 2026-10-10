@@ -73,6 +73,52 @@ fn append_sink_accepts_a_relative_filename_without_a_parent_component() {
     fs::remove_file(path).unwrap();
 }
 
+#[test]
+fn append_sink_aborts_after_serialization_or_open_failure() {
+    #[derive(Clone)]
+    struct BrokenRow;
+    impl Element for BrokenRow {
+        const TYPE_ID: &'static str = "tests/broken-jsonl-row";
+        const CODER_ID: &'static str = "tests/broken-jsonl-row";
+    }
+    impl Serialize for BrokenRow {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom(
+                "intentional serialization failure",
+            ))
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("broken.jsonl");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("broken", vec![BrokenRow]).unwrap();
+    let sink = jsonl_append_sink(&input, "append-broken", &path).unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_sink(&sink, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    assert!(path.exists());
+    assert!(fs::read(&path).unwrap().is_empty());
+
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("values", rows()).unwrap();
+    let sink = jsonl_append_sink(&input, "append-directory", dir.path()).unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_sink(&sink, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    assert!(dir.path().is_dir());
+}
+
 type MakeSink = fn(
     &ironbeam_core::PCollection<Row>,
     &str,
