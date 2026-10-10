@@ -5,7 +5,7 @@ set -euo pipefail
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-cloud ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+packages=(ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
 cloud_patch=(--config "patch.crates-io.ironbeam-cloud.path=\"$root/crates/ironbeam-cloud\"")
 core_patch=(--config "patch.crates-io.ironbeam-core.path=\"$root/crates/ironbeam-core\"")
 direct_patch=(--config "patch.crates-io.ironbeam-direct.path=\"$root/crates/ironbeam-direct\"")
@@ -28,6 +28,7 @@ cargo test -p ironbeam --no-default-features --features v5-io-tfrecord --test v5
 cargo test -p ironbeam --features v5-io-tfrecord,io-tfrecord,io-protobuf --test v5_tfrecord_examples
 cargo test -p ironbeam --no-default-features --features v5-preview,v5-io-arrow --test v5_facade_prelude
 cargo test -p ironbeam-io --all-features
+cargo test -p ironbeam-cloud-object-store --all-features
 cargo test -p ironbeam-io-jsonl --all-features
 cargo test -p ironbeam-io-protobuf --all-features
 cargo test -p ironbeam-io-tfrecord --all-features
@@ -45,6 +46,7 @@ for package in "${packages[@]}"; do
   patches=()
   case "$package" in
     ironbeam-cloud|ironbeam-core) ;;
+    ironbeam-cloud-object-store) patches=("${cloud_patch[@]}") ;;
     ironbeam-direct) patches=("${core_patch[@]}") ;;
     ironbeam-transforms|ironbeam-testing)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
@@ -61,4 +63,4 @@ for package in "${packages[@]}"; do
   esac
   cargo package -p "$package" --allow-dirty "${patches[@]}"
 done
-echo "All nineteen v5 packages verified locally; no crates were published."
+echo "All twenty v5 packages verified locally; no crates were published."

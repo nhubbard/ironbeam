@@ -59,7 +59,7 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
-          cargo clippy -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
+          cargo clippy -p ironbeam-cloud -p ironbeam-cloud-object-store -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
@@ -140,11 +140,13 @@ jobs:
           cargo build -p ironbeam-io-arrow
           cargo build -p ironbeam-io-sql
           cargo build -p ironbeam-io-mongodb
+          cargo build -p ironbeam-cloud-object-store
           cargo build -p ironbeam-compat
 
       - name: Test v5 file formats independently
         run: |
           cargo test -p ironbeam-io --no-default-features --features file
+          cargo test -p ironbeam-cloud-object-store --all-features
           cargo test -p ironbeam-io-jsonl --all-features
           cargo test -p ironbeam-io-protobuf --all-features
           cargo test -p ironbeam-io-tfrecord --all-features

@@ -7,9 +7,10 @@ staged locally.
 
 ## Verified in this checkout
 
-- `bash scripts/check_v5_packages.sh` passed after TFRecord extraction:
-  workspace tests, selected feature variants, all-feature documentation, and
-  local package verification for all nineteen v5 crates. No package was published.
+- `bash scripts/check_v5_packages.sh` passed after the opt-in cloud provider
+  package was added: workspace tests, selected feature variants, all-feature
+  documentation, and local package verification for all twenty v5 crates.
+  No package was published.
 - `ironbeam-io-csv` is isolated from the common file lifecycle package. Its
   minimal and all-feature tests, package verification, strict lint, and
   85/86 source-location plus 8/8 branch coverage passed. Scalar and tuple
@@ -37,8 +38,10 @@ staged locally.
   source nodes and native Flatten. This is a local runner proof.
 - `ironbeam-cloud` now has URI routing, registered provider handles, and a
   filesystem-backed local adapter. A JSONL graph source and sink round-trip
-  through that adapter. This verifies the provider boundary locally; hosted
-  storage and credentials remain unverified.
+  through that adapter. Opt-in `ironbeam-cloud-object-store` builds S3, GCS,
+  and Azure Blob clients from environment credentials; the common adapter's
+  operations pass against Apache `object_store`'s in-memory backend. Hosted
+  storage authentication and live service behavior remain unverified.
 
 ## Open replacement gates
 
@@ -56,11 +59,12 @@ staged locally.
    whole-job final-result sinks. Native GroupByKey needs typed key/value
    coders, runner shuffle output decoding, and state-backed or chunked
    iterable handling. The Prism proof does not cover these features.
-3. **Remote I/O:** The local Prism worker shares the driver's filesystem.
-   Driver-local file paths are not staged to cloud workers, and the root file
-   sinks use whole-job final-result commit semantics that are unsafe across
-   independent Fn API bundles. A remote object source/sink and runner-wide
-   output commit protocol must be implemented and tested.
+3. **Remote I/O:** Provider clients can access hosted object storage from the
+   bounded `ObjectIO` interface, but the local Prism worker still shares the
+   driver's filesystem. Driver-local file paths are not staged to cloud
+   workers, and root file sinks use whole-job final-result commit semantics
+   that are unsafe across independent Fn API bundles. Remote worker staging,
+   a runner-wide output commit protocol, and live provider tests remain.
 4. **Root replacement:** The root package is still v4-first; the v4 modules,
    feature graph, examples, and compatibility paths remain. Continue format
    extraction, API migration, and the focused v4 removal gate in

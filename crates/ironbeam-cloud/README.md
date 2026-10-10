@@ -19,9 +19,11 @@ assert_eq!(bytes, b"{\"id\":1}\n");
 ```
 
 The registry also accepts implementations for `gs`, `s3`, `az`, or other
-schemes. `provider("scheme")` returns a clonable `ObjectIO` handle for the
-existing JSONL cloud source and sink helpers. The registry owns no credentials;
-each provider handles its own authentication and retries. Cross-provider
+schemes. The optional `ironbeam-cloud-object-store` package supplies S3, GCS,
+and Azure Blob adapters backed by Apache `object_store`. `provider("scheme")`
+returns a clonable `ObjectIO` handle for the existing JSONL cloud source and
+sink helpers. The registry owns no credentials; each provider handles its own
+authentication and retries. Cross-provider
 `copy` streams the whole source object through the caller, so it is intended
 for bounded objects only.
 
