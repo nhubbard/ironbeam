@@ -1,5 +1,5 @@
 //! Bounded direct execution of the Ironbeam 5 logical graph.
-#![allow(clippy::redundant_pub_crate)]
+#![allow(clippy::redundant_pub_crate, clippy::missing_errors_doc)]
 mod checkpoint;
 mod helpers;
 mod materialized;

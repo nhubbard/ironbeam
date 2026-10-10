@@ -310,6 +310,9 @@ impl_tuple_element!(8; A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
 impl_tuple_element!(9; A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
 impl_tuple_element!(10; A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
 
+// The built-in set coder deliberately uses Rust's default hasher on decode;
+// its wire order is the sorted encoded value order, independent of hashing.
+#[allow(clippy::implicit_hasher)]
 impl<T: Element + Eq + Hash> Element for HashSet<T> {
     const TYPE_ID: &'static str = "std/hash-set";
     const CODER_ID: &'static str = "ironbeam/hash-set-sorted";
@@ -355,7 +358,7 @@ impl<T: Element + Eq + Hash> Element for HashSet<T> {
                 .map_err(|_| Error::incompatible("invalid set count"))?,
         ))?;
         bytes = &bytes[8..];
-        let mut values = HashSet::with_capacity(count.min(1024));
+        let mut values = Self::with_capacity(count.min(1024));
         for _ in 0..count {
             if !values.insert(T::decode(decode_part(&mut bytes)?)?) {
                 return Err(Error::incompatible("duplicate value in encoded set"));
@@ -368,6 +371,9 @@ impl<T: Element + Eq + Hash> Element for HashSet<T> {
     }
 }
 
+// The built-in map coder deliberately uses Rust's default hasher on decode;
+// its wire order is the sorted encoded key order, independent of hashing.
+#[allow(clippy::implicit_hasher)]
 impl<K: Element + Eq + Hash, V: Element> Element for HashMap<K, V> {
     const TYPE_ID: &'static str = "std/hash-map";
     const CODER_ID: &'static str = "ironbeam/hash-map-sorted";
@@ -422,7 +428,7 @@ impl<K: Element + Eq + Hash, V: Element> Element for HashMap<K, V> {
                 .map_err(|_| Error::incompatible("invalid map count"))?,
         ))?;
         bytes = &bytes[8..];
-        let mut values = HashMap::with_capacity(count.min(1024));
+        let mut values = Self::with_capacity(count.min(1024));
         for _ in 0..count {
             let key = K::decode(decode_part(&mut bytes)?)?;
             let value = V::decode(decode_part(&mut bytes)?)?;
@@ -1732,6 +1738,7 @@ impl Pipeline {
         node.local_id = inner.graph.nodes.len();
         inner.registry.folds.insert(node.key.clone(), factory);
         inner.graph.nodes.push(node);
+        drop(inner);
         Ok(())
     }
     pub fn from_vec<T: Element + Clone + Sync>(

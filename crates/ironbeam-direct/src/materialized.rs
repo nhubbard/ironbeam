@@ -40,6 +40,7 @@ pub(crate) fn execute<T: Element>(
     store.into_vec()
 }
 
+#[allow(clippy::too_many_lines)] // One bounded traversal keeps recursive evaluation and errors together.
 fn eval(
     pool: &rayon::ThreadPool,
     graph: &Graph,
