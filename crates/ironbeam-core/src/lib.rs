@@ -15,9 +15,10 @@ use std::fmt::Write as _;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
-pub const GRAPH_VERSION: Version = Version { major: 1, minor: 0 };
+pub const GRAPH_VERSION: Version = Version { major: 2, minor: 0 };
 pub const CODER_VERSION: Version = Version { major: 1, minor: 0 };
 pub const CHECKPOINT_VERSION: Version = Version { major: 1, minor: 0 };
+pub const BUILTIN_OPERATION_VERSION: Version = Version { major: 1, minor: 0 };
 
 /// Stable semantic type and wire coder identities supplied by the element owner.
 /// A coder ID is a declaration; a remote backend must register its implementation.
@@ -159,9 +160,17 @@ pub enum Operation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ElementDescriptor {
+    pub type_id: String,
+    pub coder_id: String,
+    pub coder_version: Version,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Node {
     pub key: String,
     pub input: Option<String>,
+    pub input_element: Option<ElementDescriptor>,
     pub operation: Operation,
     pub semantic_id: String,
     pub semantic_version: Version,
@@ -385,15 +394,21 @@ impl Graph {
             }
         }
         for node in &self.nodes {
-            match (&node.operation, &node.input) {
-                (Operation::Source { .. }, None) => {}
-                (Operation::Source { .. }, Some(_)) | (_, None) => {
+            match (&node.operation, &node.input, &node.input_element) {
+                (Operation::Source { .. }, None, None) => {}
+                (Operation::Source { .. }, _, _) | (_, None, _) | (_, _, None) => {
                     return Err(Error::graph(&node.key, "invalid source/input relationship"));
                 }
-                (_, Some(parent)) => {
+                (_, Some(parent), Some(expected)) => {
                     let upstream = by_key
                         .get(parent.as_str())
                         .ok_or_else(|| Error::graph(&node.key, "missing input node"))?;
+                    if expected.type_id != upstream.type_id
+                        || expected.coder_id != upstream.coder_id
+                        || expected.coder_version != upstream.coder_version
+                    {
+                        return Err(Error::graph(&node.key, "input edge type/coder mismatch"));
+                    }
                     if matches!(
                         node.operation,
                         Operation::Filter
@@ -547,17 +562,19 @@ pub struct PCollection<T> {
 impl Pipeline {
     fn semantic_identity(operation: &Operation) -> (String, Version) {
         match operation {
-            Operation::Source { .. } => ("ironbeam/source".into(), GRAPH_VERSION),
-            Operation::Map => ("ironbeam/map".into(), GRAPH_VERSION),
-            Operation::Filter => ("ironbeam/filter".into(), GRAPH_VERSION),
-            Operation::FixedWindow => ("ironbeam/fixed-window".into(), GRAPH_VERSION),
-            Operation::GlobalCombine => ("ironbeam/global-combine".into(), GRAPH_VERSION),
+            Operation::Source { .. } => ("ironbeam/source".into(), BUILTIN_OPERATION_VERSION),
+            Operation::Map => ("ironbeam/map".into(), BUILTIN_OPERATION_VERSION),
+            Operation::Filter => ("ironbeam/filter".into(), BUILTIN_OPERATION_VERSION),
+            Operation::FixedWindow => ("ironbeam/fixed-window".into(), BUILTIN_OPERATION_VERSION),
+            Operation::GlobalCombine => {
+                ("ironbeam/global-combine".into(), BUILTIN_OPERATION_VERSION)
+            }
             Operation::Custom {
                 semantic_id,
                 version,
             } => (semantic_id.clone(), *version),
-            Operation::Output => ("ironbeam/output".into(), GRAPH_VERSION),
-            Operation::Sink { .. } => ("ironbeam/sink".into(), GRAPH_VERSION),
+            Operation::Output => ("ironbeam/output".into(), BUILTIN_OPERATION_VERSION),
+            Operation::Sink { .. } => ("ironbeam/sink".into(), BUILTIN_OPERATION_VERSION),
         }
     }
     fn add(
@@ -642,6 +659,7 @@ impl Pipeline {
             Node {
                 key: key.into(),
                 input: None,
+                input_element: None,
                 operation,
                 semantic_id,
                 semantic_version,
@@ -703,6 +721,11 @@ impl<T: Element> PCollection<T> {
         let node = Node {
             key: key.into(),
             input: Some(self.key.clone()),
+            input_element: Some(ElementDescriptor {
+                type_id: T::TYPE_ID.into(),
+                coder_id: T::CODER_ID.into(),
+                coder_version: T::CODER_VERSION,
+            }),
             operation,
             semantic_id,
             semantic_version,

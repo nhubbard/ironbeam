@@ -310,3 +310,278 @@ fn capabilities_validate_each_requested_operation() {
     caps.custom_operations.insert("vendor/known".into());
     graph.validate_for("test", &caps).unwrap();
 }
+
+#[test]
+fn map_edge_declares_its_expected_input_type_and_coder() {
+    let pipeline = Pipeline::default();
+    let numbers = pipeline.from_vec("numbers", vec![1_i32]).unwrap();
+    pipeline
+        .from_vec("words", vec![String::from("one")])
+        .unwrap();
+    numbers
+        .map_named("map", |value| u32::try_from(value).unwrap())
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let expected = graph.node("map").unwrap().input_element.as_ref().unwrap();
+    assert_eq!(expected.type_id, "std/i32");
+    assert_eq!(expected.coder_id, "ironbeam/i32-le");
+    assert_eq!(graph.node("map").unwrap().type_id, "std/u32");
+    assert_eq!(graph.version.major, 2);
+    assert_eq!(
+        graph.node("map").unwrap().semantic_version,
+        BUILTIN_OPERATION_VERSION
+    );
+
+    let mut old_descriptor = graph.clone();
+    old_descriptor.version.major = 1;
+    assert_eq!(
+        old_descriptor.validate().unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+
+    let mut malformed = graph.clone();
+    malformed.node_mut_for_test("map").input = Some("words".into());
+    assert!(
+        malformed
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("input edge")
+    );
+    let mut malformed = graph.clone();
+    malformed
+        .node_mut_for_test("map")
+        .input_element
+        .as_mut()
+        .unwrap()
+        .coder_id = "wrong".into();
+    assert!(
+        malformed
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("input edge")
+    );
+    let mut malformed = graph;
+    malformed.node_mut_for_test("map").input_element = None;
+    assert!(
+        malformed
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("source/input")
+    );
+}
+
+#[test]
+fn registry_reports_missing_operations_and_wrong_runtime_types() {
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![1_i32]).unwrap();
+    input
+        .map_named("map", |value| value + 1)
+        .unwrap()
+        .filter_named("filter", |value| *value > 0)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        registry.open_source("missing").err().unwrap().kind,
+        ErrorKind::Execution
+    );
+    let make_wrong = || Envelope {
+        value: Box::new(String::from("wrong")),
+        timestamp_ns: -1,
+        window: Window::Global,
+        assigned_window: None,
+    };
+    assert_eq!(
+        registry.apply("missing", make_wrong()).err().unwrap().kind,
+        ErrorKind::Execution
+    );
+    assert_eq!(
+        registry.apply("map", make_wrong()).err().unwrap().kind,
+        ErrorKind::Execution
+    );
+    assert_eq!(
+        registry.apply("filter", make_wrong()).err().unwrap().kind,
+        ErrorKind::Execution
+    );
+    let error = registry.open_source("missing").err().unwrap();
+    assert!(error.to_string().contains("missing"));
+}
+
+#[test]
+fn time_and_progress_controls_are_separate_from_values() {
+    assert_eq!(Time::default().window, Window::Global);
+    assert_eq!(Window::Global.assign(-1).unwrap(), None);
+    assert!(Window::Fixed { size_ns: 0 }.assign(0).is_err());
+    let progress = ProgressSignal {
+        source_key: "source".into(),
+        split_id: "split-a".into(),
+        checkpoint_position: Some(vec![1, 2]),
+        event_time_ns: Some(-1),
+        completed: false,
+    };
+    let serialized = serde_json::to_string(&progress).unwrap();
+    assert_eq!(
+        serde_json::from_str::<ProgressSignal>(&serialized).unwrap(),
+        progress
+    );
+}
+
+#[test]
+fn bounded_aggregation_marker_and_update_sink_capability() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("input", vec![1_i32])
+        .unwrap()
+        .global_combine_marker("combine")
+        .unwrap()
+        .append_sink("sink", Replay::None)
+        .unwrap();
+    let (mut graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node("combine").unwrap().semantic_id,
+        "ironbeam/global-combine"
+    );
+    graph.node_mut_for_test("sink").operation = Operation::Sink {
+        spec: SinkSpec {
+            mode: SinkMode::Update,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+    };
+    let error = graph
+        .validate_for("fake", &Capabilities::default())
+        .unwrap_err();
+    assert_eq!(
+        error.kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "update-sink".into()
+        }
+    );
+    let caps = Capabilities {
+        update_sink: true,
+        ..Capabilities::default()
+    };
+    graph.validate_for("fake", &caps).unwrap();
+}
+
+#[test]
+fn malformed_aggregation_and_overflow_do_not_reach_a_runner() {
+    let pipeline = Pipeline::default();
+    let events = pipeline
+        .unbounded_source::<i32>(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            -1,
+        )
+        .unwrap();
+    let windowed = events.fixed_windows("window", 100).unwrap();
+    windowed.global_combine_marker("combine").unwrap();
+    let (mut graph, _) = pipeline.snapshot().unwrap();
+    graph.node_mut_for_test("combine").time.window = Window::Global;
+    assert!(
+        graph
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("unbounded global aggregation")
+    );
+
+    assert!(
+        Window::Fixed { size_ns: i64::MAX }
+            .assign(i64::MIN)
+            .is_err()
+    );
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    source
+        .fixed_windows("window", 100)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut event = registry.open_source("source").unwrap().next().unwrap();
+    event.timestamp_ns = i64::MAX;
+    assert_eq!(
+        registry.apply("window", event).err().unwrap().kind,
+        ErrorKind::Graph
+    );
+}
+
+#[test]
+fn builder_exposes_keys_and_rejects_unsupported_coder_version() {
+    struct FutureCoder;
+    impl Element for FutureCoder {
+        const TYPE_ID: &'static str = "test/future";
+        const CODER_ID: &'static str = "test/future-v2";
+        const CODER_VERSION: Version = Version { major: 2, minor: 0 };
+    }
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source::<FutureCoder>(
+            "future",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::None,
+                reports_event_time: false,
+            },
+            0,
+        )
+        .unwrap();
+    assert_eq!(source.key(), "future");
+    let output = source.output("out").unwrap();
+    assert_eq!(output.key(), "out");
+    assert_eq!(
+        output.snapshot().err().unwrap().kind,
+        ErrorKind::Incompatible
+    );
+}
+
+#[test]
+fn branching_snapshots_are_canonical_across_build_order() {
+    fn build(reverse: bool) -> Graph {
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();
+        if reverse {
+            source
+                .filter_named("right", |value| *value > 1)
+                .unwrap()
+                .output("right-out")
+                .unwrap();
+            source
+                .map_named("left", |value| value * 2)
+                .unwrap()
+                .output("left-out")
+                .unwrap();
+        } else {
+            source
+                .map_named("left", |value| value * 2)
+                .unwrap()
+                .output("left-out")
+                .unwrap();
+            source
+                .filter_named("right", |value| *value > 1)
+                .unwrap()
+                .output("right-out")
+                .unwrap();
+        }
+        pipeline.snapshot().unwrap().0
+    }
+    let a = build(false);
+    let b = build(true);
+    assert_eq!(a.fingerprint().unwrap(), b.fingerprint().unwrap());
+    assert_eq!(a.nodes.len(), 5);
+    assert_ne!(
+        a.node("left").unwrap().local_id,
+        b.node("left").unwrap().local_id
+    );
+}
