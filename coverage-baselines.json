@@ -24,12 +24,12 @@
   "ironbeam-core": {
     "source": "crates/ironbeam-core/src",
     "lines": {
-      "covered": 972,
-      "count": 974
+      "covered": 1794,
+      "count": 1868
     },
     "branches": {
-      "covered": 210,
-      "count": 222
+      "covered": 324,
+      "count": 376
     }
   },
   "ironbeam-direct": {

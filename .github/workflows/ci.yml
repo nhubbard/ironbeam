@@ -271,8 +271,15 @@ jobs:
           cargo test -p "${{ matrix.package }}"
           features=()
           if [ "${{ matrix.package }}" = "ironbeam-io-csv" ] || [ "${{ matrix.package }}" = "ironbeam-io-xml" ] || [ "${{ matrix.package }}" = "ironbeam-io-avro" ] || [ "${{ matrix.package }}" = "ironbeam-io-parquet" ] || [ "${{ matrix.package }}" = "ironbeam-io-arrow" ]; then features=(--all-features); fi
-          cargo llvm-cov -p "${{ matrix.package }}" "${features[@]}" --branch --json \
-            --output-path coverage-v5.json
+          if [ "${{ matrix.package }}" = "ironbeam-core" ]; then
+            # The graph's execution closures are exercised by Direct and
+            # transforms tests; core-only coverage omits those real paths.
+            cargo llvm-cov -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms \
+              --branch --json --output-path coverage-v5.json
+          else
+            cargo llvm-cov -p "${{ matrix.package }}" "${features[@]}" \
+              --branch --json --output-path coverage-v5.json
+          fi
           python3 scripts/check_coverage.py "${{ matrix.package }}" coverage-v5.json | tee -a "$GITHUB_STEP_SUMMARY"
 
   service-tests:

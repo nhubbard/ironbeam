@@ -25,14 +25,15 @@ staged locally.
 
 ## Open replacement gates
 
-1. **Core coverage:** Package-only `cargo llvm-cov -p ironbeam-core` measured
-   1,221/1,868 source locations (65.36%) and 246/284 branches (86.62%). The
-   full workspace corpus measured 1,787/1,868 locations (95.66%) and 317/376
-   branches (84.31%). The existing package-only CI baseline records 972/974
-   locations and 210/222 branches, so that gate fails. Keep both test scopes
-   visible and add focused core tests or deliberately revise the measurement
-   contract and baseline after review; do not count a green workspace test run
-   as a passing coverage gate.
+1. **Core coverage quality:** The old package-only CI baseline recorded 972/974
+   source locations and 210/222 branches before core grew. It was red after
+   expansion and omitted paths exercised through Direct and transforms tests.
+   The three-package corpus covers the same core paths as the full workspace
+   corpus. After adversarial coder tests, it measures 1,794/1,868 source
+   locations (96.04%) and 324/376 branches (86.17%). CI now gates this
+   three-package corpus at the measured baseline. The changed percentage is
+   disclosed rather than treated as an unchanged quality level; 74 source
+   locations and 52 branch outcomes remain to audit before release.
 2. **Portable feature corpus:** The v5 translator still rejects grouping,
    joins, side inputs, window changes, unbounded sources, update sinks, and
    whole-job final-result sinks. Native GroupByKey needs typed key/value
