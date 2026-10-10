@@ -176,6 +176,7 @@ impl DirectRunner {
                 assign_timestamp: true,
                 side_input_map: true,
                 global_combine: true,
+                incremental_combine: true,
                 batch_map_values: true,
                 append_sink: true,
                 final_result_sink: true,
@@ -201,6 +202,8 @@ impl DirectRunner {
                 | Operation::JoinFull
                 | Operation::SideInputMap
                 | Operation::GlobalCombine
+                | Operation::FoldGlobal
+                | Operation::FoldPerKey
                 | Operation::BatchMapValues { .. }
                 | Operation::Output => None,
                 Operation::Sink { spec }
@@ -469,6 +472,13 @@ fn ensure_aggregates(
         ) && !registry.has_aggregate(key)
         {
             return Err(Error::unsupported(key, "direct", "aggregate-function"));
+        }
+        if matches!(
+            node.operation,
+            Operation::FoldGlobal | Operation::FoldPerKey
+        ) && !registry.has_fold(key)
+        {
+            return Err(Error::unsupported(key, "direct", "fold-function"));
         }
         if let Some(input) = node.input.as_deref() {
             stack.push(input);

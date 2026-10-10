@@ -672,6 +672,97 @@ fn keyed_batch_map_preserves_each_event_timestamp() {
 }
 
 #[test]
+fn lifted_combines_stream_linear_sources_with_small_memory_budget() {
+    use ironbeam_core::CombineFn;
+    struct Sum;
+    impl CombineFn<i32, i64, i64> for Sum {
+        fn create(&self) -> i64 {
+            0
+        }
+        fn add_input(&self, accumulator: &mut i64, value: i32) {
+            *accumulator += i64::from(value);
+        }
+        fn merge(&self, accumulator: &mut i64, other: i64) {
+            *accumulator += other;
+        }
+        fn finish(&self, accumulator: i64) -> i64 {
+            accumulator
+        }
+    }
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("fold-source", (0_i32..1000).collect())
+        .unwrap()
+        .filter_named("fold-even", |value| value % 2 == 0)
+        .unwrap();
+    let total = values
+        .combine_globally_lifted_named("fold-total", Sum)
+        .unwrap()
+        .output("fold-total-out")
+        .unwrap();
+    let keyed = values
+        .map_named("fold-key", |value| (value % 4, value))
+        .unwrap()
+        .combine_values_lifted_named("fold-keyed", Sum)
+        .unwrap()
+        .output("fold-keyed-out")
+        .unwrap();
+    let windowed = values
+        .assign_timestamps_named("fold-time", |value| i64::from(*value))
+        .unwrap()
+        .fixed_windows("fold-window", 200)
+        .unwrap()
+        .combine_globally_lifted_named("fold-windowed", Sum)
+        .unwrap()
+        .output("fold-windowed-out")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph
+            .validate_for("preview", &Capabilities::default())
+            .unwrap_err()
+            .kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "incremental-combine".into()
+        }
+    );
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            memory_budget_bytes: 512,
+            buffer_budget_elements: 17,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&total, &config).unwrap().0,
+            vec![249_500]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&keyed, &config).unwrap().0,
+            vec![(0, 124_500), (2, 125_000)]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&windowed, &config).unwrap().0,
+            vec![9_900, 29_900, 49_900, 69_900, 89_900]
+        );
+    }
+    let empty = pipeline
+        .from_vec::<i32>("fold-empty", vec![])
+        .unwrap()
+        .combine_globally_lifted_named("fold-empty-sum", Sum)
+        .unwrap()
+        .output("fold-empty-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&empty, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![0]
+    );
+}
+
+#[test]
 fn aggregate_checkpoint_and_marker_are_rejected_before_source() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

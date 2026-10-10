@@ -2,7 +2,7 @@
 use crate::metrics::MetricsState;
 use crate::spill::OutputStore;
 use crate::{JobConfig, JobHandle, cancelled, open_source_safe, read_source_batch};
-use ironbeam_core::{Element, Envelope, Error, Graph, Operation, Registry};
+use ironbeam_core::{Element, Envelope, Error, FoldSession, Graph, Operation, Registry};
 use rayon::prelude::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
@@ -87,6 +87,35 @@ fn eval(
         .input
         .as_deref()
         .ok_or_else(|| Error::graph(key, "physical input missing"))?;
+    if matches!(
+        node.operation,
+        Operation::FoldGlobal | Operation::FoldPerKey
+    ) {
+        let mut fold = catch_unwind(AssertUnwindSafe(|| registry.open_fold(key)))
+            .unwrap_or_else(|_| Err(Error::execution(key, "direct", "fold factory panicked")))?;
+        if let Some((source_key, stages)) = linear_fold_route(graph, primary) {
+            feed_linear_fold(
+                registry,
+                &source_key,
+                &stages,
+                config,
+                metrics,
+                key,
+                fold.as_mut(),
+            )?;
+        } else {
+            for event in eval(pool, graph, registry, primary, config, metrics)? {
+                if config.cancellation.load(Ordering::Acquire) {
+                    return Err(cancelled());
+                }
+                catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
+                    Err(Error::execution(key, "direct", "user fold panicked"))
+                })?;
+            }
+        }
+        return catch_unwind(AssertUnwindSafe(|| fold.finish()))
+            .unwrap_or_else(|_| Err(Error::execution(key, "direct", "user fold panicked")));
+    }
     if matches!(node.operation, Operation::WaitOn) {
         let signal = node
             .additional_inputs
@@ -156,4 +185,81 @@ fn eval(
         }
         _ => Err(Error::unsupported(key, "direct", "materialized-operation")),
     }
+}
+
+fn linear_fold_route(graph: &Graph, from: &str) -> Option<(String, Vec<String>)> {
+    let mut key = from;
+    let mut stages = Vec::new();
+    loop {
+        let node = graph.node(key)?;
+        match node.operation {
+            Operation::Source { .. } => {
+                stages.reverse();
+                return Some((key.to_owned(), stages));
+            }
+            Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::FixedWindow => {
+                stages.push(key.to_owned());
+                key = node.input.as_deref()?;
+            }
+            _ => return None,
+        }
+    }
+}
+
+fn feed_linear_fold(
+    registry: &Registry,
+    source_key: &str,
+    stages: &[String],
+    config: &JobConfig,
+    metrics: &MetricsState,
+    fold_key: &str,
+    fold: &mut dyn FoldSession,
+) -> Result<(), Error> {
+    let mut source = open_source_safe(registry, source_key)?;
+    loop {
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        let batch = read_source_batch(&mut source, config.buffer_budget_elements, source_key)?;
+        if batch.is_empty() {
+            break;
+        }
+        let count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+        metrics.source_elements.fetch_add(count, Ordering::Relaxed);
+        metrics
+            .peak_batch_elements
+            .fetch_max(count, Ordering::Relaxed);
+        metrics.batches.fetch_add(1, Ordering::Relaxed);
+        for event in batch {
+            let mut events = vec![event];
+            for key in stages {
+                let mut next = Vec::new();
+                for event in events {
+                    let produced =
+                        catch_unwind(AssertUnwindSafe(|| registry.apply_many(key, event)))
+                            .unwrap_or_else(|_| {
+                                Err(Error::execution(key, "direct", "user transform panicked"))
+                            })?;
+                    if produced.is_empty() {
+                        metrics.filtered_elements.fetch_add(1, Ordering::Relaxed);
+                    }
+                    next.extend(produced);
+                }
+                events = next;
+            }
+            for event in events {
+                if config.cancellation.load(Ordering::Acquire) {
+                    return Err(cancelled());
+                }
+                catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
+                    Err(Error::execution(fold_key, "direct", "user fold panicked"))
+                })?;
+            }
+        }
+    }
+    Ok(())
 }

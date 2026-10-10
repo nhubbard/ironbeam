@@ -20,7 +20,7 @@ remains available until every required family is closed.
 | `regex` | transforms | Present | Six methods pass value tests; invalid patterns are typed construction errors in v5. |
 | `display` | transforms | Present | Display mapping passes Direct tests. |
 | `flatten` | core | Present | Fan-in graph and Direct tests exist. |
-| `combine`, `combine_global` | core, direct | Partial | Global combine graph and Direct execution exist; typed incremental combiners and lifted planning remain. |
+| `combine`, `combine_global` | core, direct | Partial | Typed lifted global and keyed `CombineFn` methods now stream linear bounded Direct sources through incremental accumulators, including fixed windows. Other upstream graphs fall back to materialization; accumulator memory accounting and checkpoint support remain. |
 | `joins`, `co_gbk` | core, direct | Present for bounded Direct values | Inner and outer joins plus two through ten input co-groups execute with key/window scoping, duplicates, and empty-side coverage. Current execution materializes all inputs; lifted shuffle and unbounded runner semantics remain. |
 | `side_inputs` | core, transforms, direct | Partial | Bounded collection side input and v4-style immutable vector, singleton, map, and multimap helpers exist. Dynamic singleton/map/multimap materialization and resource policy remain. |
 | `latest`, `timestamped`, `tumbling`, `windowed_combine` | core, transforms, direct | Present for bounded Direct values | Explicit timestamp assignment, fixed windows with signed offsets, latest globally/per key, and all twelve generic/numeric global/keyed windowed combine helpers execute. V5 uses nanosecond envelope metadata; v4's `Timestamped<T>` wrapper and streaming triggers are not imported. |
@@ -47,6 +47,6 @@ remains available until every required family is closed.
 4. Check the package alone and through the v5 facade, including its feature
    gate, docs, and coverage. Keep large optional dependencies out of core.
 
-The next implementation tranche is lifted combines and
-physical scheduling helpers. Optional connectors and I/O shard planning
+The next implementation tranche is migrating bounded-memory helpers to lifted
+combines and completing physical scheduling. Optional connectors and I/O shard planning
 remain separate parity gates.

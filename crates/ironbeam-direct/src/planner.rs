@@ -57,6 +57,8 @@ pub(crate) fn lower(
                     | Operation::JoinFull
                     | Operation::SideInputMap
                     | Operation::GlobalCombine
+                    | Operation::FoldGlobal
+                    | Operation::FoldPerKey
                     | Operation::BatchMapValues { .. }
             )
         })

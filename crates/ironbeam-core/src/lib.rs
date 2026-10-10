@@ -656,6 +656,8 @@ pub enum Operation {
     SideInputMap,
     FixedWindow,
     GlobalCombine,
+    FoldGlobal,
+    FoldPerKey,
     BatchMapValues {
         batch_size: usize,
     },
@@ -861,6 +863,7 @@ pub struct Capabilities {
     pub join_outer: bool,
     pub side_input_map: bool,
     pub global_combine: bool,
+    pub incremental_combine: bool,
     pub batch_map_values: bool,
     pub fixed_window: bool,
     pub assign_timestamp: bool,
@@ -950,7 +953,10 @@ impl Graph {
             if matches!(node.operation, Operation::BatchMapValues { .. })
                 && node.boundedness == Boundedness::Unbounded
             {
-                return Err(Error::graph(&node.key, "batch mapping requires a bounded input"));
+                return Err(Error::graph(
+                    &node.key,
+                    "batch mapping requires a bounded input",
+                ));
             }
             if let Operation::Custom {
                 semantic_id,
@@ -1070,6 +1076,8 @@ impl Graph {
                             | Operation::JoinFull
                             | Operation::SideInputMap
                             | Operation::GlobalCombine
+                            | Operation::FoldGlobal
+                            | Operation::FoldPerKey
                             | Operation::BatchMapValues { .. }
                             | Operation::Output
                             | Operation::Sink { .. }
@@ -1079,7 +1087,11 @@ impl Graph {
                     }
                     if matches!(
                         node.operation,
-                        Operation::GlobalCombine | Operation::GroupByKey | Operation::CoGroupByKey
+                        Operation::GlobalCombine
+                            | Operation::FoldGlobal
+                            | Operation::FoldPerKey
+                            | Operation::GroupByKey
+                            | Operation::CoGroupByKey
                     ) && node.boundedness == Boundedness::Unbounded
                         && node.time.window == Window::Global
                     {
@@ -1250,6 +1262,11 @@ impl Graph {
                 Operation::GlobalCombine if !capabilities.global_combine => {
                     Some("global-combine".to_string())
                 }
+                Operation::FoldGlobal | Operation::FoldPerKey
+                    if !capabilities.incremental_combine =>
+                {
+                    Some("incremental-combine".to_string())
+                }
                 Operation::BatchMapValues { .. } if !capabilities.batch_map_values => {
                     Some("batch-map-values".to_string())
                 }
@@ -1299,6 +1316,129 @@ pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Se
 type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
 type Transform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 type Aggregate = Arc<dyn Fn(Vec<Vec<Envelope>>) -> Result<Vec<Envelope>, Error> + Send + Sync>;
+pub trait CombineFn<V, A, O>: Send + Sync + 'static {
+    fn create(&self) -> A;
+    fn add_input(&self, accumulator: &mut A, value: V);
+    fn merge(&self, accumulator: &mut A, other: A);
+    fn finish(&self, accumulator: A) -> O;
+}
+pub trait FoldSession: Send {
+    fn add(&mut self, event: Envelope) -> Result<(), Error>;
+    fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error>;
+}
+type FoldFactory = Arc<dyn Fn() -> Box<dyn FoldSession> + Send + Sync>;
+type FoldEntry<A> = (A, i64, Window, Option<WindowInterval>);
+
+struct GlobalFoldState<T, A, O, C> {
+    key: String,
+    combiner: Arc<C>,
+    window: Window,
+    entries: BTreeMap<Option<i64>, FoldEntry<A>>,
+    marker: PhantomData<(T, O)>,
+}
+impl<T: Element, A: Send + 'static, O: Element, C: CombineFn<T, A, O>> FoldSession
+    for GlobalFoldState<T, A, O, C>
+{
+    fn add(&mut self, event: Envelope) -> Result<(), Error> {
+        let Envelope {
+            value,
+            timestamp_ns,
+            window,
+            assigned_window,
+        } = event;
+        let value = *value
+            .downcast::<T>()
+            .map_err(|_| Error::execution(&self.key, "direct", "fold input type mismatch"))?;
+        let scope = assigned_window.map(|interval| interval.start_ns);
+        let entry = self.entries.entry(scope).or_insert_with(|| {
+            (
+                self.combiner.create(),
+                timestamp_ns,
+                window,
+                assigned_window,
+            )
+        });
+        self.combiner.add_input(&mut entry.0, value);
+        Ok(())
+    }
+    fn finish(mut self: Box<Self>) -> Result<Vec<Envelope>, Error> {
+        if self.entries.is_empty() && self.window == Window::Global {
+            self.entries
+                .insert(None, (self.combiner.create(), 0, Window::Global, None));
+        }
+        Ok(std::mem::take(&mut self.entries)
+            .into_values()
+            .map(
+                |(accumulator, timestamp_ns, window, assigned_window)| Envelope {
+                    value: Box::new(self.combiner.finish(accumulator)),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                },
+            )
+            .collect())
+    }
+}
+
+struct KeyedFoldState<K, V, A, O, C> {
+    key: String,
+    combiner: Arc<C>,
+    indices: HashMap<(K, Option<WindowInterval>), usize>,
+    rows: Vec<(K, FoldEntry<A>)>,
+    marker: PhantomData<(V, O)>,
+}
+impl<
+    K: Element + Eq + Hash + Clone,
+    V: Element,
+    A: Send + 'static,
+    O: Element,
+    C: CombineFn<V, A, O>,
+> FoldSession for KeyedFoldState<K, V, A, O, C>
+{
+    fn add(&mut self, event: Envelope) -> Result<(), Error> {
+        let Envelope {
+            value,
+            timestamp_ns,
+            window,
+            assigned_window,
+        } = event;
+        let (row_key, value) = *value
+            .downcast::<(K, V)>()
+            .map_err(|_| Error::execution(&self.key, "direct", "keyed fold input type mismatch"))?;
+        let scope = (row_key.clone(), assigned_window);
+        let position = if let Some(&existing) = self.indices.get(&scope) {
+            existing
+        } else {
+            let next = self.rows.len();
+            self.indices.insert(scope, next);
+            self.rows.push((
+                row_key,
+                (
+                    self.combiner.create(),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                ),
+            ));
+            next
+        };
+        self.combiner.add_input(&mut self.rows[position].1.0, value);
+        Ok(())
+    }
+    fn finish(mut self: Box<Self>) -> Result<Vec<Envelope>, Error> {
+        Ok(std::mem::take(&mut self.rows)
+            .into_iter()
+            .map(
+                |(key, (accumulator, timestamp_ns, window, assigned_window))| Envelope {
+                    value: Box::new((key, self.combiner.finish(accumulator))),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                },
+            )
+            .collect())
+    }
+}
 pub trait SinkSession: Send {
     fn write(&mut self, event: Envelope) -> Result<(), Error>;
     fn commit(&mut self) -> Result<(), Error>;
@@ -1342,9 +1482,20 @@ pub struct Registry {
     sources: BTreeMap<String, SourceRegistration>,
     transforms: BTreeMap<String, Transform>,
     aggregates: BTreeMap<String, Aggregate>,
+    folds: BTreeMap<String, FoldFactory>,
     sinks: BTreeMap<String, SinkFactory>,
 }
 impl Registry {
+    pub fn open_fold(&self, key: &str) -> Result<Box<dyn FoldSession>, Error> {
+        self.folds
+            .get(key)
+            .map(|factory| factory())
+            .ok_or_else(|| Error::execution(key, "direct", "fold factory missing"))
+    }
+    #[must_use]
+    pub fn has_fold(&self, key: &str) -> bool {
+        self.folds.contains_key(key)
+    }
     pub fn open_source(&self, key: &str) -> Result<SourceIterator, Error> {
         self.sources
             .get(key)
@@ -1464,6 +1615,8 @@ impl Pipeline {
             Operation::GlobalCombine => {
                 ("ironbeam/global-combine".into(), BUILTIN_OPERATION_VERSION)
             }
+            Operation::FoldGlobal => ("ironbeam/fold-global".into(), BUILTIN_OPERATION_VERSION),
+            Operation::FoldPerKey => ("ironbeam/fold-per-key".into(), BUILTIN_OPERATION_VERSION),
             Operation::BatchMapValues { .. } => (
                 "ironbeam/batch-map-values".into(),
                 BUILTIN_OPERATION_VERSION,
@@ -1512,6 +1665,19 @@ impl Pipeline {
         }
         inner.graph.nodes.push(node);
         drop(inner);
+        Ok(())
+    }
+    fn add_fold(&self, mut node: Node, factory: FoldFactory) -> Result<(), Error> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| Error::graph(&node.key, "builder lock poisoned"))?;
+        if inner.graph.node(&node.key).is_some() {
+            return Err(Error::graph(&node.key, "duplicate stable node key"));
+        }
+        node.local_id = inner.graph.nodes.len();
+        inner.registry.folds.insert(node.key.clone(), factory);
+        inner.graph.nodes.push(node);
         Ok(())
     }
     pub fn from_vec<T: Element + Clone + Sync>(
@@ -1789,6 +1955,40 @@ impl<T: Element> PCollection<T> {
             local_id: 0,
         };
         self.pipeline.add(node, None, None, Some(aggregate), None)?;
+        Ok(PCollection {
+            pipeline: self.pipeline.clone(),
+            key: key.into(),
+            marker: PhantomData,
+        })
+    }
+    fn next_fold<U: Element>(
+        &self,
+        key: &str,
+        operation: Operation,
+        factory: FoldFactory,
+    ) -> Result<PCollection<U>, Error> {
+        let parent = self.parent()?;
+        let (semantic_id, semantic_version) = Pipeline::semantic_identity(&operation);
+        let node = Node {
+            key: key.into(),
+            input: Some(self.key.clone()),
+            input_element: Some(ElementDescriptor {
+                type_id: T::type_identity(),
+                coder_id: T::coder_identity(),
+                coder_version: T::CODER_VERSION,
+            }),
+            additional_inputs: Vec::new(),
+            operation,
+            semantic_id,
+            semantic_version,
+            type_id: U::type_identity(),
+            coder_id: U::coder_identity(),
+            coder_version: U::CODER_VERSION,
+            boundedness: parent.boundedness,
+            time: parent.time,
+            local_id: 0,
+        };
+        self.pipeline.add_fold(node, factory)?;
         Ok(PCollection {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2194,6 +2394,37 @@ impl<T: Element> PCollection<T> {
             aggregate,
         )
     }
+    pub fn combine_globally_lifted_named<C, A, O>(
+        &self,
+        key: &str,
+        combiner: C,
+    ) -> Result<PCollection<O>, Error>
+    where
+        C: CombineFn<T, A, O>,
+        A: Send + 'static,
+        O: Element,
+    {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let window = parent.time.window;
+        let node_key = key.to_owned();
+        let combiner = Arc::new(combiner);
+        let factory: FoldFactory = Arc::new(move || {
+            Box::new(GlobalFoldState::<T, A, O, C> {
+                key: node_key.clone(),
+                combiner: Arc::clone(&combiner),
+                window: window.clone(),
+                entries: BTreeMap::new(),
+                marker: PhantomData,
+            })
+        });
+        self.next_fold(key, Operation::FoldGlobal, factory)
+    }
     pub fn latest_globally_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
@@ -2523,6 +2754,36 @@ macro_rules! cogroup_by_key_named {
 }
 
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
+    pub fn combine_values_lifted_named<C, A, O>(
+        &self,
+        key: &str,
+        combiner: C,
+    ) -> Result<PCollection<(K, O)>, Error>
+    where
+        C: CombineFn<V, A, O>,
+        A: Send + 'static,
+        O: Element,
+    {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let node_key = key.to_owned();
+        let combiner = Arc::new(combiner);
+        let factory: FoldFactory = Arc::new(move || {
+            Box::new(KeyedFoldState::<K, V, A, O, C> {
+                key: node_key.clone(),
+                combiner: Arc::clone(&combiner),
+                indices: HashMap::new(),
+                rows: Vec::new(),
+                marker: PhantomData,
+            })
+        });
+        self.next_fold(key, Operation::FoldPerKey, factory)
+    }
     pub fn map_values_batches_named<O: Element>(
         &self,
         key: &str,
