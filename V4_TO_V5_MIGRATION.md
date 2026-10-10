@@ -1,5 +1,10 @@
 # Ironbeam 4 to 5 migration guide
 
+The target on this branch is a v5-only `ironbeam` facade and multi-crate
+workspace. The [replacement roadmap](V5_REPLACEMENT_ROADMAP.md) records the
+extraction order and the gates before removing the checked-in v4 runtime.
+The package and feature descriptions below reflect the current migration state.
+
 Ironbeam 5 is currently exposed as `ironbeam::v5` behind `v5-preview`, and as the `ironbeam-core`, `ironbeam-direct`, `ironbeam-transforms`, `ironbeam-io`, `ironbeam-io-sql`, and `ironbeam-io-mongodb` packages. The root `ironbeam` package is still version 4.1.1. SQL and MongoDB compile directly against `ironbeam-core`; they are available by importing their packages or through the root facade's `v5-io-sql` and `v5-io-mongodb` features. `ironbeam-io` implements file formats and does not depend on the database connectors. This guide describes the implemented v5 surface; it does not imply that the root package has been released as version 5.
 
 ## A bounded pipeline

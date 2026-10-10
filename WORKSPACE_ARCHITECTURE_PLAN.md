@@ -21,7 +21,7 @@ The old `rustflow` folder name does not determine the Cargo package name. The `m
 - Document v4-to-v5 API changes and provide bounded compatibility helpers where they are technically sound.
 - Treat Cargo feature behavior, documentation paths, and release tooling as part of the conversion.
 
-The workspace conversion can change package organization and the public API together, but it should not silently change runner results. Streaming semantics and Dataflow feature coverage remain separate projects.
+The workspace conversion can change package organization and the public API together, but it should not silently change runner results. The branch target is a v5-only root package with the local v4 implementation removed. Streaming semantics and Dataflow feature coverage have their own implementation tracks and explicit replacement gates in [the v4 replacement roadmap](V5_REPLACEMENT_ROADMAP.md).
 
 ## Proposed dependency shape
 
