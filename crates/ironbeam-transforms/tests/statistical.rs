@@ -113,3 +113,25 @@ fn keyed_quantiles_and_empty_global_input() {
             .is_nan()
     );
 }
+
+#[test]
+fn quantiles_stream_large_linear_source() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .from_vec("large-digest-source", (0_i32..10_000).collect())
+        .unwrap();
+    let output = source
+        .approx_quantiles_named("large-digest", vec![0.0, 0.5, 1.0], 100.0)
+        .unwrap()
+        .output("large-digest-out")
+        .unwrap();
+    let config = JobConfig {
+        memory_budget_bytes: 512,
+        buffer_budget_elements: 17,
+        ..JobConfig::default()
+    };
+    let values = DirectRunner.run_collect(&output, &config).unwrap().0;
+    assert_eq!(values[0][0], 0.0);
+    assert_eq!(values[0][2], 9999.0);
+    assert!((4500.0..5500.0).contains(&values[0][1]));
+}

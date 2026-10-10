@@ -1,5 +1,5 @@
 //! Approximate quantiles using the v4 t-digest calculation.
-use ironbeam_core::{Element, Error, PCollection};
+use ironbeam_core::{CombineFn, Element, Error, PCollection};
 use std::hash::Hash;
 
 #[derive(Clone, Debug)]
@@ -189,13 +189,42 @@ fn validate(key: &str, quantiles: &[f64], compression: f64) -> Result<(), Error>
     Ok(())
 }
 
-fn digest<T: Into<f64>>(values: Vec<T>, compression: f64) -> TDigest {
-    let mut result = TDigest::new(compression);
-    for value in values {
-        result.add(value.into());
+struct Quantiles {
+    quantiles: Vec<f64>,
+    compression: f64,
+}
+impl<T: Element + Into<f64>> CombineFn<T, TDigest, Vec<f64>> for Quantiles {
+    fn create(&self) -> TDigest {
+        TDigest::new(self.compression)
     }
-    result.compress();
-    result
+    fn add_input(&self, digest: &mut TDigest, value: T) {
+        digest.add(value.into());
+    }
+    fn merge(&self, digest: &mut TDigest, other: TDigest) {
+        digest.merge(&other);
+    }
+    fn finish(&self, mut digest: TDigest) -> Vec<f64> {
+        digest.compress();
+        digest.quantiles(&self.quantiles)
+    }
+}
+struct Median {
+    compression: f64,
+}
+impl<T: Element + Into<f64>> CombineFn<T, TDigest, f64> for Median {
+    fn create(&self) -> TDigest {
+        TDigest::new(self.compression)
+    }
+    fn add_input(&self, digest: &mut TDigest, value: T) {
+        digest.add(value.into());
+    }
+    fn merge(&self, digest: &mut TDigest, other: TDigest) {
+        digest.merge(&other);
+    }
+    fn finish(&self, mut digest: TDigest) -> f64 {
+        digest.compress();
+        digest.quantile(0.5)
+    }
 }
 
 pub trait StatisticalExt<T: Element + Into<f64>> {
@@ -216,14 +245,18 @@ impl<T: Element + Into<f64>> StatisticalExt<T> for PCollection<T> {
         compression: f64,
     ) -> Result<PCollection<Vec<f64>>, Error> {
         validate(key, &quantiles, compression)?;
-        self.combine_globally_named(key, move |values| {
-            digest(values, compression).quantiles(&quantiles)
-        })
+        self.combine_globally_lifted_named(
+            key,
+            Quantiles {
+                quantiles,
+                compression,
+            },
+        )
     }
 
     fn approx_median_named(&self, key: &str, compression: f64) -> Result<PCollection<f64>, Error> {
         validate(key, &[0.5], compression)?;
-        self.combine_globally_named(key, move |values| digest(values, compression).quantile(0.5))
+        self.combine_globally_lifted_named(key, Median { compression })
     }
 }
 
@@ -254,10 +287,14 @@ impl<K: Element + Eq + Hash + Clone, V: Element + Into<f64>> KeyedStatisticalExt
         compression: f64,
     ) -> Result<PCollection<(K, Vec<f64>)>, Error> {
         validate(key, &quantiles, compression)?;
-        self.group_by_key_named(group_key)?
-            .map_named(key, move |(group, values)| {
-                (group, digest(values, compression).quantiles(&quantiles))
-            })
+        self.combine_values_lifted_named(
+            group_key,
+            Quantiles {
+                quantiles,
+                compression,
+            },
+        )?
+        .map_named(key, |row| row)
     }
 
     fn approx_median_per_key_named(
@@ -267,9 +304,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element + Into<f64>> KeyedStatisticalExt
         compression: f64,
     ) -> Result<PCollection<(K, f64)>, Error> {
         validate(key, &[0.5], compression)?;
-        self.group_by_key_named(group_key)?
-            .map_named(key, move |(group, values)| {
-                (group, digest(values, compression).quantile(0.5))
-            })
+        self.combine_values_lifted_named(group_key, Median { compression })?
+            .map_named(key, |row| row)
     }
 }
