@@ -1,0 +1,12 @@
+{
+  "ironbeam": {
+    "source": "src",
+    "lines": { "covered": 9382, "count": 11229 },
+    "branches": { "covered": 785, "count": 1046 }
+  },
+  "ironbeam-runner-contract-tests": {
+    "source": "crates/ironbeam-runner-contract-tests/src",
+    "lines": { "covered": 47, "count": 54 },
+    "branches": { "covered": 4, "count": 4 }
+  }
+}

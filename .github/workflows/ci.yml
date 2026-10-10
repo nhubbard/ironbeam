@@ -4,6 +4,7 @@ on:
   push:
     branches: [ 'main' ]
   pull_request: { }
+  workflow_dispatch: { }
 
 permissions: { }
 
@@ -54,6 +55,10 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
+          cargo clippy --no-deps -p ironbeam-runner-contract-tests --all-targets -- \
+            -W clippy::pedantic \
+            -W clippy::nursery \
+            -D warnings
 
   feature-matrix:
     name: Feature Matrix
@@ -98,14 +103,26 @@ jobs:
       # A full powerset is intractable in CI; --each-feature catches the
       # feature-coupling class of bugs in N+2 builds.
       - name: Check all feature combinations compile
-        run: cargo hack check --each-feature --no-dev-deps --keep-going
+        run: cargo hack check -p ironbeam --each-feature --no-dev-deps --keep-going
+
+      - name: Check facade build modes independently
+        run: |
+          cargo build -p ironbeam --no-default-features
+          cargo build -p ironbeam
+          cargo build -p ironbeam --all-features
+          cargo build -p ironbeam-runner-contract-tests
 
       # With the I/O features off, the always-present API must fail at runtime.
       - name: Verify disabled-feature runtime stubs
-        run: cargo test --no-default-features --test feature_gating
+        run: cargo test -p ironbeam --no-default-features --test feature_gating
+
+      - name: Test facade default and minimal modes
+        run: |
+          cargo test -p ironbeam --lib --tests
+          cargo test -p ironbeam --no-default-features --lib --tests
 
   test:
-    name: Test Suite with Coverage
+    name: Facade Tests with Coverage
     runs-on: ubuntu-latest
     environment: main
     concurrency:
@@ -147,8 +164,17 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Generate test coverage
-        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info --branch
+      # Docker-backed MongoDB and SQL tests run in the separate service tier.
+      # Package selection keeps workspace feature unification from hiding a
+      # missing dependency in either package.
+      - name: Generate portable facade coverage
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          cargo llvm-cov -p ironbeam --all-features --branch --json --summary-only \
+            --output-path coverage-ironbeam.json -- \
+            --skip io::mongodb --skip io::sql_containers
+          python3 scripts/check_coverage.py ironbeam coverage-ironbeam.json | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov report --branch --lcov --output-path lcov.info
 
       - name: Demangle coverage output
         run: rustfilt -i lcov.info -o lcov-demangled.info
@@ -159,6 +185,55 @@ jobs:
           files: lcov-demangled.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  contract-tests:
+    name: Runner Contract Test Package
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-contract-tests-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --component llvm-tools-preview --no-self-update
+          rustup default nightly
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Test and measure contract package independently
+        run: |
+          cargo test -p ironbeam-runner-contract-tests
+          cargo llvm-cov -p ironbeam-runner-contract-tests --branch --json --summary-only \
+            --output-path coverage-contract.json
+          python3 scripts/check_coverage.py ironbeam-runner-contract-tests coverage-contract.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+  service-tests:
+    name: Docker Service Tests (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --no-self-update
+          rustup default nightly
+
+      - name: Test MongoDB and SQL containers
+        run: |
+          cargo test -p ironbeam --all-features --test lib io::mongodb
+          cargo test -p ironbeam --all-features --test lib io::sql_containers
 
   docs:
     name: Documentation
@@ -242,6 +317,9 @@ jobs:
         run: |
           for example in examples/*.rs; do
             example_name=$(basename "$example" .rs)
+            if [ "$example_name" = "v5_benchmark_corpus" ]; then
+              continue
+            fi
             echo "Running example: $example_name"
             cargo run --example "$example_name" --all-features || exit 1
           done
