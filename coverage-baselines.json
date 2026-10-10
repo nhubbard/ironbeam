@@ -11,8 +11,8 @@
   },
   "ironbeam-core": {
     "source": "crates/ironbeam-core/src",
-    "lines": { "covered": 464, "count": 534 },
-    "branches": { "covered": 73, "count": 94 }
+    "lines": { "covered": 534, "count": 545 },
+    "branches": { "covered": 89, "count": 100 }
   },
   "ironbeam-direct": {
     "source": "crates/ironbeam-direct/src",

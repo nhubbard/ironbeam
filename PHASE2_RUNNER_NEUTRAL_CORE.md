@@ -14,7 +14,7 @@ Status: implemented on `codex/ironbeam-v5-runner-core` as an additive `v5-previe
 | Concern | Phase 2 choice |
 | --- | --- |
 | Identity | A build-local `local_id` is excluded from canonical JSON. Stable node keys and explicit semantic element/coder IDs enter the sorted descriptor and `sha256-v1` fingerprint. `Element` requires owners to declare those IDs. Driver/worker compatibility compares graph, build, registry, coder, and source-configuration identities; a mismatch is permanent. |
-| Versions | Graph, coder, and checkpoint schema versions are independent. Unknown major or newer minor versions reject before lowering. No automatic migration exists yet. |
+| Versions | Graph, coder, checkpoint schema, and built-in operation versions are independent. The preview graph descriptor is now major version 2 because input-edge type/coder declarations are required. Unknown major or newer minor versions reject before lowering. No automatic migration exists yet. |
 | Errors | Shared `ErrorKind` covers graph, unsupported capability, incompatibility, execution, I/O, recovery, and cancellation. Errors carry node/backend, message, and retry class. Validation is side-effect free. |
 | Resources | `JobConfig` owns parallelism, memory/buffer declarations, and cancellation token. Distinct jobs get distinct pools. This slice validates nonzero budgets; memory/buffer enforcement belongs to Phase 3 physical scheduling. |
 | Time | Signed `i64` nanoseconds allow pre-epoch timestamps. User values stay separate from envelope metadata. Default window is global; fixed window assignment uses checked arithmetic and rejects overflow. Map/filter preserve metadata. |
@@ -26,5 +26,7 @@ Status: implemented on `codex/ironbeam-v5-runner-core` as an additive `v5-previe
 ## Verification and limits
 
 The core tests cover canonical identity, malformed edges/cycles, versions, coder/type mismatches, boundedness/time propagation, fixed windows including pre-epoch and overflow, capabilities, and custom-operation rejection. Direct tests cover bounded values, empty/filter cases, independent parallelism, cancellation, resource validation, and rejection before source work. The shared contract package checks the test-only Dataflow lowering against the same graph used by Direct. CI measures `ironbeam-core` and `ironbeam-direct` independently and ratchets their line and branch coverage.
+
+The [core coverage audit](V5_CORE_COVERAGE_AUDIT.md) records the stronger package tests and the remaining unsupported graph shapes.
 
 `from_vec` is a local bounded fixture; a future remote source must have a portable source configuration and registered coder implementation. Fixed windows and sinks are descriptive but unsupported by the current Direct executor. There is no watermark advancement, live source polling, state/timers, recovery execution, or production Dataflow submission. Phase 3 can now migrate direct physical planning without changing the logical edge type to a collection-sized vector.
