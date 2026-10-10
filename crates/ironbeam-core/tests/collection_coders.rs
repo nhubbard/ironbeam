@@ -24,7 +24,7 @@ fn collection_coders_reject_truncated_and_trailing_bytes() {
     bytes.push(0);
     assert!(HashSet::<i32>::decode(&bytes).is_err());
 
-    let map: HashMap<String, i32> = [("a".into(), 1)].into_iter().collect();
+    let map: HashMap<String, i32> = std::iter::once(("a".into(), 1)).collect();
     let mut bytes = map.encode().unwrap();
     assert!(HashMap::<String, i32>::decode(&bytes[..bytes.len() - 1]).is_err());
     bytes.push(0);

@@ -1536,8 +1536,48 @@ pub struct Registry {
     aggregates: BTreeMap<String, Aggregate>,
     folds: BTreeMap<String, FoldFactory>,
     sinks: BTreeMap<String, SinkFactory>,
+    coders: BTreeMap<String, CoderRegistration>,
+}
+#[derive(Clone, Copy)]
+struct CoderRegistration {
+    encode: fn(&(dyn Any + Send)) -> Result<Vec<u8>, Error>,
+    decode: CoderDecoder,
+}
+type CoderDecoder = fn(&[u8]) -> Result<Box<dyn Any + Send>, Error>;
+impl CoderRegistration {
+    fn for_element<T: Element>() -> Self {
+        Self {
+            encode: |value| {
+                value
+                    .downcast_ref::<T>()
+                    .ok_or_else(|| {
+                        Error::incompatible("element type differs from registered coder")
+                    })?
+                    .encode()
+            },
+            decode: |bytes| T::decode(bytes).map(|value| Box::new(value) as Box<dyn Any + Send>),
+        }
+    }
 }
 impl Registry {
+    #[must_use]
+    pub fn has_coder(&self, key: &str) -> bool {
+        self.coders.contains_key(key)
+    }
+    pub fn encode_element(&self, key: &str, value: &(dyn Any + Send)) -> Result<Vec<u8>, Error> {
+        let coder = self
+            .coders
+            .get(key)
+            .ok_or_else(|| Error::incompatible(format!("no coder registered for node {key}")))?;
+        (coder.encode)(value)
+    }
+    pub fn decode_element(&self, key: &str, bytes: &[u8]) -> Result<Box<dyn Any + Send>, Error> {
+        let coder = self
+            .coders
+            .get(key)
+            .ok_or_else(|| Error::incompatible(format!("no coder registered for node {key}")))?;
+        (coder.decode)(bytes)
+    }
     pub fn open_fold(&self, key: &str) -> Result<Box<dyn FoldSession>, Error> {
         self.folds
             .get(key)
@@ -1689,7 +1729,7 @@ impl Pipeline {
             Operation::Sink { .. } => ("ironbeam/sink".into(), BUILTIN_OPERATION_VERSION),
         }
     }
-    fn add(
+    fn add<T: Element>(
         &self,
         mut node: Node,
         source: Option<SourceRegistration>,
@@ -1704,7 +1744,22 @@ impl Pipeline {
         if inner.graph.node(&node.key).is_some() {
             return Err(Error::graph(&node.key, "duplicate stable node key"));
         }
+        if node.type_id != T::type_identity()
+            || node.coder_id != T::coder_identity()
+            || node.coder_version != T::CODER_VERSION
+        {
+            return Err(Error::graph(
+                &node.key,
+                "node element descriptor differs from coder",
+            ));
+        }
         node.local_id = inner.graph.nodes.len();
+        if T::supports_coder() {
+            inner
+                .registry
+                .coders
+                .insert(node.key.clone(), CoderRegistration::for_element::<T>());
+        }
         if let Some(source) = source {
             inner.registry.sources.insert(node.key.clone(), source);
         }
@@ -1727,7 +1782,7 @@ impl Pipeline {
         drop(inner);
         Ok(())
     }
-    fn add_fold(&self, mut node: Node, factory: FoldFactory) -> Result<(), Error> {
+    fn add_fold<T: Element>(&self, mut node: Node, factory: FoldFactory) -> Result<(), Error> {
         let mut inner = self
             .inner
             .lock()
@@ -1735,7 +1790,22 @@ impl Pipeline {
         if inner.graph.node(&node.key).is_some() {
             return Err(Error::graph(&node.key, "duplicate stable node key"));
         }
+        if node.type_id != T::type_identity()
+            || node.coder_id != T::coder_identity()
+            || node.coder_version != T::CODER_VERSION
+        {
+            return Err(Error::graph(
+                &node.key,
+                "node element descriptor differs from coder",
+            ));
+        }
         node.local_id = inner.graph.nodes.len();
+        if T::supports_coder() {
+            inner
+                .registry
+                .coders
+                .insert(node.key.clone(), CoderRegistration::for_element::<T>());
+        }
         inner.registry.folds.insert(node.key.clone(), factory);
         inner.graph.nodes.push(node);
         drop(inner);
@@ -1891,7 +1961,7 @@ impl Pipeline {
             return Err(Error::graph(key, "source semantic ID must be namespaced"));
         }
         let (_, semantic_version) = Self::semantic_identity(&operation);
-        self.add(
+        self.add::<T>(
             Node {
                 key: key.into(),
                 input: None,
@@ -1979,7 +2049,7 @@ impl<T: Element> PCollection<T> {
             },
             local_id: 0,
         };
-        self.pipeline.add(node, None, transform, None, None)?;
+        self.pipeline.add::<U>(node, None, transform, None, None)?;
         Ok(PCollection {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2015,7 +2085,8 @@ impl<T: Element> PCollection<T> {
             time: parent.time,
             local_id: 0,
         };
-        self.pipeline.add(node, None, None, Some(aggregate), None)?;
+        self.pipeline
+            .add::<U>(node, None, None, Some(aggregate), None)?;
         Ok(PCollection {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2049,7 +2120,7 @@ impl<T: Element> PCollection<T> {
             time: parent.time,
             local_id: 0,
         };
-        self.pipeline.add_fold(node, factory)?;
+        self.pipeline.add_fold::<U>(node, factory)?;
         Ok(PCollection {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2171,7 +2242,7 @@ impl<T: Element> PCollection<T> {
             time: parent.time,
             local_id: 0,
         };
-        self.pipeline.add(node, None, None, None, None)?;
+        self.pipeline.add::<T>(node, None, None, None, None)?;
         Ok(Self {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2224,7 +2295,7 @@ impl<T: Element> PCollection<T> {
             time: parent.time,
             local_id: 0,
         };
-        self.pipeline.add(node, None, None, None, None)?;
+        self.pipeline.add::<T>(node, None, None, None, None)?;
         Ok(Self {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2390,7 +2461,8 @@ impl<T: Element> PCollection<T> {
                 inner: open()?,
             }) as Box<dyn SinkSession>)
         });
-        self.pipeline.add(node, None, None, None, Some(factory))?;
+        self.pipeline
+            .add::<T>(node, None, None, None, Some(factory))?;
         Ok(Sink {
             pipeline: self.pipeline.clone(),
             key: key.into(),

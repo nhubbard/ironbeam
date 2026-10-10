@@ -1,6 +1,24 @@
 # V5 core test and coverage audit
 
-Measured on the Phase 2 branch with `cargo llvm-cov -p ironbeam-core --branch`: **534/545 lines (97.98%)** and **89/100 branches (89.00%)**. The package-scoped CI gate now uses these counts. Tests live in `crates/ironbeam-core/tests/graph.rs` and run independently of the facade, Direct, and Dataflow prototype.
+## 2026-10-10 release-gate remeasurement
+
+The current nightly toolchain and the expanded core report **1388/2745
+source locations (50.56%)** and **245/282 branches (86.88%)** from
+`cargo llvm-cov -p ironbeam-core --branch --json`. The checked-in CI baseline
+of 972/974 lines and 210/222 branches predates the later core graph and helper
+growth. The coverage check currently fails; it must be repaired with meaningful
+tests and a new reviewed baseline before 5.0.0. The new per-node coder registry
+has focused tests for user-defined and local-only element types, but those tests
+do not close the broader core coverage gap.
+
+The coder registry now captures each `Element` implementation at graph
+construction and gives remote workers type-erased encode/decode access by node
+key. The Dataflow mock worker uses it for user-defined element types. Remote Fn
+API execution, arbitrary graph lowering, and source/sink parity remain open.
+
+## Earlier Phase 2 measurement
+
+Measured on the Phase 2 branch with `cargo llvm-cov -p ironbeam-core --branch`: **534/545 lines (97.98%)** and **89/100 branches (89.00%)**. This is historical evidence, not the current release gate. Tests live in `crates/ironbeam-core/tests/graph.rs` and run independently of the facade, Direct, and Dataflow prototype.
 
 The suite exercises canonical graph identity across insertion order and branching; graph/coder/checkpoint version rejection; stable semantic IDs; missing, duplicate, cyclic, and mistyped edges; explicit `map` input type/coder validation; boundedness and time propagation; pre-epoch and overflowing fixed windows; source progress and deferred sink declarations; custom and unbounded capability rejection; runtime registry lookup/type failures; and incompatible driver/worker identities. The first Phase 3 differential case compares the v4 and v5 bounded elementwise corpus in sequential and parallel modes.
 
