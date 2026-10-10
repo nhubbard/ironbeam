@@ -1,8 +1,9 @@
 //! Fallible transforms with independently addressable success and error branches.
 use ironbeam_core::{Element, Error, PCollection};
+use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DeadLetter<T> {
     pub element: T,
     pub error: String,
