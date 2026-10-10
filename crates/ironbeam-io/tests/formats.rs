@@ -139,13 +139,114 @@ fn xml_contract() {
     );
 }
 #[cfg(feature = "avro")]
+const ROW_AVRO_SCHEMA: &str = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}"#;
+#[cfg(feature = "avro")]
 #[test]
 fn avro_contract() {
     round_trip(
         "avro",
-        |i, k, p| avro_sink(i, k, p),
+        |i, k, p| avro_sink(i, k, p, ROW_AVRO_SCHEMA),
         |p, k, f| avro_source(p, k, f),
     );
+}
+#[cfg(feature = "avro")]
+#[test]
+fn native_avro_interoperates_with_external_records_and_validates_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("native.avro");
+    let schema = apache_avro::Schema::parse_str(ROW_AVRO_SCHEMA).unwrap();
+    let file = fs::File::create(&path).unwrap();
+    let mut writer = apache_avro::Writer::new(&schema, file).unwrap();
+    for row in rows() {
+        writer.append_ser(row).unwrap();
+    }
+    writer.flush().unwrap();
+    drop(writer);
+    let pipeline = Pipeline::default();
+    let output = avro_source::<Row>(&pipeline, "external", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows()
+    );
+
+    let native_path = dir.path().join("written.avro");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("values", rows()).unwrap();
+    let sink = avro_sink(&input, "native", &native_path, ROW_AVRO_SCHEMA).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let reader = apache_avro::Reader::new(fs::File::open(&native_path).unwrap()).unwrap();
+    let decoded: Vec<Row> = reader
+        .map(|row| apache_avro::from_value(&row.unwrap()).unwrap())
+        .collect();
+    assert_eq!(decoded, rows());
+
+    assert_eq!(
+        avro_sink(&input, "invalid", dir.path().join("invalid.avro"), "{")
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    let old_path = dir.path().join("old.avro");
+    fs::write(&old_path, b"old output").unwrap();
+    let incompatible = r#"{"type":"record","name":"Wrong","fields":[{"name":"id","type":"long"},{"name":"missing","type":"string"}]}"#;
+    let sink = avro_sink(&input, "incompatible", &old_path, incompatible).unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_sink(&sink, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    assert_eq!(fs::read(&old_path).unwrap(), b"old output");
+}
+#[cfg(feature = "avro")]
+#[test]
+fn avro_json_preview_files_remain_readable() {
+    round_trip(
+        "avro",
+        |i, k, p| avro_json_sink(i, k, p),
+        |p, k, f| avro_json_source(p, k, f),
+    );
+}
+#[cfg(feature = "avro")]
+#[test]
+fn avro_json_serialization_failure_preserves_existing_output() {
+    #[derive(Clone)]
+    struct Unserializable;
+    impl Element for Unserializable {
+        const TYPE_ID: &'static str = "tests/unserializable";
+        const CODER_ID: &'static str = "tests/unserializable";
+    }
+    impl Serialize for Unserializable {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom(
+                "deliberate serialization failure",
+            ))
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("existing.avro");
+    fs::write(&path, b"old result").unwrap();
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("values", vec![Unserializable]).unwrap();
+    let sink = avro_json_sink(&input, "file", &path).unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_sink(&sink, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"old result");
 }
 #[cfg(feature = "parquet")]
 #[test]

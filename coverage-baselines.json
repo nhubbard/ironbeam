@@ -46,8 +46,8 @@
   "ironbeam-io": {
     "source": "crates/ironbeam-io/src",
     "lines": {
-      "covered": 174,
-      "count": 177
+      "covered": 193,
+      "count": 196
     },
     "branches": {
       "covered": 4,

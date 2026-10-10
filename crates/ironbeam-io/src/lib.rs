@@ -19,7 +19,10 @@ use std::fmt::Write as _;
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
+
+type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
 
 fn io(key: &str, error: impl std::fmt::Display) -> Error {
     Error::io(key, "file", error.to_string())
@@ -67,7 +70,7 @@ struct FileSink<T> {
     path: PathBuf,
     key: String,
     values: Vec<T>,
-    write: fn(&Path, &[T]) -> Result<(), Error>,
+    write: Arc<FileWriter<T>>,
 }
 impl<T: Element> TypedSink<T> for FileSink<T> {
     fn write(&mut self, value: T) -> Result<(), Error> {
@@ -92,10 +95,11 @@ fn sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
     path: impl AsRef<Path>,
-    write: fn(&Path, &[T]) -> Result<(), Error>,
+    write: impl Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync + 'static,
 ) -> Result<Sink<T>, Error> {
     let path = path.as_ref().to_path_buf();
     let name = key.to_owned();
+    let write: Arc<FileWriter<T>> = Arc::new(write);
     input.sink_named(
         key,
         SinkSpec {
@@ -108,7 +112,7 @@ fn sink<T: Element + Serialize>(
                 path: path.clone(),
                 key: name.clone(),
                 values: Vec::new(),
-                write,
+                write: Arc::clone(&write),
             }))
         },
     )
@@ -250,16 +254,15 @@ fn read_avro<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
         .collect()
 }
 #[cfg(feature = "avro")]
-fn write_avro<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
-    let schema = apache_avro::schema::Schema::parse_str(
-        r#"{"type":"record","name":"IronbeamRecord","fields":[{"name":"value","type":"string"}]}"#,
-    )
-    .map_err(|e| io("avro", e))?;
+fn write_avro<T: Serialize>(
+    path: &Path,
+    values: &[T],
+    schema: &apache_avro::Schema,
+) -> Result<(), Error> {
     let file = fs::File::create(path).map_err(|e| io("avro", e))?;
-    let mut writer = apache_avro::Writer::new(&schema, file).map_err(|e| io("avro", e))?;
+    let mut writer = apache_avro::Writer::new(schema, file).map_err(|e| io("avro", e))?;
     for value in values {
-        let json = serde_json::to_string(value).map_err(|e| io("avro", e))?;
-        let value = apache_avro::to_value(AvroJson { value: json }).map_err(|e| io("avro", e))?;
+        let value = apache_avro::to_value(value).map_err(|e| io("avro", e))?;
         writer.append_value(value).map_err(|e| io("avro", e))?;
     }
     writer.flush().map_err(|e| io("avro", e))?;
@@ -283,15 +286,56 @@ pub fn avro_source<T: Element + DeserializeOwned>(
     key: &str,
     path: impl AsRef<Path>,
 ) -> Result<PCollection<T>, Error> {
-    source(pipeline, key, path, "avro-json", read_avro_json::<T>)
+    source(pipeline, key, path, "avro", read_avro::<T>)
 }
 #[cfg(feature = "avro")]
+/// Write native Avro records using a caller supplied writer schema.
+/// The schema is validated when the graph is built; record compatibility is
+/// checked by the Avro writer before the final file is published.
 pub fn avro_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
     path: impl AsRef<Path>,
+    schema: impl AsRef<str>,
 ) -> Result<Sink<T>, Error> {
-    sink(input, key, path, write_avro::<T>)
+    let schema = apache_avro::Schema::parse_str(schema.as_ref()).map_err(|e| io(key, e))?;
+    sink(input, key, path, move |path, values| {
+        write_avro(path, values, &schema)
+    })
+}
+
+#[cfg(feature = "avro")]
+/// Read the Phase 4 preview Avro container with JSON strings in `value`.
+pub fn avro_json_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    source(pipeline, key, path, "avro-json", read_avro_json::<T>)
+}
+
+#[cfg(feature = "avro")]
+/// Write the Phase 4 preview Avro container with JSON strings in `value`.
+pub fn avro_json_sink<T: Element + Serialize>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<T>, Error> {
+    let schema = apache_avro::Schema::parse_str(
+        r#"{"type":"record","name":"IronbeamRecord","fields":[{"name":"value","type":"string"}]}"#,
+    )
+    .map_err(|e| io(key, e))?;
+    sink(input, key, path, move |path, values| {
+        let rows: Vec<AvroJson> = values
+            .iter()
+            .map(|value| {
+                serde_json::to_string(value)
+                    .map(|value| AvroJson { value })
+                    .map_err(|e| io("avro", e))
+            })
+            .collect::<Result<_, _>>()?;
+        write_avro(path, &rows, &schema)
+    })
 }
 
 #[cfg(feature = "parquet")]
