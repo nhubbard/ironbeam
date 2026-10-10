@@ -11,12 +11,12 @@
   },
   "ironbeam-core": {
     "source": "crates/ironbeam-core/src",
-    "lines": { "covered": 640, "count": 657 },
-    "branches": { "covered": 90, "count": 102 }
+    "lines": { "covered": 664, "count": 675 },
+    "branches": { "covered": 92, "count": 102 }
   },
   "ironbeam-direct": {
     "source": "crates/ironbeam-direct/src",
-    "lines": { "covered": 724, "count": 840 },
+    "lines": { "covered": 806, "count": 920 },
     "branches": { "covered": 89, "count": 106 }
   }
 }

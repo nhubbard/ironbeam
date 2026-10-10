@@ -719,13 +719,10 @@ impl Pipeline {
             hash.update(T::CODER_VERSION.minor.to_le_bytes());
             for value in &values {
                 let encoded = value.encode()?;
-                hash.update(
-                    u64::try_from(encoded.len())
-                        .map_err(|_| {
-                            Error::resource(key, "encoded source element exceeds u64 length")
-                        })?
-                        .to_le_bytes(),
-                );
+                // Supported Rust targets have at most 64-bit `usize`.
+                #[allow(clippy::cast_possible_truncation)]
+                let length = encoded.len() as u64;
+                hash.update(length.to_le_bytes());
                 hash.update(&encoded);
             }
             let digest = hash.finalize();
@@ -990,5 +987,38 @@ impl<T> Output<T> {
     }
     pub fn snapshot(&self) -> Result<(Graph, Registry), Error> {
         self.pipeline.snapshot()
+    }
+}
+
+#[cfg(test)]
+mod internal_tests {
+    use super::*;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn poisoned_builder_reports_typed_errors() {
+        let pipeline = Pipeline::default();
+        let input = pipeline.from_vec("source", vec![1_i32]).unwrap();
+        let inner = pipeline.inner.clone();
+        assert!(
+            catch_unwind(AssertUnwindSafe(move || {
+                let _guard = inner.lock().unwrap();
+                panic!("poison builder");
+            }))
+            .is_err()
+        );
+        assert_eq!(pipeline.snapshot().err().unwrap().kind, ErrorKind::Graph);
+        assert_eq!(
+            pipeline
+                .from_vec("another", vec![2_i32])
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Graph
+        );
+        assert_eq!(
+            input.map_named("map", |x| x + 1).err().unwrap().kind,
+            ErrorKind::Graph
+        );
     }
 }

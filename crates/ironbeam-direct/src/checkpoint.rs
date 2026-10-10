@@ -230,3 +230,38 @@ fn sha256_file(path: &Path) -> Result<String, Error> {
     }
     Ok(hex)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ironbeam_core::ErrorKind;
+
+    #[test]
+    fn manager_rejects_zero_interval_and_missing_data_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: dir.path().to_path_buf(),
+            interval_batches: 0,
+            binary_build_id: "test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "test".into(),
+        );
+        assert_eq!(
+            CheckpointManager::new(&config, identity, Arc::new(MetricsState::default()))
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Graph
+        );
+        assert_eq!(
+            sha256_file(&dir.path().join("missing")).unwrap_err().kind,
+            ErrorKind::Io
+        );
+    }
+}

@@ -35,6 +35,35 @@ fn coder_contract_and_direct_error_taxonomy() {
     assert_eq!(Error::resource("node", "limit").kind, ErrorKind::Resource);
 }
 
+#[test]
+fn filter_registry_and_duplicate_sink_failures_are_explicit() {
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();
+    let filtered = input.filter_named("even", |x| x % 2 == 0).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut source = registry.open_source("source").unwrap();
+    assert!(
+        registry
+            .apply("even", source.next().unwrap())
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        registry
+            .apply("even", source.next().unwrap())
+            .unwrap()
+            .is_some()
+    );
+    filtered.append_sink("sink", Replay::Idempotent).unwrap();
+    assert_eq!(
+        filtered
+            .append_sink("sink", Replay::Idempotent)
+            .unwrap_err()
+            .kind,
+        ErrorKind::Graph
+    );
+}
+
 fn small() -> (Graph, Registry) {
     let p = Pipeline::default();
     let values = p.from_vec("input", vec![1_i32, 2, 3, 4]).unwrap();
@@ -86,6 +115,12 @@ fn validates_versions_edges_cycles_and_coders() {
     let (a, _) = small();
     let mut b = a.clone();
     b.version.major += 1;
+    assert_eq!(b.validate().unwrap_err().kind, ErrorKind::Incompatible);
+    let mut b = a.clone();
+    b.version.minor += 1;
+    assert_eq!(b.validate().unwrap_err().kind, ErrorKind::Incompatible);
+    let mut b = a.clone();
+    b.checkpoint_version.minor += 1;
     assert_eq!(b.validate().unwrap_err().kind, ErrorKind::Incompatible);
     let mut b = a.clone();
     b.node_mut_for_test("result").input = Some("missing".into());
