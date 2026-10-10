@@ -516,6 +516,13 @@
 //! }
 //! ```
 
+/// Experimental Ironbeam 5 graph and direct runner.
+#[cfg(feature = "v5-preview")]
+pub mod v5 {
+    pub use ironbeam_core::*;
+    pub use ironbeam_direct::{DirectRunner, JobConfig, JobHandle, JobStatus};
+}
+
 pub mod bloom_filter;
 #[cfg(feature = "coders")]
 pub mod coders;

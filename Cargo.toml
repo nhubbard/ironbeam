@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -14,6 +14,7 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["io-jsonl", "io-csv", "io-parquet", "io-avro", "io-xml", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling", "coders"]
+v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct"]
 
 # IO backends
 io-jsonl = []
@@ -54,6 +55,8 @@ spilling = ["dep:postcard"]
 coders = ["dep:postcard"]
 
 [dependencies]
+ironbeam-core = { path = "crates/ironbeam-core", optional = true }
+ironbeam-direct = { path = "crates/ironbeam-direct", optional = true }
 # Core dependencies
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

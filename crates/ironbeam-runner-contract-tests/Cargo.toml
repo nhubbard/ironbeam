@@ -9,3 +9,5 @@ license = "MIT"
 
 [dev-dependencies]
 ironbeam = { path = "../..", default-features = false }
+ironbeam-core = { path = "../ironbeam-core" }
+ironbeam-direct = { path = "../ironbeam-direct" }

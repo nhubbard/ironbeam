@@ -1,0 +1,11 @@
+[package]
+name = "ironbeam-direct"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Direct execution for the Ironbeam 5 logical graph"
+
+[dependencies]
+ironbeam-core = { path = "../ironbeam-core" }
+rayon = "1"
