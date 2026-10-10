@@ -545,6 +545,133 @@ fn wait_on_drains_signal_before_data_and_reshuffle_breaks_fusion() {
 }
 
 #[test]
+fn bounded_batch_helpers_keep_chunks_and_key_groups() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("batch-values", (0_i32..7).collect())
+        .unwrap();
+    let batches = values
+        .batch_elements_named("batch-elements", 3)
+        .unwrap()
+        .output("batch-elements-out")
+        .unwrap();
+    let mapped = values
+        .map_batches_named("batch-map", 3, |batch| {
+            batch.iter().map(|value| value * 2).collect::<Vec<_>>()
+        })
+        .unwrap()
+        .output("batch-map-out")
+        .unwrap();
+    let zero = values
+        .batch_elements_named("batch-zero", 0)
+        .unwrap()
+        .output("batch-zero-out")
+        .unwrap();
+    let words = pipeline
+        .from_vec(
+            "batch-words",
+            vec!["aa".to_string(), "bb".into(), "cccc".into(), "d".into()],
+        )
+        .unwrap();
+    let bytes = words
+        .batch_by_size_named("batch-bytes", 4, String::len)
+        .unwrap()
+        .output("batch-bytes-out")
+        .unwrap();
+    let keyed = pipeline
+        .from_vec(
+            "batch-keyed",
+            vec![(1_i32, 1_i32), (2, 9), (1, 2), (1, 3), (2, 8)],
+        )
+        .unwrap();
+    let keyed_batches = keyed
+        .group_into_batches_named("batch-key-groups", 2)
+        .unwrap()
+        .output("batch-key-groups-out")
+        .unwrap();
+    let keyed_mapped = keyed
+        .map_values_batches_named("batch-key-map", 2, |values| {
+            values.iter().map(|value| value * 2).collect::<Vec<_>>()
+        })
+        .unwrap()
+        .output("batch-key-map-out")
+        .unwrap();
+    let wrong_length = keyed
+        .map_values_batches_named("batch-wrong-length", 2, |_| Vec::<i32>::new())
+        .unwrap()
+        .output("batch-wrong-length-out")
+        .unwrap();
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&batches, &config).unwrap().0,
+            vec![vec![0, 1, 2], vec![3, 4, 5], vec![6]]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&mapped, &config).unwrap().0,
+            vec![0, 2, 4, 6, 8, 10, 12]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&zero, &config).unwrap().0,
+            (0_i32..7).map(|value| vec![value]).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&bytes, &config).unwrap().0,
+            vec![
+                vec!["aa".to_string(), "bb".into()],
+                vec!["cccc".into()],
+                vec!["d".into()]
+            ]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&keyed_batches, &config).unwrap().0,
+            vec![(1, vec![1, 2]), (1, vec![3]), (2, vec![9, 8])]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&keyed_mapped, &config).unwrap().0,
+            vec![(1, 2), (2, 18), (1, 4), (1, 6), (2, 16)]
+        );
+        assert_eq!(
+            DirectRunner
+                .run_collect(&wrong_length, &config)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Execution
+        );
+    }
+}
+
+#[test]
+fn keyed_batch_map_preserves_each_event_timestamp() {
+    let pipeline = Pipeline::default();
+    let keyed = pipeline
+        .from_vec("timed-batch-values", vec![(1_i32, 1_i32), (1, 12)])
+        .unwrap()
+        .assign_timestamps_named("timed-batch-stamps", |(_, value)| i64::from(*value))
+        .unwrap();
+    let output = keyed
+        .map_values_batches_named("timed-batch-map", 2, |values| {
+            values.iter().map(|value| value * 2).collect::<Vec<_>>()
+        })
+        .unwrap()
+        .latest_per_key_named("timed-batch-latest")
+        .unwrap()
+        .output("timed-batch-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![(1, 24)]
+    );
+}
+
+#[test]
 fn aggregate_checkpoint_and_marker_are_rejected_before_source() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

@@ -145,7 +145,8 @@ fn eval(
         | Operation::JoinRight
         | Operation::JoinFull
         | Operation::SideInputMap
-        | Operation::GlobalCombine => {
+        | Operation::GlobalCombine
+        | Operation::BatchMapValues { .. } => {
             let mut inputs = vec![first];
             for edge in &node.additional_inputs {
                 inputs.push(eval(pool, graph, registry, &edge.key, config, metrics)?);

@@ -176,6 +176,7 @@ impl DirectRunner {
                 assign_timestamp: true,
                 side_input_map: true,
                 global_combine: true,
+                batch_map_values: true,
                 append_sink: true,
                 final_result_sink: true,
                 ..Capabilities::default()
@@ -200,6 +201,7 @@ impl DirectRunner {
                 | Operation::JoinFull
                 | Operation::SideInputMap
                 | Operation::GlobalCombine
+                | Operation::BatchMapValues { .. }
                 | Operation::Output => None,
                 Operation::Sink { spec }
                     if matches!(spec.mode, SinkMode::Append | SinkMode::FinalResult) =>
@@ -463,6 +465,7 @@ fn ensure_aggregates(
                 | Operation::JoinFull
                 | Operation::SideInputMap
                 | Operation::GlobalCombine
+                | Operation::BatchMapValues { .. }
         ) && !registry.has_aggregate(key)
         {
             return Err(Error::unsupported(key, "direct", "aggregate-function"));

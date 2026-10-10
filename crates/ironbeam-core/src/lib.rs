@@ -656,6 +656,9 @@ pub enum Operation {
     SideInputMap,
     FixedWindow,
     GlobalCombine,
+    BatchMapValues {
+        batch_size: usize,
+    },
     Custom {
         semantic_id: String,
         version: Version,
@@ -858,6 +861,7 @@ pub struct Capabilities {
     pub join_outer: bool,
     pub side_input_map: bool,
     pub global_combine: bool,
+    pub batch_map_values: bool,
     pub fixed_window: bool,
     pub assign_timestamp: bool,
     pub append_sink: bool,
@@ -939,6 +943,14 @@ impl Graph {
                     &node.key,
                     "fixed-window operation requires a fixed window descriptor",
                 ));
+            }
+            if matches!(node.operation, Operation::BatchMapValues { batch_size: 0 }) {
+                return Err(Error::graph(&node.key, "batch size must be positive"));
+            }
+            if matches!(node.operation, Operation::BatchMapValues { .. })
+                && node.boundedness == Boundedness::Unbounded
+            {
+                return Err(Error::graph(&node.key, "batch mapping requires a bounded input"));
             }
             if let Operation::Custom {
                 semantic_id,
@@ -1058,6 +1070,7 @@ impl Graph {
                             | Operation::JoinFull
                             | Operation::SideInputMap
                             | Operation::GlobalCombine
+                            | Operation::BatchMapValues { .. }
                             | Operation::Output
                             | Operation::Sink { .. }
                     ) && node.time != upstream.time
@@ -1236,6 +1249,9 @@ impl Graph {
                 }
                 Operation::GlobalCombine if !capabilities.global_combine => {
                     Some("global-combine".to_string())
+                }
+                Operation::BatchMapValues { .. } if !capabilities.batch_map_values => {
+                    Some("batch-map-values".to_string())
                 }
                 Operation::Sink { spec }
                     if spec.mode == SinkMode::Append && !capabilities.append_sink =>
@@ -1448,6 +1464,10 @@ impl Pipeline {
             Operation::GlobalCombine => {
                 ("ironbeam/global-combine".into(), BUILTIN_OPERATION_VERSION)
             }
+            Operation::BatchMapValues { .. } => (
+                "ironbeam/batch-map-values".into(),
+                BUILTIN_OPERATION_VERSION,
+            ),
             Operation::Custom {
                 semantic_id,
                 version,
@@ -2229,6 +2249,64 @@ impl<T: Element> PCollection<T> {
             .combine_globally_named(&format!("{key}/combine"), f)?
             .with_window_named(key)
     }
+    pub fn batch_elements_named(
+        &self,
+        key: &str,
+        batch_size: usize,
+    ) -> Result<PCollection<Vec<T>>, Error> {
+        let limit = batch_size.max(1);
+        self.combine_globally_named(&format!("{key}/collect"), |values| values)?
+            .flat_map_named(key, move |values| {
+                let mut batches = Vec::new();
+                let mut current = Vec::with_capacity(limit);
+                for value in values {
+                    current.push(value);
+                    if current.len() == limit {
+                        batches.push(std::mem::replace(&mut current, Vec::with_capacity(limit)));
+                    }
+                }
+                if !current.is_empty() {
+                    batches.push(current);
+                }
+                batches
+            })
+    }
+    pub fn map_batches_named<U: Element>(
+        &self,
+        key: &str,
+        batch_size: usize,
+        f: impl Fn(&[T]) -> Vec<U> + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        self.batch_elements_named(&format!("{key}/batches"), batch_size)?
+            .flat_map_named(key, move |batch| f(&batch))
+    }
+    pub fn batch_by_size_named(
+        &self,
+        key: &str,
+        max_bytes: usize,
+        size_fn: impl Fn(&T) -> usize + Send + Sync + 'static,
+    ) -> Result<PCollection<Vec<T>>, Error> {
+        let limit = max_bytes.max(1);
+        self.combine_globally_named(&format!("{key}/collect"), move |values| {
+            let mut batches = Vec::new();
+            let mut current = Vec::new();
+            let mut bytes = 0_usize;
+            for value in values {
+                let size = size_fn(&value);
+                if !current.is_empty() && bytes.saturating_add(size) > limit {
+                    batches.push(std::mem::take(&mut current));
+                    bytes = 0;
+                }
+                bytes = bytes.saturating_add(size);
+                current.push(value);
+            }
+            if !current.is_empty() {
+                batches.push(current);
+            }
+            batches
+        })?
+        .flat_map_named(key, |batches| batches)
+    }
     pub fn map_with_side_named<S: Element, U: Element>(
         &self,
         key: &str,
@@ -2445,6 +2523,100 @@ macro_rules! cogroup_by_key_named {
 }
 
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
+    pub fn map_values_batches_named<O: Element>(
+        &self,
+        key: &str,
+        batch_size: usize,
+        f: impl Fn(&[V]) -> Vec<O> + Send + Sync + 'static,
+    ) -> Result<PCollection<(K, O)>, Error> {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded {
+            return Err(Error::graph(key, "batch mapping requires a bounded input"));
+        }
+        let limit = batch_size.max(1);
+        let node_key = key.to_owned();
+        let aggregate: Aggregate = Arc::new(move |mut inputs| {
+            let events = inputs
+                .pop()
+                .ok_or_else(|| Error::execution(&node_key, "direct", "batch input missing"))?;
+            let mut output = Vec::new();
+            let mut pending: Vec<(K, V, i64, Window, Option<WindowInterval>)> = Vec::new();
+            let mut flush = |pending: &mut Vec<(K, V, i64, Window, Option<WindowInterval>)>| -> Result<(), Error> {
+                if pending.is_empty() { return Ok(()); }
+                let rows = std::mem::take(pending);
+                let mut keys = Vec::with_capacity(rows.len());
+                let mut values = Vec::with_capacity(rows.len());
+                let mut metadata = Vec::with_capacity(rows.len());
+                for (key, value, timestamp_ns, window, assigned_window) in rows {
+                    keys.push(key);
+                    values.push(value);
+                    metadata.push((timestamp_ns, window, assigned_window));
+                }
+                let results = f(&values);
+                if results.len() != values.len() {
+                    return Err(Error::execution(&node_key, "direct", "batch value map changed length"));
+                }
+                for ((key, value), (timestamp_ns, window, assigned_window)) in
+                    keys.into_iter().zip(results).zip(metadata) {
+                    output.push(Envelope {
+                        value: Box::new((key, value)), timestamp_ns, window, assigned_window
+                    });
+                }
+                Ok(())
+            };
+            for event in events {
+                let Envelope {
+                    value,
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                } = event;
+                if pending.len() == limit
+                    || pending.first().is_some_and(|row| row.4 != assigned_window)
+                {
+                    flush(&mut pending)?;
+                }
+                let (row_key, row_value) = *value.downcast::<(K, V)>().map_err(|_| {
+                    Error::execution(&node_key, "direct", "batch keyed input type mismatch")
+                })?;
+                pending.push((row_key, row_value, timestamp_ns, window, assigned_window));
+            }
+            flush(&mut pending)?;
+            Ok(output)
+        });
+        self.next_aggregate(
+            key,
+            Operation::BatchMapValues { batch_size: limit },
+            Vec::new(),
+            parent.boundedness,
+            aggregate,
+        )
+    }
+    pub fn group_into_batches_named(
+        &self,
+        key: &str,
+        batch_size: usize,
+    ) -> Result<PCollection<(K, Vec<V>)>, Error> {
+        let limit = batch_size.max(1);
+        self.group_by_key_named(&format!("{key}/group"))?
+            .flat_map_named(key, move |(group_key, values)| {
+                let mut batches = Vec::new();
+                let mut current = Vec::with_capacity(limit);
+                for value in values {
+                    current.push(value);
+                    if current.len() == limit {
+                        batches.push((
+                            group_key.clone(),
+                            std::mem::replace(&mut current, Vec::with_capacity(limit)),
+                        ));
+                    }
+                }
+                if !current.is_empty() {
+                    batches.push((group_key, current));
+                }
+                batches
+            })
+    }
     pub fn combine_per_key_and_window_named<U: Element>(
         &self,
         key: &str,
