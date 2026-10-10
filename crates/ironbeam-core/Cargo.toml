@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
 description = "Runner-neutral logical graph for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

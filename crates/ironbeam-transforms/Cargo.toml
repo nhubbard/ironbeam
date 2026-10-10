@@ -5,10 +5,11 @@ edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
 description = "Convenience transforms for Ironbeam 5 logical collections"
+repository = "https://github.com/nhubbard/ironbeam"
 
 [dependencies]
-ironbeam-core = { path = "../ironbeam-core" }
+ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
 
 [dev-dependencies]
-ironbeam-direct = { path = "../ironbeam-direct" }
+ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
 

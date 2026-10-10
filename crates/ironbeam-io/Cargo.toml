@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
 description = "Bounded file sources and transactional final-result sinks for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["jsonl", "csv", "parquet", "avro", "xml"]
@@ -15,7 +16,7 @@ avro = ["dep:apache-avro"]
 xml = ["dep:quick-xml"]
 
 [dependencies]
-ironbeam-core = { path = "../ironbeam-core" }
+ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
@@ -29,4 +30,4 @@ apache-avro = { version = "0.22", optional = true }
 quick-xml = { version = "0.41", features = ["serialize"], optional = true }
 
 [dev-dependencies]
-ironbeam-direct = { path = "../ironbeam-direct" }
+ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }

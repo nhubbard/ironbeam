@@ -5,9 +5,10 @@ edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
 description = "Direct execution for the Ironbeam 5 logical graph"
+repository = "https://github.com/nhubbard/ironbeam"
 
 [dependencies]
-ironbeam-core = { path = "../ironbeam-core" }
+ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
 rayon = "1"
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }
