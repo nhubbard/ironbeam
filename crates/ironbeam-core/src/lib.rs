@@ -192,6 +192,42 @@ impl<T: Element> Element for Vec<T> {
         Ok(values)
     }
 }
+impl<T: Element> Element for Option<T> {
+    const TYPE_ID: &'static str = "std/option";
+    const CODER_ID: &'static str = "ironbeam/option-tagged";
+    fn type_identity() -> String {
+        format!("std/option<{}>", T::type_identity())
+    }
+    fn coder_identity() -> String {
+        format!("ironbeam/option-v1<{}>", T::coder_identity())
+    }
+    fn supports_coder() -> bool {
+        T::supports_coder()
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        match self {
+            None => Ok(vec![0]),
+            Some(value) => {
+                let mut bytes = vec![1];
+                bytes.extend(value.encode()?);
+                Ok(bytes)
+            }
+        }
+    }
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        match bytes.split_first() {
+            Some((&0, [])) => Ok(None),
+            Some((&1, value)) => T::decode(value).map(Some),
+            _ => Err(Error::incompatible("invalid option tag or trailing bytes")),
+        }
+    }
+}
 impl<A: Element, B: Element> Element for (A, B) {
     const TYPE_ID: &'static str = "std/tuple2";
     const CODER_ID: &'static str = "ironbeam/tuple2-length-prefixed";
@@ -519,6 +555,9 @@ pub enum Operation {
     Flatten,
     GroupByKey,
     JoinInner,
+    JoinLeft,
+    JoinRight,
+    JoinFull,
     SideInputMap,
     FixedWindow,
     GlobalCombine,
@@ -718,6 +757,7 @@ pub struct Capabilities {
     pub flatten: bool,
     pub group_by_key: bool,
     pub join_inner: bool,
+    pub join_outer: bool,
     pub side_input_map: bool,
     pub global_combine: bool,
     pub fixed_window: bool,
@@ -810,7 +850,12 @@ impl Graph {
             }
             if matches!(
                 node.operation,
-                Operation::Flatten | Operation::JoinInner | Operation::SideInputMap
+                Operation::Flatten
+                    | Operation::JoinInner
+                    | Operation::JoinLeft
+                    | Operation::JoinRight
+                    | Operation::JoinFull
+                    | Operation::SideInputMap
             ) == node.additional_inputs.is_empty()
             {
                 return Err(Error::graph(
@@ -820,7 +865,11 @@ impl Graph {
             }
             if matches!(
                 node.operation,
-                Operation::JoinInner | Operation::SideInputMap
+                Operation::JoinInner
+                    | Operation::JoinLeft
+                    | Operation::JoinRight
+                    | Operation::JoinFull
+                    | Operation::SideInputMap
             ) && node.additional_inputs.len() != 1
             {
                 return Err(Error::graph(
@@ -871,7 +920,12 @@ impl Graph {
                     }
                     if !matches!(
                         node.operation,
-                        Operation::Flatten | Operation::JoinInner | Operation::SideInputMap
+                        Operation::Flatten
+                            | Operation::JoinInner
+                            | Operation::JoinLeft
+                            | Operation::JoinRight
+                            | Operation::JoinFull
+                            | Operation::SideInputMap
                     ) && node.boundedness != upstream.boundedness
                     {
                         return Err(Error::graph(&node.key, "boundedness must propagate"));
@@ -884,6 +938,9 @@ impl Graph {
                             | Operation::Flatten
                             | Operation::GroupByKey
                             | Operation::JoinInner
+                            | Operation::JoinLeft
+                            | Operation::JoinRight
+                            | Operation::JoinFull
                             | Operation::SideInputMap
                             | Operation::GlobalCombine
                             | Operation::Output
@@ -905,7 +962,12 @@ impl Graph {
                     }
                     if matches!(
                         node.operation,
-                        Operation::Flatten | Operation::JoinInner | Operation::SideInputMap
+                        Operation::Flatten
+                            | Operation::JoinInner
+                            | Operation::JoinLeft
+                            | Operation::JoinRight
+                            | Operation::JoinFull
+                            | Operation::SideInputMap
                     ) {
                         let mut unbounded = upstream.boundedness == Boundedness::Unbounded;
                         for edge in &node.additional_inputs {
@@ -950,8 +1012,13 @@ impl Graph {
                                 "multi-input boundedness mismatch",
                             ));
                         }
-                        if matches!(node.operation, Operation::JoinInner)
-                            && expected == Boundedness::Unbounded
+                        if matches!(
+                            node.operation,
+                            Operation::JoinInner
+                                | Operation::JoinLeft
+                                | Operation::JoinRight
+                                | Operation::JoinFull
+                        ) && expected == Boundedness::Unbounded
                             && node.time.window == Window::Global
                         {
                             return Err(Error::graph(
@@ -1022,6 +1089,11 @@ impl Graph {
                     Some("group-by-key".to_string())
                 }
                 Operation::JoinInner if !capabilities.join_inner => Some("join-inner".to_string()),
+                Operation::JoinLeft | Operation::JoinRight | Operation::JoinFull
+                    if !capabilities.join_outer =>
+                {
+                    Some("join-outer".to_string())
+                }
                 Operation::SideInputMap if !capabilities.side_input_map => {
                     Some("side-input-map".to_string())
                 }
@@ -1220,6 +1292,9 @@ impl Pipeline {
             Operation::Flatten => ("ironbeam/flatten".into(), BUILTIN_OPERATION_VERSION),
             Operation::GroupByKey => ("ironbeam/group-by-key".into(), BUILTIN_OPERATION_VERSION),
             Operation::JoinInner => ("ironbeam/join-inner".into(), BUILTIN_OPERATION_VERSION),
+            Operation::JoinLeft => ("ironbeam/join-left".into(), BUILTIN_OPERATION_VERSION),
+            Operation::JoinRight => ("ironbeam/join-right".into(), BUILTIN_OPERATION_VERSION),
+            Operation::JoinFull => ("ironbeam/join-full".into(), BUILTIN_OPERATION_VERSION),
             Operation::SideInputMap => {
                 ("ironbeam/side-input-map".into(), BUILTIN_OPERATION_VERSION)
             }
@@ -1895,6 +1970,9 @@ impl<T: Element> PCollection<T> {
 
 type GroupBuffer<K, V> = Vec<(K, Vec<V>, i64, Window, Option<WindowInterval>)>;
 pub type Joined<K, V, W> = (K, (V, W));
+pub type LeftJoined<K, V, W> = (K, (V, Option<W>));
+pub type RightJoined<K, V, W> = (K, (Option<V>, W));
+pub type FullJoined<K, V, W> = (K, (Option<V>, Option<W>));
 
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     pub fn group_by_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error> {
@@ -1964,6 +2042,60 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     where
         V: Clone,
     {
+        self.join_named(key, right, Operation::JoinInner, |left, right| {
+            left.zip(right)
+        })
+    }
+
+    pub fn join_left_named<W: Element + Clone>(
+        &self,
+        key: &str,
+        right: &PCollection<(K, W)>,
+    ) -> Result<PCollection<LeftJoined<K, V, W>>, Error>
+    where
+        V: Clone,
+    {
+        self.join_named(key, right, Operation::JoinLeft, |left, right| {
+            left.map(|value| (value, right))
+        })
+    }
+
+    pub fn join_right_named<W: Element + Clone>(
+        &self,
+        key: &str,
+        right: &PCollection<(K, W)>,
+    ) -> Result<PCollection<RightJoined<K, V, W>>, Error>
+    where
+        V: Clone,
+    {
+        self.join_named(key, right, Operation::JoinRight, |left, right| {
+            right.map(|value| (left, value))
+        })
+    }
+
+    pub fn join_full_named<W: Element + Clone>(
+        &self,
+        key: &str,
+        right: &PCollection<(K, W)>,
+    ) -> Result<PCollection<FullJoined<K, V, W>>, Error>
+    where
+        V: Clone,
+    {
+        self.join_named(key, right, Operation::JoinFull, |left, right| {
+            Some((left, right))
+        })
+    }
+
+    fn join_named<W: Element + Clone, O: Element>(
+        &self,
+        key: &str,
+        right: &PCollection<(K, W)>,
+        operation: Operation,
+        emit: impl Fn(Option<V>, Option<W>) -> Option<O> + Send + Sync + 'static,
+    ) -> Result<PCollection<(K, O)>, Error>
+    where
+        V: Clone,
+    {
         if !Arc::ptr_eq(&self.pipeline.inner, &right.pipeline.inner) {
             return Err(Error::graph(
                 key,
@@ -1991,12 +2123,24 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             let [left, right]: [Vec<Envelope>; 2] = inputs
                 .try_into()
                 .map_err(|_| Error::execution(&key_owned, "direct", "join requires two inputs"))?;
-            let mut index: HashMap<K, Vec<V>> = HashMap::new();
+            let mut index: HashMap<K, Vec<usize>> = HashMap::new();
+            let mut left_rows = Vec::with_capacity(left.len());
             for event in left {
-                let (key, value) = *event.value.downcast::<(K, V)>().map_err(|_| {
+                let (row_key, value) = *event.value.downcast::<(K, V)>().map_err(|_| {
                     Error::execution(&key_owned, "direct", "left join type mismatch")
                 })?;
-                index.entry(key).or_default().push(value);
+                index
+                    .entry(row_key.clone())
+                    .or_default()
+                    .push(left_rows.len());
+                left_rows.push((
+                    row_key,
+                    value,
+                    event.timestamp_ns,
+                    event.window,
+                    event.assigned_window,
+                    false,
+                ));
             }
             let mut output = Vec::new();
             for event in right {
@@ -2006,25 +2150,46 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     window,
                     assigned_window,
                 } = event;
-                let (key, value) = *value.downcast::<(K, W)>().map_err(|_| {
+                let (row_key, value) = *value.downcast::<(K, W)>().map_err(|_| {
                     Error::execution(&key_owned, "direct", "right join type mismatch")
                 })?;
-                if let Some(matches) = index.get(&key) {
-                    for left_value in matches {
-                        output.push(Envelope {
-                            value: Box::new((key.clone(), (left_value.clone(), value.clone()))),
-                            timestamp_ns,
-                            window: window.clone(),
-                            assigned_window,
-                        });
+                if let Some(matches) = index.get(&row_key) {
+                    for &position in matches {
+                        let (_, left_value, _, _, _, matched) = &mut left_rows[position];
+                        *matched = true;
+                        if let Some(pair) = emit(Some(left_value.clone()), Some(value.clone())) {
+                            output.push(Envelope {
+                                value: Box::new((row_key.clone(), pair)),
+                                timestamp_ns,
+                                window: window.clone(),
+                                assigned_window,
+                            });
+                        }
                     }
+                } else if let Some(pair) = emit(None, Some(value)) {
+                    output.push(Envelope {
+                        value: Box::new((row_key, pair)),
+                        timestamp_ns,
+                        window,
+                        assigned_window,
+                    });
+                }
+            }
+            for (row_key, value, timestamp_ns, window, assigned_window, matched) in left_rows {
+                if !matched && let Some(pair) = emit(Some(value), None) {
+                    output.push(Envelope {
+                        value: Box::new((row_key, pair)),
+                        timestamp_ns,
+                        window,
+                        assigned_window,
+                    });
                 }
             }
             Ok(output)
         });
         self.next_aggregate(
             key,
-            Operation::JoinInner,
+            operation,
             vec![InputEdge {
                 key: right.key.clone(),
                 element: ElementDescriptor {

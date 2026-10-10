@@ -60,6 +60,23 @@ fn composite_coders_are_typed_and_reject_truncated_payloads() {
 }
 
 #[test]
+fn option_coder_has_distinct_none_and_some_values() {
+    assert_eq!(Option::<i32>::decode(&[0]).unwrap(), None);
+    assert_eq!(
+        Option::<i32>::decode(&Some(7).encode().unwrap()).unwrap(),
+        Some(7)
+    );
+    assert_eq!(
+        Option::<i32>::decode(&[0, 1]).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    assert_eq!(
+        Option::<i32>::decode(&[2]).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+}
+
+#[test]
 fn filter_registry_and_duplicate_sink_failures_are_explicit() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

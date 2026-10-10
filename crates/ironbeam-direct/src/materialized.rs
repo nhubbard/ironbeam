@@ -128,6 +128,9 @@ fn eval(
         }
         Operation::GroupByKey
         | Operation::JoinInner
+        | Operation::JoinLeft
+        | Operation::JoinRight
+        | Operation::JoinFull
         | Operation::SideInputMap
         | Operation::GlobalCombine => {
             let mut inputs = vec![first];

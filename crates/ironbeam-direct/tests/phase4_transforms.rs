@@ -72,6 +72,82 @@ fn grouping_join_and_combine_execute_from_typed_graph() {
 }
 
 #[test]
+fn outer_joins_preserve_duplicates_and_missing_sides() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec(
+            "left-outer",
+            vec![(1_i32, "a".to_string()), (1, "b".into()), (2, "c".into())],
+        )
+        .unwrap();
+    let right = pipeline
+        .from_vec("right-outer", vec![(1_i32, 10_i32), (1, 20), (3, 30)])
+        .unwrap();
+    let left_out = left
+        .join_left_named("left-join", &right)
+        .unwrap()
+        .output("left-result")
+        .unwrap();
+    let right_out = left
+        .join_right_named("right-join", &right)
+        .unwrap()
+        .output("right-result")
+        .unwrap();
+    let full_out = left
+        .join_full_named("full-join", &right)
+        .unwrap()
+        .output("full-result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph
+            .validate_for("preview", &Capabilities::default())
+            .unwrap_err()
+            .kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "join-outer".into()
+        }
+    );
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&left_out, &config).unwrap().0,
+            vec![
+                (1, ("a".into(), Some(10))),
+                (1, ("b".into(), Some(10))),
+                (1, ("a".into(), Some(20))),
+                (1, ("b".into(), Some(20))),
+                (2, ("c".into(), None))
+            ]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&right_out, &config).unwrap().0,
+            vec![
+                (1, (Some("a".into()), 10)),
+                (1, (Some("b".into()), 10)),
+                (1, (Some("a".into()), 20)),
+                (1, (Some("b".into()), 20)),
+                (3, (None, 30))
+            ]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&full_out, &config).unwrap().0,
+            vec![
+                (1, (Some("a".into()), Some(10))),
+                (1, (Some("b".into()), Some(10))),
+                (1, (Some("a".into()), Some(20))),
+                (1, (Some("b".into()), Some(20))),
+                (3, (None, Some(30))),
+                (2, (Some("c".into()), None))
+            ]
+        );
+    }
+}
+
+#[test]
 fn aggregate_checkpoint_and_marker_are_rejected_before_source() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

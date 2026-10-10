@@ -49,6 +49,9 @@ pub(crate) fn lower(
                 node.operation,
                 Operation::GroupByKey
                     | Operation::JoinInner
+                    | Operation::JoinLeft
+                    | Operation::JoinRight
+                    | Operation::JoinFull
                     | Operation::SideInputMap
                     | Operation::GlobalCombine
             )

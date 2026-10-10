@@ -21,7 +21,7 @@ remains available until every required family is closed.
 | `display` | transforms | Present | Display mapping passes Direct tests. |
 | `flatten` | core | Present | Fan-in graph and Direct tests exist. |
 | `combine`, `combine_global` | core, direct | Partial | Global combine graph and Direct execution exist; typed incremental combiners and lifted planning remain. |
-| `joins`, `co_gbk` | core, direct | Partial | Inner join exists; outer joins and multi-way co-group remain. |
+| `joins`, `co_gbk` | core, direct | Partial | Inner, left, right, and full joins execute on Direct with duplicate and missing-key coverage. Multi-way co-group and window-scoped joining remain. |
 | `side_inputs` | core, transforms, direct | Partial | Bounded collection side input and v4-style immutable vector, singleton, map, and multimap helpers exist. Dynamic singleton/map/multimap materialization and resource policy remain. |
 | `latest`, `timestamped`, `tumbling`, `windowed_combine` | core, transforms, direct | Pending | Event-time assignment and window execution need a shared contract; Direct currently rejects fixed-window execution. |
 | `sampling` | transforms | Present for values | Eight seeded/default global and per-key methods use v4's priority sequence; bounded-memory aggregation and parallel performance remain to verify. |
@@ -47,6 +47,6 @@ remains available until every required family is closed.
 4. Check the package alone and through the v5 facade, including its feature
    gate, docs, and coverage. Keep large optional dependencies out of core.
 
-The next implementation tranche is typed error/side-output semantics and
-windowed execution, followed by the remaining optional formats and connector
-infrastructure. Those contracts unlock several pending families at once.
+The next implementation tranche is windowed execution, multi-way co-group,
+and physical scheduling helpers. Optional connectors and I/O shard planning
+remain separate parity gates.

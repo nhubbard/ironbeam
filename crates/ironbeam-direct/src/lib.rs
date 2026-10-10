@@ -168,6 +168,7 @@ impl DirectRunner {
                 flatten: true,
                 group_by_key: true,
                 join_inner: true,
+                join_outer: true,
                 side_input_map: true,
                 global_combine: true,
                 append_sink: true,
@@ -184,6 +185,9 @@ impl DirectRunner {
                 | Operation::Flatten
                 | Operation::GroupByKey
                 | Operation::JoinInner
+                | Operation::JoinLeft
+                | Operation::JoinRight
+                | Operation::JoinFull
                 | Operation::SideInputMap
                 | Operation::GlobalCombine
                 | Operation::Output => None,
@@ -444,6 +448,9 @@ fn ensure_aggregates(
             node.operation,
             Operation::GroupByKey
                 | Operation::JoinInner
+                | Operation::JoinLeft
+                | Operation::JoinRight
+                | Operation::JoinFull
                 | Operation::SideInputMap
                 | Operation::GlobalCombine
         ) && !registry.has_aggregate(key)
