@@ -8,5 +8,15 @@
     "source": "crates/ironbeam-runner-contract-tests/src",
     "lines": { "covered": 47, "count": 54 },
     "branches": { "covered": 4, "count": 4 }
+  },
+  "ironbeam-core": {
+    "source": "crates/ironbeam-core/src",
+    "lines": { "covered": 464, "count": 534 },
+    "branches": { "covered": 73, "count": 94 }
+  },
+  "ironbeam-direct": {
+    "source": "crates/ironbeam-direct/src",
+    "lines": { "covered": 133, "count": 152 },
+    "branches": { "covered": 10, "count": 18 }
   }
 }

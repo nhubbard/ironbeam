@@ -59,6 +59,10 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
+          cargo clippy -p ironbeam-core -p ironbeam-direct --all-targets -- \
+            -W clippy::pedantic \
+            -W clippy::nursery \
+            -D warnings
 
   feature-matrix:
     name: Feature Matrix
@@ -111,6 +115,8 @@ jobs:
           cargo build -p ironbeam
           cargo build -p ironbeam --all-features
           cargo build -p ironbeam-runner-contract-tests
+          cargo build -p ironbeam-core
+          cargo build -p ironbeam-direct
 
       # With the I/O features off, the always-present API must fail at runtime.
       - name: Verify disabled-feature runtime stubs
@@ -213,6 +219,31 @@ jobs:
           cargo llvm-cov -p ironbeam-runner-contract-tests --branch --json --summary-only \
             --output-path coverage-contract.json
           python3 scripts/check_coverage.py ironbeam-runner-contract-tests coverage-contract.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+  v5-coverage:
+    name: V5 Package Coverage (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [ironbeam-core, ironbeam-direct]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --component llvm-tools-preview --no-self-update
+          rustup default nightly
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+      - name: Test and measure package independently
+        run: |
+          cargo test -p "${{ matrix.package }}"
+          cargo llvm-cov -p "${{ matrix.package }}" --branch --json --summary-only \
+            --output-path coverage-v5.json
+          python3 scripts/check_coverage.py "${{ matrix.package }}" coverage-v5.json | tee -a "$GITHUB_STEP_SUMMARY"
 
   service-tests:
     name: Docker Service Tests (manual)

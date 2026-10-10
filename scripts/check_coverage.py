@@ -21,6 +21,10 @@ DIRECT_HELPERS = {"collect_sorted.rs", "reshuffle.rs", "tee.rs", "wait_on.rs"}
 
 
 def area_for(package: str, relative: Path) -> str:
+    if package == "ironbeam-core":
+        return "logical-graph"
+    if package == "ironbeam-direct":
+        return "direct-runner"
     if package == "ironbeam-runner-contract-tests":
         return "integration-contract"
     parts = relative.parts
