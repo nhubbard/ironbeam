@@ -266,6 +266,15 @@ fn xml_contract() {
         |p, k, f| xml_source(p, k, f),
     );
 }
+#[cfg(feature = "xml")]
+#[test]
+fn xml_streaming_spelling_uses_one_whole_file_shard() {
+    round_trip(
+        "xml",
+        |i, k, p| xml_sink(i, k, p),
+        |p, k, f| xml_streaming_source(p, k, f, 1),
+    );
+}
 #[cfg(feature = "avro")]
 const ROW_AVRO_SCHEMA: &str = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}"#;
 #[cfg(feature = "avro")]

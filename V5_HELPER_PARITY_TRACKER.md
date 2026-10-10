@@ -30,7 +30,7 @@ remains available until every required family is closed.
 | `collect_sorted` | direct | Present | Sequential/parallel sorted collection and stable keyed sorting exist. |
 | `log_elements` | transforms/direct | Present for Direct debug use | Formatted/default passthroughs print at node execution. Like v4, retries or re-execution can repeat output; this is a debug aid. |
 | `dead_letter`, `try_process`, `validation` | core, transforms, direct | Present for bounded Direct values | Fallible transforms, fail-fast collection, validation modes, and dead-letter branches exist. Direct can collect both classification arms in one run; collecting branch outputs separately still reruns the shared source. |
-| `jsonl`, `csv`, `xml`, `avro`, `parquet` | I/O | Partial | Bounded sources and deferred sinks work; JSONL, CSV, Avro, and Parquet have lazy bounded readers. XML lazy reading, shard planning, and parallel writers remain. |
+| `jsonl`, `csv`, `xml`, `avro`, `parquet` | I/O | Partial | Bounded sources and deferred sinks work; JSONL, CSV, Avro, and Parquet have lazy bounded readers. XML retains v4's single whole-file shard semantics. Shard planning and parallel writers remain. |
 | `cbor`, `msgpack`, `protobuf`, `tfrecord` | optional I/O | Partial | Bounded source/sink adapters and format tests pass; shard/lazy readers, parallel writers, and compression need parity checks. |
 | `arrow_ipc` | optional I/O | Partial | Bounded row and record-batch sources/sinks plus lazy readers exist; shard planning and parallel writers remain. |
 | `sql`, `mongodb`, `cloud` | optional I/O | Pending | Specify source splits, credentials, retries, and sink commit/replay before adding clients. |

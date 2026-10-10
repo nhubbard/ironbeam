@@ -352,6 +352,18 @@ pub fn xml_source<T: Element + DeserializeOwned>(
     source(pipeline, key, path, "xml", read_xml::<T>)
 }
 #[cfg(feature = "xml")]
+/// V4-compatible bounded XML source. XML uses one whole-file shard; the
+/// shard-size hint is accepted for migration compatibility.
+pub fn xml_streaming_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    records_per_shard: usize,
+) -> Result<PCollection<T>, Error> {
+    let _ = records_per_shard;
+    xml_source(pipeline, key, path)
+}
+#[cfg(feature = "xml")]
 pub fn xml_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
