@@ -37,6 +37,8 @@ Every v5 node needs a stable, unique key. Transform construction returns `Result
 | `.map(f)`, `.filter(f)`, `.flat_map(f)` | `.map_named(key, f)`, `.filter_named(key, f)`, `.flat_map_named(key, f)` | Values, keys, and graph errors are explicit. |
 | `.key_by(f)`, `.group_by_key()` | `ElementwiseExt::key_by_named(key, f)`, `PCollection::group_by_key_named(key)` | Import `ironbeam_transforms::ElementwiseExt` for `key_by_named`. |
 | `.count_globally()`, `.distinct()`, `.sum_globally()` and related helpers | `ElementwiseExt` / `KeyedExt` methods such as `.count_globally_named(key)` | Import the extension traits from `ironbeam_compat::prelude` or `ironbeam_transforms`. |
+| Predicate filters, regex, top/bottom K, set/dictionary, and fallible map helpers | `PredicateExt`, `RegexExt`, `SelectionExt`, `KeyedSelectionExt`, `CollectionExt`, `KeyedCollectionExt`, `TryProcessExt` | Each graph node needs a stable key; invalid regex patterns now return a typed graph error. |
+| `collect_seq_sorted`, `collect_par_sorted`, `to_hashmap`, `collect_fail_fast` | `DirectSortedExt`, `DirectKeyedCollectExt`, `DirectFallibleExt` | Direct-only terminals take an output key and can accept `JobConfig`; fallible errors become typed execution errors. |
 | Joins, flatten, combines, side inputs | Corresponding `*_named` graph operations | Keys, finite-input requirements, and backend capabilities are checked at construction/validation. Consult `PHASE4_TRANSFORMS_IO.md`. |
 | `.collect_seq()`, `.collect_par(Some(threads), Some(partitions))` | `.output(key)?.collect_seq()`, `.output(key)?.collect_par(parallelism)` | Import `DirectCollectExt`; collection happens through an explicit output and `DirectRunner`. |
 | Immediate `.write_jsonl(path)` and similar methods | `ironbeam_io::jsonl_sink(&input, key, path)?`, then `DirectRunner.run_sink(&sink, &config)` | Sink construction is deferred; `FinalResult` files publish after job success. No immediate row count is returned. |
@@ -57,7 +59,8 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 | v4 feature | v5 status |
 | --- | --- |
 | `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | `ironbeam-io` features `jsonl`, `csv`, `parquet`, `avro`, `xml`; the current facade forwards these only with `v5-preview`. |
-| `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord`, `io-arrow`, `io-sql`, `io-mongodb` | v4 only; no v5 connector claim. |
+| `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | v5 bounded source/sink adapters are available under corresponding `ironbeam-io` features; shard/lazy reader, parallel writer, and compression parity is still tracked. |
+| `io-arrow`, `io-sql`, `io-mongodb` | v4 only; no v5 connector claim yet. |
 | `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | v4 only; no v5 I/O codec feature yet. |
 | `parallel-io` | v4 only; v5 Direct uses per-job parallelism. |
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |
