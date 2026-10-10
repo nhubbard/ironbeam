@@ -92,6 +92,38 @@ fn higher_arity_tuple_coders_round_trip_and_check_truncation() {
 }
 
 #[test]
+fn offset_windows_and_interval_coder_handle_signed_time() {
+    let window = Window::FixedOffset {
+        size_ns: 10,
+        offset_ns: 3,
+    };
+    let interval = window.assign(-1).unwrap().unwrap();
+    assert_eq!(
+        interval,
+        WindowInterval {
+            start_ns: -7,
+            end_ns: 3
+        }
+    );
+    assert_eq!(
+        WindowInterval::decode(&interval.encode().unwrap()).unwrap(),
+        interval
+    );
+    assert_eq!(
+        WindowInterval::decode(&[0]).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    assert!(
+        Window::FixedOffset {
+            size_ns: 10,
+            offset_ns: i64::MAX
+        }
+        .assign(i64::MIN)
+        .is_err()
+    );
+}
+
+#[test]
 fn filter_registry_and_duplicate_sink_failures_are_explicit() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

@@ -48,6 +48,7 @@ Every v5 node needs a stable, unique key. Transform construction returns `Result
 | `join_inner`, `join_left`, `join_right`, `join_full` | `PCollection::join_*_named(key, &right)` | Direct preserves duplicate matches and emits `Option` for missing outer sides. The v5 `Option<T>` coder has a stable tagged representation. Bounded fixed-window joins match by key and assigned window. |
 | Timestamp and fixed-window helpers | `assign_timestamps_named(key, f)` then `fixed_windows(key, size_ns)` | Timestamps live in envelope metadata. Direct groups, joins, and combines separately per bounded fixed window; assign timestamps before windowing. Watermarks, triggers, and unbounded execution remain separate work. |
 | `latest_globally`, `latest_per_key` | `latest_globally_named(key)`, `latest_per_key_named(key)` | Selects the maximum envelope event timestamp per global or fixed window, with first-seen ties. Empty global input returns a typed execution error. |
+| `combine_per_window` and numeric/windowed keyed variants | `combine_per_window_named`, `combine_per_key_and_window_named` in core; `WindowedExt` and `KeyedWindowedExt` for sum/count/min/max/average | Windows use signed nanoseconds and `WindowInterval` values with a stable coder. Offset windows are supported. Each convenience helper expands into stable keyed graph nodes and executes on bounded Direct. |
 | `cogroup_by_key!` for two through ten keyed inputs | `cogroup_by_key_named!(key, inputs...)` or the corresponding `cogroup_by_key_N_named` function | Returns one tuple of value vectors per key and assigned window. V5 adds a stable key, typed construction errors, and tuple coders through arity ten. Direct currently materializes every input. |
 | `read_arrow_ipc`, `write_arrow_ipc_rows`, batch variants | `arrow_ipc_source`, `arrow_ipc_sink`, `arrow_ipc_batches_source`, `arrow_ipc_batches_sink` behind `io-arrow` | V5 supports bounded row and batch files with deferred transactional sinks. Lazy shard and parallel writer APIs remain pending. |
 | `ironbeam::testing` assertions, builders, fixtures, mock files, and debug helpers | `ironbeam-testing` package | Test utilities are isolated from production core. Its debug count runs as a Direct terminal; graph inspection and sampling are passthrough transforms. The package stays local while parity and release gates are reviewed. |
@@ -62,7 +63,7 @@ Every v5 node needs a stable, unique key. Transform construction returns `Result
 | `write_avro_with_schema(path, schema)` | `avro_sink(&input, key, path, schema)` | v5 writes native Avro records; `avro_source` reads native containers. `avro_json_*` handles earlier v5 preview wrappers. |
 | v4 custom `DynOp` and local `NodeId` | Registered v5 semantic operation and stable graph key | Compiled v4 closures and node IDs cannot be imported into a v5 graph. |
 
-The full v4 public method inventory, including helpers that have no v5 equivalent yet, is in `V5_PHASE0_API_INVENTORY.md`. In particular, v4 `read_*_streaming` describes lazy **bounded** file reads, not an unbounded event stream. MongoDB, SQL, TFRecord, Arrow IPC, and the other optional v4 connectors are not v5 I/O backends yet. Keep those workloads on v4 or hand off finite materialized data.
+The full v4 public method inventory, including helpers that have no v5 equivalent yet, is in `V5_PHASE0_API_INVENTORY.md`. In particular, v4 `read_*_streaming` describes lazy **bounded** file reads, not an unbounded event stream. MongoDB, SQL, and cloud connectors remain v4-only; TFRecord and Arrow IPC have bounded v5 adapters. Keep unsupported connector workloads on v4 or hand off finite materialized data.
 
 ## Materialized data handoff
 
@@ -75,8 +76,8 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 | v4 feature | v5 status |
 | --- | --- |
 | `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | `ironbeam-io` features `jsonl`, `csv`, `parquet`, `avro`, `xml`; the current facade forwards these only with `v5-preview`. |
-| `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | v5 bounded source/sink adapters are available under corresponding `ironbeam-io` features; shard/lazy reader, parallel writer, and compression parity is still tracked. |
-| `io-arrow`, `io-sql`, `io-mongodb` | v4 only; no v5 connector claim yet. |
+| `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | v5 bounded source/sink adapters and lazy readers are available under corresponding `ironbeam-io` features; shard planning, parallel writers, and compression parity are still tracked. |
+| `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC has bounded row and batch v5 adapters; SQL and MongoDB remain v4-only. |
 | `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | v4 only; no v5 I/O codec feature yet. |
 | `parallel-io` | v4 only; v5 Direct uses per-job parallelism. |
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |

@@ -506,6 +506,7 @@ pub enum Boundedness {
 pub enum Window {
     Global,
     Fixed { size_ns: i64 },
+    FixedOffset { size_ns: i64, offset_ns: i64 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -530,8 +531,54 @@ impl Window {
                     .ok_or_else(|| Error::graph("time", "window end overflows i64 nanoseconds"))?;
                 Ok(Some(WindowInterval { start_ns, end_ns }))
             }
+            Self::FixedOffset { size_ns, offset_ns } if size_ns > 0 => {
+                let size = i128::from(size_ns);
+                let offset = i128::from(offset_ns);
+                let start = (i128::from(timestamp_ns) - offset).div_euclid(size) * size + offset;
+                let end = start + size;
+                let start_ns = i64::try_from(start)
+                    .map_err(|_| Error::graph("time", "window start overflows i64 nanoseconds"))?;
+                let end_ns = i64::try_from(end)
+                    .map_err(|_| Error::graph("time", "window end overflows i64 nanoseconds"))?;
+                Ok(Some(WindowInterval { start_ns, end_ns }))
+            }
             Self::Fixed { .. } => Err(Error::graph("time", "fixed window size must be positive")),
+            Self::FixedOffset { .. } => {
+                Err(Error::graph("time", "fixed window size must be positive"))
+            }
         }
+    }
+}
+
+impl Element for WindowInterval {
+    const TYPE_ID: &'static str = "ironbeam/window-interval";
+    const CODER_ID: &'static str = "ironbeam/window-interval-i64-le";
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        let mut bytes = self.start_ns.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&self.end_ns.to_le_bytes());
+        Ok(bytes)
+    }
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() != 16 {
+            return Err(Error::incompatible("window interval requires 16 bytes"));
+        }
+        let start_ns = i64::from_le_bytes(
+            bytes[..8]
+                .try_into()
+                .map_err(|_| Error::incompatible("invalid window start"))?,
+        );
+        let end_ns = i64::from_le_bytes(
+            bytes[8..]
+                .try_into()
+                .map_err(|_| Error::incompatible("invalid window end"))?,
+        );
+        if end_ns <= start_ns {
+            return Err(Error::incompatible("window end must follow start"));
+        }
+        Ok(Self { start_ns, end_ns })
     }
 }
 
@@ -871,14 +918,18 @@ impl Graph {
                     node.key
                 )));
             }
-            if matches!(node.time.window, Window::Fixed { size_ns } if size_ns <= 0) {
+            if matches!(node.time.window, Window::Fixed { size_ns } | Window::FixedOffset { size_ns, .. } if size_ns <= 0)
+            {
                 return Err(Error::graph(
                     &node.key,
                     "fixed window size must be positive",
                 ));
             }
             if matches!(node.operation, Operation::FixedWindow)
-                && !matches!(node.time.window, Window::Fixed { .. })
+                && !matches!(
+                    node.time.window,
+                    Window::Fixed { .. } | Window::FixedOffset { .. }
+                )
             {
                 return Err(Error::graph(
                     &node.key,
@@ -1832,6 +1883,53 @@ impl<T: Element> PCollection<T> {
         });
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
+    pub fn fixed_windows_with_offset(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+    ) -> Result<Self, Error> {
+        if size_ns <= 0 {
+            return Err(Error::graph(key, "fixed window size must be positive"));
+        }
+        let window = Window::FixedOffset { size_ns, offset_ns };
+        let runtime_window = window.clone();
+        let transform: Transform = Arc::new(move |mut event| {
+            event.assigned_window = runtime_window.assign(event.timestamp_ns)?;
+            event.window = runtime_window.clone();
+            Ok(vec![event])
+        });
+        self.next(key, Operation::FixedWindow, Some(transform), Some(window))
+    }
+    pub fn with_window_named(&self, key: &str) -> Result<PCollection<(WindowInterval, T)>, Error> {
+        if self.parent()?.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "window metadata requires a finite window",
+            ));
+        }
+        let node_key = key.to_owned();
+        let transform: Transform = Arc::new(move |event| {
+            let Envelope {
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let interval = assigned_window
+                .ok_or_else(|| Error::execution(&node_key, "direct", "window interval missing"))?;
+            let value = *value
+                .downcast::<T>()
+                .map_err(|_| Error::execution(&node_key, "direct", "window input type mismatch"))?;
+            Ok(vec![Envelope {
+                value: Box::new((interval, value)),
+                timestamp_ns,
+                window,
+                assigned_window,
+            }])
+        });
+        self.next(key, Operation::Map, Some(transform), None)
+    }
     pub fn assign_timestamps_named(
         &self,
         key: &str,
@@ -2040,6 +2138,17 @@ impl<T: Element> PCollection<T> {
             aggregate,
         )
     }
+    pub fn combine_per_window_named<U: Element>(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+        f: impl Fn(Vec<T>) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<(WindowInterval, U)>, Error> {
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_globally_named(&format!("{key}/combine"), f)?
+            .with_window_named(key)
+    }
     pub fn map_with_side_named<S: Element, U: Element>(
         &self,
         key: &str,
@@ -2117,6 +2226,7 @@ pub type Joined<K, V, W> = (K, (V, W));
 pub type LeftJoined<K, V, W> = (K, (V, Option<W>));
 pub type RightJoined<K, V, W> = (K, (Option<V>, W));
 pub type FullJoined<K, V, W> = (K, (Option<V>, Option<W>));
+pub type KeyedWindowed<K, V> = ((K, WindowInterval), V);
 
 macro_rules! collect_cogroup_input {
     ($inputs:ident, $rows:ident, $indices:ident, $ty:ident, $position:tt, $empty:expr, $node_key:ident) => {
@@ -2255,6 +2365,23 @@ macro_rules! cogroup_by_key_named {
 }
 
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
+    pub fn combine_per_key_and_window_named<U: Element>(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+        f: impl Fn(Vec<V>) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<KeyedWindowed<K, U>>, Error> {
+        let grouped = self
+            .fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .group_by_key_named(&format!("{key}/group"))?;
+        grouped
+            .map_named(&format!("{key}/combine"), move |(key, values)| {
+                (key, f(values))
+            })?
+            .with_window_named(&format!("{key}/tag"))?
+            .map_named(key, |(window, (key, value))| ((key, window), value))
+    }
     pub fn latest_per_key_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {

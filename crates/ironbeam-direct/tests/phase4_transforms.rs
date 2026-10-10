@@ -386,6 +386,101 @@ fn latest_uses_event_time_globally_per_key_and_per_window() {
 }
 
 #[test]
+fn windowed_combine_helpers_emit_explicit_offset_intervals() {
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec("window-helper-source", vec![-1_i32, 1, 4, 13])
+        .unwrap()
+        .assign_timestamps_named("window-helper-time", |value| i64::from(*value))
+        .unwrap();
+    let global = input
+        .combine_per_window_named("window-helper-global", 10, 3, |values| {
+            values.into_iter().sum::<i32>()
+        })
+        .unwrap()
+        .output("window-helper-global-out")
+        .unwrap();
+    let keyed = input
+        .map_named("window-helper-key", |value| (value.rem_euclid(2), value))
+        .unwrap()
+        .combine_per_key_and_window_named("window-helper-keyed", 10, 3, |values| {
+            values.into_iter().sum::<i32>()
+        })
+        .unwrap()
+        .output("window-helper-keyed-out")
+        .unwrap();
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        let global_rows = DirectRunner.run_collect(&global, &config).unwrap().0;
+        assert_eq!(
+            global_rows,
+            vec![
+                (
+                    ironbeam_core::WindowInterval {
+                        start_ns: -7,
+                        end_ns: 3
+                    },
+                    0
+                ),
+                (
+                    ironbeam_core::WindowInterval {
+                        start_ns: 3,
+                        end_ns: 13
+                    },
+                    4
+                ),
+                (
+                    ironbeam_core::WindowInterval {
+                        start_ns: 13,
+                        end_ns: 23
+                    },
+                    13
+                )
+            ]
+        );
+        let keyed_rows = DirectRunner.run_collect(&keyed, &config).unwrap().0;
+        assert_eq!(
+            keyed_rows,
+            vec![
+                (
+                    (
+                        1,
+                        ironbeam_core::WindowInterval {
+                            start_ns: -7,
+                            end_ns: 3
+                        }
+                    ),
+                    0
+                ),
+                (
+                    (
+                        0,
+                        ironbeam_core::WindowInterval {
+                            start_ns: 3,
+                            end_ns: 13
+                        }
+                    ),
+                    4
+                ),
+                (
+                    (
+                        1,
+                        ironbeam_core::WindowInterval {
+                            start_ns: 13,
+                            end_ns: 23
+                        }
+                    ),
+                    13
+                )
+            ]
+        );
+    }
+}
+
+#[test]
 fn aggregate_checkpoint_and_marker_are_rejected_before_source() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();
