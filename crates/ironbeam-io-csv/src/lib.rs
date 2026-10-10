@@ -18,7 +18,29 @@ fn read_csv<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
         .collect()
 }
 
+fn require_named_header<T: Serialize>(values: &[T]) -> Result<(), Error> {
+    let Some(first) = values.first() else {
+        return Ok(());
+    };
+    let mut auto = csv::Writer::from_writer(Vec::new());
+    auto.serialize(first).map_err(|e| io("csv", e))?;
+    let auto = auto.into_inner().map_err(|e| io("csv", e))?;
+    let mut bare = csv::WriterBuilder::new()
+        .has_headers(false)
+        .from_writer(Vec::new());
+    bare.serialize(first).map_err(|e| io("csv", e))?;
+    let bare = bare.into_inner().map_err(|e| io("csv", e))?;
+    if auto == bare {
+        return Err(io(
+            "csv",
+            "CSV sink requires records with named fields; scalar or tuple values have no header",
+        ));
+    }
+    Ok(())
+}
+
 fn write_csv<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
+    require_named_header(values)?;
     let mut writer = csv::Writer::from_writer(open_encoded_output(path, "csv")?);
     for value in values {
         writer.serialize(value).map_err(|e| io("csv", e))?;
@@ -109,6 +131,8 @@ pub fn csv_sharded_source<T: Element + DeserializeOwned>(
     )
 }
 
+/// Write named records with a header at successful job commit.
+/// Scalar and tuple rows return an error instead of losing their first value.
 pub fn csv_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -119,6 +143,9 @@ pub fn csv_sink<T: Element + Serialize>(
 
 #[cfg(feature = "parallel-io")]
 fn write_csv_fragment<T: Serialize>(path: &Path, values: &[T], first: bool) -> Result<(), Error> {
+    if first {
+        require_named_header(values)?;
+    }
     let file = std::fs::File::create(path).map_err(|e| io("csv", e))?;
     let mut writer = csv::WriterBuilder::new()
         .has_headers(first)
@@ -130,7 +157,7 @@ fn write_csv_fragment<T: Serialize>(path: &Path, values: &[T], first: bool) -> R
 }
 
 #[cfg(feature = "parallel-io")]
-/// Serialize contiguous shards concurrently with one CSV header and ordered rows.
+/// Serialize named records concurrently with one CSV header and ordered rows.
 pub fn csv_parallel_sink<T: Element + Serialize + Sync>(
     input: &PCollection<T>,
     key: &str,

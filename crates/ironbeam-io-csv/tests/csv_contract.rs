@@ -129,6 +129,46 @@ fn csv_source_rejects_changes_after_graph_construction() {
     );
 }
 
+#[test]
+fn csv_sink_rejects_unnamed_values_without_replacing_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rows.csv");
+    std::fs::write(&path, b"existing output\n").unwrap();
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![1_i32, 2]).unwrap();
+    let sink = csv_sink(&input, "sink", &path).unwrap();
+    assert!(DirectRunner.run_sink(&sink, &JobConfig::default()).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"existing output\n");
+}
+
+#[test]
+fn csv_sink_writes_an_empty_collection() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("empty.csv");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", Vec::<Row>::new()).unwrap();
+    let sink = csv_sink(&input, "sink", &path).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), b"");
+    assert_eq!(
+        collect(|p| csv_source(p, "source", &path).unwrap()),
+        Vec::<Row>::new()
+    );
+}
+
+#[cfg(feature = "parallel-io")]
+#[test]
+fn csv_parallel_sink_rejects_unnamed_values_without_replacing_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rows.csv");
+    std::fs::write(&path, b"existing output\n").unwrap();
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![1_i32, 2]).unwrap();
+    let sink = csv_parallel_sink(&input, "sink", &path, 2).unwrap();
+    assert!(DirectRunner.run_sink(&sink, &JobConfig::default()).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"existing output\n");
+}
+
 #[cfg(feature = "compression-gzip")]
 #[test]
 fn csv_gzip_round_trips_through_eager_lazy_and_sharded_sources() {
