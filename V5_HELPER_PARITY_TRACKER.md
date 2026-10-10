@@ -24,7 +24,8 @@ remains available until every required family is closed.
 | `joins`, `co_gbk` | core, direct | Partial | Inner join exists; outer joins and multi-way co-group remain. |
 | `side_inputs` | core, direct | Partial | Bounded map-with-side exists; singleton/map/multimap variants and materialization policy remain. |
 | `latest`, `timestamped`, `tumbling`, `windowed_combine` | core, transforms, direct | Pending | Event-time assignment and window execution need a shared contract; Direct currently rejects fixed-window execution. |
-| `sampling`, `statistical` | transforms | Pending | Specify deterministic seeds, approximation/error bounds, and finite-input behavior. |
+| `sampling` | transforms | Present for values | Eight seeded/default global and per-key methods use v4's priority sequence; bounded-memory aggregation and parallel performance remain to verify. |
+| `statistical` | transforms | Pending | Specify approximation/error bounds and finite-input behavior. |
 | `batches`, `reshuffle`, `tee`, `wait_on` | direct | Pending | Specify scheduling, ordering, buffer limits, and dependency semantics. |
 | `collect_sorted` | direct | Partial | Sequential/parallel sorted collection exists; custom sort-by-key remains. |
 | `log_elements` | transforms/direct | Pending | Define observation timing and side-effect guarantees. |

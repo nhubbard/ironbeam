@@ -36,6 +36,8 @@ mod regex_helpers;
 pub use regex_helpers::RegexExt;
 mod fallible;
 pub use fallible::TryProcessExt;
+mod sampling;
+pub use sampling::{KeyedSamplingExt, SamplingExt};
 
 pub trait ElementwiseExt<T: Element> {
     fn key_by_named<K: Element>(
