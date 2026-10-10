@@ -8,7 +8,8 @@
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
-    feature = "tfrecord"
+    feature = "tfrecord",
+    feature = "sql"
 ))]
 #![allow(clippy::missing_errors_doc)]
 //! Bounded file adapters for the v5 logical graph.
@@ -28,6 +29,11 @@ use std::{
 };
 
 type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
+
+#[cfg(feature = "sql")]
+mod sql;
+#[cfg(feature = "sql")]
+pub use sql::{sql_sink_with, sql_source, sql_streaming_source};
 
 fn io(key: &str, error: impl std::fmt::Display) -> Error {
     Error::io(key, "file", error.to_string())

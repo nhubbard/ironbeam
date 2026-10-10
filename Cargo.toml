@@ -33,7 +33,7 @@ io-cbor = ["dep:ciborium", "ironbeam-io?/cbor"]
 io-protobuf = ["dep:prost", "ironbeam-io?/protobuf"]
 io-tfrecord = ["dep:crc32c", "ironbeam-io?/tfrecord"]
 io-arrow = ["dep:arrow", "dep:serde_arrow", "ironbeam-io?/arrow-ipc"]
-io-sql = ["dep:sqlx", "dep:tokio"]
+io-sql = ["dep:sqlx", "dep:tokio", "ironbeam-io?/sql"]
 io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
 
 # Compression codecs (pluggable)

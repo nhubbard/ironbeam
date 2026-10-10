@@ -70,7 +70,7 @@ Every v5 node needs a stable, unique key. Transform construction returns `Result
 | `write_avro_with_schema(path, schema)` | `avro_sink(&input, key, path, schema)` | v5 writes native Avro records; `avro_source` reads native containers. `avro_json_*` handles earlier v5 preview wrappers. |
 | v4 custom `DynOp` and local `NodeId` | Registered v5 semantic operation and stable graph key | Compiled v4 closures and node IDs cannot be imported into a v5 graph. |
 
-The full v4 public method inventory, including helpers that have no v5 equivalent yet, is in `V5_PHASE0_API_INVENTORY.md`. In particular, v4 `read_*_streaming` describes lazy **bounded** file reads, not an unbounded event stream. MongoDB, SQL, and cloud connectors remain v4-only; TFRecord and Arrow IPC have bounded v5 adapters. Keep unsupported connector workloads on v4 or hand off finite materialized data.
+The full v4 public method inventory, including helpers that have no v5 equivalent yet, is in `V5_PHASE0_API_INVENTORY.md`. In particular, v4 `read_*_streaming` describes lazy **bounded** file reads, not an unbounded event stream. MongoDB and cloud connectors remain v4-only; SQL has opt-in bounded Direct sources and a deferred append sink, while TFRecord and Arrow IPC have bounded v5 adapters. Keep unsupported connector workloads on v4 or hand off finite materialized data.
 
 ## Materialized data handoff
 
@@ -84,7 +84,7 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 | --- | --- |
 | `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | `ironbeam-io` features `jsonl`, `csv`, `parquet`, `avro`, `xml`; the current facade forwards these only with `v5-preview`. |
 | `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | v5 bounded source/sink adapters and lazy readers are available under corresponding `ironbeam-io` features; shard planning, parallel writers, and compression parity are still tracked. |
-| `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC has bounded row and batch v5 adapters; SQL and MongoDB remain v4-only. |
+| `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC has bounded row and batch v5 adapters. SQL forwards to opt-in `ironbeam-io/sql` when `v5-preview` is enabled; use `sql_source`, `sql_streaming_source`, and `sql_sink_with`. MongoDB remains v4-only. |
 | `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | v4 only; no v5 I/O codec feature yet. |
 | `parallel-io` | v4 only; v5 Direct uses per-job parallelism. |
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |

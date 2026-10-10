@@ -19,6 +19,7 @@ msgpack = ["dep:rmp-serde"]
 cbor = ["dep:ciborium"]
 protobuf = ["dep:prost"]
 tfrecord = ["dep:crc32c"]
+sql = ["dep:sqlx", "dep:tokio"]
 
 [dependencies]
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
@@ -37,6 +38,8 @@ rmp-serde = { version = "1", optional = true }
 ciborium = { version = "0.2", optional = true }
 prost = { version = "0.13", optional = true }
 crc32c = { version = "0.6", optional = true }
+sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 
 [dev-dependencies]
 ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
