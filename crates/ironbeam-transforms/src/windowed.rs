@@ -4,7 +4,21 @@ use ironbeam_core::{Element, Error, KeyedWindowed, PCollection, WindowInterval};
 use std::hash::Hash;
 use std::ops::Add;
 
+pub type KeyedWindowedGroups<K, V> = ((K, WindowInterval), Vec<V>);
+
 pub trait WindowedExt<T: Element> {
+    fn key_by_window_named(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+    ) -> Result<PCollection<(WindowInterval, T)>, Error>;
+    fn group_by_window_named(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+    ) -> Result<PCollection<(WindowInterval, Vec<T>)>, Error>;
     fn combine_per_window_named<U: Element>(
         &self,
         key: &str,
@@ -53,6 +67,24 @@ pub trait WindowedExt<T: Element> {
 }
 
 impl<T: Element> WindowedExt<T> for PCollection<T> {
+    fn key_by_window_named(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+    ) -> Result<PCollection<(WindowInterval, T)>, Error> {
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .with_window_named(key)
+    }
+    fn group_by_window_named(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+    ) -> Result<PCollection<(WindowInterval, Vec<T>)>, Error> {
+        self.key_by_window_named(&format!("{key}/tag"), size_ns, offset_ns)?
+            .group_by_key_named(key)
+    }
     fn combine_per_window_named<U: Element>(
         &self,
         key: &str,
@@ -133,6 +165,18 @@ impl<T: Element> WindowedExt<T> for PCollection<T> {
 }
 
 pub trait KeyedWindowedExt<K: Element, V: Element> {
+    fn key_by_key_and_window_named(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+    ) -> Result<PCollection<KeyedWindowed<K, V>>, Error>;
+    fn group_by_key_and_window_named(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+    ) -> Result<PCollection<KeyedWindowedGroups<K, V>>, Error>;
     fn combine_per_key_and_window_named<U: Element>(
         &self,
         key: &str,
@@ -181,6 +225,25 @@ pub trait KeyedWindowedExt<K: Element, V: Element> {
 }
 
 impl<K: Element + Eq + Hash + Clone, V: Element> KeyedWindowedExt<K, V> for PCollection<(K, V)> {
+    fn key_by_key_and_window_named(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+    ) -> Result<PCollection<KeyedWindowed<K, V>>, Error> {
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .with_window_named(&format!("{key}/tag"))?
+            .map_named(key, |(window, (group, value))| ((group, window), value))
+    }
+    fn group_by_key_and_window_named(
+        &self,
+        key: &str,
+        size_ns: i64,
+        offset_ns: i64,
+    ) -> Result<PCollection<KeyedWindowedGroups<K, V>>, Error> {
+        self.key_by_key_and_window_named(&format!("{key}/tagged"), size_ns, offset_ns)?
+            .group_by_key_named(key)
+    }
     fn combine_per_key_and_window_named<U: Element>(
         &self,
         key: &str,
