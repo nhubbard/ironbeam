@@ -18,7 +18,7 @@ DIRECT_FILES = {
     "spill.rs", "spill_integration.rs",
 }
 DIRECT_HELPERS = {"collect_sorted.rs", "reshuffle.rs", "tee.rs", "wait_on.rs"}
-V5_PACKAGES = {"ironbeam-core", "ironbeam-direct", "ironbeam-transforms", "ironbeam-io"}
+V5_PACKAGES = {"ironbeam-core", "ironbeam-direct", "ironbeam-transforms", "ironbeam-io", "ironbeam-compat"}
 
 
 def area_for(package: str, relative: Path) -> str:
@@ -30,6 +30,8 @@ def area_for(package: str, relative: Path) -> str:
         return "transforms"
     if package == "ironbeam-io":
         return "bounded-io"
+    if package == "ironbeam-compat":
+        return "compatibility"
     if package == "ironbeam-runner-contract-tests":
         return "integration-contract"
     parts = relative.parts

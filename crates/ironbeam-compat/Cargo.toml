@@ -1,0 +1,16 @@
+[package]
+name = "ironbeam-compat"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Bounded in-process data bridges and migration imports for Ironbeam 4 and 5"
+repository = "https://github.com/nhubbard/ironbeam"
+readme = "README.md"
+
+[dependencies]
+ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false }
+ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
+ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+ironbeam-transforms = { version = "0.1.0", path = "../ironbeam-transforms" }
+anyhow = "1"

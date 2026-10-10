@@ -54,6 +54,17 @@
       "count": 4
     }
   },
+  "ironbeam-compat": {
+    "source": "crates/ironbeam-compat/src",
+    "lines": {
+      "covered": 23,
+      "count": 23
+    },
+    "branches": {
+      "covered": 0,
+      "count": 0
+    }
+  },
   "ironbeam-transforms": {
     "source": "crates/ironbeam-transforms/src",
     "lines": {

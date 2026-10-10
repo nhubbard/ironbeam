@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -55,10 +55,10 @@ spilling = ["dep:postcard"]
 coders = ["dep:postcard"]
 
 [dependencies]
-ironbeam-core = { path = "crates/ironbeam-core", optional = true }
-ironbeam-direct = { path = "crates/ironbeam-direct", optional = true }
-ironbeam-transforms = { path = "crates/ironbeam-transforms", optional = true }
-ironbeam-io = { path = "crates/ironbeam-io", default-features = false, optional = true }
+ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core", optional = true }
+ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct", optional = true }
+ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", optional = true }
+ironbeam-io = { version = "0.1.0", path = "crates/ironbeam-io", default-features = false, optional = true }
 # Core dependencies
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
