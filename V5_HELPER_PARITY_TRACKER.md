@@ -15,7 +15,7 @@ remains available until every required family is closed.
 | `filter` | transforms | Present | Nine predicate helpers have sequential/parallel boundary tests. |
 | `collect_values` | transforms | Present | Global list/set, per-key list/set, and dictionary are implemented; hash collections have canonical coders and tests. |
 | `basic` | transforms | Present for supported numeric types | Sum, min/max, f64 averages, and generic f32/f64 means exist globally/per key; extend numeric `Element` coverage as other v4 types migrate. |
-| `distinct` | transforms | Partial | Exact global/per-key distinct and counts plus distinct-by exist; KMV and HyperLogLog approximations remain. |
+| `distinct` | transforms | Partial | Exact global/per-key distinct and counts, distinct-by, and KMV approximation exist; HyperLogLog approximations remain. Current KMV graph combine materializes input. |
 | `topk` | transforms | Present for values | Global/per-key top and bottom K pass value tests; the current global combine materializes input and needs a bounded-memory implementation before performance parity is claimed. |
 | `regex` | transforms | Present | Six methods pass value tests; invalid patterns are typed construction errors in v5. |
 | `display` | transforms | Present | Display mapping passes Direct tests. |

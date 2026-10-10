@@ -40,6 +40,8 @@ mod sampling;
 pub use sampling::{KeyedSamplingExt, SamplingExt};
 mod statistical;
 pub use statistical::{KeyedStatisticalExt, StatisticalExt, TDigest};
+mod approx_distinct;
+pub use approx_distinct::{ApproxDistinctExt, KeyedApproxDistinctExt};
 
 pub trait ElementwiseExt<T: Element> {
     fn key_by_named<K: Element>(
