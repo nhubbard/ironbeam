@@ -7,9 +7,9 @@ staged locally.
 
 ## Verified in this checkout
 
-- `bash scripts/check_v5_packages.sh` passed after JSONL extraction: workspace
+- `bash scripts/check_v5_packages.sh` passed after Protobuf extraction: workspace
   tests, selected feature variants, all-feature documentation, and local
-  package verification for seventeen v5 crates. No package was published.
+  package verification for eighteen v5 crates. No package was published.
 - `ironbeam-io-csv` is isolated from the common file lifecycle package. Its
   minimal and all-feature tests, package verification, strict lint, and
   85/86 source-location plus 8/8 branch coverage passed. Scalar and tuple
@@ -24,10 +24,11 @@ staged locally.
   measure 60/63 source locations and 5/6 branches. The full package gate
   passes. Shared I/O's default tree has no `ciborium` dependency.
 - `ironbeam-io-jsonl` owns file and object adapters. Its all-feature tests
-  measure 177/190 source locations and 12/14 branches. Shared lifecycle I/O
-  measures 448/555 locations and 48/60 branches when exercised through the
-  extracted format packages. These reset baselines cover a larger compiled
-  surface and leave uncovered error paths for release review.
+  measure 177/190 source locations and 12/14 branches. Protobuf is now in
+  `ironbeam-io-protobuf` with 93/100 source locations and 16/18 branches
+  measured under all features. Shared lifecycle I/O measures 366/455 locations
+  and 37/44 branches when exercised through the extracted format packages.
+  These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
   separately launched v5 worker for two sources, two branches, native Flatten,
   event-time assignment, and four terminal append sinks. An extracted CSV

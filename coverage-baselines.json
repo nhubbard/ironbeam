@@ -46,12 +46,12 @@
   "ironbeam-io": {
     "source": "crates/ironbeam-io/src",
     "lines": {
-      "covered": 448,
-      "count": 555
+      "covered": 366,
+      "count": 455
     },
     "branches": {
-      "covered": 48,
-      "count": 60
+      "covered": 37,
+      "count": 44
     }
   },
   "ironbeam-io-jsonl": {
@@ -63,6 +63,17 @@
     "branches": {
       "covered": 12,
       "count": 14
+    }
+  },
+  "ironbeam-io-protobuf": {
+    "source": "crates/ironbeam-io-protobuf/src",
+    "lines": {
+      "covered": 93,
+      "count": 100
+    },
+    "branches": {
+      "covered": 16,
+      "count": 18
     }
   },
   "ironbeam-io-csv": {

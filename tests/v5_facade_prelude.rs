@@ -37,6 +37,40 @@ fn facade_exposes_isolated_jsonl_connector() {
     assert_eq!(output.collect_seq().unwrap(), vec![Row { value: 1 }, Row { value: 2 }]);
 }
 
+#[cfg(feature = "v5-io-protobuf")]
+#[test]
+fn facade_exposes_isolated_protobuf_connector() {
+    use ironbeam::v5::{DirectRunner, Element, JobConfig, protobuf_sink, protobuf_source};
+    #[derive(Clone, PartialEq, prost::Message)]
+    struct Row {
+        #[prost(int32, tag = "1")]
+        value: i32,
+    }
+    impl Element for Row {
+        const TYPE_ID: &'static str = "facade/protobuf-row";
+        const CODER_ID: &'static str = "facade/protobuf-row";
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("values.pb");
+    let input = Pipeline::default()
+        .from_vec("input", vec![Row { value: 1 }, Row { value: 2 }])
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &protobuf_sink(&input, "write", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let output = protobuf_source::<Row>(&Pipeline::default(), "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        output.collect_seq().unwrap(),
+        vec![Row { value: 1 }, Row { value: 2 }]
+    );
+}
+
 #[cfg(feature = "v5-io-csv")]
 #[test]
 fn facade_exposes_isolated_csv_connector() {

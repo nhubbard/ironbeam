@@ -2118,6 +2118,7 @@ dependencies = [
  "ironbeam-io-mongodb",
  "ironbeam-io-msgpack",
  "ironbeam-io-parquet",
+ "ironbeam-io-protobuf",
  "ironbeam-io-sql",
  "ironbeam-io-xml",
  "ironbeam-transforms",
@@ -2329,6 +2330,17 @@ dependencies = [
  "parquet",
  "serde",
  "serde_arrow",
+ "tempfile",
+]
+
+[[package]]
+name = "ironbeam-io-protobuf"
+version = "0.1.0"
+dependencies = [
+ "ironbeam-core",
+ "ironbeam-direct",
+ "ironbeam-io",
+ "prost 0.14.4",
  "tempfile",
 ]
 

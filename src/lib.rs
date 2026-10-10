@@ -541,6 +541,8 @@ pub mod v5 {
     };
     pub use ironbeam_io::*;
     pub use ironbeam_io_jsonl::*;
+    #[cfg(feature = "v5-io-protobuf")]
+    pub use ironbeam_io_protobuf::*;
     #[cfg(feature = "v5-io-arrow")]
     pub use ironbeam_io_arrow::*;
     #[cfg(feature = "v5-io-avro")]
