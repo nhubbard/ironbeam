@@ -33,7 +33,7 @@ fn seeded_samples_are_stable_and_have_v4_shape() {
         };
         let values = DirectRunner.run_collect(&sample, &cfg).unwrap().0;
         assert_eq!(values.len(), 1);
-        assert_eq!(values[0].len(), 5);
+        assert_eq!(values[0], [15, 11, 19, 9, 4]);
         assert_eq!(
             DirectRunner.run_collect(&flattened, &cfg).unwrap().0,
             values[0]

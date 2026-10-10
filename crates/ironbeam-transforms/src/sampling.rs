@@ -19,7 +19,10 @@ fn sample<T>(values: Vec<T>, k: usize, seed: u64) -> Vec<T> {
             z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
             let random = z ^ (z >> 31);
             #[allow(clippy::cast_precision_loss)]
-            let priority = ((random >> 11) as f64) * (1.0 / ((1_u64 << 53) as f64));
+            let mut priority = ((random >> 11) as f64) * (1.0 / ((1_u64 << 53) as f64));
+            if priority == 0.0 {
+                priority = f64::from_bits(1);
+            }
             (priority, index, value)
         })
         .collect();
