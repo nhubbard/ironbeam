@@ -12,6 +12,8 @@ direct_patch=(--config "patch.crates-io.ironbeam-direct.path=\"$root/crates/iron
 transforms_patch=(--config "patch.crates-io.ironbeam-transforms.path=\"$root/crates/ironbeam-transforms\"")
 
 cargo test --workspace
+cargo test -p ironbeam --features v5-preview
+cargo test -p ironbeam-io --all-features
 cargo doc --workspace --all-features --no-deps
 for package in "${packages[@]}"; do
   patches=()

@@ -103,4 +103,13 @@ fn migration_prelude_enables_convenience_methods() {
         .collect_seq()
         .unwrap();
     assert_eq!(counts, vec![("a".to_string(), 2)]);
+    let top = from_vec(&v5, "numbers", vec![3_i32, 1, 4, 2])
+        .unwrap()
+        .top_k_globally_named("top", 2)
+        .unwrap()
+        .output("top-out")
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(top, vec![vec![4, 3]]);
 }
