@@ -2221,6 +2221,7 @@ dependencies = [
 name = "ironbeam-transforms"
 version = "0.1.0"
 dependencies = [
+ "hyperloglogplus",
  "ironbeam-core",
  "ironbeam-direct",
  "regex",
