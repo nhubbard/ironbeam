@@ -49,3 +49,33 @@ fn facade_exposes_native_avro_without_v4_bridge() {
         .unwrap();
     assert_eq!(output.collect_seq().unwrap(), vec![Value { value: 3 }]);
 }
+
+#[cfg(feature = "v5-io-parquet")]
+#[test]
+fn facade_exposes_parquet_without_v4_bridge() {
+    use ironbeam::v5::{DirectRunner, JobConfig, parquet_sink, parquet_source};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("values.parquet");
+    #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+    struct Value {
+        value: i32,
+    }
+    impl ironbeam::v5::Element for Value {
+        const TYPE_ID: &'static str = "facade/parquet-value";
+        const CODER_ID: &'static str = "facade/parquet-value";
+    }
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec("input", vec![Value { value: 3 }])
+        .unwrap();
+    let writer = parquet_sink(&input, "write", &path).unwrap();
+    DirectRunner
+        .run_sink(&writer, &JobConfig::default())
+        .unwrap();
+    let pipeline = Pipeline::default();
+    let output = parquet_source::<Value>(&pipeline, "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(output.collect_seq().unwrap(), vec![Value { value: 3 }]);
+}

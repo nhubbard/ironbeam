@@ -2,7 +2,6 @@
     feature = "jsonl",
     feature = "csv",
     feature = "xml",
-    feature = "parquet",
     feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
@@ -383,12 +382,7 @@ fn compressed_jsonl_and_csv_shards_match_bounded_readers() {
     }
 }
 
-#[cfg(all(
-    feature = "parquet",
-    feature = "arrow-ipc",
-    feature = "msgpack",
-    feature = "cbor"
-))]
+#[cfg(all(feature = "arrow-ipc", feature = "msgpack", feature = "cbor"))]
 #[test]
 fn record_format_shards_match_bounded_readers() {
     let dir = tempfile::tempdir().unwrap();
@@ -399,11 +393,6 @@ fn record_format_shards_match_bounded_readers() {
         usize,
     ) -> Result<ironbeam_core::PCollection<Row>, ironbeam_core::Error>;
     for (extension, make_sink, make_source) in [
-        (
-            "parquet",
-            (|i, k, p| parquet_sink(i, k, p)) as MakeSink,
-            (|p, k, f, n| parquet_sharded_source::<Row>(p, k, f, n)) as Sharded,
-        ),
         (
             "arrow",
             (|i, k, p| arrow_ipc_sink(i, k, p)) as MakeSink,
@@ -443,64 +432,6 @@ fn record_format_shards_match_bounded_readers() {
             "{extension}"
         );
     }
-}
-
-#[cfg(feature = "parquet")]
-#[test]
-fn parquet_row_group_shards_read_only_selected_groups() {
-    use arrow::datatypes::FieldRef;
-    use parquet::arrow::arrow_writer::ArrowWriter;
-    use parquet::file::properties::WriterProperties;
-    use serde_arrow::schema::{SchemaLike, TracingOptions};
-
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("groups.parquet");
-    let expected = (0..5)
-        .map(|id| Row {
-            id,
-            name: format!("row-{id}"),
-        })
-        .collect::<Vec<_>>();
-    let fields = Vec::<FieldRef>::from_type::<Row>(TracingOptions::default()).unwrap();
-    let batch = serde_arrow::to_record_batch(&fields, &expected).unwrap();
-    let properties = WriterProperties::builder()
-        .set_max_row_group_row_count(Some(2))
-        .build();
-    let file = fs::File::create(&path).unwrap();
-    let mut writer = ArrowWriter::try_new(file, batch.schema(), Some(properties)).unwrap();
-    writer.write(&batch).unwrap();
-    writer.close().unwrap();
-
-    let pipeline = Pipeline::default();
-    assert!(parquet_row_group_sharded_source::<Row>(&pipeline, "bad", &path, 0).is_err());
-    let output = parquet_row_group_sharded_source::<Row>(&pipeline, "read", &path, 1)
-        .unwrap()
-        .output("out")
-        .unwrap();
-    let (graph, _) = pipeline.snapshot().unwrap();
-    assert!(graph.node("read/group-2").is_some());
-    for parallelism in [1, 3] {
-        let values = DirectRunner
-            .run_collect(
-                &output,
-                &JobConfig {
-                    parallelism,
-                    ..JobConfig::default()
-                },
-            )
-            .unwrap()
-            .0;
-        assert_eq!(values, expected);
-    }
-    fs::write(&path, b"changed").unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .err()
-            .unwrap()
-            .kind,
-        ErrorKind::Recovery
-    );
 }
 
 #[cfg(feature = "arrow-ipc")]
@@ -575,12 +506,7 @@ fn arrow_ipc_indexed_shards_keep_batch_boundaries_and_rows() {
     );
 }
 
-#[cfg(all(
-    feature = "parallel-io",
-    feature = "xml",
-    feature = "parquet",
-    feature = "arrow-ipc"
-))]
+#[cfg(all(feature = "parallel-io", feature = "xml", feature = "arrow-ipc"))]
 #[test]
 fn parallel_container_sinks_merge_valid_ordered_files() {
     let dir = tempfile::tempdir().unwrap();
@@ -595,11 +521,6 @@ fn parallel_container_sinks_merge_valid_ordered_files() {
             "xml",
             (|i, k, p, n| xml_parallel_sink(i, k, p, n)) as ParallelSink,
             (|p, k, f| xml_source::<Row>(p, k, f)) as MakeSource,
-        ),
-        (
-            "parquet",
-            (|i, k, p, n| parquet_parallel_sink(i, k, p, n)) as ParallelSink,
-            (|p, k, f| parquet_source::<Row>(p, k, f)) as MakeSource,
         ),
         (
             "arrow",
@@ -1180,25 +1101,6 @@ fn xml_streaming_spelling_uses_one_whole_file_shard() {
         |p, k, f| xml_streaming_source(p, k, f, 1),
     );
 }
-#[cfg(feature = "parquet")]
-#[test]
-fn parquet_contract() {
-    round_trip(
-        "parquet",
-        |i, k, p| parquet_sink(i, k, p),
-        |p, k, f| parquet_source(p, k, f),
-    );
-}
-#[cfg(feature = "parquet")]
-#[test]
-fn parquet_lazy_contract() {
-    round_trip(
-        "parquet",
-        |i, k, p| parquet_sink(i, k, p),
-        |p, k, f| parquet_streaming_source(p, k, f),
-    );
-}
-
 #[cfg(feature = "arrow-ipc")]
 #[test]
 fn arrow_ipc_row_contract() {

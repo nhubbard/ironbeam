@@ -2112,6 +2112,7 @@ dependencies = [
  "ironbeam-io",
  "ironbeam-io-avro",
  "ironbeam-io-mongodb",
+ "ironbeam-io-parquet",
  "ironbeam-io-sql",
  "ironbeam-transforms",
  "mongodb",
@@ -2208,7 +2209,6 @@ name = "ironbeam-io"
 version = "0.1.0"
 dependencies = [
  "arrow",
- "bytes",
  "ciborium",
  "crc32c",
  "csv",
@@ -2216,7 +2216,6 @@ dependencies = [
  "ironbeam-cloud",
  "ironbeam-core",
  "ironbeam-direct",
- "parquet",
  "prost 0.13.5",
  "quick-xml",
  "rmp-serde",
@@ -2253,6 +2252,21 @@ dependencies = [
  "testcontainers",
  "testcontainers-modules",
  "tokio",
+]
+
+[[package]]
+name = "ironbeam-io-parquet"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "bytes",
+ "ironbeam-core",
+ "ironbeam-direct",
+ "ironbeam-io",
+ "parquet",
+ "serde",
+ "serde_arrow",
+ "tempfile",
 ]
 
 [[package]]

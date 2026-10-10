@@ -1,0 +1,25 @@
+[package]
+name = "ironbeam-io-parquet"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Parquet sources and sinks for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[features]
+default = []
+parallel-io = ["ironbeam-io/parallel-io"]
+
+[dependencies]
+ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
+ironbeam-io = { version = "0.1.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
+arrow = "59"
+parquet = "59"
+serde_arrow = { version = "0.15", features = ["arrow-59"] }
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+tempfile = "3"

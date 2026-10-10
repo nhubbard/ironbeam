@@ -65,6 +65,17 @@
       "count": 2
     }
   },
+  "ironbeam-io-parquet": {
+    "source": "crates/ironbeam-io-parquet/src",
+    "lines": {
+      "covered": 124,
+      "count": 136
+    },
+    "branches": {
+      "covered": 7,
+      "count": 8
+    }
+  },
   "ironbeam-compat": {
     "source": "crates/ironbeam-compat/src",
     "lines": {

@@ -5,7 +5,7 @@ workspace. The [replacement roadmap](V5_REPLACEMENT_ROADMAP.md) records the
 extraction order and the gates before removing the checked-in v4 runtime.
 The package and feature descriptions below reflect the current migration state.
 
-Ironbeam 5 is currently exposed as `ironbeam::v5` behind `v5-preview`, and as the `ironbeam-core`, `ironbeam-direct`, `ironbeam-transforms`, `ironbeam-io`, `ironbeam-io-avro`, `ironbeam-io-sql`, and `ironbeam-io-mongodb` packages. The root `ironbeam` package is still version 4.1.1. Avro, SQL, and MongoDB have independent extension packages; the root facade exposes them through `v5-io-avro`, `v5-io-sql`, and `v5-io-mongodb`. `ironbeam-io` retains the other file formats and shared file lifecycle helpers. This guide describes the implemented v5 surface; it does not imply that the root package has been released as version 5.
+Ironbeam 5 is currently exposed as `ironbeam::v5` behind `v5-preview`, and as the `ironbeam-core`, `ironbeam-direct`, `ironbeam-transforms`, `ironbeam-io`, `ironbeam-io-avro`, `ironbeam-io-parquet`, `ironbeam-io-sql`, and `ironbeam-io-mongodb` packages. The root `ironbeam` package is still version 4.1.1. Avro, Parquet, SQL, and MongoDB have independent extension packages; the root facade exposes them through `v5-io-avro`, `v5-io-parquet`, `v5-io-sql`, and `v5-io-mongodb`. `ironbeam-io` retains the other file formats and shared file lifecycle helpers. This guide describes the implemented v5 surface; it does not imply that the root package has been released as version 5.
 
 ## A bounded pipeline
 
@@ -92,7 +92,7 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 
 | v4 feature | v5 status |
 | --- | --- |
-| `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | JSONL, CSV, Parquet, and XML remain `ironbeam-io` features. V5 Avro is `ironbeam-io-avro` or the facade's `v5-io-avro`; root `io-avro` still selects only v4 Avro during migration. |
+| `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | JSONL, CSV, and XML remain `ironbeam-io` features. V5 Avro and Parquet use `ironbeam-io-avro` and `ironbeam-io-parquet` or the facade features `v5-io-avro` and `v5-io-parquet`; root `io-avro` and `io-parquet` still select only v4 implementations during migration. |
 | `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | v5 bounded source/sink adapters, lazy and sharded readers, parallel sinks, and external compression are available under corresponding `ironbeam-io` features. `tfrecord_examples_source` (plus lazy and sharded variants) decodes wire-compatible TensorFlow `tf.Example` records when both TFRecord and Protobuf are enabled. |
 | `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC has bounded row and batch v5 adapters. SQL and MongoDB live in `ironbeam-io-sql` and `ironbeam-io-mongodb`; use those packages directly or enable the separate root facade features `v5-io-sql` and `v5-io-mongodb`. The v4 `io-sql` and `io-mongodb` features still select the v4 adapters. Both v5 database sinks are deferred append operations with no replay guarantee. |
 | provider-neutral cloud utilities | `ironbeam-cloud` or `ironbeam_io::cloud` with the `cloud` feature | The v4 `ironbeam::io::cloud` and `ironbeam::helpers::cloud` paths reexport the same implementation, including compressed JSONL object readers/writers. |
@@ -101,7 +101,7 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |
 | `checkpointing`, `spilling` | v5 Direct `JobConfig` has optional `CheckpointConfig` and `SpillConfig`; no feature flag. v4 checkpoint files are not v5 state. |
 | `coders` | v5 `Element` declares type/coder identity and version; built-in coders are implemented, custom coder support must be supplied explicitly. No global Serde bound is added by a feature. |
-| `default` | v4 keeps its existing broad defaults; v5 packages have their own defaults. `ironbeam-core` and `ironbeam-direct` are minimal, while `ironbeam-io` defaults to JSONL and CSV. Parquet and XML require explicit features; Avro requires its separate package or facade feature. |
+| `default` | v4 keeps its existing broad defaults; v5 packages have their own defaults. `ironbeam-core` and `ironbeam-direct` are minimal, while `ironbeam-io` defaults to JSONL and CSV. XML requires an explicit feature; Avro and Parquet require their separate packages or facade features. |
 
 Sequential elementwise output is compared in order in the migration tests. Grouped, joined, sampled, and parallel results should be compared as multisets unless the operation documents an order. V5 validates boundedness and backend capabilities before opening sources or sinks. V5 graph, coder, and checkpoint versions are independent; unsupported versions fail explicitly rather than being interpreted as v4 state.
 
