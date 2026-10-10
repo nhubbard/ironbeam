@@ -8,7 +8,7 @@ mod planner;
 mod spill;
 
 pub use checkpoint::CheckpointConfig;
-pub use helpers::{DirectFallibleExt, DirectKeyedCollectExt, DirectSortedExt};
+pub use helpers::{DirectFallibleExt, DirectKeySortedExt, DirectKeyedCollectExt, DirectSortedExt};
 pub use metrics::JobMetrics;
 pub use planner::PlanSummary;
 pub use spill::SpillConfig;

@@ -1,5 +1,5 @@
 use ironbeam_core::Pipeline;
-use ironbeam_direct::{DirectKeyedCollectExt, DirectSortedExt, JobConfig};
+use ironbeam_direct::{DirectKeySortedExt, DirectKeyedCollectExt, DirectSortedExt, JobConfig};
 
 #[test]
 fn sorted_terminals_and_hashmap_materialization_match_v4() {
@@ -25,4 +25,21 @@ fn sorted_terminals_and_hashmap_materialization_match_v4() {
         .unwrap();
     assert_eq!(map.get("a"), Some(&3));
     assert_eq!(map.get("b"), Some(&2));
+    let sorted = pairs
+        .collect_sorted_by_key_named(
+            "sorted-keys",
+            &JobConfig {
+                parallelism: 3,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        sorted,
+        [
+            ("a".to_string(), 1),
+            ("a".to_string(), 3),
+            ("b".to_string(), 2)
+        ]
+    );
 }

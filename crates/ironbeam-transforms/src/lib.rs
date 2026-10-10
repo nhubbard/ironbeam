@@ -38,6 +38,8 @@ mod fallible;
 pub use fallible::TryProcessExt;
 mod sampling;
 pub use sampling::{KeyedSamplingExt, SamplingExt};
+mod statistical;
+pub use statistical::{KeyedStatisticalExt, StatisticalExt, TDigest};
 
 pub trait ElementwiseExt<T: Element> {
     fn key_by_named<K: Element>(

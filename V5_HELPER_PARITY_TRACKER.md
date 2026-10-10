@@ -25,9 +25,9 @@ remains available until every required family is closed.
 | `side_inputs` | core, direct | Partial | Bounded map-with-side exists; singleton/map/multimap variants and materialization policy remain. |
 | `latest`, `timestamped`, `tumbling`, `windowed_combine` | core, transforms, direct | Pending | Event-time assignment and window execution need a shared contract; Direct currently rejects fixed-window execution. |
 | `sampling` | transforms | Present for values | Eight seeded/default global and per-key methods use v4's priority sequence; bounded-memory aggregation and parallel performance remain to verify. |
-| `statistical` | transforms | Pending | Specify approximation/error bounds and finite-input behavior. |
+| `statistical` | transforms | Present for values | V4-compatible t-digest quantiles and median work globally/per key, with non-finite observations ignored. Current global combine materializes input, so bounded-memory performance remains open. |
 | `batches`, `reshuffle`, `tee`, `wait_on` | direct | Pending | Specify scheduling, ordering, buffer limits, and dependency semantics. |
-| `collect_sorted` | direct | Partial | Sequential/parallel sorted collection exists; custom sort-by-key remains. |
+| `collect_sorted` | direct | Present | Sequential/parallel sorted collection and stable keyed sorting exist. |
 | `log_elements` | transforms/direct | Pending | Define observation timing and side-effect guarantees. |
 | `dead_letter`, `try_process`, `validation` | core, transforms, direct | Partial | `try_map`, `try_flat_map`, and fail-fast collection work with a tagged Result coder; dead-letter side outputs and validation policies remain. |
 | `jsonl`, `csv`, `xml`, `avro`, `parquet` | I/O | Partial | Bounded source and deferred sink work; v4 shard/lazy reader and immediate writer variants need parity checks. |

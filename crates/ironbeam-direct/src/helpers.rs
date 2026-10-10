@@ -43,6 +43,26 @@ impl<K: Element + Eq + Hash, V: Element> DirectKeyedCollectExt<K, V> for PCollec
     }
 }
 
+pub trait DirectKeySortedExt<K: Element + Ord, V: Element> {
+    fn collect_sorted_by_key_named(
+        &self,
+        key: &str,
+        config: &JobConfig,
+    ) -> Result<Vec<(K, V)>, Error>;
+}
+impl<K: Element + Ord, V: Element> DirectKeySortedExt<K, V> for PCollection<(K, V)> {
+    fn collect_sorted_by_key_named(
+        &self,
+        key: &str,
+        config: &JobConfig,
+    ) -> Result<Vec<(K, V)>, Error> {
+        let output = self.output(key)?;
+        let mut values = DirectRunner.run_collect(&output, config)?.0;
+        values.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(values)
+    }
+}
+
 pub trait DirectFallibleExt<T: Element, E: Element + Display> {
     fn collect_fail_fast_named(&self, key: &str, config: &JobConfig) -> Result<Vec<T>, Error>;
 }
