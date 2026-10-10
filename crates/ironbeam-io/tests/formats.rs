@@ -226,6 +226,19 @@ fn file_globs_expand_in_sorted_order_and_reject_empty_matches() {
             .iter()
             .all(|key| revised_graph.node(key).is_some())
     );
+    let single_pattern = dir.path().join("a.jsonl").to_string_lossy().to_string();
+    let one = Pipeline::default();
+    let output = jsonl_glob_source::<Row>(&one, "one", &single_pattern)
+        .unwrap()
+        .output("one-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        [rows()[0].clone()]
+    );
 
     fs::write(dir.path().join("b.csv"), b"id,name\n2,Lin\n").unwrap();
     fs::write(dir.path().join("a.csv"), b"id,name\n1,Ada\n").unwrap();
@@ -250,6 +263,125 @@ fn file_globs_expand_in_sorted_order_and_reject_empty_matches() {
             .kind,
         ErrorKind::Io
     );
+}
+
+#[cfg(all(feature = "jsonl", feature = "csv"))]
+#[test]
+fn jsonl_and_csv_shards_preserve_record_boundaries_and_bind_contents() {
+    let dir = tempfile::tempdir().unwrap();
+    let jsonl_path = dir.path().join("rows.jsonl");
+    fs::write(
+        &jsonl_path,
+        b"{\"id\":1,\"name\":\"Ada\"}\n\n{\"id\":2,\"name\":\"Lin\"}\n",
+    )
+    .unwrap();
+    let pipeline = Pipeline::default();
+    let output = jsonl_sharded_source::<Row>(&pipeline, "jsonl", &jsonl_path, 1)
+        .unwrap()
+        .output("jsonl-out")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    for index in 0..3 {
+        assert!(graph.node(&format!("jsonl/shard-{index}")).is_some());
+    }
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows()
+    );
+    fs::write(&jsonl_path, b"changed\n").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+
+    let csv_path = dir.path().join("rows.csv");
+    fs::write(&csv_path, b"id,name\n1,\"Ada\nLovelace\"\n2,Lin\n").unwrap();
+    let pipeline = Pipeline::default();
+    let output = csv_sharded_source::<Row>(&pipeline, "csv", &csv_path, 1)
+        .unwrap()
+        .output("csv-out")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert!(graph.node("csv/shard-0").is_some());
+    assert!(graph.node("csv/shard-1").is_some());
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![
+            Row {
+                id: 1,
+                name: "Ada\nLovelace".into()
+            },
+            rows()[1].clone()
+        ]
+    );
+    assert!(csv_sharded_source::<Row>(&pipeline, "bad", &csv_path, 0).is_err());
+
+    let empty_path = dir.path().join("empty.jsonl");
+    fs::write(&empty_path, b"").unwrap();
+    let pipeline = Pipeline::default();
+    let output = jsonl_sharded_source::<Row>(&pipeline, "empty", &empty_path, 2)
+        .unwrap()
+        .output("empty-out")
+        .unwrap();
+    assert!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0
+            .is_empty()
+    );
+}
+
+#[cfg(all(feature = "jsonl", feature = "csv", feature = "compression-gzip"))]
+#[test]
+fn compressed_jsonl_and_csv_shards_match_bounded_readers() {
+    let dir = tempfile::tempdir().unwrap();
+    for (extension, make_sink, make_source) in [
+        (
+            "jsonl.gz",
+            (|i, k, p| jsonl_sink(i, k, p)) as MakeSink,
+            (|p, k, f, n| jsonl_sharded_source::<Row>(p, k, f, n))
+                as fn(&Pipeline, &str, &std::path::Path, usize) -> _,
+        ),
+        (
+            "csv.gz",
+            (|i, k, p| csv_sink(i, k, p)) as MakeSink,
+            (|p, k, f, n| csv_sharded_source::<Row>(p, k, f, n))
+                as fn(&Pipeline, &str, &std::path::Path, usize) -> _,
+        ),
+    ] {
+        let path = dir.path().join(format!("rows.{extension}"));
+        let pipeline = Pipeline::default();
+        let input = pipeline.from_vec("input", rows()).unwrap();
+        DirectRunner
+            .run_sink(
+                &make_sink(&input, "write", &path).unwrap(),
+                &JobConfig::default(),
+            )
+            .unwrap();
+        let reader = Pipeline::default();
+        let output = make_source(&reader, "read", &path, 1)
+            .unwrap()
+            .output("out")
+            .unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &JobConfig::default())
+                .unwrap()
+                .0,
+            rows()
+        );
+    }
 }
 
 #[cfg(all(feature = "jsonl", feature = "csv", feature = "compression-gzip"))]

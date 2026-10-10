@@ -98,7 +98,13 @@ fn open_encoded_output(path: &Path, key: &str) -> Result<Box<dyn std::io::Write>
     }
 }
 
-#[cfg(any(feature = "avro", feature = "msgpack", feature = "cbor"))]
+#[cfg(any(
+    feature = "jsonl",
+    feature = "csv",
+    feature = "avro",
+    feature = "msgpack",
+    feature = "cbor"
+))]
 fn open_lazy_input(path: &Path, key: &str) -> Result<Box<dyn std::io::Read + Send>, Error> {
     if compressed_extension(path) {
         Ok(Box::new(std::io::Cursor::new(read_decoded_file(
@@ -288,7 +294,66 @@ pub fn file_glob_source<T: Element>(
         sources.push(make_source(pipeline, &path_key, path)?);
     }
     let first = sources.remove(0);
-    first.flatten_named(key, &sources)
+    if sources.is_empty() {
+        first.map_named(key, |value| value)
+    } else {
+        first.flatten_named(key, &sources)
+    }
+}
+
+#[cfg(any(feature = "jsonl", feature = "csv"))]
+fn file_sharded_source<T: Element>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    records_per_shard: usize,
+    format: &str,
+    count: fn(&Path) -> Result<usize, Error>,
+    read_range: fn(PathBuf, usize, usize) -> Result<TypedSourceIterator<T>, Error>,
+) -> Result<PCollection<T>, Error> {
+    if records_per_shard == 0 {
+        return Err(Error::graph(key, "records per shard must be positive"));
+    }
+    let path = path.as_ref().to_path_buf();
+    let expected = file_hash(&path, key)?;
+    let total = count(&path)?;
+    let shards = total.max(1).div_ceil(records_per_shard);
+    let mut sources = Vec::with_capacity(shards);
+    for index in 0..shards {
+        let start = index * records_per_shard;
+        let end = start.saturating_add(records_per_shard).min(total);
+        let child_key = format!("{key}/shard-{index}");
+        let digest = format!("{format}:{}:{expected:02x?}:{start}:{end}", path.display());
+        let source_path = path.clone();
+        let source_expected = expected.clone();
+        let name = child_key.clone();
+        sources.push(pipeline.bounded_source_with_semantic(
+            &child_key,
+            &format!("ironbeam/io/{format}-shard"),
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            digest,
+            (format != "jsonl").then_some(end - start),
+            move || {
+                if file_hash(&source_path, &name)? != source_expected {
+                    return Err(Error::recovery(
+                        &name,
+                        "source contents changed after graph construction",
+                    ));
+                }
+                read_range(source_path.clone(), start, end)
+            },
+        )?);
+    }
+    let first = sources.remove(0);
+    if sources.is_empty() {
+        first.map_named(key, |value| value)
+    } else {
+        first.flatten_named(key, &sources)
+    }
 }
 
 macro_rules! glob_source {
@@ -603,6 +668,59 @@ pub fn jsonl_streaming_source<T: Element + DeserializeOwned>(
     lazy_source(pipeline, key, path, "jsonl-streaming", read_jsonl_lazy::<T>)
 }
 #[cfg(feature = "jsonl")]
+fn count_jsonl_lines(path: &Path) -> Result<usize, Error> {
+    use std::io::BufRead;
+    std::io::BufReader::new(open_lazy_input(path, "jsonl")?)
+        .lines()
+        .try_fold(0_usize, |count, line| {
+            line.map_err(|e| io("jsonl", e))?;
+            count
+                .checked_add(1)
+                .ok_or_else(|| io("jsonl", "line count overflow"))
+        })
+}
+#[cfg(feature = "jsonl")]
+fn read_jsonl_range<T: Element + DeserializeOwned>(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<T>, Error> {
+    use std::io::BufRead;
+    let reader = std::io::BufReader::new(open_lazy_input(&path, "jsonl")?);
+    let rows = reader
+        .lines()
+        .enumerate()
+        .skip(start)
+        .take(end - start)
+        .filter_map(|(line, result)| match result {
+            Ok(value) if value.trim().is_empty() => None,
+            other => Some((line, other)),
+        })
+        .map(|(line, result)| {
+            let value = result.map_err(|e| io("jsonl", e))?;
+            serde_json::from_str(&value).map_err(|e| io("jsonl", format!("line {}: {e}", line + 1)))
+        });
+    Ok(Box::new(rows))
+}
+#[cfg(feature = "jsonl")]
+/// Create stable bounded JSONL line-range sources; blank lines count toward ranges.
+pub fn jsonl_sharded_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    lines_per_shard: usize,
+) -> Result<PCollection<T>, Error> {
+    file_sharded_source(
+        pipeline,
+        key,
+        path,
+        lines_per_shard,
+        "jsonl",
+        count_jsonl_lines,
+        read_jsonl_range::<T>,
+    )
+}
+#[cfg(feature = "jsonl")]
 pub fn jsonl_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -697,6 +815,50 @@ pub fn csv_streaming_source<T: Element + DeserializeOwned>(
     path: impl AsRef<Path>,
 ) -> Result<PCollection<T>, Error> {
     lazy_source(pipeline, key, path, "csv-streaming", read_csv_lazy::<T>)
+}
+#[cfg(feature = "csv")]
+fn count_csv_rows(path: &Path) -> Result<usize, Error> {
+    csv::Reader::from_reader(open_lazy_input(path, "csv")?)
+        .records()
+        .try_fold(0_usize, |count, row| {
+            row.map_err(|e| io("csv", e))?;
+            count
+                .checked_add(1)
+                .ok_or_else(|| io("csv", "row count overflow"))
+        })
+}
+#[cfg(feature = "csv")]
+fn read_csv_range<T: Element + DeserializeOwned>(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<T>, Error> {
+    let reader = csv::Reader::from_reader(open_lazy_input(&path, "csv")?);
+    Ok(Box::new(
+        reader
+            .into_deserialize()
+            .skip(start)
+            .take(end - start)
+            .map(|row| row.map_err(|e| io("csv", e))),
+    ))
+}
+#[cfg(feature = "csv")]
+/// Create stable bounded CSV row-range sources; the header is excluded from ranges.
+pub fn csv_sharded_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    rows_per_shard: usize,
+) -> Result<PCollection<T>, Error> {
+    file_sharded_source(
+        pipeline,
+        key,
+        path,
+        rows_per_shard,
+        "csv",
+        count_csv_rows,
+        read_csv_range::<T>,
+    )
 }
 #[cfg(feature = "csv")]
 pub fn csv_sink<T: Element + Serialize>(
