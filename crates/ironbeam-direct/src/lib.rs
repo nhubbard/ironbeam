@@ -1,12 +1,14 @@
 //! Bounded direct execution of the Ironbeam 5 logical graph.
 #![allow(clippy::redundant_pub_crate)]
 mod checkpoint;
+mod helpers;
 mod materialized;
 mod metrics;
 mod planner;
 mod spill;
 
 pub use checkpoint::CheckpointConfig;
+pub use helpers::{DirectFallibleExt, DirectKeyedCollectExt, DirectSortedExt};
 pub use metrics::JobMetrics;
 pub use planner::PlanSummary;
 pub use spill::SpillConfig;
