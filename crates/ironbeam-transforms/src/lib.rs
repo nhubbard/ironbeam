@@ -35,6 +35,7 @@ pub use predicates::PredicateExt;
 mod selection;
 pub use selection::{KeyedSelectionExt, SelectionExt};
 mod collections;
+use collections::CollectVec;
 pub use collections::{CollectionExt, KeyedCollectionExt};
 mod regex_helpers;
 pub use regex_helpers::RegexExt;
@@ -171,7 +172,7 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
         self.map_named(key, |value| value.to_string())
     }
     fn to_list_globally_named(&self, key: &str) -> Result<PCollection<Vec<T>>, Error> {
-        self.combine_globally_named(key, |values| values)
+        self.fold_globally_ordered_named(key, CollectVec)
     }
     fn take_named(&self, key: &str, limit: usize) -> Result<Self, Error> {
         self.fold_globally_ordered_named(&format!("{key}/collect"), Take(limit))?
