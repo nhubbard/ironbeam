@@ -1312,6 +1312,96 @@ pub fn parquet_streaming_source<T: Element + DeserializeOwned>(
     )
 }
 #[cfg(feature = "parquet")]
+fn read_parquet_row_groups_lazy<T: Element + DeserializeOwned>(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<T>, Error> {
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    let file = fs::File::open(path).map_err(|e| io("parquet", e))?;
+    let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+        .map_err(|e| io("parquet", e))?
+        .with_row_groups((start..end).collect())
+        .build()
+        .map_err(|e| io("parquet", e))?;
+    Ok(Box::new(reader.flat_map(|batch| match batch {
+        Ok(batch) => match serde_arrow::from_record_batch::<Vec<T>>(&batch) {
+            Ok(rows) => rows.into_iter().map(Ok).collect::<Vec<_>>(),
+            Err(error) => vec![Err(io("parquet", error))],
+        },
+        Err(error) => vec![Err(io("parquet", error))],
+    })))
+}
+/// Plan bounded Parquet splits from row-group metadata, matching v4's
+/// `groups_per_shard` behavior without decoding earlier row groups per split.
+#[cfg(feature = "parquet")]
+pub fn parquet_row_group_sharded_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    groups_per_shard: usize,
+) -> Result<PCollection<T>, Error> {
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    if groups_per_shard == 0 {
+        return Err(Error::graph(key, "row groups per shard must be positive"));
+    }
+    let path = path.as_ref().to_path_buf();
+    let expected = file_hash(&path, key)?;
+    let file = fs::File::open(&path).map_err(|e| io(key, e))?;
+    let metadata = ParquetRecordBatchReaderBuilder::try_new(file)
+        .map_err(|e| io(key, e))?
+        .metadata()
+        .clone();
+    let group_count = metadata.num_row_groups();
+    let shard_count = group_count.max(1).div_ceil(groups_per_shard);
+    let mut sources = Vec::with_capacity(shard_count);
+    for index in 0..shard_count {
+        let start = index * groups_per_shard;
+        let end = start.saturating_add(groups_per_shard).min(group_count);
+        let rows = (start..end).try_fold(0_usize, |total, group| {
+            let count = usize::try_from(metadata.row_group(group).num_rows())
+                .map_err(|_| Error::resource(key, "row group count exceeds usize"))?;
+            total
+                .checked_add(count)
+                .ok_or_else(|| Error::resource(key, "row group count overflow"))
+        })?;
+        let child_key = format!("{key}/group-{index}");
+        let digest = format!(
+            "parquet-row-groups:{}:{expected:02x?}:{start}:{end}",
+            path.display()
+        );
+        let source_path = path.clone();
+        let source_expected = expected.clone();
+        let name = child_key.clone();
+        sources.push(pipeline.bounded_source_with_semantic(
+            &child_key,
+            "ironbeam/io/parquet-row-group-shard",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            digest,
+            Some(rows),
+            move || {
+                if file_hash(&source_path, &name)? != source_expected {
+                    return Err(Error::recovery(
+                        &name,
+                        "source contents changed after graph construction",
+                    ));
+                }
+                read_parquet_row_groups_lazy(source_path.clone(), start, end)
+            },
+        )?);
+    }
+    let first = sources.remove(0);
+    if sources.is_empty() {
+        first.map_named(key, |value| value)
+    } else {
+        first.flatten_named(key, &sources)
+    }
+}
+#[cfg(feature = "parquet")]
 pub fn parquet_sink<T: Element + Serialize + DeserializeOwned>(
     input: &PCollection<T>,
     key: &str,
