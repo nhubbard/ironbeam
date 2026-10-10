@@ -2,7 +2,8 @@
 use ironbeam_core::{Capabilities, Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_io::{
-    MongoShardSpec, mongodb_sharded_source, mongodb_sink, mongodb_source, mongodb_streaming_source,
+    MongoShardSpec, mongodb_parallel_sink, mongodb_sharded_source, mongodb_sink, mongodb_source,
+    mongodb_streaming_source,
 };
 use serde::{Deserialize, Serialize};
 use testcontainers::runners::SyncRunner;
@@ -236,4 +237,39 @@ fn mongodb_bounded_sources_and_deferred_sink_round_trip() {
             .kind,
         ErrorKind::Recovery
     );
+    assert!(
+        mongodb_parallel_sink(
+            &values,
+            "bad-parallel",
+            &uri,
+            "ironbeam_v5",
+            "parallel_rows",
+            0
+        )
+        .is_err()
+    );
+    let parallel =
+        mongodb_parallel_sink(&values, "parallel", &uri, "ironbeam_v5", "parallel_rows", 2)
+            .unwrap();
+    DirectRunner
+        .run_sink(&parallel, &JobConfig::default())
+        .unwrap();
+    let verify = Pipeline::default();
+    let output = mongodb_source::<Doc>(
+        &verify,
+        "parallel-read",
+        &uri,
+        "ironbeam_v5",
+        "parallel_rows",
+        bson::doc! {},
+    )
+    .unwrap()
+    .output("parallel-out")
+    .unwrap();
+    let mut written = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap()
+        .0;
+    written.sort_by_key(|row| row.id);
+    assert_eq!(written, expected);
 }

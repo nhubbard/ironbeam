@@ -137,7 +137,9 @@ type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
 #[cfg(feature = "sql")]
 mod sql;
 #[cfg(feature = "sql")]
-pub use sql::{sql_sharded_source, sql_sink_with, sql_source, sql_streaming_source};
+pub use sql::{
+    sql_parallel_sink_with, sql_sharded_source, sql_sink_with, sql_source, sql_streaming_source,
+};
 #[cfg(feature = "mongodb")]
 mod mongodb;
 #[cfg(feature = "cloud")]
@@ -148,7 +150,8 @@ mod cloud_io;
 pub use cloud_io::{cloud_jsonl_sink, cloud_jsonl_source};
 #[cfg(feature = "mongodb")]
 pub use mongodb::{
-    MongoShardSpec, mongodb_sharded_source, mongodb_sink, mongodb_source, mongodb_streaming_source,
+    MongoShardSpec, mongodb_parallel_sink, mongodb_sharded_source, mongodb_sink, mongodb_source,
+    mongodb_streaming_source,
 };
 
 fn io(key: &str, error: impl std::fmt::Display) -> Error {

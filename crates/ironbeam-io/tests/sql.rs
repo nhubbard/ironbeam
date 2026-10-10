@@ -1,7 +1,9 @@
 #![cfg(feature = "sql")]
 use ironbeam_core::{Capabilities, Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io::{sql_sharded_source, sql_sink_with, sql_source, sql_streaming_source};
+use ironbeam_io::{
+    sql_parallel_sink_with, sql_sharded_source, sql_sink_with, sql_source, sql_streaming_source,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, sqlx::FromRow)]
 struct Row {
@@ -32,6 +34,10 @@ fn sql_sources_and_sink_execute_only_after_runner_validation() {
             .await
             .unwrap();
         sqlx::query("CREATE TABLE output (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE output_parallel (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
             .execute(&pool)
             .await
             .unwrap();
@@ -142,6 +148,50 @@ fn sql_sources_and_sink_execute_only_after_runner_validation() {
     )
     .unwrap()
     .output("written-out")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&written, &JobConfig::default())
+            .unwrap()
+            .0,
+        expected
+    );
+    assert!(
+        sql_parallel_sink_with(
+            &input,
+            "bad-parallel",
+            &url,
+            "INSERT INTO output_parallel (id, name)",
+            0,
+            |mut separated, row: &Row| {
+                separated.push_bind(row.id).push_bind(row.name.clone());
+            }
+        )
+        .is_err()
+    );
+    let parallel = sql_parallel_sink_with(
+        &input,
+        "parallel",
+        &url,
+        "INSERT INTO output_parallel (id, name)",
+        2,
+        |mut separated, row: &Row| {
+            separated.push_bind(row.id).push_bind(row.name.clone());
+        },
+    )
+    .unwrap();
+    DirectRunner
+        .run_sink(&parallel, &JobConfig::default())
+        .unwrap();
+    let verify = Pipeline::default();
+    let written = sql_source::<Row>(
+        &verify,
+        "written-parallel",
+        &url,
+        "SELECT id, name FROM output_parallel ORDER BY id",
+    )
+    .unwrap()
+    .output("parallel-out")
     .unwrap();
     assert_eq!(
         DirectRunner

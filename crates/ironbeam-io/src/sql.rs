@@ -261,6 +261,43 @@ struct SqlSink<T, F> {
     bind: Arc<F>,
     values: Vec<T>,
 }
+fn insert_rows<T, F>(
+    key: &str,
+    url: &str,
+    prefix: &str,
+    bind: &F,
+    values: &[T],
+) -> Result<(), Error>
+where
+    F: for<'q> Fn(sqlx::query_builder::Separated<'q, sqlx::Any, &'static str>, &T) + Send + Sync,
+{
+    if values.is_empty() {
+        return Ok(());
+    }
+    sqlx::any::install_default_drivers();
+    runtime(key)?.block_on(async {
+        let pool = sqlx::AnyPool::connect(url)
+            .await
+            .map_err(|e| sql_error(key, e))?;
+        let mut builder = sqlx::QueryBuilder::<sqlx::Any>::new(prefix.to_owned());
+        builder.push_values(values.iter(), bind);
+        let statement = if url.starts_with("postgres://") || url.starts_with("postgresql://") {
+            postgres_placeholders(builder.sql().as_str())
+        } else {
+            builder.sql().as_str().to_owned()
+        };
+        let arguments = builder
+            .build()
+            .take_arguments()
+            .map_err(|e| sql_error(key, e))?
+            .unwrap_or_default();
+        sqlx::query_with::<sqlx::Any, _>(sqlx::AssertSqlSafe(statement), arguments)
+            .execute(&pool)
+            .await
+            .map_err(|e| sql_error(key, e))?;
+        Ok(())
+    })
+}
 impl<T, F> TypedSink<T> for SqlSink<T, F>
 where
     T: Element,
@@ -274,34 +311,13 @@ where
         Ok(())
     }
     fn commit(&mut self) -> Result<(), Error> {
-        if self.values.is_empty() {
-            return Ok(());
-        }
-        sqlx::any::install_default_drivers();
-        let rt = runtime(&self.key)?;
-        rt.block_on(async {
-            let pool = sqlx::AnyPool::connect(&self.url)
-                .await
-                .map_err(|e| sql_error(&self.key, e))?;
-            let mut builder = sqlx::QueryBuilder::<sqlx::Any>::new(self.prefix.clone());
-            builder.push_values(self.values.iter(), self.bind.as_ref());
-            let statement =
-                if self.url.starts_with("postgres://") || self.url.starts_with("postgresql://") {
-                    postgres_placeholders(builder.sql().as_str())
-                } else {
-                    builder.sql().as_str().to_owned()
-                };
-            let arguments = builder
-                .build()
-                .take_arguments()
-                .map_err(|e| sql_error(&self.key, e))?
-                .unwrap_or_default();
-            sqlx::query_with::<sqlx::Any, _>(sqlx::AssertSqlSafe(statement), arguments)
-                .execute(&pool)
-                .await
-                .map_err(|e| sql_error(&self.key, e))?;
-            Ok(())
-        })
+        insert_rows(
+            &self.key,
+            &self.url,
+            &self.prefix,
+            self.bind.as_ref(),
+            &self.values,
+        )
     }
     fn abort(&mut self) -> Result<(), Error> {
         self.values.clear();
@@ -356,6 +372,109 @@ where
                 prefix: sink_prefix.clone(),
                 bind: Arc::clone(&bind),
                 values: Vec::new(),
+            }))
+        },
+    )
+}
+
+struct SqlParallelSink<T, F> {
+    inner: SqlSink<T, F>,
+    shards: usize,
+}
+impl<T, F> TypedSink<T> for SqlParallelSink<T, F>
+where
+    T: Element + Sync,
+    F: for<'q> Fn(sqlx::query_builder::Separated<'q, sqlx::Any, &'static str>, &T)
+        + Send
+        + Sync
+        + 'static,
+{
+    fn write(&mut self, value: T) -> Result<(), Error> {
+        self.inner.write(value)
+    }
+    fn commit(&mut self) -> Result<(), Error> {
+        if self.inner.values.is_empty() {
+            return Ok(());
+        }
+        let chunk_size = self
+            .inner
+            .values
+            .len()
+            .div_ceil(self.shards.min(self.inner.values.len()));
+        let inner = &self.inner;
+        std::thread::scope(|scope| {
+            let tasks = inner
+                .values
+                .chunks(chunk_size)
+                .map(|chunk| {
+                    scope.spawn(move || {
+                        insert_rows(
+                            &inner.key,
+                            &inner.url,
+                            &inner.prefix,
+                            inner.bind.as_ref(),
+                            chunk,
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+            for task in tasks {
+                task.join().map_err(|_| {
+                    Error::execution(&inner.key, "direct", "SQL writer shard panicked")
+                })??;
+            }
+            Ok(())
+        })
+    }
+    fn abort(&mut self) -> Result<(), Error> {
+        self.inner.abort()
+    }
+}
+
+/// Deferred parallel append sink. Shards use independent connections; a
+/// successful shard is not rolled back if another shard fails.
+pub fn sql_parallel_sink_with<T, F>(
+    input: &PCollection<T>,
+    key: &str,
+    url: &str,
+    insert_prefix: &str,
+    shards: usize,
+    bind: F,
+) -> Result<Sink<T>, Error>
+where
+    T: Element + Sync,
+    F: for<'q> Fn(sqlx::query_builder::Separated<'q, sqlx::Any, &'static str>, &T)
+        + Send
+        + Sync
+        + 'static,
+{
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    let sink_key = key.to_owned();
+    let sink_url = url.to_owned();
+    let sink_prefix = insert_prefix.to_owned();
+    let bind = Arc::new(bind);
+    input.sink_named(
+        key,
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::None,
+            commit: true,
+        },
+        move || {
+            Ok(Box::new(SqlParallelSink::<T, F> {
+                inner: SqlSink {
+                    key: sink_key.clone(),
+                    url: sink_url.clone(),
+                    prefix: sink_prefix.clone(),
+                    bind: Arc::clone(&bind),
+                    values: Vec::new(),
+                },
+                shards,
             }))
         },
     )

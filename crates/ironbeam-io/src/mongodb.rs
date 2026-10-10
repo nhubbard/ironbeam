@@ -329,30 +329,43 @@ struct MongoSink<T> {
     collection: String,
     values: Vec<T>,
 }
+fn insert_rows<T: Element + Serialize + Sync>(
+    key: &str,
+    uri: &str,
+    database: &str,
+    collection: &str,
+    values: &[T],
+) -> Result<(), Error> {
+    if values.is_empty() {
+        return Ok(());
+    }
+    runtime(key)?.block_on(async {
+        let client = mongodb::Client::with_uri_str(uri)
+            .await
+            .map_err(|e| mongo_error(key, e))?;
+        let collection = client.database(database).collection::<T>(collection);
+        for batch in values.chunks(100_000) {
+            collection
+                .insert_many(batch)
+                .await
+                .map_err(|e| mongo_error(key, e))?;
+        }
+        Ok(())
+    })
+}
 impl<T: Element + Serialize + Sync> TypedSink<T> for MongoSink<T> {
     fn write(&mut self, value: T) -> Result<(), Error> {
         self.values.push(value);
         Ok(())
     }
     fn commit(&mut self) -> Result<(), Error> {
-        if self.values.is_empty() {
-            return Ok(());
-        }
-        runtime(&self.key)?.block_on(async {
-            let client = mongodb::Client::with_uri_str(&self.uri)
-                .await
-                .map_err(|e| mongo_error(&self.key, e))?;
-            let collection = client
-                .database(&self.database)
-                .collection::<T>(&self.collection);
-            for batch in self.values.chunks(100_000) {
-                collection
-                    .insert_many(batch)
-                    .await
-                    .map_err(|e| mongo_error(&self.key, e))?;
-            }
-            Ok(())
-        })
+        insert_rows(
+            &self.key,
+            &self.uri,
+            &self.database,
+            &self.collection,
+            &self.values,
+        )
     }
     fn abort(&mut self) -> Result<(), Error> {
         self.values.clear();
@@ -386,6 +399,95 @@ pub fn mongodb_sink<T: Element + Serialize + Sync>(
                 database: database.clone(),
                 collection: collection.clone(),
                 values: Vec::new(),
+            }))
+        },
+    )
+}
+
+struct MongoParallelSink<T> {
+    inner: MongoSink<T>,
+    shards: usize,
+}
+impl<T: Element + Serialize + Sync> TypedSink<T> for MongoParallelSink<T> {
+    fn write(&mut self, value: T) -> Result<(), Error> {
+        self.inner.write(value)
+    }
+    fn commit(&mut self) -> Result<(), Error> {
+        if self.inner.values.is_empty() {
+            return Ok(());
+        }
+        let chunk_size = self
+            .inner
+            .values
+            .len()
+            .div_ceil(self.shards.min(self.inner.values.len()));
+        let inner = &self.inner;
+        std::thread::scope(|scope| {
+            let tasks = inner
+                .values
+                .chunks(chunk_size)
+                .map(|chunk| {
+                    scope.spawn(move || {
+                        insert_rows(
+                            &inner.key,
+                            &inner.uri,
+                            &inner.database,
+                            &inner.collection,
+                            chunk,
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+            for task in tasks {
+                task.join().map_err(|_| {
+                    Error::execution(&inner.key, "direct", "MongoDB writer shard panicked")
+                })??;
+            }
+            Ok(())
+        })
+    }
+    fn abort(&mut self) -> Result<(), Error> {
+        self.inner.abort()
+    }
+}
+
+/// Deferred parallel append sink. Shards use independent clients; one shard
+/// can commit before another fails, so retries require application deduplication.
+pub fn mongodb_parallel_sink<T: Element + Serialize + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    uri: &str,
+    database: &str,
+    collection: &str,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    let sink_key = key.to_owned();
+    let uri = uri.to_owned();
+    let database = database.to_owned();
+    let collection = collection.to_owned();
+    input.sink_named(
+        key,
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::None,
+            commit: true,
+        },
+        move || {
+            Ok(Box::new(MongoParallelSink {
+                inner: MongoSink {
+                    key: sink_key.clone(),
+                    uri: uri.clone(),
+                    database: database.clone(),
+                    collection: collection.clone(),
+                    values: Vec::new(),
+                },
+                shards,
             }))
         },
     )
