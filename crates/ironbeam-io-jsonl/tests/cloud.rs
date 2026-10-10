@@ -1,6 +1,6 @@
 #![cfg(feature = "cloud")]
 use ironbeam_cloud::{
-    FakeObjectIO, ObjectIO,
+    FakeObjectIO, LocalObjectIO, ObjectIO, ObjectStores,
     readers::{read_cloud_jsonl_vec, write_cloud_jsonl_vec},
 };
 use ironbeam_core::{Element, ErrorKind, Pipeline};
@@ -17,6 +17,47 @@ struct Row {
 impl Element for Row {
     const TYPE_ID: &'static str = "tests/cloud-row";
     const CODER_ID: &'static str = "tests/cloud-row-local";
+}
+
+#[test]
+fn registered_local_provider_runs_jsonl_graph() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut objects = ObjectStores::new();
+    objects
+        .register("file", LocalObjectIO::new(dir.path()).unwrap())
+        .unwrap();
+    let storage = Arc::new(objects.provider("file").unwrap());
+    let rows = vec![Row {
+        id: 3,
+        name: "Local".into(),
+    }];
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", rows.clone()).unwrap();
+    let sink = cloud_jsonl_sink(
+        &input,
+        "write",
+        Arc::clone(&storage),
+        "bucket",
+        "rows.jsonl",
+    )
+    .unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    assert_eq!(
+        objects.read("file://bucket/rows.jsonl").unwrap(),
+        b"{\"id\":3,\"name\":\"Local\"}\n"
+    );
+    let reader = Pipeline::default();
+    let output = cloud_jsonl_source::<Row, _>(&reader, "read", storage, "bucket", "rows.jsonl")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows
+    );
 }
 
 #[test]

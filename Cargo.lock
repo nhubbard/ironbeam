@@ -2176,6 +2176,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "tempfile",
  "xz2",
  "zstd",
 ]

@@ -35,6 +35,10 @@ staged locally.
   event-time assignment, and four terminal append sinks. An extracted CSV
   source crosses the mock worker coder contract; CSV globs lower to multiple
   source nodes and native Flatten. This is a local runner proof.
+- `ironbeam-cloud` now has URI routing, registered provider handles, and a
+  filesystem-backed local adapter. A JSONL graph source and sink round-trip
+  through that adapter. This verifies the provider boundary locally; hosted
+  storage and credentials remain unverified.
 
 ## Open replacement gates
 

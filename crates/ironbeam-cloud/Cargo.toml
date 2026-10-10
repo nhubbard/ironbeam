@@ -23,3 +23,6 @@ compression-gzip = ["dep:flate2"]
 compression-zstd = ["dep:zstd"]
 compression-bzip2 = ["dep:bzip2"]
 compression-xz = ["dep:xz2"]
+
+[dev-dependencies]
+tempfile = "3"
