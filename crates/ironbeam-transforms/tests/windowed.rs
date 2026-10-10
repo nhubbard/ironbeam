@@ -119,3 +119,53 @@ fn windowed_numeric_helpers_match_v4_shapes() {
     }
     assert!(input.sum_per_window_named("invalid", 0, 0).is_err());
 }
+
+#[test]
+fn numeric_window_folds_stream_linear_sources() {
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec("many", (0_i32..10_000).collect())
+        .unwrap()
+        .assign_timestamps_named("time", |value| i64::from(*value / 5_000))
+        .unwrap();
+    let counts = input
+        .count_per_window_named("counts", 1, 0)
+        .unwrap()
+        .output("counts-out")
+        .unwrap();
+    let keyed = input.map_named("key", |value| (value % 2, value)).unwrap();
+    let minima = keyed
+        .min_per_key_and_window_named("minimum", 1, 0)
+        .unwrap()
+        .output("minimum-out")
+        .unwrap();
+    let first = WindowInterval {
+        start_ns: 0,
+        end_ns: 1,
+    };
+    let second = WindowInterval {
+        start_ns: 1,
+        end_ns: 2,
+    };
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            memory_budget_bytes: 256,
+            buffer_budget_elements: 13,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&counts, &config).unwrap().0,
+            [(first, 5_000), (second, 5_000)]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&minima, &config).unwrap().0,
+            [
+                ((0, first), 0),
+                ((1, first), 1),
+                ((0, second), 5_000),
+                ((1, second), 5_001)
+            ]
+        );
+    }
+}

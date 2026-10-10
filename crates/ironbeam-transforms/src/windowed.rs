@@ -1,4 +1,5 @@
 //! Bounded fixed-window conveniences using envelope event time.
+use crate::basic_fold::{Average, Count, Maximum, Minimum, Sum};
 use ironbeam_core::{Element, Error, KeyedWindowed, PCollection, WindowInterval};
 use std::hash::Hash;
 use std::ops::Add;
@@ -70,11 +71,9 @@ impl<T: Element> WindowedExt<T> for PCollection<T> {
     where
         T: Default + Add<Output = T>,
     {
-        self.combine_per_window_named(key, size_ns, offset_ns, |values| {
-            values
-                .into_iter()
-                .fold(T::default(), |sum, value| sum + value)
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_globally_lifted_named(&format!("{key}/combine"), Sum)?
+            .with_window_named(key)
     }
     fn count_per_window_named(
         &self,
@@ -82,9 +81,9 @@ impl<T: Element> WindowedExt<T> for PCollection<T> {
         size_ns: i64,
         offset_ns: i64,
     ) -> Result<PCollection<(WindowInterval, u64)>, Error> {
-        self.combine_per_window_named(key, size_ns, offset_ns, |values| {
-            u64::try_from(values.len()).unwrap_or(u64::MAX)
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_globally_lifted_named(&format!("{key}/combine"), Count)?
+            .with_window_named(key)
     }
     fn min_per_window_named(
         &self,
@@ -95,9 +94,12 @@ impl<T: Element> WindowedExt<T> for PCollection<T> {
     where
         T: Ord,
     {
-        self.combine_per_window_named(key, size_ns, offset_ns, |values| {
-            values.into_iter().min().expect("non-empty fixed window")
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_globally_lifted_named(&format!("{key}/combine"), Minimum)?
+            .with_window_named(&format!("{key}/tag"))?
+            .flat_map_named(key, |(window, values)| {
+                values.into_iter().map(|value| (window, value)).collect()
+            })
     }
     fn max_per_window_named(
         &self,
@@ -108,9 +110,12 @@ impl<T: Element> WindowedExt<T> for PCollection<T> {
     where
         T: Ord,
     {
-        self.combine_per_window_named(key, size_ns, offset_ns, |values| {
-            values.into_iter().max().expect("non-empty fixed window")
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_globally_lifted_named(&format!("{key}/combine"), Maximum)?
+            .with_window_named(&format!("{key}/tag"))?
+            .flat_map_named(key, |(window, values)| {
+                values.into_iter().map(|value| (window, value)).collect()
+            })
     }
     fn average_per_window_named(
         &self,
@@ -121,14 +126,9 @@ impl<T: Element> WindowedExt<T> for PCollection<T> {
     where
         T: Into<f64>,
     {
-        self.combine_per_window_named(key, size_ns, offset_ns, |values| {
-            let count = values.len();
-            let total: f64 = values.into_iter().map(Into::into).sum();
-            #[allow(clippy::cast_precision_loss)]
-            {
-                total / count as f64
-            }
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_globally_lifted_named(&format!("{key}/combine"), Average)?
+            .with_window_named(key)
     }
 }
 
@@ -199,11 +199,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> KeyedWindowedExt<K, V> for PCol
     where
         V: Default + Add<Output = V>,
     {
-        self.combine_per_key_and_window_named(key, size_ns, offset_ns, |values| {
-            values
-                .into_iter()
-                .fold(V::default(), |sum, value| sum + value)
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_values_lifted_named(&format!("{key}/combine"), Sum)?
+            .with_window_named(&format!("{key}/tag"))?
+            .map_named(key, |(window, (group, value))| ((group, window), value))
     }
     fn count_per_key_and_window_named(
         &self,
@@ -211,9 +210,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> KeyedWindowedExt<K, V> for PCol
         size_ns: i64,
         offset_ns: i64,
     ) -> Result<PCollection<KeyedWindowed<K, u64>>, Error> {
-        self.combine_per_key_and_window_named(key, size_ns, offset_ns, |values| {
-            u64::try_from(values.len()).unwrap_or(u64::MAX)
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_values_lifted_named(&format!("{key}/combine"), Count)?
+            .with_window_named(&format!("{key}/tag"))?
+            .map_named(key, |(window, (group, value))| ((group, window), value))
     }
     fn min_per_key_and_window_named(
         &self,
@@ -224,9 +224,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> KeyedWindowedExt<K, V> for PCol
     where
         V: Ord,
     {
-        self.combine_per_key_and_window_named(key, size_ns, offset_ns, |values| {
-            values.into_iter().min().expect("non-empty fixed window")
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_values_lifted_named(&format!("{key}/combine"), Minimum)?
+            .with_window_named(&format!("{key}/tag"))?
+            .flat_map_named(key, |(window, (group, values))| {
+                values
+                    .into_iter()
+                    .map(|value| ((group.clone(), window), value))
+                    .collect()
+            })
     }
     fn max_per_key_and_window_named(
         &self,
@@ -237,9 +243,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> KeyedWindowedExt<K, V> for PCol
     where
         V: Ord,
     {
-        self.combine_per_key_and_window_named(key, size_ns, offset_ns, |values| {
-            values.into_iter().max().expect("non-empty fixed window")
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_values_lifted_named(&format!("{key}/combine"), Maximum)?
+            .with_window_named(&format!("{key}/tag"))?
+            .flat_map_named(key, |(window, (group, values))| {
+                values
+                    .into_iter()
+                    .map(|value| ((group.clone(), window), value))
+                    .collect()
+            })
     }
     fn average_per_key_and_window_named(
         &self,
@@ -250,13 +262,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> KeyedWindowedExt<K, V> for PCol
     where
         V: Into<f64>,
     {
-        self.combine_per_key_and_window_named(key, size_ns, offset_ns, |values| {
-            let count = values.len();
-            let total: f64 = values.into_iter().map(Into::into).sum();
-            #[allow(clippy::cast_precision_loss)]
-            {
-                total / count as f64
-            }
-        })
+        self.fixed_windows_with_offset(&format!("{key}/window"), size_ns, offset_ns)?
+            .combine_values_lifted_named(&format!("{key}/combine"), Average)?
+            .with_window_named(&format!("{key}/tag"))?
+            .map_named(key, |(window, (group, value))| ((group, window), value))
     }
 }
