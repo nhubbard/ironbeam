@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -23,6 +23,7 @@ v5-io-xml = ["v5-preview", "dep:ironbeam-io-xml"]
 v5-io-msgpack = ["v5-preview", "dep:ironbeam-io-msgpack"]
 v5-io-cbor = ["v5-preview", "dep:ironbeam-io-cbor"]
 v5-io-protobuf = ["v5-preview", "dep:ironbeam-io-protobuf", "dep:prost"]
+v5-io-tfrecord = ["v5-preview", "dep:ironbeam-io-tfrecord"]
 v5-io-parquet = ["v5-preview", "dep:ironbeam-io-parquet"]
 v5-io-arrow = ["v5-preview", "dep:ironbeam-io-arrow"]
 
@@ -40,8 +41,8 @@ io-xml = ["dep:quick-xml"]
 # extra dependencies that would bloat the common build, so users opt in.
 io-msgpack = ["dep:rmp-serde"]
 io-cbor = ["dep:ciborium"]
-io-protobuf = ["dep:prost", "ironbeam-io?/protobuf"]
-io-tfrecord = ["dep:crc32c", "ironbeam-io?/tfrecord"]
+io-protobuf = ["dep:prost"]
+io-tfrecord = ["dep:crc32c"]
 io-arrow = ["dep:arrow", "dep:serde_arrow"]
 io-sql = ["dep:sqlx", "dep:tokio"]
 io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
@@ -72,6 +73,7 @@ ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", 
 ironbeam-io = { version = "0.1.0", path = "crates/ironbeam-io", default-features = false, optional = true }
 ironbeam-io-jsonl = { version = "0.1.0", path = "crates/ironbeam-io-jsonl", optional = true }
 ironbeam-io-protobuf = { version = "0.1.0", path = "crates/ironbeam-io-protobuf", optional = true }
+ironbeam-io-tfrecord = { version = "0.1.0", path = "crates/ironbeam-io-tfrecord", optional = true }
 ironbeam-io-avro = { version = "0.1.0", path = "crates/ironbeam-io-avro", optional = true }
 ironbeam-io-csv = { version = "0.1.0", path = "crates/ironbeam-io-csv", optional = true }
 ironbeam-io-xml = { version = "0.1.0", path = "crates/ironbeam-io-xml", optional = true }

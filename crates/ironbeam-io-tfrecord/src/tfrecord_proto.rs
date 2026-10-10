@@ -4,9 +4,6 @@
 //! `feature.proto` exactly, so files produced by TensorFlow or `tf.data` can
 //! be decoded here without running `protoc` or importing any TensorFlow crate.
 //!
-//! Compiled only when both v5 `tfrecord` and `protobuf` features are enabled.
-
-#![cfg(all(feature = "tfrecord", feature = "protobuf"))]
 
 use ironbeam_core::{Element, Error};
 use serde::{Deserialize, Serialize};

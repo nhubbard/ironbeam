@@ -71,6 +71,19 @@ fn facade_exposes_isolated_protobuf_connector() {
     );
 }
 
+#[cfg(feature = "v5-io-tfrecord")]
+#[test]
+fn facade_exposes_isolated_tfrecord_connector() {
+    use ironbeam::v5::{DirectRunner, JobConfig, tfrecord_sink, tfrecord_source};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("values.tfrecord");
+    let values = vec![b"first".to_vec(), b"second".to_vec()];
+    let input = Pipeline::default().from_vec("input", values.clone()).unwrap();
+    DirectRunner.run_sink(&tfrecord_sink(&input, "write", &path).unwrap(), &JobConfig::default()).unwrap();
+    let output = tfrecord_source(&Pipeline::default(), "read", &path).unwrap().output("out").unwrap();
+    assert_eq!(output.collect_seq().unwrap(), values);
+}
+
 #[cfg(feature = "v5-io-csv")]
 #[test]
 fn facade_exposes_isolated_csv_connector() {

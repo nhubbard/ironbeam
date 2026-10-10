@@ -1,9 +1,4 @@
-#![cfg(any(
-    feature = "file",
-    feature = "protobuf",
-    feature = "tfrecord",
-    feature = "cloud"
-))]
+#![cfg(any(feature = "file", feature = "cloud"))]
 #![allow(clippy::missing_errors_doc)]
 //! Bounded file adapters for the v5 logical graph.
 //! Sources bind their input bytes at graph construction. Final-result sinks write
@@ -19,11 +14,6 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-
-#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
-pub mod tfrecord_proto;
-#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
-pub use tfrecord_proto::{BytesList, Example, Feature, Features, FloatList, Int64List};
 
 fn read_decoded_file(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     #[cfg(any(
@@ -97,11 +87,11 @@ pub fn open_lazy_input(path: &Path, key: &str) -> Result<Box<dyn std::io::Read +
     }
 }
 
-#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
+#[cfg(feature = "file")]
 pub trait ReadSeek: std::io::Read + std::io::Seek {}
-#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
+#[cfg(feature = "file")]
 impl<T: std::io::Read + std::io::Seek> ReadSeek for T {}
-#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
+#[cfg(feature = "file")]
 #[doc(hidden)]
 pub fn open_lazy_seek(path: &Path, key: &str) -> Result<(Box<dyn ReadSeek + Send>, u64), Error> {
     if compressed_extension(path) {
@@ -166,7 +156,7 @@ pub fn source<T: Element>(
     )
 }
 
-#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
+#[cfg(feature = "file")]
 #[doc(hidden)]
 pub fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     use std::io::Read;
@@ -183,7 +173,7 @@ pub fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     Ok(hasher.finalize().to_vec())
 }
 
-#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
+#[cfg(feature = "file")]
 #[doc(hidden)]
 pub fn lazy_source<T: Element>(
     pipeline: &Pipeline,
@@ -256,7 +246,7 @@ pub fn file_glob_source<T: Element>(
     }
 }
 
-#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
+#[cfg(feature = "file")]
 #[doc(hidden)]
 pub fn file_sharded_source<T: Element>(
     pipeline: &Pipeline,
@@ -312,7 +302,7 @@ pub fn file_sharded_source<T: Element>(
     }
 }
 
-#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
+#[cfg(feature = "file")]
 #[doc(hidden)]
 pub fn count_lazy_records<T: Element>(
     path: &Path,
@@ -328,7 +318,7 @@ pub fn count_lazy_records<T: Element>(
     Ok(count)
 }
 
-#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
+#[cfg(feature = "file")]
 #[doc(hidden)]
 pub fn read_lazy_range<T: Element>(
     path: PathBuf,
@@ -339,16 +329,6 @@ pub fn read_lazy_range<T: Element>(
     Ok(Box::new(read(path)?.skip(start).take(end - start)))
 }
 
-#[cfg(feature = "tfrecord")]
-pub fn tfrecord_glob_source(
-    pipeline: &Pipeline,
-    key: &str,
-    pattern: &str,
-) -> Result<PCollection<Vec<u8>>, Error> {
-    file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
-        tfrecord_source(pipeline, key, path)
-    })
-}
 struct FileSink<T> {
     path: PathBuf,
     key: String,
@@ -415,10 +395,7 @@ pub fn sink<T: Element>(
     )
 }
 
-#[cfg(all(
-    feature = "parallel-io",
-    any(feature = "file", feature = "protobuf", feature = "tfrecord")
-))]
+#[cfg(all(feature = "parallel-io", feature = "file"))]
 #[doc(hidden)]
 pub fn parallel_file_writer<T: Sync>(
     path: &Path,
@@ -476,10 +453,7 @@ pub fn parallel_file_writer<T: Sync>(
     output.flush().map_err(|e| io("parallel-io", e))
 }
 
-#[cfg(all(
-    feature = "parallel-io",
-    any(feature = "file", feature = "protobuf", feature = "tfrecord")
-))]
+#[cfg(all(feature = "parallel-io", feature = "file"))]
 #[doc(hidden)]
 pub fn framed_parallel_sink<T: Element + Sync>(
     input: &PCollection<T>,
@@ -544,283 +518,4 @@ pub fn parallel_container_writer<T: Sync>(
         merged.extend(read(&bytes)?);
     }
     write(path, &merged)
-}
-
-#[cfg(feature = "tfrecord")]
-fn masked_crc(bytes: &[u8]) -> u32 {
-    crc32c::crc32c(bytes)
-        .rotate_right(15)
-        .wrapping_add(0xa282_ead8)
-}
-#[cfg(feature = "tfrecord")]
-fn read_tfrecord(mut bytes: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
-    let mut rows = Vec::new();
-    while !bytes.is_empty() {
-        let header = bytes
-            .get(..12)
-            .ok_or_else(|| io("tfrecord", "truncated record header"))?;
-        let length_bytes: [u8; 8] = header[..8]
-            .try_into()
-            .map_err(|_| io("tfrecord", "invalid length"))?;
-        let crc_bytes: [u8; 4] = header[8..12]
-            .try_into()
-            .map_err(|_| io("tfrecord", "invalid length CRC"))?;
-        if u32::from_le_bytes(crc_bytes) != masked_crc(&length_bytes) {
-            return Err(io("tfrecord", "length CRC mismatch"));
-        }
-        let length =
-            usize::try_from(u64::from_le_bytes(length_bytes)).map_err(|e| io("tfrecord", e))?;
-        let end = 12_usize
-            .checked_add(length)
-            .and_then(|n| n.checked_add(4))
-            .ok_or_else(|| io("tfrecord", "record length overflow"))?;
-        let record = bytes
-            .get(12..end)
-            .ok_or_else(|| io("tfrecord", "truncated record"))?;
-        let payload = &record[..length];
-        let stored_crc: [u8; 4] = record[length..]
-            .try_into()
-            .map_err(|_| io("tfrecord", "invalid data CRC"))?;
-        if u32::from_le_bytes(stored_crc) != masked_crc(payload) {
-            return Err(io("tfrecord", "data CRC mismatch"));
-        }
-        rows.push(payload.to_vec());
-        bytes = &bytes[end..];
-    }
-    Ok(rows)
-}
-#[cfg(feature = "tfrecord")]
-fn write_tfrecord(path: &Path, values: &[Vec<u8>]) -> Result<(), Error> {
-    use std::io::Write;
-    let mut file = open_encoded_output(path, "tfrecord")?;
-    for value in values {
-        let length = (value.len() as u64).to_le_bytes();
-        file.write_all(&length).map_err(|e| io("tfrecord", e))?;
-        file.write_all(&masked_crc(&length).to_le_bytes())
-            .map_err(|e| io("tfrecord", e))?;
-        file.write_all(value).map_err(|e| io("tfrecord", e))?;
-        file.write_all(&masked_crc(value).to_le_bytes())
-            .map_err(|e| io("tfrecord", e))?;
-    }
-    Ok(())
-}
-#[cfg(feature = "tfrecord")]
-pub fn tfrecord_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<Vec<u8>>, Error> {
-    source(pipeline, key, path, "tfrecord", read_tfrecord)
-}
-#[cfg(feature = "tfrecord")]
-#[allow(clippy::needless_pass_by_value)] // Shared lazy-source factory accepts PathBuf.
-fn read_tfrecord_lazy(path: PathBuf) -> Result<TypedSourceIterator<Vec<u8>>, Error> {
-    use std::io::{Read, Seek};
-    let (file, file_length) = open_lazy_seek(&path, "tfrecord")?;
-    let mut reader = std::io::BufReader::new(file);
-    let mut done = false;
-    Ok(Box::new(std::iter::from_fn(move || {
-        if done {
-            return None;
-        }
-        let mut header = [0_u8; 12];
-        match reader.read(&mut header[..1]) {
-            Ok(0) => return None,
-            Ok(_) => {}
-            Err(error) => {
-                done = true;
-                return Some(Err(io("tfrecord", error)));
-            }
-        }
-        if let Err(error) = reader.read_exact(&mut header[1..]) {
-            done = true;
-            return Some(Err(io("tfrecord", error)));
-        }
-        let length_bytes: [u8; 8] = header[..8].try_into().expect("fixed-size header");
-        let stored_length_crc =
-            u32::from_le_bytes(header[8..12].try_into().expect("fixed-size header"));
-        if stored_length_crc != masked_crc(&length_bytes) {
-            done = true;
-            return Some(Err(io("tfrecord", "length CRC mismatch")));
-        }
-        let length = match usize::try_from(u64::from_le_bytes(length_bytes)) {
-            Ok(length) => length,
-            Err(error) => {
-                done = true;
-                return Some(Err(io("tfrecord", error)));
-            }
-        };
-        let position = match reader.stream_position() {
-            Ok(position) => position,
-            Err(error) => {
-                done = true;
-                return Some(Err(io("tfrecord", error)));
-            }
-        };
-        if u64::try_from(length)
-            .ok()
-            .and_then(|length| length.checked_add(4))
-            .is_none_or(|needed| needed > file_length.saturating_sub(position))
-        {
-            done = true;
-            return Some(Err(io("tfrecord", "truncated record")));
-        }
-        let mut payload = vec![0_u8; length];
-        let mut crc = [0_u8; 4];
-        if let Err(error) = reader
-            .read_exact(&mut payload)
-            .and_then(|()| reader.read_exact(&mut crc))
-        {
-            done = true;
-            return Some(Err(io("tfrecord", error)));
-        }
-        if u32::from_le_bytes(crc) != masked_crc(&payload) {
-            done = true;
-            return Some(Err(io("tfrecord", "data CRC mismatch")));
-        }
-        Some(Ok(payload))
-    })))
-}
-#[cfg(feature = "tfrecord")]
-pub fn tfrecord_streaming_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<Vec<u8>>, Error> {
-    lazy_source(
-        pipeline,
-        key,
-        path,
-        "tfrecord-streaming",
-        read_tfrecord_lazy,
-    )
-}
-#[cfg(feature = "tfrecord")]
-pub fn tfrecord_sink(
-    input: &PCollection<Vec<u8>>,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<Sink<Vec<u8>>, Error> {
-    sink(input, key, path, write_tfrecord)
-}
-
-#[cfg(all(feature = "tfrecord", feature = "parallel-io"))]
-pub fn tfrecord_parallel_sink(
-    input: &PCollection<Vec<u8>>,
-    key: &str,
-    path: impl AsRef<Path>,
-    shards: usize,
-) -> Result<Sink<Vec<u8>>, Error> {
-    framed_parallel_sink(input, key, path, shards, write_tfrecord)
-}
-
-#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
-fn read_tfrecord_examples(bytes: &[u8]) -> Result<Vec<Example>, Error> {
-    read_tfrecord(bytes)?
-        .into_iter()
-        .enumerate()
-        .map(|(index, bytes)| {
-            <Example as prost::Message>::decode(bytes.as_slice())
-                .map_err(|e| io("tfrecord-examples", format!("record {}: {e}", index + 1)))
-        })
-        .collect()
-}
-#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
-fn read_tfrecord_examples_lazy(path: PathBuf) -> Result<TypedSourceIterator<Example>, Error> {
-    Ok(Box::new(read_tfrecord_lazy(path)?.enumerate().map(
-        |(index, result)| {
-            let bytes = result?;
-            <Example as prost::Message>::decode(bytes.as_slice())
-                .map_err(|e| io("tfrecord-examples", format!("record {}: {e}", index + 1)))
-        },
-    )))
-}
-#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
-/// Read TensorFlow `tf.Example` messages from a bounded `TFRecord` file.
-pub fn tfrecord_examples_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<Example>, Error> {
-    source(
-        pipeline,
-        key,
-        path,
-        "tfrecord-examples",
-        read_tfrecord_examples,
-    )
-}
-#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
-/// Lazily decode TensorFlow `tf.Example` messages from a bounded `TFRecord` file.
-pub fn tfrecord_examples_streaming_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<Example>, Error> {
-    lazy_source(
-        pipeline,
-        key,
-        path,
-        "tfrecord-examples-streaming",
-        read_tfrecord_examples_lazy,
-    )
-}
-#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
-fn count_tfrecord_examples(path: &Path) -> Result<usize, Error> {
-    count_lazy_records(path, read_tfrecord_examples_lazy)
-}
-#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
-fn read_tfrecord_examples_range(
-    path: PathBuf,
-    start: usize,
-    end: usize,
-) -> Result<TypedSourceIterator<Example>, Error> {
-    read_lazy_range(path, start, end, read_tfrecord_examples_lazy)
-}
-#[cfg(all(feature = "tfrecord", feature = "protobuf"))]
-pub fn tfrecord_examples_sharded_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-    records_per_shard: usize,
-) -> Result<PCollection<Example>, Error> {
-    file_sharded_source(
-        pipeline,
-        key,
-        path,
-        records_per_shard,
-        "tfrecord-examples",
-        count_tfrecord_examples,
-        read_tfrecord_examples_range,
-    )
-}
-
-#[cfg(feature = "tfrecord")]
-fn count_tfrecord_records(path: &Path) -> Result<usize, Error> {
-    count_lazy_records(path, read_tfrecord_lazy)
-}
-#[cfg(feature = "tfrecord")]
-fn read_tfrecord_range(
-    path: PathBuf,
-    start: usize,
-    end: usize,
-) -> Result<TypedSourceIterator<Vec<u8>>, Error> {
-    read_lazy_range(path, start, end, read_tfrecord_lazy)
-}
-#[cfg(feature = "tfrecord")]
-pub fn tfrecord_sharded_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-    records_per_shard: usize,
-) -> Result<PCollection<Vec<u8>>, Error> {
-    file_sharded_source(
-        pipeline,
-        key,
-        path,
-        records_per_shard,
-        "tfrecord",
-        count_tfrecord_records,
-        read_tfrecord_range,
-    )
 }

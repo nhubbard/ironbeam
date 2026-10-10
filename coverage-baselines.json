@@ -46,12 +46,12 @@
   "ironbeam-io": {
     "source": "crates/ironbeam-io/src",
     "lines": {
-      "covered": 366,
-      "count": 455
+      "covered": 265,
+      "count": 276
     },
     "branches": {
-      "covered": 37,
-      "count": 44
+      "covered": 25,
+      "count": 26
     }
   },
   "ironbeam-io-jsonl": {
@@ -70,6 +70,17 @@
     "lines": {
       "covered": 93,
       "count": 100
+    },
+    "branches": {
+      "covered": 16,
+      "count": 18
+    }
+  },
+  "ironbeam-io-tfrecord": {
+    "source": "crates/ironbeam-io-tfrecord/src",
+    "lines": {
+      "covered": 164,
+      "count": 179
     },
     "branches": {
       "covered": 16,

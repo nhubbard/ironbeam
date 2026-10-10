@@ -1,5 +1,6 @@
 #![cfg(all(
     feature = "v5-preview",
+    feature = "v5-io-tfrecord",
     feature = "io-tfrecord",
     feature = "io-protobuf"
 ))]

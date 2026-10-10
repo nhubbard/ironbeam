@@ -7,9 +7,9 @@ staged locally.
 
 ## Verified in this checkout
 
-- `bash scripts/check_v5_packages.sh` passed after Protobuf extraction: workspace
-  tests, selected feature variants, all-feature documentation, and local
-  package verification for eighteen v5 crates. No package was published.
+- `bash scripts/check_v5_packages.sh` passed after TFRecord extraction:
+  workspace tests, selected feature variants, all-feature documentation, and
+  local package verification for all nineteen v5 crates. No package was published.
 - `ironbeam-io-csv` is isolated from the common file lifecycle package. Its
   minimal and all-feature tests, package verification, strict lint, and
   85/86 source-location plus 8/8 branch coverage passed. Scalar and tuple
@@ -26,8 +26,9 @@ staged locally.
 - `ironbeam-io-jsonl` owns file and object adapters. Its all-feature tests
   measure 177/190 source locations and 12/14 branches. Protobuf is now in
   `ironbeam-io-protobuf` with 93/100 source locations and 16/18 branches
-  measured under all features. Shared lifecycle I/O measures 366/455 locations
-  and 37/44 branches when exercised through the extracted format packages.
+  measured under all features. TFRecord now has its own crate with 164/179
+  source locations and 16/18 branches. Shared lifecycle I/O measures 265/276
+  locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
   separately launched v5 worker for two sources, two branches, native Flatten,
@@ -60,10 +61,12 @@ staged locally.
    feature graph, examples, and compatibility paths remain. Continue format
    extraction, API migration, and the focused v4 removal gate in
    `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
-5. **Cloud execution:** No real Dataflow cloud job has reached `DONE` with the
-   v5 worker. A pinned Linux worker artifact, credentials, cloud storage paths,
-   and cost-controlled integration run are still required. The local Prism
-   result does not substitute for this gate.
+5. **Execution proof:** The user chose local Prism proof for now. The existing
+   Prism job reaches `DONE` only for the bounded elementwise and Flatten slice;
+   the expanded portable feature corpus and arbitrary source/sink data still
+   need local Prism runs. No real Dataflow cloud job has reached `DONE` with the
+   v5 worker; cloud execution remains unverified and is not the requested
+   release proof at this stage.
 
 The detailed architecture and exit criteria remain in
 `WORKSPACE_ARCHITECTURE_PLAN.md`, `IRONBEAM_V5_EXECUTION_PLAN.md`, and
