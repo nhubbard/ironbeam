@@ -42,6 +42,11 @@ mod statistical;
 pub use statistical::{KeyedStatisticalExt, StatisticalExt, TDigest};
 mod approx_distinct;
 pub use approx_distinct::{ApproxDistinctExt, KeyedApproxDistinctExt};
+mod side_inputs;
+pub use side_inputs::{
+    ConstantSideInputExt, SideMap, SideMultimap, SideSingleton, SideVec, side_hashmap,
+    side_multimap, side_singleton, side_vec,
+};
 
 pub trait ElementwiseExt<T: Element> {
     fn key_by_named<K: Element>(

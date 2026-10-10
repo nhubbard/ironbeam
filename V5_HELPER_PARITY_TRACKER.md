@@ -22,7 +22,7 @@ remains available until every required family is closed.
 | `flatten` | core | Present | Fan-in graph and Direct tests exist. |
 | `combine`, `combine_global` | core, direct | Partial | Global combine graph and Direct execution exist; typed incremental combiners and lifted planning remain. |
 | `joins`, `co_gbk` | core, direct | Partial | Inner join exists; outer joins and multi-way co-group remain. |
-| `side_inputs` | core, direct | Partial | Bounded map-with-side exists; singleton/map/multimap variants and materialization policy remain. |
+| `side_inputs` | core, transforms, direct | Partial | Bounded collection side input and v4-style immutable vector, singleton, map, and multimap helpers exist. Dynamic singleton/map/multimap materialization and resource policy remain. |
 | `latest`, `timestamped`, `tumbling`, `windowed_combine` | core, transforms, direct | Pending | Event-time assignment and window execution need a shared contract; Direct currently rejects fixed-window execution. |
 | `sampling` | transforms | Present for values | Eight seeded/default global and per-key methods use v4's priority sequence; bounded-memory aggregation and parallel performance remain to verify. |
 | `statistical` | transforms | Present for values | V4-compatible t-digest quantiles and median work globally/per key, with non-finite observations ignored. Current global combine materializes input, so bounded-memory performance remains open. |
