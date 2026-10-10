@@ -18,8 +18,10 @@ struct TestData {
     value: i32,
 }
 
-fn setup_test() {
-    let _guard = TEST_LOCK.lock().unwrap();
+fn setup_test() -> std::sync::MutexGuard<'static, ()> {
+    let guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     reset_memory_tracker();
 
     let test_id = std::time::SystemTime::now()
@@ -35,11 +37,12 @@ fn setup_test() {
         .with_min_spill_size(100);
 
     init_spilling(config);
+    guard
 }
 
 #[test]
 fn test_spilling_executor_creation() {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::new();
     assert!(executor.is_enabled());
@@ -47,7 +50,7 @@ fn test_spilling_executor_creation() {
 
 #[test]
 fn test_spilling_executor_default() {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::default();
     assert!(executor.is_enabled());
@@ -55,7 +58,7 @@ fn test_spilling_executor_default() {
 
 #[test]
 fn test_spilling_executor_process_partition_no_spill() {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::new();
     let data = vec![1, 2, 3];
@@ -66,7 +69,7 @@ fn test_spilling_executor_process_partition_no_spill() {
 
 #[test]
 fn test_spilling_executor_wrap_and_check() -> Result<()> {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::new();
     let data = vec![TestData { value: 1 }, TestData { value: 2 }];
@@ -79,7 +82,7 @@ fn test_spilling_executor_wrap_and_check() -> Result<()> {
 
 #[test]
 fn test_current_memory_usage_initialized() {
-    setup_test();
+    let _guard = setup_test();
 
     let usage = current_memory_usage();
     assert!(usage.is_some());
@@ -87,7 +90,7 @@ fn test_current_memory_usage_initialized() {
 
 #[test]
 fn test_current_memory_usage_tracking() {
-    setup_test();
+    let _guard = setup_test();
 
     let initial = current_memory_usage().unwrap_or(0);
 
@@ -103,7 +106,9 @@ fn test_current_memory_usage_tracking() {
 
 #[test]
 fn test_reset_memory_tracker_functionality() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     // Initialize spilling
     let test_id = std::time::SystemTime::now()
@@ -130,7 +135,7 @@ fn test_reset_memory_tracker_functionality() {
 
 #[test]
 fn test_spilling_executor_with_large_data() -> Result<()> {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::new();
     let large_data: Vec<TestData> = (0..1000).map(|i| TestData { value: i }).collect();
@@ -143,7 +148,7 @@ fn test_spilling_executor_with_large_data() -> Result<()> {
 
 #[test]
 fn test_spilling_executor_with_empty_data() -> Result<()> {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::new();
     let empty_data: Vec<TestData> = vec![];
@@ -156,7 +161,9 @@ fn test_spilling_executor_with_empty_data() -> Result<()> {
 
 #[test]
 fn test_init_spilling_multiple_times() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     // Initialize multiple times should not panic
     let config1 = SpillConfig::new()
@@ -177,7 +184,9 @@ fn test_init_spilling_multiple_times() {
 
 #[test]
 fn test_spilling_executor_disabled_when_not_initialized() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     // Don't initialize spilling
     reset_memory_tracker();
@@ -189,7 +198,7 @@ fn test_spilling_executor_disabled_when_not_initialized() {
 
 #[test]
 fn test_process_partition_with_type_mismatch() {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::new();
 
@@ -211,7 +220,7 @@ struct ComplexType {
 
 #[test]
 fn test_wrap_and_check_with_serialization() -> Result<()> {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::new();
 
@@ -236,7 +245,7 @@ fn test_wrap_and_check_with_serialization() -> Result<()> {
 
 #[test]
 fn test_memory_tracking_after_multiple_operations() {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::new();
 
@@ -253,7 +262,7 @@ fn test_memory_tracking_after_multiple_operations() {
 
 #[test]
 fn test_spilling_executor_stress() -> Result<()> {
-    setup_test();
+    let _guard = setup_test();
 
     let executor = SpillingExecutor::new();
 
