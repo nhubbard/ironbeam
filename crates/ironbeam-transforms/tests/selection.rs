@@ -78,3 +78,36 @@ fn keyed_top_k_matches_v4_per_key_values() {
         [("a".to_string(), vec![2, 5]), ("b".into(), vec![7, 10])]
     );
 }
+
+#[test]
+fn top_k_streams_beyond_materialization_budget() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("large", (0_i32..10_000).collect())
+        .unwrap();
+    let top = values
+        .top_k_globally_named("streamed-top", 4)
+        .unwrap()
+        .output("streamed-top-out")
+        .unwrap();
+    let keyed = values
+        .map_named("streamed-keys", |value| (value % 2, value))
+        .unwrap()
+        .bottom_k_per_key_named("streamed-key-fold", "streamed-key-identity", 2)
+        .unwrap()
+        .output("streamed-key-out")
+        .unwrap();
+    let config = JobConfig {
+        memory_budget_bytes: 256,
+        buffer_budget_elements: 13,
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner.run_collect(&top, &config).unwrap().0,
+        vec![vec![9999, 9998, 9997, 9996]]
+    );
+    assert_eq!(
+        DirectRunner.run_collect(&keyed, &config).unwrap().0,
+        vec![(0, vec![0, 2]), (1, vec![1, 3])]
+    );
+}

@@ -16,7 +16,7 @@ remains available until every required family is closed.
 | `collect_values` | transforms | Present | Global list/set, per-key list/set, and dictionary are implemented; hash collections have canonical coders and tests. |
 | `basic` | transforms | Present for supported numeric types | Sum, min/max, f64 averages, and generic f32/f64 means exist globally/per key; extend numeric `Element` coverage as other v4 types migrate. |
 | `distinct` | transforms | Present for values | Exact global/per-key distinct and counts, distinct-by, KMV, and HLL++ approximations exist. Current graph combine materializes input, so bounded-memory performance remains open. |
-| `topk` | transforms | Present for values | Global/per-key top and bottom K pass value tests; the current global combine materializes input and needs a bounded-memory implementation before performance parity is claimed. |
+| `topk` | transforms | Present for bounded Direct values | Global/per-key top and bottom K now use size-K lifted heaps over linear sources and pass a memory-budget test. Other upstream graphs can still materialize before folding. |
 | `regex` | transforms | Present | Six methods pass value tests; invalid patterns are typed construction errors in v5. |
 | `display` | transforms | Present | Display mapping passes Direct tests. |
 | `flatten` | core | Present | Fan-in graph and Direct tests exist. |
