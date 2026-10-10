@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::any::Any;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::fmt::Write as _;
 use std::hash::Hash;
@@ -71,8 +71,14 @@ macro_rules! integer_element {
 }
 integer_element!(i32, "std/i32", "ironbeam/i32-le", 4);
 integer_element!(i64, "std/i64", "ironbeam/i64-le", 8);
+integer_element!(i8, "std/i8", "ironbeam/i8-le", 1);
+integer_element!(i16, "std/i16", "ironbeam/i16-le", 2);
+integer_element!(u8, "std/u8", "ironbeam/u8-le", 1);
+integer_element!(u16, "std/u16", "ironbeam/u16-le", 2);
 integer_element!(u32, "std/u32", "ironbeam/u32-le", 4);
 integer_element!(u64, "std/u64", "ironbeam/u64-le", 8);
+integer_element!(f32, "std/f32", "ironbeam/f32-ieee754-le", 4);
+integer_element!(f64, "std/f64", "ironbeam/f64-ieee754-le", 8);
 impl Element for bool {
     const TYPE_ID: &'static str = "std/bool";
     const CODER_ID: &'static str = "ironbeam/bool-v1";
@@ -221,6 +227,186 @@ impl<A: Element, B: Element> Element for (A, B) {
             return Err(Error::incompatible("trailing tuple bytes"));
         }
         Ok((first, second))
+    }
+}
+
+impl<T: Element + Eq + Hash> Element for HashSet<T> {
+    const TYPE_ID: &'static str = "std/hash-set";
+    const CODER_ID: &'static str = "ironbeam/hash-set-sorted";
+    fn type_identity() -> String {
+        format!("std/hash-set<{}>", T::type_identity())
+    }
+    fn coder_identity() -> String {
+        format!("ironbeam/hash-set-sorted-v1<{}>", T::coder_identity())
+    }
+    fn supports_coder() -> bool {
+        T::supports_coder()
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let mut parts = self
+            .iter()
+            .map(Element::encode)
+            .collect::<Result<Vec<_>, _>>()?;
+        parts.sort();
+        if parts.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(Error::incompatible(
+                "distinct set values have the same encoded bytes",
+            ));
+        }
+        let mut bytes = (parts.len() as u64).to_le_bytes().to_vec();
+        for part in parts {
+            encode_part(&part, &mut bytes);
+        }
+        Ok(bytes)
+    }
+    fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let header = bytes
+            .get(..8)
+            .ok_or_else(|| Error::incompatible("truncated set count"))?;
+        let count = usize_from_u64(u64::from_le_bytes(
+            header
+                .try_into()
+                .map_err(|_| Error::incompatible("invalid set count"))?,
+        ))?;
+        bytes = &bytes[8..];
+        let mut values = HashSet::with_capacity(count.min(1024));
+        for _ in 0..count {
+            if !values.insert(T::decode(decode_part(&mut bytes)?)?) {
+                return Err(Error::incompatible("duplicate value in encoded set"));
+            }
+        }
+        if !bytes.is_empty() {
+            return Err(Error::incompatible("trailing set bytes"));
+        }
+        Ok(values)
+    }
+}
+
+impl<K: Element + Eq + Hash, V: Element> Element for HashMap<K, V> {
+    const TYPE_ID: &'static str = "std/hash-map";
+    const CODER_ID: &'static str = "ironbeam/hash-map-sorted";
+    fn type_identity() -> String {
+        format!(
+            "std/hash-map<{},{}>",
+            K::type_identity(),
+            V::type_identity()
+        )
+    }
+    fn coder_identity() -> String {
+        format!(
+            "ironbeam/hash-map-sorted-v1<{},{}>",
+            K::coder_identity(),
+            V::coder_identity()
+        )
+    }
+    fn supports_coder() -> bool {
+        K::supports_coder() && V::supports_coder()
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let mut parts = self
+            .iter()
+            .map(|(key, value)| Ok((key.encode()?, value.encode()?)))
+            .collect::<Result<Vec<_>, Error>>()?;
+        parts.sort_by(|left, right| left.0.cmp(&right.0));
+        if parts.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(Error::incompatible(
+                "distinct map keys have the same encoded bytes",
+            ));
+        }
+        let mut bytes = (parts.len() as u64).to_le_bytes().to_vec();
+        for (key, value) in parts {
+            encode_part(&key, &mut bytes);
+            encode_part(&value, &mut bytes);
+        }
+        Ok(bytes)
+    }
+    fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let header = bytes
+            .get(..8)
+            .ok_or_else(|| Error::incompatible("truncated map count"))?;
+        let count = usize_from_u64(u64::from_le_bytes(
+            header
+                .try_into()
+                .map_err(|_| Error::incompatible("invalid map count"))?,
+        ))?;
+        bytes = &bytes[8..];
+        let mut values = HashMap::with_capacity(count.min(1024));
+        for _ in 0..count {
+            let key = K::decode(decode_part(&mut bytes)?)?;
+            let value = V::decode(decode_part(&mut bytes)?)?;
+            if values.insert(key, value).is_some() {
+                return Err(Error::incompatible("duplicate key in encoded map"));
+            }
+        }
+        if !bytes.is_empty() {
+            return Err(Error::incompatible("trailing map bytes"));
+        }
+        Ok(values)
+    }
+}
+
+impl<T: Element, E: Element> Element for Result<T, E> {
+    const TYPE_ID: &'static str = "std/result";
+    const CODER_ID: &'static str = "ironbeam/result-tagged";
+    fn type_identity() -> String {
+        format!("std/result<{},{}>", T::type_identity(), E::type_identity())
+    }
+    fn coder_identity() -> String {
+        format!(
+            "ironbeam/result-tagged-v1<{},{}>",
+            T::coder_identity(),
+            E::coder_identity()
+        )
+    }
+    fn supports_coder() -> bool {
+        T::supports_coder() && E::supports_coder()
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let mut bytes = Vec::new();
+        match self {
+            Ok(value) => {
+                bytes.push(0);
+                encode_part(&value.encode()?, &mut bytes);
+            }
+            Err(error) => {
+                bytes.push(1);
+                encode_part(&error.encode()?, &mut bytes);
+            }
+        }
+        Ok(bytes)
+    }
+    fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let tag = *bytes
+            .first()
+            .ok_or_else(|| Error::incompatible("missing result tag"))?;
+        bytes = &bytes[1..];
+        let value = match tag {
+            0 => Ok(T::decode(decode_part(&mut bytes)?)?),
+            1 => Err(E::decode(decode_part(&mut bytes)?)?),
+            _ => return Err(Error::incompatible("invalid result tag")),
+        };
+        if !bytes.is_empty() {
+            return Err(Error::incompatible("trailing result bytes"));
+        }
+        Ok(value)
     }
 }
 
@@ -1135,6 +1321,14 @@ impl Pipeline {
             }),
             0,
         )
+    }
+    /// Create a bounded in-memory source from an iterator.
+    pub fn from_iter<T: Element + Clone + Sync>(
+        &self,
+        key: &str,
+        values: impl IntoIterator<Item = T>,
+    ) -> Result<PCollection<T>, Error> {
+        self.from_vec(key, values.into_iter().collect())
     }
     pub fn bounded_source<T: Element>(
         &self,
