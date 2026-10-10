@@ -30,6 +30,8 @@
 //! ## Examples
 //! Read a table with SQLite, transform it, and write it back to a new table:
 //! ```no_run
+//! # #[cfg(feature = "io-sql")]
+//! # mod feature_example {
 //! use ironbeam::*;
 //! use anyhow::Result;
 //!
@@ -49,10 +51,14 @@
 //! )?;
 //! # Ok(())
 //! # }
+//! # }
+//! # fn main() {}
 //! ```
 //!
 //! Streaming read shard-by-shard (useful for large result sets):
 //! ```no_run
+//! # #[cfg(feature = "io-sql")]
+//! # mod feature_example {
 //! use ironbeam::*;
 //! use anyhow::Result;
 //!
@@ -65,6 +71,8 @@
 //! let out = stream.collect_seq()?;
 //! # Ok(())
 //! # }
+//! # }
+//! # fn main() {}
 //! ```
 
 use crate::io::sql::{SqlShards, SqlVecOps, build_sql_shards};

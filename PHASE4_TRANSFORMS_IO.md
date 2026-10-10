@@ -1,0 +1,30 @@
+# Phase 4: transforms, bounded files, and terminals
+
+This change extends the v5 preview while keeping the v4 facade and implementation available. The graph descriptor is version **3.0** because fan-in adds `additional_inputs` and the built-in operation set grows. Checkpoint schema and element coder versions remain independent. A v2 descriptor is rejected by validation; there is no implicit graph migration.
+
+## Public ownership
+
+| Owner | API | Direct behavior | Backend contract |
+| --- | --- | --- | --- |
+| `ironbeam-core` | `flat_map_named`, `flatten_named`, `group_by_key_named`, `join_inner_named`, `combine_globally_named`, `map_with_side_named` | Ordered bounded results; group order follows first key appearance; join order follows right input, then left matches | Individual capability flags; unbounded global grouping/combine/join is invalid; side input must be bounded and time declarations must agree |
+| `ironbeam-transforms` | `ElementwiseExt` and `KeyedExt` projections, keying, value mapping/filtering, counts, finite selection, distinct, list, sums, extrema, and display mapping | Composition over core nodes | No new physical operation |
+| `ironbeam-direct` | `DirectCollectExt`, `DirectRunner::run_sink` | Sequential/parallel collection and deferred terminal execution | Checkpointed fan-in, materialized aggregates, and sink writes are explicitly unsupported; aggregate paths use a job memory budget |
+| `ironbeam-io` | `jsonl_*`, `csv_*`, `xml_*`, `avro_*`, `parquet_*` source/sink pairs | Bounded files, one stable source split, final-result atomic replacement | Source identity binds path, format, and SHA-256 of bytes; content change before opening is a recovery error. Sinks declare `FinalResult`, `Idempotent`, and commit |
+
+The v5 facade reexports these packages under `ironbeam::v5` when `v5-preview` is enabled. This is the Phase 4 v5 surface; it does not promise method-for-method parity with every v4 helper in the Phase 0 inventory. The remaining v4 spelling and data bridges belong to Phase 5 compatibility or later semantic reviews. Its five default format features map to the corresponding `ironbeam-io` features. Building the preview with no default features leaves all format adapters disabled. The v4 optional connectors remain in the v4 API; they have not been claimed as v5 backends. The Avro v5 writer uses a fixed `IronbeamRecord { value: string }` schema carrying Serde JSON for each record; this is intentionally a new wire contract, not a byte-compatible copy of arbitrary v4 Avro schemas.
+
+## Execution and recovery rules
+
+A file source declares `Bounded`, stable split identity, at-least-once replay, and no event-time progress. Its semantic operation ID names the format (`ironbeam/io/<format>-source`). A backend without external bounded-source support rejects that ID during graph validation; the Dataflow preview therefore cannot accidentally lower a local file factory as an in-memory source. File bytes are hashed while constructing the graph and checked again when opening; the parser consumes those verified bytes, so a second file read cannot race the check. A parse error is an I/O error and stops the job. Format readers currently materialize one file per split; the Direct aggregate evaluator also materializes inputs and enforces an approximate envelope memory budget. These are bounded batch implementations and should not be used to infer streaming support.
+
+A file sink opens after all upstream computation succeeds. It buffers typed rows, writes a sibling temporary file, syncs it, and publishes it at commit. Read, transform, encoding, or commit errors leave the previous destination in place; a failed temporary file is removed. Sink checkpointing is rejected before any source or sink side effect, since source position and file publication do not yet have coordinated recovery. Direct reports cancellation and typed errors through the job handle and does not claim exactly-once recovery.
+
+`flat_map` preserves each input envelope's timestamp and window. Flatten preserves input declaration and concatenates branches in declared order. Grouping preserves the first event's envelope for each key and emits groups by first appearance. Joins are inner joins; for each right element they emit matching left elements in left order. Global combine emits one value even for empty bounded input. Side input is a bounded snapshot and preserves the main input envelope. These rules have graph and Direct tests, including empty, singleton, sequential, and parallel cases.
+
+## Review gates
+
+Package tests cover typed graph validation, malformed fan-in, aggregate execution and failure propagation, each enabled file format, source mutation, sink abort/commit, and unsupported Dataflow preview capabilities. The Phase 3 core and Direct ratios were surpassed using source-location coverage, which counts each source line and branch once across Rust generic instantiations. The coverage gate still prints raw instrumentation totals for review. Phase 4 ratchets are core 972/974 lines and 210/222 branches, Direct 868/926 and 159/174, I/O 174/177 and 4/4, and transforms 89/89 lines with no instrumented branches. The feature matrix checks minimal and all-feature builds, as well as each facade feature in isolation.
+
+## Validation at exit
+
+The default workspace test suite, all-feature Clippy (pedantic and nursery), documentation build, default and all-feature doctests, each-feature facade checks, five independent format-feature tests, and package coverage gates pass locally. The all-feature local test tier also passes when the Docker-backed MongoDB and SQL container groups are excluded. Those service tests require a running Docker daemon and remain the manual CI tier; the local daemon was unavailable during this phase.

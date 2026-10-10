@@ -24,6 +24,8 @@
 //! ## Examples
 //! Read a protobuf file into a typed collection and write it back out:
 //! ```no_run
+//! # #[cfg(feature = "io-protobuf")]
+//! # mod feature_example {
 //! use ironbeam::*;
 //! use anyhow::Result;
 //! use serde::{Serialize, Deserialize};
@@ -44,10 +46,14 @@
 //! doubled.write_proto("data/out.proto")?;
 //! # Ok(())
 //! # }
+//! # }
+//! # fn main() {}
 //! ```
 //!
 //! Streaming read shard-by-shard (useful for large files):
 //! ```no_run
+//! # #[cfg(feature = "io-protobuf")]
+//! # mod feature_example {
 //! use ironbeam::*;
 //! use anyhow::Result;
 //! use serde::{Serialize, Deserialize};
@@ -65,6 +71,8 @@
 //! let out = stream.collect_seq()?;
 //! # Ok(())
 //! # }
+//! # }
+//! # fn main() {}
 //! ```
 
 // Always-available re-exports: ProtoShards and ProtoVecOps have no prost types,

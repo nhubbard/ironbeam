@@ -59,7 +59,7 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
-          cargo clippy -p ironbeam-core -p ironbeam-direct --all-targets -- \
+          cargo clippy -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
@@ -112,11 +112,22 @@ jobs:
       - name: Check facade build modes independently
         run: |
           cargo build -p ironbeam --no-default-features
+          cargo build -p ironbeam --no-default-features --features v5-preview
           cargo build -p ironbeam
+          cargo build -p ironbeam --features v5-preview
           cargo build -p ironbeam --all-features
           cargo build -p ironbeam-runner-contract-tests
           cargo build -p ironbeam-core
           cargo build -p ironbeam-direct
+          cargo build -p ironbeam-transforms
+          cargo build -p ironbeam-io
+          cargo build -p ironbeam-io --no-default-features
+
+      - name: Test v5 file formats independently
+        run: |
+          for format in jsonl csv xml avro parquet; do
+            cargo test -p ironbeam-io --no-default-features --features "$format"
+          done
 
       # With the I/O features off, the always-present API must fail at runtime.
       - name: Verify disabled-feature runtime stubs
@@ -230,7 +241,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        package: [ironbeam-core, ironbeam-direct]
+        package: [ironbeam-core, ironbeam-direct, ironbeam-transforms, ironbeam-io]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

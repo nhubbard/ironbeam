@@ -29,6 +29,8 @@
 //! ## Examples
 //! Read a collection, transform it, and write it back to a new collection:
 //! ```no_run
+//! # #[cfg(feature = "io-mongodb")]
+//! # mod feature_example {
 //! use ironbeam::*;
 //! use anyhow::Result;
 //!
@@ -42,10 +44,14 @@
 //! renamed.write_mongodb("mongodb://localhost:27017", "mydb", "people_out")?;
 //! # Ok(())
 //! # }
+//! # }
+//! # fn main() {}
 //! ```
 //!
 //! Streaming read shard-by-shard (useful for large result sets):
 //! ```no_run
+//! # #[cfg(feature = "io-mongodb")]
+//! # mod feature_example {
 //! use ironbeam::*;
 //! use anyhow::Result;
 //!
@@ -58,6 +64,8 @@
 //! let out = stream.collect_seq()?;
 //! # Ok(())
 //! # }
+//! # }
+//! # fn main() {}
 //! ```
 
 use crate::PCollection;

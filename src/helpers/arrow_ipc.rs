@@ -24,6 +24,8 @@
 //! ## Examples
 //! Write typed rows as Arrow IPC then read them back:
 //! ```no_run
+//! # #[cfg(feature = "io-arrow")]
+//! # mod feature_example {
 //! use ironbeam::*;
 //! use anyhow::Result;
 //! use serde::{Serialize, Deserialize};
@@ -39,6 +41,8 @@
 //! let pc = read_arrow_ipc::<Row>(&p, "data/out.arrow")?;
 //! # Ok(())
 //! # }
+//! # }
+//! # fn main() {}
 //! ```
 
 #[cfg(feature = "io-arrow")]
