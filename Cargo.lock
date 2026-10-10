@@ -2147,6 +2147,10 @@ version = "0.1.0"
 dependencies = [
  "ironbeam-core",
  "rayon",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
 ]
 
 [[package]]

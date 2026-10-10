@@ -520,7 +520,10 @@
 #[cfg(feature = "v5-preview")]
 pub mod v5 {
     pub use ironbeam_core::*;
-    pub use ironbeam_direct::{DirectRunner, JobConfig, JobHandle, JobStatus};
+    pub use ironbeam_direct::{
+        CheckpointConfig, DirectRunner, JobConfig, JobHandle, JobMetrics, JobStatus, PlanSummary,
+        SpillConfig,
+    };
 }
 
 pub mod bloom_filter;
