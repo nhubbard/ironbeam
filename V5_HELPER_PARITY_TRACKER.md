@@ -34,7 +34,7 @@ remains available until every required family is closed.
 | `cbor`, `msgpack`, `protobuf`, `tfrecord` | optional I/O | Partial | Bounded source/sink adapters and format tests pass; shard/lazy readers, parallel writers, and compression need parity checks. |
 | `arrow_ipc` | optional I/O | Partial | Bounded row and record-batch sources/sinks exist; shard and lazy readers plus parallel writers remain. |
 | `sql`, `mongodb`, `cloud` | optional I/O | Pending | Specify source splits, credentials, retries, and sink commit/replay before adding clients. |
-| v4 test utilities | testing package | Pending | Move fixtures and assertions after Direct dependency is explicit. |
+| v4 test utilities | `ironbeam-testing` | Partial | Assertion, builder, fixture, mock I/O, test pipeline, and debug helpers live in a separate local package. Debug count is a Direct terminal; inspect/sample are graph passthroughs. Verify all v4 utility methods and release packaging. |
 
 ## Closure gates for each family
 

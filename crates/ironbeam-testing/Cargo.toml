@@ -1,0 +1,23 @@
+[package]
+name = "ironbeam-testing"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Fixtures, assertions, and local graph inspection for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
+publish = false
+
+[features]
+default = ["io-csv", "io-jsonl"]
+io-csv = []
+io-jsonl = []
+
+[dependencies]
+ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
+ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+csv = "1"
+tempfile = "3"

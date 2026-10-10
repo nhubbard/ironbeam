@@ -2218,6 +2218,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironbeam-testing"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "csv",
+ "ironbeam-core",
+ "ironbeam-direct",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "ironbeam-transforms"
 version = "0.1.0"
 dependencies = [
