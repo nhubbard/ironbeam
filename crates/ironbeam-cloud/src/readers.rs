@@ -138,7 +138,7 @@ use zstd::stream::write::Encoder as ZstdEncoder;
 pub fn read_cloud_jsonl_vec<T, O>(storage: &O, bucket: &str, key: &str) -> CloudResult<Vec<T>>
 where
     T: DeserializeOwned,
-    O: ObjectIO,
+    O: ObjectIO + ?Sized,
 {
     let data = storage.get_object(bucket, key)?;
     let cursor = std::io::Cursor::new(data);
@@ -230,7 +230,7 @@ pub fn write_cloud_jsonl_vec<T, O>(
 ) -> CloudResult<usize>
 where
     T: Serialize,
-    O: ObjectIO,
+    O: ObjectIO + ?Sized,
 {
     let key_lower = key.to_lowercase();
     let extension = Path::new(&key_lower).extension();
@@ -487,7 +487,7 @@ fn compress_jsonl_xz<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Cloud
 /// A sorted vector of object keys matching the pattern.
 pub fn expand_cloud_glob<O>(storage: &O, bucket: &str, pattern: &str) -> CloudResult<Vec<String>>
 where
-    O: ObjectIO,
+    O: ObjectIO + ?Sized,
 {
     let regex_pattern = glob_to_regex(pattern);
     let regex = Regex::new(&regex_pattern).map_err(|e| {
@@ -600,7 +600,7 @@ fn extract_prefix_before_wildcard(pattern: &str) -> Option<String> {
 pub fn read_cloud_jsonl_glob<T, O>(storage: &O, bucket: &str, pattern: &str) -> CloudResult<Vec<T>>
 where
     T: DeserializeOwned,
-    O: ObjectIO,
+    O: ObjectIO + ?Sized,
 {
     let keys = expand_cloud_glob(storage, bucket, pattern)?;
 
@@ -631,7 +631,7 @@ pub fn expand_cloud_glob_required<O>(
     pattern: &str,
 ) -> CloudResult<Vec<String>>
 where
-    O: ObjectIO,
+    O: ObjectIO + ?Sized,
 {
     let keys = expand_cloud_glob(storage, bucket, pattern)?;
 

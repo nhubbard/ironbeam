@@ -37,7 +37,7 @@ pub fn cloud_jsonl_source<T, O>(
 ) -> Result<PCollection<T>, Error>
 where
     T: Element + DeserializeOwned,
-    O: ObjectIO + 'static,
+    O: ObjectIO + ?Sized + 'static,
 {
     let source_key = key.to_owned();
     let bucket = bucket.to_owned();
@@ -89,6 +89,7 @@ where
 }
 
 /// Expand a provider-neutral cloud object glob into stable bounded JSONL sources.
+#[allow(clippy::needless_pass_by_value)] // Public graph adapters consistently take an owned provider handle.
 pub fn cloud_jsonl_glob_source<T, O>(
     pipeline: &Pipeline,
     key: &str,
@@ -98,7 +99,7 @@ pub fn cloud_jsonl_glob_source<T, O>(
 ) -> Result<PCollection<T>, Error>
 where
     T: Element + DeserializeOwned,
-    O: ObjectIO + 'static,
+    O: ObjectIO + ?Sized + 'static,
 {
     let objects = ironbeam_cloud::readers::expand_cloud_glob_required(&*storage, bucket, pattern)
         .map_err(|e| cloud_error(key, e))?;
@@ -126,14 +127,14 @@ where
     }
 }
 
-struct CloudJsonlSink<T, O> {
+struct CloudJsonlSink<T, O: ?Sized> {
     key: String,
     storage: Arc<O>,
     bucket: String,
     object: String,
     values: Vec<T>,
 }
-impl<T: Element + Serialize, O: ObjectIO> TypedSink<T> for CloudJsonlSink<T, O> {
+impl<T: Element + Serialize, O: ObjectIO + ?Sized> TypedSink<T> for CloudJsonlSink<T, O> {
     fn write(&mut self, value: T) -> Result<(), Error> {
         self.values.push(value);
         Ok(())
@@ -160,7 +161,7 @@ pub fn cloud_jsonl_sink<T, O>(
 ) -> Result<Sink<T>, Error>
 where
     T: Element + Serialize,
-    O: ObjectIO + 'static,
+    O: ObjectIO + ?Sized + 'static,
 {
     let sink_key = key.to_owned();
     let bucket = bucket.to_owned();

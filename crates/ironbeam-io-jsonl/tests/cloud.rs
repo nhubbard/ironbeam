@@ -26,7 +26,7 @@ fn registered_local_provider_runs_jsonl_graph() {
     objects
         .register("file", LocalObjectIO::new(dir.path()).unwrap())
         .unwrap();
-    let storage = Arc::new(objects.provider("file").unwrap());
+    let storage = objects.provider("file").unwrap();
     let rows = vec![Row {
         id: 3,
         name: "Local".into(),
