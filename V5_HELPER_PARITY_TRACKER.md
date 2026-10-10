@@ -11,11 +11,11 @@ remains available until every required family is closed.
 | --- | --- | --- | --- |
 | `common`, `stdlib`, `named` | core, direct | Partial | Core map/filter/flat-map/from_vec/from_iter and Direct collect are present; custom source and naming conveniences need mapping. |
 | `keyed`, `values` | core, transforms, direct | Present for bounded values | Keying, grouping, projections, value mapping/filtering, swap, `with_keys`, and `to_hashmap` exist; verify all runner result modes. |
-| `count` | transforms | Present | Global, per-element, and per-key counts have Direct tests. |
+| `count` | transforms | Present | Global, per-element, and per-key counts have Direct tests. All three use lifted folds over linear inputs. |
 | `filter` | transforms | Present | Nine predicate helpers have sequential/parallel boundary tests. |
 | `collect_values` | transforms | Present | Global list/set, per-key list/set, and dictionary are implemented; hash collections have canonical coders and tests. |
-| `basic` | transforms | Present for supported numeric types | Sum, min/max, f64 averages, and generic f32/f64 means exist globally/per key; extend numeric `Element` coverage as other v4 types migrate. |
-| `distinct` | transforms | Present for values | Exact global/per-key distinct and counts, distinct-by, KMV, and HLL++ approximations exist. KMV/HLL now stream linear Direct inputs into sketches; exact variants and complex upstreams may materialize. |
+| `basic` | transforms | Present for supported numeric types | Sum, min/max, f64 averages, and generic f32/f64 means exist globally/per key and use lifted folds over linear inputs. Extend numeric `Element` coverage as other v4 types migrate. |
+| `distinct` | transforms | Present for values | Exact global/per-key distinct and counts, distinct-by, KMV, and HLL++ approximations exist. KMV/HLL and exact distinct counts stream linear Direct inputs; value producing exact variants and complex upstreams may materialize. |
 | `topk` | transforms | Present for bounded Direct values | Global/per-key top and bottom K now use size-K lifted heaps over linear sources and pass a memory-budget test. Other upstream graphs can still materialize before folding. |
 | `regex` | transforms | Present | Six methods pass value tests; invalid patterns are typed construction errors in v5. |
 | `display` | transforms | Present | Display mapping passes Direct tests. |

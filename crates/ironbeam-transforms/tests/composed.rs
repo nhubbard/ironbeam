@@ -317,3 +317,68 @@ fn average_helpers_match_v4_including_empty_global_input() {
         [("a".to_string(), 2.0_f32), ("b".into(), 10.0_f32)]
     );
 }
+
+#[test]
+fn basic_and_exact_count_folds_stream_large_linear_inputs() {
+    let p = Pipeline::default();
+    let input = p
+        .from_vec("large", (0_i32..10_000).map(|n| n % 100).collect())
+        .unwrap();
+    let count = input
+        .count_globally_named("count")
+        .unwrap()
+        .output("count-out")
+        .unwrap();
+    let distinct = input
+        .distinct_count_globally_named("distinct")
+        .unwrap()
+        .output("distinct-out")
+        .unwrap();
+    let sum = input
+        .sum_globally_named("sum")
+        .unwrap()
+        .output("sum-out")
+        .unwrap();
+    let keyed = input.map_named("key", |n| (n % 2, n)).unwrap();
+    let keyed_count = keyed
+        .count_per_key_named("group", "key-count")
+        .unwrap()
+        .output("key-count-out")
+        .unwrap();
+    let keyed_distinct = keyed
+        .distinct_count_per_key_named("distinct-group", "key-distinct")
+        .unwrap()
+        .output("key-distinct-out")
+        .unwrap();
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            memory_budget_bytes: 256,
+            buffer_budget_elements: 13,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&count, &config).unwrap().0,
+            [10_000]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&distinct, &config).unwrap().0,
+            [100]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&sum, &config).unwrap().0,
+            [495_000]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&keyed_count, &config).unwrap().0,
+            [(0, 5_000), (1, 5_000)]
+        );
+        assert_eq!(
+            DirectRunner
+                .run_collect(&keyed_distinct, &config)
+                .unwrap()
+                .0,
+            [(0, 50), (1, 50)]
+        );
+    }
+}

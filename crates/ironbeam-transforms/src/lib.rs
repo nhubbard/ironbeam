@@ -5,6 +5,9 @@ use std::collections::HashSet;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::Add;
+mod basic_fold;
+use basic_fold::{Average, Count, DistinctCount, Maximum, Mean, Minimum, Sum};
+use std::marker::PhantomData;
 
 pub trait MeanOutput: Element + Default + Add<Output = Self> {
     fn divide_count(total: Self, count: usize) -> Self;
@@ -141,18 +144,7 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
     where
         T: Into<O>,
     {
-        self.combine_globally_named(key, |values| {
-            if values.is_empty() {
-                O::default()
-            } else {
-                let count = values.len();
-                let total = values
-                    .into_iter()
-                    .map(Into::into)
-                    .fold(O::default(), Add::add);
-                O::divide_count(total, count)
-            }
-        })
+        self.combine_globally_lifted_named(key, Mean::<O>(PhantomData))
     }
     fn filter_map_named<U: Element>(
         &self,
@@ -162,9 +154,7 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
         self.flat_map_named(key, move |value| f(value).into_iter().collect())
     }
     fn count_globally_named(&self, key: &str) -> Result<PCollection<u64>, Error> {
-        self.combine_globally_named(key, |values| {
-            u64::try_from(values.len()).unwrap_or(u64::MAX)
-        })
+        self.combine_globally_lifted_named(key, Count)
     }
     fn with_constant_key_named<K: Element + Clone + Sync>(
         &self,
@@ -209,19 +199,14 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
     where
         T: Eq + Hash + Clone,
     {
-        self.map_named(&format!("{key}/key"), |value| (value, 1_u64))?
-            .group_by_key_named(&format!("{key}/group"))?
-            .map_named(key, |(value, occurrences)| {
-                (value, u64::try_from(occurrences.len()).unwrap_or(u64::MAX))
-            })
+        self.map_named(&format!("{key}/key"), |value| (value, 1_u8))?
+            .combine_values_lifted_named(key, Count)
     }
     fn distinct_count_globally_named(&self, key: &str) -> Result<PCollection<u64>, Error>
     where
         T: Eq + Hash,
     {
-        self.combine_globally_named(key, |values| {
-            u64::try_from(values.into_iter().collect::<HashSet<_>>().len()).unwrap_or(u64::MAX)
-        })
+        self.combine_globally_lifted_named(key, DistinctCount)
     }
     fn distinct_by_named<K: Eq + Hash + Send + 'static>(
         &self,
@@ -241,41 +226,27 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
     where
         T: Add<Output = T> + Default,
     {
-        self.combine_globally_named(key, |values| {
-            values.into_iter().fold(T::default(), Add::add)
-        })
+        self.combine_globally_lifted_named(key, Sum)
     }
     fn average_globally_named(&self, key: &str) -> Result<PCollection<f64>, Error>
     where
         T: Into<f64>,
     {
-        self.combine_globally_named(key, |values| {
-            if values.is_empty() {
-                0.0
-            } else {
-                #[allow(clippy::cast_precision_loss)]
-                let count = values.len() as f64;
-                values.into_iter().map(Into::into).sum::<f64>() / count
-            }
-        })
+        self.combine_globally_lifted_named(key, Average)
     }
     fn min_globally_named(&self, key: &str) -> Result<Self, Error>
     where
         T: Ord,
     {
-        self.combine_globally_named(&format!("{key}/collect"), |values| {
-            values.into_iter().min().into_iter().collect::<Vec<_>>()
-        })?
-        .flat_map_named(key, |values| values)
+        self.combine_globally_lifted_named(&format!("{key}/collect"), Minimum)?
+            .flat_map_named(key, |values| values)
     }
     fn max_globally_named(&self, key: &str) -> Result<Self, Error>
     where
         T: Ord,
     {
-        self.combine_globally_named(&format!("{key}/collect"), |values| {
-            values.into_iter().max().into_iter().collect::<Vec<_>>()
-        })?
-        .flat_map_named(key, |values| values)
+        self.combine_globally_lifted_named(&format!("{key}/collect"), Maximum)?
+            .flat_map_named(key, |values| values)
     }
 }
 
@@ -374,10 +345,8 @@ impl<K: Element, V: Element> KeyedExt<K, V> for PCollection<(K, V)> {
     where
         K: Eq + Hash + Clone,
     {
-        self.group_by_key_named(group_key)?
-            .map_named(count_key, |(key, values)| {
-                (key, u64::try_from(values.len()).unwrap_or(u64::MAX))
-            })
+        self.combine_values_lifted_named(group_key, Count)?
+            .map_named(count_key, |row| row)
     }
     fn distinct_per_key_named(&self, group_key: &str, key: &str) -> Result<Self, Error>
     where
@@ -403,14 +372,8 @@ impl<K: Element, V: Element> KeyedExt<K, V> for PCollection<(K, V)> {
         K: Eq + Hash + Clone,
         V: Eq + Hash,
     {
-        self.group_by_key_named(group_key)?
-            .map_named(key, |(group, values)| {
-                (
-                    group,
-                    u64::try_from(values.into_iter().collect::<HashSet<_>>().len())
-                        .unwrap_or(u64::MAX),
-                )
-            })
+        self.combine_values_lifted_named(group_key, DistinctCount)?
+            .map_named(key, |row| row)
     }
     fn swap_named(&self, key: &str) -> Result<PCollection<(V, K)>, Error> {
         self.map_named(key, |(group, value)| (value, group))
@@ -420,21 +383,19 @@ impl<K: Element, V: Element> KeyedExt<K, V> for PCollection<(K, V)> {
         K: Eq + Hash + Clone,
         V: Add<Output = V> + Default,
     {
-        self.group_by_key_named(&format!("{key}/group"))?
-            .map_named(key, |(group, values)| {
-                (group, values.into_iter().fold(V::default(), Add::add))
-            })
+        self.combine_values_lifted_named(&format!("{key}/group"), Sum)?
+            .map_named(key, |row| row)
     }
     fn min_per_key_named(&self, group_key: &str, key: &str) -> Result<Self, Error>
     where
         K: Eq + Hash + Clone,
         V: Ord,
     {
-        self.group_by_key_named(group_key)?
+        self.combine_values_lifted_named(group_key, Minimum)?
             .flat_map_named(key, |(group, values)| {
                 values
                     .into_iter()
-                    .min()
+                    .next()
                     .map(|value| (group, value))
                     .into_iter()
                     .collect()
@@ -445,11 +406,11 @@ impl<K: Element, V: Element> KeyedExt<K, V> for PCollection<(K, V)> {
         K: Eq + Hash + Clone,
         V: Ord,
     {
-        self.group_by_key_named(group_key)?
+        self.combine_values_lifted_named(group_key, Maximum)?
             .flat_map_named(key, |(group, values)| {
                 values
                     .into_iter()
-                    .max()
+                    .next()
                     .map(|value| (group, value))
                     .into_iter()
                     .collect()
@@ -464,17 +425,8 @@ impl<K: Element, V: Element> KeyedExt<K, V> for PCollection<(K, V)> {
         K: Eq + Hash + Clone,
         V: Into<f64>,
     {
-        self.group_by_key_named(group_key)?
-            .map_named(key, |(group, values)| {
-                #[allow(clippy::cast_precision_loss)]
-                let count = values.len() as f64;
-                let average = if values.is_empty() {
-                    0.0
-                } else {
-                    values.into_iter().map(Into::into).sum::<f64>() / count
-                };
-                (group, average)
-            })
+        self.combine_values_lifted_named(group_key, Average)?
+            .map_named(key, |row| row)
     }
     fn mean_per_key_named<O: MeanOutput>(
         &self,
@@ -485,21 +437,7 @@ impl<K: Element, V: Element> KeyedExt<K, V> for PCollection<(K, V)> {
         K: Eq + Hash + Clone,
         V: Into<O>,
     {
-        self.group_by_key_named(group_key)?
-            .map_named(key, |(group, values)| {
-                let count = values.len();
-                let total = values
-                    .into_iter()
-                    .map(Into::into)
-                    .fold(O::default(), Add::add);
-                (
-                    group,
-                    if count == 0 {
-                        O::default()
-                    } else {
-                        O::divide_count(total, count)
-                    },
-                )
-            })
+        self.combine_values_lifted_named(group_key, Mean::<O>(PhantomData))?
+            .map_named(key, |row| row)
     }
 }
