@@ -15,7 +15,7 @@ remains available until every required family is closed.
 | `filter` | transforms | Present | Nine predicate helpers have sequential/parallel boundary tests. |
 | `collect_values` | transforms | Present | Global list/set, per-key list/set, and dictionary are implemented; hash collections have canonical coders and tests. |
 | `basic` | transforms | Present for supported numeric types | Sum, min/max, f64 averages, and generic f32/f64 means exist globally/per key and use lifted folds over linear inputs. Extend numeric `Element` coverage as other v4 types migrate. |
-| `distinct` | transforms | Present for values | Exact global/per-key distinct and counts, distinct-by, KMV, and HLL++ approximations exist. KMV/HLL and exact distinct counts stream linear Direct inputs; value producing exact variants and complex upstreams may materialize. |
+| `distinct` | transforms | Present for values | Exact global/per-key distinct and counts, distinct-by, KMV, and HLL++ approximations exist. All stream linear Direct inputs into ordered sets or sketches; complex upstreams may materialize. Exact distinct outputs still require space proportional to unique values. |
 | `topk` | transforms | Present for bounded Direct values | Global/per-key top and bottom K now use size-K lifted heaps over linear sources and pass a memory-budget test. Other upstream graphs can still materialize before folding. |
 | `regex` | transforms | Present | Six methods pass value tests; invalid patterns are typed construction errors in v5. |
 | `display` | transforms | Present | Display mapping passes Direct tests. |

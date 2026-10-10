@@ -1,12 +1,13 @@
 #![allow(clippy::missing_errors_doc)]
 //! Composed convenience transforms over runner-neutral Ironbeam graph primitives.
 use ironbeam_core::{Element, Error, PCollection};
-use std::collections::HashSet;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::Add;
 mod basic_fold;
-use basic_fold::{Average, Count, DistinctCount, Maximum, Mean, Minimum, Sum};
+use basic_fold::{
+    Average, Count, Distinct, DistinctBy, DistinctCount, Maximum, Mean, Minimum, Sum, Take,
+};
 use std::marker::PhantomData;
 
 pub trait MeanOutput: Element + Default + Add<Output = Self> {
@@ -173,11 +174,8 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
         self.combine_globally_named(key, |values| values)
     }
     fn take_named(&self, key: &str, limit: usize) -> Result<Self, Error> {
-        self.combine_globally_named(&format!("{key}/collect"), move |mut values| {
-            values.truncate(limit);
-            values
-        })?
-        .flat_map_named(key, |values| values)
+        self.fold_globally_ordered_named(&format!("{key}/collect"), Take(limit))?
+            .flat_map_named(key, |values| values)
     }
     fn first_named(&self, key: &str) -> Result<Self, Error> {
         self.take_named(key, 1)
@@ -186,14 +184,8 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
     where
         T: Eq + Hash + Clone,
     {
-        self.combine_globally_named(&format!("{key}/collect"), |values| {
-            let mut seen = HashSet::new();
-            values
-                .into_iter()
-                .filter(|value| seen.insert(value.clone()))
-                .collect::<Vec<_>>()
-        })?
-        .flat_map_named(key, |values| values)
+        self.fold_globally_ordered_named(&format!("{key}/collect"), Distinct)?
+            .flat_map_named(key, |values| values)
     }
     fn count_per_element_named(&self, key: &str) -> Result<PCollection<(T, u64)>, Error>
     where
@@ -213,14 +205,8 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
         key: &str,
         by: impl Fn(&T) -> K + Send + Sync + 'static,
     ) -> Result<Self, Error> {
-        self.combine_globally_named(&format!("{key}/collect"), move |values| {
-            let mut seen = HashSet::new();
-            values
-                .into_iter()
-                .filter(|value| seen.insert(by(value)))
-                .collect::<Vec<_>>()
-        })?
-        .flat_map_named(key, |values| values)
+        self.fold_globally_ordered_named(&format!("{key}/collect"), DistinctBy(by))?
+            .flat_map_named(key, |values| values)
     }
     fn sum_globally_named(&self, key: &str) -> Result<Self, Error>
     where
@@ -353,12 +339,10 @@ impl<K: Element, V: Element> KeyedExt<K, V> for PCollection<(K, V)> {
         K: Eq + Hash + Clone,
         V: Eq + Hash + Clone,
     {
-        self.group_by_key_named(group_key)?
+        self.fold_values_ordered_named(group_key, Distinct)?
             .flat_map_named(key, |(group, values)| {
-                let mut seen = HashSet::new();
                 values
                     .into_iter()
-                    .filter(|value| seen.insert(value.clone()))
                     .map(|value| (group.clone(), value))
                     .collect()
             })

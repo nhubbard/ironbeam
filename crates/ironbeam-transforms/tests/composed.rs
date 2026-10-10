@@ -350,6 +350,21 @@ fn basic_and_exact_count_folds_stream_large_linear_inputs() {
         .unwrap()
         .output("key-distinct-out")
         .unwrap();
+    let first = input
+        .take_named("take", 3)
+        .unwrap()
+        .output("take-out")
+        .unwrap();
+    let distinct_values = input
+        .distinct_named("values-distinct")
+        .unwrap()
+        .output("values-distinct-out")
+        .unwrap();
+    let distinct_by = input
+        .distinct_by_named("parity-distinct", |n| n % 2)
+        .unwrap()
+        .output("parity-distinct-out")
+        .unwrap();
     for parallelism in [1, 3] {
         let config = JobConfig {
             parallelism,
@@ -379,6 +394,27 @@ fn basic_and_exact_count_folds_stream_large_linear_inputs() {
                 .unwrap()
                 .0,
             [(0, 50), (1, 50)]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&first, &config).unwrap().0,
+            [0, 1, 2]
+        );
+        assert_eq!(
+            DirectRunner
+                .run_collect(
+                    &distinct_values,
+                    &JobConfig {
+                        memory_budget_bytes: 4096,
+                        ..config.clone()
+                    }
+                )
+                .unwrap()
+                .0,
+            (0..100).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&distinct_by, &config).unwrap().0,
+            [0, 1]
         );
     }
 }

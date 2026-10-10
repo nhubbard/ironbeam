@@ -1,6 +1,6 @@
 //! Small lifted accumulators for exact bounded aggregations.
 use crate::MeanOutput;
-use ironbeam_core::{CombineFn, Element};
+use ironbeam_core::{CombineFn, Element, OrderedFoldFn};
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -138,5 +138,52 @@ impl<T: Element + Eq + Hash> CombineFn<T, HashSet<T>, u64> for DistinctCount {
     }
     fn finish(&self, values: HashSet<T>) -> u64 {
         u64::try_from(values.len()).unwrap_or(u64::MAX)
+    }
+}
+
+pub(crate) struct Take(pub usize);
+impl<T: Element> OrderedFoldFn<T, Vec<T>, Vec<T>> for Take {
+    fn create(&self) -> Vec<T> {
+        Vec::new()
+    }
+    fn add_input(&self, values: &mut Vec<T>, value: T) {
+        if values.len() < self.0 {
+            values.push(value);
+        }
+    }
+    fn finish(&self, values: Vec<T>) -> Vec<T> {
+        values
+    }
+}
+
+pub(crate) struct Distinct;
+impl<T: Element + Eq + Hash + Clone> OrderedFoldFn<T, (HashSet<T>, Vec<T>), Vec<T>> for Distinct {
+    fn create(&self) -> (HashSet<T>, Vec<T>) {
+        (HashSet::new(), Vec::new())
+    }
+    fn add_input(&self, acc: &mut (HashSet<T>, Vec<T>), value: T) {
+        if acc.0.insert(value.clone()) {
+            acc.1.push(value);
+        }
+    }
+    fn finish(&self, acc: (HashSet<T>, Vec<T>)) -> Vec<T> {
+        acc.1
+    }
+}
+
+pub(crate) struct DistinctBy<F>(pub F);
+impl<T: Element, K: Eq + Hash + Send + 'static, F: Fn(&T) -> K + Send + Sync + 'static>
+    OrderedFoldFn<T, (HashSet<K>, Vec<T>), Vec<T>> for DistinctBy<F>
+{
+    fn create(&self) -> (HashSet<K>, Vec<T>) {
+        (HashSet::new(), Vec::new())
+    }
+    fn add_input(&self, acc: &mut (HashSet<K>, Vec<T>), value: T) {
+        if acc.0.insert((self.0)(&value)) {
+            acc.1.push(value);
+        }
+    }
+    fn finish(&self, acc: (HashSet<K>, Vec<T>)) -> Vec<T> {
+        acc.1
     }
 }
