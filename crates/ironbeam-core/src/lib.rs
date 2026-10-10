@@ -26,21 +26,75 @@ pub trait Element: Send + 'static {
     const TYPE_ID: &'static str;
     const CODER_ID: &'static str;
     const CODER_VERSION: Version = crate::CODER_VERSION;
+    #[must_use]
+    fn supports_coder() -> bool {
+        false
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"))
+    }
+    fn decode(_bytes: &[u8]) -> Result<Self, Error>
+    where
+        Self: Sized,
+    {
+        Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"))
+    }
 }
-macro_rules! builtin_element {
-    ($type:ty, $id:literal, $coder:literal) => {
+macro_rules! integer_element {
+    ($type:ty, $id:literal, $coder:literal, $size:expr) => {
         impl Element for $type {
             const TYPE_ID: &'static str = $id;
             const CODER_ID: &'static str = $coder;
+            fn supports_coder() -> bool {
+                true
+            }
+            fn encode(&self) -> Result<Vec<u8>, Error> {
+                Ok(self.to_le_bytes().to_vec())
+            }
+            fn decode(bytes: &[u8]) -> Result<Self, Error> {
+                let array: [u8; $size] = bytes
+                    .try_into()
+                    .map_err(|_| Error::incompatible("invalid integer coder length"))?;
+                Ok(Self::from_le_bytes(array))
+            }
         }
     };
 }
-builtin_element!(i32, "std/i32", "ironbeam/i32-le");
-builtin_element!(i64, "std/i64", "ironbeam/i64-le");
-builtin_element!(u32, "std/u32", "ironbeam/u32-le");
-builtin_element!(u64, "std/u64", "ironbeam/u64-le");
-builtin_element!(bool, "std/bool", "ironbeam/bool-v1");
-builtin_element!(String, "std/string", "ironbeam/utf8-v1");
+integer_element!(i32, "std/i32", "ironbeam/i32-le", 4);
+integer_element!(i64, "std/i64", "ironbeam/i64-le", 8);
+integer_element!(u32, "std/u32", "ironbeam/u32-le", 4);
+integer_element!(u64, "std/u64", "ironbeam/u64-le", 8);
+impl Element for bool {
+    const TYPE_ID: &'static str = "std/bool";
+    const CODER_ID: &'static str = "ironbeam/bool-v1";
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        Ok(vec![u8::from(*self)])
+    }
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        match bytes {
+            [0] => Ok(false),
+            [1] => Ok(true),
+            _ => Err(Error::incompatible("invalid bool coder value")),
+        }
+    }
+}
+impl Element for String {
+    const TYPE_ID: &'static str = "std/string";
+    const CODER_ID: &'static str = "ironbeam/utf8-v1";
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        Ok(self.as_bytes().to_vec())
+    }
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_utf8(bytes.to_vec())
+            .map_err(|_| Error::incompatible("invalid UTF-8 coder value"))
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Version {
@@ -223,6 +277,7 @@ pub enum ErrorKind {
     Graph,
     UnsupportedCapability { capability: String },
     Incompatible,
+    Resource,
     Execution,
     Io,
     Recovery,
@@ -283,6 +338,37 @@ impl Error {
             node: Some(node.into()),
             backend: Some(backend.into()),
             retry: RetryClass::Unknown,
+            message: message.into(),
+        }
+    }
+    pub fn io(
+        node: impl Into<String>,
+        backend: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: ErrorKind::Io,
+            node: Some(node.into()),
+            backend: Some(backend.into()),
+            retry: RetryClass::Unknown,
+            message: message.into(),
+        }
+    }
+    pub fn recovery(node: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Recovery,
+            node: Some(node.into()),
+            backend: Some("direct".into()),
+            retry: RetryClass::Permanent,
+            message: message.into(),
+        }
+    }
+    pub fn resource(node: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Resource,
+            node: Some(node.into()),
+            backend: Some("direct".into()),
+            retry: RetryClass::Permanent,
             message: message.into(),
         }
     }
@@ -514,17 +600,34 @@ pub type SourceIterator = Box<dyn Iterator<Item = Envelope> + Send>;
 type SourceFactory = Arc<dyn Fn() -> SourceIterator + Send + Sync>;
 type Transform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync>;
 
+#[derive(Clone)]
+struct SourceRegistration {
+    factory: SourceFactory,
+    len_hint: Option<usize>,
+    config_digest: Option<String>,
+}
+
 #[derive(Clone, Default)]
 pub struct Registry {
-    sources: BTreeMap<String, SourceFactory>,
+    sources: BTreeMap<String, SourceRegistration>,
     transforms: BTreeMap<String, Transform>,
 }
 impl Registry {
     pub fn open_source(&self, key: &str) -> Result<SourceIterator, Error> {
         self.sources
             .get(key)
-            .map(|f| f())
+            .map(|source| (source.factory)())
             .ok_or_else(|| Error::execution(key, "direct", "source factory missing"))
+    }
+    #[must_use]
+    pub fn source_len_hint(&self, key: &str) -> Option<usize> {
+        self.sources.get(key).and_then(|source| source.len_hint)
+    }
+    #[must_use]
+    pub fn source_config_digest(&self, key: &str) -> Option<&str> {
+        self.sources
+            .get(key)
+            .and_then(|source| source.config_digest.as_deref())
     }
     pub fn apply(&self, key: &str, input: Envelope) -> Result<Option<Envelope>, Error> {
         self.transforms
@@ -580,7 +683,7 @@ impl Pipeline {
     fn add(
         &self,
         mut node: Node,
-        source: Option<SourceFactory>,
+        source: Option<SourceRegistration>,
         transform: Option<Transform>,
     ) -> Result<(), Error> {
         let mut inner = self
@@ -609,7 +712,33 @@ impl Pipeline {
         key: &str,
         values: Vec<T>,
     ) -> Result<PCollection<T>, Error> {
+        let config_digest = if T::supports_coder() {
+            let mut hash = Sha256::new();
+            hash.update(T::CODER_ID.as_bytes());
+            hash.update(T::CODER_VERSION.major.to_le_bytes());
+            hash.update(T::CODER_VERSION.minor.to_le_bytes());
+            for value in &values {
+                let encoded = value.encode()?;
+                hash.update(
+                    u64::try_from(encoded.len())
+                        .map_err(|_| {
+                            Error::resource(key, "encoded source element exceeds u64 length")
+                        })?
+                        .to_le_bytes(),
+                );
+                hash.update(&encoded);
+            }
+            let digest = hash.finalize();
+            let mut result = String::from("sha256-v1:");
+            for byte in digest {
+                write!(result, "{byte:02x}").map_err(|e| Error::incompatible(e.to_string()))?;
+            }
+            Some(result)
+        } else {
+            None
+        };
         let values = Arc::new(values);
+        let len_hint = values.len();
         let factory: SourceFactory = Arc::new(move || {
             let values = Arc::clone(&values);
             Box::new((0..values.len()).map(move |i| Envelope {
@@ -627,7 +756,11 @@ impl Pipeline {
                 replay: Replay::AtLeastOnce,
                 reports_event_time: false,
             },
-            Some(factory),
+            Some(SourceRegistration {
+                factory,
+                len_hint: Some(len_hint),
+                config_digest,
+            }),
             0,
         )
     }
@@ -650,7 +783,7 @@ impl Pipeline {
         key: &str,
         boundedness: Boundedness,
         progress: SourceProgress,
-        factory: Option<SourceFactory>,
+        factory: Option<SourceRegistration>,
         initial_timestamp_ns: i64,
     ) -> Result<PCollection<T>, Error> {
         let operation = Operation::Source { progress };

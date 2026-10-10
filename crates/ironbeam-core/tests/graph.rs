@@ -1,5 +1,40 @@
 use ironbeam_core::*;
 
+#[test]
+fn coder_contract_and_direct_error_taxonomy() {
+    #[derive(Clone)]
+    struct Opaque;
+    impl Element for Opaque {
+        const TYPE_ID: &'static str = "test/opaque";
+        const CODER_ID: &'static str = "test/opaque-v1";
+    }
+    assert!(!Opaque::supports_coder());
+    assert!(matches!(
+        Opaque.encode().unwrap_err().kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    assert!(matches!(
+        Opaque::decode(&[]).err().unwrap().kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    let pipeline = Pipeline::default();
+    let (_, registry) = {
+        pipeline.from_vec("opaque", vec![Opaque]).unwrap();
+        pipeline.snapshot().unwrap()
+    };
+    assert_eq!(registry.source_len_hint("opaque"), Some(1));
+    assert_eq!(registry.source_config_digest("opaque"), None);
+    assert!(!bool::decode(&[0]).unwrap());
+    assert!(bool::decode(&[1]).unwrap());
+    assert!(bool::supports_coder());
+    assert_eq!(Error::io("node", "direct", "disk").kind, ErrorKind::Io);
+    assert_eq!(
+        Error::recovery("node", "bad state").kind,
+        ErrorKind::Recovery
+    );
+    assert_eq!(Error::resource("node", "limit").kind, ErrorKind::Resource);
+}
+
 fn small() -> (Graph, Registry) {
     let p = Pipeline::default();
     let values = p.from_vec("input", vec![1_i32, 2, 3, 4]).unwrap();
@@ -583,5 +618,40 @@ fn branching_snapshots_are_canonical_across_build_order() {
     assert_ne!(
         a.node("left").unwrap().local_id,
         b.node("left").unwrap().local_id
+    );
+}
+
+#[test]
+fn built_in_coders_round_trip_and_source_digest_binds_values() {
+    assert_eq!(i32::decode(&(-7_i32).encode().unwrap()).unwrap(), -7);
+    assert_eq!(i64::decode(&(-7_i64).encode().unwrap()).unwrap(), -7);
+    assert_eq!(u32::decode(&7_u32.encode().unwrap()).unwrap(), 7);
+    assert_eq!(u64::decode(&7_u64.encode().unwrap()).unwrap(), 7);
+    assert!(!bool::decode(&false.encode().unwrap()).unwrap());
+    assert!(bool::decode(&true.encode().unwrap()).unwrap());
+    assert_eq!(
+        String::decode(&"pre-epoch".to_string().encode().unwrap()).unwrap(),
+        "pre-epoch"
+    );
+    assert_eq!(i32::decode(&[1]).unwrap_err().kind, ErrorKind::Incompatible);
+    assert_eq!(
+        bool::decode(&[2]).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    assert_eq!(
+        String::decode(&[255]).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+
+    let first = Pipeline::default();
+    first.from_vec("source", vec![1_i32, 2]).unwrap();
+    let (_, first_registry) = first.snapshot().unwrap();
+    let second = Pipeline::default();
+    second.from_vec("source", vec![1_i32, 3]).unwrap();
+    let (_, second_registry) = second.snapshot().unwrap();
+    assert_eq!(first_registry.source_len_hint("source"), Some(2));
+    assert_ne!(
+        first_registry.source_config_digest("source"),
+        second_registry.source_config_digest("source")
     );
 }
