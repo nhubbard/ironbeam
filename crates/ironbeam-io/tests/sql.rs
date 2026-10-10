@@ -1,7 +1,7 @@
 #![cfg(feature = "sql")]
 use ironbeam_core::{Capabilities, Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io::{sql_sink_with, sql_source, sql_streaming_source};
+use ironbeam_io::{sql_sharded_source, sql_sink_with, sql_source, sql_streaming_source};
 
 #[derive(Clone, Debug, PartialEq, Eq, sqlx::FromRow)]
 struct Row {
@@ -60,6 +60,10 @@ fn sql_sources_and_sink_execute_only_after_runner_validation() {
         .unwrap()
         .output("paged-out")
         .unwrap();
+    let sharded = sql_sharded_source::<Row>(&p, "shards", &url, query, 3, 2, "fixture-v1")
+        .unwrap()
+        .output("shards-out")
+        .unwrap();
     let input = p.from_vec("input", expected.clone()).unwrap();
     let sink = sql_sink_with(
         &input,
@@ -72,6 +76,8 @@ fn sql_sources_and_sink_execute_only_after_runner_validation() {
     )
     .unwrap();
     let (graph, _) = p.snapshot().unwrap();
+    assert!(graph.node("shards/shard-0").is_some());
+    assert!(graph.node("shards/shard-1").is_some());
     assert!(matches!(&graph.node("insert").unwrap().operation,
         Operation::Sink { spec } if spec.mode == SinkMode::Append && spec.replay == Replay::None && spec.commit));
     assert!(matches!(
@@ -95,6 +101,28 @@ fn sql_sources_and_sink_execute_only_after_runner_validation() {
             .unwrap()
             .0,
         expected
+    );
+    assert_eq!(
+        DirectRunner
+            .run_collect(&sharded, &JobConfig::default())
+            .unwrap()
+            .0,
+        expected
+    );
+    assert!(sql_sharded_source::<Row>(&p, "bad-size", &url, query, 3, 0, "fixture-v1").is_err());
+    assert!(sql_sharded_source::<Row>(&p, "bad-snapshot", &url, query, 3, 2, "").is_err());
+    let mismatch = Pipeline::default();
+    let output = sql_sharded_source::<Row>(&mismatch, "mismatch", &url, query, 4, 2, "fixture-v1")
+        .unwrap()
+        .output("mismatch-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
     );
     let unwritten = rt.block_on(async {
         let pool = sqlx::SqlitePool::connect(&url).await.unwrap();

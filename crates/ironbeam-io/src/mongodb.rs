@@ -210,6 +210,118 @@ where
     )
 }
 
+/// Build stable finite MongoDB range nodes without connecting during graph
+/// construction. Ranges sort by `_id`; the caller's `snapshot_id` must identify
+/// an unchanged collection snapshot across retries.
+pub struct MongoShardSpec<'a> {
+    pub uri: &'a str,
+    pub database: &'a str,
+    pub collection: &'a str,
+    pub filter: Document,
+    pub total_docs: usize,
+    pub docs_per_shard: usize,
+    pub snapshot_id: &'a str,
+}
+
+pub fn mongodb_sharded_source<T>(
+    pipeline: &Pipeline,
+    key: &str,
+    spec: MongoShardSpec<'_>,
+) -> Result<PCollection<T>, Error>
+where
+    T: Element + DeserializeOwned + Unpin + Sync,
+{
+    let MongoShardSpec {
+        uri,
+        database,
+        collection,
+        filter,
+        total_docs,
+        docs_per_shard,
+        snapshot_id,
+    } = spec;
+    if docs_per_shard == 0 || snapshot_id.is_empty() {
+        return Err(Error::graph(
+            key,
+            "MongoDB shards require a positive size and snapshot ID",
+        ));
+    }
+    let base_digest = digest(uri, database, collection, &filter, Some(docs_per_shard))?;
+    let count = total_docs.max(1).div_ceil(docs_per_shard);
+    let mut sources = Vec::with_capacity(count);
+    for index in 0..count {
+        let start = index * docs_per_shard;
+        let end = start.saturating_add(docs_per_shard).min(total_docs);
+        let name = format!("{key}/shard-{index}");
+        let source_name = name.clone();
+        let source_uri = uri.to_owned();
+        let source_database = database.to_owned();
+        let source_collection = collection.to_owned();
+        let source_filter = filter.clone();
+        let config_digest = format!("{base_digest}:{snapshot_id}:{start}:{end}");
+        sources.push(pipeline.bounded_source_with_semantic(
+            &name,
+            "ironbeam/io/mongodb-shard-source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            config_digest,
+            Some(end - start),
+            move || {
+                if start == end {
+                    return Ok(Box::new(std::iter::empty()) as TypedSourceIterator<T>);
+                }
+                let values = runtime(&source_name)?.block_on(async {
+                    let client = mongodb::Client::with_uri_str(&source_uri)
+                        .await
+                        .map_err(|e| mongo_error(&source_name, e))?;
+                    let collection = client
+                        .database(&source_database)
+                        .collection::<T>(&source_collection);
+                    let limit =
+                        i64::try_from(end - start).map_err(|e| mongo_error(&source_name, e))?;
+                    let offset = u64::try_from(start).map_err(|e| mongo_error(&source_name, e))?;
+                    let mut cursor = collection
+                        .find(source_filter.clone())
+                        .sort(bson::doc! {"_id": 1})
+                        .skip(offset)
+                        .limit(limit)
+                        .await
+                        .map_err(|e| mongo_error(&source_name, e))?;
+                    let mut rows = Vec::new();
+                    while cursor
+                        .advance()
+                        .await
+                        .map_err(|e| mongo_error(&source_name, e))?
+                    {
+                        rows.push(
+                            cursor
+                                .deserialize_current()
+                                .map_err(|e| mongo_error(&source_name, e))?,
+                        );
+                    }
+                    Ok::<_, Error>(rows)
+                })?;
+                if values.len() != end - start {
+                    return Err(Error::recovery(
+                        &source_name,
+                        "MongoDB snapshot range length changed",
+                    ));
+                }
+                Ok(Box::new(values.into_iter().map(Ok)) as TypedSourceIterator<T>)
+            },
+        )?);
+    }
+    let first = sources.remove(0);
+    if sources.is_empty() {
+        first.map_named(key, |value| value)
+    } else {
+        first.flatten_named(key, &sources)
+    }
+}
+
 struct MongoSink<T> {
     key: String,
     uri: String,

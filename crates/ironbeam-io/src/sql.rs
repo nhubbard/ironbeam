@@ -176,6 +176,84 @@ where
     )
 }
 
+/// Build stable finite SQL range nodes without connecting during graph construction.
+/// `query` must use a total `ORDER BY`, and `snapshot_id` must identify an
+/// unchanged database snapshot across retries. A changed range length fails recovery.
+pub fn sql_sharded_source<T>(
+    pipeline: &Pipeline,
+    key: &str,
+    url: &str,
+    query: &str,
+    total_rows: usize,
+    rows_per_shard: usize,
+    snapshot_id: &str,
+) -> Result<PCollection<T>, Error>
+where
+    T: Element + for<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> + Unpin,
+{
+    if rows_per_shard == 0 || snapshot_id.is_empty() {
+        return Err(Error::graph(
+            key,
+            "SQL shards require a positive size and snapshot ID",
+        ));
+    }
+    let count = total_rows.max(1).div_ceil(rows_per_shard);
+    let base_digest = digest(url, query, Some(rows_per_shard));
+    let mut sources = Vec::with_capacity(count);
+    for index in 0..count {
+        let start = index * rows_per_shard;
+        let end = start.saturating_add(rows_per_shard).min(total_rows);
+        let name = format!("{key}/shard-{index}");
+        let source_url = url.to_owned();
+        let source_query = query.to_owned();
+        let source_name = name.clone();
+        let config_digest = format!("{base_digest}:{snapshot_id}:{start}:{end}");
+        sources.push(pipeline.bounded_source_with_semantic(
+            &name,
+            "ironbeam/io/sql-shard-source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            config_digest,
+            Some(end - start),
+            move || {
+                if start == end {
+                    return Ok(Box::new(std::iter::empty()) as TypedSourceIterator<T>);
+                }
+                sqlx::any::install_default_drivers();
+                let limit = end - start;
+                let statement = format!(
+                    "SELECT * FROM ({source_query}) AS _ironbeam_shard LIMIT {limit} OFFSET {start}"
+                );
+                let values = runtime(&source_name)?.block_on(async {
+                    let pool = sqlx::AnyPool::connect(&source_url)
+                        .await
+                        .map_err(|e| sql_error(&source_name, e))?;
+                    sqlx::query_as::<sqlx::Any, T>(sqlx::AssertSqlSafe(statement))
+                        .fetch_all(&pool)
+                        .await
+                        .map_err(|e| sql_error(&source_name, e))
+                })?;
+                if values.len() != limit {
+                    return Err(Error::recovery(
+                        &source_name,
+                        "SQL snapshot range length changed",
+                    ));
+                }
+                Ok(Box::new(values.into_iter().map(Ok)) as TypedSourceIterator<T>)
+            },
+        )?);
+    }
+    let first = sources.remove(0);
+    if sources.is_empty() {
+        first.map_named(key, |value| value)
+    } else {
+        first.flatten_named(key, &sources)
+    }
+}
+
 struct SqlSink<T, F> {
     key: String,
     url: String,

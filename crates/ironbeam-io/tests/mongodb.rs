@@ -1,7 +1,9 @@
 #![cfg(feature = "mongodb")]
 use ironbeam_core::{Capabilities, Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io::{mongodb_sink, mongodb_source, mongodb_streaming_source};
+use ironbeam_io::{
+    MongoShardSpec, mongodb_sharded_source, mongodb_sink, mongodb_source, mongodb_streaming_source,
+};
 use serde::{Deserialize, Serialize};
 use testcontainers::runners::SyncRunner;
 use testcontainers_modules::mongo::Mongo;
@@ -37,6 +39,66 @@ fn mongodb_source_reports_open_failure_at_execution() {
             .unwrap()
             .kind,
         ErrorKind::Io
+    );
+    let shards = Pipeline::default();
+    let output = mongodb_sharded_source::<Doc>(
+        &shards,
+        "shards",
+        MongoShardSpec {
+            uri: "not-a-mongodb-uri",
+            database: "db",
+            collection: "rows",
+            filter: bson::doc! {},
+            total_docs: 2,
+            docs_per_shard: 1,
+            snapshot_id: "fixture-v1",
+        },
+    )
+    .unwrap()
+    .output("shards-out")
+    .unwrap();
+    let (graph, _) = shards.snapshot().unwrap();
+    assert!(graph.node("shards/shard-0").is_some());
+    assert!(graph.node("shards/shard-1").is_some());
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    assert!(
+        mongodb_sharded_source::<Doc>(
+            &shards,
+            "bad",
+            MongoShardSpec {
+                uri: "bad-uri",
+                database: "db",
+                collection: "rows",
+                filter: bson::doc! {},
+                total_docs: 2,
+                docs_per_shard: 0,
+                snapshot_id: "fixture-v1"
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        mongodb_sharded_source::<Doc>(
+            &shards,
+            "bad-id",
+            MongoShardSpec {
+                uri: "bad-uri",
+                database: "db",
+                collection: "rows",
+                filter: bson::doc! {},
+                total_docs: 2,
+                docs_per_shard: 1,
+                snapshot_id: ""
+            }
+        )
+        .is_err()
     );
 }
 
@@ -114,6 +176,22 @@ fn mongodb_bounded_sources_and_deferred_sink_round_trip() {
     .unwrap()
     .output("paged-out")
     .unwrap();
+    let sharded = mongodb_sharded_source::<Doc>(
+        &reads,
+        "shards",
+        MongoShardSpec {
+            uri: &uri,
+            database: "ironbeam_v5",
+            collection: "rows",
+            filter: bson::doc! {},
+            total_docs: 3,
+            docs_per_shard: 2,
+            snapshot_id: "fixture-v1",
+        },
+    )
+    .unwrap()
+    .output("shards-out")
+    .unwrap();
     let mut eager_rows = DirectRunner
         .run_collect(&eager, &JobConfig::default())
         .unwrap()
@@ -126,4 +204,36 @@ fn mongodb_bounded_sources_and_deferred_sink_round_trip() {
     paged_rows.sort_by_key(|row| row.id);
     assert_eq!(eager_rows, expected);
     assert_eq!(paged_rows, expected);
+    assert_eq!(
+        DirectRunner
+            .run_collect(&sharded, &JobConfig::default())
+            .unwrap()
+            .0,
+        expected
+    );
+    let mismatch = Pipeline::default();
+    let output = mongodb_sharded_source::<Doc>(
+        &mismatch,
+        "mismatch",
+        MongoShardSpec {
+            uri: &uri,
+            database: "ironbeam_v5",
+            collection: "rows",
+            filter: bson::doc! {},
+            total_docs: 4,
+            docs_per_shard: 2,
+            snapshot_id: "fixture-v1",
+        },
+    )
+    .unwrap()
+    .output("mismatch-out")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
 }
