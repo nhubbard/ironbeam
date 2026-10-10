@@ -57,8 +57,8 @@
   "ironbeam-transforms": {
     "source": "crates/ironbeam-transforms/src",
     "lines": {
-      "covered": 32,
-      "count": 32
+      "covered": 89,
+      "count": 89
     },
     "branches": {
       "covered": 0,
