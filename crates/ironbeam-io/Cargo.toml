@@ -20,6 +20,7 @@ cbor = ["dep:ciborium"]
 protobuf = ["dep:prost"]
 tfrecord = ["dep:crc32c"]
 sql = ["dep:sqlx", "dep:tokio"]
+mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
 
 [dependencies]
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
@@ -40,6 +41,10 @@ prost = { version = "0.13", optional = true }
 crc32c = { version = "0.6", optional = true }
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+mongodb = { version = "3", features = ["bson-3"], optional = true }
+bson = { version = "3", optional = true }
 
 [dev-dependencies]
 ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+testcontainers = { version = "0.27", features = ["blocking"] }
+testcontainers-modules = { version = "0.15", features = ["mongo"] }

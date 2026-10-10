@@ -2191,12 +2191,14 @@ version = "0.1.0"
 dependencies = [
  "apache-avro",
  "arrow",
+ "bson 3.1.0",
  "bytes",
  "ciborium",
  "crc32c",
  "csv",
  "ironbeam-core",
  "ironbeam-direct",
+ "mongodb",
  "parquet",
  "prost 0.13.5",
  "quick-xml",
@@ -2207,6 +2209,8 @@ dependencies = [
  "sha2 0.11.0",
  "sqlx",
  "tempfile",
+ "testcontainers",
+ "testcontainers-modules",
  "tokio",
 ]
 

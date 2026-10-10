@@ -34,7 +34,8 @@ remains available until every required family is closed.
 | `cbor`, `msgpack`, `protobuf`, `tfrecord` | optional I/O | Partial | Bounded source/sink adapters and lazy bounded readers pass. Shard planning, parallel writers, and compression remain. |
 | `arrow_ipc` | optional I/O | Partial | Bounded row and record-batch sources/sinks plus lazy readers exist; shard planning and parallel writers remain. |
 | `sql` | optional I/O | Partial | Opt-in SQL eager and paged bounded sources plus deferred append sink execute on Direct; SQLite round-trip, deferred write, typed failure, and capability rejection pass. Paged reads use `LIMIT`/`OFFSET` and require caller ordering and a stable database snapshot for repeatability. Parallel writer, portable split/checkpoint IDs, and multi-database live tests remain. |
-| `mongodb`, `cloud` | optional I/O | Pending | Specify source splits, credentials, retries, and sink commit/replay before adding clients. |
+| `mongodb` | optional I/O | Partial | Opt-in bounded `find` and paged `skip`/`limit` sources plus a deferred append sink execute on Direct; a live Rancher Desktop round trip, typed failure, and capability rejection pass. Paged reads require a stable collection snapshot for repeatability. Multi-batch writes can partially commit; parallel writer and portable split/checkpoint IDs remain. |
+| `cloud` | optional I/O | Pending | Port v4 retry, timeout, batch, pagination, and storage reader utilities without embedding provider credentials in graph identity. |
 | v4 test utilities | `ironbeam-testing` | Partial | Assertion, builder, fixture, mock I/O, test pipeline, and debug helpers live in a separate local package. Debug count is a Direct terminal; inspect/sample are graph passthroughs. Verify all v4 utility methods and release packaging. |
 
 ## Closure gates for each family

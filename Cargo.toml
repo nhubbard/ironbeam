@@ -34,7 +34,7 @@ io-protobuf = ["dep:prost", "ironbeam-io?/protobuf"]
 io-tfrecord = ["dep:crc32c", "ironbeam-io?/tfrecord"]
 io-arrow = ["dep:arrow", "dep:serde_arrow", "ironbeam-io?/arrow-ipc"]
 io-sql = ["dep:sqlx", "dep:tokio", "ironbeam-io?/sql"]
-io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
+io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio", "ironbeam-io?/mongodb"]
 
 # Compression codecs (pluggable)
 compression-gzip = ["dep:flate2"]

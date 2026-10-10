@@ -9,7 +9,8 @@
     feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord",
-    feature = "sql"
+    feature = "sql",
+    feature = "mongodb"
 ))]
 #![allow(clippy::missing_errors_doc)]
 //! Bounded file adapters for the v5 logical graph.
@@ -34,6 +35,10 @@ type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
 mod sql;
 #[cfg(feature = "sql")]
 pub use sql::{sql_sink_with, sql_source, sql_streaming_source};
+#[cfg(feature = "mongodb")]
+mod mongodb;
+#[cfg(feature = "mongodb")]
+pub use mongodb::{mongodb_sink, mongodb_source, mongodb_streaming_source};
 
 fn io(key: &str, error: impl std::fmt::Display) -> Error {
     Error::io(key, "file", error.to_string())
