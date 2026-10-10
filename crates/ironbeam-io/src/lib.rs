@@ -77,7 +77,11 @@ fn source<T: Element>(
     feature = "csv",
     feature = "avro",
     feature = "parquet",
-    feature = "arrow-ipc"
+    feature = "arrow-ipc",
+    feature = "msgpack",
+    feature = "cbor",
+    feature = "protobuf",
+    feature = "tfrecord"
 ))]
 fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     use std::io::Read;
@@ -99,7 +103,11 @@ fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     feature = "csv",
     feature = "avro",
     feature = "parquet",
-    feature = "arrow-ipc"
+    feature = "arrow-ipc",
+    feature = "msgpack",
+    feature = "cbor",
+    feature = "protobuf",
+    feature = "tfrecord"
 ))]
 fn lazy_source<T: Element>(
     pipeline: &Pipeline,
@@ -800,6 +808,48 @@ pub fn msgpack_source<T: Element + DeserializeOwned>(
     source(pipeline, key, path, "msgpack", read_msgpack::<T>)
 }
 #[cfg(feature = "msgpack")]
+fn read_msgpack_lazy<T: Element + DeserializeOwned>(
+    path: PathBuf,
+) -> Result<TypedSourceIterator<T>, Error> {
+    use std::io::BufRead;
+    let file = fs::File::open(path).map_err(|e| io("msgpack", e))?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut done = false;
+    Ok(Box::new(std::iter::from_fn(move || {
+        if done {
+            return None;
+        }
+        match reader.fill_buf() {
+            Ok([]) => None,
+            Ok(_) => {
+                let item = rmp_serde::from_read(&mut reader).map_err(|e| io("msgpack", e));
+                if item.is_err() {
+                    done = true;
+                }
+                Some(item)
+            }
+            Err(error) => {
+                done = true;
+                Some(Err(io("msgpack", error)))
+            }
+        }
+    })))
+}
+#[cfg(feature = "msgpack")]
+pub fn msgpack_streaming_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    lazy_source(
+        pipeline,
+        key,
+        path,
+        "msgpack-streaming",
+        read_msgpack_lazy::<T>,
+    )
+}
+#[cfg(feature = "msgpack")]
 pub fn msgpack_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -832,6 +882,42 @@ pub fn cbor_source<T: Element + DeserializeOwned>(
     path: impl AsRef<Path>,
 ) -> Result<PCollection<T>, Error> {
     source(pipeline, key, path, "cbor", read_cbor::<T>)
+}
+#[cfg(feature = "cbor")]
+fn read_cbor_lazy<T: Element + DeserializeOwned>(
+    path: PathBuf,
+) -> Result<TypedSourceIterator<T>, Error> {
+    use std::io::BufRead;
+    let file = fs::File::open(path).map_err(|e| io("cbor", e))?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut done = false;
+    Ok(Box::new(std::iter::from_fn(move || {
+        if done {
+            return None;
+        }
+        match reader.fill_buf() {
+            Ok([]) => None,
+            Ok(_) => {
+                let item = ciborium::de::from_reader(&mut reader).map_err(|e| io("cbor", e));
+                if item.is_err() {
+                    done = true;
+                }
+                Some(item)
+            }
+            Err(error) => {
+                done = true;
+                Some(Err(io("cbor", error)))
+            }
+        }
+    })))
+}
+#[cfg(feature = "cbor")]
+pub fn cbor_streaming_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    lazy_source(pipeline, key, path, "cbor-streaming", read_cbor_lazy::<T>)
 }
 #[cfg(feature = "cbor")]
 pub fn cbor_sink<T: Element + Serialize>(
@@ -867,6 +953,90 @@ pub fn protobuf_source<T: Element + prost::Message + Default>(
     path: impl AsRef<Path>,
 ) -> Result<PCollection<T>, Error> {
     source(pipeline, key, path, "protobuf", read_protobuf::<T>)
+}
+#[cfg(feature = "protobuf")]
+fn read_protobuf_length(reader: &mut impl std::io::Read) -> Result<Option<usize>, Error> {
+    let mut value = 0_u64;
+    for index in 0..10_u32 {
+        let mut byte = [0_u8; 1];
+        match reader.read(&mut byte).map_err(|e| io("protobuf", e))? {
+            0 if index == 0 => return Ok(None),
+            0 => return Err(io("protobuf", "truncated length prefix")),
+            _ => {}
+        }
+        let part = u64::from(byte[0] & 0x7f);
+        if index == 9 && part > 1 {
+            return Err(io("protobuf", "length prefix overflow"));
+        }
+        value |= part << (index * 7);
+        if byte[0] & 0x80 == 0 {
+            return usize::try_from(value)
+                .map(Some)
+                .map_err(|e| io("protobuf", e));
+        }
+    }
+    Err(io("protobuf", "length prefix exceeds ten bytes"))
+}
+#[cfg(feature = "protobuf")]
+fn read_protobuf_lazy<T: Element + prost::Message + Default>(
+    path: PathBuf,
+) -> Result<TypedSourceIterator<T>, Error> {
+    use std::io::{Read, Seek};
+    let file = fs::File::open(path).map_err(|e| io("protobuf", e))?;
+    let file_length = file.metadata().map_err(|e| io("protobuf", e))?.len();
+    let mut reader = std::io::BufReader::new(file);
+    let mut done = false;
+    Ok(Box::new(std::iter::from_fn(move || {
+        if done {
+            return None;
+        }
+        let length = match read_protobuf_length(&mut reader) {
+            Ok(Some(length)) => length,
+            Ok(None) => return None,
+            Err(error) => {
+                done = true;
+                return Some(Err(error));
+            }
+        };
+        let position = match reader.stream_position() {
+            Ok(position) => position,
+            Err(error) => {
+                done = true;
+                return Some(Err(io("protobuf", error)));
+            }
+        };
+        if u64::try_from(length)
+            .ok()
+            .is_none_or(|length| length > file_length.saturating_sub(position))
+        {
+            done = true;
+            return Some(Err(io("protobuf", "truncated record")));
+        }
+        let mut bytes = vec![0_u8; length];
+        if let Err(error) = reader.read_exact(&mut bytes) {
+            done = true;
+            return Some(Err(io("protobuf", error)));
+        }
+        let item = <T as prost::Message>::decode(&bytes[..]).map_err(|e| io("protobuf", e));
+        if item.is_err() {
+            done = true;
+        }
+        Some(item)
+    })))
+}
+#[cfg(feature = "protobuf")]
+pub fn protobuf_streaming_source<T: Element + prost::Message + Default>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    lazy_source(
+        pipeline,
+        key,
+        path,
+        "protobuf-streaming",
+        read_protobuf_lazy::<T>,
+    )
 }
 #[cfg(feature = "protobuf")]
 pub fn protobuf_sink<T: Element + prost::Message>(
@@ -942,6 +1112,89 @@ pub fn tfrecord_source(
     path: impl AsRef<Path>,
 ) -> Result<PCollection<Vec<u8>>, Error> {
     source(pipeline, key, path, "tfrecord", read_tfrecord)
+}
+#[cfg(feature = "tfrecord")]
+fn read_tfrecord_lazy(path: PathBuf) -> Result<TypedSourceIterator<Vec<u8>>, Error> {
+    use std::io::{Read, Seek};
+    let file = fs::File::open(path).map_err(|e| io("tfrecord", e))?;
+    let file_length = file.metadata().map_err(|e| io("tfrecord", e))?.len();
+    let mut reader = std::io::BufReader::new(file);
+    let mut done = false;
+    Ok(Box::new(std::iter::from_fn(move || {
+        if done {
+            return None;
+        }
+        let mut header = [0_u8; 12];
+        match reader.read(&mut header[..1]) {
+            Ok(0) => return None,
+            Ok(_) => {}
+            Err(error) => {
+                done = true;
+                return Some(Err(io("tfrecord", error)));
+            }
+        }
+        if let Err(error) = reader.read_exact(&mut header[1..]) {
+            done = true;
+            return Some(Err(io("tfrecord", error)));
+        }
+        let length_bytes: [u8; 8] = header[..8].try_into().expect("fixed-size header");
+        let stored_length_crc =
+            u32::from_le_bytes(header[8..12].try_into().expect("fixed-size header"));
+        if stored_length_crc != masked_crc(&length_bytes) {
+            done = true;
+            return Some(Err(io("tfrecord", "length CRC mismatch")));
+        }
+        let length = match usize::try_from(u64::from_le_bytes(length_bytes)) {
+            Ok(length) => length,
+            Err(error) => {
+                done = true;
+                return Some(Err(io("tfrecord", error)));
+            }
+        };
+        let position = match reader.stream_position() {
+            Ok(position) => position,
+            Err(error) => {
+                done = true;
+                return Some(Err(io("tfrecord", error)));
+            }
+        };
+        if u64::try_from(length)
+            .ok()
+            .and_then(|length| length.checked_add(4))
+            .is_none_or(|needed| needed > file_length.saturating_sub(position))
+        {
+            done = true;
+            return Some(Err(io("tfrecord", "truncated record")));
+        }
+        let mut payload = vec![0_u8; length];
+        let mut crc = [0_u8; 4];
+        if let Err(error) = reader
+            .read_exact(&mut payload)
+            .and_then(|_| reader.read_exact(&mut crc))
+        {
+            done = true;
+            return Some(Err(io("tfrecord", error)));
+        }
+        if u32::from_le_bytes(crc) != masked_crc(&payload) {
+            done = true;
+            return Some(Err(io("tfrecord", "data CRC mismatch")));
+        }
+        Some(Ok(payload))
+    })))
+}
+#[cfg(feature = "tfrecord")]
+pub fn tfrecord_streaming_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<Vec<u8>>, Error> {
+    lazy_source(
+        pipeline,
+        key,
+        path,
+        "tfrecord-streaming",
+        read_tfrecord_lazy,
+    )
 }
 #[cfg(feature = "tfrecord")]
 pub fn tfrecord_sink(

@@ -143,6 +143,15 @@ fn msgpack_contract() {
         |p, k, f| msgpack_source(p, k, f),
     );
 }
+#[cfg(feature = "msgpack")]
+#[test]
+fn msgpack_lazy_contract() {
+    round_trip(
+        "msgpack",
+        |i, k, p| msgpack_sink(i, k, p),
+        |p, k, f| msgpack_streaming_source(p, k, f),
+    );
+}
 #[cfg(feature = "cbor")]
 #[test]
 fn cbor_contract() {
@@ -150,6 +159,15 @@ fn cbor_contract() {
         "cbor",
         |i, k, p| cbor_sink(i, k, p),
         |p, k, f| cbor_source(p, k, f),
+    );
+}
+#[cfg(feature = "cbor")]
+#[test]
+fn cbor_lazy_contract() {
+    round_trip(
+        "cbor",
+        |i, k, p| cbor_sink(i, k, p),
+        |p, k, f| cbor_streaming_source(p, k, f),
     );
 }
 
@@ -197,6 +215,32 @@ fn protobuf_length_delimited_records_round_trip() {
             .0,
         rows
     );
+    let lazy_pipeline = Pipeline::default();
+    let lazy_output = protobuf_streaming_source::<ProtoRow>(&lazy_pipeline, "lazy", &path)
+        .unwrap()
+        .output("lazy-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&lazy_output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows
+    );
+    fs::write(&path, [0xff_u8, 0xff, 0xff, 0xff, 0x7f]).unwrap();
+    let invalid_pipeline = Pipeline::default();
+    let invalid = protobuf_streaming_source::<ProtoRow>(&invalid_pipeline, "invalid", &path)
+        .unwrap()
+        .output("invalid-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&invalid, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
 }
 #[cfg(feature = "tfrecord")]
 #[test]
@@ -224,6 +268,18 @@ fn tfrecord_crc_and_truncation_are_checked() {
             .0,
         rows
     );
+    let lazy_pipeline = Pipeline::default();
+    let lazy_output = tfrecord_streaming_source(&lazy_pipeline, "lazy", &path)
+        .unwrap()
+        .output("lazy-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&lazy_output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows
+    );
 
     let mut bad = fs::read(&path).unwrap();
     bad[12] ^= 1;
@@ -236,6 +292,19 @@ fn tfrecord_crc_and_truncation_are_checked() {
     assert_eq!(
         DirectRunner
             .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    let lazy_bad_pipeline = Pipeline::default();
+    let lazy_bad = tfrecord_streaming_source(&lazy_bad_pipeline, "lazy-bad", &path)
+        .unwrap()
+        .output("lazy-bad-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&lazy_bad, &JobConfig::default())
             .err()
             .unwrap()
             .kind,
