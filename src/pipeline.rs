@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 #[cfg(feature = "coders")]
-use crate::coders::{ElementCoder, PostcardCoder, PostcardKvCoder};
+use crate::coders::{ElementCoder, PostcardCoder, PostcardGroupedKvCoder, PostcardKvCoder};
 #[cfg(feature = "coders")]
 use crate::collection::Element;
 
@@ -180,6 +180,18 @@ impl Pipeline {
             .coders
             .insert(id, Arc::new(PostcardKvCoder::<K, V>::new()));
     }
+
+    #[cfg(feature = "coders")]
+    pub(crate) fn set_grouped_kv_coder<K: Element, V: Element>(&self, id: NodeId) {
+        self.inner
+            .lock()
+            .unwrap()
+            .coders
+            .insert(id, Arc::new(PostcardGroupedKvCoder::<K, V>::new()));
+    }
+
+    #[cfg(not(feature = "coders"))]
+    pub(crate) fn set_grouped_kv_coder<K, V>(&self, _id: NodeId) {}
 
     #[cfg(not(feature = "coders"))]
     pub(crate) fn set_kv_coder<K, V>(&self, _id: NodeId) {}

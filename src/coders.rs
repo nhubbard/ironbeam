@@ -70,6 +70,15 @@ pub trait ElementCoder: Send + Sync {
             self.type_name()
         ))
     }
+
+    /// Reassemble Beam's post-shuffle `kv<lp<K>, iter<lp<V>>>` into one
+    /// grouped element that a downstream ironbeam transform can consume.
+    fn decode_kv_iter_bytes(&self, _key: &[u8], _values: &[&[u8]]) -> Result<Vec<u8>> {
+        Err(anyhow!(
+            "coder for {} cannot decode grouped KV bytes",
+            self.type_name()
+        ))
+    }
 }
 
 /// Default coder: pairs `T` with postcard.
@@ -199,5 +208,82 @@ where
             out.push((kb, vb));
         }
         Ok(out)
+    }
+}
+
+/// Coder attached to a `GroupByKey` output. Beam delivers its key and iterable
+/// values separately; downstream v4 transforms consume a postcard `(K, Vec<V>)`.
+pub struct PostcardGroupedKvCoder<K, V>(PhantomData<fn() -> (K, V)>);
+
+impl<K, V> PostcardGroupedKvCoder<K, V> {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<K, V> Default for PostcardGroupedKvCoder<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<K, V> ElementCoder for PostcardGroupedKvCoder<K, V>
+where
+    K: Serialize + DeserializeOwned + 'static + Send + Sync + Clone,
+    V: Serialize + DeserializeOwned + 'static + Send + Sync + Clone,
+{
+    fn decode_one(&self, bytes: &[u8]) -> Result<Partition> {
+        let pair: (K, Vec<V>) = from_bytes(bytes)?;
+        Ok(Box::new(vec![pair]))
+    }
+
+    fn encode_all(&self, partition: Partition) -> Result<Vec<Vec<u8>>> {
+        let values = partition.downcast::<Vec<(K, Vec<V>)>>().map_err(|_| {
+            anyhow!(
+                "partition downcast failed: expected Vec<{}>",
+                type_name::<(K, Vec<V>)>()
+            )
+        })?;
+        values
+            .iter()
+            .map(|value| to_allocvec(value).map_err(Into::into))
+            .collect()
+    }
+
+    fn type_name(&self) -> &'static str {
+        type_name::<(K, Vec<V>)>()
+    }
+
+    fn decode_kv_iter_bytes(&self, key: &[u8], values: &[&[u8]]) -> Result<Vec<u8>> {
+        let key: K = from_bytes(key).context("decode grouped key")?;
+        let values: Vec<V> = values
+            .iter()
+            .map(|value| from_bytes(value).context("decode grouped value"))
+            .collect::<Result<_>>()?;
+        to_allocvec(&(key, values)).context("encode grouped pair")
+    }
+}
+
+#[cfg(test)]
+mod grouped_tests {
+    use super::*;
+
+    #[test]
+    fn grouped_kv_reassembles_runner_key_and_iterable() {
+        let coder = PostcardGroupedKvCoder::<String, u64>::new();
+        let key = to_allocvec(&"alpha".to_string()).unwrap();
+        let first = to_allocvec(&2_u64).unwrap();
+        let second = to_allocvec(&3_u64).unwrap();
+        let wire = coder
+            .decode_kv_iter_bytes(&key, &[&first, &second])
+            .unwrap();
+        let partition = coder.decode_one(&wire).unwrap();
+        let encoded = coder.encode_all(partition).unwrap();
+        assert_eq!(
+            from_bytes::<(String, Vec<u64>)>(&wire).unwrap(),
+            ("alpha".into(), vec![2, 3])
+        );
+        assert_eq!(encoded, vec![wire]);
     }
 }

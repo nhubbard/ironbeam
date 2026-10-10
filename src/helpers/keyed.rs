@@ -241,7 +241,7 @@ impl<K: Element + Eq + Hash, V: Element> PCollection<(K, V)> {
         // predecessor's coder to split each `(K, V)` into independently
         // length-prefixed halves. The GBK's own output is `(K, Vec<V>)`.
         self.pipeline.set_kv_coder::<K, V>(self.id);
-        self.pipeline.set_coder::<(K, Vec<V>)>(id);
+        self.pipeline.set_grouped_kv_coder::<K, V>(id);
         PCollection {
             pipeline: self.pipeline,
             id,

@@ -580,7 +580,7 @@ pub use node::DynOp;
 pub use type_token::{TypeTag, VecOps};
 
 #[cfg(feature = "coders")]
-pub use coders::{ElementCoder, PostcardCoder, PostcardKvCoder};
+pub use coders::{ElementCoder, PostcardCoder, PostcardGroupedKvCoder, PostcardKvCoder};
 
 // I/O re-exports. The API surface is always present (the modules compile
 // unconditionally and stub at runtime when their feature is disabled); only the
