@@ -89,7 +89,10 @@ fn eval(
         .ok_or_else(|| Error::graph(key, "physical input missing"))?;
     if matches!(
         node.operation,
-        Operation::FoldGlobal | Operation::FoldPerKey
+        Operation::FoldGlobal
+            | Operation::FoldPerKey
+            | Operation::FoldOrderedGlobal
+            | Operation::FoldOrderedPerKey
     ) {
         let mut fold = catch_unwind(AssertUnwindSafe(|| registry.open_fold(key)))
             .unwrap_or_else(|_| Err(Error::execution(key, "direct", "fold factory panicked")))?;

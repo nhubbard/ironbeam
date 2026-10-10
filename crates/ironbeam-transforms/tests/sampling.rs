@@ -1,4 +1,4 @@
-use ironbeam_core::Pipeline;
+use ironbeam_core::{Capabilities, ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_transforms::{KeyedSamplingExt, SamplingExt};
 
@@ -77,4 +77,36 @@ fn per_key_reservoir_keeps_each_group_independent() {
     assert_eq!(values[0].1.len(), 2);
     assert!(values[0].1.iter().all(|value| [1, 2, 3].contains(value)));
     assert_eq!(values[1], ("b".to_string(), vec![9]));
+}
+
+#[test]
+fn ordered_reservoir_streams_large_source_deterministically() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("large-sampling-source", (0_i32..10_000).collect())
+        .unwrap();
+    let output = values
+        .sample_globally_with_seed_named("large-sampling", 5, 42)
+        .unwrap()
+        .output("large-sampling-out")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph
+            .validate_for("preview", &Capabilities::default())
+            .unwrap_err()
+            .kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "ordered-fold".into()
+        }
+    );
+    let config = JobConfig {
+        memory_budget_bytes: 256,
+        buffer_budget_elements: 17,
+        ..JobConfig::default()
+    };
+    let first = DirectRunner.run_collect(&output, &config).unwrap().0;
+    let second = DirectRunner.run_collect(&output, &config).unwrap().0;
+    assert_eq!(first, second);
+    assert_eq!(first[0].len(), 5);
 }

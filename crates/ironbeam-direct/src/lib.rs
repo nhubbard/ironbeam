@@ -177,6 +177,7 @@ impl DirectRunner {
                 side_input_map: true,
                 global_combine: true,
                 incremental_combine: true,
+                ordered_fold: true,
                 batch_map_values: true,
                 append_sink: true,
                 final_result_sink: true,
@@ -204,6 +205,8 @@ impl DirectRunner {
                 | Operation::GlobalCombine
                 | Operation::FoldGlobal
                 | Operation::FoldPerKey
+                | Operation::FoldOrderedGlobal
+                | Operation::FoldOrderedPerKey
                 | Operation::BatchMapValues { .. }
                 | Operation::Output => None,
                 Operation::Sink { spec }
@@ -475,7 +478,10 @@ fn ensure_aggregates(
         }
         if matches!(
             node.operation,
-            Operation::FoldGlobal | Operation::FoldPerKey
+            Operation::FoldGlobal
+                | Operation::FoldPerKey
+                | Operation::FoldOrderedGlobal
+                | Operation::FoldOrderedPerKey
         ) && !registry.has_fold(key)
         {
             return Err(Error::unsupported(key, "direct", "fold-function"));

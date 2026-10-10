@@ -658,6 +658,8 @@ pub enum Operation {
     GlobalCombine,
     FoldGlobal,
     FoldPerKey,
+    FoldOrderedGlobal,
+    FoldOrderedPerKey,
     BatchMapValues {
         batch_size: usize,
     },
@@ -864,6 +866,7 @@ pub struct Capabilities {
     pub side_input_map: bool,
     pub global_combine: bool,
     pub incremental_combine: bool,
+    pub ordered_fold: bool,
     pub batch_map_values: bool,
     pub fixed_window: bool,
     pub assign_timestamp: bool,
@@ -1078,6 +1081,8 @@ impl Graph {
                             | Operation::GlobalCombine
                             | Operation::FoldGlobal
                             | Operation::FoldPerKey
+                            | Operation::FoldOrderedGlobal
+                            | Operation::FoldOrderedPerKey
                             | Operation::BatchMapValues { .. }
                             | Operation::Output
                             | Operation::Sink { .. }
@@ -1090,6 +1095,8 @@ impl Graph {
                         Operation::GlobalCombine
                             | Operation::FoldGlobal
                             | Operation::FoldPerKey
+                            | Operation::FoldOrderedGlobal
+                            | Operation::FoldOrderedPerKey
                             | Operation::GroupByKey
                             | Operation::CoGroupByKey
                     ) && node.boundedness == Boundedness::Unbounded
@@ -1267,6 +1274,11 @@ impl Graph {
                 {
                     Some("incremental-combine".to_string())
                 }
+                Operation::FoldOrderedGlobal | Operation::FoldOrderedPerKey
+                    if !capabilities.ordered_fold =>
+                {
+                    Some("ordered-fold".to_string())
+                }
                 Operation::BatchMapValues { .. } if !capabilities.batch_map_values => {
                     Some("batch-map-values".to_string())
                 }
@@ -1322,6 +1334,40 @@ pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     fn merge(&self, accumulator: &mut A, other: A);
     fn finish(&self, accumulator: A) -> O;
 }
+pub trait OrderedFoldFn<V, A, O>: Send + Sync + 'static {
+    fn create(&self) -> A;
+    fn add_input(&self, accumulator: &mut A, value: V);
+    fn finish(&self, accumulator: A) -> O;
+}
+trait FoldLogic<V, A, O>: Send + Sync + 'static {
+    fn create(&self) -> A;
+    fn add_input(&self, accumulator: &mut A, value: V);
+    fn finish(&self, accumulator: A) -> O;
+}
+struct MergeableAdapter<C>(C);
+impl<V, A, O, C: CombineFn<V, A, O>> FoldLogic<V, A, O> for MergeableAdapter<C> {
+    fn create(&self) -> A {
+        self.0.create()
+    }
+    fn add_input(&self, accumulator: &mut A, value: V) {
+        self.0.add_input(accumulator, value);
+    }
+    fn finish(&self, accumulator: A) -> O {
+        self.0.finish(accumulator)
+    }
+}
+struct OrderedAdapter<C>(C);
+impl<V, A, O, C: OrderedFoldFn<V, A, O>> FoldLogic<V, A, O> for OrderedAdapter<C> {
+    fn create(&self) -> A {
+        self.0.create()
+    }
+    fn add_input(&self, accumulator: &mut A, value: V) {
+        self.0.add_input(accumulator, value);
+    }
+    fn finish(&self, accumulator: A) -> O {
+        self.0.finish(accumulator)
+    }
+}
 pub trait FoldSession: Send {
     fn add(&mut self, event: Envelope) -> Result<(), Error>;
     fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error>;
@@ -1336,7 +1382,7 @@ struct GlobalFoldState<T, A, O, C> {
     entries: BTreeMap<Option<i64>, FoldEntry<A>>,
     marker: PhantomData<(T, O)>,
 }
-impl<T: Element, A: Send + 'static, O: Element, C: CombineFn<T, A, O>> FoldSession
+impl<T: Element, A: Send + 'static, O: Element, C: FoldLogic<T, A, O>> FoldSession
     for GlobalFoldState<T, A, O, C>
 {
     fn add(&mut self, event: Envelope) -> Result<(), Error> {
@@ -1392,7 +1438,7 @@ impl<
     V: Element,
     A: Send + 'static,
     O: Element,
-    C: CombineFn<V, A, O>,
+    C: FoldLogic<V, A, O>,
 > FoldSession for KeyedFoldState<K, V, A, O, C>
 {
     fn add(&mut self, event: Envelope) -> Result<(), Error> {
@@ -1617,6 +1663,14 @@ impl Pipeline {
             }
             Operation::FoldGlobal => ("ironbeam/fold-global".into(), BUILTIN_OPERATION_VERSION),
             Operation::FoldPerKey => ("ironbeam/fold-per-key".into(), BUILTIN_OPERATION_VERSION),
+            Operation::FoldOrderedGlobal => (
+                "ironbeam/fold-ordered-global".into(),
+                BUILTIN_OPERATION_VERSION,
+            ),
+            Operation::FoldOrderedPerKey => (
+                "ironbeam/fold-ordered-per-key".into(),
+                BUILTIN_OPERATION_VERSION,
+            ),
             Operation::BatchMapValues { .. } => (
                 "ironbeam/batch-map-values".into(),
                 BUILTIN_OPERATION_VERSION,
@@ -2413,9 +2467,9 @@ impl<T: Element> PCollection<T> {
         }
         let window = parent.time.window;
         let node_key = key.to_owned();
-        let combiner = Arc::new(combiner);
+        let combiner = Arc::new(MergeableAdapter(combiner));
         let factory: FoldFactory = Arc::new(move || {
-            Box::new(GlobalFoldState::<T, A, O, C> {
+            Box::new(GlobalFoldState::<T, A, O, MergeableAdapter<C>> {
                 key: node_key.clone(),
                 combiner: Arc::clone(&combiner),
                 window: window.clone(),
@@ -2424,6 +2478,37 @@ impl<T: Element> PCollection<T> {
             })
         });
         self.next_fold(key, Operation::FoldGlobal, factory)
+    }
+    pub fn fold_globally_ordered_named<C, A, O>(
+        &self,
+        key: &str,
+        fold: C,
+    ) -> Result<PCollection<O>, Error>
+    where
+        C: OrderedFoldFn<T, A, O>,
+        A: Send + 'static,
+        O: Element,
+    {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let window = parent.time.window;
+        let node_key = key.to_owned();
+        let fold = Arc::new(OrderedAdapter(fold));
+        let factory: FoldFactory = Arc::new(move || {
+            Box::new(GlobalFoldState::<T, A, O, OrderedAdapter<C>> {
+                key: node_key.clone(),
+                combiner: Arc::clone(&fold),
+                window: window.clone(),
+                entries: BTreeMap::new(),
+                marker: PhantomData,
+            })
+        });
+        self.next_fold(key, Operation::FoldOrderedGlobal, factory)
     }
     pub fn latest_globally_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
@@ -2772,9 +2857,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             ));
         }
         let node_key = key.to_owned();
-        let combiner = Arc::new(combiner);
+        let combiner = Arc::new(MergeableAdapter(combiner));
         let factory: FoldFactory = Arc::new(move || {
-            Box::new(KeyedFoldState::<K, V, A, O, C> {
+            Box::new(KeyedFoldState::<K, V, A, O, MergeableAdapter<C>> {
                 key: node_key.clone(),
                 combiner: Arc::clone(&combiner),
                 indices: HashMap::new(),
@@ -2783,6 +2868,36 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             })
         });
         self.next_fold(key, Operation::FoldPerKey, factory)
+    }
+    pub fn fold_values_ordered_named<C, A, O>(
+        &self,
+        key: &str,
+        fold: C,
+    ) -> Result<PCollection<(K, O)>, Error>
+    where
+        C: OrderedFoldFn<V, A, O>,
+        A: Send + 'static,
+        O: Element,
+    {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let node_key = key.to_owned();
+        let fold = Arc::new(OrderedAdapter(fold));
+        let factory: FoldFactory = Arc::new(move || {
+            Box::new(KeyedFoldState::<K, V, A, O, OrderedAdapter<C>> {
+                key: node_key.clone(),
+                combiner: Arc::clone(&fold),
+                indices: HashMap::new(),
+                rows: Vec::new(),
+                marker: PhantomData,
+            })
+        });
+        self.next_fold(key, Operation::FoldOrderedPerKey, factory)
     }
     pub fn map_values_batches_named<O: Element>(
         &self,

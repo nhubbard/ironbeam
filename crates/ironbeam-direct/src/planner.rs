@@ -59,6 +59,8 @@ pub(crate) fn lower(
                     | Operation::GlobalCombine
                     | Operation::FoldGlobal
                     | Operation::FoldPerKey
+                    | Operation::FoldOrderedGlobal
+                    | Operation::FoldOrderedPerKey
                     | Operation::BatchMapValues { .. }
             )
         })
