@@ -481,6 +481,70 @@ fn windowed_combine_helpers_emit_explicit_offset_intervals() {
 }
 
 #[test]
+fn wait_on_drains_signal_before_data_and_reshuffle_breaks_fusion() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let pipeline = Pipeline::default();
+    let ready = Arc::new(AtomicBool::new(false));
+    let signal_ready = Arc::clone(&ready);
+    let signal = pipeline
+        .from_vec("wait-signal-source", vec![7_i32])
+        .unwrap()
+        .map_named("wait-signal-effect", move |value| {
+            signal_ready.store(true, Ordering::SeqCst);
+            value
+        })
+        .unwrap();
+    let data_ready = Arc::clone(&ready);
+    let seen = Arc::new(AtomicUsize::new(0));
+    let seen_before = Arc::clone(&seen);
+    let data = pipeline
+        .from_vec("wait-data-source", (0_i32..20).collect())
+        .unwrap()
+        .map_named("wait-data-effect", move |value| {
+            assert!(data_ready.load(Ordering::SeqCst));
+            seen_before.fetch_add(1, Ordering::SeqCst);
+            value
+        })
+        .unwrap();
+    let seen_after = Arc::clone(&seen);
+    let output = data
+        .wait_on_named("wait", &signal)
+        .unwrap()
+        .reshuffle_named("reshuffle")
+        .unwrap()
+        .map_named("after-reshuffle", move |value| {
+            assert_eq!(seen_after.load(Ordering::SeqCst), 20);
+            value
+        })
+        .unwrap()
+        .output("wait-out")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph
+            .validate_for("preview", &Capabilities::default())
+            .unwrap_err()
+            .kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "wait-on".into()
+        }
+    );
+    for parallelism in [1, 3] {
+        seen.store(0, Ordering::SeqCst);
+        ready.store(false, Ordering::SeqCst);
+        let config = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&output, &config).unwrap().0,
+            (0_i32..20).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
 fn aggregate_checkpoint_and_marker_are_rejected_before_source() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

@@ -166,6 +166,8 @@ impl DirectRunner {
             &Capabilities {
                 external_bounded_source: true,
                 flatten: true,
+                reshuffle: true,
+                wait_on: true,
                 group_by_key: true,
                 co_group_by_key: true,
                 join_inner: true,
@@ -188,6 +190,8 @@ impl DirectRunner {
                 | Operation::AssignTimestamp
                 | Operation::FixedWindow
                 | Operation::Flatten
+                | Operation::Reshuffle
+                | Operation::WaitOn
                 | Operation::GroupByKey
                 | Operation::CoGroupByKey
                 | Operation::JoinInner

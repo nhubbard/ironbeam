@@ -645,6 +645,8 @@ pub enum Operation {
     FlatMap,
     AssignTimestamp,
     Flatten,
+    Reshuffle,
+    WaitOn,
     GroupByKey,
     CoGroupByKey,
     JoinInner,
@@ -848,6 +850,8 @@ pub struct Capabilities {
     pub external_bounded_source: bool,
     pub unbounded_source: bool,
     pub flatten: bool,
+    pub reshuffle: bool,
+    pub wait_on: bool,
     pub group_by_key: bool,
     pub co_group_by_key: bool,
     pub join_inner: bool,
@@ -950,6 +954,7 @@ impl Graph {
             if matches!(
                 node.operation,
                 Operation::Flatten
+                    | Operation::WaitOn
                     | Operation::CoGroupByKey
                     | Operation::JoinInner
                     | Operation::JoinLeft
@@ -969,6 +974,7 @@ impl Graph {
                     | Operation::JoinLeft
                     | Operation::JoinRight
                     | Operation::JoinFull
+                    | Operation::WaitOn
                     | Operation::SideInputMap
             ) && node.additional_inputs.len() != 1
             {
@@ -1010,6 +1016,8 @@ impl Graph {
                         Operation::Filter
                             | Operation::AssignTimestamp
                             | Operation::Flatten
+                            | Operation::Reshuffle
+                            | Operation::WaitOn
                             | Operation::FixedWindow
                             | Operation::Output
                             | Operation::Sink { .. }
@@ -1027,6 +1035,7 @@ impl Graph {
                             | Operation::JoinLeft
                             | Operation::JoinRight
                             | Operation::JoinFull
+                            | Operation::WaitOn
                             | Operation::SideInputMap
                     ) && node.boundedness != upstream.boundedness
                     {
@@ -1039,6 +1048,8 @@ impl Graph {
                             | Operation::FlatMap
                             | Operation::Filter
                             | Operation::Flatten
+                            | Operation::Reshuffle
+                            | Operation::WaitOn
                             | Operation::GroupByKey
                             | Operation::CoGroupByKey
                             | Operation::JoinInner
@@ -1067,6 +1078,7 @@ impl Graph {
                     if matches!(
                         node.operation,
                         Operation::Flatten
+                            | Operation::WaitOn
                             | Operation::CoGroupByKey
                             | Operation::JoinInner
                             | Operation::JoinLeft
@@ -1098,7 +1110,9 @@ impl Graph {
                                     "flatten input type/coder mismatch",
                                 ));
                             }
-                            if other.time != node.time {
+                            if other.time != node.time
+                                && !matches!(node.operation, Operation::WaitOn)
+                            {
                                 return Err(Error::graph(
                                     &node.key,
                                     "flatten time/window mismatch",
@@ -1106,7 +1120,9 @@ impl Graph {
                             }
                             unbounded |= other.boundedness == Boundedness::Unbounded;
                         }
-                        let expected = if unbounded {
+                        let expected = if matches!(node.operation, Operation::WaitOn) {
+                            upstream.boundedness
+                        } else if unbounded {
                             Boundedness::Unbounded
                         } else {
                             Boundedness::Bounded
@@ -1138,6 +1154,13 @@ impl Graph {
                             })
                         {
                             return Err(Error::graph(&node.key, "side input must be bounded"));
+                        }
+                        if matches!(node.operation, Operation::WaitOn)
+                            && node.additional_inputs.iter().any(|edge| {
+                                by_key[edge.key.as_str()].boundedness == Boundedness::Unbounded
+                            })
+                        {
+                            return Err(Error::graph(&node.key, "wait signal must be bounded"));
                         }
                     }
                 }
@@ -1194,6 +1217,8 @@ impl Graph {
                     Some("assign-timestamp".to_string())
                 }
                 Operation::Flatten if !capabilities.flatten => Some("flatten".to_string()),
+                Operation::Reshuffle if !capabilities.reshuffle => Some("reshuffle".to_string()),
+                Operation::WaitOn if !capabilities.wait_on => Some("wait-on".to_string()),
                 Operation::GroupByKey if !capabilities.group_by_key => {
                     Some("group-by-key".to_string())
                 }
@@ -1406,6 +1431,8 @@ impl Pipeline {
                 BUILTIN_OPERATION_VERSION,
             ),
             Operation::Flatten => ("ironbeam/flatten".into(), BUILTIN_OPERATION_VERSION),
+            Operation::Reshuffle => ("ironbeam/reshuffle".into(), BUILTIN_OPERATION_VERSION),
+            Operation::WaitOn => ("ironbeam/wait-on".into(), BUILTIN_OPERATION_VERSION),
             Operation::GroupByKey => ("ironbeam/group-by-key".into(), BUILTIN_OPERATION_VERSION),
             Operation::CoGroupByKey => {
                 ("ironbeam/co-group-by-key".into(), BUILTIN_OPERATION_VERSION)
@@ -1860,6 +1887,59 @@ impl<T: Element> PCollection<T> {
             } else {
                 Boundedness::Bounded
             },
+            time: parent.time,
+            local_id: 0,
+        };
+        self.pipeline.add(node, None, None, None, None)?;
+        Ok(Self {
+            pipeline: self.pipeline.clone(),
+            key: key.into(),
+            marker: PhantomData,
+        })
+    }
+    pub fn reshuffle_named(&self, key: &str) -> Result<Self, Error> {
+        self.next(key, Operation::Reshuffle, None, None)
+    }
+    pub fn wait_on_named<S: Element>(
+        &self,
+        key: &str,
+        signal: &PCollection<S>,
+    ) -> Result<Self, Error> {
+        if !Arc::ptr_eq(&self.pipeline.inner, &signal.pipeline.inner) {
+            return Err(Error::graph(
+                key,
+                "wait inputs belong to different pipelines",
+            ));
+        }
+        let parent = self.parent()?;
+        if signal.parent()?.boundedness == Boundedness::Unbounded {
+            return Err(Error::graph(key, "wait signal must be bounded"));
+        }
+        let operation = Operation::WaitOn;
+        let (semantic_id, semantic_version) = Pipeline::semantic_identity(&operation);
+        let node = Node {
+            key: key.into(),
+            input: Some(self.key.clone()),
+            input_element: Some(ElementDescriptor {
+                type_id: T::type_identity(),
+                coder_id: T::coder_identity(),
+                coder_version: T::CODER_VERSION,
+            }),
+            additional_inputs: vec![InputEdge {
+                key: signal.key.clone(),
+                element: ElementDescriptor {
+                    type_id: S::type_identity(),
+                    coder_id: S::coder_identity(),
+                    coder_version: S::CODER_VERSION,
+                },
+            }],
+            operation,
+            semantic_id,
+            semantic_version,
+            type_id: T::type_identity(),
+            coder_id: T::coder_identity(),
+            coder_version: T::CODER_VERSION,
+            boundedness: parent.boundedness,
             time: parent.time,
             local_id: 0,
         };

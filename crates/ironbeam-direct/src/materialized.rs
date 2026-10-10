@@ -87,9 +87,17 @@ fn eval(
         .input
         .as_deref()
         .ok_or_else(|| Error::graph(key, "physical input missing"))?;
+    if matches!(node.operation, Operation::WaitOn) {
+        let signal = node
+            .additional_inputs
+            .first()
+            .ok_or_else(|| Error::graph(key, "wait signal missing"))?;
+        eval(pool, graph, registry, &signal.key, config, metrics)?;
+        return eval(pool, graph, registry, primary, config, metrics);
+    }
     let first = eval(pool, graph, registry, primary, config, metrics)?;
     match &node.operation {
-        Operation::Output | Operation::Sink { .. } => Ok(first),
+        Operation::Output | Operation::Sink { .. } | Operation::Reshuffle => Ok(first),
         Operation::Map
         | Operation::Filter
         | Operation::FlatMap
