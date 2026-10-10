@@ -47,6 +47,8 @@ pub use side_inputs::{
     ConstantSideInputExt, SideMap, SideMultimap, SideSingleton, SideVec, side_hashmap,
     side_multimap, side_singleton, side_vec,
 };
+mod log_elements;
+pub use log_elements::LogElementsExt;
 
 pub trait ElementwiseExt<T: Element> {
     fn key_by_named<K: Element>(

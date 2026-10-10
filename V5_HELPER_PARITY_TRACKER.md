@@ -28,7 +28,7 @@ remains available until every required family is closed.
 | `statistical` | transforms | Present for values | V4-compatible t-digest quantiles and median work globally/per key, with non-finite observations ignored. Current global combine materializes input, so bounded-memory performance remains open. |
 | `batches`, `reshuffle`, `tee`, `wait_on` | direct | Pending | Specify scheduling, ordering, buffer limits, and dependency semantics. |
 | `collect_sorted` | direct | Present | Sequential/parallel sorted collection and stable keyed sorting exist. |
-| `log_elements` | transforms/direct | Pending | Define observation timing and side-effect guarantees. |
+| `log_elements` | transforms/direct | Present for Direct debug use | Formatted/default passthroughs print at node execution. Like v4, retries or re-execution can repeat output; this is a debug aid. |
 | `dead_letter`, `try_process`, `validation` | core, transforms, direct | Partial | `try_map`, `try_flat_map`, and fail-fast collection work with a tagged Result coder; dead-letter side outputs and validation policies remain. |
 | `jsonl`, `csv`, `xml`, `avro`, `parquet` | I/O | Partial | Bounded source and deferred sink work; v4 shard/lazy reader and immediate writer variants need parity checks. |
 | `cbor`, `msgpack`, `protobuf`, `tfrecord` | optional I/O | Partial | Bounded source/sink adapters and format tests pass; shard/lazy readers, parallel writers, and compression need parity checks. |
