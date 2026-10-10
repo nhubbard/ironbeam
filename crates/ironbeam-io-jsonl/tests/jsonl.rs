@@ -53,6 +53,26 @@ fn append_sink_commits_json_lines_and_marks_replay_semantics() {
     );
 }
 
+#[test]
+fn append_sink_accepts_a_relative_filename_without_a_parent_component() {
+    let temporary = tempfile::Builder::new()
+        .prefix("ironbeam-jsonl-append-")
+        .tempfile_in(".")
+        .unwrap();
+    let filename = temporary.path().file_name().unwrap().to_owned();
+    let path = std::path::PathBuf::from(filename);
+    temporary.close().unwrap();
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("values", rows()[..1].to_vec()).unwrap();
+    let sink = jsonl_append_sink(&input, "append", &path).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "{\"id\":1,\"name\":\"Ada\"}\n"
+    );
+    fs::remove_file(path).unwrap();
+}
+
 type MakeSink = fn(
     &ironbeam_core::PCollection<Row>,
     &str,

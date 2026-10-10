@@ -148,7 +148,11 @@ impl<T: Element + Serialize> TypedSink<T> for JsonlAppendSink<T> {
 
     fn commit(&mut self) -> Result<(), Error> {
         use std::io::Write;
-        let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
+        let parent = self
+            .path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
         std::fs::create_dir_all(parent).map_err(|error| ironbeam_io::io(&self.key, error))?;
         let file = std::fs::OpenOptions::new()
             .create(true)
