@@ -2112,6 +2112,7 @@ dependencies = [
  "ironbeam-io",
  "ironbeam-io-arrow",
  "ironbeam-io-avro",
+ "ironbeam-io-csv",
  "ironbeam-io-mongodb",
  "ironbeam-io-parquet",
  "ironbeam-io-sql",
@@ -2211,7 +2212,6 @@ version = "0.1.0"
 dependencies = [
  "ciborium",
  "crc32c",
- "csv",
  "glob",
  "ironbeam-cloud",
  "ironbeam-core",
@@ -2249,6 +2249,18 @@ dependencies = [
  "ironbeam-io",
  "serde",
  "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "ironbeam-io-csv"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "ironbeam-core",
+ "ironbeam-direct",
+ "ironbeam-io",
+ "serde",
  "tempfile",
 ]
 

@@ -1,6 +1,5 @@
 #![cfg(any(
     feature = "jsonl",
-    feature = "csv",
     feature = "xml",
     feature = "msgpack",
     feature = "cbor",
@@ -35,91 +34,29 @@ fn rows() -> Vec<Row> {
     ]
 }
 
-#[cfg(all(feature = "parallel-io", feature = "jsonl", feature = "csv"))]
+#[cfg(all(feature = "parallel-io", feature = "jsonl"))]
 #[test]
-fn parallel_jsonl_and_csv_sinks_preserve_order_and_single_header() {
+fn parallel_jsonl_sink_preserves_order() {
     let dir = tempfile::tempdir().unwrap();
-    for (extension, make_sink, make_source) in [
-        (
-            "jsonl",
-            (|i, k, p, n| jsonl_parallel_sink(i, k, p, n))
-                as fn(&_, &str, &std::path::Path, usize) -> _,
-            (|p, k, f| jsonl_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
-        ),
-        (
-            "csv",
-            (|i, k, p, n| csv_parallel_sink(i, k, p, n))
-                as fn(&_, &str, &std::path::Path, usize) -> _,
-            (|p, k, f| csv_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
-        ),
-    ] {
-        let path = dir.path().join(format!("rows.{extension}"));
-        for count in [0, 1, 5] {
-            let expected = (0..count)
-                .map(|id| Row {
-                    id,
-                    name: format!("row-{id}"),
-                })
-                .collect::<Vec<_>>();
-            let pipeline = Pipeline::default();
-            let input = pipeline.from_vec("input", expected.clone()).unwrap();
-            assert!(make_sink(&input, "bad", &path, 0).is_err());
-            let sink = make_sink(&input, "write", &path, 4).unwrap();
-            DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
-            let read_pipeline = Pipeline::default();
-            let output = make_source(&read_pipeline, "read", &path)
-                .unwrap()
-                .output("out")
-                .unwrap();
-            assert_eq!(
-                DirectRunner
-                    .run_collect(&output, &JobConfig::default())
-                    .unwrap()
-                    .0,
-                expected
-            );
-            if extension == "csv" && count > 0 {
-                assert_eq!(
-                    fs::read_to_string(&path)
-                        .unwrap()
-                        .matches("id,name")
-                        .count(),
-                    1
-                );
-            }
-        }
-    }
-}
-
-#[cfg(all(
-    feature = "parallel-io",
-    feature = "jsonl",
-    feature = "csv",
-    feature = "compression-gzip"
-))]
-#[test]
-fn parallel_sinks_compress_after_ordered_shard_assembly() {
-    let dir = tempfile::tempdir().unwrap();
-    for (extension, make_sink, make_source) in [
-        (
-            "jsonl.gz",
-            (|i, k, p, n| jsonl_parallel_sink(i, k, p, n))
-                as fn(&_, &str, &std::path::Path, usize) -> _,
-            (|p, k, f| jsonl_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
-        ),
-        (
-            "csv.gz",
-            (|i, k, p, n| csv_parallel_sink(i, k, p, n))
-                as fn(&_, &str, &std::path::Path, usize) -> _,
-            (|p, k, f| csv_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
-        ),
-    ] {
-        let path = dir.path().join(format!("rows.{extension}"));
+    let (extension, make_sink, make_source) = (
+        "jsonl",
+        (|i, k, p, n| jsonl_parallel_sink(i, k, p, n))
+            as fn(&_, &str, &std::path::Path, usize) -> _,
+        (|p, k, f| jsonl_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
+    );
+    let path = dir.path().join(format!("rows.{extension}"));
+    for count in [0, 1, 5] {
+        let expected = (0..count)
+            .map(|id| Row {
+                id,
+                name: format!("row-{id}"),
+            })
+            .collect::<Vec<_>>();
         let pipeline = Pipeline::default();
-        let input = pipeline.from_vec("input", rows()).unwrap();
-        let sink = make_sink(&input, "write", &path, 3).unwrap();
+        let input = pipeline.from_vec("input", expected.clone()).unwrap();
+        assert!(make_sink(&input, "bad", &path, 0).is_err());
+        let sink = make_sink(&input, "write", &path, 4).unwrap();
         DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
-        assert_eq!(&fs::read(&path).unwrap()[..2], &[0x1f, 0x8b]);
         let read_pipeline = Pipeline::default();
         let output = make_source(&read_pipeline, "read", &path)
             .unwrap()
@@ -130,9 +67,43 @@ fn parallel_sinks_compress_after_ordered_shard_assembly() {
                 .run_collect(&output, &JobConfig::default())
                 .unwrap()
                 .0,
-            rows()
+            expected
         );
     }
+}
+
+#[cfg(all(
+    feature = "parallel-io",
+    feature = "jsonl",
+    feature = "compression-gzip"
+))]
+#[test]
+fn parallel_sinks_compress_after_ordered_shard_assembly() {
+    let dir = tempfile::tempdir().unwrap();
+    let (extension, make_sink, make_source) = (
+        "jsonl.gz",
+        (|i, k, p, n| jsonl_parallel_sink(i, k, p, n))
+            as fn(&_, &str, &std::path::Path, usize) -> _,
+        (|p, k, f| jsonl_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
+    );
+    let path = dir.path().join(format!("rows.{extension}"));
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", rows()).unwrap();
+    let sink = make_sink(&input, "write", &path, 3).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    assert_eq!(&fs::read(&path).unwrap()[..2], &[0x1f, 0x8b]);
+    let read_pipeline = Pipeline::default();
+    let output = make_source(&read_pipeline, "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows()
+    );
 }
 
 #[cfg(all(feature = "parallel-io", feature = "msgpack", feature = "cbor"))]
@@ -183,7 +154,7 @@ fn parallel_framed_sinks_keep_record_order() {
     }
 }
 
-#[cfg(all(feature = "jsonl", feature = "csv"))]
+#[cfg(feature = "jsonl")]
 #[test]
 fn file_globs_expand_in_sorted_order_and_reject_empty_matches() {
     let dir = tempfile::tempdir().unwrap();
@@ -237,21 +208,7 @@ fn file_globs_expand_in_sorted_order_and_reject_empty_matches() {
         [rows()[0].clone()]
     );
 
-    fs::write(dir.path().join("b.csv"), b"id,name\n2,Lin\n").unwrap();
-    fs::write(dir.path().join("a.csv"), b"id,name\n1,Ada\n").unwrap();
-    let csv_pattern = dir.path().join("*.csv").to_string_lossy().to_string();
     let pipeline = Pipeline::default();
-    let output = csv_glob_source::<Row>(&pipeline, "all-csv", &csv_pattern)
-        .unwrap()
-        .output("csv-out")
-        .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .unwrap()
-            .0,
-        rows()
-    );
     let empty_pattern = dir.path().join("*.missing").to_string_lossy().to_string();
     assert_eq!(
         jsonl_glob_source::<Row>(&pipeline, "none", &empty_pattern)
@@ -262,9 +219,9 @@ fn file_globs_expand_in_sorted_order_and_reject_empty_matches() {
     );
 }
 
-#[cfg(all(feature = "jsonl", feature = "csv"))]
+#[cfg(feature = "jsonl")]
 #[test]
-fn jsonl_and_csv_shards_preserve_record_boundaries_and_bind_contents() {
+fn jsonl_shards_preserve_record_boundaries_and_bind_contents() {
     let dir = tempfile::tempdir().unwrap();
     let jsonl_path = dir.path().join("rows.jsonl");
     fs::write(
@@ -298,31 +255,6 @@ fn jsonl_and_csv_shards_preserve_record_boundaries_and_bind_contents() {
         ErrorKind::Recovery
     );
 
-    let csv_path = dir.path().join("rows.csv");
-    fs::write(&csv_path, b"id,name\n1,\"Ada\nLovelace\"\n2,Lin\n").unwrap();
-    let pipeline = Pipeline::default();
-    let output = csv_sharded_source::<Row>(&pipeline, "csv", &csv_path, 1)
-        .unwrap()
-        .output("csv-out")
-        .unwrap();
-    let (graph, _) = pipeline.snapshot().unwrap();
-    assert!(graph.node("csv/shard-0").is_some());
-    assert!(graph.node("csv/shard-1").is_some());
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .unwrap()
-            .0,
-        vec![
-            Row {
-                id: 1,
-                name: "Ada\nLovelace".into()
-            },
-            rows()[1].clone()
-        ]
-    );
-    assert!(csv_sharded_source::<Row>(&pipeline, "bad", &csv_path, 0).is_err());
-
     let empty_path = dir.path().join("empty.jsonl");
     fs::write(&empty_path, b"").unwrap();
     let pipeline = Pipeline::default();
@@ -330,55 +262,46 @@ fn jsonl_and_csv_shards_preserve_record_boundaries_and_bind_contents() {
         .unwrap()
         .output("empty-out")
         .unwrap();
-    assert!(
+    assert_eq!(
         DirectRunner
             .run_collect(&output, &JobConfig::default())
             .unwrap()
-            .0
-            .is_empty()
+            .0,
+        Vec::<Row>::new()
     );
 }
 
-#[cfg(all(feature = "jsonl", feature = "csv", feature = "compression-gzip"))]
+#[cfg(all(feature = "jsonl", feature = "compression-gzip"))]
 #[test]
-fn compressed_jsonl_and_csv_shards_match_bounded_readers() {
+fn compressed_jsonl_shards_match_bounded_readers() {
     let dir = tempfile::tempdir().unwrap();
-    for (extension, make_sink, make_source) in [
-        (
-            "jsonl.gz",
-            (|i, k, p| jsonl_sink(i, k, p)) as MakeSink,
-            (|p, k, f, n| jsonl_sharded_source::<Row>(p, k, f, n))
-                as fn(&Pipeline, &str, &std::path::Path, usize) -> _,
-        ),
-        (
-            "csv.gz",
-            (|i, k, p| csv_sink(i, k, p)) as MakeSink,
-            (|p, k, f, n| csv_sharded_source::<Row>(p, k, f, n))
-                as fn(&Pipeline, &str, &std::path::Path, usize) -> _,
-        ),
-    ] {
-        let path = dir.path().join(format!("rows.{extension}"));
-        let pipeline = Pipeline::default();
-        let input = pipeline.from_vec("input", rows()).unwrap();
+    let (extension, make_sink, make_source) = (
+        "jsonl.gz",
+        (|i, k, p| jsonl_sink(i, k, p)) as MakeSink,
+        (|p, k, f, n| jsonl_sharded_source::<Row>(p, k, f, n))
+            as fn(&Pipeline, &str, &std::path::Path, usize) -> _,
+    );
+    let path = dir.path().join(format!("rows.{extension}"));
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", rows()).unwrap();
+    DirectRunner
+        .run_sink(
+            &make_sink(&input, "write", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let reader = Pipeline::default();
+    let output = make_source(&reader, "read", &path, 1)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
         DirectRunner
-            .run_sink(
-                &make_sink(&input, "write", &path).unwrap(),
-                &JobConfig::default(),
-            )
-            .unwrap();
-        let reader = Pipeline::default();
-        let output = make_source(&reader, "read", &path, 1)
+            .run_collect(&output, &JobConfig::default())
             .unwrap()
-            .output("out")
-            .unwrap();
-        assert_eq!(
-            DirectRunner
-                .run_collect(&output, &JobConfig::default())
-                .unwrap()
-                .0,
-            rows()
-        );
-    }
+            .0,
+        rows()
+    );
 }
 
 #[cfg(all(feature = "msgpack", feature = "cbor"))]
@@ -438,96 +361,86 @@ fn parallel_xml_sink_merges_valid_ordered_files() {
         &std::path::Path,
         usize,
     ) -> Result<ironbeam_core::Sink<Row>, ironbeam_core::Error>;
-    for (extension, make_sink, make_source) in [(
+    let (extension, make_sink, make_source) = (
         "xml",
         (|i, k, p, n| xml_parallel_sink(i, k, p, n)) as ParallelSink,
         (|p, k, f| xml_source::<Row>(p, k, f)) as MakeSource,
-    )] {
-        let path = dir.path().join(format!("rows.{extension}"));
-        let expected = (0..7)
-            .map(|id| Row {
-                id,
-                name: format!("row-{id}"),
-            })
-            .collect::<Vec<_>>();
-        let pipeline = Pipeline::default();
-        let input = pipeline.from_vec("input", expected.clone()).unwrap();
-        assert!(make_sink(&input, "bad", &path, 0).is_err());
+    );
+    let path = dir.path().join(format!("rows.{extension}"));
+    let expected = (0..7)
+        .map(|id| Row {
+            id,
+            name: format!("row-{id}"),
+        })
+        .collect::<Vec<_>>();
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", expected.clone()).unwrap();
+    assert!(make_sink(&input, "bad", &path, 0).is_err());
+    DirectRunner
+        .run_sink(
+            &make_sink(&input, "write", &path, 5).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let reader = Pipeline::default();
+    let output = make_source(&reader, "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
         DirectRunner
-            .run_sink(
-                &make_sink(&input, "write", &path, 5).unwrap(),
-                &JobConfig::default(),
-            )
-            .unwrap();
-        let reader = Pipeline::default();
-        let output = make_source(&reader, "read", &path)
+            .run_collect(&output, &JobConfig::default())
             .unwrap()
-            .output("out")
-            .unwrap();
-        assert_eq!(
-            DirectRunner
-                .run_collect(&output, &JobConfig::default())
-                .unwrap()
-                .0,
-            expected,
-            "{extension}"
-        );
-    }
+            .0,
+        expected,
+        "{extension}"
+    );
 }
 
-#[cfg(all(feature = "jsonl", feature = "csv", feature = "compression-gzip"))]
+#[cfg(all(feature = "jsonl", feature = "compression-gzip"))]
 #[test]
-fn compressed_jsonl_and_csv_round_trip_with_lazy_sources() {
+fn compressed_jsonl_round_trip_with_lazy_sources() {
     let dir = tempfile::tempdir().unwrap();
-    for (extension, make_sink, make_source, make_streaming) in [
-        (
-            "jsonl.gz",
-            (|i, k, p| jsonl_sink(i, k, p)) as MakeSink,
-            (|p, k, f| jsonl_source(p, k, f)) as MakeSource,
-            (|p, k, f| jsonl_streaming_source(p, k, f)) as MakeSource,
-        ),
-        (
-            "csv.gz",
-            (|i, k, p| csv_sink(i, k, p)) as MakeSink,
-            (|p, k, f| csv_source(p, k, f)) as MakeSource,
-            (|p, k, f| csv_streaming_source(p, k, f)) as MakeSource,
-        ),
-    ] {
-        let path = dir.path().join(format!("rows.{extension}"));
-        let pipeline = Pipeline::default();
-        let input = pipeline.from_vec("input", rows()).unwrap();
+    let (extension, make_sink, make_source, make_streaming) = (
+        "jsonl.gz",
+        (|i, k, p| jsonl_sink(i, k, p)) as MakeSink,
+        (|p, k, f| jsonl_source(p, k, f)) as MakeSource,
+        (|p, k, f| jsonl_streaming_source(p, k, f)) as MakeSource,
+    );
+    let path = dir.path().join(format!("rows.{extension}"));
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", rows()).unwrap();
+    DirectRunner
+        .run_sink(
+            &make_sink(&input, "write", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let bytes = fs::read(&path).unwrap();
+    assert_eq!(&bytes[..2], &[0x1f, 0x8b]);
+    let read_pipeline = Pipeline::default();
+    let eager = make_source(&read_pipeline, "eager", &path)
+        .unwrap()
+        .output("eager-out")
+        .unwrap();
+    let streaming = make_streaming(&read_pipeline, "streaming", &path)
+        .unwrap()
+        .output("streaming-out")
+        .unwrap();
+    assert_eq!(
         DirectRunner
-            .run_sink(
-                &make_sink(&input, "write", &path).unwrap(),
-                &JobConfig::default(),
-            )
-            .unwrap();
-        let bytes = fs::read(&path).unwrap();
-        assert_eq!(&bytes[..2], &[0x1f, 0x8b]);
-        let read_pipeline = Pipeline::default();
-        let eager = make_source(&read_pipeline, "eager", &path)
+            .run_collect(&eager, &JobConfig::default())
             .unwrap()
-            .output("eager-out")
-            .unwrap();
-        let streaming = make_streaming(&read_pipeline, "streaming", &path)
+            .0,
+        rows()
+    );
+    assert_eq!(
+        DirectRunner
+            .run_collect(&streaming, &JobConfig::default())
             .unwrap()
-            .output("streaming-out")
-            .unwrap();
-        assert_eq!(
-            DirectRunner
-                .run_collect(&eager, &JobConfig::default())
-                .unwrap()
-                .0,
-            rows()
-        );
-        assert_eq!(
-            DirectRunner
-                .run_collect(&streaming, &JobConfig::default())
-                .unwrap()
-                .0,
-            rows()
-        );
-    }
+            .0,
+        rows()
+    );
 }
 
 #[cfg(all(
@@ -716,15 +629,6 @@ fn jsonl_contract() {
         "jsonl",
         |i, k, p| jsonl_sink(i, k, p),
         |p, k, f| jsonl_source(p, k, f),
-    );
-}
-#[cfg(feature = "csv")]
-#[test]
-fn csv_contract() {
-    round_trip(
-        "csv",
-        |i, k, p| csv_sink(i, k, p),
-        |p, k, f| csv_source(p, k, f),
     );
 }
 #[cfg(feature = "msgpack")]
@@ -1041,26 +945,6 @@ fn jsonl_lazy_reader_defers_parse_errors_until_execution() {
             .unwrap()
             .kind,
         ErrorKind::Recovery
-    );
-}
-
-#[cfg(feature = "csv")]
-#[test]
-fn csv_lazy_reader_matches_bounded_rows() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("rows.csv");
-    fs::write(&path, b"id,name\n1,Ada\n2,Lin\n").unwrap();
-    let pipeline = Pipeline::default();
-    let output = csv_streaming_source::<Row>(&pipeline, "lazy", &path)
-        .unwrap()
-        .output("out")
-        .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .unwrap()
-            .0,
-        rows()
     );
 }
 

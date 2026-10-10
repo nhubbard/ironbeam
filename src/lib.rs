@@ -544,6 +544,8 @@ pub mod v5 {
     pub use ironbeam_io_arrow::*;
     #[cfg(feature = "v5-io-avro")]
     pub use ironbeam_io_avro::*;
+    #[cfg(feature = "v5-io-csv")]
+    pub use ironbeam_io_csv::*;
     #[cfg(feature = "v5-io-mongodb")]
     pub use ironbeam_io_mongodb::*;
     #[cfg(feature = "v5-io-parquet")]

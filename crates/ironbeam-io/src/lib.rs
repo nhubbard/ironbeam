@@ -1,7 +1,6 @@
 #![cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "csv",
     feature = "xml",
     feature = "msgpack",
     feature = "cbor",
@@ -19,7 +18,6 @@ use ironbeam_core::{
 };
 #[cfg(any(
     feature = "jsonl",
-    feature = "csv",
     feature = "xml",
     feature = "msgpack",
     feature = "cbor",
@@ -187,7 +185,6 @@ pub fn source<T: Element>(
 #[cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "csv",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -212,7 +209,6 @@ pub fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
 #[cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "csv",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -293,7 +289,6 @@ pub fn file_glob_source<T: Element>(
 #[cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "csv",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -413,11 +408,6 @@ glob_source!(
     jsonl_source
 );
 glob_source!(
-    #[cfg(feature = "csv")]
-    csv_glob_source,
-    csv_source
-);
-glob_source!(
     #[cfg(feature = "xml")]
     xml_glob_source,
     xml_source
@@ -522,15 +512,16 @@ pub fn sink<T: Element>(
 #[cfg(all(
     feature = "parallel-io",
     any(
+        feature = "file",
         feature = "jsonl",
-        feature = "csv",
         feature = "msgpack",
         feature = "cbor",
         feature = "protobuf",
         feature = "tfrecord"
     )
 ))]
-fn parallel_file_writer<T: Sync>(
+#[doc(hidden)]
+pub fn parallel_file_writer<T: Sync>(
     path: &Path,
     values: &[T],
     shards: usize,
@@ -711,6 +702,7 @@ pub fn jsonl_source<T: Element + DeserializeOwned>(
     source(pipeline, key, path, "jsonl", read_jsonl::<T>)
 }
 #[cfg(feature = "jsonl")]
+#[allow(clippy::needless_pass_by_value)] // The shared lazy-source factory takes PathBuf.
 fn read_jsonl_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
@@ -758,6 +750,7 @@ fn count_jsonl_lines(path: &Path) -> Result<usize, Error> {
         })
 }
 #[cfg(feature = "jsonl")]
+#[allow(clippy::needless_pass_by_value)] // The shared sharded-source factory takes PathBuf.
 fn read_jsonl_range<T: Element + DeserializeOwned>(
     path: PathBuf,
     start: usize,
@@ -825,156 +818,6 @@ pub fn jsonl_parallel_sink<T: Element + Serialize + Sync>(
         parallel_file_writer(path, values, shards, |part, chunk, _| {
             write_jsonl(part, chunk)
         })
-    })
-}
-
-#[cfg(feature = "csv")]
-fn read_csv<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
-    let mut reader = csv::Reader::from_reader(bytes);
-    reader
-        .deserialize()
-        .map(|value| value.map_err(|e| io("csv", e)))
-        .collect()
-}
-#[cfg(feature = "csv")]
-fn write_csv<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
-    use std::io::Write;
-    let file = fs::File::create(path).map_err(|e| io("csv", e))?;
-    #[cfg(any(
-        feature = "compression-gzip",
-        feature = "compression-zstd",
-        feature = "compression-bzip2",
-        feature = "compression-xz"
-    ))]
-    let file: Box<dyn Write> =
-        ironbeam_cloud::compression::auto_detect_writer(file, path).map_err(|e| io("csv", e))?;
-    #[cfg(not(any(
-        feature = "compression-gzip",
-        feature = "compression-zstd",
-        feature = "compression-bzip2",
-        feature = "compression-xz"
-    )))]
-    let file: Box<dyn Write> = Box::new(file);
-    let mut writer = csv::Writer::from_writer(file);
-    for value in values {
-        writer.serialize(value).map_err(|e| io("csv", e))?;
-    }
-    writer.flush().map_err(|e| io("csv", e))
-}
-#[cfg(feature = "csv")]
-pub fn csv_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    source(pipeline, key, path, "csv", read_csv::<T>)
-}
-#[cfg(feature = "csv")]
-fn read_csv_lazy<T: Element + DeserializeOwned>(
-    path: PathBuf,
-) -> Result<TypedSourceIterator<T>, Error> {
-    use std::io::Read;
-    let input: Box<dyn Read + Send> = if compressed_extension(&path) {
-        Box::new(std::io::Cursor::new(read_decoded_file(&path, "csv")?))
-    } else {
-        Box::new(fs::File::open(path).map_err(|e| io("csv", e))?)
-    };
-    let reader = csv::Reader::from_reader(input);
-    Ok(Box::new(
-        reader
-            .into_deserialize()
-            .map(|row| row.map_err(|e| io("csv", e))),
-    ))
-}
-#[cfg(feature = "csv")]
-pub fn csv_streaming_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    lazy_source(pipeline, key, path, "csv-streaming", read_csv_lazy::<T>)
-}
-#[cfg(feature = "csv")]
-fn count_csv_rows(path: &Path) -> Result<usize, Error> {
-    csv::Reader::from_reader(open_lazy_input(path, "csv")?)
-        .records()
-        .try_fold(0_usize, |count, row| {
-            row.map_err(|e| io("csv", e))?;
-            count
-                .checked_add(1)
-                .ok_or_else(|| io("csv", "row count overflow"))
-        })
-}
-#[cfg(feature = "csv")]
-fn read_csv_range<T: Element + DeserializeOwned>(
-    path: PathBuf,
-    start: usize,
-    end: usize,
-) -> Result<TypedSourceIterator<T>, Error> {
-    let reader = csv::Reader::from_reader(open_lazy_input(&path, "csv")?);
-    Ok(Box::new(
-        reader
-            .into_deserialize()
-            .skip(start)
-            .take(end - start)
-            .map(|row| row.map_err(|e| io("csv", e))),
-    ))
-}
-#[cfg(feature = "csv")]
-/// Create stable bounded CSV row-range sources; the header is excluded from ranges.
-pub fn csv_sharded_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-    rows_per_shard: usize,
-) -> Result<PCollection<T>, Error> {
-    file_sharded_source(
-        pipeline,
-        key,
-        path,
-        rows_per_shard,
-        "csv",
-        count_csv_rows,
-        read_csv_range::<T>,
-    )
-}
-#[cfg(feature = "csv")]
-pub fn csv_sink<T: Element + Serialize>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<Sink<T>, Error> {
-    sink(input, key, path, write_csv::<T>)
-}
-
-#[cfg(all(feature = "csv", feature = "parallel-io"))]
-fn write_csv_fragment<T: Serialize>(path: &Path, values: &[T], first: bool) -> Result<(), Error> {
-    let file = fs::File::create(path).map_err(|e| io("csv", e))?;
-    let mut writer = csv::WriterBuilder::new()
-        .has_headers(first)
-        .from_writer(file);
-    for value in values {
-        writer.serialize(value).map_err(|e| io("csv", e))?;
-    }
-    writer.flush().map_err(|e| io("csv", e))
-}
-
-#[cfg(all(feature = "csv", feature = "parallel-io"))]
-/// Serialize contiguous shards concurrently with one CSV header and ordered rows.
-pub fn csv_parallel_sink<T: Element + Serialize + Sync>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-    shards: usize,
-) -> Result<Sink<T>, Error> {
-    if shards == 0 {
-        return Err(Error::graph(
-            key,
-            "parallel writer needs at least one shard",
-        ));
-    }
-    sink(input, key, path, move |path, values| {
-        parallel_file_writer(path, values, shards, write_csv_fragment::<T>)
     })
 }
 

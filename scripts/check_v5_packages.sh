@@ -5,7 +5,7 @@ set -euo pipefail
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-cloud ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+packages=(ironbeam-cloud ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-csv ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
 cloud_patch=(--config "patch.crates-io.ironbeam-cloud.path=\"$root/crates/ironbeam-cloud\"")
 core_patch=(--config "patch.crates-io.ironbeam-core.path=\"$root/crates/ironbeam-core\"")
 direct_patch=(--config "patch.crates-io.ironbeam-direct.path=\"$root/crates/ironbeam-direct\"")
@@ -19,8 +19,10 @@ fi
 cargo test --workspace
 cargo test -p ironbeam --features v5-preview --test v5_behavior_corpus --test v5_direct_differential --test v5_facade_preview --test v5_facade_prelude --test v5_tfrecord_examples
 cargo test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
+cargo test -p ironbeam --no-default-features --features v5-io-csv --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-preview,v5-io-arrow --test v5_facade_prelude
 cargo test -p ironbeam-io --all-features
+cargo test -p ironbeam-io-csv --all-features
 cargo test -p ironbeam-io-avro --all-features
 cargo test -p ironbeam-io-parquet --all-features
 cargo test -p ironbeam-io-arrow --all-features
@@ -38,7 +40,7 @@ for package in "${packages[@]}"; do
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io)
       patches=("${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
-    ironbeam-io-avro)
+    ironbeam-io-csv|ironbeam-io-avro)
       patches=("${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-io-parquet|ironbeam-io-arrow)
       patches=("${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
@@ -47,4 +49,4 @@ for package in "${packages[@]}"; do
   esac
   cargo package -p "$package" --allow-dirty "${patches[@]}"
 done
-echo "All twelve v5 packages verified locally; no crates were published."
+echo "All thirteen v5 packages verified locally; no crates were published."

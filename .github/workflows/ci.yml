@@ -59,7 +59,7 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
-          cargo clippy -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
+          cargo clippy -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io -p ironbeam-io-csv -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
@@ -113,6 +113,7 @@ jobs:
         run: |
           cargo build -p ironbeam --no-default-features
           cargo build -p ironbeam --no-default-features --features v5-preview
+          cargo build -p ironbeam --no-default-features --features v5-io-csv
           cargo build -p ironbeam
           cargo build -p ironbeam --features v5-preview
           cargo build -p ironbeam --all-features
@@ -122,6 +123,7 @@ jobs:
           cargo build -p ironbeam-transforms
           cargo build -p ironbeam-io
           cargo build -p ironbeam-io --no-default-features
+          cargo build -p ironbeam-io-csv
           cargo build -p ironbeam-io-avro
           cargo build -p ironbeam-io-parquet
           cargo build -p ironbeam-io-arrow
@@ -131,9 +133,10 @@ jobs:
 
       - name: Test v5 file formats independently
         run: |
-          for format in jsonl csv xml; do
+          for format in jsonl xml; do
             cargo test -p ironbeam-io --no-default-features --features "$format"
           done
+          cargo test -p ironbeam-io-csv --all-features
           cargo test -p ironbeam-io-avro --all-features
           cargo test -p ironbeam-io-parquet --all-features
           cargo test -p ironbeam-io-arrow --all-features
@@ -250,7 +253,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        package: [ironbeam-core, ironbeam-direct, ironbeam-transforms, ironbeam-io, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-io-arrow, ironbeam-compat]
+        package: [ironbeam-core, ironbeam-direct, ironbeam-transforms, ironbeam-io, ironbeam-io-csv, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-io-arrow, ironbeam-compat]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -265,7 +268,7 @@ jobs:
         run: |
           cargo test -p "${{ matrix.package }}"
           features=()
-          if [ "${{ matrix.package }}" = "ironbeam-io-avro" ] || [ "${{ matrix.package }}" = "ironbeam-io-parquet" ] || [ "${{ matrix.package }}" = "ironbeam-io-arrow" ]; then features=(--all-features); fi
+          if [ "${{ matrix.package }}" = "ironbeam-io-csv" ] || [ "${{ matrix.package }}" = "ironbeam-io-avro" ] || [ "${{ matrix.package }}" = "ironbeam-io-parquet" ] || [ "${{ matrix.package }}" = "ironbeam-io-arrow" ]; then features=(--all-features); fi
           cargo llvm-cov -p "${{ matrix.package }}" "${features[@]}" --branch --json \
             --output-path coverage-v5.json
           python3 scripts/check_coverage.py "${{ matrix.package }}" coverage-v5.json | tee -a "$GITHUB_STEP_SUMMARY"
