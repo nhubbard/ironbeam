@@ -142,6 +142,8 @@ The major contracts to resolve are:
 
 File APIs named `read_*_streaming` perform lazy, **bounded** shard reads. Beam-style streaming means an unbounded source and progress semantics. A synchronous worker-thread engine is possible; async Rust is helpful for concurrent network I/O but does not itself provide watermarks, state, or recovery.
 
+The v5 core should be able to *describe* unbounded pipelines before it can execute them. Put boundedness, event-time/window metadata, source progress descriptors, deferred sinks, and a long-lived job handle into the initial logical graph and runner contract. Keep `Vec<T>` materialization, watermarks, state stores, and timer scheduling in runner implementations. A batch-only runner must reject an unbounded graph through capability validation. The [execution plan](IRONBEAM_V5_EXECUTION_PLAN.md#streaming-ready-contracts-to-settle-during-v5) specifies the contracts and tests that guard against another incompatible core rewrite.
+
 Prioritize missing Beam concepts by the contracts they establish:
 
 | Feature | Why it matters | Relative complexity |
@@ -160,7 +162,7 @@ Keep two support lists for each feature: local direct runner and portable Datafl
 
 1. **Record the v4 baseline.** Inventory public paths, inherent methods, feature combinations, examples, tests, documentation links, and release behavior on `main`. Capture representative downstream builds, including the Dataflow workspace. Mark intentional v5 breaks in a migration table.
 2. **Create the workspace shell.** Keep the existing `ironbeam` package as the public entry point while introducing a workspace manifest and package-level release configuration. This isolates build and publishing changes from API extraction.
-3. **Define the v5 core contract.** Design typed source/sink construction, graph validation, and the ownership of core transforms. Extract `ironbeam-core` and move the direct planner and executor behind a one-way dependency. Allow extension-trait changes where they simplify the boundary.
+3. **Define the v5 core contract.** Design typed source/sink construction, graph validation, boundedness and time metadata, a long-lived job handle, and the ownership of core transforms. Extract `ironbeam-core` and move the direct planner and executor behind a one-way dependency. Allow extension-trait changes where they simplify the boundary.
 4. **Extract I/O and support packages.** Move format mechanics, graph-facing sources/sinks, and test support once their dependencies are explicit. Map v4 feature flags to v5 packages or document replacements.
 5. **Build migration support.** Publish a v4-to-v5 guide and a small `ironbeam-compat` package for source migration and bounded materialized-data bridges. Do not promise graph-level conversion.
 6. **Add one integration prototype.** Use Arrow batches at a single explicit handoff point. Decide whether batch-native execution belongs in core before adding both DataFusion and Polars adapters.
