@@ -2110,6 +2110,7 @@ dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
+ "ironbeam-io-avro",
  "ironbeam-io-mongodb",
  "ironbeam-io-sql",
  "ironbeam-transforms",
@@ -2206,7 +2207,6 @@ dependencies = [
 name = "ironbeam-io"
 version = "0.1.0"
 dependencies = [
- "apache-avro",
  "arrow",
  "bytes",
  "ciborium",
@@ -2224,6 +2224,19 @@ dependencies = [
  "serde_arrow",
  "serde_json",
  "sha2 0.11.0",
+ "tempfile",
+]
+
+[[package]]
+name = "ironbeam-io-avro"
+version = "0.1.0"
+dependencies = [
+ "apache-avro",
+ "ironbeam-core",
+ "ironbeam-direct",
+ "ironbeam-io",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

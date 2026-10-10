@@ -1,8 +1,8 @@
 #![cfg(any(
+    feature = "file",
     feature = "jsonl",
     feature = "csv",
     feature = "xml",
-    feature = "avro",
     feature = "parquet",
     feature = "arrow-ipc",
     feature = "msgpack",
@@ -19,6 +19,17 @@ use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, SourceProgress,
     TypedSink, TypedSourceIterator,
 };
+#[cfg(any(
+    feature = "jsonl",
+    feature = "csv",
+    feature = "xml",
+    feature = "parquet",
+    feature = "arrow-ipc",
+    feature = "msgpack",
+    feature = "cbor",
+    feature = "protobuf",
+    feature = "tfrecord"
+))]
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
@@ -71,15 +82,8 @@ fn compressed_extension(path: &Path) -> bool {
         })
 }
 
-#[cfg(any(
-    feature = "xml",
-    feature = "avro",
-    feature = "msgpack",
-    feature = "cbor",
-    feature = "protobuf",
-    feature = "tfrecord"
-))]
-fn open_encoded_output(path: &Path, key: &str) -> Result<Box<dyn std::io::Write>, Error> {
+#[doc(hidden)]
+pub fn open_encoded_output(path: &Path, key: &str) -> Result<Box<dyn std::io::Write>, Error> {
     let file = fs::File::create(path).map_err(|e| io(key, e))?;
     #[cfg(any(
         feature = "compression-gzip",
@@ -101,14 +105,8 @@ fn open_encoded_output(path: &Path, key: &str) -> Result<Box<dyn std::io::Write>
     }
 }
 
-#[cfg(any(
-    feature = "jsonl",
-    feature = "csv",
-    feature = "avro",
-    feature = "msgpack",
-    feature = "cbor"
-))]
-fn open_lazy_input(path: &Path, key: &str) -> Result<Box<dyn std::io::Read + Send>, Error> {
+#[doc(hidden)]
+pub fn open_lazy_input(path: &Path, key: &str) -> Result<Box<dyn std::io::Read + Send>, Error> {
     if compressed_extension(path) {
         Ok(Box::new(std::io::Cursor::new(read_decoded_file(
             path, key,
@@ -144,10 +142,12 @@ mod cloud_io;
 #[cfg(feature = "cloud")]
 pub use cloud_io::{cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source};
 
-fn io(key: &str, error: impl std::fmt::Display) -> Error {
+#[doc(hidden)]
+pub fn io(key: &str, error: impl std::fmt::Display) -> Error {
     Error::io(key, "file", error.to_string())
 }
-fn source<T: Element>(
+#[doc(hidden)]
+pub fn source<T: Element>(
     pipeline: &Pipeline,
     key: &str,
     path: impl AsRef<Path>,
@@ -189,9 +189,9 @@ fn source<T: Element>(
 }
 
 #[cfg(any(
+    feature = "file",
     feature = "jsonl",
     feature = "csv",
-    feature = "avro",
     feature = "parquet",
     feature = "arrow-ipc",
     feature = "msgpack",
@@ -199,11 +199,12 @@ fn source<T: Element>(
     feature = "protobuf",
     feature = "tfrecord"
 ))]
-fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
+#[doc(hidden)]
+pub fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     use std::io::Read;
     let mut file = fs::File::open(path).map_err(|e| io(key, e))?;
     let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = vec![0_u8; 64 * 1024];
     loop {
         let read = file.read(&mut buffer).map_err(|e| io(key, e))?;
         if read == 0 {
@@ -215,9 +216,9 @@ fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
 }
 
 #[cfg(any(
+    feature = "file",
     feature = "jsonl",
     feature = "csv",
-    feature = "avro",
     feature = "parquet",
     feature = "arrow-ipc",
     feature = "msgpack",
@@ -225,7 +226,8 @@ fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     feature = "protobuf",
     feature = "tfrecord"
 ))]
-fn lazy_source<T: Element>(
+#[doc(hidden)]
+pub fn lazy_source<T: Element>(
     pipeline: &Pipeline,
     key: &str,
     path: impl AsRef<Path>,
@@ -297,9 +299,9 @@ pub fn file_glob_source<T: Element>(
 }
 
 #[cfg(any(
+    feature = "file",
     feature = "jsonl",
     feature = "csv",
-    feature = "avro",
     feature = "parquet",
     feature = "arrow-ipc",
     feature = "msgpack",
@@ -307,7 +309,8 @@ pub fn file_glob_source<T: Element>(
     feature = "protobuf",
     feature = "tfrecord"
 ))]
-fn file_sharded_source<T: Element>(
+#[doc(hidden)]
+pub fn file_sharded_source<T: Element>(
     pipeline: &Pipeline,
     key: &str,
     path: impl AsRef<Path>,
@@ -362,7 +365,7 @@ fn file_sharded_source<T: Element>(
 }
 
 #[cfg(any(
-    feature = "avro",
+    feature = "file",
     feature = "parquet",
     feature = "arrow-ipc",
     feature = "msgpack",
@@ -370,7 +373,8 @@ fn file_sharded_source<T: Element>(
     feature = "protobuf",
     feature = "tfrecord"
 ))]
-fn count_lazy_records<T: Element>(
+#[doc(hidden)]
+pub fn count_lazy_records<T: Element>(
     path: &Path,
     read: fn(PathBuf) -> Result<TypedSourceIterator<T>, Error>,
 ) -> Result<usize, Error> {
@@ -385,7 +389,7 @@ fn count_lazy_records<T: Element>(
 }
 
 #[cfg(any(
-    feature = "avro",
+    feature = "file",
     feature = "parquet",
     feature = "arrow-ipc",
     feature = "msgpack",
@@ -393,7 +397,8 @@ fn count_lazy_records<T: Element>(
     feature = "protobuf",
     feature = "tfrecord"
 ))]
-fn read_lazy_range<T: Element>(
+#[doc(hidden)]
+pub fn read_lazy_range<T: Element>(
     path: PathBuf,
     start: usize,
     end: usize,
@@ -430,11 +435,6 @@ glob_source!(
     #[cfg(feature = "xml")]
     xml_glob_source,
     xml_source
-);
-glob_source!(
-    #[cfg(feature = "avro")]
-    avro_glob_source,
-    avro_source
 );
 glob_source!(
     #[cfg(feature = "parquet")]
@@ -525,7 +525,8 @@ impl<T: Element> TypedSink<T> for FileSink<T> {
         Ok(())
     }
 }
-fn sink<T: Element>(
+#[doc(hidden)]
+pub fn sink<T: Element>(
     input: &PCollection<T>,
     key: &str,
     path: impl AsRef<Path>,
@@ -552,7 +553,17 @@ fn sink<T: Element>(
     )
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(all(
+    feature = "parallel-io",
+    any(
+        feature = "jsonl",
+        feature = "csv",
+        feature = "msgpack",
+        feature = "cbor",
+        feature = "protobuf",
+        feature = "tfrecord"
+    )
+))]
 fn parallel_file_writer<T: Sync>(
     path: &Path,
     values: &[T],
@@ -639,13 +650,14 @@ fn framed_parallel_sink<T: Element + Sync>(
 #[cfg(all(
     feature = "parallel-io",
     any(
+        feature = "file",
         feature = "xml",
-        feature = "avro",
         feature = "parquet",
         feature = "arrow-ipc"
     )
 ))]
-fn parallel_container_writer<T: Sync>(
+#[doc(hidden)]
+pub fn parallel_container_writer<T: Sync>(
     path: &Path,
     values: &[T],
     shards: usize,
@@ -1088,147 +1100,6 @@ pub fn xml_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
     }
     sink(input, key, path, move |path, values| {
         parallel_container_writer(path, values, shards, "xml", write_xml::<T>, read_xml::<T>)
-    })
-}
-
-#[cfg(feature = "avro")]
-fn read_avro<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
-    let reader = apache_avro::Reader::new(bytes).map_err(|e| io("avro", e))?;
-    reader
-        .map(|row| {
-            let value = row.map_err(|e| io("avro", e))?;
-            apache_avro::from_value(&value).map_err(|e| io("avro", e))
-        })
-        .collect()
-}
-#[cfg(feature = "avro")]
-fn write_avro<T: Serialize>(
-    path: &Path,
-    values: &[T],
-    schema: &apache_avro::Schema,
-) -> Result<(), Error> {
-    let file = open_encoded_output(path, "avro")?;
-    let mut writer = apache_avro::Writer::new(schema, file).map_err(|e| io("avro", e))?;
-    for value in values {
-        let value = apache_avro::to_value(value).map_err(|e| io("avro", e))?;
-        writer.append_value(value).map_err(|e| io("avro", e))?;
-    }
-    writer.flush().map_err(|e| io("avro", e))?;
-    Ok(())
-}
-#[cfg(feature = "avro")]
-#[derive(Serialize, serde::Deserialize)]
-struct AvroJson {
-    value: String,
-}
-#[cfg(feature = "avro")]
-fn read_avro_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
-    let rows: Vec<AvroJson> = read_avro(bytes)?;
-    rows.into_iter()
-        .map(|row| serde_json::from_str(&row.value).map_err(|e| io("avro", e)))
-        .collect()
-}
-#[cfg(feature = "avro")]
-pub fn avro_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    source(pipeline, key, path, "avro", read_avro::<T>)
-}
-#[cfg(feature = "avro")]
-fn read_avro_lazy<T: Element + DeserializeOwned>(
-    path: PathBuf,
-) -> Result<TypedSourceIterator<T>, Error> {
-    let file = open_lazy_input(&path, "avro")?;
-    let reader = apache_avro::Reader::new(file).map_err(|e| io("avro", e))?;
-    Ok(Box::new(reader.map(|row| {
-        let value = row.map_err(|e| io("avro", e))?;
-        apache_avro::from_value(&value).map_err(|e| io("avro", e))
-    })))
-}
-#[cfg(feature = "avro")]
-pub fn avro_streaming_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    lazy_source(pipeline, key, path, "avro-streaming", read_avro_lazy::<T>)
-}
-#[cfg(feature = "avro")]
-/// Write native Avro records using a caller supplied writer schema.
-/// The schema is validated when the graph is built; record compatibility is
-/// checked by the Avro writer before the final file is published.
-pub fn avro_sink<T: Element + Serialize>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-    schema: impl AsRef<str>,
-) -> Result<Sink<T>, Error> {
-    let schema = apache_avro::Schema::parse_str(schema.as_ref()).map_err(|e| io(key, e))?;
-    sink(input, key, path, move |path, values| {
-        write_avro(path, values, &schema)
-    })
-}
-
-#[cfg(all(feature = "avro", feature = "parallel-io"))]
-pub fn avro_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-    schema: impl AsRef<str>,
-    shards: usize,
-) -> Result<Sink<T>, Error> {
-    if shards == 0 {
-        return Err(Error::graph(
-            key,
-            "parallel writer needs at least one shard",
-        ));
-    }
-    let schema = apache_avro::Schema::parse_str(schema.as_ref()).map_err(|e| io(key, e))?;
-    sink(input, key, path, move |path, values| {
-        parallel_container_writer(
-            path,
-            values,
-            shards,
-            "avro",
-            |part, rows| write_avro(part, rows, &schema),
-            read_avro::<T>,
-        )
-    })
-}
-
-#[cfg(feature = "avro")]
-/// Read the Phase 4 preview Avro container with JSON strings in `value`.
-pub fn avro_json_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    source(pipeline, key, path, "avro-json", read_avro_json::<T>)
-}
-
-#[cfg(feature = "avro")]
-/// Write the Phase 4 preview Avro container with JSON strings in `value`.
-pub fn avro_json_sink<T: Element + Serialize>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<Sink<T>, Error> {
-    let schema = apache_avro::Schema::parse_str(
-        r#"{"type":"record","name":"IronbeamRecord","fields":[{"name":"value","type":"string"}]}"#,
-    )
-    .map_err(|e| io(key, e))?;
-    sink(input, key, path, move |path, values| {
-        let rows: Vec<AvroJson> = values
-            .iter()
-            .map(|value| {
-                serde_json::to_string(value)
-                    .map(|value| AvroJson { value })
-                    .map_err(|e| io("avro", e))
-            })
-            .collect::<Result<_, _>>()?;
-        write_avro(path, &rows, &schema)
     })
 }
 
@@ -2385,14 +2256,6 @@ macro_rules! shardable_serde_source {
         }
     };
 }
-shardable_serde_source!(
-    "avro",
-    avro_sharded_source,
-    count_avro_records,
-    read_avro_range,
-    read_avro_lazy,
-    "avro"
-);
 shardable_serde_source!(
     "parquet",
     parquet_sharded_source,

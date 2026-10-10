@@ -9,11 +9,11 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["jsonl", "csv", "parallel-io"]
+file = []
 jsonl = []
 csv = ["dep:csv"]
 parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow", "dep:bytes"]
 arrow-ipc = ["dep:arrow", "dep:serde_arrow"]
-avro = ["dep:apache-avro"]
 xml = ["dep:quick-xml"]
 msgpack = ["dep:rmp-serde"]
 cbor = ["dep:ciborium"]
@@ -39,7 +39,6 @@ parquet = { version = "59", optional = true }
 arrow = { version = "59", optional = true }
 serde_arrow = { version = "0.15", features = ["arrow-59"], optional = true }
 bytes = { version = "1", optional = true }
-apache-avro = { version = "0.22", optional = true }
 quick-xml = { version = "0.41", features = ["serialize"], optional = true }
 rmp-serde = { version = "1", optional = true }
 ciborium = { version = "0.2", optional = true }
