@@ -159,7 +159,7 @@
 //! and `tests/cloud_io_tests.rs` for comprehensive integration tests.
 
 pub use ironbeam_cloud::fake;
-pub mod readers;
+pub use ironbeam_cloud::readers;
 pub use ironbeam_cloud::traits;
 pub use ironbeam_cloud::utils;
 

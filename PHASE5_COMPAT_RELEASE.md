@@ -2,7 +2,7 @@
 
 The `ironbeam-compat` package builds against published `ironbeam` 4.1.1 and the local v5 packages. Its `from_vec` helper and prelude support source migration; `v4_to_v5` and `v5_to_v4` exchange finite in-memory values by running the source pipeline locally. Integration tests cover empty, singleton, and multirow handoff, an equivalent v4/v5 program, convenience trait imports, and bridge error classification. The v5 facade does not depend on compatibility.
 
-The [migration guide](V4_TO_V5_MIGRATION.md) maps public types, common transforms, terminals, file I/O, features, and behavior changes. The full v4 method inventory remains in [the Phase 0 inventory](V5_PHASE0_API_INVENTORY.md). MongoDB, SQL, TFRecord, and Arrow IPC now have opt-in bounded Direct adapters. The provider-neutral cloud contracts and utilities have moved into a shared package used by both v4 and v5.
+The [migration guide](V4_TO_V5_MIGRATION.md) maps public types, common transforms, terminals, file I/O, features, and behavior changes. The full v4 method inventory remains in [the Phase 0 inventory](V5_PHASE0_API_INVENTORY.md). MongoDB, SQL, TFRecord, and Arrow IPC now have opt-in bounded Direct adapters. The provider-neutral cloud contracts, utilities, and compressed JSONL object readers/writers have moved into a shared package used by both v4 and v5.
 
 ## Package order and release gate
 

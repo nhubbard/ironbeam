@@ -2157,6 +2157,16 @@ dependencies = [
 [[package]]
 name = "ironbeam-cloud"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bzip2",
+ "flate2",
+ "regex",
+ "serde",
+ "serde_json",
+ "xz2",
+ "zstd",
+]
 
 [[package]]
 name = "ironbeam-compat"

@@ -22,6 +22,10 @@ tfrecord = ["dep:crc32c"]
 sql = ["dep:sqlx", "dep:tokio"]
 mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
 cloud = ["dep:ironbeam-cloud"]
+compression-gzip = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-gzip"]
+compression-zstd = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-zstd"]
+compression-bzip2 = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-bzip2"]
+compression-xz = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-xz"]
 
 [dependencies]
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }

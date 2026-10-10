@@ -37,6 +37,156 @@ fn rows() -> Vec<Row> {
         },
     ]
 }
+
+#[cfg(all(feature = "jsonl", feature = "csv", feature = "compression-gzip"))]
+#[test]
+fn compressed_jsonl_and_csv_round_trip_with_lazy_sources() {
+    let dir = tempfile::tempdir().unwrap();
+    for (extension, make_sink, make_source, make_streaming) in [
+        (
+            "jsonl.gz",
+            (|i, k, p| jsonl_sink(i, k, p)) as MakeSink,
+            (|p, k, f| jsonl_source(p, k, f)) as MakeSource,
+            (|p, k, f| jsonl_streaming_source(p, k, f)) as MakeSource,
+        ),
+        (
+            "csv.gz",
+            (|i, k, p| csv_sink(i, k, p)) as MakeSink,
+            (|p, k, f| csv_source(p, k, f)) as MakeSource,
+            (|p, k, f| csv_streaming_source(p, k, f)) as MakeSource,
+        ),
+    ] {
+        let path = dir.path().join(format!("rows.{extension}"));
+        let pipeline = Pipeline::default();
+        let input = pipeline.from_vec("input", rows()).unwrap();
+        DirectRunner
+            .run_sink(
+                &make_sink(&input, "write", &path).unwrap(),
+                &JobConfig::default(),
+            )
+            .unwrap();
+        let bytes = fs::read(&path).unwrap();
+        assert_eq!(&bytes[..2], &[0x1f, 0x8b]);
+        let read_pipeline = Pipeline::default();
+        let eager = make_source(&read_pipeline, "eager", &path)
+            .unwrap()
+            .output("eager-out")
+            .unwrap();
+        let streaming = make_streaming(&read_pipeline, "streaming", &path)
+            .unwrap()
+            .output("streaming-out")
+            .unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&eager, &JobConfig::default())
+                .unwrap()
+                .0,
+            rows()
+        );
+        assert_eq!(
+            DirectRunner
+                .run_collect(&streaming, &JobConfig::default())
+                .unwrap()
+                .0,
+            rows()
+        );
+    }
+}
+
+#[cfg(all(
+    feature = "compression-gzip",
+    feature = "xml",
+    feature = "avro",
+    feature = "msgpack",
+    feature = "cbor"
+))]
+#[test]
+fn gzip_round_trips_xml_avro_msgpack_and_cbor() {
+    round_trip(
+        "xml.gz",
+        |i, k, p| xml_sink(i, k, p),
+        |p, k, f| xml_streaming_source(p, k, f, 1),
+    );
+    round_trip(
+        "avro.gz",
+        |i, k, p| avro_sink(i, k, p, ROW_AVRO_SCHEMA),
+        |p, k, f| avro_streaming_source(p, k, f),
+    );
+    round_trip(
+        "msgpack.gz",
+        |i, k, p| msgpack_sink(i, k, p),
+        |p, k, f| msgpack_streaming_source(p, k, f),
+    );
+    round_trip(
+        "cbor.gz",
+        |i, k, p| cbor_sink(i, k, p),
+        |p, k, f| cbor_streaming_source(p, k, f),
+    );
+}
+
+#[cfg(all(
+    feature = "compression-gzip",
+    feature = "protobuf",
+    feature = "tfrecord"
+))]
+#[test]
+fn gzip_round_trips_protobuf_and_tfrecord_lazy_sources() {
+    let dir = tempfile::tempdir().unwrap();
+    let proto_path = dir.path().join("rows.pb.gz");
+    let proto_rows = vec![
+        ProtoRow {
+            id: 1,
+            name: "Ada".into(),
+        },
+        ProtoRow {
+            id: 2,
+            name: "Lin".into(),
+        },
+    ];
+    let pipeline = Pipeline::default();
+    let proto_input = pipeline.from_vec("proto", proto_rows.clone()).unwrap();
+    DirectRunner
+        .run_sink(
+            &protobuf_sink(&proto_input, "proto-sink", &proto_path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let reader = Pipeline::default();
+    let proto_output = protobuf_streaming_source::<ProtoRow>(&reader, "proto-read", &proto_path)
+        .unwrap()
+        .output("proto-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&proto_output, &JobConfig::default())
+            .unwrap()
+            .0,
+        proto_rows
+    );
+
+    let tf_path = dir.path().join("rows.tfrecord.gz");
+    let tf_rows = vec![b"first".to_vec(), b"second".to_vec()];
+    let pipeline = Pipeline::default();
+    let tf_input = pipeline.from_vec("tf", tf_rows.clone()).unwrap();
+    DirectRunner
+        .run_sink(
+            &tfrecord_sink(&tf_input, "tf-sink", &tf_path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let reader = Pipeline::default();
+    let tf_output = tfrecord_streaming_source(&reader, "tf-read", &tf_path)
+        .unwrap()
+        .output("tf-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&tf_output, &JobConfig::default())
+            .unwrap()
+            .0,
+        tf_rows
+    );
+}
 type MakeSink = fn(
     &ironbeam_core::PCollection<Row>,
     &str,

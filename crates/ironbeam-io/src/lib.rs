@@ -30,6 +30,102 @@ use std::{
     sync::Arc,
 };
 
+fn read_decoded_file(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
+    #[cfg(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    ))]
+    {
+        use std::io::Read;
+        let file = fs::File::open(path).map_err(|e| io(key, e))?;
+        let mut reader =
+            ironbeam_cloud::compression::auto_detect_reader(file, path).map_err(|e| io(key, e))?;
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).map_err(|e| io(key, e))?;
+        Ok(bytes)
+    }
+    #[cfg(not(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    )))]
+    {
+        fs::read(path).map_err(|e| io(key, e))
+    }
+}
+
+fn compressed_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "gz" | "gzip" | "zst" | "zstd" | "bz2" | "xz"
+            )
+        })
+}
+
+#[cfg(any(
+    feature = "xml",
+    feature = "avro",
+    feature = "msgpack",
+    feature = "cbor",
+    feature = "protobuf",
+    feature = "tfrecord"
+))]
+fn open_encoded_output(path: &Path, key: &str) -> Result<Box<dyn std::io::Write>, Error> {
+    let file = fs::File::create(path).map_err(|e| io(key, e))?;
+    #[cfg(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    ))]
+    {
+        ironbeam_cloud::compression::auto_detect_writer(file, path).map_err(|e| io(key, e))
+    }
+    #[cfg(not(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    )))]
+    {
+        Ok(Box::new(file))
+    }
+}
+
+#[cfg(any(feature = "avro", feature = "msgpack", feature = "cbor"))]
+fn open_lazy_input(path: &Path, key: &str) -> Result<Box<dyn std::io::Read + Send>, Error> {
+    if compressed_extension(path) {
+        Ok(Box::new(std::io::Cursor::new(read_decoded_file(
+            path, key,
+        )?)))
+    } else {
+        Ok(Box::new(fs::File::open(path).map_err(|e| io(key, e))?))
+    }
+}
+
+#[cfg(any(feature = "protobuf", feature = "tfrecord"))]
+trait ReadSeek: std::io::Read + std::io::Seek {}
+#[cfg(any(feature = "protobuf", feature = "tfrecord"))]
+impl<T: std::io::Read + std::io::Seek> ReadSeek for T {}
+#[cfg(any(feature = "protobuf", feature = "tfrecord"))]
+fn open_lazy_seek(path: &Path, key: &str) -> Result<(Box<dyn ReadSeek + Send>, u64), Error> {
+    if compressed_extension(path) {
+        let bytes = read_decoded_file(path, key)?;
+        let length = u64::try_from(bytes.len()).map_err(|e| io(key, e))?;
+        Ok((Box::new(std::io::Cursor::new(bytes)), length))
+    } else {
+        let file = fs::File::open(path).map_err(|e| io(key, e))?;
+        let length = file.metadata().map_err(|e| io(key, e))?.len();
+        Ok((Box::new(file), length))
+    }
+}
+
 type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
 
 #[cfg(feature = "sql")]
@@ -40,6 +136,10 @@ pub use sql::{sql_sink_with, sql_source, sql_streaming_source};
 mod mongodb;
 #[cfg(feature = "cloud")]
 pub use ironbeam_cloud as cloud;
+#[cfg(feature = "cloud")]
+mod cloud_io;
+#[cfg(feature = "cloud")]
+pub use cloud_io::{cloud_jsonl_sink, cloud_jsonl_source};
 #[cfg(feature = "mongodb")]
 pub use mongodb::{mongodb_sink, mongodb_source, mongodb_streaming_source};
 
@@ -80,7 +180,8 @@ fn source<T: Element>(
                     "source contents changed after graph construction",
                 ));
             }
-            let values = read(&current)?;
+            let decoded = read_decoded_file(&path, &name)?;
+            let values = read(&decoded)?;
             Ok(Box::new(values.into_iter().map(Ok)) as TypedSourceIterator<T>)
         },
     )
@@ -173,7 +274,20 @@ impl<T: Element> TypedSink<T> for FileSink<T> {
     fn commit(&mut self) -> Result<(), Error> {
         let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
         fs::create_dir_all(parent).map_err(|e| io(&self.key, e))?;
-        let temp = tempfile::NamedTempFile::new_in(parent).map_err(|e| io(&self.key, e))?;
+        let extension = self
+            .path
+            .extension()
+            .and_then(|part| part.to_str())
+            .unwrap_or("");
+        let suffix = if extension.is_empty() {
+            String::new()
+        } else {
+            format!(".{extension}")
+        };
+        let temp = tempfile::Builder::new()
+            .suffix(&suffix)
+            .tempfile_in(parent)
+            .map_err(|e| io(&self.key, e))?;
         (self.write)(temp.path(), &self.values)?;
         temp.as_file().sync_all().map_err(|e| io(&self.key, e))?;
         temp.persist(&self.path).map_err(|e| io(&self.key, e))?;
@@ -230,7 +344,23 @@ fn read_jsonl<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
 #[cfg(feature = "jsonl")]
 fn write_jsonl<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
     use std::io::Write;
-    let mut file = std::io::BufWriter::new(fs::File::create(path).map_err(|e| io("jsonl", e))?);
+    let file = fs::File::create(path).map_err(|e| io("jsonl", e))?;
+    #[cfg(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    ))]
+    let file: Box<dyn Write> =
+        ironbeam_cloud::compression::auto_detect_writer(file, path).map_err(|e| io("jsonl", e))?;
+    #[cfg(not(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    )))]
+    let file: Box<dyn Write> = Box::new(file);
+    let mut file = std::io::BufWriter::new(file);
     for value in values {
         serde_json::to_writer(&mut file, value).map_err(|e| io("jsonl", e))?;
         file.write_all(b"\n").map_err(|e| io("jsonl", e))?;
@@ -250,8 +380,16 @@ fn read_jsonl_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
     use std::io::BufRead;
-    let file = fs::File::open(path).map_err(|e| io("jsonl", e))?;
-    let rows = std::io::BufReader::new(file)
+    let reader: Box<dyn BufRead + Send> = if compressed_extension(&path) {
+        Box::new(std::io::BufReader::new(std::io::Cursor::new(
+            read_decoded_file(&path, "jsonl")?,
+        )))
+    } else {
+        Box::new(std::io::BufReader::new(
+            fs::File::open(path).map_err(|e| io("jsonl", e))?,
+        ))
+    };
+    let rows = reader
         .lines()
         .enumerate()
         .filter_map(|(line, result)| match result {
@@ -291,7 +429,24 @@ fn read_csv<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
 }
 #[cfg(feature = "csv")]
 fn write_csv<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
-    let mut writer = csv::Writer::from_path(path).map_err(|e| io("csv", e))?;
+    use std::io::Write;
+    let file = fs::File::create(path).map_err(|e| io("csv", e))?;
+    #[cfg(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    ))]
+    let file: Box<dyn Write> =
+        ironbeam_cloud::compression::auto_detect_writer(file, path).map_err(|e| io("csv", e))?;
+    #[cfg(not(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    )))]
+    let file: Box<dyn Write> = Box::new(file);
+    let mut writer = csv::Writer::from_writer(file);
     for value in values {
         writer.serialize(value).map_err(|e| io("csv", e))?;
     }
@@ -309,7 +464,13 @@ pub fn csv_source<T: Element + DeserializeOwned>(
 fn read_csv_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
-    let reader = csv::Reader::from_path(path).map_err(|e| io("csv", e))?;
+    use std::io::Read;
+    let input: Box<dyn Read + Send> = if compressed_extension(&path) {
+        Box::new(std::io::Cursor::new(read_decoded_file(&path, "csv")?))
+    } else {
+        Box::new(fs::File::open(path).map_err(|e| io("csv", e))?)
+    };
+    let reader = csv::Reader::from_reader(input);
     Ok(Box::new(
         reader
             .into_deserialize()
@@ -363,7 +524,11 @@ fn read_xml<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
 fn write_xml<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
     let contents =
         quick_xml::se::to_string(&XmlWrite { item: values }).map_err(|e| io("xml", e))?;
-    fs::write(path, contents).map_err(|e| io("xml", e))
+    use std::io::Write;
+    let mut writer = open_encoded_output(path, "xml")?;
+    writer
+        .write_all(contents.as_bytes())
+        .map_err(|e| io("xml", e))
 }
 #[cfg(feature = "xml")]
 pub fn xml_source<T: Element + DeserializeOwned>(
@@ -410,7 +575,7 @@ fn write_avro<T: Serialize>(
     values: &[T],
     schema: &apache_avro::Schema,
 ) -> Result<(), Error> {
-    let file = fs::File::create(path).map_err(|e| io("avro", e))?;
+    let file = open_encoded_output(path, "avro")?;
     let mut writer = apache_avro::Writer::new(schema, file).map_err(|e| io("avro", e))?;
     for value in values {
         let value = apache_avro::to_value(value).map_err(|e| io("avro", e))?;
@@ -443,7 +608,7 @@ pub fn avro_source<T: Element + DeserializeOwned>(
 fn read_avro_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
-    let file = fs::File::open(path).map_err(|e| io("avro", e))?;
+    let file = open_lazy_input(&path, "avro")?;
     let reader = apache_avro::Reader::new(file).map_err(|e| io("avro", e))?;
     Ok(Box::new(reader.map(|row| {
         let value = row.map_err(|e| io("avro", e))?;
@@ -807,7 +972,7 @@ fn read_msgpack<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
 }
 #[cfg(feature = "msgpack")]
 fn write_msgpack<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
-    let mut file = fs::File::create(path).map_err(|e| io("msgpack", e))?;
+    let mut file = open_encoded_output(path, "msgpack")?;
     for value in values {
         rmp_serde::encode::write(&mut file, value).map_err(|e| io("msgpack", e))?;
     }
@@ -826,7 +991,7 @@ fn read_msgpack_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
     use std::io::BufRead;
-    let file = fs::File::open(path).map_err(|e| io("msgpack", e))?;
+    let file = open_lazy_input(&path, "msgpack")?;
     let mut reader = std::io::BufReader::new(file);
     let mut done = false;
     Ok(Box::new(std::iter::from_fn(move || {
@@ -883,7 +1048,7 @@ fn read_cbor<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
 }
 #[cfg(feature = "cbor")]
 fn write_cbor<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
-    let mut file = fs::File::create(path).map_err(|e| io("cbor", e))?;
+    let mut file = open_encoded_output(path, "cbor")?;
     for value in values {
         ciborium::ser::into_writer(value, &mut file).map_err(|e| io("cbor", e))?;
     }
@@ -902,7 +1067,7 @@ fn read_cbor_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
     use std::io::BufRead;
-    let file = fs::File::open(path).map_err(|e| io("cbor", e))?;
+    let file = open_lazy_input(&path, "cbor")?;
     let mut reader = std::io::BufReader::new(file);
     let mut done = false;
     Ok(Box::new(std::iter::from_fn(move || {
@@ -953,7 +1118,7 @@ fn read_protobuf<T: prost::Message + Default>(mut bytes: &[u8]) -> Result<Vec<T>
 #[cfg(feature = "protobuf")]
 fn write_protobuf<T: prost::Message>(path: &Path, values: &[T]) -> Result<(), Error> {
     use std::io::Write;
-    let mut file = fs::File::create(path).map_err(|e| io("protobuf", e))?;
+    let mut file = open_encoded_output(path, "protobuf")?;
     for value in values {
         file.write_all(&value.encode_length_delimited_to_vec())
             .map_err(|e| io("protobuf", e))?;
@@ -996,8 +1161,7 @@ fn read_protobuf_lazy<T: Element + prost::Message + Default>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
     use std::io::{Read, Seek};
-    let file = fs::File::open(path).map_err(|e| io("protobuf", e))?;
-    let file_length = file.metadata().map_err(|e| io("protobuf", e))?.len();
+    let (file, file_length) = open_lazy_seek(&path, "protobuf")?;
     let mut reader = std::io::BufReader::new(file);
     let mut done = false;
     Ok(Box::new(std::iter::from_fn(move || {
@@ -1107,7 +1271,7 @@ fn read_tfrecord(mut bytes: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
 #[cfg(feature = "tfrecord")]
 fn write_tfrecord(path: &Path, values: &[Vec<u8>]) -> Result<(), Error> {
     use std::io::Write;
-    let mut file = fs::File::create(path).map_err(|e| io("tfrecord", e))?;
+    let mut file = open_encoded_output(path, "tfrecord")?;
     for value in values {
         let length = (value.len() as u64).to_le_bytes();
         file.write_all(&length).map_err(|e| io("tfrecord", e))?;
@@ -1130,8 +1294,7 @@ pub fn tfrecord_source(
 #[cfg(feature = "tfrecord")]
 fn read_tfrecord_lazy(path: PathBuf) -> Result<TypedSourceIterator<Vec<u8>>, Error> {
     use std::io::{Read, Seek};
-    let file = fs::File::open(path).map_err(|e| io("tfrecord", e))?;
-    let file_length = file.metadata().map_err(|e| io("tfrecord", e))?.len();
+    let (file, file_length) = open_lazy_seek(&path, "tfrecord")?;
     let mut reader = std::io::BufReader::new(file);
     let mut done = false;
     Ok(Box::new(std::iter::from_fn(move || {

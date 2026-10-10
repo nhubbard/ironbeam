@@ -70,7 +70,7 @@ Every v5 node needs a stable, unique key. Transform construction returns `Result
 | `write_avro_with_schema(path, schema)` | `avro_sink(&input, key, path, schema)` | v5 writes native Avro records; `avro_source` reads native containers. `avro_json_*` handles earlier v5 preview wrappers. |
 | v4 custom `DynOp` and local `NodeId` | Registered v5 semantic operation and stable graph key | Compiled v4 closures and node IDs cannot be imported into a v5 graph. |
 
-The full v4 public method inventory, including helpers that have no v5 equivalent yet, is in `V5_PHASE0_API_INVENTORY.md`. In particular, v4 `read_*_streaming` describes lazy **bounded** file reads, not an unbounded event stream. Provider-neutral cloud contracts and helpers live in `ironbeam-cloud`; cloud JSONL readers remain v4-only. SQL and MongoDB have opt-in bounded Direct sources and deferred append sinks, while TFRecord and Arrow IPC have bounded v5 adapters. Keep unsupported connector workloads on v4 or hand off finite materialized data.
+The full v4 public method inventory, including helpers that have no v5 equivalent yet, is in `V5_PHASE0_API_INVENTORY.md`. In particular, v4 `read_*_streaming` describes lazy **bounded** file reads, not an unbounded event stream. Provider-neutral cloud contracts, helpers, and compressed JSONL object readers/writers live in `ironbeam-cloud`; `cloud_jsonl_source` and `cloud_jsonl_sink` attach a provider-neutral object store to a bounded Direct graph. SQL and MongoDB have opt-in bounded Direct sources and deferred append sinks, while TFRecord and Arrow IPC have bounded v5 adapters. Keep unsupported connector workloads on v4 or hand off finite materialized data.
 
 ## Materialized data handoff
 
@@ -85,8 +85,8 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 | `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | `ironbeam-io` features `jsonl`, `csv`, `parquet`, `avro`, `xml`; the current facade forwards these only with `v5-preview`. |
 | `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | v5 bounded source/sink adapters and lazy readers are available under corresponding `ironbeam-io` features; shard planning, parallel writers, and compression parity are still tracked. |
 | `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC has bounded row and batch v5 adapters. SQL and MongoDB forward to opt-in `ironbeam-io` features when `v5-preview` is enabled. SQL uses `sql_source`, `sql_streaming_source`, and `sql_sink_with`; MongoDB uses `mongodb_source`, `mongodb_streaming_source`, and `mongodb_sink`. Both database sinks are deferred append operations with no replay guarantee. |
-| provider-neutral cloud utilities | `ironbeam-cloud` or `ironbeam_io::cloud` with the `cloud` feature | The v4 `ironbeam::io::cloud` and `ironbeam::helpers::cloud` paths reexport the same implementation. Cloud JSONL reader and writer adapters still require v4. |
-| `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | v4 only; no v5 I/O codec feature yet. |
+| provider-neutral cloud utilities | `ironbeam-cloud` or `ironbeam_io::cloud` with the `cloud` feature | The v4 `ironbeam::io::cloud` and `ironbeam::helpers::cloud` paths reexport the same implementation, including compressed JSONL object readers/writers. |
+| `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | Shared `ironbeam-cloud` codec features and matching opt-in `ironbeam-io` features. Cloud JSONL object readers/writers and v5 JSONL/CSV file adapters use them; remaining file-format combinations are tracked separately. |
 | `parallel-io` | v4 only; v5 Direct uses per-job parallelism. |
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |
 | `checkpointing`, `spilling` | v5 Direct `JobConfig` has optional `CheckpointConfig` and `SpillConfig`; no feature flag. v4 checkpoint files are not v5 state. |

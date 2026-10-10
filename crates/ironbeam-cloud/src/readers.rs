@@ -16,8 +16,8 @@
 //! ### Reading from Cloud Storage
 //!
 //! ```ignore
-//! use ironbeam::io::cloud::readers::read_cloud_jsonl_vec;
-//! use ironbeam::io::cloud::FakeObjectIO;
+//! use ironbeam_cloud::readers::read_cloud_jsonl_vec;
+//! use ironbeam_cloud::FakeObjectIO;
 //! use serde::{Deserialize, Serialize};
 //!
 //! #[derive(Serialize, Deserialize)]
@@ -37,7 +37,7 @@
 //! ### Writing to Cloud Storage
 //!
 //! ```ignore
-//! use ironbeam::io::cloud::readers::write_cloud_jsonl_vec;
+//! use ironbeam_cloud::readers::write_cloud_jsonl_vec;
 //!
 //! write_cloud_jsonl_vec(
 //!     &storage,
@@ -50,7 +50,7 @@
 //! ### Glob Pattern Matching
 //!
 //! ```ignore
-//! use ironbeam::io::cloud::readers::expand_cloud_glob;
+//! use ironbeam_cloud::readers::expand_cloud_glob;
 //!
 //! // List all JSONL files in a prefix
 //! let files = expand_cloud_glob(&storage, "my-bucket", "data/*.jsonl")?;
@@ -66,7 +66,7 @@
 //! ### Reading Multiple Files with Glob
 //!
 //! ```ignore
-//! use ironbeam::io::cloud::readers::read_cloud_jsonl_glob;
+//! use ironbeam_cloud::readers::read_cloud_jsonl_glob;
 //!
 //! // Read all matching files and combine results
 //! let all_records: Vec<Record> = read_cloud_jsonl_glob(
@@ -76,15 +76,22 @@
 //! )?;
 //! ```
 
-use crate::io::cloud::traits::{CloudIOError, CloudResult, ErrorKind, ObjectIO};
-use crate::io::compression::auto_detect_reader;
+use crate::compression::auto_detect_reader;
+use crate::traits::{CloudIOError, CloudResult, ErrorKind, ObjectIO};
 #[cfg(feature = "compression-bzip2")]
 use bzip2::{Compression as BzCompression, write::BzEncoder};
 #[cfg(feature = "compression-gzip")]
 use flate2::{Compression as GzCompression, write::GzEncoder};
 use regex::Regex;
 use serde::{Serialize, de::DeserializeOwned};
-use std::io::{BufRead, BufReader, Write};
+#[cfg(any(
+    feature = "compression-gzip",
+    feature = "compression-zstd",
+    feature = "compression-bzip2",
+    feature = "compression-xz"
+))]
+use std::io::Write;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 #[cfg(feature = "compression-xz")]
 use xz2::write::XzEncoder;
@@ -113,8 +120,8 @@ use zstd::stream::write::Encoder as ZstdEncoder;
 /// # Example
 ///
 /// ```ignore
-/// use ironbeam::io::cloud::readers::read_cloud_jsonl_vec;
-/// use ironbeam::io::cloud::FakeObjectIO;
+/// use ironbeam_cloud::readers::read_cloud_jsonl_vec;
+/// use ironbeam_cloud::FakeObjectIO;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Serialize, Deserialize)]
@@ -125,7 +132,7 @@ use zstd::stream::write::Encoder as ZstdEncoder;
 ///
 /// let storage = FakeObjectIO::new();
 /// let events: Vec<Event> = read_cloud_jsonl_vec(&storage, "logs", "events.jsonl.gz")?;
-/// # use ironbeam::io::cloud::traits::Result;
+/// # use ironbeam_cloud::traits::Result;
 /// # Ok::<(), anyhow::Error>(())
 /// ```
 pub fn read_cloud_jsonl_vec<T, O>(storage: &O, bucket: &str, key: &str) -> CloudResult<Vec<T>>
@@ -205,7 +212,7 @@ where
 /// # Example
 ///
 /// ```ignore
-/// use ironbeam::io::cloud::readers::write_cloud_jsonl_vec;
+/// use ironbeam_cloud::readers::write_cloud_jsonl_vec;
 ///
 /// write_cloud_jsonl_vec(
 ///     &storage,
@@ -453,7 +460,7 @@ fn compress_jsonl_xz<T: Serialize>(data: &[T], bucket: &str, key: &str) -> Cloud
 /// # Examples
 ///
 /// ```ignore
-/// use ironbeam::io::cloud::readers::expand_cloud_glob;
+/// use ironbeam_cloud::readers::expand_cloud_glob;
 ///
 /// // All JSONL files in logs prefix
 /// let files = expand_cloud_glob(&storage, "bucket", "logs/*.jsonl")?;
@@ -573,7 +580,7 @@ fn extract_prefix_before_wildcard(pattern: &str) -> Option<String> {
 /// # Example
 ///
 /// ```ignore
-/// use ironbeam::io::cloud::readers::read_cloud_jsonl_glob;
+/// use ironbeam_cloud::readers::read_cloud_jsonl_glob;
 ///
 /// // Read all event files for January 2024
 /// let events: Vec<Event> = read_cloud_jsonl_glob(
