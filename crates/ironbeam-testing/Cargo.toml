@@ -6,7 +6,6 @@ rust-version = "1.94.0"
 license = "MIT"
 description = "Fixtures, assertions, and local graph inspection for Ironbeam 5"
 repository = "https://github.com/nhubbard/ironbeam"
-publish = false
 
 [features]
 default = ["io-csv", "io-jsonl"]
