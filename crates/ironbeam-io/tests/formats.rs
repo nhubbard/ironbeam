@@ -279,6 +279,15 @@ fn avro_contract() {
 }
 #[cfg(feature = "avro")]
 #[test]
+fn avro_lazy_contract() {
+    round_trip(
+        "avro",
+        |i, k, p| avro_sink(i, k, p, ROW_AVRO_SCHEMA),
+        |p, k, f| avro_streaming_source(p, k, f),
+    );
+}
+#[cfg(feature = "avro")]
+#[test]
 fn native_avro_interoperates_with_external_records_and_validates_schema() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("native.avro");
@@ -385,6 +394,15 @@ fn parquet_contract() {
         |p, k, f| parquet_source(p, k, f),
     );
 }
+#[cfg(feature = "parquet")]
+#[test]
+fn parquet_lazy_contract() {
+    round_trip(
+        "parquet",
+        |i, k, p| parquet_sink(i, k, p),
+        |p, k, f| parquet_streaming_source(p, k, f),
+    );
+}
 
 #[cfg(feature = "arrow-ipc")]
 #[test]
@@ -393,6 +411,15 @@ fn arrow_ipc_row_contract() {
         "arrow",
         |i, k, p| arrow_ipc_sink(i, k, p),
         |p, k, f| arrow_ipc_source(p, k, f),
+    );
+}
+#[cfg(feature = "arrow-ipc")]
+#[test]
+fn arrow_ipc_lazy_row_contract() {
+    round_trip(
+        "arrow",
+        |i, k, p| arrow_ipc_sink(i, k, p),
+        |p, k, f| arrow_ipc_streaming_source(p, k, f),
     );
 }
 
@@ -411,6 +438,20 @@ fn arrow_ipc_batch_contract_and_coder() {
 
     let batch_pipeline = Pipeline::default();
     let batches = arrow_ipc_batches_source(&batch_pipeline, "batches", &input_path).unwrap();
+    let lazy_batches =
+        arrow_ipc_batches_streaming_source(&batch_pipeline, "lazy-batches", &input_path)
+            .unwrap()
+            .output("lazy-batches-out")
+            .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&lazy_batches, &JobConfig::default())
+            .unwrap()
+            .0[0]
+            .0
+            .num_rows(),
+        2
+    );
     let output = batches.output("batches-out").unwrap();
     let collected = DirectRunner
         .run_collect(&output, &JobConfig::default())

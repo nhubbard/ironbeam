@@ -72,7 +72,13 @@ fn source<T: Element>(
     )
 }
 
-#[cfg(any(feature = "jsonl", feature = "csv"))]
+#[cfg(any(
+    feature = "jsonl",
+    feature = "csv",
+    feature = "avro",
+    feature = "parquet",
+    feature = "arrow-ipc"
+))]
 fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     use std::io::Read;
     let mut file = fs::File::open(path).map_err(|e| io(key, e))?;
@@ -88,7 +94,13 @@ fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     Ok(hasher.finalize().to_vec())
 }
 
-#[cfg(any(feature = "jsonl", feature = "csv"))]
+#[cfg(any(
+    feature = "jsonl",
+    feature = "csv",
+    feature = "avro",
+    feature = "parquet",
+    feature = "arrow-ipc"
+))]
 fn lazy_source<T: Element>(
     pipeline: &Pipeline,
     key: &str,
@@ -394,6 +406,25 @@ pub fn avro_source<T: Element + DeserializeOwned>(
     source(pipeline, key, path, "avro", read_avro::<T>)
 }
 #[cfg(feature = "avro")]
+fn read_avro_lazy<T: Element + DeserializeOwned>(
+    path: PathBuf,
+) -> Result<TypedSourceIterator<T>, Error> {
+    let file = fs::File::open(path).map_err(|e| io("avro", e))?;
+    let reader = apache_avro::Reader::new(file).map_err(|e| io("avro", e))?;
+    Ok(Box::new(reader.map(|row| {
+        let value = row.map_err(|e| io("avro", e))?;
+        apache_avro::from_value(&value).map_err(|e| io("avro", e))
+    })))
+}
+#[cfg(feature = "avro")]
+pub fn avro_streaming_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    lazy_source(pipeline, key, path, "avro-streaming", read_avro_lazy::<T>)
+}
+#[cfg(feature = "avro")]
 /// Write native Avro records using a caller supplied writer schema.
 /// The schema is validated when the graph is built; record compatibility is
 /// checked by the Avro writer before the final file is published.
@@ -484,6 +515,38 @@ pub fn parquet_source<T: Element + DeserializeOwned>(
     source(pipeline, key, path, "parquet", read_parquet::<T>)
 }
 #[cfg(feature = "parquet")]
+fn read_parquet_lazy<T: Element + DeserializeOwned>(
+    path: PathBuf,
+) -> Result<TypedSourceIterator<T>, Error> {
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+    let file = fs::File::open(path).map_err(|e| io("parquet", e))?;
+    let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+        .map_err(|e| io("parquet", e))?
+        .build()
+        .map_err(|e| io("parquet", e))?;
+    Ok(Box::new(reader.flat_map(|batch| match batch {
+        Ok(batch) => match serde_arrow::from_record_batch::<Vec<T>>(&batch) {
+            Ok(rows) => rows.into_iter().map(Ok).collect::<Vec<_>>(),
+            Err(error) => vec![Err(io("parquet", error))],
+        },
+        Err(error) => vec![Err(io("parquet", error))],
+    })))
+}
+#[cfg(feature = "parquet")]
+pub fn parquet_streaming_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    lazy_source(
+        pipeline,
+        key,
+        path,
+        "parquet-streaming",
+        read_parquet_lazy::<T>,
+    )
+}
+#[cfg(feature = "parquet")]
 pub fn parquet_sink<T: Element + Serialize + DeserializeOwned>(
     input: &PCollection<T>,
     key: &str,
@@ -530,6 +593,35 @@ pub fn arrow_ipc_source<T: Element + DeserializeOwned>(
     path: impl AsRef<Path>,
 ) -> Result<PCollection<T>, Error> {
     source(pipeline, key, path, "arrow-ipc", read_arrow_ipc::<T>)
+}
+#[cfg(feature = "arrow-ipc")]
+fn read_arrow_ipc_lazy<T: Element + DeserializeOwned>(
+    path: PathBuf,
+) -> Result<TypedSourceIterator<T>, Error> {
+    use arrow::ipc::reader::FileReader;
+    let file = fs::File::open(path).map_err(|e| io("arrow-ipc", e))?;
+    let reader = FileReader::try_new(file, None).map_err(|e| io("arrow-ipc", e))?;
+    Ok(Box::new(reader.flat_map(|batch| match batch {
+        Ok(batch) => match serde_arrow::from_record_batch::<Vec<T>>(&batch) {
+            Ok(rows) => rows.into_iter().map(Ok).collect::<Vec<_>>(),
+            Err(error) => vec![Err(io("arrow-ipc", error))],
+        },
+        Err(error) => vec![Err(io("arrow-ipc", error))],
+    })))
+}
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_streaming_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    lazy_source(
+        pipeline,
+        key,
+        path,
+        "arrow-ipc-streaming",
+        read_arrow_ipc_lazy::<T>,
+    )
 }
 #[cfg(feature = "arrow-ipc")]
 pub fn arrow_ipc_sink<T: Element + Serialize + DeserializeOwned>(
@@ -636,6 +728,29 @@ pub fn arrow_ipc_batches_source(
         path,
         "arrow-ipc-batches",
         read_arrow_ipc_batches,
+    )
+}
+#[cfg(feature = "arrow-ipc")]
+fn read_arrow_ipc_batches_lazy(path: PathBuf) -> Result<TypedSourceIterator<ArrowBatch>, Error> {
+    use arrow::ipc::reader::FileReader;
+    let file = fs::File::open(path).map_err(|e| io("arrow-ipc", e))?;
+    let reader = FileReader::try_new(file, None).map_err(|e| io("arrow-ipc", e))?;
+    Ok(Box::new(reader.map(|batch| {
+        batch.map(ArrowBatch).map_err(|e| io("arrow-ipc", e))
+    })))
+}
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_batches_streaming_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<ArrowBatch>, Error> {
+    lazy_source(
+        pipeline,
+        key,
+        path,
+        "arrow-ipc-batches-streaming",
+        read_arrow_ipc_batches_lazy,
     )
 }
 #[cfg(feature = "arrow-ipc")]
