@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-cloud", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -14,7 +14,7 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["io-jsonl", "io-csv", "io-parquet", "io-avro", "io-xml", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling", "coders"]
-v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "dep:ironbeam-io"]
+v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "dep:ironbeam-io", "ironbeam-io/cloud"]
 
 # IO backends
 io-jsonl = ["ironbeam-io?/jsonl"]
@@ -55,6 +55,7 @@ spilling = ["dep:postcard"]
 coders = ["dep:postcard"]
 
 [dependencies]
+ironbeam-cloud = { version = "0.1.0", path = "crates/ironbeam-cloud" }
 ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core", optional = true }
 ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct", optional = true }
 ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", optional = true }

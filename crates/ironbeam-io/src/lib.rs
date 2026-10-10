@@ -10,7 +10,8 @@
     feature = "protobuf",
     feature = "tfrecord",
     feature = "sql",
-    feature = "mongodb"
+    feature = "mongodb",
+    feature = "cloud"
 ))]
 #![allow(clippy::missing_errors_doc)]
 //! Bounded file adapters for the v5 logical graph.
@@ -37,6 +38,8 @@ mod sql;
 pub use sql::{sql_sink_with, sql_source, sql_streaming_source};
 #[cfg(feature = "mongodb")]
 mod mongodb;
+#[cfg(feature = "cloud")]
+pub use ironbeam_cloud as cloud;
 #[cfg(feature = "mongodb")]
 pub use mongodb::{mongodb_sink, mongodb_source, mongodb_streaming_source};
 

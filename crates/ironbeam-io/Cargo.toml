@@ -21,9 +21,11 @@ protobuf = ["dep:prost"]
 tfrecord = ["dep:crc32c"]
 sql = ["dep:sqlx", "dep:tokio"]
 mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
+cloud = ["dep:ironbeam-cloud"]
 
 [dependencies]
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
+ironbeam-cloud = { version = "0.1.0", path = "../ironbeam-cloud", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"

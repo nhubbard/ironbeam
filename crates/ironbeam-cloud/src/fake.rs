@@ -3,7 +3,7 @@
 //! These implementations use in-memory data structures to simulate cloud services,
 //! making them ideal for unit testing without external dependencies.
 
-use crate::io::cloud::traits::{
+use crate::traits::{
     CacheIO, CloudConfig, CloudCredentials, CloudIOError, CloudResult, ComputeIO, ComputeResult,
     ConfigIO, ConfigValue, DatabaseIO, Document, EdgeDirection, ErrorKind, GraphEdge, GraphIO,
     GraphNode, InferenceInput, InferenceOutput, IntelligenceIO, InvocationStatus, KeyValueIO,

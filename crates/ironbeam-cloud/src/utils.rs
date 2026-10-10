@@ -5,7 +5,7 @@
 //! than end-user APIs.
 //!
 //! For high-level end-user helpers that work with any cloud I/O trait implementation,
-//! see [`crate::helpers::cloud`].
+//! see [`crate::helpers`].
 //!
 //! ## Available Utilities
 //!
@@ -36,10 +36,8 @@
 //! - [`test_credentials`] - Create test credentials for unit tests
 //! - [`test_config`] - Create test configuration for unit tests
 
-use crate::io::cloud::fake::{FakeConfig, FakeCredentials};
-use crate::io::cloud::traits::{
-    CloudConfig, CloudCredentials, CloudIOError, CloudResult, ErrorKind,
-};
+use crate::fake::{FakeConfig, FakeCredentials};
+use crate::traits::{CloudConfig, CloudCredentials, CloudIOError, CloudResult, ErrorKind};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 

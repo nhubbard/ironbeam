@@ -2106,6 +2106,7 @@ dependencies = [
  "flate2",
  "glob",
  "hyperloglogplus",
+ "ironbeam-cloud",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
@@ -2154,6 +2155,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironbeam-cloud"
+version = "0.1.0"
+
+[[package]]
 name = "ironbeam-compat"
 version = "0.1.0"
 dependencies = [
@@ -2196,6 +2201,7 @@ dependencies = [
  "ciborium",
  "crc32c",
  "csv",
+ "ironbeam-cloud",
  "ironbeam-core",
  "ironbeam-direct",
  "mongodb",

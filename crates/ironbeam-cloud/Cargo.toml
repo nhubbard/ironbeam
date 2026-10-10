@@ -1,0 +1,10 @@
+[package]
+name = "ironbeam-cloud"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Provider-neutral cloud contracts and helpers for Ironbeam"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[dependencies]

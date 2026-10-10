@@ -158,10 +158,9 @@
 //! See `examples/cloud_io_demo.rs` for a complete demonstration of all cloud I/O traits,
 //! and `tests/cloud_io_tests.rs` for comprehensive integration tests.
 
-pub mod fake;
+pub use ironbeam_cloud::fake;
 pub mod readers;
-pub mod traits;
-pub mod utils;
+pub use ironbeam_cloud::traits;
+pub use ironbeam_cloud::utils;
 
-pub use fake::*;
-pub use traits::*;
+pub use ironbeam_cloud::{fake::*, traits::*};
