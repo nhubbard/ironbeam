@@ -47,6 +47,11 @@ pub trait ElementwiseExt<T: Element> {
         key: &str,
         f: impl Fn(&T) -> K + Send + Sync + 'static,
     ) -> Result<PCollection<(K, T)>, Error>;
+    fn with_keys_named<K: Element>(
+        &self,
+        key: &str,
+        f: impl Fn(&T) -> K + Send + Sync + 'static,
+    ) -> Result<PCollection<(K, T)>, Error>;
     fn filter_map_named<U: Element>(
         &self,
         key: &str,
@@ -104,6 +109,13 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
             let group = f(&value);
             (group, value)
         })
+    }
+    fn with_keys_named<K: Element>(
+        &self,
+        key: &str,
+        f: impl Fn(&T) -> K + Send + Sync + 'static,
+    ) -> Result<PCollection<(K, T)>, Error> {
+        self.key_by_named(key, f)
     }
     fn mean_globally_named<O: MeanOutput>(&self, key: &str) -> Result<PCollection<O>, Error>
     where
@@ -267,6 +279,22 @@ pub trait KeyedExt<K: Element, V: Element> {
     ) -> Result<PCollection<(K, u64)>, Error>
     where
         K: Eq + Hash + Clone;
+    fn distinct_per_key_named(
+        &self,
+        group_key: &str,
+        key: &str,
+    ) -> Result<PCollection<(K, V)>, Error>
+    where
+        K: Eq + Hash + Clone,
+        V: Eq + Hash + Clone;
+    fn distinct_count_per_key_named(
+        &self,
+        group_key: &str,
+        key: &str,
+    ) -> Result<PCollection<(K, u64)>, Error>
+    where
+        K: Eq + Hash + Clone,
+        V: Eq + Hash;
     fn swap_named(&self, key: &str) -> Result<PCollection<(V, K)>, Error>;
     fn sum_per_key_named(&self, key: &str) -> Result<PCollection<(K, V)>, Error>
     where
@@ -329,6 +357,39 @@ impl<K: Element, V: Element> KeyedExt<K, V> for PCollection<(K, V)> {
         self.group_by_key_named(group_key)?
             .map_named(count_key, |(key, values)| {
                 (key, u64::try_from(values.len()).unwrap_or(u64::MAX))
+            })
+    }
+    fn distinct_per_key_named(&self, group_key: &str, key: &str) -> Result<Self, Error>
+    where
+        K: Eq + Hash + Clone,
+        V: Eq + Hash + Clone,
+    {
+        self.group_by_key_named(group_key)?
+            .flat_map_named(key, |(group, values)| {
+                let mut seen = HashSet::new();
+                values
+                    .into_iter()
+                    .filter(|value| seen.insert(value.clone()))
+                    .map(|value| (group.clone(), value))
+                    .collect()
+            })
+    }
+    fn distinct_count_per_key_named(
+        &self,
+        group_key: &str,
+        key: &str,
+    ) -> Result<PCollection<(K, u64)>, Error>
+    where
+        K: Eq + Hash + Clone,
+        V: Eq + Hash,
+    {
+        self.group_by_key_named(group_key)?
+            .map_named(key, |(group, values)| {
+                (
+                    group,
+                    u64::try_from(values.into_iter().collect::<HashSet<_>>().len())
+                        .unwrap_or(u64::MAX),
+                )
             })
     }
     fn swap_named(&self, key: &str) -> Result<PCollection<(V, K)>, Error> {
