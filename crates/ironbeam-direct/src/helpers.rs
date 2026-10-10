@@ -66,6 +66,60 @@ impl<K: Element + Ord, V: Element> DirectKeySortedExt<K, V> for PCollection<(K, 
 pub trait DirectFallibleExt<T: Element, E: Element + Display> {
     fn collect_fail_fast_named(&self, key: &str, config: &JobConfig) -> Result<Vec<T>, Error>;
 }
+
+pub trait DirectPartitionExt<T: Element, E: Element> {
+    fn collect_partitioned_named(
+        &self,
+        key: &str,
+        config: &JobConfig,
+    ) -> Result<(Vec<T>, Vec<E>), Error>;
+}
+impl<T: Element, E: Element> DirectPartitionExt<T, E> for PCollection<Result<T, E>> {
+    fn collect_partitioned_named(
+        &self,
+        key: &str,
+        config: &JobConfig,
+    ) -> Result<(Vec<T>, Vec<E>), Error> {
+        let output = self.output(key)?;
+        let values = DirectRunner.run_collect(&output, config)?.0;
+        let mut good = Vec::new();
+        let mut errors = Vec::new();
+        for value in values {
+            match value {
+                Ok(value) => good.push(value),
+                Err(error) => errors.push(error),
+            }
+        }
+        Ok((good, errors))
+    }
+}
+
+pub trait DirectFlatPartitionExt<T: Element, E: Element> {
+    fn collect_flat_partitioned_named(
+        &self,
+        key: &str,
+        config: &JobConfig,
+    ) -> Result<(Vec<T>, Vec<E>), Error>;
+}
+impl<T: Element, E: Element> DirectFlatPartitionExt<T, E> for PCollection<Result<Vec<T>, E>> {
+    fn collect_flat_partitioned_named(
+        &self,
+        key: &str,
+        config: &JobConfig,
+    ) -> Result<(Vec<T>, Vec<E>), Error> {
+        let output = self.output(key)?;
+        let values = DirectRunner.run_collect(&output, config)?.0;
+        let mut good = Vec::new();
+        let mut errors = Vec::new();
+        for value in values {
+            match value {
+                Ok(values) => good.extend(values),
+                Err(error) => errors.push(error),
+            }
+        }
+        Ok((good, errors))
+    }
+}
 impl<T: Element, E: Element + Display> DirectFallibleExt<T, E> for PCollection<Result<T, E>> {
     fn collect_fail_fast_named(&self, key: &str, config: &JobConfig) -> Result<Vec<T>, Error> {
         let output = self.output(key)?;

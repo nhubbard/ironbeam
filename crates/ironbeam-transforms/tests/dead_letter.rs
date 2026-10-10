@@ -1,6 +1,10 @@
 use ironbeam_core::{Element, Pipeline};
-use ironbeam_direct::{DirectRunner, JobConfig};
+use ironbeam_direct::{DirectFlatPartitionExt, DirectPartitionExt, DirectRunner, JobConfig};
 use ironbeam_transforms::{DeadLetter, DeadLetterExt};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 #[test]
 fn map_and_flat_map_route_errors_with_original_values() {
@@ -53,4 +57,41 @@ fn dead_letter_coder_round_trips_and_rejects_truncation() {
     let bytes = item.encode().unwrap();
     assert_eq!(DeadLetter::<String>::decode(&bytes).unwrap(), item);
     assert!(DeadLetter::<String>::decode(&bytes[..bytes.len() - 1]).is_err());
+}
+
+#[test]
+fn direct_collects_both_classification_arms_in_one_run() {
+    let pipeline = Pipeline::default();
+    let lines = pipeline
+        .from_vec("lines", vec!["1".to_string(), "bad".into(), "2".into()])
+        .unwrap();
+    let called = Arc::new(AtomicUsize::new(0));
+    let tally = Arc::clone(&called);
+    let classified = lines
+        .classify_catching_named("classify", move |value| {
+            tally.fetch_add(1, Ordering::Relaxed);
+            value.parse::<u32>()
+        })
+        .unwrap();
+    let (good, errors) = classified
+        .collect_partitioned_named("both", &JobConfig::default())
+        .unwrap();
+    assert_eq!(good, [1, 2]);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].element, "bad");
+    assert_eq!(called.load(Ordering::Relaxed), 3);
+
+    let classified_flat = lines
+        .classify_flat_map_catching_named("flat-classify", |value| {
+            value
+                .split(',')
+                .map(str::parse::<u32>)
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .unwrap();
+    let (good_flat, bad_flat) = classified_flat
+        .collect_flat_partitioned_named("flat-both", &JobConfig::default())
+        .unwrap();
+    assert_eq!(good_flat, [1, 2]);
+    assert_eq!(bad_flat.len(), 1);
 }

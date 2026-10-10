@@ -7,6 +7,7 @@ pub struct DeadLetter<T> {
     pub element: T,
     pub error: String,
 }
+pub type Classified<T, O> = Result<O, DeadLetter<T>>;
 impl<T> DeadLetter<T> {
     pub fn new(element: T, error: impl Into<String>) -> Self {
         Self {
@@ -72,6 +73,16 @@ impl<T: Element> Element for DeadLetter<T> {
 }
 
 pub trait DeadLetterExt<T: Element> {
+    fn classify_catching_named<O: Element, E: Display>(
+        &self,
+        key: &str,
+        f: impl Fn(&T) -> Result<O, E> + Send + Sync + 'static,
+    ) -> Result<PCollection<Classified<T, O>>, Error>;
+    fn classify_flat_map_catching_named<O: Element, E: Display>(
+        &self,
+        key: &str,
+        f: impl Fn(&T) -> Result<Vec<O>, E> + Send + Sync + 'static,
+    ) -> Result<PCollection<Classified<T, Vec<O>>>, Error>;
     fn map_catching_named<O: Element, E: Display>(
         &self,
         classify_key: &str,
@@ -88,6 +99,26 @@ pub trait DeadLetterExt<T: Element> {
     ) -> Result<(PCollection<O>, PCollection<DeadLetter<T>>), Error>;
 }
 impl<T: Element> DeadLetterExt<T> for PCollection<T> {
+    fn classify_catching_named<O: Element, E: Display>(
+        &self,
+        key: &str,
+        f: impl Fn(&T) -> Result<O, E> + Send + Sync + 'static,
+    ) -> Result<PCollection<Classified<T, O>>, Error> {
+        self.map_named(key, move |value| match f(&value) {
+            Ok(output) => Ok(output),
+            Err(error) => Err(DeadLetter::new(value, error.to_string())),
+        })
+    }
+    fn classify_flat_map_catching_named<O: Element, E: Display>(
+        &self,
+        key: &str,
+        f: impl Fn(&T) -> Result<Vec<O>, E> + Send + Sync + 'static,
+    ) -> Result<PCollection<Classified<T, Vec<O>>>, Error> {
+        self.map_named(key, move |value| match f(&value) {
+            Ok(output) => Ok(output),
+            Err(error) => Err(DeadLetter::new(value, error.to_string())),
+        })
+    }
     fn map_catching_named<O: Element, E: Display>(
         &self,
         classify_key: &str,
@@ -95,10 +126,7 @@ impl<T: Element> DeadLetterExt<T> for PCollection<T> {
         error_key: &str,
         f: impl Fn(&T) -> Result<O, E> + Send + Sync + 'static,
     ) -> Result<(PCollection<O>, PCollection<DeadLetter<T>>), Error> {
-        let classified = self.map_named(classify_key, move |value| match f(&value) {
-            Ok(output) => Ok(output),
-            Err(error) => Err(DeadLetter::new(value, error.to_string())),
-        })?;
+        let classified = self.classify_catching_named(classify_key, f)?;
         let good = classified.flat_map_named(good_key, |item| item.ok().into_iter().collect())?;
         let errors =
             classified.flat_map_named(error_key, |item| item.err().into_iter().collect())?;
@@ -111,10 +139,7 @@ impl<T: Element> DeadLetterExt<T> for PCollection<T> {
         error_key: &str,
         f: impl Fn(&T) -> Result<Vec<O>, E> + Send + Sync + 'static,
     ) -> Result<(PCollection<O>, PCollection<DeadLetter<T>>), Error> {
-        let classified = self.map_named(classify_key, move |value| match f(&value) {
-            Ok(output) => Ok(output),
-            Err(error) => Err(DeadLetter::new(value, error.to_string())),
-        })?;
+        let classified = self.classify_flat_map_catching_named(classify_key, f)?;
         let good = classified.flat_map_named(good_key, |item| item.unwrap_or_default())?;
         let errors =
             classified.flat_map_named(error_key, |item| item.err().into_iter().collect())?;
