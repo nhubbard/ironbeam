@@ -1,7 +1,6 @@
-#![cfg(feature = "sql")]
 use ironbeam_core::{Capabilities, Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io::{
+use ironbeam_io_sql::{
     sql_parallel_sink_with, sql_sharded_source, sql_sink_with, sql_source, sql_streaming_source,
 };
 

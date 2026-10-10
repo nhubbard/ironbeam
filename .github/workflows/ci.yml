@@ -59,7 +59,7 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
-          cargo clippy -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io -p ironbeam-compat --all-targets -- \
+          cargo clippy -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
@@ -122,6 +122,8 @@ jobs:
           cargo build -p ironbeam-transforms
           cargo build -p ironbeam-io
           cargo build -p ironbeam-io --no-default-features
+          cargo build -p ironbeam-io-sql
+          cargo build -p ironbeam-io-mongodb
           cargo build -p ironbeam-compat
 
       - name: Test v5 file formats independently

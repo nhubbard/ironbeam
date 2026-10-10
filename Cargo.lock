@@ -2110,6 +2110,8 @@ dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
+ "ironbeam-io-mongodb",
+ "ironbeam-io-sql",
  "ironbeam-transforms",
  "mongodb",
  "num_cpus",
@@ -2206,7 +2208,6 @@ version = "0.1.0"
 dependencies = [
  "apache-avro",
  "arrow",
- "bson 3.1.0",
  "bytes",
  "ciborium",
  "crc32c",
@@ -2215,7 +2216,6 @@ dependencies = [
  "ironbeam-cloud",
  "ironbeam-core",
  "ironbeam-direct",
- "mongodb",
  "parquet",
  "prost 0.13.5",
  "quick-xml",
@@ -2223,6 +2223,31 @@ dependencies = [
  "serde",
  "serde_arrow",
  "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+]
+
+[[package]]
+name = "ironbeam-io-mongodb"
+version = "0.1.0"
+dependencies = [
+ "bson 3.1.0",
+ "ironbeam-core",
+ "ironbeam-direct",
+ "mongodb",
+ "serde",
+ "sha2 0.11.0",
+ "testcontainers",
+ "testcontainers-modules",
+ "tokio",
+]
+
+[[package]]
+name = "ironbeam-io-sql"
+version = "0.1.0"
+dependencies = [
+ "ironbeam-core",
+ "ironbeam-direct",
  "sha2 0.11.0",
  "sqlx",
  "tempfile",

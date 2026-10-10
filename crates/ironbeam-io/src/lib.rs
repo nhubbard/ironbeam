@@ -9,8 +9,6 @@
     feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord",
-    feature = "sql",
-    feature = "mongodb",
     feature = "cloud"
 ))]
 #![allow(clippy::missing_errors_doc)]
@@ -139,25 +137,12 @@ fn open_lazy_seek(path: &Path, key: &str) -> Result<(Box<dyn ReadSeek + Send>, u
 
 type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
 
-#[cfg(feature = "sql")]
-mod sql;
-#[cfg(feature = "sql")]
-pub use sql::{
-    sql_parallel_sink_with, sql_sharded_source, sql_sink_with, sql_source, sql_streaming_source,
-};
-#[cfg(feature = "mongodb")]
-mod mongodb;
 #[cfg(feature = "cloud")]
 pub use ironbeam_cloud as cloud;
 #[cfg(feature = "cloud")]
 mod cloud_io;
 #[cfg(feature = "cloud")]
 pub use cloud_io::{cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source};
-#[cfg(feature = "mongodb")]
-pub use mongodb::{
-    MongoShardSpec, mongodb_parallel_sink, mongodb_sharded_source, mongodb_sink, mongodb_source,
-    mongodb_streaming_source,
-};
 
 fn io(key: &str, error: impl std::fmt::Display) -> Error {
     Error::io(key, "file", error.to_string())
@@ -651,7 +636,15 @@ fn framed_parallel_sink<T: Element + Sync>(
     })
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(all(
+    feature = "parallel-io",
+    any(
+        feature = "xml",
+        feature = "avro",
+        feature = "parquet",
+        feature = "arrow-ipc"
+    )
+))]
 fn parallel_container_writer<T: Sync>(
     path: &Path,
     values: &[T],

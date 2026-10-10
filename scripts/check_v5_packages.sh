@@ -5,15 +5,22 @@ set -euo pipefail
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-cloud ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-io ironbeam-testing ironbeam-compat)
+packages=(ironbeam-cloud ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-testing ironbeam-compat)
 cloud_patch=(--config "patch.crates-io.ironbeam-cloud.path=\"$root/crates/ironbeam-cloud\"")
 core_patch=(--config "patch.crates-io.ironbeam-core.path=\"$root/crates/ironbeam-core\"")
 direct_patch=(--config "patch.crates-io.ironbeam-direct.path=\"$root/crates/ironbeam-direct\"")
 transforms_patch=(--config "patch.crates-io.ironbeam-transforms.path=\"$root/crates/ironbeam-transforms\"")
 
+if cargo tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro) v'; then
+  echo "Default ironbeam-io unexpectedly depends on a heavy opt-in adapter." >&2
+  exit 1
+fi
+
 cargo test --workspace
 cargo test -p ironbeam --features v5-preview
 cargo test -p ironbeam-io --all-features
+cargo test -p ironbeam-io-sql
+cargo test -p ironbeam-io-mongodb
 cargo doc --workspace --all-features --no-deps
 for package in "${packages[@]}"; do
   patches=()
@@ -22,6 +29,8 @@ for package in "${packages[@]}"; do
     ironbeam-direct) patches=("${core_patch[@]}") ;;
     ironbeam-transforms|ironbeam-testing)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
+    ironbeam-io-sql|ironbeam-io-mongodb)
+      patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io)
       patches=("${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-compat)
@@ -29,4 +38,4 @@ for package in "${packages[@]}"; do
   esac
   cargo package -p "$package" --allow-dirty "${patches[@]}"
 done
-echo "All seven v5 packages verified locally; no crates were published."
+echo "All nine v5 packages verified locally; no crates were published."

@@ -1,7 +1,8 @@
-#![cfg(feature = "sql")]
 use ironbeam_core::{Element, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io::{sql_parallel_sink_with, sql_sharded_source, sql_source, sql_streaming_source};
+use ironbeam_io_sql::{
+    sql_parallel_sink_with, sql_sharded_source, sql_source, sql_streaming_source,
+};
 use testcontainers::runners::SyncRunner;
 use testcontainers_modules::{mysql::Mysql, postgres::Postgres};
 

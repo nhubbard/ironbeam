@@ -525,6 +525,10 @@ pub mod v5 {
         JobStatus, PlanSummary, SpillConfig,
     };
     pub use ironbeam_io::*;
+    #[cfg(feature = "v5-io-mongodb")]
+    pub use ironbeam_io_mongodb::*;
+    #[cfg(feature = "v5-io-sql")]
+    pub use ironbeam_io_sql::*;
     pub use ironbeam_transforms::*;
 }
 

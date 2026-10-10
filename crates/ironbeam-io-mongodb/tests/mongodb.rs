@@ -1,7 +1,6 @@
-#![cfg(feature = "mongodb")]
 use ironbeam_core::{Capabilities, Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io::{
+use ironbeam_io_mongodb::{
     MongoShardSpec, mongodb_parallel_sink, mongodb_sharded_source, mongodb_sink, mongodb_source,
     mongodb_streaming_source,
 };

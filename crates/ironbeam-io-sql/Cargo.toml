@@ -1,0 +1,20 @@
+[package]
+name = "ironbeam-io-sql"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "SQL sources and append sinks for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[dependencies]
+ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
+sha2 = "0.11"
+sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+tempfile = "3"
+testcontainers = { version = "0.27", features = ["blocking"] }
+testcontainers-modules = { version = "0.15", features = ["postgres", "mysql"] }

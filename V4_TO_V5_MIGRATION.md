@@ -1,6 +1,6 @@
 # Ironbeam 4 to 5 migration guide
 
-Ironbeam 5 is currently exposed as `ironbeam::v5` behind `v5-preview`, and as the `ironbeam-core`, `ironbeam-direct`, `ironbeam-transforms`, and `ironbeam-io` packages. The root `ironbeam` package is still version 4.1.1. This guide describes the implemented v5 surface; it does not imply that the root package has been released as version 5.
+Ironbeam 5 is currently exposed as `ironbeam::v5` behind `v5-preview`, and as the `ironbeam-core`, `ironbeam-direct`, `ironbeam-transforms`, `ironbeam-io`, `ironbeam-io-sql`, and `ironbeam-io-mongodb` packages. The root `ironbeam` package is still version 4.1.1. SQL and MongoDB compile directly against `ironbeam-core`; they are available by importing their packages or through the root facade's `v5-io-sql` and `v5-io-mongodb` features. `ironbeam-io` implements file formats and does not depend on the database connectors. This guide describes the implemented v5 surface; it does not imply that the root package has been released as version 5.
 
 ## A bounded pipeline
 
@@ -90,14 +90,14 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 | --- | --- |
 | `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | `ironbeam-io` features `jsonl`, `csv`, `parquet`, `avro`, `xml`; the current facade forwards these only with `v5-preview`. |
 | `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | v5 bounded source/sink adapters, lazy and sharded readers, parallel sinks, and external compression are available under corresponding `ironbeam-io` features. `tfrecord_examples_source` (plus lazy and sharded variants) decodes wire-compatible TensorFlow `tf.Example` records when both TFRecord and Protobuf are enabled. |
-| `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC has bounded row and batch v5 adapters. SQL and MongoDB forward to opt-in `ironbeam-io` features when `v5-preview` is enabled. SQL uses `sql_source`, `sql_streaming_source`, and `sql_sink_with`; MongoDB uses `mongodb_source`, `mongodb_streaming_source`, and `mongodb_sink`. Both database sinks are deferred append operations with no replay guarantee. |
+| `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC has bounded row and batch v5 adapters. SQL and MongoDB live in `ironbeam-io-sql` and `ironbeam-io-mongodb`; use those packages directly or enable the separate root facade features `v5-io-sql` and `v5-io-mongodb`. The v4 `io-sql` and `io-mongodb` features still select the v4 adapters. Both v5 database sinks are deferred append operations with no replay guarantee. |
 | provider-neutral cloud utilities | `ironbeam-cloud` or `ironbeam_io::cloud` with the `cloud` feature | The v4 `ironbeam::io::cloud` and `ironbeam::helpers::cloud` paths reexport the same implementation, including compressed JSONL object readers/writers. |
 | `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | Shared `ironbeam-cloud` codec features and matching opt-in `ironbeam-io` features. Cloud JSONL object readers/writers and v5 JSONL/CSV file adapters use them; remaining file-format combinations are tracked separately. |
 | `parallel-io` | `ironbeam-io` parallel sinks for all local file formats | Pass an explicit positive shard count; v5 writes ordered fragments and assembles them before final atomic publish. XML, Avro, Parquet, and Arrow fragments are complete containers that are read and rewritten into the final container. Direct job parallelism still controls execution separately. |
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |
 | `checkpointing`, `spilling` | v5 Direct `JobConfig` has optional `CheckpointConfig` and `SpillConfig`; no feature flag. v4 checkpoint files are not v5 state. |
 | `coders` | v5 `Element` declares type/coder identity and version; built-in coders are implemented, custom coder support must be supplied explicitly. No global Serde bound is added by a feature. |
-| `default` | v4 keeps its existing broad defaults; v5 packages have their own defaults. `ironbeam-core` and `ironbeam-direct` are minimal, while `ironbeam-io` defaults to five file formats. |
+| `default` | v4 keeps its existing broad defaults; v5 packages have their own defaults. `ironbeam-core` and `ironbeam-direct` are minimal, while `ironbeam-io` defaults to JSONL and CSV. Parquet, Avro, XML, and other adapters require explicit features. |
 
 Sequential elementwise output is compared in order in the migration tests. Grouped, joined, sampled, and parallel results should be compared as multisets unless the operation documents an order. V5 validates boundedness and backend capabilities before opening sources or sinks. V5 graph, coder, and checkpoint versions are independent; unsupported versions fail explicitly rather than being interpreted as v4 state.
 

@@ -1,4 +1,5 @@
-//! Opt-in MongoDB bounded sources and deferred append sink.
+#![allow(clippy::missing_errors_doc)]
+//! MongoDB bounded sources and deferred append sink.
 use bson::Document;
 use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, SourceProgress,
