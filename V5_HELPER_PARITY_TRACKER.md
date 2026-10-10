@@ -26,7 +26,7 @@ remains available until every required family is closed.
 | `latest`, `timestamped`, `tumbling`, `windowed_combine` | core, transforms, direct | Pending | Event-time assignment and window execution need a shared contract; Direct currently rejects fixed-window execution. |
 | `sampling` | transforms | Present for values | Eight seeded/default global and per-key methods use v4's priority sequence; bounded-memory aggregation and parallel performance remain to verify. |
 | `statistical` | transforms | Present for values | V4-compatible t-digest quantiles and median work globally/per key, with non-finite observations ignored. Current global combine materializes input, so bounded-memory performance remains open. |
-| `batches`, `reshuffle`, `tee`, `wait_on` | direct | Pending | Specify scheduling, ordering, buffer limits, and dependency semantics. |
+| `batches`, `reshuffle`, `tee`, `wait_on` | transforms, direct | Partial | `tee`/`tee_n` handle fan-out exists. Physical batching, reshuffle, and signal dependencies need scheduling, ordering, and buffer contracts. |
 | `collect_sorted` | direct | Present | Sequential/parallel sorted collection and stable keyed sorting exist. |
 | `log_elements` | transforms/direct | Present for Direct debug use | Formatted/default passthroughs print at node execution. Like v4, retries or re-execution can repeat output; this is a debug aid. |
 | `dead_letter`, `try_process`, `validation` | core, transforms, direct | Present for bounded Direct values | Fallible transforms, fail-fast collection, validation modes, and dead-letter branches exist. Direct can collect both classification arms in one run; collecting branch outputs separately still reruns the shared source. |

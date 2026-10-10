@@ -56,6 +56,8 @@ pub use validation::{
 };
 mod dead_letter;
 pub use dead_letter::{Classified, DeadLetter, DeadLetterExt};
+mod tee;
+pub use tee::TeeExt;
 
 pub trait ElementwiseExt<T: Element> {
     fn key_by_named<K: Element>(

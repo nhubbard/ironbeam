@@ -1195,11 +1195,19 @@ pub struct Pipeline {
     inner: Arc<Mutex<Builder>>,
 }
 
-#[derive(Clone)]
 pub struct PCollection<T> {
     pipeline: Pipeline,
     key: String,
     marker: PhantomData<T>,
+}
+impl<T> Clone for PCollection<T> {
+    fn clone(&self) -> Self {
+        Self {
+            pipeline: self.pipeline.clone(),
+            key: self.key.clone(),
+            marker: PhantomData,
+        }
+    }
 }
 
 impl Pipeline {
