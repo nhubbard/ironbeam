@@ -46,12 +46,23 @@
   "ironbeam-io": {
     "source": "crates/ironbeam-io/src",
     "lines": {
-      "covered": 287,
-      "count": 303
+      "covered": 448,
+      "count": 555
     },
     "branches": {
-      "covered": 26,
-      "count": 30
+      "covered": 48,
+      "count": 60
+    }
+  },
+  "ironbeam-io-jsonl": {
+    "source": "crates/ironbeam-io-jsonl/src",
+    "lines": {
+      "covered": 177,
+      "count": 190
+    },
+    "branches": {
+      "covered": 12,
+      "count": 14
     }
   },
   "ironbeam-io-csv": {

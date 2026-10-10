@@ -19,6 +19,24 @@ fn facade_prelude_runs_v4_shaped_helper_chain_without_compat() {
     assert_eq!(result, vec![4]);
 }
 
+#[test]
+fn facade_exposes_isolated_jsonl_connector() {
+    use ironbeam::v5::{DirectRunner, JobConfig, jsonl_sink, jsonl_source};
+    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Row { value: i32 }
+    impl ironbeam::v5::Element for Row {
+        const TYPE_ID: &'static str = "facade/jsonl-row";
+        const CODER_ID: &'static str = "facade/jsonl-row";
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("values.jsonl");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![Row { value: 1 }, Row { value: 2 }]).unwrap();
+    DirectRunner.run_sink(&jsonl_sink(&input, "write", &path).unwrap(), &JobConfig::default()).unwrap();
+    let output = jsonl_source::<Row>(&Pipeline::default(), "read", &path).unwrap().output("out").unwrap();
+    assert_eq!(output.collect_seq().unwrap(), vec![Row { value: 1 }, Row { value: 2 }]);
+}
+
 #[cfg(feature = "v5-io-csv")]
 #[test]
 fn facade_exposes_isolated_csv_connector() {

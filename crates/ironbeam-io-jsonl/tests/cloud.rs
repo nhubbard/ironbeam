@@ -1,11 +1,11 @@
 #![cfg(feature = "cloud")]
-use ironbeam_core::{Element, ErrorKind, Pipeline};
-use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io::cloud::{
+use ironbeam_cloud::{
     FakeObjectIO, ObjectIO,
     readers::{read_cloud_jsonl_vec, write_cloud_jsonl_vec},
 };
-use ironbeam_io::{cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source};
+use ironbeam_core::{Element, ErrorKind, Pipeline};
+use ironbeam_direct::{DirectRunner, JobConfig};
+use ironbeam_io_jsonl::{cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

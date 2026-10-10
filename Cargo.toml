@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -14,7 +14,7 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["io-jsonl", "io-csv", "io-parquet", "io-avro", "io-xml", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling", "coders"]
-v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "dep:ironbeam-io", "ironbeam-io/cloud"]
+v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "dep:ironbeam-io", "ironbeam-io/cloud", "dep:ironbeam-io-jsonl", "ironbeam-io-jsonl/cloud"]
 v5-io-sql = ["v5-preview", "dep:ironbeam-io-sql"]
 v5-io-mongodb = ["v5-preview", "dep:ironbeam-io-mongodb"]
 v5-io-avro = ["v5-preview", "dep:ironbeam-io-avro"]
@@ -26,7 +26,7 @@ v5-io-parquet = ["v5-preview", "dep:ironbeam-io-parquet"]
 v5-io-arrow = ["v5-preview", "dep:ironbeam-io-arrow"]
 
 # IO backends
-io-jsonl = ["ironbeam-io?/jsonl"]
+io-jsonl = []
 io-csv = ["dep:csv"]
 io-parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow"]
 io-avro = ["dep:apache-avro"]
@@ -46,13 +46,13 @@ io-sql = ["dep:sqlx", "dep:tokio"]
 io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
 
 # Compression codecs (pluggable)
-compression-gzip = ["dep:flate2", "ironbeam-cloud/compression-gzip", "ironbeam-io?/compression-gzip"]
-compression-zstd = ["dep:zstd", "ironbeam-cloud/compression-zstd", "ironbeam-io?/compression-zstd"]
-compression-bzip2 = ["dep:bzip2", "ironbeam-cloud/compression-bzip2", "ironbeam-io?/compression-bzip2"]
-compression-xz = ["dep:xz2", "ironbeam-cloud/compression-xz", "ironbeam-io?/compression-xz"]
+compression-gzip = ["dep:flate2", "ironbeam-cloud/compression-gzip", "ironbeam-io?/compression-gzip", "ironbeam-io-jsonl?/compression-gzip"]
+compression-zstd = ["dep:zstd", "ironbeam-cloud/compression-zstd", "ironbeam-io?/compression-zstd", "ironbeam-io-jsonl?/compression-zstd"]
+compression-bzip2 = ["dep:bzip2", "ironbeam-cloud/compression-bzip2", "ironbeam-io?/compression-bzip2", "ironbeam-io-jsonl?/compression-bzip2"]
+compression-xz = ["dep:xz2", "ironbeam-cloud/compression-xz", "ironbeam-io?/compression-xz", "ironbeam-io-jsonl?/compression-xz"]
 
 # Behaviors
-parallel-io = ["ironbeam-io?/parallel-io"]
+parallel-io = ["ironbeam-io?/parallel-io", "ironbeam-io-jsonl?/parallel-io"]
 metrics = []
 checkpointing = ["dep:postcard", "dep:sha2"]
 spilling = ["dep:postcard"]
@@ -69,6 +69,7 @@ ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core", optional = t
 ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct", optional = true }
 ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", optional = true }
 ironbeam-io = { version = "0.1.0", path = "crates/ironbeam-io", default-features = false, optional = true }
+ironbeam-io-jsonl = { version = "0.1.0", path = "crates/ironbeam-io-jsonl", optional = true }
 ironbeam-io-avro = { version = "0.1.0", path = "crates/ironbeam-io-avro", optional = true }
 ironbeam-io-csv = { version = "0.1.0", path = "crates/ironbeam-io-csv", optional = true }
 ironbeam-io-xml = { version = "0.1.0", path = "crates/ironbeam-io-xml", optional = true }

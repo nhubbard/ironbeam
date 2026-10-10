@@ -1,6 +1,5 @@
 #![cfg(any(
     feature = "file",
-    feature = "jsonl",
     feature = "protobuf",
     feature = "tfrecord",
     feature = "cloud"
@@ -13,8 +12,6 @@ use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, SourceProgress,
     TypedSink, TypedSourceIterator,
 };
-#[cfg(any(feature = "jsonl", feature = "protobuf", feature = "tfrecord"))]
-use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 use std::{
@@ -121,10 +118,6 @@ type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
 
 #[cfg(feature = "cloud")]
 pub use ironbeam_cloud as cloud;
-#[cfg(feature = "cloud")]
-mod cloud_io;
-#[cfg(feature = "cloud")]
-pub use cloud_io::{cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source};
 
 #[doc(hidden)]
 pub fn io(key: &str, error: impl std::fmt::Display) -> Error {
@@ -172,12 +165,7 @@ pub fn source<T: Element>(
     )
 }
 
-#[cfg(any(
-    feature = "file",
-    feature = "jsonl",
-    feature = "protobuf",
-    feature = "tfrecord"
-))]
+#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
 #[doc(hidden)]
 pub fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     use std::io::Read;
@@ -194,12 +182,7 @@ pub fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     Ok(hasher.finalize().to_vec())
 }
 
-#[cfg(any(
-    feature = "file",
-    feature = "jsonl",
-    feature = "protobuf",
-    feature = "tfrecord"
-))]
+#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
 #[doc(hidden)]
 pub fn lazy_source<T: Element>(
     pipeline: &Pipeline,
@@ -272,12 +255,7 @@ pub fn file_glob_source<T: Element>(
     }
 }
 
-#[cfg(any(
-    feature = "file",
-    feature = "jsonl",
-    feature = "protobuf",
-    feature = "tfrecord"
-))]
+#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
 #[doc(hidden)]
 pub fn file_sharded_source<T: Element>(
     pipeline: &Pipeline,
@@ -359,26 +337,6 @@ pub fn read_lazy_range<T: Element>(
 ) -> Result<TypedSourceIterator<T>, Error> {
     Ok(Box::new(read(path)?.skip(start).take(end - start)))
 }
-
-macro_rules! glob_source {
-    ($(#[$feature:meta])? $name:ident, $source:ident) => {
-        $(#[$feature])?
-        pub fn $name<T: Element + DeserializeOwned>(
-            pipeline: &Pipeline,
-            key: &str,
-            pattern: &str,
-        ) -> Result<PCollection<T>, Error> {
-            file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
-                $source(pipeline, key, path)
-            })
-        }
-    };
-}
-glob_source!(
-    #[cfg(feature = "jsonl")]
-    jsonl_glob_source,
-    jsonl_source
-);
 
 #[cfg(feature = "protobuf")]
 pub fn protobuf_glob_source<T: Element + prost::Message + Default>(
@@ -468,12 +426,7 @@ pub fn sink<T: Element>(
 
 #[cfg(all(
     feature = "parallel-io",
-    any(
-        feature = "file",
-        feature = "jsonl",
-        feature = "protobuf",
-        feature = "tfrecord"
-    )
+    any(feature = "file", feature = "protobuf", feature = "tfrecord")
 ))]
 #[doc(hidden)]
 pub fn parallel_file_writer<T: Sync>(
@@ -600,176 +553,6 @@ pub fn parallel_container_writer<T: Sync>(
         merged.extend(read(&bytes)?);
     }
     write(path, &merged)
-}
-
-#[cfg(feature = "jsonl")]
-fn read_jsonl<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
-    use std::io::BufRead;
-    std::io::BufReader::new(bytes)
-        .lines()
-        .enumerate()
-        .filter_map(|(line, value)| match value {
-            Ok(value) if value.trim().is_empty() => None,
-            other => Some((line, other)),
-        })
-        .map(|(line, value)| {
-            let value = value.map_err(|e| io("jsonl", e))?;
-            serde_json::from_str(&value).map_err(|e| io("jsonl", format!("line {}: {e}", line + 1)))
-        })
-        .collect()
-}
-#[cfg(feature = "jsonl")]
-fn write_jsonl<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
-    use std::io::Write;
-    let file = fs::File::create(path).map_err(|e| io("jsonl", e))?;
-    #[cfg(any(
-        feature = "compression-gzip",
-        feature = "compression-zstd",
-        feature = "compression-bzip2",
-        feature = "compression-xz"
-    ))]
-    let file: Box<dyn Write> =
-        ironbeam_cloud::compression::auto_detect_writer(file, path).map_err(|e| io("jsonl", e))?;
-    #[cfg(not(any(
-        feature = "compression-gzip",
-        feature = "compression-zstd",
-        feature = "compression-bzip2",
-        feature = "compression-xz"
-    )))]
-    let file: Box<dyn Write> = Box::new(file);
-    let mut file = std::io::BufWriter::new(file);
-    for value in values {
-        serde_json::to_writer(&mut file, value).map_err(|e| io("jsonl", e))?;
-        file.write_all(b"\n").map_err(|e| io("jsonl", e))?;
-    }
-    file.flush().map_err(|e| io("jsonl", e))
-}
-#[cfg(feature = "jsonl")]
-pub fn jsonl_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    source(pipeline, key, path, "jsonl", read_jsonl::<T>)
-}
-#[cfg(feature = "jsonl")]
-#[allow(clippy::needless_pass_by_value)] // The shared lazy-source factory takes PathBuf.
-fn read_jsonl_lazy<T: Element + DeserializeOwned>(
-    path: PathBuf,
-) -> Result<TypedSourceIterator<T>, Error> {
-    use std::io::BufRead;
-    let reader: Box<dyn BufRead + Send> = if compressed_extension(&path) {
-        Box::new(std::io::BufReader::new(std::io::Cursor::new(
-            read_decoded_file(&path, "jsonl")?,
-        )))
-    } else {
-        Box::new(std::io::BufReader::new(
-            fs::File::open(path).map_err(|e| io("jsonl", e))?,
-        ))
-    };
-    let rows = reader
-        .lines()
-        .enumerate()
-        .filter_map(|(line, result)| match result {
-            Ok(value) if value.trim().is_empty() => None,
-            other => Some((line, other)),
-        })
-        .map(|(line, result)| {
-            let value = result.map_err(|e| io("jsonl", e))?;
-            serde_json::from_str(&value).map_err(|e| io("jsonl", format!("line {}: {e}", line + 1)))
-        });
-    Ok(Box::new(rows))
-}
-#[cfg(feature = "jsonl")]
-pub fn jsonl_streaming_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    lazy_source(pipeline, key, path, "jsonl-streaming", read_jsonl_lazy::<T>)
-}
-#[cfg(feature = "jsonl")]
-fn count_jsonl_lines(path: &Path) -> Result<usize, Error> {
-    use std::io::BufRead;
-    std::io::BufReader::new(open_lazy_input(path, "jsonl")?)
-        .lines()
-        .try_fold(0_usize, |count, line| {
-            line.map_err(|e| io("jsonl", e))?;
-            count
-                .checked_add(1)
-                .ok_or_else(|| io("jsonl", "line count overflow"))
-        })
-}
-#[cfg(feature = "jsonl")]
-#[allow(clippy::needless_pass_by_value)] // The shared sharded-source factory takes PathBuf.
-fn read_jsonl_range<T: Element + DeserializeOwned>(
-    path: PathBuf,
-    start: usize,
-    end: usize,
-) -> Result<TypedSourceIterator<T>, Error> {
-    use std::io::BufRead;
-    let reader = std::io::BufReader::new(open_lazy_input(&path, "jsonl")?);
-    let rows = reader
-        .lines()
-        .enumerate()
-        .skip(start)
-        .take(end - start)
-        .filter_map(|(line, result)| match result {
-            Ok(value) if value.trim().is_empty() => None,
-            other => Some((line, other)),
-        })
-        .map(|(line, result)| {
-            let value = result.map_err(|e| io("jsonl", e))?;
-            serde_json::from_str(&value).map_err(|e| io("jsonl", format!("line {}: {e}", line + 1)))
-        });
-    Ok(Box::new(rows))
-}
-#[cfg(feature = "jsonl")]
-/// Create stable bounded JSONL line-range sources; blank lines count toward ranges.
-pub fn jsonl_sharded_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-    lines_per_shard: usize,
-) -> Result<PCollection<T>, Error> {
-    file_sharded_source(
-        pipeline,
-        key,
-        path,
-        lines_per_shard,
-        "jsonl",
-        count_jsonl_lines,
-        read_jsonl_range::<T>,
-    )
-}
-#[cfg(feature = "jsonl")]
-pub fn jsonl_sink<T: Element + Serialize>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<Sink<T>, Error> {
-    sink(input, key, path, write_jsonl::<T>)
-}
-
-#[cfg(all(feature = "jsonl", feature = "parallel-io"))]
-/// Serialize contiguous shards concurrently and publish their ordered JSONL output at job commit.
-pub fn jsonl_parallel_sink<T: Element + Serialize + Sync>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-    shards: usize,
-) -> Result<Sink<T>, Error> {
-    if shards == 0 {
-        return Err(Error::graph(
-            key,
-            "parallel writer needs at least one shard",
-        ));
-    }
-    sink(input, key, path, move |path, values| {
-        parallel_file_writer(path, values, shards, |part, chunk, _| {
-            write_jsonl(part, chunk)
-        })
-    })
 }
 
 #[cfg(feature = "protobuf")]

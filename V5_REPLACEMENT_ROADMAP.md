@@ -25,9 +25,9 @@ direction without creating a crate for every source file.
 | Logical graph and extension API | `ironbeam-core` owns `Pipeline`, `PCollection`, graph, `Element`, errors, typed source/sink registration | Keep these types together while extensions must construct graph nodes. Extract a runner-neutral `ironbeam-model` only if graph descriptors need an independently versioned serialization contract. An API-only crate that repeats these types would add an abstraction without isolating dependencies. |
 | Local runner | `ironbeam-direct` owns planner, execution, metrics, checkpoint, and spill modules | Finish shared-upstream execution, physical scheduling, state, and recovery here. Extract a state/checkpoint backend only when it can be independently selected and tested by more than one runner. |
 | Convenience transforms | `ironbeam-transforms` owns many unrelated extension traits; `regex` and HLL are unconditional dependencies | Keep ordinary helpers together for now; move regex and approximate-distinct/sketch helpers to focused extension crates or optional feature modules when their package-level tests and dependencies are separable. Preserve one prelude for users. |
-| File formats | Avro, Parquet, Arrow IPC, CSV, XML, MessagePack, and CBOR have independent crates; `ironbeam-io` retains shared file lifecycle helpers plus JSONL, Protobuf, and TFRecord | Split remaining record and text formats. Each format crate owns its codec dependency, focused tests, and feature gate. Move shared file helpers to a small lifecycle crate without creating a reexport-only aggregator. |
+| File formats | Avro, Parquet, Arrow IPC, CSV, XML, MessagePack, CBOR, and JSONL have independent crates; `ironbeam-io` retains shared file lifecycle helpers plus Protobuf and TFRecord | Split the remaining record formats. Each format crate owns its codec dependency, focused tests, and feature gate. Move shared file helpers to a small lifecycle crate without creating a reexport-only aggregator. |
 | Databases | SQL and MongoDB already have independent crates and live-service tests | Keep them direct extensions of core. Do not pull their dependencies into a default facade build. |
-| Cloud/object storage | `ironbeam-cloud` provides provider-neutral helpers; `ironbeam-io::cloud_io` attaches JSONL object sources/sinks to the graph | Move graph-facing object-store adapters to a direct extension crate when adding a second format/provider. Keep provider-neutral contracts independently testable. |
+| Cloud/object storage | `ironbeam-cloud` provides provider-neutral helpers; `ironbeam-io-jsonl::cloud_io` attaches JSONL object sources/sinks to the graph | Keep provider-neutral contracts independently testable. Add provider clients and remote runner access before claiming cloud parity. |
 | Coders and portable protocol | Core owns coder identity and registers each node's typed `Element` coder for worker access; Beam lowering remains in the separate Dataflow integration | Extend the protobuf path to all v4 graph shapes and I/O boundaries. Keep Beam protocol and harness dependencies in the separate Dataflow integration; test user-defined element types over actual Fn API streams. |
 | Testing and compatibility | `ironbeam-testing` and `ironbeam-compat` are already leaf crates | Keep package-scoped fixtures and differential tests. Compatibility must remain optional and must never be a dependency of core, Direct, or the root v5 facade. |
 
@@ -36,14 +36,17 @@ CSV's v5 public path is now `ironbeam_io_csv::{csv_source, csv_sink, ...}` or
 v4 facade until cutover. `ironbeam-io` keeps the common file lifecycle only;
 its CSV codec dependency and implementation moved into `ironbeam-io-csv`.
 Package coverage baselines were measured again after the default shared-I/O
-feature set changed from JSONL and CSV to JSONL alone; the CSV package has its
-own source and branch gate. XML now has its own package and coverage gate too;
-the v5 public path is `ironbeam_io_xml::*` or `ironbeam::v5::*` with
+feature set became file lifecycle plus parallel I/O. Shared-I/O coverage now
+runs its own tests and the format packages that exercise that lifecycle; each
+extracted format has its own source and branch gate. XML's v5 public path is
+`ironbeam_io_xml::*` or `ironbeam::v5::*` with
 `v5-io-xml`. The root `io-xml` flag still belongs to v4 until facade cutover.
 MessagePack is similarly isolated as `ironbeam-io-msgpack` under the
 `v5-io-msgpack` facade feature; the v4 `io-msgpack` flag remains separate.
 CBOR is isolated as `ironbeam-io-cbor` under `v5-io-cbor`; `io-cbor` remains
-the v4 feature until cutover.
+the v4 feature until cutover. JSONL and its object-storage adapters moved to
+`ironbeam-io-jsonl`, which the `v5-preview` facade includes by default. The
+v4 `io-jsonl` flag remains separate.
 
 Prefer `cargo test -p <changed-package>` and the directly affected downstream
 packages while iterating. Keep the full workspace, all-feature, service, and
