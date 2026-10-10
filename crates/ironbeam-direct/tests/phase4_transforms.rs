@@ -148,6 +148,61 @@ fn outer_joins_preserve_duplicates_and_missing_sides() {
 }
 
 #[test]
+fn bounded_fixed_windows_scope_group_combine_and_join() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("timed-left", vec![(1_i32, -1_i32), (1, 0), (1, 12)])
+        .unwrap()
+        .assign_timestamps_named("left-time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .fixed_windows("left-window", 10)
+        .unwrap();
+    let right = pipeline
+        .from_vec("timed-right", vec![(1_i32, -2_i32), (1, 3), (1, 20)])
+        .unwrap()
+        .assign_timestamps_named("right-time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .fixed_windows("right-window", 10)
+        .unwrap();
+    let grouped = left
+        .group_by_key_named("timed-group")
+        .unwrap()
+        .output("timed-group-out")
+        .unwrap();
+    let combined = left
+        .map_named("timed-value", |(_, value)| value)
+        .unwrap()
+        .combine_globally_named("timed-sum", |values| values.into_iter().sum::<i32>())
+        .unwrap()
+        .output("timed-sum-out")
+        .unwrap();
+    let joined = left
+        .join_full_named("timed-join", &right)
+        .unwrap()
+        .output("timed-join-out")
+        .unwrap();
+    let config = JobConfig::default();
+    assert_eq!(
+        DirectRunner.run_collect(&grouped, &config).unwrap().0,
+        vec![(1, vec![-1]), (1, vec![0]), (1, vec![12])]
+    );
+    assert_eq!(
+        DirectRunner.run_collect(&combined, &config).unwrap().0,
+        vec![-1, 0, 12]
+    );
+    assert_eq!(
+        DirectRunner.run_collect(&joined, &config).unwrap().0,
+        vec![
+            (1, (Some(-1), Some(-2))),
+            (1, (Some(0), Some(3))),
+            (1, (None, Some(20))),
+            (1, (Some(12), None))
+        ]
+    );
+    assert!(left.assign_timestamps_named("too-late", |_| 0).is_err());
+}
+
+#[test]
 fn aggregate_checkpoint_and_marker_are_rejected_before_source() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

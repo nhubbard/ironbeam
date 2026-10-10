@@ -205,7 +205,7 @@ fn empty_and_filtered_outputs_are_valid() {
 }
 
 #[test]
-fn invalid_resources_and_window_execution_are_rejected() {
+fn invalid_resources_are_rejected_and_bounded_windows_execute() {
     let p = Pipeline::default();
     let input = p.from_vec("input", vec![1_i32]).unwrap();
     let output = input.output("out").unwrap();
@@ -217,14 +217,18 @@ fn invalid_resources_and_window_execution_are_rejected() {
         DirectRunner.run_collect(&output, &bad).err().unwrap().kind,
         ErrorKind::Graph
     );
-    input
+    let windowed = input
         .fixed_windows("window", 100)
         .unwrap()
         .output("window-out")
         .unwrap();
     let (graph, _) = p.snapshot().unwrap();
+    DirectRunner.validate(&graph).unwrap();
     assert_eq!(
-        DirectRunner.validate(&graph).unwrap_err().node.as_deref(),
-        Some("window")
+        DirectRunner
+            .run_collect(&windowed, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![1]
     );
 }

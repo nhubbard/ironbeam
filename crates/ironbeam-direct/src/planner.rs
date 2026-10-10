@@ -82,7 +82,11 @@ pub(crate) fn lower(
                         graph.node(key).is_some_and(|node| {
                             matches!(
                                 node.operation,
-                                Operation::Map | Operation::Filter | Operation::FlatMap
+                                Operation::Map
+                                    | Operation::Filter
+                                    | Operation::FlatMap
+                                    | Operation::AssignTimestamp
+                                    | Operation::FixedWindow
                             )
                         })
                     })
@@ -201,7 +205,9 @@ fn lower_routes(
         | Operation::Sink { .. }
         | Operation::Map
         | Operation::Filter
-        | Operation::FlatMap => {
+        | Operation::FlatMap
+        | Operation::AssignTimestamp
+        | Operation::FixedWindow => {
             let mut suffix = suffix;
             if !matches!(node.operation, Operation::Output | Operation::Sink { .. }) {
                 suffix.push(node.key.clone());

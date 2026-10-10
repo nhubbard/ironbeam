@@ -464,7 +464,7 @@ pub enum Window {
     Fixed { size_ns: i64 },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct WindowInterval {
     pub start_ns: i64,
     pub end_ns: i64,
@@ -552,6 +552,7 @@ pub enum Operation {
     Map,
     Filter,
     FlatMap,
+    AssignTimestamp,
     Flatten,
     GroupByKey,
     JoinInner,
@@ -761,6 +762,7 @@ pub struct Capabilities {
     pub side_input_map: bool,
     pub global_combine: bool,
     pub fixed_window: bool,
+    pub assign_timestamp: bool,
     pub append_sink: bool,
     pub final_result_sink: bool,
     pub update_sink: bool,
@@ -908,6 +910,7 @@ impl Graph {
                     if matches!(
                         node.operation,
                         Operation::Filter
+                            | Operation::AssignTimestamp
                             | Operation::Flatten
                             | Operation::FixedWindow
                             | Operation::Output
@@ -925,6 +928,7 @@ impl Graph {
                             | Operation::JoinLeft
                             | Operation::JoinRight
                             | Operation::JoinFull
+                            | Operation::AssignTimestamp
                             | Operation::SideInputMap
                     ) && node.boundedness != upstream.boundedness
                     {
@@ -933,6 +937,7 @@ impl Graph {
                     if matches!(
                         node.operation,
                         Operation::Map
+                            | Operation::AssignTimestamp
                             | Operation::FlatMap
                             | Operation::Filter
                             | Operation::Flatten
@@ -1083,6 +1088,9 @@ impl Graph {
                 }
                 Operation::FixedWindow if !capabilities.fixed_window => {
                     Some("fixed-window".to_string())
+                }
+                Operation::AssignTimestamp if !capabilities.assign_timestamp => {
+                    Some("assign-timestamp".to_string())
                 }
                 Operation::Flatten if !capabilities.flatten => Some("flatten".to_string()),
                 Operation::GroupByKey if !capabilities.group_by_key => {
@@ -1289,6 +1297,10 @@ impl Pipeline {
             Operation::Map => ("ironbeam/map".into(), BUILTIN_OPERATION_VERSION),
             Operation::Filter => ("ironbeam/filter".into(), BUILTIN_OPERATION_VERSION),
             Operation::FlatMap => ("ironbeam/flat-map".into(), BUILTIN_OPERATION_VERSION),
+            Operation::AssignTimestamp => (
+                "ironbeam/assign-timestamp".into(),
+                BUILTIN_OPERATION_VERSION,
+            ),
             Operation::Flatten => ("ironbeam/flatten".into(), BUILTIN_OPERATION_VERSION),
             Operation::GroupByKey => ("ironbeam/group-by-key".into(), BUILTIN_OPERATION_VERSION),
             Operation::JoinInner => ("ironbeam/join-inner".into(), BUILTIN_OPERATION_VERSION),
@@ -1764,6 +1776,24 @@ impl<T: Element> PCollection<T> {
         });
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
+    pub fn assign_timestamps_named(
+        &self,
+        key: &str,
+        f: impl Fn(&T) -> i64 + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
+        if self.parent()?.time.window != Window::Global {
+            return Err(Error::graph(key, "assign timestamps before windowing"));
+        }
+        let key_owned = key.to_owned();
+        let transform: Transform = Arc::new(move |mut event| {
+            let value = event.value.downcast_ref::<T>().ok_or_else(|| {
+                Error::execution(&key_owned, "direct", "timestamp input type mismatch")
+            })?;
+            event.timestamp_ns = f(value);
+            Ok(vec![event])
+        });
+        self.next(key, Operation::AssignTimestamp, Some(transform), None)
+    }
     pub fn output(&self, key: &str) -> Result<Output<T>, Error> {
         self.next::<T>(key, Operation::Output, None, None)?;
         Ok(Output {
@@ -1871,22 +1901,36 @@ impl<T: Element> PCollection<T> {
             ));
         }
         let key_owned = key.to_owned();
+        let output_window = parent.time.window.clone();
         let aggregate: Aggregate = Arc::new(move |mut inputs| {
             let values = inputs
                 .pop()
                 .ok_or_else(|| Error::execution(&key_owned, "direct", "combine input missing"))?;
-            let mut typed = Vec::with_capacity(values.len());
+            let mut groups: BTreeMap<Option<i64>, (Vec<T>, i64, Option<WindowInterval>)> =
+                BTreeMap::new();
             for event in values {
-                typed.push(*event.value.downcast::<T>().map_err(|_| {
+                let typed = *event.value.downcast::<T>().map_err(|_| {
                     Error::execution(&key_owned, "direct", "combine input type mismatch")
-                })?);
+                })?;
+                let scope = event.assigned_window.map(|interval| interval.start_ns);
+                groups
+                    .entry(scope)
+                    .or_insert_with(|| (Vec::new(), event.timestamp_ns, event.assigned_window))
+                    .0
+                    .push(typed);
             }
-            Ok(vec![Envelope {
-                value: Box::new(f(typed)),
-                timestamp_ns: 0,
-                window: Window::Global,
-                assigned_window: None,
-            }])
+            if groups.is_empty() && output_window == Window::Global {
+                groups.insert(None, (Vec::new(), 0, None));
+            }
+            Ok(groups
+                .into_values()
+                .map(|(values, timestamp_ns, assigned_window)| Envelope {
+                    value: Box::new(f(values)),
+                    timestamp_ns,
+                    window: output_window.clone(),
+                    assigned_window,
+                })
+                .collect())
         });
         self.next_aggregate(
             key,
@@ -1988,7 +2032,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             let events = inputs
                 .pop()
                 .ok_or_else(|| Error::execution(&key_owned, "direct", "group input missing"))?;
-            let mut indices = HashMap::<K, usize>::new();
+            let mut indices = HashMap::<(K, Option<WindowInterval>), usize>::new();
             let mut groups: GroupBuffer<K, V> = Vec::new();
             for event in events {
                 let Envelope {
@@ -2000,10 +2044,11 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 let (group_key, value) = *value.downcast::<(K, V)>().map_err(|_| {
                     Error::execution(&key_owned, "direct", "group input type mismatch")
                 })?;
-                if let Some(&index) = indices.get(&group_key) {
+                let scope = (group_key.clone(), assigned_window);
+                if let Some(&index) = indices.get(&scope) {
                     groups[index].1.push(value);
                 } else {
-                    indices.insert(group_key.clone(), groups.len());
+                    indices.insert(scope, groups.len());
                     groups.push((
                         group_key,
                         vec![value],
@@ -2123,14 +2168,14 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             let [left, right]: [Vec<Envelope>; 2] = inputs
                 .try_into()
                 .map_err(|_| Error::execution(&key_owned, "direct", "join requires two inputs"))?;
-            let mut index: HashMap<K, Vec<usize>> = HashMap::new();
+            let mut index: HashMap<(K, Option<WindowInterval>), Vec<usize>> = HashMap::new();
             let mut left_rows = Vec::with_capacity(left.len());
             for event in left {
                 let (row_key, value) = *event.value.downcast::<(K, V)>().map_err(|_| {
                     Error::execution(&key_owned, "direct", "left join type mismatch")
                 })?;
                 index
-                    .entry(row_key.clone())
+                    .entry((row_key.clone(), event.assigned_window))
                     .or_default()
                     .push(left_rows.len());
                 left_rows.push((
@@ -2153,7 +2198,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 let (row_key, value) = *value.downcast::<(K, W)>().map_err(|_| {
                     Error::execution(&key_owned, "direct", "right join type mismatch")
                 })?;
-                if let Some(matches) = index.get(&row_key) {
+                if let Some(matches) = index.get(&(row_key.clone(), assigned_window)) {
                     for &position in matches {
                         let (_, left_value, _, _, _, matched) = &mut left_rows[position];
                         *matched = true;

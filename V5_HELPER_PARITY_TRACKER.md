@@ -21,9 +21,9 @@ remains available until every required family is closed.
 | `display` | transforms | Present | Display mapping passes Direct tests. |
 | `flatten` | core | Present | Fan-in graph and Direct tests exist. |
 | `combine`, `combine_global` | core, direct | Partial | Global combine graph and Direct execution exist; typed incremental combiners and lifted planning remain. |
-| `joins`, `co_gbk` | core, direct | Partial | Inner, left, right, and full joins execute on Direct with duplicate and missing-key coverage. Multi-way co-group and window-scoped joining remain. |
+| `joins`, `co_gbk` | core, direct | Partial | Inner, left, right, and full joins execute on Direct with duplicate, missing-key, and bounded fixed-window coverage. Multi-way co-group remains. |
 | `side_inputs` | core, transforms, direct | Partial | Bounded collection side input and v4-style immutable vector, singleton, map, and multimap helpers exist. Dynamic singleton/map/multimap materialization and resource policy remain. |
-| `latest`, `timestamped`, `tumbling`, `windowed_combine` | core, transforms, direct | Pending | Event-time assignment and window execution need a shared contract; Direct currently rejects fixed-window execution. |
+| `latest`, `timestamped`, `tumbling`, `windowed_combine` | core, transforms, direct | Partial | Explicit timestamp assignment and bounded fixed-window grouping, joins, and global combine execute on Direct. V4 helper spelling, latest, windowed combine abstractions, triggers, and unbounded execution remain. |
 | `sampling` | transforms | Present for values | Eight seeded/default global and per-key methods use v4's priority sequence; bounded-memory aggregation and parallel performance remain to verify. |
 | `statistical` | transforms | Present for values | V4-compatible t-digest quantiles and median work globally/per key, with non-finite observations ignored. Current global combine materializes input, so bounded-memory performance remains open. |
 | `batches`, `reshuffle`, `tee`, `wait_on` | transforms, direct | Partial | `tee`/`tee_n` handle fan-out exists. Physical batching, reshuffle, and signal dependencies need scheduling, ordering, and buffer contracts. |
@@ -47,6 +47,6 @@ remains available until every required family is closed.
 4. Check the package alone and through the v5 facade, including its feature
    gate, docs, and coverage. Keep large optional dependencies out of core.
 
-The next implementation tranche is windowed execution, multi-way co-group,
-and physical scheduling helpers. Optional connectors and I/O shard planning
+The next implementation tranche is multi-way co-group, lifted combines, and
+physical scheduling helpers. Optional connectors and I/O shard planning
 remain separate parity gates.

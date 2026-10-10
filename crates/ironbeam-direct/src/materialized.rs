@@ -90,7 +90,11 @@ fn eval(
     let first = eval(pool, graph, registry, primary, config, metrics)?;
     match &node.operation {
         Operation::Output | Operation::Sink { .. } => Ok(first),
-        Operation::Map | Operation::Filter | Operation::FlatMap => {
+        Operation::Map
+        | Operation::Filter
+        | Operation::FlatMap
+        | Operation::AssignTimestamp
+        | Operation::FixedWindow => {
             let results: Vec<_> = pool.install(|| {
                 first
                     .into_par_iter()

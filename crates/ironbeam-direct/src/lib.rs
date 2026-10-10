@@ -169,6 +169,8 @@ impl DirectRunner {
                 group_by_key: true,
                 join_inner: true,
                 join_outer: true,
+                fixed_window: true,
+                assign_timestamp: true,
                 side_input_map: true,
                 global_combine: true,
                 append_sink: true,
@@ -182,6 +184,8 @@ impl DirectRunner {
                 | Operation::Map
                 | Operation::Filter
                 | Operation::FlatMap
+                | Operation::AssignTimestamp
+                | Operation::FixedWindow
                 | Operation::Flatten
                 | Operation::GroupByKey
                 | Operation::JoinInner
@@ -196,7 +200,6 @@ impl DirectRunner {
                 {
                     None
                 }
-                Operation::FixedWindow => Some("fixed-window-execution"),
                 Operation::Sink { .. } => Some("deferred-sink-execution"),
                 Operation::Custom { semantic_id, .. } => Some(semantic_id.as_str()),
             };
