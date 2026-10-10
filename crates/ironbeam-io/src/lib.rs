@@ -4,6 +4,7 @@
     feature = "xml",
     feature = "avro",
     feature = "parquet",
+    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -389,6 +390,54 @@ pub fn parquet_sink<T: Element + Serialize + DeserializeOwned>(
     path: impl AsRef<Path>,
 ) -> Result<Sink<T>, Error> {
     sink(input, key, path, write_parquet::<T>)
+}
+
+#[cfg(feature = "arrow-ipc")]
+fn read_arrow_ipc<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
+    use arrow::ipc::reader::FileReader;
+    let cursor = std::io::Cursor::new(bytes);
+    let reader = FileReader::try_new(cursor, None).map_err(|e| io("arrow-ipc", e))?;
+    let mut rows = Vec::new();
+    for batch in reader {
+        let batch = batch.map_err(|e| io("arrow-ipc", e))?;
+        rows.extend(
+            serde_arrow::from_record_batch::<Vec<T>>(&batch).map_err(|e| io("arrow-ipc", e))?,
+        );
+    }
+    Ok(rows)
+}
+#[cfg(feature = "arrow-ipc")]
+fn write_arrow_ipc<T: Serialize + DeserializeOwned>(
+    path: &Path,
+    values: &[T],
+) -> Result<(), Error> {
+    use arrow::datatypes::FieldRef;
+    use arrow::ipc::writer::FileWriter;
+    use serde_arrow::schema::{SchemaLike, TracingOptions};
+    let fields = Vec::<FieldRef>::from_type::<T>(TracingOptions::default())
+        .map_err(|e| io("arrow-ipc", e))?;
+    let batch = serde_arrow::to_record_batch(&fields, &values).map_err(|e| io("arrow-ipc", e))?;
+    let file = fs::File::create(path).map_err(|e| io("arrow-ipc", e))?;
+    let mut writer = FileWriter::try_new(file, &batch.schema()).map_err(|e| io("arrow-ipc", e))?;
+    writer.write(&batch).map_err(|e| io("arrow-ipc", e))?;
+    writer.finish().map_err(|e| io("arrow-ipc", e))?;
+    Ok(())
+}
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    source(pipeline, key, path, "arrow-ipc", read_arrow_ipc::<T>)
+}
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_sink<T: Element + Serialize + DeserializeOwned>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<T>, Error> {
+    sink(input, key, path, write_arrow_ipc::<T>)
 }
 
 #[cfg(feature = "msgpack")]

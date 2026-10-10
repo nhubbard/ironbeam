@@ -4,6 +4,7 @@
     feature = "xml",
     feature = "avro",
     feature = "parquet",
+    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -382,6 +383,16 @@ fn parquet_contract() {
         "parquet",
         |i, k, p| parquet_sink(i, k, p),
         |p, k, f| parquet_source(p, k, f),
+    );
+}
+
+#[cfg(feature = "arrow-ipc")]
+#[test]
+fn arrow_ipc_row_contract() {
+    round_trip(
+        "arrow",
+        |i, k, p| arrow_ipc_sink(i, k, p),
+        |p, k, f| arrow_ipc_source(p, k, f),
     );
 }
 
