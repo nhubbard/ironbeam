@@ -2131,6 +2131,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironbeam-runner-contract-tests"
+version = "0.0.0"
+dependencies = [
+ "ironbeam",
+]
+
+[[package]]
 name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

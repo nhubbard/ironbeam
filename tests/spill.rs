@@ -474,6 +474,7 @@ fn test_spilling_with_key_value_operations() -> Result<()> {
 #[cfg(feature = "compression-zstd")]
 #[test]
 fn test_spilling_with_compression() -> Result<()> {
+    let _guard = TEST_LOCK.lock().unwrap();
     let config = SpillConfig::new()
         .with_memory_limit(100_000)
         .with_compression(true)
@@ -524,6 +525,7 @@ fn test_spilling_preserves_order() -> Result<()> {
 
 #[test]
 fn test_memory_tracker_initialization() {
+    let _guard = TEST_LOCK.lock().unwrap();
     let config = SpillConfig::new().with_memory_limit(1000);
     MemoryTracker::initialize(config);
 
@@ -534,6 +536,7 @@ fn test_memory_tracker_initialization() {
 
 #[test]
 fn test_memory_allocation_tracking() {
+    let _guard = TEST_LOCK.lock().unwrap();
     let config = SpillConfig::new().with_memory_limit(1000);
     MemoryTracker::initialize(config);
 
@@ -550,6 +553,7 @@ fn test_memory_allocation_tracking() {
 
 #[test]
 fn test_should_spill_detection() {
+    let _guard = TEST_LOCK.lock().unwrap();
     let config = SpillConfig::new().with_memory_limit(1000);
     MemoryTracker::initialize(config);
 

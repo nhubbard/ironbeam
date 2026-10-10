@@ -1,5 +1,5 @@
 [workspace]
-members = ["."]
+members = [".", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
