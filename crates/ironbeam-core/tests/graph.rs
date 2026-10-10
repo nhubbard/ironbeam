@@ -1059,6 +1059,15 @@ fn grouped_tuple_coder_exposes_beam_key_and_value_halves() {
     let (first_key, first_value) = registry.split_group_input("group", &first).unwrap();
     let (second_key, second_value) = registry.split_group_input("group", &second).unwrap();
     assert_eq!(first_key, second_key);
+    assert_eq!(
+        registry
+            .assemble_group_input("group", &first_key, &first_value)
+            .unwrap(),
+        first
+    );
+    assert!(registry.assemble_group_input("group", b"\xff", &first_value).is_err());
+    assert!(registry.assemble_group_input("group", &first_key, b"\xff").is_err());
+    assert!(registry.assemble_group_input("latest", &first_key, &first_value).is_err());
     let grouped = registry
         .assemble_group_output("group", &first_key, &[first_value, second_value])
         .unwrap();

@@ -1554,9 +1554,11 @@ type CoderDecoder = fn(&[u8]) -> Result<Box<dyn Any + Send>, Error>;
 #[derive(Clone, Copy)]
 struct GroupCoderRegistration {
     split_input: GroupInputSplitter,
+    assemble_input: GroupInputAssembler,
     assemble_output: GroupOutputAssembler,
 }
 type GroupInputSplitter = fn(&[u8]) -> Result<(Vec<u8>, Vec<u8>), Error>;
+type GroupInputAssembler = fn(&[u8], &[u8]) -> Result<Vec<u8>, Error>;
 type GroupOutputAssembler = fn(&[u8], &[Vec<u8>]) -> Result<Vec<u8>, Error>;
 impl GroupCoderRegistration {
     fn for_elements<K: Element, V: Element>() -> Self {
@@ -1565,6 +1567,7 @@ impl GroupCoderRegistration {
                 let (key, value) = <(K, V)>::decode(bytes)?;
                 Ok((key.encode()?, value.encode()?))
             },
+            assemble_input: |key, value| (K::decode(key)?, V::decode(value)?).encode(),
             assemble_output: |key, values| {
                 let key = K::decode(key)?;
                 let values = values
@@ -1604,6 +1607,18 @@ impl Registry {
             Error::incompatible(format!("no group coder registered for node {key}"))
         })?;
         (coder.split_input)(bytes)
+    }
+    /// Reassemble a runner KV record into the registered input tuple coder.
+    pub fn assemble_group_input(
+        &self,
+        key: &str,
+        encoded_key: &[u8],
+        encoded_value: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        let coder = self.group_coders.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no group coder registered for node {key}"))
+        })?;
+        (coder.assemble_input)(encoded_key, encoded_value)
     }
     /// Reassemble runner grouped key/value bytes into the v5 output element coder.
     pub fn assemble_group_output(
