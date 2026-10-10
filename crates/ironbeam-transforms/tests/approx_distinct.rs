@@ -27,6 +27,8 @@ fn kmv_is_exact_below_k_and_bounded_for_larger_sets() {
     for parallelism in [1, 3] {
         let config = JobConfig {
             parallelism,
+            memory_budget_bytes: 512,
+            buffer_budget_elements: 17,
             ..JobConfig::default()
         };
         assert_eq!(
