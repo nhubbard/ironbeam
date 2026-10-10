@@ -445,6 +445,54 @@ fn arrow_ipc_batch_contract_and_coder() {
 
 #[cfg(feature = "jsonl")]
 #[test]
+fn jsonl_lazy_reader_defers_parse_errors_until_execution() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("rows.jsonl");
+    fs::write(&path, b"{\"id\":1,\"name\":\"Ada\"}\nmalformed\n").unwrap();
+    let pipeline = Pipeline::default();
+    let collection = jsonl_streaming_source::<Row>(&pipeline, "lazy", &path).unwrap();
+    let output = collection.output("out").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    fs::write(&path, b"{\"id\":1,\"name\":\"Ada\"}\n").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+}
+
+#[cfg(feature = "csv")]
+#[test]
+fn csv_lazy_reader_matches_bounded_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("rows.csv");
+    fs::write(&path, b"id,name\n1,Ada\n2,Lin\n").unwrap();
+    let pipeline = Pipeline::default();
+    let output = csv_streaming_source::<Row>(&pipeline, "lazy", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows()
+    );
+}
+
+#[cfg(feature = "jsonl")]
+#[test]
 fn malformed_source_never_replaces_existing_sink_output() {
     let dir = tempfile::tempdir().unwrap();
     let input_path = dir.path().join("input.jsonl");

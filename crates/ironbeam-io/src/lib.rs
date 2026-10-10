@@ -71,6 +71,60 @@ fn source<T: Element>(
         },
     )
 }
+
+#[cfg(any(feature = "jsonl", feature = "csv"))]
+fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
+    use std::io::Read;
+    let mut file = fs::File::open(path).map_err(|e| io(key, e))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(|e| io(key, e))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().to_vec())
+}
+
+#[cfg(any(feature = "jsonl", feature = "csv"))]
+fn lazy_source<T: Element>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    format: &str,
+    read: fn(PathBuf) -> Result<TypedSourceIterator<T>, Error>,
+) -> Result<PCollection<T>, Error> {
+    let path = path.as_ref().to_path_buf();
+    let expected = file_hash(&path, key)?;
+    let hex = expected.iter().fold(String::new(), |mut output, byte| {
+        let _ = write!(output, "{byte:02x}");
+        output
+    });
+    let digest = format!("{format}:{}:{hex}", path.display());
+    let name = key.to_owned();
+    pipeline.bounded_source_with_semantic(
+        key,
+        &format!("ironbeam/io/{format}-source"),
+        SourceProgress {
+            stable_split_id: true,
+            replay: Replay::AtLeastOnce,
+            reports_event_time: false,
+        },
+        digest,
+        None,
+        move || {
+            if file_hash(&path, &name)? != expected {
+                return Err(Error::recovery(
+                    &name,
+                    "source contents changed after graph construction",
+                ));
+            }
+            read(path.clone())
+        },
+    )
+}
 struct FileSink<T> {
     path: PathBuf,
     key: String,
@@ -158,6 +212,33 @@ pub fn jsonl_source<T: Element + DeserializeOwned>(
     source(pipeline, key, path, "jsonl", read_jsonl::<T>)
 }
 #[cfg(feature = "jsonl")]
+fn read_jsonl_lazy<T: Element + DeserializeOwned>(
+    path: PathBuf,
+) -> Result<TypedSourceIterator<T>, Error> {
+    use std::io::BufRead;
+    let file = fs::File::open(path).map_err(|e| io("jsonl", e))?;
+    let rows = std::io::BufReader::new(file)
+        .lines()
+        .enumerate()
+        .filter_map(|(line, result)| match result {
+            Ok(value) if value.trim().is_empty() => None,
+            other => Some((line, other)),
+        })
+        .map(|(line, result)| {
+            let value = result.map_err(|e| io("jsonl", e))?;
+            serde_json::from_str(&value).map_err(|e| io("jsonl", format!("line {}: {e}", line + 1)))
+        });
+    Ok(Box::new(rows))
+}
+#[cfg(feature = "jsonl")]
+pub fn jsonl_streaming_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    lazy_source(pipeline, key, path, "jsonl-streaming", read_jsonl_lazy::<T>)
+}
+#[cfg(feature = "jsonl")]
 pub fn jsonl_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -189,6 +270,25 @@ pub fn csv_source<T: Element + DeserializeOwned>(
     path: impl AsRef<Path>,
 ) -> Result<PCollection<T>, Error> {
     source(pipeline, key, path, "csv", read_csv::<T>)
+}
+#[cfg(feature = "csv")]
+fn read_csv_lazy<T: Element + DeserializeOwned>(
+    path: PathBuf,
+) -> Result<TypedSourceIterator<T>, Error> {
+    let reader = csv::Reader::from_path(path).map_err(|e| io("csv", e))?;
+    Ok(Box::new(
+        reader
+            .into_deserialize()
+            .map(|row| row.map_err(|e| io("csv", e))),
+    ))
+}
+#[cfg(feature = "csv")]
+pub fn csv_streaming_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    lazy_source(pipeline, key, path, "csv-streaming", read_csv_lazy::<T>)
 }
 #[cfg(feature = "csv")]
 pub fn csv_sink<T: Element + Serialize>(
