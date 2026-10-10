@@ -301,7 +301,17 @@ pub fn file_glob_source<T: Element>(
     }
 }
 
-#[cfg(any(feature = "jsonl", feature = "csv"))]
+#[cfg(any(
+    feature = "jsonl",
+    feature = "csv",
+    feature = "avro",
+    feature = "parquet",
+    feature = "arrow-ipc",
+    feature = "msgpack",
+    feature = "cbor",
+    feature = "protobuf",
+    feature = "tfrecord"
+))]
 fn file_sharded_source<T: Element>(
     pipeline: &Pipeline,
     key: &str,
@@ -354,6 +364,47 @@ fn file_sharded_source<T: Element>(
     } else {
         first.flatten_named(key, &sources)
     }
+}
+
+#[cfg(any(
+    feature = "avro",
+    feature = "parquet",
+    feature = "arrow-ipc",
+    feature = "msgpack",
+    feature = "cbor",
+    feature = "protobuf",
+    feature = "tfrecord"
+))]
+fn count_lazy_records<T: Element>(
+    path: &Path,
+    read: fn(PathBuf) -> Result<TypedSourceIterator<T>, Error>,
+) -> Result<usize, Error> {
+    let mut count = 0_usize;
+    for value in read(path.to_path_buf())? {
+        value?;
+        count = count
+            .checked_add(1)
+            .ok_or_else(|| io("shard", "record count overflow"))?;
+    }
+    Ok(count)
+}
+
+#[cfg(any(
+    feature = "avro",
+    feature = "parquet",
+    feature = "arrow-ipc",
+    feature = "msgpack",
+    feature = "cbor",
+    feature = "protobuf",
+    feature = "tfrecord"
+))]
+fn read_lazy_range<T: Element>(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+    read: fn(PathBuf) -> Result<TypedSourceIterator<T>, Error>,
+) -> Result<TypedSourceIterator<T>, Error> {
+    Ok(Box::new(read(path)?.skip(start).take(end - start)))
 }
 
 macro_rules! glob_source {
@@ -1826,4 +1877,170 @@ pub fn tfrecord_parallel_sink(
     shards: usize,
 ) -> Result<Sink<Vec<u8>>, Error> {
     framed_parallel_sink(input, key, path, shards, write_tfrecord)
+}
+
+macro_rules! shardable_serde_source {
+    ($feature:literal, $source:ident, $count:ident, $range:ident, $read:ident, $format:literal) => {
+        #[cfg(feature = $feature)]
+        fn $count<T: Element + DeserializeOwned>(path: &Path) -> Result<usize, Error> {
+            count_lazy_records(path, $read::<T>)
+        }
+        #[cfg(feature = $feature)]
+        fn $range<T: Element + DeserializeOwned>(
+            path: PathBuf,
+            start: usize,
+            end: usize,
+        ) -> Result<TypedSourceIterator<T>, Error> {
+            read_lazy_range(path, start, end, $read::<T>)
+        }
+        #[cfg(feature = $feature)]
+        pub fn $source<T: Element + DeserializeOwned>(
+            pipeline: &Pipeline,
+            key: &str,
+            path: impl AsRef<Path>,
+            records_per_shard: usize,
+        ) -> Result<PCollection<T>, Error> {
+            file_sharded_source(
+                pipeline,
+                key,
+                path,
+                records_per_shard,
+                $format,
+                $count::<T>,
+                $range::<T>,
+            )
+        }
+    };
+}
+shardable_serde_source!(
+    "avro",
+    avro_sharded_source,
+    count_avro_records,
+    read_avro_range,
+    read_avro_lazy,
+    "avro"
+);
+shardable_serde_source!(
+    "parquet",
+    parquet_sharded_source,
+    count_parquet_records,
+    read_parquet_range,
+    read_parquet_lazy,
+    "parquet"
+);
+shardable_serde_source!(
+    "arrow-ipc",
+    arrow_ipc_sharded_source,
+    count_arrow_ipc_records,
+    read_arrow_ipc_range,
+    read_arrow_ipc_lazy,
+    "arrow-ipc"
+);
+shardable_serde_source!(
+    "msgpack",
+    msgpack_sharded_source,
+    count_msgpack_records,
+    read_msgpack_range,
+    read_msgpack_lazy,
+    "msgpack"
+);
+shardable_serde_source!(
+    "cbor",
+    cbor_sharded_source,
+    count_cbor_records,
+    read_cbor_range,
+    read_cbor_lazy,
+    "cbor"
+);
+
+#[cfg(feature = "arrow-ipc")]
+fn count_arrow_batches(path: &Path) -> Result<usize, Error> {
+    count_lazy_records(path, read_arrow_ipc_batches_lazy)
+}
+#[cfg(feature = "arrow-ipc")]
+fn read_arrow_batches_range(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<ArrowBatch>, Error> {
+    read_lazy_range(path, start, end, read_arrow_ipc_batches_lazy)
+}
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_batches_sharded_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    batches_per_shard: usize,
+) -> Result<PCollection<ArrowBatch>, Error> {
+    file_sharded_source(
+        pipeline,
+        key,
+        path,
+        batches_per_shard,
+        "arrow-ipc-batches",
+        count_arrow_batches,
+        read_arrow_batches_range,
+    )
+}
+
+#[cfg(feature = "protobuf")]
+fn count_protobuf_records<T: Element + prost::Message + Default>(
+    path: &Path,
+) -> Result<usize, Error> {
+    count_lazy_records(path, read_protobuf_lazy::<T>)
+}
+#[cfg(feature = "protobuf")]
+fn read_protobuf_range<T: Element + prost::Message + Default>(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<T>, Error> {
+    read_lazy_range(path, start, end, read_protobuf_lazy::<T>)
+}
+#[cfg(feature = "protobuf")]
+pub fn protobuf_sharded_source<T: Element + prost::Message + Default>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    records_per_shard: usize,
+) -> Result<PCollection<T>, Error> {
+    file_sharded_source(
+        pipeline,
+        key,
+        path,
+        records_per_shard,
+        "protobuf",
+        count_protobuf_records::<T>,
+        read_protobuf_range::<T>,
+    )
+}
+
+#[cfg(feature = "tfrecord")]
+fn count_tfrecord_records(path: &Path) -> Result<usize, Error> {
+    count_lazy_records(path, read_tfrecord_lazy)
+}
+#[cfg(feature = "tfrecord")]
+fn read_tfrecord_range(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<Vec<u8>>, Error> {
+    read_lazy_range(path, start, end, read_tfrecord_lazy)
+}
+#[cfg(feature = "tfrecord")]
+pub fn tfrecord_sharded_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    records_per_shard: usize,
+) -> Result<PCollection<Vec<u8>>, Error> {
+    file_sharded_source(
+        pipeline,
+        key,
+        path,
+        records_per_shard,
+        "tfrecord",
+        count_tfrecord_records,
+        read_tfrecord_range,
+    )
 }

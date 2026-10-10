@@ -384,6 +384,74 @@ fn compressed_jsonl_and_csv_shards_match_bounded_readers() {
     }
 }
 
+#[cfg(all(
+    feature = "avro",
+    feature = "parquet",
+    feature = "arrow-ipc",
+    feature = "msgpack",
+    feature = "cbor"
+))]
+#[test]
+fn record_format_shards_match_bounded_readers() {
+    let dir = tempfile::tempdir().unwrap();
+    type Sharded = fn(
+        &Pipeline,
+        &str,
+        &std::path::Path,
+        usize,
+    ) -> Result<ironbeam_core::PCollection<Row>, ironbeam_core::Error>;
+    for (extension, make_sink, make_source) in [
+        (
+            "avro",
+            (|i, k, p| avro_sink(i, k, p, ROW_AVRO_SCHEMA)) as MakeSink,
+            (|p, k, f, n| avro_sharded_source::<Row>(p, k, f, n)) as Sharded,
+        ),
+        (
+            "parquet",
+            (|i, k, p| parquet_sink(i, k, p)) as MakeSink,
+            (|p, k, f, n| parquet_sharded_source::<Row>(p, k, f, n)) as Sharded,
+        ),
+        (
+            "arrow",
+            (|i, k, p| arrow_ipc_sink(i, k, p)) as MakeSink,
+            (|p, k, f, n| arrow_ipc_sharded_source::<Row>(p, k, f, n)) as Sharded,
+        ),
+        (
+            "msgpack",
+            (|i, k, p| msgpack_sink(i, k, p)) as MakeSink,
+            (|p, k, f, n| msgpack_sharded_source::<Row>(p, k, f, n)) as Sharded,
+        ),
+        (
+            "cbor",
+            (|i, k, p| cbor_sink(i, k, p)) as MakeSink,
+            (|p, k, f, n| cbor_sharded_source::<Row>(p, k, f, n)) as Sharded,
+        ),
+    ] {
+        let path = dir.path().join(format!("rows.{extension}"));
+        let pipeline = Pipeline::default();
+        let input = pipeline.from_vec("input", rows()).unwrap();
+        DirectRunner
+            .run_sink(
+                &make_sink(&input, "write", &path).unwrap(),
+                &JobConfig::default(),
+            )
+            .unwrap();
+        let reader = Pipeline::default();
+        let output = make_source(&reader, "read", &path, 1)
+            .unwrap()
+            .output("out")
+            .unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &JobConfig::default())
+                .unwrap()
+                .0,
+            rows(),
+            "{extension}"
+        );
+    }
+}
+
 #[cfg(all(feature = "jsonl", feature = "csv", feature = "compression-gzip"))]
 #[test]
 fn compressed_jsonl_and_csv_round_trip_with_lazy_sources() {
@@ -507,7 +575,19 @@ fn gzip_round_trips_protobuf_and_tfrecord_lazy_sources() {
             .run_collect(&proto_output, &JobConfig::default())
             .unwrap()
             .0,
-        proto_rows
+        proto_rows.clone()
+    );
+    let reader = Pipeline::default();
+    let output = protobuf_sharded_source::<ProtoRow>(&reader, "shards", &proto_path, 2)
+        .unwrap()
+        .output("shard-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        proto_rows.clone()
     );
 
     let tf_path = dir.path().join("rows.tfrecord.gz");
@@ -709,6 +789,18 @@ fn parallel_protobuf_and_tfrecord_sinks_keep_records_valid() {
             .run_collect(&output, &JobConfig::default())
             .unwrap()
             .0,
+        proto_rows.clone()
+    );
+    let reader = Pipeline::default();
+    let output = protobuf_sharded_source::<ProtoRow>(&reader, "shards", &path, 2)
+        .unwrap()
+        .output("shard-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
         proto_rows
     );
 
@@ -726,6 +818,18 @@ fn parallel_protobuf_and_tfrecord_sinks_keep_records_valid() {
     let output = tfrecord_source(&reader, "read", &path)
         .unwrap()
         .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        records.clone()
+    );
+    let reader = Pipeline::default();
+    let output = tfrecord_sharded_source(&reader, "shards", &path, 2)
+        .unwrap()
+        .output("shard-out")
         .unwrap();
     assert_eq!(
         DirectRunner
@@ -1088,6 +1192,18 @@ fn arrow_ipc_batch_contract_and_coder() {
         .0;
     assert_eq!(collected.len(), 1);
     assert_eq!(collected[0].0.num_rows(), 2);
+    let shard_pipeline = Pipeline::default();
+    let batch_shards =
+        arrow_ipc_batches_sharded_source(&shard_pipeline, "batch-shards", &input_path, 1)
+            .unwrap()
+            .output("batch-shards-out")
+            .unwrap();
+    let sharded = DirectRunner
+        .run_collect(&batch_shards, &JobConfig::default())
+        .unwrap()
+        .0;
+    assert_eq!(sharded.len(), 1);
+    assert_eq!(sharded[0].0.num_rows(), 2);
     let encoded = collected[0].encode().unwrap();
     assert_eq!(ArrowBatch::decode(&encoded).unwrap().0.num_rows(), 2);
     assert!(ArrowBatch::decode(&encoded[..encoded.len() - 1]).is_err());
