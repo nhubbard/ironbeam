@@ -1,4 +1,6 @@
-use ironbeam_core::{Capabilities, ErrorKind, Pipeline};
+use ironbeam_core::{
+    Capabilities, ErrorKind, Pipeline, cogroup_by_key_3_named, cogroup_by_key_10_named,
+};
 use ironbeam_direct::{CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig};
 
 #[test]
@@ -200,6 +202,110 @@ fn bounded_fixed_windows_scope_group_combine_and_join() {
         ]
     );
     assert!(left.assign_timestamps_named("too-late", |_| 0).is_err());
+}
+
+#[test]
+fn multiway_cogroup_preserves_keys_values_and_empty_sides() {
+    let pipeline = Pipeline::default();
+    let users = pipeline
+        .from_vec(
+            "users",
+            vec![(1_i32, "Alice".to_string()), (2, "Bob".into())],
+        )
+        .unwrap();
+    let orders = pipeline
+        .from_vec("orders", vec![(1_i32, 10_i32), (1, 20)])
+        .unwrap();
+    let scores = pipeline.from_vec("scores", vec![(3_i32, true)]).unwrap();
+    let grouped = cogroup_by_key_3_named("co-group", &users, &orders, &scores)
+        .unwrap()
+        .output("co-group-out")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph
+            .validate_for("preview", &Capabilities::default())
+            .unwrap_err()
+            .kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "co-group-by-key".into()
+        }
+    );
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&grouped, &config).unwrap().0,
+            vec![
+                (1, (vec!["Alice".into()], vec![10, 20], vec![])),
+                (2, (vec!["Bob".into()], vec![], vec![])),
+                (3, (vec![], vec![], vec![true]))
+            ]
+        );
+    }
+    let ten = cogroup_by_key_10_named(
+        "ten", &users, &users, &users, &users, &users, &users, &users, &users, &users, &users,
+    )
+    .unwrap()
+    .output("ten-out")
+    .unwrap();
+    let rows = DirectRunner
+        .run_collect(&ten, &JobConfig::default())
+        .unwrap()
+        .0;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].1.9, vec!["Alice".to_string()]);
+    assert_eq!(rows[1].1.8, vec!["Bob".to_string()]);
+    let two = ironbeam_core::cogroup_by_key_named!("two", users, orders)
+        .unwrap()
+        .output("two-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&two, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![
+            (1, (vec!["Alice".into()], vec![10, 20])),
+            (2, (vec!["Bob".into()], vec![]))
+        ]
+    );
+}
+
+#[test]
+fn cogroup_scopes_values_by_fixed_window() {
+    let pipeline = Pipeline::default();
+    let first = pipeline
+        .from_vec("co-first", vec![(1_i32, 1_i32), (1, 12)])
+        .unwrap()
+        .assign_timestamps_named("co-first-time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .fixed_windows("co-first-window", 10)
+        .unwrap();
+    let second = pipeline
+        .from_vec("co-second", vec![(1_i32, 2_i32), (1, 25)])
+        .unwrap()
+        .assign_timestamps_named("co-second-time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .fixed_windows("co-second-window", 10)
+        .unwrap();
+    let output = ironbeam_core::cogroup_by_key_named!("co-window", first, second)
+        .unwrap()
+        .output("co-window-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![
+            (1, (vec![1], vec![2])),
+            (1, (vec![12], vec![])),
+            (1, (vec![], vec![25]))
+        ]
+    );
 }
 
 #[test]

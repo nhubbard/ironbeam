@@ -77,6 +77,21 @@ fn option_coder_has_distinct_none_and_some_values() {
 }
 
 #[test]
+fn higher_arity_tuple_coders_round_trip_and_check_truncation() {
+    type Triple = (i32, String, bool);
+    let value: Triple = (7, "seven".into(), true);
+    let bytes = value.encode().unwrap();
+    assert_eq!(Triple::decode(&bytes).unwrap(), value);
+    assert_eq!(
+        Triple::decode(&bytes[..bytes.len() - 1]).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    type Ten = (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32);
+    let ten: Ten = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+    assert_eq!(Ten::decode(&ten.encode().unwrap()).unwrap(), ten);
+}
+
+#[test]
 fn filter_registry_and_duplicate_sink_failures_are_explicit() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

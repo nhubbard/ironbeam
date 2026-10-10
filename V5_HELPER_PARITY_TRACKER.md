@@ -21,7 +21,7 @@ remains available until every required family is closed.
 | `display` | transforms | Present | Display mapping passes Direct tests. |
 | `flatten` | core | Present | Fan-in graph and Direct tests exist. |
 | `combine`, `combine_global` | core, direct | Partial | Global combine graph and Direct execution exist; typed incremental combiners and lifted planning remain. |
-| `joins`, `co_gbk` | core, direct | Partial | Inner, left, right, and full joins execute on Direct with duplicate, missing-key, and bounded fixed-window coverage. Multi-way co-group remains. |
+| `joins`, `co_gbk` | core, direct | Present for bounded Direct values | Inner and outer joins plus two through ten input co-groups execute with key/window scoping, duplicates, and empty-side coverage. Current execution materializes all inputs; lifted shuffle and unbounded runner semantics remain. |
 | `side_inputs` | core, transforms, direct | Partial | Bounded collection side input and v4-style immutable vector, singleton, map, and multimap helpers exist. Dynamic singleton/map/multimap materialization and resource policy remain. |
 | `latest`, `timestamped`, `tumbling`, `windowed_combine` | core, transforms, direct | Partial | Explicit timestamp assignment and bounded fixed-window grouping, joins, and global combine execute on Direct. V4 helper spelling, latest, windowed combine abstractions, triggers, and unbounded execution remain. |
 | `sampling` | transforms | Present for values | Eight seeded/default global and per-key methods use v4's priority sequence; bounded-memory aggregation and parallel performance remain to verify. |
@@ -47,6 +47,6 @@ remains available until every required family is closed.
 4. Check the package alone and through the v5 facade, including its feature
    gate, docs, and coverage. Keep large optional dependencies out of core.
 
-The next implementation tranche is multi-way co-group, lifted combines, and
+The next implementation tranche is lifted combines and
 physical scheduling helpers. Optional connectors and I/O shard planning
 remain separate parity gates.

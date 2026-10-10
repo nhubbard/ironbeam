@@ -266,6 +266,50 @@ impl<A: Element, B: Element> Element for (A, B) {
     }
 }
 
+macro_rules! impl_tuple_element {
+    ($count:literal; $($ty:ident:$index:tt),+) => {
+        impl<$($ty: Element),+> Element for ($($ty,)+) {
+            const TYPE_ID: &'static str = concat!("std/tuple", $count);
+            const CODER_ID: &'static str = concat!("ironbeam/tuple", $count, "-length-prefixed");
+            fn type_identity() -> String {
+                format!("{}<{}>", Self::TYPE_ID, [$($ty::type_identity()),+].join(","))
+            }
+            fn coder_identity() -> String {
+                format!("ironbeam/tuple{}-v1<{}>", $count, [$($ty::coder_identity()),+].join(","))
+            }
+            fn supports_coder() -> bool {
+                true $(&& $ty::supports_coder())+
+            }
+            fn encode(&self) -> Result<Vec<u8>, Error> {
+                if !Self::supports_coder() {
+                    return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+                }
+                let mut bytes = Vec::new();
+                $(encode_part(&self.$index.encode()?, &mut bytes);)+
+                Ok(bytes)
+            }
+            fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
+                if !Self::supports_coder() {
+                    return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+                }
+                let value = ($($ty::decode(decode_part(&mut bytes)?)?,)+);
+                if !bytes.is_empty() {
+                    return Err(Error::incompatible("trailing tuple bytes"));
+                }
+                Ok(value)
+            }
+        }
+    };
+}
+impl_tuple_element!(3; A:0, B:1, C:2);
+impl_tuple_element!(4; A:0, B:1, C:2, D:3);
+impl_tuple_element!(5; A:0, B:1, C:2, D:3, E:4);
+impl_tuple_element!(6; A:0, B:1, C:2, D:3, E:4, F:5);
+impl_tuple_element!(7; A:0, B:1, C:2, D:3, E:4, F:5, G:6);
+impl_tuple_element!(8; A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
+impl_tuple_element!(9; A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8);
+impl_tuple_element!(10; A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9);
+
 impl<T: Element + Eq + Hash> Element for HashSet<T> {
     const TYPE_ID: &'static str = "std/hash-set";
     const CODER_ID: &'static str = "ironbeam/hash-set-sorted";
@@ -555,6 +599,7 @@ pub enum Operation {
     AssignTimestamp,
     Flatten,
     GroupByKey,
+    CoGroupByKey,
     JoinInner,
     JoinLeft,
     JoinRight,
@@ -757,6 +802,7 @@ pub struct Capabilities {
     pub unbounded_source: bool,
     pub flatten: bool,
     pub group_by_key: bool,
+    pub co_group_by_key: bool,
     pub join_inner: bool,
     pub join_outer: bool,
     pub side_input_map: bool,
@@ -853,6 +899,7 @@ impl Graph {
             if matches!(
                 node.operation,
                 Operation::Flatten
+                    | Operation::CoGroupByKey
                     | Operation::JoinInner
                     | Operation::JoinLeft
                     | Operation::JoinRight
@@ -924,11 +971,11 @@ impl Graph {
                     if !matches!(
                         node.operation,
                         Operation::Flatten
+                            | Operation::CoGroupByKey
                             | Operation::JoinInner
                             | Operation::JoinLeft
                             | Operation::JoinRight
                             | Operation::JoinFull
-                            | Operation::AssignTimestamp
                             | Operation::SideInputMap
                     ) && node.boundedness != upstream.boundedness
                     {
@@ -942,6 +989,7 @@ impl Graph {
                             | Operation::Filter
                             | Operation::Flatten
                             | Operation::GroupByKey
+                            | Operation::CoGroupByKey
                             | Operation::JoinInner
                             | Operation::JoinLeft
                             | Operation::JoinRight
@@ -956,7 +1004,7 @@ impl Graph {
                     }
                     if matches!(
                         node.operation,
-                        Operation::GlobalCombine | Operation::GroupByKey
+                        Operation::GlobalCombine | Operation::GroupByKey | Operation::CoGroupByKey
                     ) && node.boundedness == Boundedness::Unbounded
                         && node.time.window == Window::Global
                     {
@@ -968,6 +1016,7 @@ impl Graph {
                     if matches!(
                         node.operation,
                         Operation::Flatten
+                            | Operation::CoGroupByKey
                             | Operation::JoinInner
                             | Operation::JoinLeft
                             | Operation::JoinRight
@@ -1020,6 +1069,7 @@ impl Graph {
                         if matches!(
                             node.operation,
                             Operation::JoinInner
+                                | Operation::CoGroupByKey
                                 | Operation::JoinLeft
                                 | Operation::JoinRight
                                 | Operation::JoinFull
@@ -1095,6 +1145,9 @@ impl Graph {
                 Operation::Flatten if !capabilities.flatten => Some("flatten".to_string()),
                 Operation::GroupByKey if !capabilities.group_by_key => {
                     Some("group-by-key".to_string())
+                }
+                Operation::CoGroupByKey if !capabilities.co_group_by_key => {
+                    Some("co-group-by-key".to_string())
                 }
                 Operation::JoinInner if !capabilities.join_inner => Some("join-inner".to_string()),
                 Operation::JoinLeft | Operation::JoinRight | Operation::JoinFull
@@ -1303,6 +1356,9 @@ impl Pipeline {
             ),
             Operation::Flatten => ("ironbeam/flatten".into(), BUILTIN_OPERATION_VERSION),
             Operation::GroupByKey => ("ironbeam/group-by-key".into(), BUILTIN_OPERATION_VERSION),
+            Operation::CoGroupByKey => {
+                ("ironbeam/co-group-by-key".into(), BUILTIN_OPERATION_VERSION)
+            }
             Operation::JoinInner => ("ironbeam/join-inner".into(), BUILTIN_OPERATION_VERSION),
             Operation::JoinLeft => ("ironbeam/join-left".into(), BUILTIN_OPERATION_VERSION),
             Operation::JoinRight => ("ironbeam/join-right".into(), BUILTIN_OPERATION_VERSION),
@@ -2017,6 +2073,142 @@ pub type Joined<K, V, W> = (K, (V, W));
 pub type LeftJoined<K, V, W> = (K, (V, Option<W>));
 pub type RightJoined<K, V, W> = (K, (Option<V>, W));
 pub type FullJoined<K, V, W> = (K, (Option<V>, Option<W>));
+
+macro_rules! collect_cogroup_input {
+    ($inputs:ident, $rows:ident, $indices:ident, $ty:ident, $position:tt, $empty:expr, $node_key:ident) => {
+        for event in $inputs
+            .next()
+            .ok_or_else(|| Error::execution(&$node_key, "direct", "co-group input missing"))?
+        {
+            let Envelope {
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let (row_key, value) = *value.downcast::<(K, $ty)>().map_err(|_| {
+                Error::execution(&$node_key, "direct", "co-group input type mismatch")
+            })?;
+            let scope = (row_key.clone(), assigned_window);
+            let group_index = if let Some(&existing) = $indices.get(&scope) {
+                existing
+            } else {
+                let next = $rows.len();
+                $indices.insert(scope, next);
+                $rows.push((row_key, $empty, timestamp_ns, window, assigned_window));
+                next
+            };
+            $rows[group_index].1.$position.push(value);
+        }
+    };
+}
+
+macro_rules! define_cogroup {
+    ($name:ident; $first:ident:$first_ty:ident:0, $($other:ident:$other_ty:ident:$position:tt),+) => {
+        #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+        pub fn $name<K, $first_ty, $($other_ty),+>(
+            key: &str,
+            $first: &PCollection<(K, $first_ty)>,
+            $($other: &PCollection<(K, $other_ty)>),+
+        ) -> Result<PCollection<(K, (Vec<$first_ty>, $(Vec<$other_ty>),+))>, Error>
+        where
+            K: Element + Eq + Hash + Clone,
+            $first_ty: Element,
+            $($other_ty: Element),+
+        {
+            let first_node = $first.parent()?;
+            let mut unbounded = first_node.boundedness == Boundedness::Unbounded;
+            $(
+                if !Arc::ptr_eq(&$first.pipeline.inner, &$other.pipeline.inner) {
+                    return Err(Error::graph(key, "co-group inputs belong to different pipelines"));
+                }
+                let other_node = $other.parent()?;
+                if other_node.time != first_node.time {
+                    return Err(Error::graph(key, "co-group inputs must have equal time/window declarations"));
+                }
+                unbounded |= other_node.boundedness == Boundedness::Unbounded;
+            )+
+            if unbounded && first_node.time.window == Window::Global {
+                return Err(Error::graph(key, "unbounded global co-group requires a finite window"));
+            }
+            let node_key = key.to_owned();
+            let aggregate: Aggregate = Arc::new(move |inputs| {
+                let expected = 1 $(+ { let _ = stringify!($other); 1 })+;
+                if inputs.len() != expected {
+                    return Err(Error::execution(&node_key, "direct", "co-group input count mismatch"));
+                }
+                let mut inputs = inputs.into_iter();
+                let mut indices: HashMap<(K, Option<WindowInterval>), usize> = HashMap::new();
+                let mut rows: Vec<(K, (Vec<$first_ty>, $(Vec<$other_ty>),+), i64, Window, Option<WindowInterval>)> = Vec::new();
+                macro_rules! empty_values {
+                    () => { (Vec::<$first_ty>::new(), $(Vec::<$other_ty>::new()),+) };
+                }
+                collect_cogroup_input!(inputs, rows, indices, $first_ty, 0,
+                    empty_values!(), node_key);
+                $(collect_cogroup_input!(inputs, rows, indices, $other_ty, $position,
+                    empty_values!(), node_key);)+
+                Ok(rows.into_iter().map(|(key, values, timestamp_ns, window, assigned_window)| Envelope {
+                    value: Box::new((key, values)), timestamp_ns, window, assigned_window
+                }).collect())
+            });
+            $first.next_aggregate(
+                key,
+                Operation::CoGroupByKey,
+                vec![$(InputEdge {
+                    key: $other.key.clone(),
+                    element: ElementDescriptor {
+                        type_id: <(K, $other_ty)>::type_identity(),
+                        coder_id: <(K, $other_ty)>::coder_identity(),
+                        coder_version: <(K, $other_ty)>::CODER_VERSION,
+                    },
+                }),+],
+                if unbounded { Boundedness::Unbounded } else { Boundedness::Bounded },
+                aggregate,
+            )
+        }
+    };
+}
+
+define_cogroup!(cogroup_by_key_2_named; c1:V1:0, c2:V2:1);
+define_cogroup!(cogroup_by_key_3_named; c1:V1:0, c2:V2:1, c3:V3:2);
+define_cogroup!(cogroup_by_key_4_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3);
+define_cogroup!(cogroup_by_key_5_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4);
+define_cogroup!(cogroup_by_key_6_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5);
+define_cogroup!(cogroup_by_key_7_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5, c7:V7:6);
+define_cogroup!(cogroup_by_key_8_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5, c7:V7:6, c8:V8:7);
+define_cogroup!(cogroup_by_key_9_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5, c7:V7:6, c8:V8:7, c9:V9:8);
+define_cogroup!(cogroup_by_key_10_named; c1:V1:0, c2:V2:1, c3:V3:2, c4:V4:3, c5:V5:4, c6:V6:5, c7:V7:6, c8:V8:7, c9:V9:8, c10:V10:9);
+
+#[macro_export]
+macro_rules! cogroup_by_key_named {
+    ($key:expr, $a:expr, $b:expr) => {
+        $crate::cogroup_by_key_2_named($key, &$a, &$b)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr) => {
+        $crate::cogroup_by_key_3_named($key, &$a, &$b, &$c)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr) => {
+        $crate::cogroup_by_key_4_named($key, &$a, &$b, &$c, &$d)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr) => {
+        $crate::cogroup_by_key_5_named($key, &$a, &$b, &$c, &$d, &$e)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr) => {
+        $crate::cogroup_by_key_6_named($key, &$a, &$b, &$c, &$d, &$e, &$f)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr) => {
+        $crate::cogroup_by_key_7_named($key, &$a, &$b, &$c, &$d, &$e, &$f, &$g)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr, $h:expr) => {
+        $crate::cogroup_by_key_8_named($key, &$a, &$b, &$c, &$d, &$e, &$f, &$g, &$h)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr, $h:expr, $i:expr) => {
+        $crate::cogroup_by_key_9_named($key, &$a, &$b, &$c, &$d, &$e, &$f, &$g, &$h, &$i)
+    };
+    ($key:expr, $a:expr, $b:expr, $c:expr, $d:expr, $e:expr, $f:expr, $g:expr, $h:expr, $i:expr, $j:expr) => {
+        $crate::cogroup_by_key_10_named($key, &$a, &$b, &$c, &$d, &$e, &$f, &$g, &$h, &$i, &$j)
+    };
+}
 
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     pub fn group_by_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error> {

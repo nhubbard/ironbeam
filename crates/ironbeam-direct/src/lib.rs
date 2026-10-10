@@ -167,6 +167,7 @@ impl DirectRunner {
                 external_bounded_source: true,
                 flatten: true,
                 group_by_key: true,
+                co_group_by_key: true,
                 join_inner: true,
                 join_outer: true,
                 fixed_window: true,
@@ -188,6 +189,7 @@ impl DirectRunner {
                 | Operation::FixedWindow
                 | Operation::Flatten
                 | Operation::GroupByKey
+                | Operation::CoGroupByKey
                 | Operation::JoinInner
                 | Operation::JoinLeft
                 | Operation::JoinRight
@@ -450,6 +452,7 @@ fn ensure_aggregates(
         if matches!(
             node.operation,
             Operation::GroupByKey
+                | Operation::CoGroupByKey
                 | Operation::JoinInner
                 | Operation::JoinLeft
                 | Operation::JoinRight

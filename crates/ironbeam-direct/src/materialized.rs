@@ -131,6 +131,7 @@ fn eval(
             Ok(output)
         }
         Operation::GroupByKey
+        | Operation::CoGroupByKey
         | Operation::JoinInner
         | Operation::JoinLeft
         | Operation::JoinRight

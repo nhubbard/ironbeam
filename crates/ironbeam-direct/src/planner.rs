@@ -48,6 +48,7 @@ pub(crate) fn lower(
             matches!(
                 node.operation,
                 Operation::GroupByKey
+                    | Operation::CoGroupByKey
                     | Operation::JoinInner
                     | Operation::JoinLeft
                     | Operation::JoinRight
