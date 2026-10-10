@@ -1,6 +1,7 @@
 //! Bounded direct execution of the Ironbeam 5 logical graph.
 #![allow(clippy::redundant_pub_crate)]
 mod checkpoint;
+mod materialized;
 mod metrics;
 mod planner;
 mod spill;
@@ -11,7 +12,8 @@ pub use planner::PlanSummary;
 pub use spill::SpillConfig;
 
 use ironbeam_core::{
-    Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, RetryClass,
+    Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, Registry,
+    RetryClass, Sink, SinkMode, SourceIterator, Window,
 };
 use metrics::MetricsState;
 use rayon::prelude::*;
@@ -114,22 +116,79 @@ impl JobHandle {
 
 #[derive(Clone, Debug, Default)]
 pub struct DirectRunner;
+
+pub trait DirectCollectExt<T: Element> {
+    /// Runs this output with explicit local resources.
+    ///
+    /// # Errors
+    /// Returns a typed validation, execution, resource, or recovery error.
+    fn collect_with(&self, config: &JobConfig) -> Result<(Vec<T>, JobHandle), Error>;
+    /// Runs this output sequentially with default local resources.
+    ///
+    /// # Errors
+    /// Returns a typed Direct runner error.
+    fn collect_seq(&self) -> Result<Vec<T>, Error>;
+    /// Runs this output with a job-owned parallel pool.
+    ///
+    /// # Errors
+    /// Returns a typed Direct runner error.
+    fn collect_par(&self, parallelism: usize) -> Result<Vec<T>, Error>;
+}
+impl<T: Element> DirectCollectExt<T> for Output<T> {
+    fn collect_with(&self, config: &JobConfig) -> Result<(Vec<T>, JobHandle), Error> {
+        DirectRunner.run_collect(self, config)
+    }
+    fn collect_seq(&self) -> Result<Vec<T>, Error> {
+        Ok(self.collect_with(&JobConfig::default())?.0)
+    }
+    fn collect_par(&self, parallelism: usize) -> Result<Vec<T>, Error> {
+        Ok(self
+            .collect_with(&JobConfig {
+                parallelism,
+                ..JobConfig::default()
+            })?
+            .0)
+    }
+}
 impl DirectRunner {
     /// Validates every node before any source is opened.
     ///
     /// # Errors
     /// Returns a typed graph or unsupported-capability error.
     pub fn validate(&self, graph: &Graph) -> Result<(), Error> {
-        graph.validate_for("direct", &Capabilities::default())?;
+        graph.validate_for(
+            "direct",
+            &Capabilities {
+                external_bounded_source: true,
+                flatten: true,
+                group_by_key: true,
+                join_inner: true,
+                side_input_map: true,
+                global_combine: true,
+                append_sink: true,
+                final_result_sink: true,
+                ..Capabilities::default()
+            },
+        )?;
         for node in &graph.nodes {
             let capability = match &node.operation {
                 Operation::Source { .. }
                 | Operation::Map
                 | Operation::Filter
+                | Operation::FlatMap
+                | Operation::Flatten
+                | Operation::GroupByKey
+                | Operation::JoinInner
+                | Operation::SideInputMap
+                | Operation::GlobalCombine
                 | Operation::Output => None,
+                Operation::Sink { spec }
+                    if matches!(spec.mode, SinkMode::Append | SinkMode::FinalResult) =>
+                {
+                    None
+                }
                 Operation::FixedWindow => Some("fixed-window-execution"),
                 Operation::Sink { .. } => Some("deferred-sink-execution"),
-                Operation::GlobalCombine => Some("global-combine"),
                 Operation::Custom { semantic_id, .. } => Some(semantic_id.as_str()),
             };
             if let Some(capability) = capability {
@@ -162,6 +221,7 @@ impl DirectRunner {
     ///
     /// # Errors
     /// Returns validation, cancellation, or execution errors.
+    #[allow(clippy::too_many_lines)]
     pub fn run_collect<T: Element>(
         &self,
         output: &Output<T>,
@@ -176,6 +236,23 @@ impl DirectRunner {
             output.key(),
             config.buffer_budget_elements,
         )?;
+        if plan.materialized && config.checkpoint.is_some() {
+            return Err(Error::unsupported(
+                output.key(),
+                "direct",
+                "aggregate-checkpoint",
+            ));
+        }
+        if plan.materialized {
+            ensure_aggregates(&graph, &registry, output.key())?;
+        }
+        if config.checkpoint.is_some() && plan.routes.len() != 1 {
+            return Err(Error::unsupported(
+                output.key(),
+                "direct",
+                "multi-source-checkpoint",
+            ));
+        }
         if (config.spill.is_some() || config.checkpoint.is_some()) && !T::supports_coder() {
             return Err(Error::unsupported(
                 output.key(),
@@ -209,15 +286,19 @@ impl DirectRunner {
             return Err(cancelled());
         }
         handle.set_status(JobStatus::Running);
-        let result = execute(
-            &pool,
-            &registry,
-            &plan,
-            output.key(),
-            config,
-            checkpoint_identity,
-            &handle,
-        );
+        let result = if plan.materialized {
+            materialized::execute(&pool, &graph, &registry, output.key(), config, &handle)
+        } else {
+            execute(
+                &pool,
+                &registry,
+                &plan,
+                output.key(),
+                config,
+                checkpoint_identity,
+                &handle,
+            )
+        };
         match result {
             Ok(values) => {
                 handle.set_status(JobStatus::Succeeded);
@@ -233,6 +314,157 @@ impl DirectRunner {
             }
         }
     }
+    /// Executes a deferred sink and commits after every input has succeeded.
+    ///
+    /// # Errors
+    /// Returns typed validation, source, transform, sink, or commit errors.
+    pub fn run_sink<T: Element>(
+        &self,
+        sink: &Sink<T>,
+        config: &JobConfig,
+    ) -> Result<JobHandle, Error> {
+        let (graph, registry) = sink.snapshot()?;
+        self.validate(&graph)?;
+        validate_config(config)?;
+        if !matches!(graph.node(sink.key()).map(|node| &node.operation), Some(Operation::Sink { spec }) if spec.commit)
+        {
+            return Err(Error::unsupported(sink.key(), "direct", "sink-commit"));
+        }
+        if config.checkpoint.is_some() {
+            return Err(Error::unsupported(sink.key(), "direct", "sink-checkpoint"));
+        }
+        if !registry.has_sink(sink.key()) {
+            return Err(Error::unsupported(sink.key(), "direct", "sink-factory"));
+        }
+        let plan = planner::lower(&graph, &registry, sink.key(), config.buffer_budget_elements)?;
+        if plan.materialized {
+            ensure_aggregates(&graph, &registry, sink.key())?;
+        }
+        if config.spill.is_some() && !T::supports_coder() {
+            return Err(Error::unsupported(
+                sink.key(),
+                "direct",
+                "element-coder-for-durable-output",
+            ));
+        }
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(config.parallelism)
+            .build()
+            .map_err(|e| Error::execution("job", "direct", e.to_string()))?;
+        let handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+        if config.cancellation.load(Ordering::Acquire) {
+            handle.cancel();
+            return Err(cancelled());
+        }
+        handle.set_status(JobStatus::Running);
+        let result = (|| {
+            let values: Vec<T> = if plan.materialized {
+                materialized::execute(&pool, &graph, &registry, sink.key(), config, &handle)?
+            } else {
+                execute(&pool, &registry, &plan, sink.key(), config, None, &handle)?
+            };
+            let mut session = catch_unwind(AssertUnwindSafe(|| registry.open_sink(sink.key())))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        sink.key(),
+                        "direct",
+                        "sink factory panicked",
+                    ))
+                })?;
+            for value in values {
+                let event = Envelope {
+                    value: Box::new(value),
+                    timestamp_ns: 0,
+                    window: Window::Global,
+                    assigned_window: None,
+                };
+                let written = catch_unwind(AssertUnwindSafe(|| session.write(event)))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            sink.key(),
+                            "direct",
+                            "sink writer panicked",
+                        ))
+                    });
+                if let Err(error) = written {
+                    let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                    return Err(error);
+                }
+            }
+            let committed =
+                catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        sink.key(),
+                        "direct",
+                        "sink commit panicked",
+                    ))
+                });
+            if let Err(error) = committed {
+                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                return Err(error);
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                handle.set_status(JobStatus::Succeeded);
+                Ok(handle)
+            }
+            Err(error) => {
+                handle.set_status(if error.kind == ErrorKind::Cancelled {
+                    JobStatus::Cancelled
+                } else {
+                    JobStatus::Failed
+                });
+                Err(error)
+            }
+        }
+    }
+}
+fn ensure_aggregates(
+    graph: &Graph,
+    registry: &ironbeam_core::Registry,
+    output_key: &str,
+) -> Result<(), Error> {
+    let mut stack = vec![output_key];
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(key) = stack.pop() {
+        if !seen.insert(key) {
+            continue;
+        }
+        let node = graph
+            .node(key)
+            .ok_or_else(|| Error::graph(key, "physical node missing"))?;
+        if matches!(
+            node.operation,
+            Operation::GroupByKey
+                | Operation::JoinInner
+                | Operation::SideInputMap
+                | Operation::GlobalCombine
+        ) && !registry.has_aggregate(key)
+        {
+            return Err(Error::unsupported(key, "direct", "aggregate-function"));
+        }
+        if let Some(input) = node.input.as_deref() {
+            stack.push(input);
+        }
+        stack.extend(node.additional_inputs.iter().map(|edge| edge.key.as_str()));
+    }
+    Ok(())
+}
+fn open_source_safe(registry: &Registry, key: &str) -> Result<SourceIterator, Error> {
+    catch_unwind(AssertUnwindSafe(|| registry.open_source(key)))
+        .unwrap_or_else(|_| Err(Error::execution(key, "direct", "source factory panicked")))
+}
+fn read_source_batch(
+    source: &mut SourceIterator,
+    limit: usize,
+    key: &str,
+) -> Result<Vec<Envelope>, Error> {
+    catch_unwind(AssertUnwindSafe(|| {
+        source.by_ref().take(limit).collect::<Result<_, _>>()
+    }))
+    .unwrap_or_else(|_| Err(Error::execution(key, "direct", "source iterator panicked")))
 }
 fn validate_config(config: &JobConfig) -> Result<(), Error> {
     if config.parallelism == 0
@@ -297,7 +529,7 @@ fn execute<T: Element>(
             checkpoint::CheckpointManager::new(cfg, identity, handle.metrics.clone())
         })
         .transpose()?;
-    let mut source_offset = if let Some(manager) = &checkpoint {
+    let recovered_offset = if let Some(manager) = &checkpoint {
         manager.recover(&mut store)?
     } else {
         0
@@ -305,73 +537,89 @@ fn execute<T: Element>(
     if plan
         .summary
         .source_len_hint
-        .is_some_and(|len| source_offset > len)
+        .is_some_and(|len| recovered_offset > len)
     {
         return Err(Error::recovery(
             &plan.summary.source_key,
             "checkpoint offset exceeds source length",
         ));
     }
-    let mut source = registry.open_source(&plan.summary.source_key)?;
-    for _ in 0..source_offset {
-        if source.next().is_none() {
-            return Err(Error::recovery(
-                &plan.summary.source_key,
-                "source ended before checkpoint position",
-            ));
-        }
-    }
     handle.processed.store(
         handle.metrics.recovered_elements.load(Ordering::Relaxed),
         Ordering::Relaxed,
     );
-    let mut batches = 0_usize;
-    loop {
-        if config.cancellation.load(Ordering::Acquire) {
-            return Err(cancelled());
+    for route in &plan.routes {
+        let mut source_offset = recovered_offset;
+        let mut source = open_source_safe(registry, &route.source_key)?;
+        for _ in 0..source_offset {
+            if read_source_batch(&mut source, 1, &route.source_key)?.is_empty() {
+                return Err(Error::recovery(
+                    &route.source_key,
+                    "source ended before checkpoint position",
+                ));
+            }
         }
-        let batch: Vec<Envelope> = source.by_ref().take(plan.summary.batch_limit).collect();
-        if batch.is_empty() {
-            break;
-        }
-        let batch_len = batch.len();
-        handle.metrics.source_elements.fetch_add(
-            u64::try_from(batch_len).unwrap_or(u64::MAX),
-            Ordering::Relaxed,
-        );
-        handle.metrics.peak_batch_elements.fetch_max(
-            u64::try_from(batch_len).unwrap_or(u64::MAX),
-            Ordering::Relaxed,
-        );
-        let results: Vec<Result<Option<Envelope>, Error>> = pool.install(|| {
-            batch
-                .into_par_iter()
-                .map(|mut event| {
-                    for key in &plan.operations {
-                        if config.cancellation.load(Ordering::Acquire) {
-                            return Err(cancelled());
-                        }
-                        event = match catch_unwind(AssertUnwindSafe(|| registry.apply(key, event)))
-                        {
-                            Ok(Ok(Some(next))) => next,
-                            Ok(Ok(None)) => return Ok(None),
-                            Ok(Err(error)) => return Err(error),
-                            Err(_) => {
-                                return Err(Error::execution(
-                                    key,
-                                    "direct",
-                                    "user transform panicked",
-                                ));
+        let mut batches = 0_usize;
+        loop {
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            let batch =
+                read_source_batch(&mut source, plan.summary.batch_limit, &route.source_key)?;
+            if batch.is_empty() {
+                break;
+            }
+            let batch_len = batch.len();
+            handle.metrics.source_elements.fetch_add(
+                u64::try_from(batch_len).unwrap_or(u64::MAX),
+                Ordering::Relaxed,
+            );
+            handle.metrics.peak_batch_elements.fetch_max(
+                u64::try_from(batch_len).unwrap_or(u64::MAX),
+                Ordering::Relaxed,
+            );
+            let results: Vec<Result<Vec<Envelope>, Error>> = pool.install(|| {
+                batch
+                    .into_par_iter()
+                    .map(|event| {
+                        let mut events = vec![event];
+                        for key in &route.operations {
+                            let mut next_events = Vec::new();
+                            for event in events {
+                                if config.cancellation.load(Ordering::Acquire) {
+                                    return Err(cancelled());
+                                }
+                                match catch_unwind(AssertUnwindSafe(|| {
+                                    registry.apply_many(key, event)
+                                })) {
+                                    Ok(Ok(produced)) => {
+                                        if produced.is_empty() {
+                                            handle
+                                                .metrics
+                                                .filtered_elements
+                                                .fetch_add(1, Ordering::Relaxed);
+                                        }
+                                        next_events.extend(produced);
+                                    }
+                                    Ok(Err(error)) => return Err(error),
+                                    Err(_) => {
+                                        return Err(Error::execution(
+                                            key,
+                                            "direct",
+                                            "user transform panicked",
+                                        ));
+                                    }
+                                }
                             }
-                        };
-                    }
-                    Ok(Some(event))
-                })
-                .collect()
-        });
-        for result in results {
-            match result? {
-                Some(event) => {
+                            events = next_events;
+                        }
+                        Ok(events)
+                    })
+                    .collect()
+            });
+            for result in results {
+                let values = result?;
+                for event in values {
                     let value = event.value.downcast::<T>().map_err(|_| {
                         Error::execution(output_key, "direct", "output type mismatch")
                     })?;
@@ -383,30 +631,24 @@ fn execute<T: Element>(
                         + 1;
                     handle.processed.store(total, Ordering::Relaxed);
                 }
-                None => {
-                    handle
-                        .metrics
-                        .filtered_elements
-                        .fetch_add(1, Ordering::Relaxed);
-                }
+            }
+            source_offset = source_offset
+                .checked_add(batch_len)
+                .ok_or_else(|| Error::resource("job", "source offset overflow"))?;
+            batches += 1;
+            handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+            if let Some(manager) = &checkpoint
+                && manager.should_save(batches)
+            {
+                manager.save(source_offset, &store)?;
             }
         }
-        source_offset = source_offset
-            .checked_add(batch_len)
-            .ok_or_else(|| Error::resource("job", "source offset overflow"))?;
-        batches += 1;
-        handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
         if let Some(manager) = &checkpoint
-            && manager.should_save(batches)
+            && batches > 0
+            && !manager.should_save(batches)
         {
             manager.save(source_offset, &store)?;
         }
-    }
-    if let Some(manager) = &checkpoint
-        && batches > 0
-        && !manager.should_save(batches)
-    {
-        manager.save(source_offset, &store)?;
     }
     store.into_vec()
 }

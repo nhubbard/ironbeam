@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -14,14 +14,14 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["io-jsonl", "io-csv", "io-parquet", "io-avro", "io-xml", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling", "coders"]
-v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct"]
+v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "dep:ironbeam-io"]
 
 # IO backends
-io-jsonl = []
-io-csv = ["dep:csv"]
-io-parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow"]
-io-avro = ["dep:apache-avro"]
-io-xml = ["dep:quick-xml"]
+io-jsonl = ["ironbeam-io?/jsonl"]
+io-csv = ["dep:csv", "ironbeam-io?/csv"]
+io-parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow", "ironbeam-io?/parquet"]
+io-avro = ["dep:apache-avro", "ironbeam-io?/avro"]
+io-xml = ["dep:quick-xml", "ironbeam-io?/xml"]
 
 # Additional I/O formats (Tier 5).
 #
@@ -57,6 +57,8 @@ coders = ["dep:postcard"]
 [dependencies]
 ironbeam-core = { path = "crates/ironbeam-core", optional = true }
 ironbeam-direct = { path = "crates/ironbeam-direct", optional = true }
+ironbeam-transforms = { path = "crates/ironbeam-transforms", optional = true }
+ironbeam-io = { path = "crates/ironbeam-io", default-features = false, optional = true }
 # Core dependencies
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

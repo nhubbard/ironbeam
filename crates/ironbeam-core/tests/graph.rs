@@ -36,6 +36,30 @@ fn coder_contract_and_direct_error_taxonomy() {
 }
 
 #[test]
+fn composite_coders_are_typed_and_reject_truncated_payloads() {
+    type Pair = (String, Vec<i32>);
+    let value: Pair = ("key".into(), vec![1, 2, 3]);
+    assert!(Pair::supports_coder());
+    assert_eq!(Pair::decode(&value.encode().unwrap()).unwrap(), value);
+    assert!(Pair::type_identity().contains("std/vector<std/i32>"));
+    assert!(Pair::coder_identity().contains("ironbeam/i32-le"));
+    let mut truncated = value.encode().unwrap();
+    truncated.pop();
+    assert_eq!(
+        Pair::decode(&truncated).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    assert_eq!(
+        Vec::<i32>::decode(&[]).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    let pipeline = Pipeline::default();
+    pipeline.from_vec("pairs", vec![value]).unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(graph.node("pairs").unwrap().type_id, Pair::type_identity());
+}
+
+#[test]
 fn filter_registry_and_duplicate_sink_failures_are_explicit() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();
@@ -44,13 +68,13 @@ fn filter_registry_and_duplicate_sink_failures_are_explicit() {
     let mut source = registry.open_source("source").unwrap();
     assert!(
         registry
-            .apply("even", source.next().unwrap())
+            .apply("even", source.next().unwrap().unwrap())
             .unwrap()
             .is_none()
     );
     assert!(
         registry
-            .apply("even", source.next().unwrap())
+            .apply("even", source.next().unwrap().unwrap())
             .unwrap()
             .is_some()
     );
@@ -62,6 +86,39 @@ fn filter_registry_and_duplicate_sink_failures_are_explicit() {
             .kind,
         ErrorKind::Graph
     );
+}
+
+#[test]
+fn flatten_declares_typed_fan_in_and_rejects_invalid_edges() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![1_i32]).unwrap();
+    let right = pipeline.from_vec("right", vec![2_i32]).unwrap();
+    let merged = left.flatten_named("merged", &[right]).unwrap();
+    merged.output("out").unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let node = graph.node("merged").unwrap();
+    assert_eq!(node.additional_inputs.len(), 1);
+    assert_eq!(node.additional_inputs[0].key, "right");
+    assert_eq!(
+        graph
+            .validate_for("other", &Capabilities::default())
+            .unwrap_err()
+            .kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "flatten".into()
+        }
+    );
+    let mut malformed = graph.clone();
+    malformed.node_mut_for_test("merged").additional_inputs[0].key = "missing".into();
+    assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);
+    let mut malformed = graph.clone();
+    malformed.node_mut_for_test("merged").additional_inputs[0]
+        .element
+        .coder_id = "wrong".into();
+    assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);
+    let mut malformed = graph.clone();
+    malformed.node_mut_for_test("merged").additional_inputs[0].key = "out".into();
+    assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);
 }
 
 fn small() -> (Graph, Registry) {
@@ -248,7 +305,12 @@ fn event_time_is_preserved_and_pre_epoch_windows_are_checked() {
         .output("out")
         .unwrap();
     let (_, registry) = p.snapshot().unwrap();
-    let source = registry.open_source("input").unwrap().next().unwrap();
+    let source = registry
+        .open_source("input")
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
     let mapped = registry.apply("map", source).unwrap().unwrap();
     assert_eq!(mapped.timestamp_ns, 0);
     assert_eq!(mapped.window, Window::Global);
@@ -398,7 +460,7 @@ fn map_edge_declares_its_expected_input_type_and_coder() {
     assert_eq!(expected.type_id, "std/i32");
     assert_eq!(expected.coder_id, "ironbeam/i32-le");
     assert_eq!(graph.node("map").unwrap().type_id, "std/u32");
-    assert_eq!(graph.version.major, 2);
+    assert_eq!(graph.version.major, 3);
     assert_eq!(
         graph.node("map").unwrap().semantic_version,
         BUILTIN_OPERATION_VERSION
@@ -524,9 +586,11 @@ fn bounded_aggregation_marker_and_update_sink_capability() {
             commit: true,
         },
     };
-    let error = graph
-        .validate_for("fake", &Capabilities::default())
-        .unwrap_err();
+    let caps = Capabilities {
+        global_combine: true,
+        ..Capabilities::default()
+    };
+    let error = graph.validate_for("fake", &caps).unwrap_err();
     assert_eq!(
         error.kind,
         ErrorKind::UnsupportedCapability {
@@ -535,6 +599,7 @@ fn bounded_aggregation_marker_and_update_sink_capability() {
     );
     let caps = Capabilities {
         update_sink: true,
+        global_combine: true,
         ..Capabilities::default()
     };
     graph.validate_for("fake", &caps).unwrap();
@@ -563,7 +628,7 @@ fn malformed_aggregation_and_overflow_do_not_reach_a_runner() {
             .validate()
             .unwrap_err()
             .message
-            .contains("unbounded global aggregation")
+            .contains("event time/window")
     );
 
     assert!(
@@ -579,7 +644,12 @@ fn malformed_aggregation_and_overflow_do_not_reach_a_runner() {
         .output("out")
         .unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
-    let mut event = registry.open_source("source").unwrap().next().unwrap();
+    let mut event = registry
+        .open_source("source")
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
     event.timestamp_ns = i64::MAX;
     assert_eq!(
         registry.apply("window", event).err().unwrap().kind,
@@ -689,4 +759,773 @@ fn built_in_coders_round_trip_and_source_digest_binds_values() {
         first_registry.source_config_digest("source"),
         second_registry.source_config_digest("source")
     );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn bounded_source_and_deferred_sink_registry_contract() {
+    use std::sync::{Arc, Mutex};
+    struct Capture(Arc<Mutex<Vec<i32>>>);
+    impl TypedSink<i32> for Capture {
+        fn write(&mut self, value: i32) -> Result<(), Error> {
+            self.0.lock().unwrap().push(value);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.0.lock().unwrap().clear();
+            Ok(())
+        }
+    }
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: false,
+    };
+    let pipeline = Pipeline::default();
+    assert!(
+        pipeline
+            .bounded_source::<i32>("bad", progress.clone(), String::new(), None, || Ok(
+                Box::new(std::iter::empty())
+            ))
+            .is_err()
+    );
+    let source = pipeline
+        .bounded_source("input", progress, "digest".into(), Some(1), || {
+            Ok(Box::new(
+                vec![Ok(7_i32), Err(Error::io("input", "test", "read failed"))].into_iter(),
+            ))
+        })
+        .unwrap();
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let copy = captured.clone();
+    let sink = source
+        .sink_named(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::FinalResult,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            move || Ok(Box::new(Capture(copy.clone()))),
+        )
+        .unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    assert_eq!(sink.key(), "sink");
+    assert_eq!(registry.source_config_digest("input"), Some("digest"));
+    assert_eq!(registry.source_len_hint("input"), Some(1));
+    let mut source = registry.open_source("input").unwrap();
+    assert_eq!(
+        *source
+            .next()
+            .unwrap()
+            .unwrap()
+            .value
+            .downcast::<i32>()
+            .unwrap(),
+        7
+    );
+    assert_eq!(source.next().unwrap().err().unwrap().kind, ErrorKind::Io);
+    assert_eq!(
+        registry.open_source("missing").err().unwrap().kind,
+        ErrorKind::Execution
+    );
+    let mut session = registry.open_sink("sink").unwrap();
+    assert_eq!(
+        session
+            .write(Envelope {
+                value: Box::new("bad".to_string()),
+                timestamp_ns: 0,
+                window: Window::Global,
+                assigned_window: None
+            })
+            .unwrap_err()
+            .kind,
+        ErrorKind::Execution
+    );
+    session
+        .write(Envelope {
+            value: Box::new(7_i32),
+            timestamp_ns: 0,
+            window: Window::Global,
+            assigned_window: None,
+        })
+        .unwrap();
+    session.commit().unwrap();
+    assert_eq!(*captured.lock().unwrap(), [7]);
+    session.abort().unwrap();
+    assert!(captured.lock().unwrap().is_empty());
+    assert!(registry.open_sink("missing").is_err());
+    assert_eq!(
+        graph
+            .validate_for("fake", &Capabilities::default())
+            .unwrap_err()
+            .kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "final-result-sink".into()
+        }
+    );
+    let caps = Capabilities {
+        final_result_sink: true,
+        ..Capabilities::default()
+    };
+    graph.validate_for("fake", &caps).unwrap();
+}
+
+#[test]
+fn transform_registry_preserves_time_and_runs_all_aggregates() {
+    fn events<T: Element>(values: impl IntoIterator<Item = T>) -> Vec<Envelope> {
+        values
+            .into_iter()
+            .map(|value| Envelope {
+                value: Box::new(value),
+                timestamp_ns: -1,
+                window: Window::Global,
+                assigned_window: None,
+            })
+            .collect()
+    }
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("left", vec![(1_i32, 2_i32), (1, 3)])
+        .unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 4_i32)]).unwrap();
+    left.group_by_key_named("group").unwrap();
+    left.join_inner_named("join", &right).unwrap();
+    let values = left.map_named("values", |(_, value)| value).unwrap();
+    values
+        .combine_globally_named("sum", |values| values.into_iter().sum::<i32>())
+        .unwrap();
+    values
+        .map_with_side_named("side", &right, |value, side| {
+            value + i32::try_from(side.len()).unwrap()
+        })
+        .unwrap();
+    values
+        .flat_map_named("expand", |value| vec![value, -value])
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let outputs = registry
+        .apply_many("expand", events([2_i32]).pop().unwrap())
+        .unwrap();
+    assert_eq!(outputs.len(), 2);
+    assert_eq!(outputs[0].timestamp_ns, -1);
+    let group = registry
+        .apply_aggregate("group", vec![events([(1_i32, 2_i32), (1, 3)])])
+        .unwrap();
+    assert_eq!(
+        *group
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<(i32, Vec<i32>)>()
+            .unwrap(),
+        (1, vec![2, 3])
+    );
+    let join = registry
+        .apply_aggregate(
+            "join",
+            vec![events([(1_i32, 2_i32)]), events([(1_i32, 4_i32)])],
+        )
+        .unwrap();
+    assert_eq!(
+        *join
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<(i32, (i32, i32))>()
+            .unwrap(),
+        (1, (2, 4))
+    );
+    let sum = registry
+        .apply_aggregate("sum", vec![events([2_i32, 3])])
+        .unwrap();
+    assert_eq!(
+        *sum.into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<i32>()
+            .unwrap(),
+        5
+    );
+    let side = registry
+        .apply_aggregate("side", vec![events([2_i32]), events([(1_i32, 4_i32)])])
+        .unwrap();
+    assert_eq!(
+        *side
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<i32>()
+            .unwrap(),
+        3
+    );
+    assert!(!registry.has_aggregate("missing"));
+    assert!(registry.apply_aggregate("missing", vec![]).is_err());
+}
+
+#[test]
+fn multi_input_validation_rejects_descriptor_and_topology_corruption() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 2_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 3_i32)]).unwrap();
+    let flat = left
+        .flatten_named("flat", std::slice::from_ref(&right))
+        .unwrap();
+    left.join_inner_named("join", &right).unwrap();
+    left.map_with_side_named("side", &right, |value, _| value)
+        .unwrap();
+    flat.group_by_key_named("group").unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let mut altered = graph.clone();
+    altered.node_mut_for_test("flat").additional_inputs.clear();
+    assert!(
+        altered
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("multi-input")
+    );
+    let mut altered = graph.clone();
+    let duplicated = altered.node("join").unwrap().additional_inputs[0].clone();
+    altered
+        .node_mut_for_test("join")
+        .additional_inputs
+        .push(duplicated);
+    assert!(
+        altered
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("exactly two")
+    );
+    let mut altered = graph.clone();
+    altered.node_mut_for_test("right").type_id = "wrong/type".into();
+    assert!(
+        altered
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("additional input")
+    );
+    let mut altered = graph.clone();
+    altered.node_mut_for_test("flat").additional_inputs[0]
+        .element
+        .type_id = "wrong/type".into();
+    assert!(
+        altered
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("additional input")
+    );
+    let mut altered = graph.clone();
+    altered.node_mut_for_test("right").time.initial_timestamp_ns = 42;
+    assert!(
+        altered
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("time/window")
+    );
+    let mut altered = graph.clone();
+    altered.node_mut_for_test("flat").boundedness = Boundedness::Unbounded;
+    assert!(
+        altered
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("boundedness")
+    );
+    let mut altered = graph.clone();
+    altered.node_mut_for_test("side").additional_inputs[0].key = "missing".into();
+    assert!(
+        altered
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("missing additional")
+    );
+    let mut altered = graph.clone();
+    altered
+        .node_mut_for_test("group")
+        .additional_inputs
+        .push(graph.node("flat").unwrap().additional_inputs[0].clone());
+    assert!(altered.validate().unwrap_err().message.contains("forbid"));
+    let mut altered = graph;
+    altered.node_mut_for_test("join").additional_inputs[0].key = "join".into();
+    assert!(altered.validate().is_err());
+}
+
+#[test]
+fn new_operations_require_individual_backend_capabilities() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 2_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 3_i32)]).unwrap();
+    left.flatten_named("flat", std::slice::from_ref(&right))
+        .unwrap();
+    left.group_by_key_named("group").unwrap();
+    left.join_inner_named("join", &right).unwrap();
+    left.map_with_side_named("side", &right, |value, _| value)
+        .unwrap();
+    left.combine_globally_named("combine", |values| i32::try_from(values.len()).unwrap())
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let mut caps = Capabilities::default();
+    for (name, enable) in [
+        ("flatten", 0),
+        ("group-by-key", 1),
+        ("join-inner", 2),
+        ("side-input-map", 3),
+        ("global-combine", 4),
+    ] {
+        let error = graph.validate_for("fake", &caps).unwrap_err();
+        assert_eq!(
+            error.kind,
+            ErrorKind::UnsupportedCapability {
+                capability: name.into()
+            }
+        );
+        match enable {
+            0 => caps.flatten = true,
+            1 => caps.group_by_key = true,
+            2 => caps.join_inner = true,
+            3 => caps.side_input_map = true,
+            _ => caps.global_combine = true,
+        }
+    }
+    graph.validate_for("fake", &caps).unwrap();
+}
+
+#[test]
+fn phase4_builder_rejects_incompatible_inputs() {
+    let first = Pipeline::default();
+    let other = Pipeline::default();
+    let a = first.from_vec("a", vec![1_i32]).unwrap();
+    let b = other.from_vec("b", vec![2_i32]).unwrap();
+    assert!(a.flatten_named("empty", &[]).is_err());
+    assert!(
+        a.flatten_named("different", std::slice::from_ref(&b))
+            .is_err()
+    );
+    assert!(a.map_with_side_named("side", &b, |value, _| value).is_err());
+    let timed = a.fixed_windows("window", 10).unwrap();
+    assert!(
+        a.flatten_named("time-mismatch", std::slice::from_ref(&timed))
+            .is_err()
+    );
+    assert!(
+        a.map_with_side_named("side-time", &timed, |value, _| value)
+            .is_err()
+    );
+    let unbounded = first
+        .unbounded_source::<i32>(
+            "unbounded",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            0,
+        )
+        .unwrap();
+    assert!(
+        a.map_with_side_named("side-unbounded", &unbounded, |value, _| value)
+            .is_err()
+    );
+    assert!(
+        unbounded
+            .combine_globally_named("infinite", |values| i32::try_from(values.len()).unwrap())
+            .is_err()
+    );
+    assert_eq!(
+        a.flatten_named("mixed", &[unbounded]).unwrap().key(),
+        "mixed"
+    );
+    let keyed_a = first.from_vec("keyed-a", vec![(1_i32, 2_i32)]).unwrap();
+    let keyed_b = other.from_vec("keyed-b", vec![(1_i32, 3_i32)]).unwrap();
+    assert!(keyed_a.join_inner_named("cross", &keyed_b).is_err());
+    let keyed_timed = keyed_a.fixed_windows("keyed-window", 10).unwrap();
+    assert!(keyed_a.join_inner_named("join-time", &keyed_timed).is_err());
+    let keyed_unbounded = first
+        .unbounded_source::<(i32, i32)>(
+            "keyed-stream",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::None,
+                reports_event_time: true,
+            },
+            0,
+        )
+        .unwrap();
+    assert!(
+        keyed_a
+            .join_inner_named("join-infinite", &keyed_unbounded)
+            .is_err()
+    );
+    assert!(
+        keyed_unbounded
+            .group_by_key_named("group-infinite")
+            .is_err()
+    );
+}
+
+#[test]
+fn aggregate_registry_reports_bad_arity_and_runtime_types() {
+    fn event(value: impl Send + 'static) -> Envelope {
+        Envelope {
+            value: Box::new(value),
+            timestamp_ns: 0,
+            window: Window::Global,
+            assigned_window: None,
+        }
+    }
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 2_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 3_i32)]).unwrap();
+    let values = left.map_named("values", |(_, value)| value).unwrap();
+    values
+        .combine_globally_named("sum", |values| values.into_iter().sum::<i32>())
+        .unwrap();
+    values
+        .map_with_side_named("side", &right, |value, _| value)
+        .unwrap();
+    left.group_by_key_named("group").unwrap();
+    left.join_inner_named("join", &right).unwrap();
+    values.flat_map_named("flat", |value| vec![value]).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.apply_aggregate("sum", vec![]).is_err());
+    assert!(
+        registry
+            .apply_aggregate("sum", vec![vec![event("bad")]])
+            .is_err()
+    );
+    assert!(registry.apply_aggregate("side", vec![]).is_err());
+    assert!(
+        registry
+            .apply_aggregate("side", vec![vec![event(1_i32)], vec![event("bad")]])
+            .is_err()
+    );
+    assert!(
+        registry
+            .apply_aggregate(
+                "side",
+                vec![vec![event("bad")], vec![event((1_i32, 2_i32))]]
+            )
+            .is_err()
+    );
+    assert!(registry.apply_aggregate("group", vec![]).is_err());
+    assert!(
+        registry
+            .apply_aggregate("group", vec![vec![event("bad")]])
+            .is_err()
+    );
+    assert!(registry.apply_aggregate("join", vec![]).is_err());
+    assert!(
+        registry
+            .apply_aggregate(
+                "join",
+                vec![vec![event("bad")], vec![event((1_i32, 2_i32))]]
+            )
+            .is_err()
+    );
+    assert!(
+        registry
+            .apply_aggregate(
+                "join",
+                vec![vec![event((1_i32, 2_i32))], vec![event("bad")]]
+            )
+            .is_err()
+    );
+    assert!(registry.apply_many("flat", event("bad")).is_err());
+}
+
+#[test]
+fn remaining_phase4_contract_edges_are_explicit() {
+    #[derive(Clone)]
+    struct Opaque;
+    impl Element for Opaque {
+        const TYPE_ID: &'static str = "test/opaque2";
+        const CODER_ID: &'static str = "test/opaque2";
+    }
+    assert!(vec![Opaque].encode().is_err());
+    assert!(Vec::<Opaque>::decode(&[]).is_err());
+    assert!((Opaque, 1_i32).encode().is_err());
+    assert!(<(Opaque, i32)>::decode(&[]).is_err());
+    assert!(Vec::<i32>::decode(&[]).is_err());
+    let mut encoded = vec![1_i32].encode().unwrap();
+    encoded.push(0);
+    assert!(Vec::<i32>::decode(&encoded).is_err());
+    let mut encoded = (1_i32, 2_i32).encode().unwrap();
+    encoded.push(0);
+    assert!(<(i32, i32)>::decode(&encoded).is_err());
+
+    let pipeline = Pipeline::default();
+    let a = pipeline.from_vec("a", vec![1_i32]).unwrap();
+    a.flat_map_named("flat", |value| vec![value, -value])
+        .unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    let mut source = registry.open_source("a").unwrap();
+    let event = source.next().unwrap().unwrap();
+    assert!(registry.apply("flat", event).is_err());
+    let _ = graph;
+    assert!(!registry.has_sink("missing"));
+    let pipeline = Pipeline::default();
+    let value = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    let terminal = value
+        .sink_named(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::FinalResult,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            || Err(Error::io("sink", "test", "cannot open")),
+        )
+        .unwrap();
+    assert!(terminal.snapshot().is_ok());
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.has_sink("sink"));
+    assert_eq!(
+        registry.open_sink("sink").err().unwrap().kind,
+        ErrorKind::Io
+    );
+}
+
+#[test]
+fn unbounded_multi_input_graph_validation_catches_invalid_rewrites() {
+    let pipeline = Pipeline::default();
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::None,
+        reports_event_time: true,
+    };
+    let first = pipeline
+        .unbounded_source::<(i32, i32)>("first", progress.clone(), 0)
+        .unwrap()
+        .fixed_windows("first-window", 10)
+        .unwrap();
+    let second = pipeline
+        .unbounded_source::<(i32, i32)>("second", progress, 0)
+        .unwrap()
+        .fixed_windows("second-window", 10)
+        .unwrap();
+    first.join_inner_named("join", &second).unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node("join").unwrap().boundedness,
+        Boundedness::Unbounded
+    );
+    let mut changed = graph;
+    changed.node_mut_for_test("first-window").time.window = Window::Global;
+    changed.node_mut_for_test("second-window").time.window = Window::Global;
+    changed.node_mut_for_test("join").time.window = Window::Global;
+    assert!(changed.validate().is_err());
+    let pipeline = Pipeline::default();
+    let main = pipeline.from_vec("main", vec![1_i32]).unwrap();
+    let side = pipeline.from_vec("side", vec![2_i32]).unwrap();
+    main.map_with_side_named("map-side", &side, |value, _| value)
+        .unwrap();
+    let (mut graph, _) = pipeline.snapshot().unwrap();
+    graph.node_mut_for_test("side").boundedness = Boundedness::Unbounded;
+    graph.node_mut_for_test("map-side").boundedness = Boundedness::Unbounded;
+    assert!(
+        graph
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("side input must be bounded")
+    );
+}
+
+#[test]
+fn graph_rejects_unbounded_aggregate_and_join_even_after_descriptor_edit() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 2_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 3_i32)]).unwrap();
+    left.group_by_key_named("group").unwrap();
+    left.join_inner_named("join", &right).unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let mut changed = graph.clone();
+    changed.node_mut_for_test("left").boundedness = Boundedness::Unbounded;
+    changed.node_mut_for_test("group").boundedness = Boundedness::Unbounded;
+    changed.node_mut_for_test("join").boundedness = Boundedness::Unbounded;
+    assert!(
+        changed
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("aggregation")
+    );
+    changed.node_mut_for_test("group").operation = Operation::Map;
+    assert!(changed.validate().unwrap_err().message.contains("join"));
+    let mut changed = graph;
+    changed.node_mut_for_test("right").boundedness = Boundedness::Unbounded;
+    changed.node_mut_for_test("join").boundedness = Boundedness::Unbounded;
+    assert!(changed.validate().unwrap_err().message.contains("join"));
+}
+
+#[test]
+fn graph_rejects_flatten_output_type_disagreement() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![1_i32]).unwrap();
+    let right = pipeline.from_vec("right", vec![2_i32]).unwrap();
+    left.flatten_named("flat", &[right]).unwrap();
+    let (mut graph, _) = pipeline.snapshot().unwrap();
+    graph.node_mut_for_test("right").type_id = "other/type".into();
+    graph.node_mut_for_test("flat").additional_inputs[0]
+        .element
+        .type_id = "other/type".into();
+    assert!(
+        graph
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("flatten input type/coder")
+    );
+}
+
+#[test]
+fn composite_coder_rejects_corrupt_lengths_and_group_join_handles_misses() {
+    assert!(<(i32, i32)>::decode(&[]).is_err());
+    assert!(<(i32, i32)>::decode(&u64::MAX.to_le_bytes()).is_err());
+    assert!(<(i32, i32)>::decode(&0_u64.to_le_bytes()).is_err());
+    let mut truncated = 1_u64.to_le_bytes().to_vec();
+    truncated.extend_from_slice(&0_u64.to_le_bytes());
+    assert!(Vec::<i32>::decode(&truncated).is_err());
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 2_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(2_i32, 3_i32)]).unwrap();
+    left.join_inner_named("join", &right).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let event = |value: (i32, i32)| Envelope {
+        value: Box::new(value),
+        timestamp_ns: 0,
+        window: Window::Global,
+        assigned_window: None,
+    };
+    assert!(
+        registry
+            .apply_aggregate("join", vec![vec![event((1, 2))], vec![event((2, 3))]])
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn graph_rejects_each_identity_and_version_component() {
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    source
+        .custom_named("custom", "tests/op", Version { major: 1, minor: 0 })
+        .unwrap();
+    source.fixed_windows("window", 10).unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let mut changed = graph.clone();
+    changed.node_mut_for_test("source").coder_id.clear();
+    assert!(changed.validate().is_err());
+    let mut changed = graph.clone();
+    changed.node_mut_for_test("source").semantic_version.major = 0;
+    assert!(changed.validate().is_err());
+    let mut changed = graph.clone();
+    changed.node_mut_for_test("source").coder_version.minor = 1;
+    assert_eq!(
+        changed.validate().unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    let mut changed = graph.clone();
+    changed.node_mut_for_test("custom").operation = Operation::Custom {
+        semantic_id: "invalid".into(),
+        version: Version { major: 1, minor: 0 },
+    };
+    assert!(
+        changed
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("namespaced")
+    );
+    let mut changed = graph.clone();
+    changed.node_mut_for_test("custom").operation = Operation::Custom {
+        semantic_id: "tests/op".into(),
+        version: Version { major: 0, minor: 0 },
+    };
+    assert!(
+        changed
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("namespaced")
+    );
+    let mut changed = graph.clone();
+    changed.node_mut_for_test("custom").semantic_id = "tests/other".into();
+    assert!(changed.validate().unwrap_err().message.contains("differs"));
+    let mut changed = graph;
+    changed.node_mut_for_test("window").time.window = Window::Global;
+    assert!(
+        changed
+            .validate()
+            .unwrap_err()
+            .message
+            .contains("fixed-window")
+    );
+}
+
+#[test]
+fn external_bounded_source_requires_backend_capability() {
+    let pipeline = Pipeline::default();
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: false,
+    };
+    assert!(
+        pipeline
+            .bounded_source_with_semantic::<i32>(
+                "invalid",
+                "invalid",
+                progress.clone(),
+                "digest".into(),
+                None,
+                || Ok(Box::new(std::iter::empty()))
+            )
+            .is_err()
+    );
+    pipeline
+        .bounded_source_with_semantic::<i32>(
+            "file",
+            "ironbeam/io/jsonl-source",
+            progress,
+            "digest".into(),
+            None,
+            || Ok(Box::new(std::iter::once(Ok(1_i32)))),
+        )
+        .unwrap();
+    let (mut graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph
+            .validate_for("dataflow-preview", &Capabilities::default())
+            .unwrap_err()
+            .kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "ironbeam/io/jsonl-source".into()
+        }
+    );
+    graph
+        .validate_for(
+            "direct",
+            &Capabilities {
+                external_bounded_source: true,
+                ..Capabilities::default()
+            },
+        )
+        .unwrap();
+    graph.node_mut_for_test("file").semantic_id = "invalid".into();
+    assert!(graph.validate().unwrap_err().message.contains("namespaced"));
 }

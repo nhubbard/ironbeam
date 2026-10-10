@@ -53,7 +53,7 @@ impl Identity {
             source_digest,
             source_key,
             output_key,
-            coder_id: T::CODER_ID.into(),
+            coder_id: T::coder_identity(),
             coder_version: T::CODER_VERSION,
             binary_build_id,
         }

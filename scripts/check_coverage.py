@@ -18,6 +18,7 @@ DIRECT_FILES = {
     "spill.rs", "spill_integration.rs",
 }
 DIRECT_HELPERS = {"collect_sorted.rs", "reshuffle.rs", "tee.rs", "wait_on.rs"}
+V5_PACKAGES = {"ironbeam-core", "ironbeam-direct", "ironbeam-transforms", "ironbeam-io"}
 
 
 def area_for(package: str, relative: Path) -> str:
@@ -25,6 +26,10 @@ def area_for(package: str, relative: Path) -> str:
         return "logical-graph"
     if package == "ironbeam-direct":
         return "direct-runner"
+    if package == "ironbeam-transforms":
+        return "transforms"
+    if package == "ironbeam-io":
+        return "bounded-io"
     if package == "ironbeam-runner-contract-tests":
         return "integration-contract"
     parts = relative.parts
@@ -67,6 +72,42 @@ def coverage_for_source(report: dict, source: Path) -> dict[str, tuple[int, int]
     }
 
 
+def source_location_coverage(report: dict, source: Path) -> dict[str, tuple[int, int]]:
+    """Count each Rust source line/branch once across generic instantiations.
+
+    LLVM reports every monomorphization separately in file summaries. That
+    turns a newly used generic API into apparent uncovered lines even when its
+    source path is exercised by another type. This keeps the gate about source
+    paths while retaining the raw instrumented totals in the area report.
+    """
+    source = source.resolve()
+    lines: dict[tuple[Path, int], bool] = {}
+    branches: dict[tuple[Path, int, int, int, int], list[int]] = {}
+    for data in report["data"]:
+        for file in data["files"]:
+            filename = Path(file["filename"]).resolve()
+            if not filename.is_relative_to(source):
+                continue
+            for segment in file["segments"]:
+                line, _, count, executable = segment[:4]
+                if executable:
+                    key = (filename, line)
+                    lines[key] = lines.get(key, False) or count > 0
+            for branch in file["branches"]:
+                key = (filename, *branch[:4])
+                counts = branches.setdefault(key, [0, 0])
+                counts[0] += branch[4]
+                counts[1] += branch[5]
+    active_branches = [counts for counts in branches.values() if sum(counts) > 0]
+    return {
+        "lines": (sum(lines.values()), len(lines)),
+        "branches": (
+            sum((counts[0] > 0) + (counts[1] > 0) for counts in active_branches),
+            2 * len(active_branches),
+        ),
+    }
+
+
 def meets_baseline(covered: int, count: int, old_covered: int, old_count: int) -> bool:
     return count > 0 and old_count > 0 and covered * old_count >= old_covered * count
 
@@ -84,22 +125,29 @@ def main() -> int:
     source = (ROOT / baseline["source"]).resolve()
     report = json.loads(Path(report_path).read_text())
     areas = coverage_by_area(report, source, package)
-    actual = {
-        kind: tuple(sum(area[kind][index] for area in areas.values()) for index in (0, 1))
-        for kind in ("lines", "branches")
-    }
+    if package in V5_PACKAGES:
+        actual = source_location_coverage(report, source)
+    else:
+        actual = {
+            kind: tuple(sum(area[kind][index] for area in areas.values()) for index in (0, 1))
+            for kind in ("lines", "branches")
+        }
     failed = False
     for kind in ("lines", "branches"):
         covered, count = actual[kind]
         old_covered = baseline[kind]["covered"]
         old_count = baseline[kind]["count"]
+        if kind == "branches" and old_count == 0 and count == 0:
+            print(f"{package} branches: no instrumented branches")
+            continue
         if count == 0 or old_count == 0:
             print(f"{package}: missing {kind} measurements", file=sys.stderr)
             failed = True
             continue
         minimum = 100 * old_covered / old_count
         current = 100 * covered / count
-        print(f"{package} {kind}: {covered}/{count} ({current:.2f}%), baseline {minimum:.2f}%")
+        label = "source locations" if package in V5_PACKAGES else "instrumented"
+        print(f"{package} {kind} ({label}): {covered}/{count} ({current:.2f}%), baseline {minimum:.2f}%")
         if not meets_baseline(covered, count, old_covered, old_count):
             failed = True
     for area, counts in sorted(areas.items()):

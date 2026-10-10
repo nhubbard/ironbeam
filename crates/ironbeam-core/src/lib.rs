@@ -9,13 +9,14 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::any::Any;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::fmt::Write as _;
+use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
-pub const GRAPH_VERSION: Version = Version { major: 2, minor: 0 };
+pub const GRAPH_VERSION: Version = Version { major: 3, minor: 0 };
 pub const CODER_VERSION: Version = Version { major: 1, minor: 0 };
 pub const CHECKPOINT_VERSION: Version = Version { major: 1, minor: 0 };
 pub const BUILTIN_OPERATION_VERSION: Version = Version { major: 1, minor: 0 };
@@ -26,6 +27,14 @@ pub trait Element: Send + 'static {
     const TYPE_ID: &'static str;
     const CODER_ID: &'static str;
     const CODER_VERSION: Version = crate::CODER_VERSION;
+    #[must_use]
+    fn type_identity() -> String {
+        Self::TYPE_ID.into()
+    }
+    #[must_use]
+    fn coder_identity() -> String {
+        Self::CODER_ID.into()
+    }
     #[must_use]
     fn supports_coder() -> bool {
         false
@@ -93,6 +102,125 @@ impl Element for String {
     fn decode(bytes: &[u8]) -> Result<Self, Error> {
         Self::from_utf8(bytes.to_vec())
             .map_err(|_| Error::incompatible("invalid UTF-8 coder value"))
+    }
+}
+
+fn encode_part(bytes: &[u8], output: &mut Vec<u8>) {
+    let length = bytes.len() as u64;
+    output.extend_from_slice(&length.to_le_bytes());
+    output.extend_from_slice(bytes);
+}
+fn decode_part<'a>(bytes: &mut &'a [u8]) -> Result<&'a [u8], Error> {
+    let prefix = bytes
+        .get(..8)
+        .ok_or_else(|| Error::incompatible("truncated length prefix"))?;
+    let mut prefix_array = [0_u8; 8];
+    prefix_array.copy_from_slice(prefix);
+    let length = usize_from_u64(u64::from_le_bytes(prefix_array))?;
+    let part = bytes
+        .get(
+            8..8_usize
+                .checked_add(length)
+                .ok_or_else(|| Error::incompatible("encoded part length overflow"))?,
+        )
+        .ok_or_else(|| Error::incompatible("truncated encoded part"))?;
+    *bytes = &bytes[8 + length..];
+    Ok(part)
+}
+#[allow(
+    clippy::unnecessary_wraps,
+    clippy::cast_possible_truncation,
+    clippy::missing_const_for_fn
+)]
+fn usize_from_u64(value: u64) -> Result<usize, Error> {
+    #[cfg(target_pointer_width = "64")]
+    {
+        Ok(value as usize)
+    }
+    #[cfg(not(target_pointer_width = "64"))]
+    {
+        usize::try_from(value).map_err(|_| Error::incompatible("encoded part exceeds usize"))
+    }
+}
+impl<T: Element> Element for Vec<T> {
+    const TYPE_ID: &'static str = "std/vector";
+    const CODER_ID: &'static str = "ironbeam/vector-length-prefixed";
+    fn type_identity() -> String {
+        format!("std/vector<{}>", T::type_identity())
+    }
+    fn coder_identity() -> String {
+        format!("ironbeam/vector-v1<{}>", T::coder_identity())
+    }
+    fn supports_coder() -> bool {
+        T::supports_coder()
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let mut output = Vec::new();
+        output.extend_from_slice(&(self.len() as u64).to_le_bytes());
+        for value in self {
+            encode_part(&value.encode()?, &mut output);
+        }
+        Ok(output)
+    }
+    fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let prefix = bytes
+            .get(..8)
+            .ok_or_else(|| Error::incompatible("truncated vector count"))?;
+        let mut count = [0_u8; 8];
+        count.copy_from_slice(prefix);
+        bytes = &bytes[8..];
+        let count = usize_from_u64(u64::from_le_bytes(count))?;
+        let mut values = Self::new();
+        for _ in 0..count {
+            values.push(T::decode(decode_part(&mut bytes)?)?);
+        }
+        if !bytes.is_empty() {
+            return Err(Error::incompatible("trailing vector bytes"));
+        }
+        Ok(values)
+    }
+}
+impl<A: Element, B: Element> Element for (A, B) {
+    const TYPE_ID: &'static str = "std/tuple2";
+    const CODER_ID: &'static str = "ironbeam/tuple2-length-prefixed";
+    fn type_identity() -> String {
+        format!("std/tuple2<{},{}>", A::type_identity(), B::type_identity())
+    }
+    fn coder_identity() -> String {
+        format!(
+            "ironbeam/tuple2-v1<{},{}>",
+            A::coder_identity(),
+            B::coder_identity()
+        )
+    }
+    fn supports_coder() -> bool {
+        A::supports_coder() && B::supports_coder()
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let mut output = Vec::new();
+        encode_part(&self.0.encode()?, &mut output);
+        encode_part(&self.1.encode()?, &mut output);
+        Ok(output)
+    }
+    fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let first = A::decode(decode_part(&mut bytes)?)?;
+        let second = B::decode(decode_part(&mut bytes)?)?;
+        if !bytes.is_empty() {
+            return Err(Error::incompatible("trailing tuple bytes"));
+        }
+        Ok((first, second))
     }
 }
 
@@ -201,6 +329,11 @@ pub enum Operation {
     },
     Map,
     Filter,
+    FlatMap,
+    Flatten,
+    GroupByKey,
+    JoinInner,
+    SideInputMap,
     FixedWindow,
     GlobalCombine,
     Custom {
@@ -221,10 +354,18 @@ pub struct ElementDescriptor {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct InputEdge {
+    pub key: String,
+    pub element: ElementDescriptor,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Node {
     pub key: String,
     pub input: Option<String>,
     pub input_element: Option<ElementDescriptor>,
+    #[serde(default)]
+    pub additional_inputs: Vec<InputEdge>,
     pub operation: Operation,
     pub semantic_id: String,
     pub semantic_version: Version,
@@ -386,9 +527,16 @@ impl std::error::Error for Error {}
 
 #[derive(Clone, Debug, Default)]
 pub struct Capabilities {
+    pub external_bounded_source: bool,
     pub unbounded_source: bool,
+    pub flatten: bool,
+    pub group_by_key: bool,
+    pub join_inner: bool,
+    pub side_input_map: bool,
+    pub global_combine: bool,
     pub fixed_window: bool,
     pub append_sink: bool,
+    pub final_result_sink: bool,
     pub update_sink: bool,
     pub custom_operations: BTreeSet<String>,
 }
@@ -434,6 +582,13 @@ impl Graph {
                     "semantic operation ID and major version are required",
                 ));
             }
+            if matches!(node.operation, Operation::Source { .. }) && !node.semantic_id.contains('/')
+            {
+                return Err(Error::graph(
+                    &node.key,
+                    "source semantic ID must be namespaced",
+                ));
+            }
             if node.coder_version.major != CODER_VERSION.major
                 || node.coder_version.minor > CODER_VERSION.minor
             {
@@ -467,6 +622,26 @@ impl Graph {
                     "custom operation requires a namespaced ID and major version",
                 ));
             }
+            if matches!(
+                node.operation,
+                Operation::Flatten | Operation::JoinInner | Operation::SideInputMap
+            ) == node.additional_inputs.is_empty()
+            {
+                return Err(Error::graph(
+                    &node.key,
+                    "multi-input operation requires additional inputs and other operations forbid them",
+                ));
+            }
+            if matches!(
+                node.operation,
+                Operation::JoinInner | Operation::SideInputMap
+            ) && node.additional_inputs.len() != 1
+            {
+                return Err(Error::graph(
+                    &node.key,
+                    "operation requires exactly two inputs",
+                ));
+            }
             if let Operation::Custom {
                 semantic_id,
                 version,
@@ -498,6 +673,7 @@ impl Graph {
                     if matches!(
                         node.operation,
                         Operation::Filter
+                            | Operation::Flatten
                             | Operation::FixedWindow
                             | Operation::Output
                             | Operation::Sink { .. }
@@ -507,21 +683,33 @@ impl Graph {
                     {
                         return Err(Error::graph(&node.key, "input type/coder mismatch"));
                     }
-                    if node.boundedness != upstream.boundedness {
+                    if !matches!(
+                        node.operation,
+                        Operation::Flatten | Operation::JoinInner | Operation::SideInputMap
+                    ) && node.boundedness != upstream.boundedness
+                    {
                         return Err(Error::graph(&node.key, "boundedness must propagate"));
                     }
                     if matches!(
                         node.operation,
                         Operation::Map
+                            | Operation::FlatMap
                             | Operation::Filter
+                            | Operation::Flatten
+                            | Operation::GroupByKey
+                            | Operation::JoinInner
+                            | Operation::SideInputMap
+                            | Operation::GlobalCombine
                             | Operation::Output
                             | Operation::Sink { .. }
                     ) && node.time != upstream.time
                     {
                         return Err(Error::graph(&node.key, "event time/window must propagate"));
                     }
-                    if matches!(node.operation, Operation::GlobalCombine)
-                        && node.boundedness == Boundedness::Unbounded
+                    if matches!(
+                        node.operation,
+                        Operation::GlobalCombine | Operation::GroupByKey
+                    ) && node.boundedness == Boundedness::Unbounded
                         && node.time.window == Window::Global
                     {
                         return Err(Error::graph(
@@ -529,20 +717,97 @@ impl Graph {
                             "unbounded global aggregation requires a finite window",
                         ));
                     }
+                    if matches!(
+                        node.operation,
+                        Operation::Flatten | Operation::JoinInner | Operation::SideInputMap
+                    ) {
+                        let mut unbounded = upstream.boundedness == Boundedness::Unbounded;
+                        for edge in &node.additional_inputs {
+                            let other = by_key.get(edge.key.as_str()).ok_or_else(|| {
+                                Error::graph(&node.key, "missing additional input node")
+                            })?;
+                            if edge.element.type_id != other.type_id
+                                || edge.element.coder_id != other.coder_id
+                                || edge.element.coder_version != other.coder_version
+                            {
+                                return Err(Error::graph(
+                                    &node.key,
+                                    "additional input type/coder mismatch",
+                                ));
+                            }
+                            if matches!(node.operation, Operation::Flatten)
+                                && (node.type_id != other.type_id
+                                    || node.coder_id != other.coder_id
+                                    || node.coder_version != other.coder_version)
+                            {
+                                return Err(Error::graph(
+                                    &node.key,
+                                    "flatten input type/coder mismatch",
+                                ));
+                            }
+                            if other.time != node.time {
+                                return Err(Error::graph(
+                                    &node.key,
+                                    "flatten time/window mismatch",
+                                ));
+                            }
+                            unbounded |= other.boundedness == Boundedness::Unbounded;
+                        }
+                        let expected = if unbounded {
+                            Boundedness::Unbounded
+                        } else {
+                            Boundedness::Bounded
+                        };
+                        if node.boundedness != expected {
+                            return Err(Error::graph(
+                                &node.key,
+                                "multi-input boundedness mismatch",
+                            ));
+                        }
+                        if matches!(node.operation, Operation::JoinInner)
+                            && expected == Boundedness::Unbounded
+                            && node.time.window == Window::Global
+                        {
+                            return Err(Error::graph(
+                                &node.key,
+                                "unbounded global join requires a finite window",
+                            ));
+                        }
+                        if matches!(node.operation, Operation::SideInputMap)
+                            && node.additional_inputs.iter().any(|edge| {
+                                by_key[edge.key.as_str()].boundedness == Boundedness::Unbounded
+                            })
+                        {
+                            return Err(Error::graph(&node.key, "side input must be bounded"));
+                        }
+                    }
                 }
             }
         }
         for node in &self.nodes {
-            let mut seen = BTreeSet::new();
-            let mut current = Some(node);
-            while let Some(next) = current {
-                if !seen.insert(next.key.as_str()) {
+            let mut active = BTreeSet::new();
+            let mut complete = BTreeSet::new();
+            let mut stack = vec![(node.key.as_str(), false)];
+            while let Some((key, exiting)) = stack.pop() {
+                if exiting {
+                    active.remove(key);
+                    complete.insert(key);
+                    continue;
+                }
+                if complete.contains(key) {
+                    continue;
+                }
+                if !active.insert(key) {
                     return Err(Error::graph(&node.key, "cycle in graph"));
                 }
-                current = next
-                    .input
-                    .as_ref()
-                    .and_then(|key| by_key.get(key.as_str()).copied());
+                stack.push((key, true));
+                let current = by_key[key];
+                for edge in &current.additional_inputs {
+                    stack.push((edge.key.as_str(), false));
+                }
+                if let Some(parent) = &current.input {
+                    stack.push((parent.as_str(), false));
+                }
             }
         }
         Ok(())
@@ -557,8 +822,25 @@ impl Graph {
                 {
                     Some("unbounded-source".to_string())
                 }
+                Operation::Source { .. }
+                    if node.semantic_id != "ironbeam/source"
+                        && !capabilities.external_bounded_source =>
+                {
+                    Some(node.semantic_id.clone())
+                }
                 Operation::FixedWindow if !capabilities.fixed_window => {
                     Some("fixed-window".to_string())
+                }
+                Operation::Flatten if !capabilities.flatten => Some("flatten".to_string()),
+                Operation::GroupByKey if !capabilities.group_by_key => {
+                    Some("group-by-key".to_string())
+                }
+                Operation::JoinInner if !capabilities.join_inner => Some("join-inner".to_string()),
+                Operation::SideInputMap if !capabilities.side_input_map => {
+                    Some("side-input-map".to_string())
+                }
+                Operation::GlobalCombine if !capabilities.global_combine => {
+                    Some("global-combine".to_string())
                 }
                 Operation::Sink { spec }
                     if spec.mode == SinkMode::Append && !capabilities.append_sink =>
@@ -569,6 +851,11 @@ impl Graph {
                     if spec.mode == SinkMode::Update && !capabilities.update_sink =>
                 {
                     Some("update-sink".to_string())
+                }
+                Operation::Sink { spec }
+                    if spec.mode == SinkMode::FinalResult && !capabilities.final_result_sink =>
+                {
+                    Some("final-result-sink".to_string())
                 }
                 Operation::Custom { semantic_id, .. }
                     if !capabilities.custom_operations.contains(semantic_id) =>
@@ -596,9 +883,41 @@ pub struct Envelope {
     pub window: Window,
     pub assigned_window: Option<WindowInterval>,
 }
-pub type SourceIterator = Box<dyn Iterator<Item = Envelope> + Send>;
-type SourceFactory = Arc<dyn Fn() -> SourceIterator + Send + Sync>;
-type Transform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync>;
+pub type SourceIterator = Box<dyn Iterator<Item = Result<Envelope, Error>> + Send>;
+pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Send>;
+type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
+type Transform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
+type Aggregate = Arc<dyn Fn(Vec<Vec<Envelope>>) -> Result<Vec<Envelope>, Error> + Send + Sync>;
+pub trait SinkSession: Send {
+    fn write(&mut self, event: Envelope) -> Result<(), Error>;
+    fn commit(&mut self) -> Result<(), Error>;
+    fn abort(&mut self) -> Result<(), Error>;
+}
+pub trait TypedSink<T: Element>: Send {
+    fn write(&mut self, value: T) -> Result<(), Error>;
+    fn commit(&mut self) -> Result<(), Error>;
+    fn abort(&mut self) -> Result<(), Error>;
+}
+type SinkFactory = Arc<dyn Fn() -> Result<Box<dyn SinkSession>, Error> + Send + Sync>;
+struct SinkAdapter<T: Element> {
+    key: String,
+    inner: Box<dyn TypedSink<T>>,
+}
+impl<T: Element> SinkSession for SinkAdapter<T> {
+    fn write(&mut self, event: Envelope) -> Result<(), Error> {
+        let value = event
+            .value
+            .downcast::<T>()
+            .map_err(|_| Error::execution(&self.key, "direct", "sink input type mismatch"))?;
+        self.inner.write(*value)
+    }
+    fn commit(&mut self) -> Result<(), Error> {
+        self.inner.commit()
+    }
+    fn abort(&mut self) -> Result<(), Error> {
+        self.inner.abort()
+    }
+}
 
 #[derive(Clone)]
 struct SourceRegistration {
@@ -611,13 +930,15 @@ struct SourceRegistration {
 pub struct Registry {
     sources: BTreeMap<String, SourceRegistration>,
     transforms: BTreeMap<String, Transform>,
+    aggregates: BTreeMap<String, Aggregate>,
+    sinks: BTreeMap<String, SinkFactory>,
 }
 impl Registry {
     pub fn open_source(&self, key: &str) -> Result<SourceIterator, Error> {
         self.sources
             .get(key)
-            .map(|source| (source.factory)())
             .ok_or_else(|| Error::execution(key, "direct", "source factory missing"))
+            .and_then(|source| (source.factory)())
     }
     #[must_use]
     pub fn source_len_hint(&self, key: &str) -> Option<usize> {
@@ -630,9 +951,42 @@ impl Registry {
             .and_then(|source| source.config_digest.as_deref())
     }
     pub fn apply(&self, key: &str, input: Envelope) -> Result<Option<Envelope>, Error> {
+        let mut values = self.apply_many(key, input)?;
+        if values.len() > 1 {
+            return Err(Error::execution(
+                key,
+                "direct",
+                "operation emits multiple elements",
+            ));
+        }
+        Ok(values.pop())
+    }
+    pub fn apply_many(&self, key: &str, input: Envelope) -> Result<Vec<Envelope>, Error> {
         self.transforms
             .get(key)
             .ok_or_else(|| Error::execution(key, "direct", "transform missing"))?(input)
+    }
+    pub fn apply_aggregate(
+        &self,
+        key: &str,
+        inputs: Vec<Vec<Envelope>>,
+    ) -> Result<Vec<Envelope>, Error> {
+        self.aggregates
+            .get(key)
+            .ok_or_else(|| Error::execution(key, "direct", "aggregate missing"))?(inputs)
+    }
+    #[must_use]
+    pub fn has_aggregate(&self, key: &str) -> bool {
+        self.aggregates.contains_key(key)
+    }
+    #[must_use]
+    pub fn has_sink(&self, key: &str) -> bool {
+        self.sinks.contains_key(key)
+    }
+    pub fn open_sink(&self, key: &str) -> Result<Box<dyn SinkSession>, Error> {
+        self.sinks
+            .get(key)
+            .ok_or_else(|| Error::execution(key, "direct", "sink factory missing"))?()
     }
 }
 
@@ -668,6 +1022,13 @@ impl Pipeline {
             Operation::Source { .. } => ("ironbeam/source".into(), BUILTIN_OPERATION_VERSION),
             Operation::Map => ("ironbeam/map".into(), BUILTIN_OPERATION_VERSION),
             Operation::Filter => ("ironbeam/filter".into(), BUILTIN_OPERATION_VERSION),
+            Operation::FlatMap => ("ironbeam/flat-map".into(), BUILTIN_OPERATION_VERSION),
+            Operation::Flatten => ("ironbeam/flatten".into(), BUILTIN_OPERATION_VERSION),
+            Operation::GroupByKey => ("ironbeam/group-by-key".into(), BUILTIN_OPERATION_VERSION),
+            Operation::JoinInner => ("ironbeam/join-inner".into(), BUILTIN_OPERATION_VERSION),
+            Operation::SideInputMap => {
+                ("ironbeam/side-input-map".into(), BUILTIN_OPERATION_VERSION)
+            }
             Operation::FixedWindow => ("ironbeam/fixed-window".into(), BUILTIN_OPERATION_VERSION),
             Operation::GlobalCombine => {
                 ("ironbeam/global-combine".into(), BUILTIN_OPERATION_VERSION)
@@ -685,6 +1046,8 @@ impl Pipeline {
         mut node: Node,
         source: Option<SourceRegistration>,
         transform: Option<Transform>,
+        aggregate: Option<Aggregate>,
+        sink: Option<SinkFactory>,
     ) -> Result<(), Error> {
         let mut inner = self
             .inner
@@ -703,6 +1066,15 @@ impl Pipeline {
                 .transforms
                 .insert(node.key.clone(), transform);
         }
+        if let Some(aggregate) = aggregate {
+            inner
+                .registry
+                .aggregates
+                .insert(node.key.clone(), aggregate);
+        }
+        if let Some(sink) = sink {
+            inner.registry.sinks.insert(node.key.clone(), sink);
+        }
         inner.graph.nodes.push(node);
         drop(inner);
         Ok(())
@@ -714,7 +1086,7 @@ impl Pipeline {
     ) -> Result<PCollection<T>, Error> {
         let config_digest = if T::supports_coder() {
             let mut hash = Sha256::new();
-            hash.update(T::CODER_ID.as_bytes());
+            hash.update(T::coder_identity().as_bytes());
             hash.update(T::CODER_VERSION.major.to_le_bytes());
             hash.update(T::CODER_VERSION.minor.to_le_bytes());
             for value in &values {
@@ -738,15 +1110,18 @@ impl Pipeline {
         let len_hint = values.len();
         let factory: SourceFactory = Arc::new(move || {
             let values = Arc::clone(&values);
-            Box::new((0..values.len()).map(move |i| Envelope {
-                value: Box::new(values[i].clone()),
-                timestamp_ns: 0,
-                window: Window::Global,
-                assigned_window: None,
-            }))
+            Ok(Box::new((0..values.len()).map(move |i| {
+                Ok(Envelope {
+                    value: Box::new(values[i].clone()),
+                    timestamp_ns: 0,
+                    window: Window::Global,
+                    assigned_window: None,
+                })
+            })) as SourceIterator)
         });
         self.source_node::<T>(
             key,
+            "ironbeam/source",
             Boundedness::Bounded,
             SourceProgress {
                 stable_split_id: true,
@@ -761,6 +1136,62 @@ impl Pipeline {
             0,
         )
     }
+    pub fn bounded_source<T: Element>(
+        &self,
+        key: &str,
+        progress: SourceProgress,
+        config_digest: String,
+        len_hint: Option<usize>,
+        open: impl Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync + 'static,
+    ) -> Result<PCollection<T>, Error> {
+        self.bounded_source_with_semantic(
+            key,
+            "ironbeam/source",
+            progress,
+            config_digest,
+            len_hint,
+            open,
+        )
+    }
+    pub fn bounded_source_with_semantic<T: Element>(
+        &self,
+        key: &str,
+        semantic_id: &str,
+        progress: SourceProgress,
+        config_digest: String,
+        len_hint: Option<usize>,
+        open: impl Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync + 'static,
+    ) -> Result<PCollection<T>, Error> {
+        if config_digest.is_empty() {
+            return Err(Error::graph(
+                key,
+                "bounded source configuration digest is required",
+            ));
+        }
+        let factory: SourceFactory = Arc::new(move || {
+            let source = open()?;
+            Ok(Box::new(source.map(|result| {
+                result.map(|value| Envelope {
+                    value: Box::new(value),
+                    timestamp_ns: 0,
+                    window: Window::Global,
+                    assigned_window: None,
+                })
+            })) as SourceIterator)
+        });
+        self.source_node(
+            key,
+            semantic_id,
+            Boundedness::Bounded,
+            progress,
+            Some(SourceRegistration {
+                factory,
+                len_hint,
+                config_digest: Some(config_digest),
+            }),
+            0,
+        )
+    }
     pub fn unbounded_source<T: Element>(
         &self,
         key: &str,
@@ -769,6 +1200,7 @@ impl Pipeline {
     ) -> Result<PCollection<T>, Error> {
         self.source_node::<T>(
             key,
+            "ironbeam/source",
             Boundedness::Unbounded,
             progress,
             None,
@@ -778,23 +1210,28 @@ impl Pipeline {
     fn source_node<T: Element>(
         &self,
         key: &str,
+        semantic_id: &str,
         boundedness: Boundedness,
         progress: SourceProgress,
         factory: Option<SourceRegistration>,
         initial_timestamp_ns: i64,
     ) -> Result<PCollection<T>, Error> {
         let operation = Operation::Source { progress };
-        let (semantic_id, semantic_version) = Self::semantic_identity(&operation);
+        if !semantic_id.contains('/') {
+            return Err(Error::graph(key, "source semantic ID must be namespaced"));
+        }
+        let (_, semantic_version) = Self::semantic_identity(&operation);
         self.add(
             Node {
                 key: key.into(),
                 input: None,
                 input_element: None,
+                additional_inputs: Vec::new(),
                 operation,
-                semantic_id,
+                semantic_id: semantic_id.into(),
                 semantic_version,
-                type_id: T::TYPE_ID.into(),
-                coder_id: T::CODER_ID.into(),
+                type_id: T::type_identity(),
+                coder_id: T::coder_identity(),
                 coder_version: T::CODER_VERSION,
                 boundedness,
                 time: Time {
@@ -804,6 +1241,8 @@ impl Pipeline {
                 local_id: 0,
             },
             factory,
+            None,
+            None,
             None,
         )?;
         Ok(PCollection {
@@ -852,15 +1291,16 @@ impl<T: Element> PCollection<T> {
             key: key.into(),
             input: Some(self.key.clone()),
             input_element: Some(ElementDescriptor {
-                type_id: T::TYPE_ID.into(),
-                coder_id: T::CODER_ID.into(),
+                type_id: T::type_identity(),
+                coder_id: T::coder_identity(),
                 coder_version: T::CODER_VERSION,
             }),
+            additional_inputs: Vec::new(),
             operation,
             semantic_id,
             semantic_version,
-            type_id: U::TYPE_ID.into(),
-            coder_id: U::CODER_ID.into(),
+            type_id: U::type_identity(),
+            coder_id: U::coder_identity(),
             coder_version: U::CODER_VERSION,
             boundedness: parent.boundedness,
             time: Time {
@@ -869,7 +1309,43 @@ impl<T: Element> PCollection<T> {
             },
             local_id: 0,
         };
-        self.pipeline.add(node, None, transform)?;
+        self.pipeline.add(node, None, transform, None, None)?;
+        Ok(PCollection {
+            pipeline: self.pipeline.clone(),
+            key: key.into(),
+            marker: PhantomData,
+        })
+    }
+    fn next_aggregate<U: Element>(
+        &self,
+        key: &str,
+        operation: Operation,
+        additional_inputs: Vec<InputEdge>,
+        boundedness: Boundedness,
+        aggregate: Aggregate,
+    ) -> Result<PCollection<U>, Error> {
+        let parent = self.parent()?;
+        let (semantic_id, semantic_version) = Pipeline::semantic_identity(&operation);
+        let node = Node {
+            key: key.into(),
+            input: Some(self.key.clone()),
+            input_element: Some(ElementDescriptor {
+                type_id: T::type_identity(),
+                coder_id: T::coder_identity(),
+                coder_version: T::CODER_VERSION,
+            }),
+            additional_inputs,
+            operation,
+            semantic_id,
+            semantic_version,
+            type_id: U::type_identity(),
+            coder_id: U::coder_identity(),
+            coder_version: U::CODER_VERSION,
+            boundedness,
+            time: parent.time,
+            local_id: 0,
+        };
+        self.pipeline.add(node, None, None, Some(aggregate), None)?;
         Ok(PCollection {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -888,7 +1364,7 @@ impl<T: Element> PCollection<T> {
                 .downcast::<T>()
                 .map_err(|_| Error::execution(&key_owned, "direct", "input type mismatch"))?;
             e.value = Box::new(f(*value));
-            Ok(Some(e))
+            Ok(vec![e])
         });
         self.next(key, Operation::Map, Some(transform), None)
     }
@@ -903,9 +1379,100 @@ impl<T: Element> PCollection<T> {
                 .value
                 .downcast_ref::<T>()
                 .ok_or_else(|| Error::execution(&key_owned, "direct", "input type mismatch"))?;
-            Ok(f(value).then_some(e))
+            Ok(if f(value) { vec![e] } else { Vec::new() })
         });
         self.next(key, Operation::Filter, Some(transform), None)
+    }
+    pub fn flat_map_named<U: Element>(
+        &self,
+        key: &str,
+        f: impl Fn(T) -> Vec<U> + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        let key_owned = key.to_owned();
+        let transform: Transform = Arc::new(move |e| {
+            let Envelope {
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = e;
+            let value = value
+                .downcast::<T>()
+                .map_err(|_| Error::execution(&key_owned, "direct", "input type mismatch"))?;
+            Ok(f(*value)
+                .into_iter()
+                .map(|value| Envelope {
+                    value: Box::new(value),
+                    timestamp_ns,
+                    window: window.clone(),
+                    assigned_window,
+                })
+                .collect())
+        });
+        self.next(key, Operation::FlatMap, Some(transform), None)
+    }
+    pub fn flatten_named(&self, key: &str, others: &[Self]) -> Result<Self, Error> {
+        if others.is_empty() {
+            return Err(Error::graph(key, "flatten requires at least two inputs"));
+        }
+        let parent = self.parent()?;
+        let mut additional_inputs = Vec::with_capacity(others.len());
+        let mut unbounded = parent.boundedness == Boundedness::Unbounded;
+        for other in others {
+            if !Arc::ptr_eq(&self.pipeline.inner, &other.pipeline.inner) {
+                return Err(Error::graph(
+                    key,
+                    "flatten inputs belong to different pipelines",
+                ));
+            }
+            let upstream = other.parent()?;
+            if upstream.time != parent.time {
+                return Err(Error::graph(
+                    key,
+                    "flatten inputs must have equal time/window declarations",
+                ));
+            }
+            unbounded |= upstream.boundedness == Boundedness::Unbounded;
+            additional_inputs.push(InputEdge {
+                key: other.key.clone(),
+                element: ElementDescriptor {
+                    type_id: T::type_identity(),
+                    coder_id: T::coder_identity(),
+                    coder_version: T::CODER_VERSION,
+                },
+            });
+        }
+        let operation = Operation::Flatten;
+        let (semantic_id, semantic_version) = Pipeline::semantic_identity(&operation);
+        let node = Node {
+            key: key.into(),
+            input: Some(self.key.clone()),
+            input_element: Some(ElementDescriptor {
+                type_id: T::type_identity(),
+                coder_id: T::coder_identity(),
+                coder_version: T::CODER_VERSION,
+            }),
+            additional_inputs,
+            operation,
+            semantic_id,
+            semantic_version,
+            type_id: T::type_identity(),
+            coder_id: T::coder_identity(),
+            coder_version: T::CODER_VERSION,
+            boundedness: if unbounded {
+                Boundedness::Unbounded
+            } else {
+                Boundedness::Bounded
+            },
+            time: parent.time,
+            local_id: 0,
+        };
+        self.pipeline.add(node, None, None, None, None)?;
+        Ok(Self {
+            pipeline: self.pipeline.clone(),
+            key: key.into(),
+            marker: PhantomData,
+        })
     }
     pub fn fixed_windows(&self, key: &str, size_ns: i64) -> Result<Self, Error> {
         if size_ns <= 0 {
@@ -916,7 +1483,7 @@ impl<T: Element> PCollection<T> {
         let transform: Transform = Arc::new(move |mut e| {
             e.assigned_window = runtime_window.assign(e.timestamp_ns)?;
             e.window = runtime_window.clone();
-            Ok(Some(e))
+            Ok(vec![e])
         });
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
@@ -942,6 +1509,48 @@ impl<T: Element> PCollection<T> {
             None,
         )?;
         Ok(())
+    }
+    pub fn sink_named(
+        &self,
+        key: &str,
+        spec: SinkSpec,
+        open: impl Fn() -> Result<Box<dyn TypedSink<T>>, Error> + Send + Sync + 'static,
+    ) -> Result<Sink<T>, Error> {
+        let parent = self.parent()?;
+        let operation = Operation::Sink { spec };
+        let (semantic_id, semantic_version) = Pipeline::semantic_identity(&operation);
+        let node = Node {
+            key: key.into(),
+            input: Some(self.key.clone()),
+            input_element: Some(ElementDescriptor {
+                type_id: T::type_identity(),
+                coder_id: T::coder_identity(),
+                coder_version: T::CODER_VERSION,
+            }),
+            additional_inputs: Vec::new(),
+            operation,
+            semantic_id,
+            semantic_version,
+            type_id: T::type_identity(),
+            coder_id: T::coder_identity(),
+            coder_version: T::CODER_VERSION,
+            boundedness: parent.boundedness,
+            time: parent.time,
+            local_id: 0,
+        };
+        let key_owned = key.to_owned();
+        let factory: SinkFactory = Arc::new(move || {
+            Ok(Box::new(SinkAdapter {
+                key: key_owned.clone(),
+                inner: open()?,
+            }) as Box<dyn SinkSession>)
+        });
+        self.pipeline.add(node, None, None, None, Some(factory))?;
+        Ok(Sink {
+            pipeline: self.pipeline.clone(),
+            key: key.into(),
+            marker: PhantomData,
+        })
     }
     pub fn custom_named(
         &self,
@@ -972,6 +1581,264 @@ impl<T: Element> PCollection<T> {
         }
         self.next(key, Operation::GlobalCombine, None, None)
     }
+    pub fn combine_globally_named<U: Element>(
+        &self,
+        key: &str,
+        f: impl Fn(Vec<T>) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let key_owned = key.to_owned();
+        let aggregate: Aggregate = Arc::new(move |mut inputs| {
+            let values = inputs
+                .pop()
+                .ok_or_else(|| Error::execution(&key_owned, "direct", "combine input missing"))?;
+            let mut typed = Vec::with_capacity(values.len());
+            for event in values {
+                typed.push(*event.value.downcast::<T>().map_err(|_| {
+                    Error::execution(&key_owned, "direct", "combine input type mismatch")
+                })?);
+            }
+            Ok(vec![Envelope {
+                value: Box::new(f(typed)),
+                timestamp_ns: 0,
+                window: Window::Global,
+                assigned_window: None,
+            }])
+        });
+        self.next_aggregate(
+            key,
+            Operation::GlobalCombine,
+            Vec::new(),
+            parent.boundedness,
+            aggregate,
+        )
+    }
+    pub fn map_with_side_named<S: Element, U: Element>(
+        &self,
+        key: &str,
+        side: &PCollection<S>,
+        f: impl Fn(T, &[S]) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        if !Arc::ptr_eq(&self.pipeline.inner, &side.pipeline.inner) {
+            return Err(Error::graph(
+                key,
+                "side input belongs to a different pipeline",
+            ));
+        }
+        let main = self.parent()?;
+        let other = side.parent()?;
+        if other.boundedness != Boundedness::Bounded {
+            return Err(Error::graph(key, "side input must be bounded"));
+        }
+        if main.time != other.time {
+            return Err(Error::graph(
+                key,
+                "side input time/window declaration mismatch",
+            ));
+        }
+        let key_owned = key.to_owned();
+        let aggregate: Aggregate = Arc::new(move |inputs| {
+            let [main_values, side_values]: [Vec<Envelope>; 2] =
+                inputs.try_into().map_err(|_| {
+                    Error::execution(&key_owned, "direct", "side input requires two inputs")
+                })?;
+            let mut typed_side = Vec::with_capacity(side_values.len());
+            for event in side_values {
+                typed_side.push(*event.value.downcast::<S>().map_err(|_| {
+                    Error::execution(&key_owned, "direct", "side input type mismatch")
+                })?);
+            }
+            let mut output = Vec::with_capacity(main_values.len());
+            for event in main_values {
+                let Envelope {
+                    value,
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                } = event;
+                let value = *value.downcast::<T>().map_err(|_| {
+                    Error::execution(&key_owned, "direct", "main input type mismatch")
+                })?;
+                output.push(Envelope {
+                    value: Box::new(f(value, &typed_side)),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                });
+            }
+            Ok(output)
+        });
+        self.next_aggregate(
+            key,
+            Operation::SideInputMap,
+            vec![InputEdge {
+                key: side.key.clone(),
+                element: ElementDescriptor {
+                    type_id: S::type_identity(),
+                    coder_id: S::coder_identity(),
+                    coder_version: S::CODER_VERSION,
+                },
+            }],
+            main.boundedness,
+            aggregate,
+        )
+    }
+}
+
+type GroupBuffer<K, V> = Vec<(K, Vec<V>, i64, Window, Option<WindowInterval>)>;
+pub type Joined<K, V, W> = (K, (V, W));
+
+impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
+    pub fn group_by_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error> {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let key_owned = key.to_owned();
+        let aggregate: Aggregate = Arc::new(move |mut inputs| {
+            let events = inputs
+                .pop()
+                .ok_or_else(|| Error::execution(&key_owned, "direct", "group input missing"))?;
+            let mut indices = HashMap::<K, usize>::new();
+            let mut groups: GroupBuffer<K, V> = Vec::new();
+            for event in events {
+                let Envelope {
+                    value,
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                } = event;
+                let (group_key, value) = *value.downcast::<(K, V)>().map_err(|_| {
+                    Error::execution(&key_owned, "direct", "group input type mismatch")
+                })?;
+                if let Some(&index) = indices.get(&group_key) {
+                    groups[index].1.push(value);
+                } else {
+                    indices.insert(group_key.clone(), groups.len());
+                    groups.push((
+                        group_key,
+                        vec![value],
+                        timestamp_ns,
+                        window,
+                        assigned_window,
+                    ));
+                }
+            }
+            Ok(groups
+                .into_iter()
+                .map(
+                    |(key, values, timestamp_ns, window, assigned_window)| Envelope {
+                        value: Box::new((key, values)),
+                        timestamp_ns,
+                        window,
+                        assigned_window,
+                    },
+                )
+                .collect())
+        });
+        self.next_aggregate(
+            key,
+            Operation::GroupByKey,
+            Vec::new(),
+            parent.boundedness,
+            aggregate,
+        )
+    }
+
+    pub fn join_inner_named<W: Element + Clone>(
+        &self,
+        key: &str,
+        right: &PCollection<(K, W)>,
+    ) -> Result<PCollection<Joined<K, V, W>>, Error>
+    where
+        V: Clone,
+    {
+        if !Arc::ptr_eq(&self.pipeline.inner, &right.pipeline.inner) {
+            return Err(Error::graph(
+                key,
+                "join inputs belong to different pipelines",
+            ));
+        }
+        let left = self.parent()?;
+        let other = right.parent()?;
+        if left.time != other.time {
+            return Err(Error::graph(
+                key,
+                "join inputs must have equal time/window declarations",
+            ));
+        }
+        let unbounded = left.boundedness == Boundedness::Unbounded
+            || other.boundedness == Boundedness::Unbounded;
+        if unbounded && left.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global join requires a finite window",
+            ));
+        }
+        let key_owned = key.to_owned();
+        let aggregate: Aggregate = Arc::new(move |inputs| {
+            let [left, right]: [Vec<Envelope>; 2] = inputs
+                .try_into()
+                .map_err(|_| Error::execution(&key_owned, "direct", "join requires two inputs"))?;
+            let mut index: HashMap<K, Vec<V>> = HashMap::new();
+            for event in left {
+                let (key, value) = *event.value.downcast::<(K, V)>().map_err(|_| {
+                    Error::execution(&key_owned, "direct", "left join type mismatch")
+                })?;
+                index.entry(key).or_default().push(value);
+            }
+            let mut output = Vec::new();
+            for event in right {
+                let Envelope {
+                    value,
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                } = event;
+                let (key, value) = *value.downcast::<(K, W)>().map_err(|_| {
+                    Error::execution(&key_owned, "direct", "right join type mismatch")
+                })?;
+                if let Some(matches) = index.get(&key) {
+                    for left_value in matches {
+                        output.push(Envelope {
+                            value: Box::new((key.clone(), (left_value.clone(), value.clone()))),
+                            timestamp_ns,
+                            window: window.clone(),
+                            assigned_window,
+                        });
+                    }
+                }
+            }
+            Ok(output)
+        });
+        self.next_aggregate(
+            key,
+            Operation::JoinInner,
+            vec![InputEdge {
+                key: right.key.clone(),
+                element: ElementDescriptor {
+                    type_id: <(K, W)>::type_identity(),
+                    coder_id: <(K, W)>::coder_identity(),
+                    coder_version: <(K, W)>::CODER_VERSION,
+                },
+            }],
+            if unbounded {
+                Boundedness::Unbounded
+            } else {
+                Boundedness::Bounded
+            },
+            aggregate,
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -979,6 +1846,21 @@ pub struct Output<T> {
     pipeline: Pipeline,
     key: String,
     marker: PhantomData<T>,
+}
+#[derive(Clone)]
+pub struct Sink<T> {
+    pipeline: Pipeline,
+    key: String,
+    marker: PhantomData<T>,
+}
+impl<T> Sink<T> {
+    #[must_use]
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+    pub fn snapshot(&self) -> Result<(Graph, Registry), Error> {
+        self.pipeline.snapshot()
+    }
 }
 impl<T> Output<T> {
     #[must_use]

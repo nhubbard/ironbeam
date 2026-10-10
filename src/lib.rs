@@ -521,9 +521,11 @@
 pub mod v5 {
     pub use ironbeam_core::*;
     pub use ironbeam_direct::{
-        CheckpointConfig, DirectRunner, JobConfig, JobHandle, JobMetrics, JobStatus, PlanSummary,
-        SpillConfig,
+        CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobMetrics,
+        JobStatus, PlanSummary, SpillConfig,
     };
+    pub use ironbeam_io::*;
+    pub use ironbeam_transforms::*;
 }
 
 pub mod bloom_filter;

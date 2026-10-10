@@ -53,6 +53,81 @@ fn physical_plan_fuses_operations_and_batches_preserve_order() {
 }
 
 #[test]
+fn flat_map_fuses_with_elementwise_stages_and_preserves_order() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", vec![1_i32, 2, 3])
+        .unwrap()
+        .flat_map_named("expand", |x| vec![x, -x])
+        .unwrap()
+        .filter_named("positive", |x| *x > 0)
+        .unwrap()
+        .map_named("label", |x| x.to_string())
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let config = JobConfig {
+        parallelism: 3,
+        buffer_budget_elements: 2,
+        ..JobConfig::default()
+    };
+    let plan = DirectRunner.explain(&output, &config).unwrap();
+    assert_eq!(plan.operation_count, 3);
+    assert_eq!(plan.fused_stages, 1);
+    let (values, job) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(values, ["1", "2", "3"]);
+    assert_eq!(job.metrics().output_elements, 3);
+    assert_eq!(job.metrics().filtered_elements, 3);
+}
+
+#[test]
+fn flatten_runs_branches_in_declared_order_and_rejects_checkpoint() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("left", vec![1_i32, 2])
+        .unwrap()
+        .map_named("left-double", |x| x * 2)
+        .unwrap();
+    let right = pipeline.from_vec("right", vec![3_i32, 4]).unwrap();
+    let output = left
+        .flatten_named("merged", &[right])
+        .unwrap()
+        .map_named("plus-one", |x| x + 1)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let config = JobConfig {
+        parallelism: 3,
+        buffer_budget_elements: 1,
+        ..JobConfig::default()
+    };
+    let summary = DirectRunner.explain(&output, &config).unwrap();
+    assert_eq!(summary.routes, 2);
+    assert_eq!(summary.source_len_hint, Some(4));
+    assert_eq!(
+        DirectRunner.run_collect(&output, &config).unwrap().0,
+        vec![3, 5, 4, 5]
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: dir.path().to_path_buf(),
+            binary_build_id: "build".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..config
+    };
+    assert!(matches!(
+        DirectRunner
+            .run_collect(&output, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+}
+
+#[test]
 fn spill_restores_order_and_cleans_job_files() {
     let dir = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();

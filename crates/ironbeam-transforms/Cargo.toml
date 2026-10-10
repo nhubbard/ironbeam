@@ -1,0 +1,14 @@
+[package]
+name = "ironbeam-transforms"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Convenience transforms for Ironbeam 5 logical collections"
+
+[dependencies]
+ironbeam-core = { path = "../ironbeam-core" }
+
+[dev-dependencies]
+ironbeam-direct = { path = "../ironbeam-direct" }
+

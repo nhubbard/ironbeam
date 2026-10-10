@@ -2108,6 +2108,8 @@ dependencies = [
  "hyperloglogplus",
  "ironbeam-core",
  "ironbeam-direct",
+ "ironbeam-io",
+ "ironbeam-transforms",
  "mongodb",
  "num_cpus",
  "ordered-float",
@@ -2154,10 +2156,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironbeam-io"
+version = "0.1.0"
+dependencies = [
+ "apache-avro",
+ "arrow",
+ "bytes",
+ "csv",
+ "ironbeam-core",
+ "ironbeam-direct",
+ "parquet",
+ "quick-xml",
+ "serde",
+ "serde_arrow",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+]
+
+[[package]]
 name = "ironbeam-runner-contract-tests"
 version = "0.0.0"
 dependencies = [
  "ironbeam",
+ "ironbeam-core",
+ "ironbeam-direct",
+]
+
+[[package]]
+name = "ironbeam-transforms"
+version = "0.1.0"
+dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
 ]

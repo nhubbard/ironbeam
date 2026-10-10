@@ -1,0 +1,32 @@
+[package]
+name = "ironbeam-io"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Bounded file sources and transactional final-result sinks for Ironbeam 5"
+
+[features]
+default = ["jsonl", "csv", "parquet", "avro", "xml"]
+jsonl = []
+csv = ["dep:csv"]
+parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow", "dep:bytes"]
+avro = ["dep:apache-avro"]
+xml = ["dep:quick-xml"]
+
+[dependencies]
+ironbeam-core = { path = "../ironbeam-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+tempfile = "3"
+csv = { version = "1", optional = true }
+parquet = { version = "59", optional = true }
+arrow = { version = "59", optional = true }
+serde_arrow = { version = "0.15", features = ["arrow-59"], optional = true }
+bytes = { version = "1", optional = true }
+apache-avro = { version = "0.22", optional = true }
+quick-xml = { version = "0.41", features = ["serialize"], optional = true }
+
+[dev-dependencies]
+ironbeam-direct = { path = "../ironbeam-direct" }
