@@ -1,7 +1,6 @@
 #![cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord",
     feature = "cloud"
@@ -14,12 +13,7 @@ use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, SourceProgress,
     TypedSink, TypedSourceIterator,
 };
-#[cfg(any(
-    feature = "jsonl",
-    feature = "cbor",
-    feature = "protobuf",
-    feature = "tfrecord"
-))]
+#[cfg(any(feature = "jsonl", feature = "protobuf", feature = "tfrecord"))]
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
@@ -181,7 +175,6 @@ pub fn source<T: Element>(
 #[cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord"
 ))]
@@ -204,7 +197,6 @@ pub fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
 #[cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord"
 ))]
@@ -283,7 +275,6 @@ pub fn file_glob_source<T: Element>(
 #[cfg(any(
     feature = "file",
     feature = "jsonl",
-    feature = "cbor",
     feature = "protobuf",
     feature = "tfrecord"
 ))]
@@ -342,12 +333,7 @@ pub fn file_sharded_source<T: Element>(
     }
 }
 
-#[cfg(any(
-    feature = "file",
-    feature = "cbor",
-    feature = "protobuf",
-    feature = "tfrecord"
-))]
+#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
 #[doc(hidden)]
 pub fn count_lazy_records<T: Element>(
     path: &Path,
@@ -363,12 +349,7 @@ pub fn count_lazy_records<T: Element>(
     Ok(count)
 }
 
-#[cfg(any(
-    feature = "file",
-    feature = "cbor",
-    feature = "protobuf",
-    feature = "tfrecord"
-))]
+#[cfg(any(feature = "file", feature = "protobuf", feature = "tfrecord"))]
 #[doc(hidden)]
 pub fn read_lazy_range<T: Element>(
     path: PathBuf,
@@ -397,11 +378,6 @@ glob_source!(
     #[cfg(feature = "jsonl")]
     jsonl_glob_source,
     jsonl_source
-);
-glob_source!(
-    #[cfg(feature = "cbor")]
-    cbor_glob_source,
-    cbor_source
 );
 
 #[cfg(feature = "protobuf")]
@@ -495,7 +471,6 @@ pub fn sink<T: Element>(
     any(
         feature = "file",
         feature = "jsonl",
-            feature = "cbor",
         feature = "protobuf",
         feature = "tfrecord"
     )
@@ -559,12 +534,7 @@ pub fn parallel_file_writer<T: Sync>(
 
 #[cfg(all(
     feature = "parallel-io",
-    any(
-        feature = "file",
-        feature = "cbor",
-        feature = "protobuf",
-        feature = "tfrecord"
-    )
+    any(feature = "file", feature = "protobuf", feature = "tfrecord")
 ))]
 #[doc(hidden)]
 pub fn framed_parallel_sink<T: Element + Sync>(
@@ -800,87 +770,6 @@ pub fn jsonl_parallel_sink<T: Element + Serialize + Sync>(
             write_jsonl(part, chunk)
         })
     })
-}
-
-
-#[cfg(feature = "cbor")]
-fn read_cbor<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
-    let mut cursor = std::io::Cursor::new(bytes);
-    let mut rows = Vec::new();
-    while (cursor.position() as usize) < bytes.len() {
-        rows.push(ciborium::de::from_reader(&mut cursor).map_err(|e| io("cbor", e))?);
-    }
-    Ok(rows)
-}
-#[cfg(feature = "cbor")]
-fn write_cbor<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
-    let mut file = open_encoded_output(path, "cbor")?;
-    for value in values {
-        ciborium::ser::into_writer(value, &mut file).map_err(|e| io("cbor", e))?;
-    }
-    Ok(())
-}
-#[cfg(feature = "cbor")]
-pub fn cbor_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    source(pipeline, key, path, "cbor", read_cbor::<T>)
-}
-#[cfg(feature = "cbor")]
-fn read_cbor_lazy<T: Element + DeserializeOwned>(
-    path: PathBuf,
-) -> Result<TypedSourceIterator<T>, Error> {
-    use std::io::BufRead;
-    let file = open_lazy_input(&path, "cbor")?;
-    let mut reader = std::io::BufReader::new(file);
-    let mut done = false;
-    Ok(Box::new(std::iter::from_fn(move || {
-        if done {
-            return None;
-        }
-        match reader.fill_buf() {
-            Ok([]) => None,
-            Ok(_) => {
-                let item = ciborium::de::from_reader(&mut reader).map_err(|e| io("cbor", e));
-                if item.is_err() {
-                    done = true;
-                }
-                Some(item)
-            }
-            Err(error) => {
-                done = true;
-                Some(Err(io("cbor", error)))
-            }
-        }
-    })))
-}
-#[cfg(feature = "cbor")]
-pub fn cbor_streaming_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    lazy_source(pipeline, key, path, "cbor-streaming", read_cbor_lazy::<T>)
-}
-#[cfg(feature = "cbor")]
-pub fn cbor_sink<T: Element + Serialize>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<Sink<T>, Error> {
-    sink(input, key, path, write_cbor::<T>)
-}
-
-#[cfg(all(feature = "cbor", feature = "parallel-io"))]
-pub fn cbor_parallel_sink<T: Element + Serialize + Sync>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-    shards: usize,
-) -> Result<Sink<T>, Error> {
-    framed_parallel_sink(input, key, path, shards, write_cbor::<T>)
 }
 
 #[cfg(feature = "protobuf")]
@@ -1258,48 +1147,6 @@ pub fn tfrecord_examples_sharded_source(
         read_tfrecord_examples_range,
     )
 }
-
-macro_rules! shardable_serde_source {
-    ($feature:literal, $source:ident, $count:ident, $range:ident, $read:ident, $format:literal) => {
-        #[cfg(feature = $feature)]
-        fn $count<T: Element + DeserializeOwned>(path: &Path) -> Result<usize, Error> {
-            count_lazy_records(path, $read::<T>)
-        }
-        #[cfg(feature = $feature)]
-        fn $range<T: Element + DeserializeOwned>(
-            path: PathBuf,
-            start: usize,
-            end: usize,
-        ) -> Result<TypedSourceIterator<T>, Error> {
-            read_lazy_range(path, start, end, $read::<T>)
-        }
-        #[cfg(feature = $feature)]
-        pub fn $source<T: Element + DeserializeOwned>(
-            pipeline: &Pipeline,
-            key: &str,
-            path: impl AsRef<Path>,
-            records_per_shard: usize,
-        ) -> Result<PCollection<T>, Error> {
-            file_sharded_source(
-                pipeline,
-                key,
-                path,
-                records_per_shard,
-                $format,
-                $count::<T>,
-                $range::<T>,
-            )
-        }
-    };
-}
-shardable_serde_source!(
-    "cbor",
-    cbor_sharded_source,
-    count_cbor_records,
-    read_cbor_range,
-    read_cbor_lazy,
-    "cbor"
-);
 
 #[cfg(feature = "protobuf")]
 fn count_protobuf_records<T: Element + prost::Message + Default>(

@@ -88,6 +88,25 @@ fn facade_exposes_isolated_msgpack_connector() {
     assert_eq!(output.collect_seq().unwrap(), vec![Row { value: 1 }, Row { value: 2 }]);
 }
 
+#[cfg(feature = "v5-io-cbor")]
+#[test]
+fn facade_exposes_isolated_cbor_connector() {
+    use ironbeam::v5::{DirectRunner, JobConfig, cbor_sink, cbor_source};
+    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Row { value: i32 }
+    impl ironbeam::v5::Element for Row {
+        const TYPE_ID: &'static str = "facade/cbor-row";
+        const CODER_ID: &'static str = "facade/cbor-row";
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("values.cbor");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![Row { value: 1 }, Row { value: 2 }]).unwrap();
+    DirectRunner.run_sink(&cbor_sink(&input, "write", &path).unwrap(), &JobConfig::default()).unwrap();
+    let output = cbor_source::<Row>(&Pipeline::default(), "read", &path).unwrap().output("out").unwrap();
+    assert_eq!(output.collect_seq().unwrap(), vec![Row { value: 1 }, Row { value: 2 }]);
+}
+
 #[cfg(feature = "v5-io-avro")]
 #[test]
 fn facade_exposes_native_avro_without_v4_bridge() {

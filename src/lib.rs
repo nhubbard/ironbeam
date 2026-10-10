@@ -556,6 +556,8 @@ pub mod v5 {
     pub use ironbeam_io_xml::*;
     #[cfg(feature = "v5-io-msgpack")]
     pub use ironbeam_io_msgpack::*;
+    #[cfg(feature = "v5-io-cbor")]
+    pub use ironbeam_io_cbor::*;
     pub use ironbeam_transforms::*;
 }
 

@@ -1,9 +1,4 @@
-#![cfg(any(
-    feature = "jsonl",
-    feature = "cbor",
-    feature = "protobuf",
-    feature = "tfrecord"
-))]
+#![cfg(any(feature = "jsonl", feature = "protobuf", feature = "tfrecord"))]
 use ironbeam_core::{Boundedness, Capabilities, Element, ErrorKind, Operation, Pipeline, SinkMode};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_io::*;
@@ -101,44 +96,6 @@ fn parallel_sinks_compress_after_ordered_shard_assembly() {
             .unwrap()
             .0,
         rows()
-    );
-}
-
-#[cfg(all(feature = "parallel-io", feature = "cbor"))]
-#[test]
-fn parallel_cbor_sink_keeps_record_order() {
-    let dir = tempfile::tempdir().unwrap();
-    let (extension, make_sink, make_source) = (
-        "cbor",
-        (|i, k, p, n| cbor_parallel_sink(i, k, p, n)) as fn(&_, &str, &std::path::Path, usize) -> _,
-        (|p, k, f| cbor_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
-    );
-    let path = dir.path().join(format!("rows.{extension}"));
-    let expected = (0..7)
-        .map(|id| Row {
-            id,
-            name: format!("row-{id}"),
-        })
-        .collect::<Vec<_>>();
-    let pipeline = Pipeline::default();
-    let input = pipeline.from_vec("input", expected.clone()).unwrap();
-    DirectRunner
-        .run_sink(
-            &make_sink(&input, "write", &path, 5).unwrap(),
-            &JobConfig::default(),
-        )
-        .unwrap();
-    let read_pipeline = Pipeline::default();
-    let output = make_source(&read_pipeline, "read", &path)
-        .unwrap()
-        .output("out")
-        .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .unwrap()
-            .0,
-        expected
     );
 }
 
@@ -292,45 +249,6 @@ fn compressed_jsonl_shards_match_bounded_readers() {
     );
 }
 
-#[cfg(feature = "cbor")]
-#[test]
-fn cbor_shards_match_bounded_reader() {
-    let dir = tempfile::tempdir().unwrap();
-    type Sharded = fn(
-        &Pipeline,
-        &str,
-        &std::path::Path,
-        usize,
-    ) -> Result<ironbeam_core::PCollection<Row>, ironbeam_core::Error>;
-    let (extension, make_sink, make_source) = (
-        "cbor",
-        (|i, k, p| cbor_sink(i, k, p)) as MakeSink,
-        (|p, k, f, n| cbor_sharded_source::<Row>(p, k, f, n)) as Sharded,
-    );
-    let path = dir.path().join(format!("rows.{extension}"));
-    let pipeline = Pipeline::default();
-    let input = pipeline.from_vec("input", rows()).unwrap();
-    DirectRunner
-        .run_sink(
-            &make_sink(&input, "write", &path).unwrap(),
-            &JobConfig::default(),
-        )
-        .unwrap();
-    let reader = Pipeline::default();
-    let output = make_source(&reader, "read", &path, 1)
-        .unwrap()
-        .output("out")
-        .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .unwrap()
-            .0,
-        rows(),
-        "{extension}"
-    );
-}
-
 #[cfg(all(feature = "jsonl", feature = "compression-gzip"))]
 #[test]
 fn compressed_jsonl_round_trip_with_lazy_sources() {
@@ -374,16 +292,6 @@ fn compressed_jsonl_round_trip_with_lazy_sources() {
             .unwrap()
             .0,
         rows()
-    );
-}
-
-#[cfg(all(feature = "compression-gzip", feature = "cbor"))]
-#[test]
-fn gzip_round_trips_cbor() {
-    round_trip(
-        "cbor.gz",
-        |i, k, p| cbor_sink(i, k, p),
-        |p, k, f| cbor_streaming_source(p, k, f),
     );
 }
 
@@ -548,24 +456,6 @@ fn jsonl_contract() {
         "jsonl",
         |i, k, p| jsonl_sink(i, k, p),
         |p, k, f| jsonl_source(p, k, f),
-    );
-}
-#[cfg(feature = "cbor")]
-#[test]
-fn cbor_contract() {
-    round_trip(
-        "cbor",
-        |i, k, p| cbor_sink(i, k, p),
-        |p, k, f| cbor_source(p, k, f),
-    );
-}
-#[cfg(feature = "cbor")]
-#[test]
-fn cbor_lazy_contract() {
-    round_trip(
-        "cbor",
-        |i, k, p| cbor_sink(i, k, p),
-        |p, k, f| cbor_streaming_source(p, k, f),
     );
 }
 

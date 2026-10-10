@@ -87,6 +87,17 @@
       "count": 6
     }
   },
+  "ironbeam-io-cbor": {
+    "source": "crates/ironbeam-io-cbor/src",
+    "lines": {
+      "covered": 60,
+      "count": 63
+    },
+    "branches": {
+      "covered": 5,
+      "count": 6
+    }
+  },
   "ironbeam-io-avro": {
     "source": "crates/ironbeam-io-avro/src",
     "lines": {

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -21,6 +21,7 @@ v5-io-avro = ["v5-preview", "dep:ironbeam-io-avro"]
 v5-io-csv = ["v5-preview", "dep:ironbeam-io-csv"]
 v5-io-xml = ["v5-preview", "dep:ironbeam-io-xml"]
 v5-io-msgpack = ["v5-preview", "dep:ironbeam-io-msgpack"]
+v5-io-cbor = ["v5-preview", "dep:ironbeam-io-cbor"]
 v5-io-parquet = ["v5-preview", "dep:ironbeam-io-parquet"]
 v5-io-arrow = ["v5-preview", "dep:ironbeam-io-arrow"]
 
@@ -37,7 +38,7 @@ io-xml = ["dep:quick-xml"]
 # less-common connectors are intentionally absent from `default`. Each pulls in
 # extra dependencies that would bloat the common build, so users opt in.
 io-msgpack = ["dep:rmp-serde"]
-io-cbor = ["dep:ciborium", "ironbeam-io?/cbor"]
+io-cbor = ["dep:ciborium"]
 io-protobuf = ["dep:prost", "ironbeam-io?/protobuf"]
 io-tfrecord = ["dep:crc32c", "ironbeam-io?/tfrecord"]
 io-arrow = ["dep:arrow", "dep:serde_arrow"]
@@ -72,6 +73,7 @@ ironbeam-io-avro = { version = "0.1.0", path = "crates/ironbeam-io-avro", option
 ironbeam-io-csv = { version = "0.1.0", path = "crates/ironbeam-io-csv", optional = true }
 ironbeam-io-xml = { version = "0.1.0", path = "crates/ironbeam-io-xml", optional = true }
 ironbeam-io-msgpack = { version = "0.1.0", path = "crates/ironbeam-io-msgpack", optional = true }
+ironbeam-io-cbor = { version = "0.1.0", path = "crates/ironbeam-io-cbor", optional = true }
 ironbeam-io-parquet = { version = "0.1.0", path = "crates/ironbeam-io-parquet", optional = true }
 ironbeam-io-arrow = { version = "0.1.0", path = "crates/ironbeam-io-arrow", optional = true }
 ironbeam-io-sql = { version = "0.1.0", path = "crates/ironbeam-io-sql", optional = true }
