@@ -540,6 +540,8 @@ pub mod v5 {
         JobStatus, PlanSummary, SpillConfig,
     };
     pub use ironbeam_io::*;
+    #[cfg(feature = "v5-io-arrow")]
+    pub use ironbeam_io_arrow::*;
     #[cfg(feature = "v5-io-avro")]
     pub use ironbeam_io_avro::*;
     #[cfg(feature = "v5-io-mongodb")]

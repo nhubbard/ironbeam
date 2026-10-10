@@ -3,7 +3,6 @@
     feature = "jsonl",
     feature = "csv",
     feature = "xml",
-    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -22,7 +21,6 @@ use ironbeam_core::{
     feature = "jsonl",
     feature = "csv",
     feature = "xml",
-    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -190,7 +188,6 @@ pub fn source<T: Element>(
     feature = "file",
     feature = "jsonl",
     feature = "csv",
-    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -216,7 +213,6 @@ pub fn file_hash(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     feature = "file",
     feature = "jsonl",
     feature = "csv",
-    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -298,7 +294,6 @@ pub fn file_glob_source<T: Element>(
     feature = "file",
     feature = "jsonl",
     feature = "csv",
-    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -361,7 +356,6 @@ pub fn file_sharded_source<T: Element>(
 
 #[cfg(any(
     feature = "file",
-    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -384,7 +378,6 @@ pub fn count_lazy_records<T: Element>(
 
 #[cfg(any(
     feature = "file",
-    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -430,11 +423,6 @@ glob_source!(
     xml_source
 );
 glob_source!(
-    #[cfg(feature = "arrow-ipc")]
-    arrow_ipc_glob_source,
-    arrow_ipc_source
-);
-glob_source!(
     #[cfg(feature = "msgpack")]
     msgpack_glob_source,
     msgpack_source
@@ -463,16 +451,6 @@ pub fn tfrecord_glob_source(
 ) -> Result<PCollection<Vec<u8>>, Error> {
     file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
         tfrecord_source(pipeline, key, path)
-    })
-}
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_batches_glob_source(
-    pipeline: &Pipeline,
-    key: &str,
-    pattern: &str,
-) -> Result<PCollection<ArrowBatch>, Error> {
-    file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
-        arrow_ipc_batches_source(pipeline, key, path)
     })
 }
 struct FileSink<T> {
@@ -635,10 +613,7 @@ fn framed_parallel_sink<T: Element + Sync>(
     })
 }
 
-#[cfg(all(
-    feature = "parallel-io",
-    any(feature = "file", feature = "xml", feature = "arrow-ipc")
-))]
+#[cfg(all(feature = "parallel-io", any(feature = "file", feature = "xml")))]
 #[doc(hidden)]
 pub fn parallel_container_writer<T: Sync>(
     path: &Path,
@@ -1083,388 +1058,6 @@ pub fn xml_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
     }
     sink(input, key, path, move |path, values| {
         parallel_container_writer(path, values, shards, "xml", write_xml::<T>, read_xml::<T>)
-    })
-}
-
-#[cfg(feature = "arrow-ipc")]
-fn read_arrow_ipc<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
-    use arrow::ipc::reader::FileReader;
-    let cursor = std::io::Cursor::new(bytes);
-    let reader = FileReader::try_new(cursor, None).map_err(|e| io("arrow-ipc", e))?;
-    let mut rows = Vec::new();
-    for batch in reader {
-        let batch = batch.map_err(|e| io("arrow-ipc", e))?;
-        rows.extend(
-            serde_arrow::from_record_batch::<Vec<T>>(&batch).map_err(|e| io("arrow-ipc", e))?,
-        );
-    }
-    Ok(rows)
-}
-#[cfg(feature = "arrow-ipc")]
-fn write_arrow_ipc<T: Serialize + DeserializeOwned>(
-    path: &Path,
-    values: &[T],
-) -> Result<(), Error> {
-    use arrow::datatypes::FieldRef;
-    use arrow::ipc::writer::FileWriter;
-    use serde_arrow::schema::{SchemaLike, TracingOptions};
-    let fields = Vec::<FieldRef>::from_type::<T>(TracingOptions::default())
-        .map_err(|e| io("arrow-ipc", e))?;
-    let batch = serde_arrow::to_record_batch(&fields, &values).map_err(|e| io("arrow-ipc", e))?;
-    let file = fs::File::create(path).map_err(|e| io("arrow-ipc", e))?;
-    let mut writer = FileWriter::try_new(file, &batch.schema()).map_err(|e| io("arrow-ipc", e))?;
-    writer.write(&batch).map_err(|e| io("arrow-ipc", e))?;
-    writer.finish().map_err(|e| io("arrow-ipc", e))?;
-    Ok(())
-}
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    source(pipeline, key, path, "arrow-ipc", read_arrow_ipc::<T>)
-}
-#[cfg(feature = "arrow-ipc")]
-fn read_arrow_ipc_lazy<T: Element + DeserializeOwned>(
-    path: PathBuf,
-) -> Result<TypedSourceIterator<T>, Error> {
-    use arrow::ipc::reader::FileReader;
-    let file = fs::File::open(path).map_err(|e| io("arrow-ipc", e))?;
-    let reader = FileReader::try_new(file, None).map_err(|e| io("arrow-ipc", e))?;
-    Ok(Box::new(reader.flat_map(|batch| match batch {
-        Ok(batch) => match serde_arrow::from_record_batch::<Vec<T>>(&batch) {
-            Ok(rows) => rows.into_iter().map(Ok).collect::<Vec<_>>(),
-            Err(error) => vec![Err(io("arrow-ipc", error))],
-        },
-        Err(error) => vec![Err(io("arrow-ipc", error))],
-    })))
-}
-#[cfg(feature = "arrow-ipc")]
-fn read_arrow_ipc_indexed_batches(
-    path: PathBuf,
-    start: usize,
-    end: usize,
-) -> Result<TypedSourceIterator<ArrowBatch>, Error> {
-    use arrow::ipc::reader::FileReader;
-    let file = fs::File::open(path).map_err(|e| io("arrow-ipc", e))?;
-    let mut reader = FileReader::try_new(file, None).map_err(|e| io("arrow-ipc", e))?;
-    if start < end {
-        reader.set_index(start).map_err(|e| io("arrow-ipc", e))?;
-    }
-    Ok(Box::new(reader.take(end - start).map(|batch| {
-        batch.map(ArrowBatch).map_err(|e| io("arrow-ipc", e))
-    })))
-}
-#[cfg(feature = "arrow-ipc")]
-fn read_arrow_ipc_indexed_rows<T: Element + DeserializeOwned>(
-    path: PathBuf,
-    start: usize,
-    end: usize,
-) -> Result<TypedSourceIterator<T>, Error> {
-    let batches = read_arrow_ipc_indexed_batches(path, start, end)?;
-    Ok(Box::new(batches.flat_map(|batch| match batch {
-        Ok(ArrowBatch(batch)) => match serde_arrow::from_record_batch::<Vec<T>>(&batch) {
-            Ok(rows) => rows.into_iter().map(Ok).collect::<Vec<_>>(),
-            Err(error) => vec![Err(io("arrow-ipc", error))],
-        },
-        Err(error) => vec![Err(error)],
-    })))
-}
-#[cfg(feature = "arrow-ipc")]
-fn arrow_ipc_indexed_source<T: Element>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-    batches_per_shard: usize,
-    format: &str,
-    batches_are_elements: bool,
-    read_range: fn(PathBuf, usize, usize) -> Result<TypedSourceIterator<T>, Error>,
-) -> Result<PCollection<T>, Error> {
-    use arrow::ipc::reader::FileReader;
-    if batches_per_shard == 0 {
-        return Err(Error::graph(key, "batches per shard must be positive"));
-    }
-    let path = path.as_ref().to_path_buf();
-    let expected = file_hash(&path, key)?;
-    let file = fs::File::open(&path).map_err(|e| io(key, e))?;
-    let count = FileReader::try_new(file, None)
-        .map_err(|e| io(key, e))?
-        .num_batches();
-    let shards = count.max(1).div_ceil(batches_per_shard);
-    let mut sources = Vec::with_capacity(shards);
-    for index in 0..shards {
-        let start = index * batches_per_shard;
-        let end = start.saturating_add(batches_per_shard).min(count);
-        let child_key = format!("{key}/batch-{index}");
-        let digest = format!("{format}:{}:{expected:02x?}:{start}:{end}", path.display());
-        let source_path = path.clone();
-        let source_expected = expected.clone();
-        let name = child_key.clone();
-        sources.push(pipeline.bounded_source_with_semantic(
-            &child_key,
-            &format!("ironbeam/io/{format}-indexed-shard"),
-            SourceProgress {
-                stable_split_id: true,
-                replay: Replay::AtLeastOnce,
-                reports_event_time: false,
-            },
-            digest,
-            batches_are_elements.then_some(end - start),
-            move || {
-                if file_hash(&source_path, &name)? != source_expected {
-                    return Err(Error::recovery(
-                        &name,
-                        "source contents changed after graph construction",
-                    ));
-                }
-                read_range(source_path.clone(), start, end)
-            },
-        )?);
-    }
-    let first = sources.remove(0);
-    if sources.is_empty() {
-        first.map_named(key, |value| value)
-    } else {
-        first.flatten_named(key, &sources)
-    }
-}
-/// Split a bounded Arrow IPC file by its indexed record batches and decode rows.
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_batch_sharded_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-    batches_per_shard: usize,
-) -> Result<PCollection<T>, Error> {
-    arrow_ipc_indexed_source(
-        pipeline,
-        key,
-        path,
-        batches_per_shard,
-        "arrow-ipc-row-batches",
-        false,
-        read_arrow_ipc_indexed_rows::<T>,
-    )
-}
-/// Split a bounded Arrow IPC file by its indexed record batches.
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_batches_indexed_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-    batches_per_shard: usize,
-) -> Result<PCollection<ArrowBatch>, Error> {
-    arrow_ipc_indexed_source(
-        pipeline,
-        key,
-        path,
-        batches_per_shard,
-        "arrow-ipc-batches",
-        true,
-        read_arrow_ipc_indexed_batches,
-    )
-}
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_streaming_source<T: Element + DeserializeOwned>(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<T>, Error> {
-    lazy_source(
-        pipeline,
-        key,
-        path,
-        "arrow-ipc-streaming",
-        read_arrow_ipc_lazy::<T>,
-    )
-}
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_sink<T: Element + Serialize + DeserializeOwned>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<Sink<T>, Error> {
-    sink(input, key, path, write_arrow_ipc::<T>)
-}
-
-#[cfg(all(feature = "arrow-ipc", feature = "parallel-io"))]
-pub fn arrow_ipc_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
-    input: &PCollection<T>,
-    key: &str,
-    path: impl AsRef<Path>,
-    shards: usize,
-) -> Result<Sink<T>, Error> {
-    if shards == 0 {
-        return Err(Error::graph(
-            key,
-            "parallel writer needs at least one shard",
-        ));
-    }
-    sink(input, key, path, move |path, values| {
-        parallel_container_writer(
-            path,
-            values,
-            shards,
-            "arrow",
-            write_arrow_ipc::<T>,
-            read_arrow_ipc::<T>,
-        )
-    })
-}
-
-#[cfg(feature = "arrow-ipc")]
-#[derive(Clone, Debug)]
-pub struct ArrowBatch(pub arrow::record_batch::RecordBatch);
-
-#[cfg(feature = "arrow-ipc")]
-impl Serialize for ArrowBatch {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        encode_arrow_batch(&self.0)
-            .map_err(serde::ser::Error::custom)?
-            .serialize(serializer)
-    }
-}
-#[cfg(feature = "arrow-ipc")]
-impl<'de> serde::Deserialize<'de> for ArrowBatch {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let bytes = <Vec<u8> as serde::Deserialize>::deserialize(deserializer)?;
-        Self::decode(&bytes).map_err(serde::de::Error::custom)
-    }
-}
-
-#[cfg(feature = "arrow-ipc")]
-fn encode_arrow_batch(batch: &arrow::record_batch::RecordBatch) -> Result<Vec<u8>, Error> {
-    use arrow::ipc::writer::FileWriter;
-    let mut bytes = Vec::new();
-    let mut writer =
-        FileWriter::try_new(&mut bytes, &batch.schema()).map_err(|e| io("arrow-ipc", e))?;
-    writer.write(batch).map_err(|e| io("arrow-ipc", e))?;
-    writer.finish().map_err(|e| io("arrow-ipc", e))?;
-    Ok(bytes)
-}
-
-#[cfg(feature = "arrow-ipc")]
-impl Element for ArrowBatch {
-    const TYPE_ID: &'static str = "arrow/record-batch";
-    const CODER_ID: &'static str = "ironbeam/arrow-ipc-file-v1";
-    fn supports_coder() -> bool {
-        true
-    }
-    fn encode(&self) -> Result<Vec<u8>, Error> {
-        encode_arrow_batch(&self.0)
-    }
-    fn decode(bytes: &[u8]) -> Result<Self, Error> {
-        use arrow::ipc::reader::FileReader;
-        let mut reader = FileReader::try_new(std::io::Cursor::new(bytes), None)
-            .map_err(|e| io("arrow-ipc", e))?;
-        let batch = reader
-            .next()
-            .ok_or_else(|| Error::incompatible("empty Arrow batch coder payload"))?
-            .map_err(|e| io("arrow-ipc", e))?;
-        if reader.next().is_some() {
-            return Err(Error::incompatible(
-                "multiple batches in Arrow batch coder payload",
-            ));
-        }
-        Ok(Self(batch))
-    }
-}
-
-#[cfg(feature = "arrow-ipc")]
-fn read_arrow_ipc_batches(bytes: &[u8]) -> Result<Vec<ArrowBatch>, Error> {
-    use arrow::ipc::reader::FileReader;
-    FileReader::try_new(std::io::Cursor::new(bytes), None)
-        .map_err(|e| io("arrow-ipc", e))?
-        .map(|batch| batch.map(ArrowBatch).map_err(|e| io("arrow-ipc", e)))
-        .collect()
-}
-#[cfg(feature = "arrow-ipc")]
-fn write_arrow_ipc_batches(path: &Path, values: &[ArrowBatch]) -> Result<(), Error> {
-    use arrow::{
-        datatypes::{FieldRef, Schema},
-        ipc::writer::FileWriter,
-    };
-    let schema = values.first().map_or_else(
-        || std::sync::Arc::new(Schema::new(Vec::<FieldRef>::new())),
-        |batch| batch.0.schema(),
-    );
-    let file = fs::File::create(path).map_err(|e| io("arrow-ipc", e))?;
-    let mut writer = FileWriter::try_new(file, &schema).map_err(|e| io("arrow-ipc", e))?;
-    for batch in values {
-        writer.write(&batch.0).map_err(|e| io("arrow-ipc", e))?;
-    }
-    writer.finish().map_err(|e| io("arrow-ipc", e))?;
-    Ok(())
-}
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_batches_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<ArrowBatch>, Error> {
-    source(
-        pipeline,
-        key,
-        path,
-        "arrow-ipc-batches",
-        read_arrow_ipc_batches,
-    )
-}
-#[cfg(feature = "arrow-ipc")]
-fn read_arrow_ipc_batches_lazy(path: PathBuf) -> Result<TypedSourceIterator<ArrowBatch>, Error> {
-    use arrow::ipc::reader::FileReader;
-    let file = fs::File::open(path).map_err(|e| io("arrow-ipc", e))?;
-    let reader = FileReader::try_new(file, None).map_err(|e| io("arrow-ipc", e))?;
-    Ok(Box::new(reader.map(|batch| {
-        batch.map(ArrowBatch).map_err(|e| io("arrow-ipc", e))
-    })))
-}
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_batches_streaming_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<PCollection<ArrowBatch>, Error> {
-    lazy_source(
-        pipeline,
-        key,
-        path,
-        "arrow-ipc-batches-streaming",
-        read_arrow_ipc_batches_lazy,
-    )
-}
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_batches_sink(
-    input: &PCollection<ArrowBatch>,
-    key: &str,
-    path: impl AsRef<Path>,
-) -> Result<Sink<ArrowBatch>, Error> {
-    sink(input, key, path, write_arrow_ipc_batches)
-}
-
-#[cfg(all(feature = "arrow-ipc", feature = "parallel-io"))]
-pub fn arrow_ipc_batches_parallel_sink(
-    input: &PCollection<ArrowBatch>,
-    key: &str,
-    path: impl AsRef<Path>,
-    shards: usize,
-) -> Result<Sink<ArrowBatch>, Error> {
-    if shards == 0 {
-        return Err(Error::graph(
-            key,
-            "parallel writer needs at least one shard",
-        ));
-    }
-    sink(input, key, path, move |path, values| {
-        parallel_container_writer(
-            path,
-            values,
-            shards,
-            "arrow",
-            write_arrow_ipc_batches,
-            read_arrow_ipc_batches,
-        )
     })
 }
 
@@ -2044,14 +1637,6 @@ macro_rules! shardable_serde_source {
     };
 }
 shardable_serde_source!(
-    "arrow-ipc",
-    arrow_ipc_sharded_source,
-    count_arrow_ipc_records,
-    read_arrow_ipc_range,
-    read_arrow_ipc_lazy,
-    "arrow-ipc"
-);
-shardable_serde_source!(
     "msgpack",
     msgpack_sharded_source,
     count_msgpack_records,
@@ -2067,36 +1652,6 @@ shardable_serde_source!(
     read_cbor_lazy,
     "cbor"
 );
-
-#[cfg(feature = "arrow-ipc")]
-fn count_arrow_batches(path: &Path) -> Result<usize, Error> {
-    count_lazy_records(path, read_arrow_ipc_batches_lazy)
-}
-#[cfg(feature = "arrow-ipc")]
-fn read_arrow_batches_range(
-    path: PathBuf,
-    start: usize,
-    end: usize,
-) -> Result<TypedSourceIterator<ArrowBatch>, Error> {
-    read_lazy_range(path, start, end, read_arrow_ipc_batches_lazy)
-}
-#[cfg(feature = "arrow-ipc")]
-pub fn arrow_ipc_batches_sharded_source(
-    pipeline: &Pipeline,
-    key: &str,
-    path: impl AsRef<Path>,
-    batches_per_shard: usize,
-) -> Result<PCollection<ArrowBatch>, Error> {
-    file_sharded_source(
-        pipeline,
-        key,
-        path,
-        batches_per_shard,
-        "arrow-ipc-batches",
-        count_arrow_batches,
-        read_arrow_batches_range,
-    )
-}
 
 #[cfg(feature = "protobuf")]
 fn count_protobuf_records<T: Element + prost::Message + Default>(

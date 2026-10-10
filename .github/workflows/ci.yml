@@ -59,7 +59,7 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
-          cargo clippy -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
+          cargo clippy -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
@@ -124,6 +124,7 @@ jobs:
           cargo build -p ironbeam-io --no-default-features
           cargo build -p ironbeam-io-avro
           cargo build -p ironbeam-io-parquet
+          cargo build -p ironbeam-io-arrow
           cargo build -p ironbeam-io-sql
           cargo build -p ironbeam-io-mongodb
           cargo build -p ironbeam-compat
@@ -135,6 +136,7 @@ jobs:
           done
           cargo test -p ironbeam-io-avro --all-features
           cargo test -p ironbeam-io-parquet --all-features
+          cargo test -p ironbeam-io-arrow --all-features
 
       # With the I/O features off, the always-present API must fail at runtime.
       - name: Verify disabled-feature runtime stubs
@@ -248,7 +250,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        package: [ironbeam-core, ironbeam-direct, ironbeam-transforms, ironbeam-io, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-compat]
+        package: [ironbeam-core, ironbeam-direct, ironbeam-transforms, ironbeam-io, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-io-arrow, ironbeam-compat]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -263,7 +265,7 @@ jobs:
         run: |
           cargo test -p "${{ matrix.package }}"
           features=()
-          if [ "${{ matrix.package }}" = "ironbeam-io-avro" ] || [ "${{ matrix.package }}" = "ironbeam-io-parquet" ]; then features=(--all-features); fi
+          if [ "${{ matrix.package }}" = "ironbeam-io-avro" ] || [ "${{ matrix.package }}" = "ironbeam-io-parquet" ] || [ "${{ matrix.package }}" = "ironbeam-io-arrow" ]; then features=(--all-features); fi
           cargo llvm-cov -p "${{ matrix.package }}" "${features[@]}" --branch --json \
             --output-path coverage-v5.json
           python3 scripts/check_coverage.py "${{ matrix.package }}" coverage-v5.json | tee -a "$GITHUB_STEP_SUMMARY"

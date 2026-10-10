@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-io", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -19,6 +19,7 @@ v5-io-sql = ["v5-preview", "dep:ironbeam-io-sql"]
 v5-io-mongodb = ["v5-preview", "dep:ironbeam-io-mongodb"]
 v5-io-avro = ["v5-preview", "dep:ironbeam-io-avro"]
 v5-io-parquet = ["v5-preview", "dep:ironbeam-io-parquet"]
+v5-io-arrow = ["v5-preview", "dep:ironbeam-io-arrow"]
 
 # IO backends
 io-jsonl = ["ironbeam-io?/jsonl"]
@@ -36,7 +37,7 @@ io-msgpack = ["dep:rmp-serde", "ironbeam-io?/msgpack"]
 io-cbor = ["dep:ciborium", "ironbeam-io?/cbor"]
 io-protobuf = ["dep:prost", "ironbeam-io?/protobuf"]
 io-tfrecord = ["dep:crc32c", "ironbeam-io?/tfrecord"]
-io-arrow = ["dep:arrow", "dep:serde_arrow", "ironbeam-io?/arrow-ipc"]
+io-arrow = ["dep:arrow", "dep:serde_arrow"]
 io-sql = ["dep:sqlx", "dep:tokio"]
 io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
 
@@ -66,6 +67,7 @@ ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", 
 ironbeam-io = { version = "0.1.0", path = "crates/ironbeam-io", default-features = false, optional = true }
 ironbeam-io-avro = { version = "0.1.0", path = "crates/ironbeam-io-avro", optional = true }
 ironbeam-io-parquet = { version = "0.1.0", path = "crates/ironbeam-io-parquet", optional = true }
+ironbeam-io-arrow = { version = "0.1.0", path = "crates/ironbeam-io-arrow", optional = true }
 ironbeam-io-sql = { version = "0.1.0", path = "crates/ironbeam-io-sql", optional = true }
 ironbeam-io-mongodb = { version = "0.1.0", path = "crates/ironbeam-io-mongodb", optional = true }
 # Core dependencies

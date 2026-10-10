@@ -2,7 +2,6 @@
     feature = "jsonl",
     feature = "csv",
     feature = "xml",
-    feature = "arrow-ipc",
     feature = "msgpack",
     feature = "cbor",
     feature = "protobuf",
@@ -382,7 +381,7 @@ fn compressed_jsonl_and_csv_shards_match_bounded_readers() {
     }
 }
 
-#[cfg(all(feature = "arrow-ipc", feature = "msgpack", feature = "cbor"))]
+#[cfg(all(feature = "msgpack", feature = "cbor"))]
 #[test]
 fn record_format_shards_match_bounded_readers() {
     let dir = tempfile::tempdir().unwrap();
@@ -393,11 +392,6 @@ fn record_format_shards_match_bounded_readers() {
         usize,
     ) -> Result<ironbeam_core::PCollection<Row>, ironbeam_core::Error>;
     for (extension, make_sink, make_source) in [
-        (
-            "arrow",
-            (|i, k, p| arrow_ipc_sink(i, k, p)) as MakeSink,
-            (|p, k, f, n| arrow_ipc_sharded_source::<Row>(p, k, f, n)) as Sharded,
-        ),
         (
             "msgpack",
             (|i, k, p| msgpack_sink(i, k, p)) as MakeSink,
@@ -434,81 +428,9 @@ fn record_format_shards_match_bounded_readers() {
     }
 }
 
-#[cfg(feature = "arrow-ipc")]
+#[cfg(all(feature = "parallel-io", feature = "xml"))]
 #[test]
-fn arrow_ipc_indexed_shards_keep_batch_boundaries_and_rows() {
-    use arrow::datatypes::FieldRef;
-    use arrow::ipc::writer::FileWriter;
-    use serde_arrow::schema::{SchemaLike, TracingOptions};
-
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("batches.arrow");
-    let fields = Vec::<FieldRef>::from_type::<Row>(TracingOptions::default()).unwrap();
-    let batches = (0..3)
-        .map(|id| {
-            serde_arrow::to_record_batch(
-                &fields,
-                &vec![Row {
-                    id,
-                    name: format!("row-{id}"),
-                }],
-            )
-            .unwrap()
-        })
-        .collect::<Vec<_>>();
-    let file = fs::File::create(&path).unwrap();
-    let mut writer = FileWriter::try_new(file, &batches[0].schema()).unwrap();
-    for batch in &batches {
-        writer.write(batch).unwrap();
-    }
-    writer.finish().unwrap();
-
-    let pipeline = Pipeline::default();
-    assert!(arrow_ipc_batch_sharded_source::<Row>(&pipeline, "bad", &path, 0).is_err());
-    let rows = arrow_ipc_batch_sharded_source::<Row>(&pipeline, "rows", &path, 1)
-        .unwrap()
-        .output("rows-out")
-        .unwrap();
-    let batch_output = arrow_ipc_batches_indexed_source(&pipeline, "batches", &path, 2)
-        .unwrap()
-        .output("batches-out")
-        .unwrap();
-    let (graph, _) = pipeline.snapshot().unwrap();
-    assert!(graph.node("rows/batch-2").is_some());
-    assert!(graph.node("batches/batch-1").is_some());
-    for parallelism in [1, 3] {
-        let config = JobConfig {
-            parallelism,
-            ..JobConfig::default()
-        };
-        let actual_rows = DirectRunner.run_collect(&rows, &config).unwrap().0;
-        assert_eq!(
-            actual_rows,
-            (0..3)
-                .map(|id| Row {
-                    id,
-                    name: format!("row-{id}"),
-                })
-                .collect::<Vec<_>>()
-        );
-        let actual_batches = DirectRunner.run_collect(&batch_output, &config).unwrap().0;
-        assert_eq!(actual_batches.len(), 3);
-        assert!(actual_batches.iter().all(|batch| batch.0.num_rows() == 1));
-    }
-    fs::write(&path, b"changed").unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&rows, &JobConfig::default())
-            .err()
-            .unwrap()
-            .kind,
-        ErrorKind::Recovery
-    );
-}
-
-#[cfg(all(feature = "parallel-io", feature = "xml", feature = "arrow-ipc"))]
-#[test]
-fn parallel_container_sinks_merge_valid_ordered_files() {
+fn parallel_xml_sink_merges_valid_ordered_files() {
     let dir = tempfile::tempdir().unwrap();
     type ParallelSink = fn(
         &ironbeam_core::PCollection<Row>,
@@ -516,18 +438,11 @@ fn parallel_container_sinks_merge_valid_ordered_files() {
         &std::path::Path,
         usize,
     ) -> Result<ironbeam_core::Sink<Row>, ironbeam_core::Error>;
-    for (extension, make_sink, make_source) in [
-        (
-            "xml",
-            (|i, k, p, n| xml_parallel_sink(i, k, p, n)) as ParallelSink,
-            (|p, k, f| xml_source::<Row>(p, k, f)) as MakeSource,
-        ),
-        (
-            "arrow",
-            (|i, k, p, n| arrow_ipc_parallel_sink(i, k, p, n)) as ParallelSink,
-            (|p, k, f| arrow_ipc_source::<Row>(p, k, f)) as MakeSource,
-        ),
-    ] {
+    for (extension, make_sink, make_source) in [(
+        "xml",
+        (|i, k, p, n| xml_parallel_sink(i, k, p, n)) as ParallelSink,
+        (|p, k, f| xml_source::<Row>(p, k, f)) as MakeSource,
+    )] {
         let path = dir.path().join(format!("rows.{extension}"));
         let expected = (0..7)
             .map(|id| Row {
@@ -1101,132 +1016,6 @@ fn xml_streaming_spelling_uses_one_whole_file_shard() {
         |p, k, f| xml_streaming_source(p, k, f, 1),
     );
 }
-#[cfg(feature = "arrow-ipc")]
-#[test]
-fn arrow_ipc_row_contract() {
-    round_trip(
-        "arrow",
-        |i, k, p| arrow_ipc_sink(i, k, p),
-        |p, k, f| arrow_ipc_source(p, k, f),
-    );
-}
-#[cfg(feature = "arrow-ipc")]
-#[test]
-fn arrow_ipc_lazy_row_contract() {
-    round_trip(
-        "arrow",
-        |i, k, p| arrow_ipc_sink(i, k, p),
-        |p, k, f| arrow_ipc_streaming_source(p, k, f),
-    );
-}
-
-#[cfg(feature = "arrow-ipc")]
-#[test]
-fn arrow_ipc_batch_contract_and_coder() {
-    let directory = tempfile::tempdir().unwrap();
-    let input_path = directory.path().join("input.arrow");
-    let output_path = directory.path().join("output.arrow");
-    let write_pipeline = Pipeline::default();
-    let row_collection = write_pipeline.from_vec("rows", rows()).unwrap();
-    let row_sink = arrow_ipc_sink(&row_collection, "row-sink", &input_path).unwrap();
-    DirectRunner
-        .run_sink(&row_sink, &JobConfig::default())
-        .unwrap();
-
-    let batch_pipeline = Pipeline::default();
-    let batches = arrow_ipc_batches_source(&batch_pipeline, "batches", &input_path).unwrap();
-    let lazy_batches =
-        arrow_ipc_batches_streaming_source(&batch_pipeline, "lazy-batches", &input_path)
-            .unwrap()
-            .output("lazy-batches-out")
-            .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&lazy_batches, &JobConfig::default())
-            .unwrap()
-            .0[0]
-            .0
-            .num_rows(),
-        2
-    );
-    let output = batches.output("batches-out").unwrap();
-    let collected = DirectRunner
-        .run_collect(&output, &JobConfig::default())
-        .unwrap()
-        .0;
-    assert_eq!(collected.len(), 1);
-    assert_eq!(collected[0].0.num_rows(), 2);
-    let shard_pipeline = Pipeline::default();
-    let batch_shards =
-        arrow_ipc_batches_sharded_source(&shard_pipeline, "batch-shards", &input_path, 1)
-            .unwrap()
-            .output("batch-shards-out")
-            .unwrap();
-    let sharded = DirectRunner
-        .run_collect(&batch_shards, &JobConfig::default())
-        .unwrap()
-        .0;
-    assert_eq!(sharded.len(), 1);
-    assert_eq!(sharded[0].0.num_rows(), 2);
-    #[cfg(feature = "parallel-io")]
-    {
-        let parallel_path = directory.path().join("parallel.arrow");
-        let parallel_pipeline = Pipeline::default();
-        let input = parallel_pipeline
-            .from_vec(
-                "input-batches",
-                vec![collected[0].clone(), collected[0].clone()],
-            )
-            .unwrap();
-        DirectRunner
-            .run_sink(
-                &arrow_ipc_batches_parallel_sink(&input, "parallel", &parallel_path, 2).unwrap(),
-                &JobConfig::default(),
-            )
-            .unwrap();
-        let reader = Pipeline::default();
-        let output = arrow_ipc_batches_source(&reader, "parallel-read", &parallel_path)
-            .unwrap()
-            .output("parallel-out")
-            .unwrap();
-        let batches = DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .unwrap()
-            .0;
-        assert_eq!(batches.len(), 2);
-        assert_eq!(
-            batches
-                .iter()
-                .map(|batch| batch.0.num_rows())
-                .collect::<Vec<_>>(),
-            [2, 2]
-        );
-    }
-    let encoded = collected[0].encode().unwrap();
-    assert_eq!(ArrowBatch::decode(&encoded).unwrap().0.num_rows(), 2);
-    assert!(ArrowBatch::decode(&encoded[..encoded.len() - 1]).is_err());
-    let serialized = serde_json::to_vec(&collected[0]).unwrap();
-    let restored_batch: ArrowBatch = serde_json::from_slice(&serialized).unwrap();
-    assert_eq!(restored_batch.0.num_rows(), 2);
-    let batch_sink = arrow_ipc_batches_sink(&batches, "batch-sink", &output_path).unwrap();
-    DirectRunner
-        .run_sink(&batch_sink, &JobConfig::default())
-        .unwrap();
-
-    let read_pipeline = Pipeline::default();
-    let restored = arrow_ipc_source::<Row>(&read_pipeline, "restored", &output_path)
-        .unwrap()
-        .output("restored-out")
-        .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&restored, &JobConfig::default())
-            .unwrap()
-            .0,
-        rows()
-    );
-}
-
 #[cfg(feature = "jsonl")]
 #[test]
 fn jsonl_lazy_reader_defers_parse_errors_until_execution() {

@@ -2110,6 +2110,7 @@ dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
+ "ironbeam-io-arrow",
  "ironbeam-io-avro",
  "ironbeam-io-mongodb",
  "ironbeam-io-parquet",
@@ -2208,7 +2209,6 @@ dependencies = [
 name = "ironbeam-io"
 version = "0.1.0"
 dependencies = [
- "arrow",
  "ciborium",
  "crc32c",
  "csv",
@@ -2220,9 +2220,22 @@ dependencies = [
  "quick-xml",
  "rmp-serde",
  "serde",
- "serde_arrow",
  "serde_json",
  "sha2 0.11.0",
+ "tempfile",
+]
+
+[[package]]
+name = "ironbeam-io-arrow"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "ironbeam-core",
+ "ironbeam-direct",
+ "ironbeam-io",
+ "serde",
+ "serde_arrow",
+ "serde_json",
  "tempfile",
 ]
 
