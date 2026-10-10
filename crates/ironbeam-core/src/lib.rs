@@ -2629,6 +2629,19 @@ impl<T: Element> PCollection<T> {
         side: &PCollection<S>,
         f: impl Fn(T, &[S]) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
+        self.map_with_materialized_side_named(key, side, Ok, move |value, values: &Vec<S>| {
+            Ok(f(value, values))
+        })
+    }
+    /// Build a bounded side view once per execution, then apply it to each main value.
+    /// Materialization failures are returned as typed execution errors.
+    pub fn map_with_materialized_side_named<S: Element, M: 'static, U: Element>(
+        &self,
+        key: &str,
+        side: &PCollection<S>,
+        materialize: impl Fn(Vec<S>) -> Result<M, Error> + Send + Sync + 'static,
+        f: impl Fn(T, &M) -> Result<U, Error> + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
         if !Arc::ptr_eq(&self.pipeline.inner, &side.pipeline.inner) {
             return Err(Error::graph(
                 key,
@@ -2658,6 +2671,7 @@ impl<T: Element> PCollection<T> {
                     Error::execution(&key_owned, "direct", "side input type mismatch")
                 })?);
             }
+            let side_view = materialize(typed_side)?;
             let mut output = Vec::with_capacity(main_values.len());
             for event in main_values {
                 let Envelope {
@@ -2670,7 +2684,7 @@ impl<T: Element> PCollection<T> {
                     Error::execution(&key_owned, "direct", "main input type mismatch")
                 })?;
                 output.push(Envelope {
-                    value: Box::new(f(value, &typed_side)),
+                    value: Box::new(f(value, &side_view)?),
                     timestamp_ns,
                     window,
                     assigned_window,
