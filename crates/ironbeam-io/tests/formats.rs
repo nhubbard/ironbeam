@@ -38,6 +38,154 @@ fn rows() -> Vec<Row> {
     ]
 }
 
+#[cfg(all(feature = "parallel-io", feature = "jsonl", feature = "csv"))]
+#[test]
+fn parallel_jsonl_and_csv_sinks_preserve_order_and_single_header() {
+    let dir = tempfile::tempdir().unwrap();
+    for (extension, make_sink, make_source) in [
+        (
+            "jsonl",
+            (|i, k, p, n| jsonl_parallel_sink(i, k, p, n))
+                as fn(&_, &str, &std::path::Path, usize) -> _,
+            (|p, k, f| jsonl_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
+        ),
+        (
+            "csv",
+            (|i, k, p, n| csv_parallel_sink(i, k, p, n))
+                as fn(&_, &str, &std::path::Path, usize) -> _,
+            (|p, k, f| csv_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
+        ),
+    ] {
+        let path = dir.path().join(format!("rows.{extension}"));
+        for count in [0, 1, 5] {
+            let expected = (0..count)
+                .map(|id| Row {
+                    id,
+                    name: format!("row-{id}"),
+                })
+                .collect::<Vec<_>>();
+            let pipeline = Pipeline::default();
+            let input = pipeline.from_vec("input", expected.clone()).unwrap();
+            assert!(make_sink(&input, "bad", &path, 0).is_err());
+            let sink = make_sink(&input, "write", &path, 4).unwrap();
+            DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+            let read_pipeline = Pipeline::default();
+            let output = make_source(&read_pipeline, "read", &path)
+                .unwrap()
+                .output("out")
+                .unwrap();
+            assert_eq!(
+                DirectRunner
+                    .run_collect(&output, &JobConfig::default())
+                    .unwrap()
+                    .0,
+                expected
+            );
+            if extension == "csv" && count > 0 {
+                assert_eq!(
+                    fs::read_to_string(&path)
+                        .unwrap()
+                        .matches("id,name")
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
+}
+
+#[cfg(all(
+    feature = "parallel-io",
+    feature = "jsonl",
+    feature = "csv",
+    feature = "compression-gzip"
+))]
+#[test]
+fn parallel_sinks_compress_after_ordered_shard_assembly() {
+    let dir = tempfile::tempdir().unwrap();
+    for (extension, make_sink, make_source) in [
+        (
+            "jsonl.gz",
+            (|i, k, p, n| jsonl_parallel_sink(i, k, p, n))
+                as fn(&_, &str, &std::path::Path, usize) -> _,
+            (|p, k, f| jsonl_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
+        ),
+        (
+            "csv.gz",
+            (|i, k, p, n| csv_parallel_sink(i, k, p, n))
+                as fn(&_, &str, &std::path::Path, usize) -> _,
+            (|p, k, f| csv_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
+        ),
+    ] {
+        let path = dir.path().join(format!("rows.{extension}"));
+        let pipeline = Pipeline::default();
+        let input = pipeline.from_vec("input", rows()).unwrap();
+        let sink = make_sink(&input, "write", &path, 3).unwrap();
+        DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+        assert_eq!(&fs::read(&path).unwrap()[..2], &[0x1f, 0x8b]);
+        let read_pipeline = Pipeline::default();
+        let output = make_source(&read_pipeline, "read", &path)
+            .unwrap()
+            .output("out")
+            .unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &JobConfig::default())
+                .unwrap()
+                .0,
+            rows()
+        );
+    }
+}
+
+#[cfg(all(feature = "parallel-io", feature = "msgpack", feature = "cbor"))]
+#[test]
+fn parallel_framed_sinks_keep_record_order() {
+    let dir = tempfile::tempdir().unwrap();
+    for (extension, make_sink, make_source) in [
+        (
+            "msgpack",
+            (|i, k, p, n| msgpack_parallel_sink(i, k, p, n))
+                as fn(&_, &str, &std::path::Path, usize) -> _,
+            (|p, k, f| msgpack_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
+        ),
+        (
+            "cbor",
+            (|i, k, p, n| cbor_parallel_sink(i, k, p, n))
+                as fn(&_, &str, &std::path::Path, usize) -> _,
+            (|p, k, f| cbor_source::<Row>(p, k, f)) as fn(&_, &str, &std::path::Path) -> _,
+        ),
+    ] {
+        let path = dir.path().join(format!("rows.{extension}"));
+        let expected = (0..7)
+            .map(|id| Row {
+                id,
+                name: format!("row-{id}"),
+            })
+            .collect::<Vec<_>>();
+        let pipeline = Pipeline::default();
+        let input = pipeline.from_vec("input", expected.clone()).unwrap();
+        DirectRunner
+            .run_sink(
+                &make_sink(&input, "write", &path, 5).unwrap(),
+                &JobConfig::default(),
+            )
+            .unwrap();
+        let read_pipeline = Pipeline::default();
+        let output = make_source(&read_pipeline, "read", &path)
+            .unwrap()
+            .output("out")
+            .unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &JobConfig::default())
+                .unwrap()
+                .0,
+            expected
+        );
+    }
+}
+
 #[cfg(all(feature = "jsonl", feature = "csv"))]
 #[test]
 fn file_globs_expand_in_sorted_order_and_reject_empty_matches() {
@@ -399,6 +547,61 @@ struct ProtoRow {
 impl Element for ProtoRow {
     const TYPE_ID: &'static str = "tests/proto-row";
     const CODER_ID: &'static str = "tests/proto-row-protobuf";
+}
+#[cfg(all(feature = "parallel-io", feature = "protobuf", feature = "tfrecord"))]
+#[test]
+fn parallel_protobuf_and_tfrecord_sinks_keep_records_valid() {
+    let dir = tempfile::tempdir().unwrap();
+    let proto_rows = (0..7)
+        .map(|id| ProtoRow {
+            id,
+            name: format!("row-{id}"),
+        })
+        .collect::<Vec<_>>();
+    let path = dir.path().join("rows.pb");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", proto_rows.clone()).unwrap();
+    DirectRunner
+        .run_sink(
+            &protobuf_parallel_sink(&input, "write", &path, 5).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let reader = Pipeline::default();
+    let output = protobuf_source::<ProtoRow>(&reader, "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        proto_rows
+    );
+
+    let records = (0..7).map(|id| vec![id as u8; id + 1]).collect::<Vec<_>>();
+    let path = dir.path().join("rows.tfrecord");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", records.clone()).unwrap();
+    DirectRunner
+        .run_sink(
+            &tfrecord_parallel_sink(&input, "write", &path, 5).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let reader = Pipeline::default();
+    let output = tfrecord_source(&reader, "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        records
+    );
 }
 #[cfg(feature = "protobuf")]
 #[test]

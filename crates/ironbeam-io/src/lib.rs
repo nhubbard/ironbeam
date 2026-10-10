@@ -441,6 +441,82 @@ fn sink<T: Element>(
     )
 }
 
+#[cfg(feature = "parallel-io")]
+fn parallel_file_writer<T: Sync>(
+    path: &Path,
+    values: &[T],
+    shards: usize,
+    write_fragment: impl Fn(&Path, &[T], bool) -> Result<(), Error> + Sync,
+) -> Result<(), Error> {
+    use std::io::Write;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let fragments = tempfile::tempdir_in(parent).map_err(|e| io("parallel-io", e))?;
+    let requested = shards.min(values.len().max(1));
+    let chunk_size = values.len().max(1).div_ceil(requested);
+    let count = values.len().max(1).div_ceil(chunk_size);
+    let parts = (0..count)
+        .map(|index| fragments.path().join(format!("part-{index}")))
+        .collect::<Vec<_>>();
+    std::thread::scope(|scope| {
+        let write_fragment = &write_fragment;
+        let tasks = parts
+            .iter()
+            .enumerate()
+            .map(|(index, part)| {
+                let start = index * chunk_size;
+                let end = (start + chunk_size).min(values.len());
+                scope.spawn(move || write_fragment(part, &values[start..end], index == 0))
+            })
+            .collect::<Vec<_>>();
+        for task in tasks {
+            task.join().map_err(|_| {
+                Error::execution("parallel-io", "direct", "writer shard panicked")
+            })??;
+        }
+        Ok::<(), Error>(())
+    })?;
+    let file = fs::File::create(path).map_err(|e| io("parallel-io", e))?;
+    #[cfg(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    ))]
+    let mut output: Box<dyn Write> = ironbeam_cloud::compression::auto_detect_writer(file, path)
+        .map_err(|e| io("parallel-io", e))?;
+    #[cfg(not(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    )))]
+    let mut output: Box<dyn Write> = Box::new(file);
+    for part in parts {
+        let mut input = fs::File::open(part).map_err(|e| io("parallel-io", e))?;
+        std::io::copy(&mut input, &mut output).map_err(|e| io("parallel-io", e))?;
+    }
+    output.flush().map_err(|e| io("parallel-io", e))
+}
+
+#[cfg(feature = "parallel-io")]
+fn framed_parallel_sink<T: Element + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+    write: fn(&Path, &[T]) -> Result<(), Error>,
+) -> Result<Sink<T>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    sink(input, key, path, move |path, values| {
+        parallel_file_writer(path, values, shards, |part, chunk, _| write(part, chunk))
+    })
+}
+
 #[cfg(feature = "jsonl")]
 fn read_jsonl<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     use std::io::BufRead;
@@ -535,6 +611,27 @@ pub fn jsonl_sink<T: Element + Serialize>(
     sink(input, key, path, write_jsonl::<T>)
 }
 
+#[cfg(all(feature = "jsonl", feature = "parallel-io"))]
+/// Serialize contiguous shards concurrently and publish their ordered JSONL output at job commit.
+pub fn jsonl_parallel_sink<T: Element + Serialize + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    sink(input, key, path, move |path, values| {
+        parallel_file_writer(path, values, shards, |part, chunk, _| {
+            write_jsonl(part, chunk)
+        })
+    })
+}
+
 #[cfg(feature = "csv")]
 fn read_csv<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     let mut reader = csv::Reader::from_reader(bytes);
@@ -608,6 +705,37 @@ pub fn csv_sink<T: Element + Serialize>(
     path: impl AsRef<Path>,
 ) -> Result<Sink<T>, Error> {
     sink(input, key, path, write_csv::<T>)
+}
+
+#[cfg(all(feature = "csv", feature = "parallel-io"))]
+fn write_csv_fragment<T: Serialize>(path: &Path, values: &[T], first: bool) -> Result<(), Error> {
+    let file = fs::File::create(path).map_err(|e| io("csv", e))?;
+    let mut writer = csv::WriterBuilder::new()
+        .has_headers(first)
+        .from_writer(file);
+    for value in values {
+        writer.serialize(value).map_err(|e| io("csv", e))?;
+    }
+    writer.flush().map_err(|e| io("csv", e))
+}
+
+#[cfg(all(feature = "csv", feature = "parallel-io"))]
+/// Serialize contiguous shards concurrently with one CSV header and ordered rows.
+pub fn csv_parallel_sink<T: Element + Serialize + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    sink(input, key, path, move |path, values| {
+        parallel_file_writer(path, values, shards, write_csv_fragment::<T>)
+    })
 }
 
 #[cfg(feature = "xml")]
@@ -1153,6 +1281,16 @@ pub fn msgpack_sink<T: Element + Serialize>(
     sink(input, key, path, write_msgpack::<T>)
 }
 
+#[cfg(all(feature = "msgpack", feature = "parallel-io"))]
+pub fn msgpack_parallel_sink<T: Element + Serialize + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    framed_parallel_sink(input, key, path, shards, write_msgpack::<T>)
+}
+
 #[cfg(feature = "cbor")]
 fn read_cbor<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     let mut cursor = std::io::Cursor::new(bytes);
@@ -1221,6 +1359,16 @@ pub fn cbor_sink<T: Element + Serialize>(
     path: impl AsRef<Path>,
 ) -> Result<Sink<T>, Error> {
     sink(input, key, path, write_cbor::<T>)
+}
+
+#[cfg(all(feature = "cbor", feature = "parallel-io"))]
+pub fn cbor_parallel_sink<T: Element + Serialize + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    framed_parallel_sink(input, key, path, shards, write_cbor::<T>)
 }
 
 #[cfg(feature = "protobuf")]
@@ -1339,6 +1487,16 @@ pub fn protobuf_sink<T: Element + prost::Message>(
     path: impl AsRef<Path>,
 ) -> Result<Sink<T>, Error> {
     sink(input, key, path, write_protobuf::<T>)
+}
+
+#[cfg(all(feature = "protobuf", feature = "parallel-io"))]
+pub fn protobuf_parallel_sink<T: Element + prost::Message + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    framed_parallel_sink(input, key, path, shards, write_protobuf::<T>)
 }
 
 #[cfg(feature = "tfrecord")]
@@ -1496,4 +1654,14 @@ pub fn tfrecord_sink(
     path: impl AsRef<Path>,
 ) -> Result<Sink<Vec<u8>>, Error> {
     sink(input, key, path, write_tfrecord)
+}
+
+#[cfg(all(feature = "tfrecord", feature = "parallel-io"))]
+pub fn tfrecord_parallel_sink(
+    input: &PCollection<Vec<u8>>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<Vec<u8>>, Error> {
+    framed_parallel_sink(input, key, path, shards, write_tfrecord)
 }

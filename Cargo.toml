@@ -43,7 +43,7 @@ compression-bzip2 = ["dep:bzip2", "ironbeam-cloud/compression-bzip2", "ironbeam-
 compression-xz = ["dep:xz2", "ironbeam-cloud/compression-xz", "ironbeam-io?/compression-xz"]
 
 # Behaviors
-parallel-io = []
+parallel-io = ["ironbeam-io?/parallel-io"]
 metrics = []
 checkpointing = ["dep:postcard", "dep:sha2"]
 spilling = ["dep:postcard"]

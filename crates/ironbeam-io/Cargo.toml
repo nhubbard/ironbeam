@@ -8,7 +8,7 @@ description = "Bounded file sources and transactional final-result sinks for Iro
 repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
-default = ["jsonl", "csv", "parquet", "avro", "xml"]
+default = ["jsonl", "csv", "parquet", "avro", "xml", "parallel-io"]
 jsonl = []
 csv = ["dep:csv"]
 parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow", "dep:bytes"]
@@ -22,6 +22,7 @@ tfrecord = ["dep:crc32c"]
 sql = ["dep:sqlx", "dep:tokio"]
 mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
 cloud = ["dep:ironbeam-cloud"]
+parallel-io = []
 compression-gzip = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-gzip"]
 compression-zstd = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-zstd"]
 compression-bzip2 = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-bzip2"]
