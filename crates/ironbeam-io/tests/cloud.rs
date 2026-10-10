@@ -5,7 +5,7 @@ use ironbeam_io::cloud::{
     FakeObjectIO, ObjectIO,
     readers::{read_cloud_jsonl_vec, write_cloud_jsonl_vec},
 };
-use ironbeam_io::{cloud_jsonl_sink, cloud_jsonl_source};
+use ironbeam_io::{cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -95,6 +95,118 @@ fn cloud_jsonl_graph_source_and_sink_bind_object_content() {
             .unwrap()
             .kind,
         ErrorKind::Recovery
+    );
+}
+
+#[test]
+fn cloud_jsonl_globs_preserve_sorted_objects_and_stable_keys() {
+    let storage = Arc::new(FakeObjectIO::new());
+    write_cloud_jsonl_vec(
+        &*storage,
+        "bucket",
+        "data/b.jsonl",
+        &[Row {
+            id: 2,
+            name: "Lin".into(),
+        }],
+    )
+    .unwrap();
+    write_cloud_jsonl_vec(
+        &*storage,
+        "bucket",
+        "data/a.jsonl",
+        &[Row {
+            id: 1,
+            name: "Ada".into(),
+        }],
+    )
+    .unwrap();
+    let pipeline = Pipeline::default();
+    let output = cloud_jsonl_glob_source::<Row, _>(
+        &pipeline,
+        "glob",
+        Arc::clone(&storage),
+        "bucket",
+        "data/*.jsonl",
+    )
+    .unwrap()
+    .output("out")
+    .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let original_keys = graph
+        .nodes
+        .iter()
+        .filter(|node| node.key.starts_with("glob/object-"))
+        .map(|node| node.key.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(original_keys.len(), 2);
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        [
+            Row {
+                id: 1,
+                name: "Ada".into()
+            },
+            Row {
+                id: 2,
+                name: "Lin".into()
+            }
+        ]
+    );
+    write_cloud_jsonl_vec(
+        &*storage,
+        "bucket",
+        "data/0.jsonl",
+        &[Row {
+            id: 0,
+            name: "Zero".into(),
+        }],
+    )
+    .unwrap();
+    let revised = Pipeline::default();
+    cloud_jsonl_glob_source::<Row, _>(
+        &revised,
+        "glob",
+        Arc::clone(&storage),
+        "bucket",
+        "data/*.jsonl",
+    )
+    .unwrap();
+    let (graph, _) = revised.snapshot().unwrap();
+    assert!(original_keys.iter().all(|key| graph.node(key).is_some()));
+    let one = Pipeline::default();
+    let output = cloud_jsonl_glob_source::<Row, _>(
+        &one,
+        "one",
+        Arc::clone(&storage),
+        "bucket",
+        "data/a.jsonl",
+    )
+    .unwrap()
+    .output("one-out")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        [Row {
+            id: 1,
+            name: "Ada".into()
+        }]
+    );
+    assert!(
+        cloud_jsonl_glob_source::<Row, _>(
+            &one,
+            "missing",
+            Arc::clone(&storage),
+            "bucket",
+            "missing/*.jsonl"
+        )
+        .is_err()
     );
 }
 

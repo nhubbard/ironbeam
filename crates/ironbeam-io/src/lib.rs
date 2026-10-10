@@ -147,7 +147,7 @@ pub use ironbeam_cloud as cloud;
 #[cfg(feature = "cloud")]
 mod cloud_io;
 #[cfg(feature = "cloud")]
-pub use cloud_io::{cloud_jsonl_sink, cloud_jsonl_source};
+pub use cloud_io::{cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source};
 #[cfg(feature = "mongodb")]
 pub use mongodb::{
     MongoShardSpec, mongodb_parallel_sink, mongodb_sharded_source, mongodb_sink, mongodb_source,

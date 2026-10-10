@@ -88,6 +88,44 @@ where
     )
 }
 
+/// Expand a provider-neutral cloud object glob into stable bounded JSONL sources.
+pub fn cloud_jsonl_glob_source<T, O>(
+    pipeline: &Pipeline,
+    key: &str,
+    storage: Arc<O>,
+    bucket: &str,
+    pattern: &str,
+) -> Result<PCollection<T>, Error>
+where
+    T: Element + DeserializeOwned,
+    O: ObjectIO + 'static,
+{
+    let objects = ironbeam_cloud::readers::expand_cloud_glob_required(&*storage, bucket, pattern)
+        .map_err(|e| cloud_error(key, e))?;
+    let mut sources = Vec::with_capacity(objects.len());
+    for object in objects {
+        let hash = Sha256::digest(object.as_bytes());
+        let object_hash = hash.iter().fold(String::new(), |mut output, byte| {
+            let _ = write!(output, "{byte:02x}");
+            output
+        });
+        let child_key = format!("{key}/object-{object_hash}");
+        sources.push(cloud_jsonl_source(
+            pipeline,
+            &child_key,
+            Arc::clone(&storage),
+            bucket,
+            &object,
+        )?);
+    }
+    let first = sources.remove(0);
+    if sources.is_empty() {
+        first.map_named(key, |value| value)
+    } else {
+        first.flatten_named(key, &sources)
+    }
+}
+
 struct CloudJsonlSink<T, O> {
     key: String,
     storage: Arc<O>,
