@@ -28,7 +28,7 @@ direction without creating a crate for every source file.
 | File formats | Avro, Parquet, and Arrow IPC have independent crates; `ironbeam-io` retains shared file lifecycle helpers plus JSONL, CSV, XML, CBOR, MessagePack, Protobuf, and TFRecord | Split record and text formats next. Each format crate owns its codec dependency, focused tests, and feature gate. Move shared file helpers to a small lifecycle crate without creating a reexport-only aggregator. |
 | Databases | SQL and MongoDB already have independent crates and live-service tests | Keep them direct extensions of core. Do not pull their dependencies into a default facade build. |
 | Cloud/object storage | `ironbeam-cloud` provides provider-neutral helpers; `ironbeam-io::cloud_io` attaches JSONL object sources/sinks to the graph | Move graph-facing object-store adapters to a direct extension crate when adding a second format/provider. Keep provider-neutral contracts independently testable. |
-| Coders and portable protocol | Core owns coder identity; concrete encoding and Beam lowering are elsewhere | Keep identities in core. Extract concrete coder implementations when at least two independently selectable wire formats exist; keep Beam protocol and harness dependencies in the separate Dataflow integration. |
+| Coders and portable protocol | Core owns coder identity and registers each node's typed `Element` coder for worker access; Beam lowering remains in the separate Dataflow integration | Extend the protobuf path to all v4 graph shapes and I/O boundaries. Keep Beam protocol and harness dependencies in the separate Dataflow integration; test user-defined element types over actual Fn API streams. |
 | Testing and compatibility | `ironbeam-testing` and `ironbeam-compat` are already leaf crates | Keep package-scoped fixtures and differential tests. Compatibility must remain optional and must never be a dependency of core, Direct, or the root v5 facade. |
 
 Prefer `cargo test -p <changed-package>` and the directly affected downstream
@@ -80,9 +80,13 @@ today; unbounded and portable execution parity remains open.
    defined progress/window/state semantics or have an explicit, documented
    v5-only capability boundary accepted as the replacement contract.
 4. **Dataflow contract:** The separate integration builds against the v5 core
-   and lowers the supported graph corpus, including the same small pipeline
-   used for Direct. Unsupported operations fail validation before side effects.
-   Runner support is recorded independently from Direct support.
+   and lowers the full v4 feature corpus. A local Beam Prism `Run` must reach
+   `DONE` through a separately launched v5 Fn API worker and verify values for
+   user-defined types, source and sink formats, branches, grouping, side
+   inputs, windows, and unbounded fixtures where v4 supports them. A Prism
+   `Prepare` response alone is protocol acceptance, not execution parity.
+   Unsupported operations fail validation before side effects. Runner support
+   is recorded independently from Direct support.
 5. **Package isolation:** Every extracted package passes tests, docs, minimal
    and default feature builds, and relevant all-feature checks. Root defaults
    exclude heavyweight format/database/remote dependencies. A change to one
