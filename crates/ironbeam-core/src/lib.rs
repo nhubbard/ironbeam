@@ -2302,6 +2302,29 @@ impl<T: Element> PCollection<T> {
         });
         self.next(key, Operation::AssignTimestamp, Some(transform), None)
     }
+    /// Expose each element's event timestamp as `(nanoseconds, value)` while
+    /// retaining the timestamp and window in the output envelope.
+    pub fn reify_timestamps_named(&self, key: &str) -> Result<PCollection<(i64, T)>, Error> {
+        let key_owned = key.to_owned();
+        let transform: Transform = Arc::new(move |event| {
+            let Envelope {
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let value = *value.downcast::<T>().map_err(|_| {
+                Error::execution(&key_owned, "direct", "timestamp input type mismatch")
+            })?;
+            Ok(vec![Envelope {
+                value: Box::new((timestamp_ns, value)),
+                timestamp_ns,
+                window,
+                assigned_window,
+            }])
+        });
+        self.next(key, Operation::Map, Some(transform), None)
+    }
     pub fn output(&self, key: &str) -> Result<Output<T>, Error> {
         self.next::<T>(key, Operation::Output, None, None)?;
         Ok(Output {
@@ -2706,6 +2729,16 @@ impl<T: Element> PCollection<T> {
             main.boundedness,
             aggregate,
         )
+    }
+}
+
+impl<T: Element> PCollection<(i64, T)> {
+    /// Move timestamps from tuple values into event-time metadata. Timestamp
+    /// assignment must happen before windowing; the timestamp field is removed
+    /// from the value without cloning the payload.
+    pub fn timestamps_from_pairs_named(&self, key: &str) -> Result<PCollection<T>, Error> {
+        let assigned = self.assign_timestamps_named(&format!("{key}/assign"), |pair| pair.0)?;
+        assigned.map_named(key, |(_, value)| value)
     }
 }
 
