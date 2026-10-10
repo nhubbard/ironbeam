@@ -519,6 +519,21 @@
 /// Experimental Ironbeam 5 graph and direct runner.
 #[cfg(feature = "v5-preview")]
 pub mod v5 {
+    /// Imports for v5 convenience transforms and Direct execution terminals.
+    /// This prelude depends only on v5 packages; migration bridges are optional.
+    pub mod prelude {
+        pub use ironbeam_direct::{
+            DirectCollectExt, DirectFallibleExt, DirectFlatPartitionExt, DirectKeySortedExt,
+            DirectKeyedCollectExt, DirectPartitionExt, DirectSortedExt,
+        };
+        pub use ironbeam_transforms::{
+            ApproxDistinctExt, CollectionExt, ConstantSideInputExt, DeadLetterExt,
+            DynamicSideInputExt, ElementwiseExt, KeyedApproxDistinctExt, KeyedCollectionExt,
+            KeyedExt, KeyedSamplingExt, KeyedSelectionExt, KeyedStatisticalExt, KeyedValidationExt,
+            KeyedWindowedExt, LogElementsExt, PredicateExt, RegexExt, SamplingExt, SelectionExt,
+            StatisticalExt, TeeExt, TryProcessExt, ValidationExt, WindowedExt,
+        };
+    }
     pub use ironbeam_core::*;
     pub use ironbeam_direct::{
         CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobMetrics,

@@ -18,13 +18,12 @@ let values = from_vec(&pipeline, vec![1_i32, 2, 3, 4]);
 let result = values.map(|n| n * 2).filter(|n| n % 4 == 0).collect_seq()?;
 ```
 
-Ironbeam 5, using the compatibility source helper and terminal prelude:
+Ironbeam 5, using the root v5 facade and its prelude:
 
 ```rust
-use ironbeam_compat::{from_vec, prelude::*};
-use ironbeam_core::Pipeline;
+use ironbeam::v5::{Pipeline, prelude::*};
 let pipeline = Pipeline::default();
-let result = from_vec(&pipeline, "numbers", vec![1_i32, 2, 3, 4])?
+let result = pipeline.from_vec("numbers", vec![1_i32, 2, 3, 4])?
     .map_named("double", |n| n * 2)?
     .filter_named("divisible-by-four", |n| n % 4 == 0)?
     .output("result")?
@@ -41,7 +40,7 @@ Every v5 node needs a stable, unique key. Transform construction returns `Result
 | `from_vec(&pipeline, values)` | `pipeline.from_vec(key, values)` or `ironbeam_compat::from_vec(&pipeline, key, values)` | Stable source key is required; construction can fail. |
 | `.map(f)`, `.filter(f)`, `.flat_map(f)` | `.map_named(key, f)`, `.filter_named(key, f)`, `.flat_map_named(key, f)` | Values, keys, and graph errors are explicit. |
 | `.key_by(f)`, `.group_by_key()` | `ElementwiseExt::key_by_named(key, f)`, `PCollection::group_by_key_named(key)` | Import `ironbeam_transforms::ElementwiseExt` for `key_by_named`. |
-| `.count_globally()`, `.distinct()`, `.sum_globally()` and related helpers | `ElementwiseExt` / `KeyedExt` methods such as `.count_globally_named(key)` | `ironbeam_compat::prelude` imports all v5 helper extension traits and Direct collection terminals; individual traits can also be imported from `ironbeam_transforms`. |
+| `.count_globally()`, `.distinct()`, `.sum_globally()` and related helpers | `ElementwiseExt` / `KeyedExt` methods such as `.count_globally_named(key)` | `ironbeam::v5::prelude` imports v5 helper extension traits and Direct collection terminals without a v4 dependency; individual traits can also be imported from `ironbeam_transforms`. |
 | Predicate filters, regex, top/bottom K, set/dictionary, and fallible map helpers | `PredicateExt`, `RegexExt`, `SelectionExt`, `KeyedSelectionExt`, `CollectionExt`, `KeyedCollectionExt`, `TryProcessExt` | Each graph node needs a stable key; invalid regex patterns now return a typed graph error. |
 | Top and bottom K performance | `SelectionExt`, `KeyedSelectionExt` | Linear bounded Direct inputs now feed size-K lifted heaps without materializing the source; complex upstream graphs may still materialize before the fold. |
 | `collect_seq_sorted`, `collect_par_sorted`, `collect_par_sorted_by_key`, `to_hashmap`, `collect_fail_fast` | `DirectSortedExt`, `DirectKeySortedExt`, `DirectKeyedCollectExt`, `DirectFallibleExt` | Direct-only terminals take an output key and can accept `JobConfig`; fallible errors become typed execution errors. |
