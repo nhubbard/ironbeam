@@ -727,6 +727,7 @@ pub struct ExecutionIdentity {
     pub registry_manifest: String,
     pub coder_manifest: String,
     pub source_config_digest: String,
+    pub sink_config_digest: String,
 }
 impl ExecutionIdentity {
     pub fn verify(&self, worker: &Self) -> Result<(), Error> {
@@ -1502,6 +1503,11 @@ pub trait TypedSink<T: Element>: Send {
     fn abort(&mut self) -> Result<(), Error>;
 }
 type SinkFactory = Arc<dyn Fn() -> Result<Box<dyn SinkSession>, Error> + Send + Sync>;
+#[derive(Clone)]
+struct SinkRegistration {
+    factory: SinkFactory,
+    config_digest: Option<String>,
+}
 struct SinkAdapter<T: Element> {
     key: String,
     inner: Box<dyn TypedSink<T>>,
@@ -1535,7 +1541,7 @@ pub struct Registry {
     transforms: BTreeMap<String, Transform>,
     aggregates: BTreeMap<String, Aggregate>,
     folds: BTreeMap<String, FoldFactory>,
-    sinks: BTreeMap<String, SinkFactory>,
+    sinks: BTreeMap<String, SinkRegistration>,
     coders: BTreeMap<String, CoderRegistration>,
 }
 #[derive(Clone, Copy)]
@@ -1637,10 +1643,18 @@ impl Registry {
     pub fn has_sink(&self, key: &str) -> bool {
         self.sinks.contains_key(key)
     }
-    pub fn open_sink(&self, key: &str) -> Result<Box<dyn SinkSession>, Error> {
+    #[must_use]
+    pub fn sink_config_digest(&self, key: &str) -> Option<&str> {
         self.sinks
             .get(key)
-            .ok_or_else(|| Error::execution(key, "direct", "sink factory missing"))?()
+            .and_then(|sink| sink.config_digest.as_deref())
+    }
+    pub fn open_sink(&self, key: &str) -> Result<Box<dyn SinkSession>, Error> {
+        let sink = self
+            .sinks
+            .get(key)
+            .ok_or_else(|| Error::execution(key, "direct", "sink factory missing"))?;
+        (sink.factory)()
     }
 }
 
@@ -1735,7 +1749,7 @@ impl Pipeline {
         source: Option<SourceRegistration>,
         transform: Option<Transform>,
         aggregate: Option<Aggregate>,
-        sink: Option<SinkFactory>,
+        sink: Option<SinkRegistration>,
     ) -> Result<(), Error> {
         let mut inner = self
             .inner
@@ -2432,6 +2446,32 @@ impl<T: Element> PCollection<T> {
         spec: SinkSpec,
         open: impl Fn() -> Result<Box<dyn TypedSink<T>>, Error> + Send + Sync + 'static,
     ) -> Result<Sink<T>, Error> {
+        self.sink_named_inner(key, spec, None, open)
+    }
+
+    /// Register a sink with a stable digest of its destination and options.
+    /// Portable runners require this digest to reject a differently configured
+    /// worker before opening either the source or the sink.
+    pub fn sink_named_with_config(
+        &self,
+        key: &str,
+        spec: SinkSpec,
+        config_digest: String,
+        open: impl Fn() -> Result<Box<dyn TypedSink<T>>, Error> + Send + Sync + 'static,
+    ) -> Result<Sink<T>, Error> {
+        if config_digest.is_empty() {
+            return Err(Error::graph(key, "sink configuration digest is required"));
+        }
+        self.sink_named_inner(key, spec, Some(config_digest), open)
+    }
+
+    fn sink_named_inner(
+        &self,
+        key: &str,
+        spec: SinkSpec,
+        config_digest: Option<String>,
+        open: impl Fn() -> Result<Box<dyn TypedSink<T>>, Error> + Send + Sync + 'static,
+    ) -> Result<Sink<T>, Error> {
         let parent = self.parent()?;
         let operation = Operation::Sink { spec };
         let (semantic_id, semantic_version) = Pipeline::semantic_identity(&operation);
@@ -2461,8 +2501,13 @@ impl<T: Element> PCollection<T> {
                 inner: open()?,
             }) as Box<dyn SinkSession>)
         });
-        self.pipeline
-            .add::<T>(node, None, None, None, Some(factory))?;
+        self.pipeline.add::<T>(
+            node,
+            None,
+            None,
+            None,
+            Some(SinkRegistration { factory, config_digest }),
+        )?;
         Ok(Sink {
             pipeline: self.pipeline.clone(),
             key: key.into(),

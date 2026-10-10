@@ -212,6 +212,7 @@ fn canonical_identity_ignores_local_order_and_rejects_mismatch() {
         registry_manifest: "functions-1".into(),
         coder_manifest: "coders-1".into(),
         source_config_digest: "source-1".into(),
+        sink_config_digest: "sink-1".into(),
     };
     assert_eq!(identity.verify(&identity), Ok(()));
     let mut worker = identity.clone();
@@ -220,6 +221,9 @@ fn canonical_identity_ignores_local_order_and_rejects_mismatch() {
         identity.verify(&worker).unwrap_err().kind,
         ErrorKind::Incompatible
     );
+    let mut worker = identity.clone();
+    worker.sink_config_digest = "sink-2".into();
+    assert_eq!(identity.verify(&worker).unwrap_err().kind, ErrorKind::Incompatible);
 }
 
 trait NodeMut {
@@ -866,19 +870,21 @@ fn bounded_source_and_deferred_sink_registry_contract() {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let copy = captured.clone();
     let sink = source
-        .sink_named(
+        .sink_named_with_config(
             "sink",
             SinkSpec {
                 mode: SinkMode::FinalResult,
                 replay: Replay::Idempotent,
                 commit: true,
             },
+            "capture-digest".into(),
             move || Ok(Box::new(Capture(copy.clone()))),
         )
         .unwrap();
     let (graph, registry) = pipeline.snapshot().unwrap();
     assert_eq!(sink.key(), "sink");
     assert_eq!(registry.source_config_digest("input"), Some("digest"));
+    assert_eq!(registry.sink_config_digest("sink"), Some("capture-digest"));
     assert_eq!(registry.source_len_hint("input"), Some(1));
     let mut source = registry.open_source("input").unwrap();
     assert_eq!(
