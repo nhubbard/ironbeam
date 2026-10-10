@@ -44,6 +44,7 @@ The names are provisional. Cargo members are valuable when they enforce a useful
 | `ironbeam-core` | `Pipeline`, `PCollection<T>`, graph IDs and nodes, element and combine traits, transform construction, coder metadata, names, and runner-neutral graph validation | Make this an early extraction once a narrow external construction API is designed. |
 | `ironbeam-direct` | Current planner, optimizer, Rayon runner, local collect methods, cache placement, metrics execution, checkpoint and spill orchestration | Keep tightly coupled parts together until the core/runner contract is proven. |
 | `ironbeam-io` | Bounded file formats while those adapters are extracted | The public source/sink API now exists. SQL and MongoDB adapters compile directly against `ironbeam-core` in separate packages because their dependencies and live-service tests create distinct build and ownership pressure. No extra I/O aggregation package is needed; continue extracting file-format families into direct extension packages. |
+| `ironbeam-io-sql`, `ironbeam-io-mongodb` | Independent database sources and sinks | Each depends directly on `ironbeam-core` and owns its connector dependencies and tests. The root facade can opt into either package; `ironbeam-io` does not import or re-export them. |
 | `ironbeam-testing` | `TestPipeline`, fixtures, assertions, and local-runner test support | Candidate leaf crate after its dependency on the direct runner is explicit. |
 | `ironbeam-arrow`, `ironbeam-datafusion`, `ironbeam-polars` | Optional batch/columnar interoperability | Prototypes first; publish only after the interchange type and ownership model settle. |
 | `ironbeam-object-store` | Optional local/cloud object storage source and sink support | Candidate once source/sink lifecycle and error semantics are specified. |
@@ -51,6 +52,13 @@ The names are provisional. Cargo members are valuable when they enforce a useful
 | `ironbeam-dataflow` | Beam translation, driver, harness, and GCP submission | Continue as a separate project initially. Align dependencies and contracts before deciding whether to move its repository into this workspace. |
 
 `ironbeam-core` must not depend on `ironbeam-direct`, a format package, DataFusion, Polars, or Dataflow. Optional packages may depend on core. The facade may depend on selected packages and re-export their APIs. That direction prevents cycles and keeps a small core build possible.
+
+The public extension API currently lives in `ironbeam-core` alongside its graph
+implementation. A separate API package would have to own the same `Pipeline`,
+`PCollection`, source/sink, and error types or add a second abstraction layer.
+Keep one source of truth until a concrete implementation requires that split.
+The independent I/O packages compile against this API directly; there is no
+I/O package whose only job is to correlate or re-export sibling packages.
 
 ## The core API boundary
 
