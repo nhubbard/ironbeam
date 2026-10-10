@@ -33,8 +33,9 @@ staged locally.
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for four bounded sources, two branches,
-  native Flatten and GroupByKey, event-time assignment, and six terminal
+  separately launched v5 worker for four bounded sources, including a keyed
+  input shared by GroupByKey and an ordinary branch, native Flatten and
+  GroupByKey, event-time assignment, and seven terminal
   append sinks. A user-defined record passes through the extracted JSONL source and append
   sink in that live job. An extracted CSV source also crosses the mock worker
   coder contract; CSV globs lower to multiple source nodes and native Flatten.
@@ -56,13 +57,16 @@ staged locally.
    corpus. After adversarial coder tests, it measures 1,794/1,868 source
    locations (96.04%) and 324/376 branches (86.17%). CI now gates this
    three-package corpus at the measured baseline. A new measurement after
-   subsequent core expansion is 2,057/2,461 source locations (83.58%) and
-   326/378 branches (86.24%). The source-location CI threshold of 96.04%
-   currently fails; 404 source locations need additional execution coverage
-   or a reviewed disposition before release. The branch threshold still passes.
+   the typed keyed fan-out boundary and its tests is 2,121/2,656 source
+   locations (79.86%) and 326/378 branches (86.24%). The source-location CI
+   threshold of 96.04% currently fails. Its denominator changes substantially
+   with generic and macro instantiation, so this gate needs a reviewed
+   measurement method as well as additional behavior coverage. The branch
+   threshold still passes.
 2. **Portable feature corpus:** The v5 translator now supports bounded,
    global-window `group_by_key_named` through native Beam KV/iterable coders
-   and a live Prism shuffle proof. It still rejects keyed input fan-out,
+   and a live Prism shuffle proof. Its keyed input can also feed an ordinary
+   branch, verified by another sink in that Prism job. It still rejects
    joins, side inputs, window changes, unbounded sources, update sinks, and
    whole-job final-result sinks. Core now registers typed split/reassembly
    coders for actual `group_by_key_named` nodes, distinct from

@@ -276,6 +276,53 @@ fn multiway_cogroup_preserves_keys_values_and_empty_sides() {
 }
 
 #[test]
+fn every_public_cogroup_arity_executes_all_inputs() {
+    let pipeline = Pipeline::default();
+    let a = pipeline.from_vec("arity-a", vec![(1_i32, 1_i32)]).unwrap();
+    let b = pipeline.from_vec("arity-b", vec![(1_i32, 2_i32)]).unwrap();
+    let c = pipeline.from_vec("arity-c", vec![(1_i32, 3_i32)]).unwrap();
+    let d = pipeline.from_vec("arity-d", vec![(1_i32, 4_i32)]).unwrap();
+    let e = pipeline.from_vec("arity-e", vec![(1_i32, 5_i32)]).unwrap();
+    let f = pipeline.from_vec("arity-f", vec![(1_i32, 6_i32)]).unwrap();
+    let g = pipeline.from_vec("arity-g", vec![(1_i32, 7_i32)]).unwrap();
+    let h = pipeline.from_vec("arity-h", vec![(1_i32, 8_i32)]).unwrap();
+    let i = pipeline.from_vec("arity-i", vec![(1_i32, 9_i32)]).unwrap();
+
+    macro_rules! check {
+        ($key:literal, ($($input:expr),+), ($($values:expr),+)) => {{
+            let output = ironbeam_core::cogroup_by_key_named!($key, $($input),+)
+                .unwrap()
+                .output(concat!($key, "-out"))
+                .unwrap();
+            for parallelism in [1, 3] {
+                let rows = DirectRunner
+                    .run_collect(
+                        &output,
+                        &JobConfig { parallelism, ..JobConfig::default() },
+                    )
+                    .unwrap()
+                    .0;
+                assert_eq!(rows, vec![(1, ($(vec![$values]),+))]);
+            }
+        }};
+    }
+    check!("arity-four", (a, b, c, d), (1, 2, 3, 4));
+    check!("arity-five", (a, b, c, d, e), (1, 2, 3, 4, 5));
+    check!("arity-six", (a, b, c, d, e, f), (1, 2, 3, 4, 5, 6));
+    check!("arity-seven", (a, b, c, d, e, f, g), (1, 2, 3, 4, 5, 6, 7));
+    check!(
+        "arity-eight",
+        (a, b, c, d, e, f, g, h),
+        (1, 2, 3, 4, 5, 6, 7, 8)
+    );
+    check!(
+        "arity-nine",
+        (a, b, c, d, e, f, g, h, i),
+        (1, 2, 3, 4, 5, 6, 7, 8, 9)
+    );
+}
+
+#[test]
 fn cogroup_scopes_values_by_fixed_window() {
     let pipeline = Pipeline::default();
     let first = pipeline
