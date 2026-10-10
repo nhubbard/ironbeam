@@ -633,6 +633,52 @@ fn framed_parallel_sink<T: Element + Sync>(
     })
 }
 
+#[cfg(feature = "parallel-io")]
+fn parallel_container_writer<T: Sync>(
+    path: &Path,
+    values: &[T],
+    shards: usize,
+    extension: &str,
+    write: impl Fn(&Path, &[T]) -> Result<(), Error> + Sync,
+    read: fn(&[u8]) -> Result<Vec<T>, Error>,
+) -> Result<(), Error> {
+    if values.is_empty() {
+        return write(path, values);
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let fragments = tempfile::tempdir_in(parent).map_err(|e| io("parallel-io", e))?;
+    let requested = shards.min(values.len());
+    let chunk_size = values.len().div_ceil(requested);
+    let count = values.len().div_ceil(chunk_size);
+    let parts = (0..count)
+        .map(|index| fragments.path().join(format!("part-{index}.{extension}")))
+        .collect::<Vec<_>>();
+    std::thread::scope(|scope| {
+        let write = &write;
+        let tasks = parts
+            .iter()
+            .enumerate()
+            .map(|(index, part)| {
+                let start = index * chunk_size;
+                let end = (start + chunk_size).min(values.len());
+                scope.spawn(move || write(part, &values[start..end]))
+            })
+            .collect::<Vec<_>>();
+        for task in tasks {
+            task.join().map_err(|_| {
+                Error::execution("parallel-io", "direct", "writer shard panicked")
+            })??;
+        }
+        Ok::<(), Error>(())
+    })?;
+    let mut merged = Vec::with_capacity(values.len());
+    for part in parts {
+        let bytes = fs::read(part).map_err(|e| io("parallel-io", e))?;
+        merged.extend(read(&bytes)?);
+    }
+    write(path, &merged)
+}
+
 #[cfg(feature = "jsonl")]
 fn read_jsonl<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     use std::io::BufRead;
@@ -1016,6 +1062,24 @@ pub fn xml_sink<T: Element + Serialize>(
     sink(input, key, path, write_xml::<T>)
 }
 
+#[cfg(all(feature = "xml", feature = "parallel-io"))]
+pub fn xml_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    sink(input, key, path, move |path, values| {
+        parallel_container_writer(path, values, shards, "xml", write_xml::<T>, read_xml::<T>)
+    })
+}
+
 #[cfg(feature = "avro")]
 fn read_avro<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     let reader = apache_avro::Reader::new(bytes).map_err(|e| io("avro", e))?;
@@ -1093,6 +1157,33 @@ pub fn avro_sink<T: Element + Serialize>(
     let schema = apache_avro::Schema::parse_str(schema.as_ref()).map_err(|e| io(key, e))?;
     sink(input, key, path, move |path, values| {
         write_avro(path, values, &schema)
+    })
+}
+
+#[cfg(all(feature = "avro", feature = "parallel-io"))]
+pub fn avro_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    schema: impl AsRef<str>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    let schema = apache_avro::Schema::parse_str(schema.as_ref()).map_err(|e| io(key, e))?;
+    sink(input, key, path, move |path, values| {
+        parallel_container_writer(
+            path,
+            values,
+            shards,
+            "avro",
+            |part, rows| write_avro(part, rows, &schema),
+            read_avro::<T>,
+        )
     })
 }
 
@@ -1211,6 +1302,31 @@ pub fn parquet_sink<T: Element + Serialize + DeserializeOwned>(
     sink(input, key, path, write_parquet::<T>)
 }
 
+#[cfg(all(feature = "parquet", feature = "parallel-io"))]
+pub fn parquet_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    sink(input, key, path, move |path, values| {
+        parallel_container_writer(
+            path,
+            values,
+            shards,
+            "parquet",
+            write_parquet::<T>,
+            read_parquet::<T>,
+        )
+    })
+}
+
 #[cfg(feature = "arrow-ipc")]
 fn read_arrow_ipc<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     use arrow::ipc::reader::FileReader;
@@ -1286,6 +1402,31 @@ pub fn arrow_ipc_sink<T: Element + Serialize + DeserializeOwned>(
     path: impl AsRef<Path>,
 ) -> Result<Sink<T>, Error> {
     sink(input, key, path, write_arrow_ipc::<T>)
+}
+
+#[cfg(all(feature = "arrow-ipc", feature = "parallel-io"))]
+pub fn arrow_ipc_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    sink(input, key, path, move |path, values| {
+        parallel_container_writer(
+            path,
+            values,
+            shards,
+            "arrow",
+            write_arrow_ipc::<T>,
+            read_arrow_ipc::<T>,
+        )
+    })
 }
 
 #[cfg(feature = "arrow-ipc")]
@@ -1416,6 +1557,31 @@ pub fn arrow_ipc_batches_sink(
     path: impl AsRef<Path>,
 ) -> Result<Sink<ArrowBatch>, Error> {
     sink(input, key, path, write_arrow_ipc_batches)
+}
+
+#[cfg(all(feature = "arrow-ipc", feature = "parallel-io"))]
+pub fn arrow_ipc_batches_parallel_sink(
+    input: &PCollection<ArrowBatch>,
+    key: &str,
+    path: impl AsRef<Path>,
+    shards: usize,
+) -> Result<Sink<ArrowBatch>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    sink(input, key, path, move |path, values| {
+        parallel_container_writer(
+            path,
+            values,
+            shards,
+            "arrow",
+            write_arrow_ipc_batches,
+            read_arrow_ipc_batches,
+        )
+    })
 }
 
 #[cfg(feature = "msgpack")]
