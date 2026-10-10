@@ -3,7 +3,11 @@
     feature = "csv",
     feature = "xml",
     feature = "avro",
-    feature = "parquet"
+    feature = "parquet",
+    feature = "msgpack",
+    feature = "cbor",
+    feature = "protobuf",
+    feature = "tfrecord"
 ))]
 #![allow(clippy::missing_errors_doc)]
 //! Bounded file adapters for the v5 logical graph.
@@ -27,7 +31,7 @@ type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
 fn io(key: &str, error: impl std::fmt::Display) -> Error {
     Error::io(key, "file", error.to_string())
 }
-fn source<T: Element + DeserializeOwned>(
+fn source<T: Element>(
     pipeline: &Pipeline,
     key: &str,
     path: impl AsRef<Path>,
@@ -91,7 +95,7 @@ impl<T: Element> TypedSink<T> for FileSink<T> {
         Ok(())
     }
 }
-fn sink<T: Element + Serialize>(
+fn sink<T: Element>(
     input: &PCollection<T>,
     key: &str,
     path: impl AsRef<Path>,
@@ -385,4 +389,182 @@ pub fn parquet_sink<T: Element + Serialize + DeserializeOwned>(
     path: impl AsRef<Path>,
 ) -> Result<Sink<T>, Error> {
     sink(input, key, path, write_parquet::<T>)
+}
+
+#[cfg(feature = "msgpack")]
+fn read_msgpack<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
+    let mut cursor = std::io::Cursor::new(bytes);
+    let mut rows = Vec::new();
+    while (cursor.position() as usize) < bytes.len() {
+        rows.push(rmp_serde::from_read(&mut cursor).map_err(|e| io("msgpack", e))?);
+    }
+    Ok(rows)
+}
+#[cfg(feature = "msgpack")]
+fn write_msgpack<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
+    let mut file = fs::File::create(path).map_err(|e| io("msgpack", e))?;
+    for value in values {
+        rmp_serde::encode::write(&mut file, value).map_err(|e| io("msgpack", e))?;
+    }
+    Ok(())
+}
+#[cfg(feature = "msgpack")]
+pub fn msgpack_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    source(pipeline, key, path, "msgpack", read_msgpack::<T>)
+}
+#[cfg(feature = "msgpack")]
+pub fn msgpack_sink<T: Element + Serialize>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<T>, Error> {
+    sink(input, key, path, write_msgpack::<T>)
+}
+
+#[cfg(feature = "cbor")]
+fn read_cbor<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
+    let mut cursor = std::io::Cursor::new(bytes);
+    let mut rows = Vec::new();
+    while (cursor.position() as usize) < bytes.len() {
+        rows.push(ciborium::de::from_reader(&mut cursor).map_err(|e| io("cbor", e))?);
+    }
+    Ok(rows)
+}
+#[cfg(feature = "cbor")]
+fn write_cbor<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
+    let mut file = fs::File::create(path).map_err(|e| io("cbor", e))?;
+    for value in values {
+        ciborium::ser::into_writer(value, &mut file).map_err(|e| io("cbor", e))?;
+    }
+    Ok(())
+}
+#[cfg(feature = "cbor")]
+pub fn cbor_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    source(pipeline, key, path, "cbor", read_cbor::<T>)
+}
+#[cfg(feature = "cbor")]
+pub fn cbor_sink<T: Element + Serialize>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<T>, Error> {
+    sink(input, key, path, write_cbor::<T>)
+}
+
+#[cfg(feature = "protobuf")]
+fn read_protobuf<T: prost::Message + Default>(mut bytes: &[u8]) -> Result<Vec<T>, Error> {
+    let mut rows = Vec::new();
+    while !bytes.is_empty() {
+        rows.push(T::decode_length_delimited(&mut bytes).map_err(|e| io("protobuf", e))?);
+    }
+    Ok(rows)
+}
+#[cfg(feature = "protobuf")]
+fn write_protobuf<T: prost::Message>(path: &Path, values: &[T]) -> Result<(), Error> {
+    use std::io::Write;
+    let mut file = fs::File::create(path).map_err(|e| io("protobuf", e))?;
+    for value in values {
+        file.write_all(&value.encode_length_delimited_to_vec())
+            .map_err(|e| io("protobuf", e))?;
+    }
+    Ok(())
+}
+#[cfg(feature = "protobuf")]
+pub fn protobuf_source<T: Element + prost::Message + Default>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    source(pipeline, key, path, "protobuf", read_protobuf::<T>)
+}
+#[cfg(feature = "protobuf")]
+pub fn protobuf_sink<T: Element + prost::Message>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<T>, Error> {
+    sink(input, key, path, write_protobuf::<T>)
+}
+
+#[cfg(feature = "tfrecord")]
+fn masked_crc(bytes: &[u8]) -> u32 {
+    crc32c::crc32c(bytes)
+        .rotate_right(15)
+        .wrapping_add(0xa282_ead8)
+}
+#[cfg(feature = "tfrecord")]
+fn read_tfrecord(mut bytes: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
+    let mut rows = Vec::new();
+    while !bytes.is_empty() {
+        let header = bytes
+            .get(..12)
+            .ok_or_else(|| io("tfrecord", "truncated record header"))?;
+        let length_bytes: [u8; 8] = header[..8]
+            .try_into()
+            .map_err(|_| io("tfrecord", "invalid length"))?;
+        let crc_bytes: [u8; 4] = header[8..12]
+            .try_into()
+            .map_err(|_| io("tfrecord", "invalid length CRC"))?;
+        if u32::from_le_bytes(crc_bytes) != masked_crc(&length_bytes) {
+            return Err(io("tfrecord", "length CRC mismatch"));
+        }
+        let length =
+            usize::try_from(u64::from_le_bytes(length_bytes)).map_err(|e| io("tfrecord", e))?;
+        let end = 12_usize
+            .checked_add(length)
+            .and_then(|n| n.checked_add(4))
+            .ok_or_else(|| io("tfrecord", "record length overflow"))?;
+        let record = bytes
+            .get(12..end)
+            .ok_or_else(|| io("tfrecord", "truncated record"))?;
+        let payload = &record[..length];
+        let stored_crc: [u8; 4] = record[length..]
+            .try_into()
+            .map_err(|_| io("tfrecord", "invalid data CRC"))?;
+        if u32::from_le_bytes(stored_crc) != masked_crc(payload) {
+            return Err(io("tfrecord", "data CRC mismatch"));
+        }
+        rows.push(payload.to_vec());
+        bytes = &bytes[end..];
+    }
+    Ok(rows)
+}
+#[cfg(feature = "tfrecord")]
+fn write_tfrecord(path: &Path, values: &[Vec<u8>]) -> Result<(), Error> {
+    use std::io::Write;
+    let mut file = fs::File::create(path).map_err(|e| io("tfrecord", e))?;
+    for value in values {
+        let length = (value.len() as u64).to_le_bytes();
+        file.write_all(&length).map_err(|e| io("tfrecord", e))?;
+        file.write_all(&masked_crc(&length).to_le_bytes())
+            .map_err(|e| io("tfrecord", e))?;
+        file.write_all(value).map_err(|e| io("tfrecord", e))?;
+        file.write_all(&masked_crc(value).to_le_bytes())
+            .map_err(|e| io("tfrecord", e))?;
+    }
+    Ok(())
+}
+#[cfg(feature = "tfrecord")]
+pub fn tfrecord_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<Vec<u8>>, Error> {
+    source(pipeline, key, path, "tfrecord", read_tfrecord)
+}
+#[cfg(feature = "tfrecord")]
+pub fn tfrecord_sink(
+    input: &PCollection<Vec<u8>>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<Vec<u8>>, Error> {
+    sink(input, key, path, write_tfrecord)
 }

@@ -3,7 +3,11 @@
     feature = "csv",
     feature = "xml",
     feature = "avro",
-    feature = "parquet"
+    feature = "parquet",
+    feature = "msgpack",
+    feature = "cbor",
+    feature = "protobuf",
+    feature = "tfrecord"
 ))]
 use ironbeam_core::{Boundedness, Capabilities, Element, ErrorKind, Operation, Pipeline, SinkMode};
 use ironbeam_direct::{DirectRunner, JobConfig};
@@ -127,6 +131,129 @@ fn csv_contract() {
         "csv",
         |i, k, p| csv_sink(i, k, p),
         |p, k, f| csv_source(p, k, f),
+    );
+}
+#[cfg(feature = "msgpack")]
+#[test]
+fn msgpack_contract() {
+    round_trip(
+        "msgpack",
+        |i, k, p| msgpack_sink(i, k, p),
+        |p, k, f| msgpack_source(p, k, f),
+    );
+}
+#[cfg(feature = "cbor")]
+#[test]
+fn cbor_contract() {
+    round_trip(
+        "cbor",
+        |i, k, p| cbor_sink(i, k, p),
+        |p, k, f| cbor_source(p, k, f),
+    );
+}
+
+#[cfg(feature = "protobuf")]
+#[derive(Clone, PartialEq, prost::Message)]
+struct ProtoRow {
+    #[prost(int32, tag = "1")]
+    id: i32,
+    #[prost(string, tag = "2")]
+    name: String,
+}
+#[cfg(feature = "protobuf")]
+impl Element for ProtoRow {
+    const TYPE_ID: &'static str = "tests/proto-row";
+    const CODER_ID: &'static str = "tests/proto-row-protobuf";
+}
+#[cfg(feature = "protobuf")]
+#[test]
+fn protobuf_length_delimited_records_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rows.pb");
+    let rows = vec![
+        ProtoRow {
+            id: 1,
+            name: "Ada".into(),
+        },
+        ProtoRow {
+            id: 2,
+            name: "Lin".into(),
+        },
+    ];
+    let p = Pipeline::default();
+    let input = p.from_vec("input", rows.clone()).unwrap();
+    let sink = protobuf_sink(&input, "sink", &path).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let p = Pipeline::default();
+    let output = protobuf_source::<ProtoRow>(&p, "source", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows
+    );
+}
+#[cfg(feature = "tfrecord")]
+#[test]
+fn tfrecord_crc_and_truncation_are_checked() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rows.tfrecord");
+    let rows = vec![b"one".to_vec(), b"two".to_vec()];
+    let p = Pipeline::default();
+    let input = p.from_vec("input", rows.clone()).unwrap();
+    DirectRunner
+        .run_sink(
+            &tfrecord_sink(&input, "sink", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let p = Pipeline::default();
+    let output = tfrecord_source(&p, "source", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows
+    );
+
+    let mut bad = fs::read(&path).unwrap();
+    bad[12] ^= 1;
+    fs::write(&path, bad).unwrap();
+    let p = Pipeline::default();
+    let output = tfrecord_source(&p, "bad-source", &path)
+        .unwrap()
+        .output("bad-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    let bytes = fs::read(&path).unwrap();
+    fs::write(&path, &bytes[..7]).unwrap();
+    let p = Pipeline::default();
+    let output = tfrecord_source(&p, "truncated", &path)
+        .unwrap()
+        .output("truncated-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
     );
 }
 #[cfg(feature = "xml")]

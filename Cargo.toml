@@ -28,10 +28,10 @@ io-xml = ["dep:quick-xml", "ironbeam-io?/xml"]
 # Deliberate exception to the usual "everything on by default" tenant: these
 # less-common connectors are intentionally absent from `default`. Each pulls in
 # extra dependencies that would bloat the common build, so users opt in.
-io-msgpack = ["dep:rmp-serde"]
-io-cbor = ["dep:ciborium"]
-io-protobuf = ["dep:prost"]
-io-tfrecord = ["dep:crc32c"]
+io-msgpack = ["dep:rmp-serde", "ironbeam-io?/msgpack"]
+io-cbor = ["dep:ciborium", "ironbeam-io?/cbor"]
+io-protobuf = ["dep:prost", "ironbeam-io?/protobuf"]
+io-tfrecord = ["dep:crc32c", "ironbeam-io?/tfrecord"]
 io-arrow = ["dep:arrow", "dep:serde_arrow"]
 io-sql = ["dep:sqlx", "dep:tokio"]
 io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]

@@ -14,6 +14,10 @@ csv = ["dep:csv"]
 parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow", "dep:bytes"]
 avro = ["dep:apache-avro"]
 xml = ["dep:quick-xml"]
+msgpack = ["dep:rmp-serde"]
+cbor = ["dep:ciborium"]
+protobuf = ["dep:prost"]
+tfrecord = ["dep:crc32c"]
 
 [dependencies]
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
@@ -28,6 +32,10 @@ serde_arrow = { version = "0.15", features = ["arrow-59"], optional = true }
 bytes = { version = "1", optional = true }
 apache-avro = { version = "0.22", optional = true }
 quick-xml = { version = "0.41", features = ["serialize"], optional = true }
+rmp-serde = { version = "1", optional = true }
+ciborium = { version = "0.2", optional = true }
+prost = { version = "0.13", optional = true }
+crc32c = { version = "0.6", optional = true }
 
 [dev-dependencies]
 ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
