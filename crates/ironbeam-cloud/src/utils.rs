@@ -130,7 +130,9 @@ where
 
 /// Execute an operation with a timeout
 ///
-/// This helper ensures that any operations are completed within a specified time limit.
+/// This helper reports when a synchronous operation took longer than the
+/// specified limit. It cannot interrupt or cancel the operation; configure
+/// provider network timeouts separately.
 ///
 /// # Example
 /// ```ignore
@@ -392,10 +394,9 @@ pub fn parse_resource_uri(uri: &str) -> CloudResult<(String, Vec<String>)> {
 // Async to Sync Wrapper
 // ============================================================================
 
-/// Helper to wrap async operations in a synchronous interface
-///
-/// This uses a simple blocking approach to execute async operations.
-/// For production use, you may want to use a more sophisticated runtime.
+/// Run a runtime-independent future to completion on the calling thread.
+/// Futures that require a Tokio runtime or network reactor must use their own
+/// runtime; hosted object adapters manage that internally.
 ///
 /// # Example
 /// ```ignore
@@ -406,18 +407,12 @@ pub fn parse_resource_uri(uri: &str) -> CloudResult<(String, Vec<String>)> {
 ///
 /// # Errors
 ///
-/// This function always panics rather than returning an error; the `Result` return
-/// type is present for API compatibility with future implementations.
-///
-/// # Panics
-///
-/// Always panics; requires an async runtime dependency (e.g., tokio) to implement.
-#[allow(dead_code)]
-pub fn block_on_async<F, T>(_future: F) -> CloudResult<T>
+/// Returns the error produced by the future.
+pub fn block_on_async<F, T>(future: F) -> CloudResult<T>
 where
     F: Future<Output = CloudResult<T>>,
 {
-    unimplemented!("Async runtime support requires additional dependencies")
+    futures_executor::block_on(future)
 }
 
 // ============================================================================
