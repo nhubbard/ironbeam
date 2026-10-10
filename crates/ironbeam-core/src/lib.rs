@@ -1543,6 +1543,7 @@ pub struct Registry {
     folds: BTreeMap<String, FoldFactory>,
     sinks: BTreeMap<String, SinkRegistration>,
     coders: BTreeMap<String, CoderRegistration>,
+    group_coders: BTreeMap<String, GroupCoderRegistration>,
 }
 #[derive(Clone, Copy)]
 struct CoderRegistration {
@@ -1550,6 +1551,31 @@ struct CoderRegistration {
     decode: CoderDecoder,
 }
 type CoderDecoder = fn(&[u8]) -> Result<Box<dyn Any + Send>, Error>;
+#[derive(Clone, Copy)]
+struct GroupCoderRegistration {
+    split_input: GroupInputSplitter,
+    assemble_output: GroupOutputAssembler,
+}
+type GroupInputSplitter = fn(&[u8]) -> Result<(Vec<u8>, Vec<u8>), Error>;
+type GroupOutputAssembler = fn(&[u8], &[Vec<u8>]) -> Result<Vec<u8>, Error>;
+impl GroupCoderRegistration {
+    fn for_elements<K: Element, V: Element>() -> Self {
+        Self {
+            split_input: |bytes| {
+                let (key, value) = <(K, V)>::decode(bytes)?;
+                Ok((key.encode()?, value.encode()?))
+            },
+            assemble_output: |key, values| {
+                let key = K::decode(key)?;
+                let values = values
+                    .iter()
+                    .map(|value| V::decode(value))
+                    .collect::<Result<Vec<_>, _>>()?;
+                (key, values).encode()
+            },
+        }
+    }
+}
 impl CoderRegistration {
     fn for_element<T: Element>() -> Self {
         Self {
@@ -1566,6 +1592,31 @@ impl CoderRegistration {
     }
 }
 impl Registry {
+    /// Whether this node is a true keyed grouping with a registered tuple
+    /// coder. Other aggregate operations may also use `GroupByKey` locally.
+    #[must_use]
+    pub fn has_group_coder(&self, key: &str) -> bool {
+        self.group_coders.contains_key(key)
+    }
+    /// Split a registered grouping input into independently encoded key and value.
+    pub fn split_group_input(&self, key: &str, bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Error> {
+        let coder = self.group_coders.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no group coder registered for node {key}"))
+        })?;
+        (coder.split_input)(bytes)
+    }
+    /// Reassemble runner grouped key/value bytes into the v5 output element coder.
+    pub fn assemble_group_output(
+        &self,
+        key: &str,
+        encoded_key: &[u8],
+        encoded_values: &[Vec<u8>],
+    ) -> Result<Vec<u8>, Error> {
+        let coder = self.group_coders.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no group coder registered for node {key}"))
+        })?;
+        (coder.assemble_output)(encoded_key, encoded_values)
+    }
     #[must_use]
     pub fn has_coder(&self, key: &str) -> bool {
         self.coders.contains_key(key)
@@ -1750,6 +1801,7 @@ impl Pipeline {
         transform: Option<Transform>,
         aggregate: Option<Aggregate>,
         sink: Option<SinkRegistration>,
+        group_coder: Option<GroupCoderRegistration>,
     ) -> Result<(), Error> {
         let mut inner = self
             .inner
@@ -1791,6 +1843,12 @@ impl Pipeline {
         }
         if let Some(sink) = sink {
             inner.registry.sinks.insert(node.key.clone(), sink);
+        }
+        if let Some(group_coder) = group_coder {
+            inner
+                .registry
+                .group_coders
+                .insert(node.key.clone(), group_coder);
         }
         inner.graph.nodes.push(node);
         drop(inner);
@@ -1998,6 +2056,7 @@ impl Pipeline {
             None,
             None,
             None,
+            None,
         )?;
         Ok(PCollection {
             pipeline: self.clone(),
@@ -2063,7 +2122,8 @@ impl<T: Element> PCollection<T> {
             },
             local_id: 0,
         };
-        self.pipeline.add::<U>(node, None, transform, None, None)?;
+        self.pipeline
+            .add::<U>(node, None, transform, None, None, None)?;
         Ok(PCollection {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2077,6 +2137,7 @@ impl<T: Element> PCollection<T> {
         additional_inputs: Vec<InputEdge>,
         boundedness: Boundedness,
         aggregate: Aggregate,
+        group_coder: Option<GroupCoderRegistration>,
     ) -> Result<PCollection<U>, Error> {
         let parent = self.parent()?;
         let (semantic_id, semantic_version) = Pipeline::semantic_identity(&operation);
@@ -2100,7 +2161,7 @@ impl<T: Element> PCollection<T> {
             local_id: 0,
         };
         self.pipeline
-            .add::<U>(node, None, None, Some(aggregate), None)?;
+            .add::<U>(node, None, None, Some(aggregate), None, group_coder)?;
         Ok(PCollection {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2256,7 +2317,7 @@ impl<T: Element> PCollection<T> {
             time: parent.time,
             local_id: 0,
         };
-        self.pipeline.add::<T>(node, None, None, None, None)?;
+        self.pipeline.add::<T>(node, None, None, None, None, None)?;
         Ok(Self {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2309,7 +2370,7 @@ impl<T: Element> PCollection<T> {
             time: parent.time,
             local_id: 0,
         };
-        self.pipeline.add::<T>(node, None, None, None, None)?;
+        self.pipeline.add::<T>(node, None, None, None, None, None)?;
         Ok(Self {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -2506,7 +2567,11 @@ impl<T: Element> PCollection<T> {
             None,
             None,
             None,
-            Some(SinkRegistration { factory, config_digest }),
+            Some(SinkRegistration {
+                factory,
+                config_digest,
+            }),
+            None,
         )?;
         Ok(Sink {
             pipeline: self.pipeline.clone(),
@@ -2593,6 +2658,7 @@ impl<T: Element> PCollection<T> {
             Vec::new(),
             parent.boundedness,
             aggregate,
+            None,
         )
     }
     pub fn combine_globally_lifted_named<C, A, O>(
@@ -2699,6 +2765,7 @@ impl<T: Element> PCollection<T> {
             Vec::new(),
             parent.boundedness,
             aggregate,
+            None,
         )
     }
     pub fn combine_per_window_named<U: Element>(
@@ -2852,6 +2919,7 @@ impl<T: Element> PCollection<T> {
             }],
             main.boundedness,
             aggregate,
+            None,
         )
     }
 }
@@ -2963,6 +3031,7 @@ macro_rules! define_cogroup {
                 }),+],
                 if unbounded { Boundedness::Unbounded } else { Boundedness::Bounded },
                 aggregate,
+                None,
             )
         }
     };
@@ -3137,6 +3206,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             Vec::new(),
             parent.boundedness,
             aggregate,
+            None,
         )
     }
     pub fn group_into_batches_named(
@@ -3235,6 +3305,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             Vec::new(),
             parent.boundedness,
             aggregate,
+            None,
         )
     }
     pub fn group_by_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error> {
@@ -3294,6 +3365,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             Vec::new(),
             parent.boundedness,
             aggregate,
+            Some(GroupCoderRegistration::for_elements::<K, V>()),
         )
     }
 
@@ -3467,6 +3539,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 Boundedness::Bounded
             },
             aggregate,
+            None,
         )
     }
 }

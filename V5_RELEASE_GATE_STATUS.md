@@ -59,9 +59,12 @@ staged locally.
    locations and 52 branch outcomes remain to audit before release.
 2. **Portable feature corpus:** The v5 translator still rejects grouping,
    joins, side inputs, window changes, unbounded sources, update sinks, and
-   whole-job final-result sinks. Native GroupByKey needs typed key/value
-   coders, runner shuffle output decoding, and state-backed or chunked
-   iterable handling. The Prism proof does not cover these features.
+   whole-job final-result sinks. Core now registers typed split/reassembly
+   coders for actual `group_by_key_named` nodes, distinct from
+   `latest_per_key_named`, which uses the same local operation marker. Beam
+   lowering still needs KV/iterable coder declarations, worker runner-boundary
+   conversion, and state-backed or chunked iterable handling. The Prism proof
+   does not cover these features.
 3. **Remote I/O:** Provider clients can access hosted object storage from the
    bounded `ObjectIO` interface, but the local Prism worker still shares the
    driver's filesystem. Driver-local file paths are not staged to cloud

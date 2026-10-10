@@ -223,7 +223,10 @@ fn canonical_identity_ignores_local_order_and_rejects_mismatch() {
     );
     let mut worker = identity.clone();
     worker.sink_config_digest = "sink-2".into();
-    assert_eq!(identity.verify(&worker).unwrap_err().kind, ErrorKind::Incompatible);
+    assert_eq!(
+        identity.verify(&worker).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
 }
 
 trait NodeMut {
@@ -1038,6 +1041,43 @@ fn transform_registry_preserves_time_and_runs_all_aggregates() {
     );
     assert!(!registry.has_aggregate("missing"));
     assert!(registry.apply_aggregate("missing", vec![]).is_err());
+}
+
+#[test]
+fn grouped_tuple_coder_exposes_beam_key_and_value_halves() {
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec("pairs", vec![("a".to_owned(), 2_i32)])
+        .unwrap();
+    input.group_by_key_named("group").unwrap();
+    input.latest_per_key_named("latest").unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.has_group_coder("group"));
+    assert!(!registry.has_group_coder("latest"));
+    let first = ("a".to_owned(), 2_i32).encode().unwrap();
+    let second = ("a".to_owned(), 3_i32).encode().unwrap();
+    let (first_key, first_value) = registry.split_group_input("group", &first).unwrap();
+    let (second_key, second_value) = registry.split_group_input("group", &second).unwrap();
+    assert_eq!(first_key, second_key);
+    let grouped = registry
+        .assemble_group_output("group", &first_key, &[first_value, second_value])
+        .unwrap();
+    assert_eq!(
+        <(String, Vec<i32>)>::decode(&grouped).unwrap(),
+        ("a".to_owned(), vec![2, 3])
+    );
+    assert!(registry.split_group_input("group", b"bad").is_err());
+    assert!(
+        registry
+            .assemble_group_output("group", b"\xff", &[])
+            .is_err()
+    );
+    assert!(
+        registry
+            .assemble_group_output("group", &first_key, &[vec![1]])
+            .is_err()
+    );
+    assert!(registry.split_group_input("latest", &first).is_err());
 }
 
 #[test]
