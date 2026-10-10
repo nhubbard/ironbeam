@@ -1490,6 +1490,131 @@ fn read_arrow_ipc_lazy<T: Element + DeserializeOwned>(
     })))
 }
 #[cfg(feature = "arrow-ipc")]
+fn read_arrow_ipc_indexed_batches(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<ArrowBatch>, Error> {
+    use arrow::ipc::reader::FileReader;
+    let file = fs::File::open(path).map_err(|e| io("arrow-ipc", e))?;
+    let mut reader = FileReader::try_new(file, None).map_err(|e| io("arrow-ipc", e))?;
+    if start < end {
+        reader.set_index(start).map_err(|e| io("arrow-ipc", e))?;
+    }
+    Ok(Box::new(reader.take(end - start).map(|batch| {
+        batch.map(ArrowBatch).map_err(|e| io("arrow-ipc", e))
+    })))
+}
+#[cfg(feature = "arrow-ipc")]
+fn read_arrow_ipc_indexed_rows<T: Element + DeserializeOwned>(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<T>, Error> {
+    let batches = read_arrow_ipc_indexed_batches(path, start, end)?;
+    Ok(Box::new(batches.flat_map(|batch| match batch {
+        Ok(ArrowBatch(batch)) => match serde_arrow::from_record_batch::<Vec<T>>(&batch) {
+            Ok(rows) => rows.into_iter().map(Ok).collect::<Vec<_>>(),
+            Err(error) => vec![Err(io("arrow-ipc", error))],
+        },
+        Err(error) => vec![Err(error)],
+    })))
+}
+#[cfg(feature = "arrow-ipc")]
+fn arrow_ipc_indexed_source<T: Element>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    batches_per_shard: usize,
+    format: &str,
+    batches_are_elements: bool,
+    read_range: fn(PathBuf, usize, usize) -> Result<TypedSourceIterator<T>, Error>,
+) -> Result<PCollection<T>, Error> {
+    use arrow::ipc::reader::FileReader;
+    if batches_per_shard == 0 {
+        return Err(Error::graph(key, "batches per shard must be positive"));
+    }
+    let path = path.as_ref().to_path_buf();
+    let expected = file_hash(&path, key)?;
+    let file = fs::File::open(&path).map_err(|e| io(key, e))?;
+    let count = FileReader::try_new(file, None)
+        .map_err(|e| io(key, e))?
+        .num_batches();
+    let shards = count.max(1).div_ceil(batches_per_shard);
+    let mut sources = Vec::with_capacity(shards);
+    for index in 0..shards {
+        let start = index * batches_per_shard;
+        let end = start.saturating_add(batches_per_shard).min(count);
+        let child_key = format!("{key}/batch-{index}");
+        let digest = format!("{format}:{}:{expected:02x?}:{start}:{end}", path.display());
+        let source_path = path.clone();
+        let source_expected = expected.clone();
+        let name = child_key.clone();
+        sources.push(pipeline.bounded_source_with_semantic(
+            &child_key,
+            &format!("ironbeam/io/{format}-indexed-shard"),
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            digest,
+            batches_are_elements.then_some(end - start),
+            move || {
+                if file_hash(&source_path, &name)? != source_expected {
+                    return Err(Error::recovery(
+                        &name,
+                        "source contents changed after graph construction",
+                    ));
+                }
+                read_range(source_path.clone(), start, end)
+            },
+        )?);
+    }
+    let first = sources.remove(0);
+    if sources.is_empty() {
+        first.map_named(key, |value| value)
+    } else {
+        first.flatten_named(key, &sources)
+    }
+}
+/// Split a bounded Arrow IPC file by its indexed record batches and decode rows.
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_batch_sharded_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    batches_per_shard: usize,
+) -> Result<PCollection<T>, Error> {
+    arrow_ipc_indexed_source(
+        pipeline,
+        key,
+        path,
+        batches_per_shard,
+        "arrow-ipc-row-batches",
+        false,
+        read_arrow_ipc_indexed_rows::<T>,
+    )
+}
+/// Split a bounded Arrow IPC file by its indexed record batches.
+#[cfg(feature = "arrow-ipc")]
+pub fn arrow_ipc_batches_indexed_source(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    batches_per_shard: usize,
+) -> Result<PCollection<ArrowBatch>, Error> {
+    arrow_ipc_indexed_source(
+        pipeline,
+        key,
+        path,
+        batches_per_shard,
+        "arrow-ipc-batches",
+        true,
+        read_arrow_ipc_indexed_batches,
+    )
+}
+#[cfg(feature = "arrow-ipc")]
 pub fn arrow_ipc_streaming_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,

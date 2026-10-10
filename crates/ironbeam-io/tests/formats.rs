@@ -510,6 +510,78 @@ fn parquet_row_group_shards_read_only_selected_groups() {
     );
 }
 
+#[cfg(feature = "arrow-ipc")]
+#[test]
+fn arrow_ipc_indexed_shards_keep_batch_boundaries_and_rows() {
+    use arrow::datatypes::FieldRef;
+    use arrow::ipc::writer::FileWriter;
+    use serde_arrow::schema::{SchemaLike, TracingOptions};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("batches.arrow");
+    let fields = Vec::<FieldRef>::from_type::<Row>(TracingOptions::default()).unwrap();
+    let batches = (0..3)
+        .map(|id| {
+            serde_arrow::to_record_batch(
+                &fields,
+                &vec![Row {
+                    id,
+                    name: format!("row-{id}"),
+                }],
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let file = fs::File::create(&path).unwrap();
+    let mut writer = FileWriter::try_new(file, &batches[0].schema()).unwrap();
+    for batch in &batches {
+        writer.write(batch).unwrap();
+    }
+    writer.finish().unwrap();
+
+    let pipeline = Pipeline::default();
+    assert!(arrow_ipc_batch_sharded_source::<Row>(&pipeline, "bad", &path, 0).is_err());
+    let rows = arrow_ipc_batch_sharded_source::<Row>(&pipeline, "rows", &path, 1)
+        .unwrap()
+        .output("rows-out")
+        .unwrap();
+    let batch_output = arrow_ipc_batches_indexed_source(&pipeline, "batches", &path, 2)
+        .unwrap()
+        .output("batches-out")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert!(graph.node("rows/batch-2").is_some());
+    assert!(graph.node("batches/batch-1").is_some());
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        let actual_rows = DirectRunner.run_collect(&rows, &config).unwrap().0;
+        assert_eq!(
+            actual_rows,
+            (0..3)
+                .map(|id| Row {
+                    id,
+                    name: format!("row-{id}"),
+                })
+                .collect::<Vec<_>>()
+        );
+        let actual_batches = DirectRunner.run_collect(&batch_output, &config).unwrap().0;
+        assert_eq!(actual_batches.len(), 3);
+        assert!(actual_batches.iter().all(|batch| batch.0.num_rows() == 1));
+    }
+    fs::write(&path, b"changed").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&rows, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+}
+
 #[cfg(all(
     feature = "parallel-io",
     feature = "xml",
