@@ -189,3 +189,131 @@ fn keyed_sum_constant_key_swap_and_display_compose() {
         ["2", "3", "4"]
     );
 }
+
+#[test]
+fn first_distinct_count_and_keyed_extrema_match_v4_values() {
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![3_i32, 1, 3, 2]).unwrap();
+    let first = input
+        .first_named("first")
+        .unwrap()
+        .output("first-out")
+        .unwrap();
+    let distinct_count = input
+        .distinct_count_globally_named("unique-count")
+        .unwrap()
+        .output("count-out")
+        .unwrap();
+    let by_parity = input
+        .distinct_by_named("parity", |n| n % 2)
+        .unwrap()
+        .output("parity-out")
+        .unwrap();
+    let pairs = pipeline
+        .from_vec(
+            "pairs",
+            vec![
+                ("a".to_string(), 5_i32),
+                ("a".into(), 2),
+                ("b".into(), 10),
+                ("a".into(), 8),
+            ],
+        )
+        .unwrap();
+    let minima = pairs
+        .min_per_key_named("min-group", "min")
+        .unwrap()
+        .output("min-out")
+        .unwrap();
+    let maxima = pairs
+        .max_per_key_named("max-group", "max")
+        .unwrap()
+        .output("max-out")
+        .unwrap();
+    for parallelism in [1, 3] {
+        let cfg = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        assert_eq!(DirectRunner.run_collect(&first, &cfg).unwrap().0, [3]);
+        assert_eq!(
+            DirectRunner.run_collect(&distinct_count, &cfg).unwrap().0,
+            [3]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&by_parity, &cfg).unwrap().0,
+            [3, 2]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&minima, &cfg).unwrap().0,
+            [("a".to_string(), 2), ("b".into(), 10)]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&maxima, &cfg).unwrap().0,
+            [("a".to_string(), 8), ("b".into(), 10)]
+        );
+    }
+}
+
+#[test]
+fn average_helpers_match_v4_including_empty_global_input() {
+    let p = Pipeline::default();
+    let values = p.from_vec("values", vec![1_u32, 2, 3, 4, 5]).unwrap();
+    let avg = values
+        .average_globally_named("average")
+        .unwrap()
+        .output("average-out")
+        .unwrap();
+    let float_values = p
+        .from_vec("float-values", vec![1_f32, 2.0, 3.0, 4.0, 5.0])
+        .unwrap();
+    let mean = float_values
+        .mean_globally_named::<f32>("mean")
+        .unwrap()
+        .output("mean-out")
+        .unwrap();
+    let empty = p.from_vec("empty", Vec::<u32>::new()).unwrap();
+    let empty_avg = empty
+        .average_globally_named("empty-average")
+        .unwrap()
+        .output("empty-out")
+        .unwrap();
+    let pairs = p
+        .from_vec(
+            "pairs",
+            vec![("a".to_string(), 1_u32), ("a".into(), 3), ("b".into(), 10)],
+        )
+        .unwrap();
+    let per_key = pairs
+        .average_per_key_named("group", "key-average")
+        .unwrap()
+        .output("key-out")
+        .unwrap();
+    let float_pairs = p
+        .from_vec(
+            "float-pairs",
+            vec![
+                ("a".to_string(), 1_f32),
+                ("a".into(), 3.0),
+                ("b".into(), 10.0),
+            ],
+        )
+        .unwrap();
+    let key_mean = float_pairs
+        .mean_per_key_named::<f32>("mean-group", "key-mean")
+        .unwrap()
+        .output("key-mean-out")
+        .unwrap();
+    let cfg = JobConfig::default();
+    assert_eq!(DirectRunner.run_collect(&avg, &cfg).unwrap().0, [3.0]);
+    assert_eq!(DirectRunner.run_collect(&mean, &cfg).unwrap().0, [3.0_f32]);
+    assert_eq!(DirectRunner.run_collect(&empty_avg, &cfg).unwrap().0, [0.0]);
+    assert_eq!(
+        DirectRunner.run_collect(&per_key, &cfg).unwrap().0,
+        [("a".to_string(), 2.0), ("b".into(), 10.0)]
+    );
+    assert_eq!(
+        DirectRunner.run_collect(&key_mean, &cfg).unwrap().0,
+        [("a".to_string(), 2.0_f32), ("b".into(), 10.0_f32)]
+    );
+}
