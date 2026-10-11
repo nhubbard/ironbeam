@@ -636,6 +636,9 @@ staged locally.
    aggregate-state recovery or v4 checkpoint policy parity. Full Direct tests,
    strict lint, and clean coverage pass: Direct 1,894/2,011 source locations
    and 384/420 branches, with core unchanged at 2,430/2,525 and 354/402.
+   The current core and worker also passed the live local Prism multi-source
+   execution fixture to `DONE`, and the root workspace all-feature test suite
+   completed successfully after these changes.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.
