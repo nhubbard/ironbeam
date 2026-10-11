@@ -659,6 +659,14 @@ staged locally.
    a clean coverage rerun remains above the existing gates at core
    2,430/2,525 lines and 354/402 branches and Direct 1,821/1,938 lines and
    373/408 branches. The performance gap is still open.
+   The typed map/filter route now accumulates rejected-row metrics within each
+   batch and publishes one total, preserving transform order and cancellation
+   checks. An alternating 40-pair release comparison against the same checkout
+   before this change measured 100,000-row map/filter medians of 0.497 ms
+   before and 0.483 ms after; at one million rows, 3.984 ms before and
+   3.879 ms after. Output counts and checksums matched. Full Direct tests and
+   strict Direct lint pass. This is a small improvement, not closure of the
+   broader v4/v5 performance gate.
    Local checkpoint replacement now generates a recognizable data filename
    and validates the previous manifest before deleting its referenced data.
    Tests show that path traversal, a sibling file, `latest.json`, mismatched

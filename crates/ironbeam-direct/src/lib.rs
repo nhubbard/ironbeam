@@ -1062,6 +1062,7 @@ fn execute<T: Element>(
                     .peak_batch_elements
                     .fetch_max(count, Ordering::Relaxed);
                 let mut output_count = 0_u64;
+                let mut filtered_count = 0_u64;
                 let mut panic_node = route.source_key.as_str();
                 let result = pool.expect("transform route owns a pool").install(|| {
                     catch_unwind(AssertUnwindSafe(|| -> Result<(), Error> {
@@ -1084,10 +1085,7 @@ fn execute<T: Element>(
                                 panic_node = key;
                                 current = transform.apply(value);
                                 if current.is_none() {
-                                    handle
-                                        .metrics
-                                        .filtered_elements
-                                        .fetch_add(1, Ordering::Relaxed);
+                                    filtered_count = filtered_count.saturating_add(1);
                                 }
                             }
                             if let Some(value) = current {
@@ -1114,6 +1112,10 @@ fn execute<T: Element>(
                         ));
                     }
                 }
+                handle
+                    .metrics
+                    .filtered_elements
+                    .fetch_add(filtered_count, Ordering::Relaxed);
                 let total = handle
                     .metrics
                     .output_elements
