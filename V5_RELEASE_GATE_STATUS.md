@@ -51,7 +51,8 @@ staged locally.
   separately launched v5 worker for seven bounded sources, including a keyed
   input shared by GroupByKey and an ordinary branch, native Flatten and
   GroupByKey, event-time assignment, native fixed-window assignment with
-  offset, per-window GroupByKey, and twelve terminal
+  offset, per-window GroupByKey, native Reshuffle in global and fixed windows,
+  and thirteen terminal
   append sinks. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
@@ -134,7 +135,9 @@ staged locally.
    Bounded millisecond-aligned fixed windows now lower to native Beam
    `WindowInto`; the worker carries interval metadata across Fn API boundaries.
    One live Prism job verifies assigned intervals and keyed counts in each
-   fixed window. Other window types and full time-metadata parity remain open.
+   fixed window. The same job verifies native Reshuffle with values and
+   fixed-window metadata intact. Other window types and full time-metadata
+   parity remain open.
 3. **Remote I/O:** Provider clients can access hosted object storage from the
    bounded `ObjectIO` interface, but the local Prism worker still shares the
    driver's filesystem. Driver-local file paths are not staged to cloud
