@@ -23,6 +23,10 @@ if cargo tree -p ironbeam-io --no-default-features --features compression-gzip -
   echo "Compression-only v5 I/O unexpectedly depends on legacy cloud helpers." >&2
   exit 1
 fi
+if cargo tree -p ironbeam-io --all-features --edges normal | grep -E 'ironbeam-cloud v'; then
+  echo "Shared v5 I/O unexpectedly depends on legacy cloud helpers." >&2
+  exit 1
+fi
 if cargo tree -p ironbeam-io-jsonl --all-features --edges normal | grep -E 'ironbeam-cloud v'; then
   echo "V5 JSONL unexpectedly depends on legacy cloud helpers." >&2
   exit 1
@@ -71,7 +75,7 @@ for package in "${packages[@]}"; do
     ironbeam-io-sql|ironbeam-io-mongodb)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io)
-      patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
+      patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io-jsonl|ironbeam-io-protobuf|ironbeam-io-tfrecord|ironbeam-io-csv|ironbeam-io-xml|ironbeam-io-msgpack|ironbeam-io-cbor|ironbeam-io-avro)
       patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-io-parquet|ironbeam-io-arrow)

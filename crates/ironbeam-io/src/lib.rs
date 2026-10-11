@@ -108,7 +108,7 @@ pub fn open_lazy_seek(path: &Path, key: &str) -> Result<(Box<dyn ReadSeek + Send
 type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
 
 #[cfg(feature = "cloud")]
-pub use ironbeam_cloud as cloud;
+pub use ironbeam_cloud_objects as cloud;
 
 #[doc(hidden)]
 pub fn io(key: &str, error: impl std::fmt::Display) -> Error {

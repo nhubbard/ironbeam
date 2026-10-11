@@ -75,7 +75,9 @@ staged locally.
   All four codecs pass
   source/sink round trips; its isolated all-feature corpus measures at least 140/157
   source locations and 29/34 active branch outcomes. Compression-only shared
-  I/O depends on this crate without pulling in legacy cloud helpers.
+  I/O depends on this crate without pulling in legacy cloud helpers. Shared
+  I/O's `cloud` feature now reexports the provider-neutral object contract;
+  its all-feature dependency tree also excludes the legacy cloud package.
 
 ## Open replacement gates
 
@@ -127,7 +129,7 @@ staged locally.
    `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
    `ironbeam-cloud` still contains legacy traits, fake services, readers,
    and helpers. Its compression and object APIs now reexport separate crates;
-   v5 JSONL and compression-only shared I/O no longer depend on it. Remove
+   v5 JSONL and shared I/O no longer depend on it. Remove
    the remaining legacy package from the v5 runtime and root feature graph
    during the v4 cutover. Its earlier isolated source corpus measured only
    37/1,695 locations after the object extraction, so reexports alone do not

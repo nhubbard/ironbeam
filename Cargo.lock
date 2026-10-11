@@ -2325,7 +2325,7 @@ name = "ironbeam-io"
 version = "0.1.0"
 dependencies = [
  "glob",
- "ironbeam-cloud",
+ "ironbeam-cloud-objects",
  "ironbeam-compression",
  "ironbeam-core",
  "ironbeam-direct",
