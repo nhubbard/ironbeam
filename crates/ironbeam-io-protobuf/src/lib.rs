@@ -337,13 +337,6 @@ mod fragment_tests {
 
     #[test]
     fn malformed_delimited_record_cannot_replace_existing_result() {
-        let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("result.pb");
-        std::fs::write(&target, b"previous result").unwrap();
-        let store =
-            protobuf_fragment_store(dir.path().join("stage"), "job", "graph", "sink").unwrap();
-        store.local.stage("bundle", 1, &[0xff]).unwrap();
-        store.local.accept("bundle").unwrap();
         #[derive(Clone, PartialEq, prost::Message)]
         struct Row {
             #[prost(int32, tag = "1")]
@@ -353,6 +346,13 @@ mod fragment_tests {
             const TYPE_ID: &'static str = "protobuf-test/row";
             const CODER_ID: &'static str = "protobuf-test/row-v1";
         }
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("result.pb");
+        std::fs::write(&target, b"previous result").unwrap();
+        let store =
+            protobuf_fragment_store(dir.path().join("stage"), "job", "graph", "sink").unwrap();
+        store.local.stage("bundle", 1, &[0xff]).unwrap();
+        store.local.accept("bundle").unwrap();
         assert!(publish_protobuf_fragments::<Row>(&store, 1, &target).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"previous result");
     }

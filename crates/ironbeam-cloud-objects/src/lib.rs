@@ -84,6 +84,11 @@ pub trait ObjectIO: Send + Sync {
     /// if the key is present. Providers must not expose partial bytes, and
     /// successful writes must be durable before returning. The default fails
     /// closed for providers that have not implemented this contract.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the object already exists, the provider cannot
+    /// guarantee atomic creation, or the write fails.
     fn put_object_if_absent(&self, _bucket: &str, _key: &str, _data: &[u8]) -> CloudResult<()> {
         Err(CloudIOError::new(
             ErrorKind::InvalidInput,

@@ -3,6 +3,7 @@
 use ironbeam_v4::{Pipeline, from_vec};
 use std::time::Instant;
 
+#[allow(clippy::too_many_lines)] // Keep the seven reference workload bodies together.
 fn main() {
     let count: u32 = std::env::args()
         .nth(1)

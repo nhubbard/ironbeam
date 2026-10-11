@@ -163,19 +163,6 @@ fn folds_without_a_state_coder_decline_in_progress_recovery() {
         const TYPE_ID: &'static str = "test/opaque-group-value";
         const CODER_ID: &'static str = "test/opaque-group-value";
     }
-    let pipeline = Pipeline::default();
-    pipeline
-        .from_vec("source", vec![(1_i32, Opaque)])
-        .unwrap()
-        .group_by_key_named("group")
-        .unwrap();
-    let (_, registry) = pipeline.snapshot().unwrap();
-    let mut group = registry.open_fold("group").unwrap();
-    group
-        .add_vec_batch(Box::new(vec![(1_i32, Opaque)]))
-        .unwrap();
-    assert!(group.checkpoint_state().unwrap().is_none());
-
     struct Sum;
     impl CombineFn<i32, i32, i32> for Sum {
         fn create(&self) -> i32 {
@@ -191,6 +178,19 @@ fn folds_without_a_state_coder_decline_in_progress_recovery() {
             accumulator
         }
     }
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, Opaque)])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut group = registry.open_fold("group").unwrap();
+    group
+        .add_vec_batch(Box::new(vec![(1_i32, Opaque)]))
+        .unwrap();
+    assert!(group.checkpoint_state().unwrap().is_none());
+
     let pipeline = Pipeline::default();
     pipeline
         .from_vec("source", vec![1_i32])

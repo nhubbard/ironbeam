@@ -373,7 +373,8 @@ pub fn tfrecord_fragment_store(
     LocalFinalResult::new(staging, job, graph, key)
 }
 
-/// Register a bundle-finalized TFRecord fragment sink for portable jobs.
+/// Register a bundle-finalized `TFRecord` fragment sink for portable jobs.
+///
 /// The caller must publish after the runner reports DONE. This remains an
 /// append-mode graph sink until the whole-job result contract is complete.
 pub fn tfrecord_fragment_sink(
@@ -407,7 +408,7 @@ pub fn tfrecord_fragment_sink(
     )
 }
 
-/// Publish accepted TFRecord fragments after a successful portable job.
+/// Publish accepted `TFRecord` fragments after a successful portable job.
 /// Every frame and CRC is checked before the final path becomes visible.
 pub fn publish_tfrecord_fragments(
     store: &LocalFinalResult,

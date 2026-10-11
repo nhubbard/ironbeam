@@ -6,7 +6,7 @@ use ironbeam_direct::{DirectRunner, JobConfig};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-fn spec() -> SinkSpec {
+const fn spec() -> SinkSpec {
     SinkSpec {
         mode: SinkMode::Append,
         replay: Replay::Idempotent,
@@ -338,7 +338,7 @@ fn invalid_multi_sink_plan_fails_before_opening_source_or_sinks() {
             Some(1),
             move || {
                 opened.fetch_add(1, Ordering::SeqCst);
-                Ok(Box::new([1].into_iter().map(Ok)) as TypedSourceIterator<i32>)
+                Ok(Box::new(std::iter::once(1).map(Ok)) as TypedSourceIterator<i32>)
             },
         )
         .unwrap();

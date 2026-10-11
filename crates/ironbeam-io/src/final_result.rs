@@ -10,7 +10,8 @@ use ironbeam_core::Error;
 use sha2::{Digest, Sha256};
 
 const MAGIC: &[u8; 8] = b"IBFRAG01";
-const HEADER_LEN: u64 = 8 + 32 + 32 + 8 + 8 + 32;
+const HEADER_SIZE: usize = 8 + 32 + 32 + 8 + 8 + 32;
+const HEADER_LEN: u64 = HEADER_SIZE as u64;
 
 fn io(error: impl std::fmt::Display) -> Error {
     Error::io("final-result", "file", error.to_string())
@@ -136,7 +137,7 @@ impl LocalFinalResult {
         temp.write_all(&[0_u8; 8 + 32]).map_err(io)?;
         let mut length = 0_u64;
         let mut digest = Sha256::new();
-        let mut buffer = [0_u8; 64 * 1024];
+        let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
         loop {
             let size = payload.read(&mut buffer).map_err(io)?;
             if size == 0 {
@@ -198,7 +199,7 @@ impl LocalFinalResult {
         bundle_id: Option<&str>,
     ) -> Result<AcceptedFragment, Error> {
         let mut file = File::open(path).map_err(io)?;
-        let mut header = [0_u8; HEADER_LEN as usize];
+        let mut header = [0_u8; HEADER_SIZE];
         file.read_exact(&mut header).map_err(io)?;
         if &header[..8] != MAGIC || header[8..40] != self.scope {
             return Err(invalid(
@@ -229,7 +230,7 @@ impl LocalFinalResult {
             return Err(invalid("fragment payload length does not match file"));
         }
         let mut hasher = Sha256::new();
-        let mut buffer = [0_u8; 64 * 1024];
+        let mut buffer = vec![0_u8; 64 * 1024].into_boxed_slice();
         loop {
             let size = file.read(&mut buffer).map_err(io)?;
             if size == 0 {
@@ -263,9 +264,8 @@ impl LocalFinalResult {
             .collect::<Result<Vec<_>, _>>()?;
         if require_complete
             && paths.iter().any(|path| {
-                !path
-                    .extension()
-                    .is_some_and(|extension| extension == "accepted")
+                path.extension()
+                    .is_none_or(|extension| extension != "accepted")
             })
         {
             return Err(invalid(
@@ -366,8 +366,8 @@ fn files_equal(left: &Path, right: &Path) -> Result<bool, Error> {
     if left.metadata().map_err(io)?.len() != right.metadata().map_err(io)?.len() {
         return Ok(false);
     }
-    let mut a = [0_u8; 64 * 1024];
-    let mut b = [0_u8; 64 * 1024];
+    let mut a = vec![0_u8; 64 * 1024].into_boxed_slice();
+    let mut b = vec![0_u8; 64 * 1024].into_boxed_slice();
     loop {
         let size = left.read(&mut a).map_err(io)?;
         if size == 0 {

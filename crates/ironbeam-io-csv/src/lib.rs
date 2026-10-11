@@ -601,7 +601,7 @@ mod fragment_tests {
         assert!(store.accepted_fragments().unwrap().is_empty());
         assert!(bundle.finalize_bundle().is_err());
         let mut unnamed = CsvFragmentSink::<i32> {
-            store: store.clone(),
+            store,
             bundle_id: None,
             writer: None,
             rows: 0,

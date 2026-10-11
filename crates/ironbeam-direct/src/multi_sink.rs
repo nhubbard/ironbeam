@@ -15,6 +15,32 @@ pub(crate) struct Plan {
     children: HashMap<String, Vec<String>>,
 }
 
+fn validate_sink(graph: &Graph, registry: &Registry, key: &str) -> Result<(), Error> {
+    let node = graph
+        .node(key)
+        .ok_or_else(|| Error::graph(key, "sink is absent"))?;
+    let Operation::Sink { spec } = &node.operation else {
+        return Err(Error::graph(key, "requested terminal is not a sink"));
+    };
+    if !matches!(spec.mode, SinkMode::Append | SinkMode::FinalResult)
+        || !spec.commit
+        || spec.replay != Replay::Idempotent
+    {
+        return Err(Error::unsupported(
+            key,
+            "direct",
+            "multi-sink-idempotent-commit",
+        ));
+    }
+    if !registry.has_sink(key) {
+        return Err(Error::unsupported(key, "direct", "sink-factory"));
+    }
+    if registry.sink_requires_bundle_finalization(key) {
+        return Err(Error::unsupported(key, "direct", "bundle-finalization"));
+    }
+    Ok(())
+}
+
 pub(crate) fn prepare(graph: &Graph, registry: &Registry, keys: &[&str]) -> Result<Plan, Error> {
     if keys.len() < 2 {
         return Err(Error::graph(
@@ -30,28 +56,7 @@ pub(crate) fn prepare(graph: &Graph, registry: &Registry, keys: &[&str]) -> Resu
         if !unique.insert(key) {
             return Err(Error::graph(key, "sink branches must be distinct"));
         }
-        let node = graph
-            .node(key)
-            .ok_or_else(|| Error::graph(key, "sink is absent"))?;
-        let Operation::Sink { spec } = &node.operation else {
-            return Err(Error::graph(key, "requested terminal is not a sink"));
-        };
-        if !matches!(spec.mode, SinkMode::Append | SinkMode::FinalResult)
-            || !spec.commit
-            || spec.replay != Replay::Idempotent
-        {
-            return Err(Error::unsupported(
-                key,
-                "direct",
-                "multi-sink-idempotent-commit",
-            ));
-        }
-        if !registry.has_sink(key) {
-            return Err(Error::unsupported(key, "direct", "sink-factory"));
-        }
-        if registry.sink_requires_bundle_finalization(key) {
-            return Err(Error::unsupported(key, "direct", "bundle-finalization"));
-        }
+        validate_sink(graph, registry, key)?;
     }
     let mut pending = keys.iter().map(|key| (*key).to_owned()).collect::<Vec<_>>();
     while let Some(current) = pending.pop() {

@@ -1,4 +1,4 @@
-//! Decode TFRecord bytes written by published Ironbeam 4 with the v5 adapter.
+//! Decode `TFRecord` bytes written by published Ironbeam 4 with the v5 adapter.
 
 use ironbeam_v4::io::tfrecord::write_tfrecord_vec;
 use ironbeam_v4::io::tfrecord_proto as v4_proto;

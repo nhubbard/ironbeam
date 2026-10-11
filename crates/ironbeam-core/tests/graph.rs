@@ -110,7 +110,7 @@ fn unbounded_source_polling_resumes_and_preserves_time() {
     assert_eq!(*batch.elements[0].value.downcast_ref::<i32>().unwrap(), 7);
     assert_eq!(batch.elements[0].timestamp_ns, 1_000_000);
     assert_eq!(batch.progress.checkpoint_position, Some(vec![1]));
-    let saved_progress = batch.progress.clone();
+    let saved_progress = batch.progress;
 
     let mut resumed = registry
         .open_unbounded_source("events", Some(saved_progress.clone()))
@@ -136,6 +136,7 @@ fn unbounded_source_polling_resumes_and_preserves_time() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // One matrix checks all malformed source-progress shapes.
 fn unbounded_source_rejects_invalid_progress_and_capacity() {
     let valid = UnboundedPoll::Ready(UnboundedBatch {
         elements: vec![Timestamped {

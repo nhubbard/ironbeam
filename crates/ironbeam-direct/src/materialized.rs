@@ -700,6 +700,7 @@ fn linear_fold_route(graph: &Graph, from: &str) -> Option<(String, Vec<String>)>
     }
 }
 
+#[derive(Clone, Copy)]
 struct FoldFeedPolicy<'a> {
     key: &'a str,
     enforce_source_budget: bool,

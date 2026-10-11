@@ -45,9 +45,9 @@ pub fn avro_fragment_store(
         .map_err(|error| Error::incompatible(error.to_string()))?
         .to_string();
     let scope = format!("{graph}\0avro-datum-v1\0{full_schema}");
-    let marker: [u8; 16] = Sha256::digest(format!("{job}\0{scope}\0{key}").as_bytes())[..16]
-        .try_into()
-        .expect("SHA-256 has at least 16 bytes");
+    let digest = Sha256::digest(format!("{job}\0{scope}\0{key}").as_bytes());
+    let mut marker = [0_u8; 16];
+    marker.copy_from_slice(&digest[..16]);
     Ok(AvroFragmentStore {
         local: LocalFinalResult::new(staging, job, &scope, key)?,
         schema: Arc::new(schema),

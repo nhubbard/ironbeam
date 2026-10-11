@@ -638,7 +638,7 @@ pub fn publish_arrow_ipc_batch_fragments(
                     }
                     writer
                         .as_mut()
-                        .expect("initialized from first batch")
+                        .ok_or_else(|| Error::incompatible("Arrow IPC fragment writer missing"))?
                         .write(&batch)
                         .map_err(|error| io("arrow-ipc-fragment", error))?;
                     part_batches = part_batches.checked_add(1).ok_or_else(|| {
@@ -930,10 +930,9 @@ mod row_fragment_tests {
                 .rows,
             0
         );
-        assert!(
-            read_arrow_ipc::<Row>(&fs::read(empty_target).unwrap())
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            read_arrow_ipc::<Row>(&fs::read(empty_target).unwrap()).unwrap(),
+            Vec::<Row>::new()
         );
         let pipeline = Pipeline::default();
         let coded = pipeline

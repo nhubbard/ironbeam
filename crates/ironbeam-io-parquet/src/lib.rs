@@ -553,10 +553,9 @@ mod fragment_tests {
                 .rows,
             0
         );
-        assert!(
-            read_parquet::<Row>(&fs::read(empty_output).unwrap())
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            read_parquet::<Row>(&fs::read(empty_output).unwrap()).unwrap(),
+            Vec::<Row>::new()
         );
     }
 

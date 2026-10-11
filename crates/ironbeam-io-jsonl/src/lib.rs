@@ -175,7 +175,7 @@ fn write_jsonl_record<T: Serialize>(
         .map_err(|error| ironbeam_io::io("jsonl-fragment", error))
 }
 
-/// Stage complete JSONL records per bundle and accept them after FinalizeBundle.
+/// Stage complete JSONL records per bundle and accept them after `FinalizeBundle`.
 /// The staging path must be shared with the job coordinator.
 pub fn jsonl_fragment_sink<T: Element + Serialize>(
     input: &PCollection<T>,

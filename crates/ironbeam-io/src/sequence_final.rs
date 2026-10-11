@@ -118,7 +118,7 @@ pub fn sequence_fragment_store(
     LocalFinalResult::new(staging, job, &scope, key)
 }
 
-/// Stage encoded records per bundle and accept them only after FinalizeBundle.
+/// Stage encoded records per bundle and accept them only after `FinalizeBundle`.
 pub fn sequence_fragment_sink<T: Element>(
     input: &PCollection<T>,
     key: &str,
@@ -195,6 +195,7 @@ pub fn publish_sequence_fragments(
 mod tests {
     use super::*;
 
+    #[allow(clippy::trivially_copy_pass_by_ref)] // Matches the fragment encoder callback type.
     fn encode_u32(value: &u32, output: &mut dyn Write) -> Result<(), Error> {
         output.write_all(&value.to_le_bytes()).map_err(io)
     }
@@ -288,7 +289,7 @@ mod tests {
                 .rows,
             0
         );
-        assert!(std::fs::read(&output).unwrap().is_empty());
+        assert_eq!(std::fs::read(&output).unwrap(), Vec::<u8>::new());
         sink.abort().unwrap();
         assert_eq!(store.accepted_fragments().unwrap().len(), 1);
     }

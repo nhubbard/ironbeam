@@ -4,6 +4,7 @@
 use ironbeam::v5::{DirectRunner, JobConfig, Pipeline, jsonl_sink, jsonl_source, prelude::*};
 use std::time::Instant;
 
+#[allow(clippy::too_many_lines)] // Keep the seven measured workloads in one driver.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count: u32 = std::env::args()
         .nth(1)

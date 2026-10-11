@@ -82,7 +82,7 @@ pub fn msgpack_sink<T: Element + Serialize>(
     ironbeam_io::sink(input, key, path, write_msgpack::<T>)
 }
 
-/// Scope for finalized MessagePack record sequences.
+/// Scope for finalized `MessagePack` record sequences.
 #[derive(Clone)]
 pub struct MsgpackFragmentStore {
     local: LocalFinalResult,
@@ -131,7 +131,7 @@ pub fn msgpack_fragment_sink<T: Element + Serialize>(
     )
 }
 
-/// Publish one validated MessagePack sequence after the runner reports DONE.
+/// Publish one validated `MessagePack` sequence after the runner reports DONE.
 pub fn publish_msgpack_fragments<T: DeserializeOwned>(
     store: &MsgpackFragmentStore,
     expected_rows: u64,
