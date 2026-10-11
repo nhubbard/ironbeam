@@ -12,6 +12,7 @@ v5 can replace the entire v4 package; they are not hidden by helper parity.
 | v4 family | v5 owner | Status | Remaining contract or implementation |
 | --- | --- | --- | --- |
 | `common`, `stdlib`, `named` | core, direct | Present with v5 naming contract | Core map/filter/flat-map/from_vec/from_iter, bounded custom source, explicit unbounded source metadata, and Direct collect are present. Every v5 graph node takes a stable key at construction; v4's after-the-fact `with_name` is intentionally replaced by that contract. |
+| `explain` | direct | Partial planner parity | `DirectRunner::explain` and `PlanSummary::explain` report the selected streaming or materialized path, source/output identity, fused stage count, and batch/route estimates without opening a source. V4's detailed optimization-decision enumeration remains unported. |
 | `keyed`, `values` | core, transforms, direct | Present for bounded values | Keying, grouping, projections, value mapping/filtering, swap, `with_keys`, and `to_hashmap` exist; verify all runner result modes. |
 | `count` | transforms | Present | Global, per-element, and per-key counts have Direct tests. All three use lifted folds over linear inputs. |
 | `filter` | transforms | Present | Nine predicate helpers have sequential/parallel boundary tests. |

@@ -1,177 +1,45 @@
-//! Example demonstrating the pipeline explain/visualization feature.
+//! Inspect the v5 Direct plan before any source is opened.
 //!
-//! This example shows how to use the `explain()` method to understand
-//! what the query planner is doing with your pipeline.
+//! Run with `cargo run --example explain_pipeline`.
 
-use anyhow::Result;
-use ironbeam::{OptimizationDecision, Pipeline, build_plan, from_vec};
+use ironbeam::v5::{DirectRunner, JobConfig, Pipeline, prelude::*};
 
-fn main() -> Result<()> {
-    println!("=== Example 1: Simple Pipeline ===\n");
-    example_simple_pipeline()?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("=== Elementwise pipeline ===");
+    let pipeline = Pipeline::default();
+    let output = pipeline.from_vec("numbers", (1..=100_i32).collect())?
+        .map_named("double", |value| value * 2)?
+        .filter_named("divisible-by-three", |value| value % 3 == 0)?
+        .output("elementwise-result")?;
+    let plan = DirectRunner.explain(&output, &JobConfig::default())?;
+    assert!(!plan.materialized);
+    println!("{}\n", plan.explain());
 
-    println!("\n=== Example 2: Pipeline with Grouping ===\n");
-    example_with_grouping()?;
+    println!("=== Grouping pipeline ===");
+    let pipeline = Pipeline::default();
+    let output = pipeline.from_vec("fruit", vec![
+        ("apple".to_owned(), 5_i32),
+        ("banana".to_owned(), 3),
+        ("apple".to_owned(), 2),
+        ("banana".to_owned(), 7),
+        ("cherry".to_owned(), 1),
+    ])?
+        .group_by_key_named("fruit-by-name")?
+        .output("grouped-result")?;
+    let plan = DirectRunner.explain(&output, &JobConfig::default())?;
+    assert!(plan.materialized);
+    println!("{}\n", plan.explain());
 
-    println!("\n=== Example 3: Complex Pipeline with Optimizations ===\n");
-    example_with_optimizations()?;
-
-    Ok(())
-}
-
-/// Demonstrates explain on a simple map/filter pipeline.
-fn example_simple_pipeline() -> Result<()> {
-    let p = Pipeline::default();
-    let data = from_vec(&p, (1..=100).collect::<Vec<_>>());
-    let result = data.map(|x| x * 2).filter(|x| x % 3 == 0);
-
-    // Build the plan and explain it
-    let plan = build_plan(&p, result.node_id())?;
-    let explanation = plan.explain();
-
-    println!("{explanation}");
-    Ok(())
-}
-
-/// Demonstrates explain with a grouping operation.
-fn example_with_grouping() -> Result<()> {
-    let p = Pipeline::default();
-    let data = from_vec(
-        &p,
-        vec![
-            ("apple".to_string(), 5),
-            ("banana".to_string(), 3),
-            ("apple".to_string(), 2),
-            ("banana".to_string(), 7),
-            ("cherry".to_string(), 1),
-        ],
-    );
-    let result = data.group_by_key();
-
-    // Build the plan and explain it
-    let plan = build_plan(&p, result.node_id())?;
-    let explanation = plan.explain();
-
-    println!("{explanation}");
-    Ok(())
-}
-
-/// Demonstrates explain with multiple operations that trigger optimizations.
-#[allow(clippy::too_many_lines)]
-fn example_with_optimizations() -> Result<()> {
-    let p = Pipeline::default();
-    let data = from_vec(&p, (1..=10000).collect::<Vec<_>>());
-
-    // Create a pipeline with multiple stateless operations that will be fused
-    let result = data
-        .map(|x| x * 2)
-        .filter(|x| *x > 100)
-        .map(|x| x + 10)
-        .filter(|x| x % 5 == 0)
-        .map(|x| (*x / 100, *x));
-
-    // Build the plan and explain it
-    let plan = build_plan(&p, result.node_id())?;
-    let explanation = plan.explain();
-
-    println!("{explanation}");
-
-    // You can also access individual components
-    println!("\n=== Detailed Breakdown ===");
-    println!("Total operations: {}", explanation.cost_estimate.total_ops);
-    println!("Stateless ops: {}", explanation.cost_estimate.stateless_ops);
-    println!("Barrier ops: {}", explanation.cost_estimate.barriers);
-    println!("Source size: {:?}", explanation.cost_estimate.source_size);
-    println!(
-        "Suggested partitions: {:?}",
-        explanation.suggested_partitions
-    );
-
-    println!("\n=== Optimizations Applied ===");
-    for opt in &explanation.optimizations {
-        match opt {
-            OptimizationDecision::FusedStateless {
-                blocks_before,
-                blocks_after,
-                ops_count,
-            } => {
-                println!(
-                    "✓ Fused {blocks_before} stateless blocks into {blocks_after} ({ops_count} ops total)"
-                );
-            }
-            OptimizationDecision::ReorderedValueOps { ops_count, by_cost } => {
-                println!("✓ Reordered {ops_count} value-only operations (by_cost={by_cost})");
-            }
-            OptimizationDecision::LiftedGBKCombine { removed_barrier } => {
-                println!("✓ Lifted GroupByKey→CombineValues (removed_barrier={removed_barrier})");
-            }
-            OptimizationDecision::DroppedMidMaterialized { count } => {
-                println!("✓ Dropped {count} mid-pipeline materialized nodes");
-            }
-            OptimizationDecision::PushedDownPredicates { ops_pushed } => {
-                println!("✓ Pushed {ops_pushed} cardinality-reducing op(s) before GroupByKey");
-            }
-            OptimizationDecision::PartitionSuggestion {
-                source_len,
-                partitions,
-            } => {
-                if let Some(len) = source_len {
-                    println!("✓ Suggested {partitions} partitions for {len} elements");
-                } else {
-                    println!("✓ Suggested {partitions} partitions");
-                }
-            }
-            OptimizationDecision::PushedDownIntoFlattenSubplans {
-                ops_pushed,
-                subplan_count,
-            } => {
-                println!(
-                    "✓ Pushed {ops_pushed} op(s) into {subplan_count} Flatten subplan(s) before fan-in"
-                );
-            }
-            OptimizationDecision::EliminatedReshuffle { count } => {
-                println!("✓ Eliminated {count} redundant Reshuffle node(s)");
-            }
-            OptimizationDecision::PrunedDeadSubtrees { nodes_pruned } => {
-                println!("✓ Pruned {nodes_pruned} dead subtree node(s) from the pipeline graph");
-            }
-            OptimizationDecision::ReorderedCoGroupInputs {
-                original_order,
-                new_order,
-            } => {
-                println!(
-                    "✓ Reordered CoGroup inputs by cardinality: {original_order:?} → {new_order:?}"
-                );
-            }
-            OptimizationDecision::TreeReduction { global_count } => {
-                println!(
-                    "✓ Tree reduction enabled for {global_count} CombineGlobal node(s) (O(log n) parallel depth)"
-                );
-            }
-            OptimizationDecision::LimitPushdown { n } => {
-                println!("✓ Early termination: runner stops after collecting {n} element(s)");
-            }
-            OptimizationDecision::BloomSemiJoin {
-                smaller_side,
-                estimated_reduction_pct,
-            } => {
-                println!(
-                    "✓ Bloom semi-join pre-filter: build side={smaller_side}, estimated probe-side reduction={estimated_reduction_pct}%"
-                );
-            }
-            OptimizationDecision::AdaptivePartitionCount { barrier_count } => {
-                println!(
-                    "✓ Adaptive inter-stage partition count: {barrier_count} barrier stage(s) will rescale partition count by cardinality ratio"
-                );
-            }
-            OptimizationDecision::EmptySourceShortCircuit => {
-                println!("✓ Empty source short-circuit: runner returns Vec::new() immediately");
-            }
-            OptimizationDecision::SingletonSourceShortCircuit => {
-                println!("✓ Singleton source short-circuit: runner forces sequential execution");
-            }
-        }
-    }
-
+    println!("=== Fused pipeline with a smaller batch budget ===");
+    let pipeline = Pipeline::default();
+    let output = pipeline.from_vec("large-input", (1..=10_000_i32).collect())?
+        .map_named("double", |value| value * 2)?
+        .filter_named("over-hundred", |value| *value > 100)?
+        .map_named("add-ten", |value| value + 10)?
+        .filter_named("divisible-by-five", |value| value % 5 == 0)?
+        .map_named("pair", |value| (value / 100, value))?
+        .output("fused-result")?;
+    let config = JobConfig { buffer_budget_elements: 1_024, ..JobConfig::default() };
+    println!("{}", DirectRunner.explain(&output, &config)?.explain());
     Ok(())
 }

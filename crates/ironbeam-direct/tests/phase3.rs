@@ -1,4 +1,4 @@
-use ironbeam_core::{Element, ErrorKind, Pipeline};
+use ironbeam_core::{Element, ErrorKind, Pipeline, Replay, SourceProgress};
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, SpillConfig};
 use std::fs;
 use std::sync::Arc;
@@ -32,6 +32,9 @@ fn physical_plan_fuses_operations_and_batches_preserve_order() {
     assert_eq!(plan.fused_stages, 1);
     assert_eq!(plan.source_len_hint, Some(101));
     assert_eq!(plan.estimated_partitions, Some(15));
+    assert!(!plan.materialized);
+    assert!(plan.explain().contains("Direct plan: source -> out"));
+    assert!(plan.explain().contains("Estimated partitions: 15"));
     assert_eq!(
         plan.graph_fingerprint,
         pipeline.snapshot().unwrap().0.fingerprint().unwrap()
@@ -50,6 +53,40 @@ fn physical_plan_fuses_operations_and_batches_preserve_order() {
     assert_eq!(job.metrics().batches, 15);
     assert_eq!(job.metrics().peak_batch_elements, 7);
     assert_eq!(job.processed(), expected.len() as u64);
+}
+
+#[test]
+fn explain_does_not_open_a_source() {
+    let opened = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .bounded_source_with_semantic::<i32>(
+            "source",
+            "tests/counting-source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "counting-source-v1".into(),
+            Some(2),
+            {
+                let opened = Arc::clone(&opened);
+                move || {
+                    opened.fetch_add(1, Ordering::Relaxed);
+                    Ok(Box::new([Ok(1), Ok(2)].into_iter()))
+                }
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let summary = DirectRunner.explain(&output, &JobConfig::default()).unwrap();
+    assert!(!summary.materialized);
+    assert_eq!(summary.source_len_hint, Some(2));
+    assert_eq!(opened.load(Ordering::Relaxed), 0);
+    assert_eq!(DirectRunner.run_collect(&output, &JobConfig::default()).unwrap().0, [1, 2]);
+    assert_eq!(opened.load(Ordering::Relaxed), 1);
 }
 
 #[test]

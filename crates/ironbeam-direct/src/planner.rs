@@ -12,6 +12,27 @@ pub struct PlanSummary {
     pub estimated_partitions: Option<usize>,
     pub graph_fingerprint: String,
     pub routes: usize,
+    pub materialized: bool,
+}
+
+impl PlanSummary {
+    /// Describe the selected Direct plan without opening any source.
+    #[must_use]
+    pub fn explain(&self) -> String {
+        format!(
+            "Direct plan: {} -> {}\nGraph: {}\nExecution: {}\nOperations: {}\nFused stages: {}\nSource routes: {}\nBatch limit: {}\nSource length hint: {}\nEstimated partitions: {}",
+            self.source_key,
+            self.output_key,
+            self.graph_fingerprint,
+            if self.materialized { "materialized" } else { "streaming" },
+            self.operation_count,
+            self.fused_stages,
+            self.routes,
+            self.batch_limit,
+            self.source_len_hint.map_or_else(|| "unknown".to_owned(), |value| value.to_string()),
+            self.estimated_partitions.map_or_else(|| "unknown".to_owned(), |value| value.to_string()),
+        )
+    }
 }
 
 pub(crate) struct Route {
@@ -114,6 +135,7 @@ pub(crate) fn lower(
                     .sum(),
                 graph_fingerprint: graph.fingerprint()?,
                 routes: sources.len(),
+                materialized: true,
             },
             routes: Vec::new(),
             source_digest: None,
@@ -156,6 +178,7 @@ pub(crate) fn lower(
             .sum(),
         graph_fingerprint: graph.fingerprint()?,
         routes: routes.len(),
+        materialized: false,
     };
     Ok(PhysicalPlan {
         summary,
