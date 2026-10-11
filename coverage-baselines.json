@@ -218,5 +218,16 @@
       "covered": 46,
       "count": 54
     }
+  },
+  "ironbeam-compression": {
+    "source": "crates/ironbeam-compression/src",
+    "lines": {
+      "covered": 140,
+      "count": 157
+    },
+    "branches": {
+      "covered": 29,
+      "count": 34
+    }
   }
 }

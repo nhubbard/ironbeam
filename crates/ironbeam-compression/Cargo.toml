@@ -1,0 +1,25 @@
+[package]
+name = "ironbeam-compression"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Pluggable streaming compression for Ironbeam I/O"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[features]
+default = []
+compression-gzip = ["dep:flate2"]
+compression-zstd = ["dep:zstd"]
+compression-bzip2 = ["dep:bzip2"]
+compression-xz = ["dep:xz2"]
+
+[dependencies]
+anyhow = "1"
+flate2 = { version = "1", optional = true }
+zstd = { version = "0.13", optional = true }
+bzip2 = { version = "0.6", optional = true }
+xz2 = { version = "0.1", optional = true }
+
+[dev-dependencies]
+tempfile = "3"

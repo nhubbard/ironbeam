@@ -26,7 +26,7 @@ fn read_decoded_file(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
         use std::io::Read;
         let file = fs::File::open(path).map_err(|e| io(key, e))?;
         let mut reader =
-            ironbeam_cloud::compression::auto_detect_reader(file, path).map_err(|e| io(key, e))?;
+            ironbeam_compression::auto_detect_reader(file, path).map_err(|e| io(key, e))?;
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).map_err(|e| io(key, e))?;
         Ok(bytes)
@@ -63,7 +63,7 @@ pub fn open_encoded_output(path: &Path, key: &str) -> Result<Box<dyn std::io::Wr
         feature = "compression-xz"
     ))]
     {
-        ironbeam_cloud::compression::auto_detect_writer(file, path).map_err(|e| io(key, e))
+        ironbeam_compression::auto_detect_writer(file, path).map_err(|e| io(key, e))
     }
     #[cfg(not(any(
         feature = "compression-gzip",
@@ -437,8 +437,8 @@ pub fn parallel_file_writer<T: Sync>(
         feature = "compression-bzip2",
         feature = "compression-xz"
     ))]
-    let mut output: Box<dyn Write> = ironbeam_cloud::compression::auto_detect_writer(file, path)
-        .map_err(|e| io("parallel-io", e))?;
+    let mut output: Box<dyn Write> =
+        ironbeam_compression::auto_detect_writer(file, path).map_err(|e| io("parallel-io", e))?;
     #[cfg(not(any(
         feature = "compression-gzip",
         feature = "compression-zstd",

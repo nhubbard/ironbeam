@@ -12,14 +12,15 @@ default = ["file", "parallel-io"]
 file = []
 cloud = ["dep:ironbeam-cloud"]
 parallel-io = []
-compression-gzip = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-gzip"]
-compression-zstd = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-zstd"]
-compression-bzip2 = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-bzip2"]
-compression-xz = ["dep:ironbeam-cloud", "ironbeam-cloud/compression-xz"]
+compression-gzip = ["dep:ironbeam-compression", "ironbeam-compression/compression-gzip"]
+compression-zstd = ["dep:ironbeam-compression", "ironbeam-compression/compression-zstd"]
+compression-bzip2 = ["dep:ironbeam-compression", "ironbeam-compression/compression-bzip2"]
+compression-xz = ["dep:ironbeam-compression", "ironbeam-compression/compression-xz"]
 
 [dependencies]
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
 ironbeam-cloud = { version = "0.1.0", path = "../ironbeam-cloud", optional = true }
+ironbeam-compression = { version = "0.1.0", path = "../ironbeam-compression", optional = true }
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.11"
 tempfile = "3"

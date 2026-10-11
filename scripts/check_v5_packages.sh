@@ -5,7 +5,8 @@ set -euo pipefail
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-cloud-objects ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+packages=(ironbeam-compression ironbeam-cloud-objects ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+compression_patch=(--config "patch.crates-io.ironbeam-compression.path=\"$root/crates/ironbeam-compression\"")
 cloud_objects_patch=(--config "patch.crates-io.ironbeam-cloud-objects.path=\"$root/crates/ironbeam-cloud-objects\"")
 cloud_patch=(--config "patch.crates-io.ironbeam-cloud.path=\"$root/crates/ironbeam-cloud\"")
 core_patch=(--config "patch.crates-io.ironbeam-core.path=\"$root/crates/ironbeam-core\"")
@@ -16,6 +17,14 @@ approx_patch=(--config "patch.crates-io.ironbeam-transform-approx.path=\"$root/c
 
 if cargo tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro|prost|crc32c) v'; then
   echo "Default ironbeam-io unexpectedly depends on a heavy opt-in adapter." >&2
+  exit 1
+fi
+if cargo tree -p ironbeam-io --no-default-features --features compression-gzip --edges normal | grep -E 'ironbeam-cloud v'; then
+  echo "Compression-only v5 I/O unexpectedly depends on legacy cloud helpers." >&2
+  exit 1
+fi
+if cargo tree -p ironbeam-io-jsonl --all-features --edges normal | grep -E 'ironbeam-cloud v'; then
+  echo "V5 JSONL unexpectedly depends on legacy cloud helpers." >&2
   exit 1
 fi
 
@@ -33,6 +42,7 @@ cargo test -p ironbeam --no-default-features --features v5-io-tfrecord --test v5
 cargo test -p ironbeam --features v5-io-tfrecord,io-tfrecord,io-protobuf --test v5_tfrecord_examples
 cargo test -p ironbeam --no-default-features --features v5-preview,v5-io-arrow --test v5_facade_prelude
 cargo test -p ironbeam-io --all-features
+cargo test -p ironbeam-compression --all-features
 cargo test -p ironbeam-cloud-object-store --all-features
 cargo test -p ironbeam-transform-regex --all-features
 cargo test -p ironbeam-transform-approx --all-features
@@ -52,8 +62,8 @@ cargo doc --workspace --all-features --no-deps
 for package in "${packages[@]}"; do
   patches=()
   case "$package" in
-    ironbeam-cloud-objects|ironbeam-core) ;;
-    ironbeam-cloud) patches=("${cloud_objects_patch[@]}") ;;
+    ironbeam-compression|ironbeam-cloud-objects|ironbeam-core) ;;
+    ironbeam-cloud) patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}") ;;
     ironbeam-cloud-object-store) patches=("${cloud_objects_patch[@]}") ;;
     ironbeam-direct) patches=("${core_patch[@]}") ;;
     ironbeam-transforms|ironbeam-transform-regex|ironbeam-transform-approx|ironbeam-testing)
@@ -61,9 +71,9 @@ for package in "${packages[@]}"; do
     ironbeam-io-sql|ironbeam-io-mongodb)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io)
-      patches=("${cloud_objects_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
+      patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io-jsonl|ironbeam-io-protobuf|ironbeam-io-tfrecord|ironbeam-io-csv|ironbeam-io-xml|ironbeam-io-msgpack|ironbeam-io-cbor|ironbeam-io-avro)
-      patches=("${cloud_objects_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
+      patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-io-parquet|ironbeam-io-arrow)
       patches=("${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-compat)
@@ -71,4 +81,4 @@ for package in "${packages[@]}"; do
   esac
   cargo package -p "$package" --allow-dirty "${patches[@]}"
 done
-echo "All twenty-three v5 packages verified locally; no crates were published."
+echo "All twenty-four v5 packages verified locally; no crates were published."

@@ -176,8 +176,10 @@ impl<T: Element + Serialize> TypedSink<T> for JsonlAppendSink<T> {
     }
 }
 
-/// Append JSON Lines at each bundle commit. Replays may duplicate records; use
-/// `jsonl_sink` when whole-job replacement and final-result semantics are needed.
+/// Append JSON Lines at each bundle commit.
+///
+/// Replays may duplicate records; use `jsonl_sink` when whole-job replacement
+/// and final-result semantics are needed.
 /// This local filesystem sink requires a path shared by all workers.
 pub fn jsonl_append_sink<T: Element + Serialize>(
     input: &PCollection<T>,

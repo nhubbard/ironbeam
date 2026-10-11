@@ -2248,6 +2248,7 @@ dependencies = [
  "flate2",
  "futures-executor",
  "ironbeam-cloud-objects",
+ "ironbeam-compression",
  "regex",
  "serde",
  "serde_json",
@@ -2287,6 +2288,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironbeam-compression"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bzip2",
+ "flate2",
+ "tempfile",
+ "xz2",
+ "zstd",
+]
+
+[[package]]
 name = "ironbeam-core"
 version = "0.1.0"
 dependencies = [
@@ -2313,6 +2326,7 @@ version = "0.1.0"
 dependencies = [
  "glob",
  "ironbeam-cloud",
+ "ironbeam-compression",
  "ironbeam-core",
  "ironbeam-direct",
  "serde",
@@ -2375,10 +2389,12 @@ dependencies = [
 name = "ironbeam-io-jsonl"
 version = "0.1.0"
 dependencies = [
- "ironbeam-cloud",
+ "ironbeam-cloud-objects",
+ "ironbeam-compression",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
+ "regex",
  "serde",
  "serde_json",
  "sha2 0.11.0",

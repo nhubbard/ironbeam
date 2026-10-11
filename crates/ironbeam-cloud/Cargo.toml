@@ -8,6 +8,7 @@ description = "Provider-neutral cloud contracts and helpers for Ironbeam"
 repository = "https://github.com/nhubbard/ironbeam"
 
 [dependencies]
+ironbeam-compression = { version = "0.1.0", path = "../ironbeam-compression" }
 ironbeam-cloud-objects = { version = "0.1.0", path = "../ironbeam-cloud-objects" }
 anyhow = "1"
 regex = "1"
@@ -21,10 +22,10 @@ xz2 = { version = "0.1", optional = true }
 
 [features]
 default = []
-compression-gzip = ["dep:flate2"]
-compression-zstd = ["dep:zstd"]
-compression-bzip2 = ["dep:bzip2"]
-compression-xz = ["dep:xz2"]
+compression-gzip = ["dep:flate2", "ironbeam-compression/compression-gzip"]
+compression-zstd = ["dep:zstd", "ironbeam-compression/compression-zstd"]
+compression-bzip2 = ["dep:bzip2", "ironbeam-compression/compression-bzip2"]
+compression-xz = ["dep:xz2", "ironbeam-compression/compression-xz"]
 
 [dev-dependencies]
 tempfile = "3"

@@ -59,7 +59,7 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
-          cargo clippy -p ironbeam-cloud-objects -p ironbeam-cloud -p ironbeam-cloud-object-store -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-transform-regex -p ironbeam-transform-approx -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
+          cargo clippy -p ironbeam-compression -p ironbeam-cloud-objects -p ironbeam-cloud -p ironbeam-cloud-object-store -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-transform-regex -p ironbeam-transform-approx -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
@@ -144,12 +144,14 @@ jobs:
           cargo build -p ironbeam-io-arrow
           cargo build -p ironbeam-io-sql
           cargo build -p ironbeam-io-mongodb
+          cargo build -p ironbeam-compression
           cargo build -p ironbeam-cloud-object-store
           cargo build -p ironbeam-compat
 
       - name: Test v5 file formats independently
         run: |
           cargo test -p ironbeam-io --no-default-features --features file
+          cargo test -p ironbeam-compression --all-features
           cargo test -p ironbeam-cloud-object-store --all-features
           cargo test -p ironbeam-io-jsonl --all-features
           cargo test -p ironbeam-io-protobuf --all-features
@@ -277,7 +279,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        package: [ironbeam-cloud-objects, ironbeam-core, ironbeam-direct, ironbeam-transforms, ironbeam-transform-regex, ironbeam-transform-approx, ironbeam-io, ironbeam-io-jsonl, ironbeam-io-protobuf, ironbeam-io-tfrecord, ironbeam-io-csv, ironbeam-io-xml, ironbeam-io-msgpack, ironbeam-io-cbor, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-io-arrow, ironbeam-compat]
+        package: [ironbeam-compression, ironbeam-cloud-objects, ironbeam-core, ironbeam-direct, ironbeam-transforms, ironbeam-transform-regex, ironbeam-transform-approx, ironbeam-io, ironbeam-io-jsonl, ironbeam-io-protobuf, ironbeam-io-tfrecord, ironbeam-io-csv, ironbeam-io-xml, ironbeam-io-msgpack, ironbeam-io-cbor, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-io-arrow, ironbeam-compat]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -292,7 +294,7 @@ jobs:
         run: |
           cargo test -p "${{ matrix.package }}"
           features=()
-          if [ "${{ matrix.package }}" = "ironbeam-io-jsonl" ] || [ "${{ matrix.package }}" = "ironbeam-io-protobuf" ] || [ "${{ matrix.package }}" = "ironbeam-io-tfrecord" ] || [ "${{ matrix.package }}" = "ironbeam-io-csv" ] || [ "${{ matrix.package }}" = "ironbeam-io-xml" ] || [ "${{ matrix.package }}" = "ironbeam-io-msgpack" ] || [ "${{ matrix.package }}" = "ironbeam-io-cbor" ] || [ "${{ matrix.package }}" = "ironbeam-io-avro" ] || [ "${{ matrix.package }}" = "ironbeam-io-parquet" ] || [ "${{ matrix.package }}" = "ironbeam-io-arrow" ]; then features=(--all-features); fi
+          if [ "${{ matrix.package }}" = "ironbeam-compression" ] || [ "${{ matrix.package }}" = "ironbeam-io-jsonl" ] || [ "${{ matrix.package }}" = "ironbeam-io-protobuf" ] || [ "${{ matrix.package }}" = "ironbeam-io-tfrecord" ] || [ "${{ matrix.package }}" = "ironbeam-io-csv" ] || [ "${{ matrix.package }}" = "ironbeam-io-xml" ] || [ "${{ matrix.package }}" = "ironbeam-io-msgpack" ] || [ "${{ matrix.package }}" = "ironbeam-io-cbor" ] || [ "${{ matrix.package }}" = "ironbeam-io-avro" ] || [ "${{ matrix.package }}" = "ironbeam-io-parquet" ] || [ "${{ matrix.package }}" = "ironbeam-io-arrow" ]; then features=(--all-features); fi
           if [ "${{ matrix.package }}" = "ironbeam-io" ]; then
             cargo llvm-cov -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow \
               --all-features --branch --json --output-path coverage-v5.json

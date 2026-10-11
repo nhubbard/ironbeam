@@ -10,7 +10,7 @@ staged locally.
 - `bash scripts/check_v5_packages.sh` passed after the regex and approximate
   distinct extension splits:
   workspace tests, selected feature variants, all-feature
-  documentation, and local package verification for all twenty-three v5 crates.
+  documentation, and local package verification for all twenty-four v5 crates.
   No package was published.
 - `ironbeam-transform-regex` owns the v5 regex helpers and measures 45/45
   source locations in its isolated tests. The ordinary
@@ -37,8 +37,11 @@ staged locally.
   measure 60/63 source locations and 5/6 branches. The full package gate
   passes. Shared I/O's default tree has no `ciborium` dependency.
 - `ironbeam-io-jsonl` owns file and object adapters. Its all-feature tests
-  now measure 220/235 source locations and 14/16 branches, including append
-  failure cleanup; both exceed its existing CI coverage ratios. Protobuf is now in
+  now measure 261/279 source locations and 20/22 active branch outcomes,
+  including append failure cleanup, four compressed object formats, and
+  cloud glob behavior; both exceed its existing CI coverage ratios. Its
+  all-feature dependency tree has no legacy `ironbeam-cloud` dependency.
+  Protobuf is now in
   `ironbeam-io-protobuf` with 93/100 source locations and 16/18 branches
   measured under all features. TFRecord now has its own crate with 164/179
   source locations and 16/18 branches. Shared lifecycle I/O measures 265/276
@@ -67,6 +70,12 @@ staged locally.
   local and in-memory cross-provider tests pass. The common adapter's operations
   pass against Apache `object_store`'s in-memory backend. Hosted
   storage authentication and live service behavior remain unverified.
+- `ironbeam-compression` owns codec detection and stream wrapping, with a
+  bounded writer that finalizes object bytes without a second JSONL buffer.
+  All four codecs pass
+  source/sink round trips; its isolated all-feature corpus measures at least 140/157
+  source locations and 29/34 active branch outcomes. Compression-only shared
+  I/O depends on this crate without pulling in legacy cloud helpers.
 
 ## Open replacement gates
 
@@ -116,12 +125,12 @@ staged locally.
    extraction, API migration, and the focused v4 removal gate in
    `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
    `ironbeam-cloud` still contains legacy traits, fake services, readers,
-   compression, and helpers. After the object contract extraction, its
-   isolated source corpus measures only 37/1,695 locations and no active
-   branches. Migrate the JSONL cloud helpers away from this legacy package,
-   then remove or explicitly retain its remaining public surface before the
-   v5-only cutover. The new object contract has a separate passing coverage
-   gate; it does not make the legacy package release-ready.
+   and helpers. Its compression and object APIs now reexport separate crates;
+   v5 JSONL and compression-only shared I/O no longer depend on it. Remove
+   the remaining legacy package from the v5 runtime and root feature graph
+   during the v4 cutover. Its earlier isolated source corpus measured only
+   37/1,695 locations after the object extraction, so reexports alone do not
+   make the legacy package release-ready.
 5. **Execution proof:** The user chose local Prism proof for now. The existing
    Prism job reaches `DONE` for the bounded elementwise, Flatten, and
    global-window GroupByKey slice, including a JSONL connector round-trip.

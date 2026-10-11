@@ -1,9 +1,10 @@
 //! Bounded graph adapters for provider-neutral object storage JSONL.
-use ironbeam_cloud::{ObjectIO, readers::write_cloud_jsonl_vec};
+use ironbeam_cloud_objects::{CloudIOError, CloudResult, ErrorKind as CloudErrorKind, ObjectIO};
 use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, SourceProgress,
     TypedSink, TypedSourceIterator,
 };
+use regex::Regex;
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::io::BufRead;
@@ -24,6 +25,73 @@ fn digest(bucket: &str, object: &str, bytes: &[u8]) -> String {
         let _ = write!(output, "{byte:02x}");
     }
     output
+}
+
+fn write_cloud_jsonl_vec<T: Serialize, O: ObjectIO + ?Sized>(
+    storage: &O,
+    bucket: &str,
+    object: &str,
+    values: &[T],
+) -> CloudResult<usize> {
+    let bytes = ironbeam_compression::write_to_vec_for_path(object, |writer| {
+        for value in values {
+            serde_json::to_writer(&mut *writer, value)?;
+            writer.write_all(b"\n")?;
+        }
+        Ok(())
+    })
+    .map_err(|error| CloudIOError::new(CloudErrorKind::InvalidInput, error.to_string()))?;
+    storage.put_object(bucket, object, &bytes)?;
+    Ok(values.len())
+}
+
+fn glob_to_regex(pattern: &str) -> String {
+    let mut regex = String::from("^");
+    let mut chars = pattern.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '*' if chars.peek() == Some(&'*') => {
+                chars.next();
+                regex.push_str(".*");
+            }
+            '*' => regex.push_str("[^/]*"),
+            '?' => regex.push('.'),
+            '.' => regex.push_str(r"\."),
+            '+' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' | '\\' => {
+                regex.push('\\');
+                regex.push(ch);
+            }
+            _ => regex.push(ch),
+        }
+    }
+    regex.push('$');
+    regex
+}
+
+fn expand_cloud_glob_required<O: ObjectIO + ?Sized>(
+    storage: &O,
+    bucket: &str,
+    pattern: &str,
+) -> CloudResult<Vec<String>> {
+    let regex = Regex::new(&glob_to_regex(pattern))
+        .map_err(|error| CloudIOError::new(CloudErrorKind::InvalidInput, error.to_string()))?;
+    let prefix = pattern.find(['*', '?']).map_or_else(
+        || Some(pattern),
+        |position| (position > 0).then(|| &pattern[..position]),
+    );
+    let mut keys = storage
+        .list_objects(bucket, prefix)?
+        .into_iter()
+        .filter_map(|object| regex.is_match(&object.key).then_some(object.key))
+        .collect::<Vec<_>>();
+    keys.sort();
+    if keys.is_empty() {
+        return Err(CloudIOError::new(
+            CloudErrorKind::NotFound,
+            format!("No objects found matching pattern '{pattern}' in bucket '{bucket}'"),
+        ));
+    }
+    Ok(keys)
 }
 
 /// Bind an object version to a bounded source. The object is read at graph
@@ -67,11 +135,9 @@ where
                     "cloud object changed after graph construction",
                 ));
             }
-            let reader = ironbeam_cloud::compression::auto_detect_reader(
-                std::io::Cursor::new(current),
-                &object,
-            )
-            .map_err(|e| cloud_error(&source_key, e))?;
+            let reader =
+                ironbeam_compression::auto_detect_reader(std::io::Cursor::new(current), &object)
+                    .map_err(|e| cloud_error(&source_key, e))?;
             let values = std::io::BufReader::new(reader)
                 .lines()
                 .filter_map(|line| match line {
@@ -101,8 +167,8 @@ where
     T: Element + DeserializeOwned,
     O: ObjectIO + ?Sized + 'static,
 {
-    let objects = ironbeam_cloud::readers::expand_cloud_glob_required(&*storage, bucket, pattern)
-        .map_err(|e| cloud_error(key, e))?;
+    let objects =
+        expand_cloud_glob_required(&*storage, bucket, pattern).map_err(|e| cloud_error(key, e))?;
     let mut sources = Vec::with_capacity(objects.len());
     for object in objects {
         let hash = Sha256::digest(object.as_bytes());

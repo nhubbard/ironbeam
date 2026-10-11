@@ -103,7 +103,7 @@ fn append_sink_aborts_after_serialization_or_open_failure() {
         ErrorKind::Io
     );
     assert!(path.exists());
-    assert!(fs::read(&path).unwrap().is_empty());
+    assert_eq!(fs::read(&path).unwrap(), b"");
 
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("values", rows()).unwrap();
