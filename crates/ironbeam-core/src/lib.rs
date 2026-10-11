@@ -4772,6 +4772,7 @@ macro_rules! collect_cogroup_input {
                 $rows.push((row_key, $empty, timestamp_ns, window, assigned_window));
                 next
             };
+            $rows[group_index].2 = $rows[group_index].2.min(timestamp_ns);
             $rows[group_index].1.$position.push(value);
         }
     };

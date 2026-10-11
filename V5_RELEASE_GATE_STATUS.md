@@ -14,44 +14,27 @@ extension.
 | --- | --- | --- |
 | Workspace cutover | **Mostly complete** | The root's local v4 source and `legacy-v4` feature are gone. All 26 local v5 packages passed package verification. |
 | Bounded Direct behavior | **In progress** | The v4 reference corpus and v5 Direct helper tests pass. Public API and edge-case parity still need a complete audit. |
-| Portable behavior | **In progress** | The 15-test live local Prism suite passes, including two-source Flatten → GroupByKey and a Serde record using the new Postcard coder. More shared success and failure cases are needed. |
+| Portable behavior | **In progress** | The 16-test live local Prism suite passes, including a shared windowed full join and CoGroupByKey graph with exact values and time metadata. More shared cases are needed. |
 | Streaming and recovery | **In progress** | Direct cursor checkpoints and portable production-source fixtures work. Worker restart and runner-wide output commit proofs remain. |
-| Quality and release | **In progress** | Coverage floors and the local package gate pass. The final clean matrix, benchmarks, formatting, and version change remain. |
+| Quality and release | **In progress** | Coverage floors, package verification, and formatting pass. The final clean matrix, benchmarks, and version change remain. |
 
 These are progress indicators, not release approvals. Each open item below must
 be resolved before the version changes to 5.0.0.
 
-## Release checklist
+## Remaining release gates
 
-### Behavior and API
-
-- [ ] Audit every public root API and promised v4 behavior against the
-  [helper parity tracker](V5_HELPER_PARITY_TRACKER.md) and
-  [migration guide](V4_TO_V5_MIGRATION.md).
-- [ ] Run shared Direct and Prism success and failure graphs for every
-  advertised portable operation, including remaining multi-input and output
-  cases.
-- [ ] Verify that both runners agree on values, grouping, event timestamps,
-  windows, typed failures, and committed output for those graphs.
-
-### Runtime and durability
-
-- [ ] Prove worker recovery after an accepted unbounded batch and the
-  remaining split-response and graph shapes.
-- [ ] Finish the runner-wide output commit contract, abandoned-attempt and
-  restart proofs, and v4 checkpoint-policy replacement decisions.
-- [ ] Resolve the remaining legacy `ironbeam-cloud` package ownership and
-  obsolete compatibility behavior.
-
-### Release quality
-
-- [ ] Review uncovered contract and failure paths; rerun clean coverage and
-  the complete test, lint, documentation, and package gates.
-- [ ] Set acceptable performance regression limits and rerun paired v4/v5
-  latency and memory benchmarks.
-- [x] Format both the root and separate Dataflow workspaces; rerun their test
-  suites and the 15-test live Prism proof.
-- [ ] Set the intended release versions after the remaining gates pass.
+| Gate | What must be demonstrated | State |
+| --- | --- | --- |
+| API and v4 behavior | Audit the public root API and promised behavior against the [helper parity tracker](V5_HELPER_PARITY_TRACKER.md) and [migration guide](V4_TO_V5_MIGRATION.md). | Open |
+| Portable operation coverage | Run shared Direct and Prism success and failure graphs for every advertised operation, including remaining multi-input and output cases. | Open |
+| Runner agreement | Compare values, grouping, event times, windows, typed failures, and committed output for those graphs. | Open |
+| Unbounded recovery | Prove worker recovery after an accepted batch, split responses, and remaining graph shapes. | Open |
+| Output durability | Finish the runner-wide commit contract, abandoned-attempt and restart proofs, and v4 checkpoint-policy replacement decisions. | Open |
+| Cloud package cleanup | Resolve legacy `ironbeam-cloud` ownership and obsolete compatibility behavior. | Open |
+| Coverage and verification | Review uncovered contract paths, then rerun clean coverage, tests, lint, docs, and package checks. | Open |
+| Performance | Set acceptable regression limits and rerun paired v4/v5 latency and memory benchmarks. | Open |
+| Formatting | Format both workspaces and rerun their tests and the live Prism proof. | Passed |
+| Versioning | Set intended release versions after the other gates pass. | Open |
 
 The release remains local. Publishing the packages is a separate decision.
 
@@ -73,13 +56,13 @@ shuffle does not preserve encounter order. See the
 
 | Check | Result |
 | --- | --- |
-| Root workspace tests and doctests | Passed after the GroupByKey checkpoint-version correction. |
+| Root workspace tests and doctests | Passed after the CoGroupByKey event-time correction. |
 | Local release script | Passed dependency checks, workspace tests, feature matrix, documentation, and verification of 26 packages on 2026-10-11 using Mr Boxington. No crate was published. |
-| Local Prism suite | All 15 live tests passed, including two-source Flatten → GroupByKey parity and a Postcard-coded production row. |
+| Local Prism suite | All 16 live tests passed, including windowed full join and CoGroupByKey parity across values, event time, and window interval. |
 | Separate Dataflow workspace | Tests and doctests passed with the new coder; warning-free lint passed for the changed proof package. |
-| Direct coverage | 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%), above the 91%/90% CI floors. |
+| Clean shared coverage corpus | Core: 3,055/3,178 source locations (96.13%), 468/528 branches (88.64%). Direct: 3,913/4,187 (93.46%), 837/928 (90.19%). Transforms: 1,163/1,189 (97.81%), 108/116 (93.10%). All pass their existing floors. |
 | Postcard coder coverage | 13/13 source locations passed the new isolated gate; LLVM reports no instrumented branches. |
-| Workspace formatting | `cargo fmt --all --check` passes in both workspaces; both workspace test suites, root all-feature examples, and all 15 live Prism tests passed afterward. |
+| Workspace formatting | `cargo fmt --all --check` passes in both workspaces; both workspace test suites and root all-feature examples passed afterward. |
 
 These results describe the last complete gate run; in-flight changes require
 a fresh run before they count as release evidence.

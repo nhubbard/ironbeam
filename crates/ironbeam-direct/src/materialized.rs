@@ -919,7 +919,7 @@ fn feed_fold_events(
 mod checkpoint_tests {
     use super::*;
     use crate::{CheckpointConfig, DirectRunner};
-    use ironbeam_core::{ErrorKind, Output, Pipeline};
+    use ironbeam_core::{ErrorKind, InputEdge, Output, Pipeline};
     use std::sync::Arc;
 
     fn manager<T: Element>(output: &Output<T>, config: &CheckpointConfig) -> CheckpointManager {
@@ -936,6 +936,201 @@ mod checkpoint_tests {
             config.binary_build_id.clone(),
         );
         CheckpointManager::new(config, identity, Arc::new(MetricsState::default())).unwrap()
+    }
+
+    #[test]
+    fn grouped_fast_routes_decline_incomplete_or_non_linear_graphs() {
+        fn declines(graph: &Graph, registry: &Registry, config: &JobConfig) -> bool {
+            let metrics = MetricsState::default();
+            let mut emit = |_: Envelope, _: &[String]| Ok(());
+            !try_drain_fold_sink(graph, registry, "out", config, &metrics, &mut emit).unwrap()
+        }
+
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
+        let grouped = source.group_by_key_named("group").unwrap();
+        grouped
+            .map_named("map", |row| row)
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let (graph, registry) = pipeline.snapshot().unwrap();
+        let config = JobConfig::default();
+        assert_eq!(
+            checkpointed_group_route(&graph, "out"),
+            Some((
+                "group".into(),
+                "source".into(),
+                Vec::new(),
+                vec!["map".into()]
+            ))
+        );
+        assert!(declines(
+            &graph,
+            &registry,
+            &JobConfig {
+                parallelism: 2,
+                ..JobConfig::default()
+            }
+        ));
+        assert!(declines(&graph, &Registry::default(), &config));
+
+        let mut no_parent = graph.clone();
+        no_parent
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "out")
+            .unwrap()
+            .input = None;
+        assert!(checkpointed_group_route(&no_parent, "out").is_none());
+        assert!(declines(&no_parent, &registry, &config));
+
+        let mut absent_parent = graph.clone();
+        absent_parent
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "out")
+            .unwrap()
+            .input = Some("missing".into());
+        assert!(checkpointed_group_route(&absent_parent, "out").is_none());
+        assert!(declines(&absent_parent, &registry, &config));
+
+        let mut no_fold = graph.clone();
+        no_fold
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "out")
+            .unwrap()
+            .input = Some("source".into());
+        assert!(checkpointed_group_route(&no_fold, "out").is_none());
+        assert!(declines(&no_fold, &registry, &config));
+
+        let mut detached_map = graph.clone();
+        detached_map
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "map")
+            .unwrap()
+            .input = None;
+        assert!(checkpointed_group_route(&detached_map, "out").is_none());
+        assert!(declines(&detached_map, &registry, &config));
+
+        let mut multi_input_map = graph.clone();
+        let map = multi_input_map
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "map")
+            .unwrap();
+        map.additional_inputs.push(InputEdge {
+            key: "source".into(),
+            element: map.input_element.clone().unwrap(),
+        });
+        assert!(checkpointed_group_route(&multi_input_map, "out").is_none());
+        assert!(declines(&multi_input_map, &registry, &config));
+
+        let mut multi_input_group = graph;
+        let group = multi_input_group
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "group")
+            .unwrap();
+        group.additional_inputs.push(InputEdge {
+            key: "source".into(),
+            element: group.input_element.clone().unwrap(),
+        });
+        assert!(checkpointed_group_route(&multi_input_group, "out").is_none());
+        assert!(declines(&multi_input_group, &registry, &config));
+    }
+
+    #[test]
+    fn wait_fast_route_declines_incomplete_or_non_linear_graphs() {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let pipeline = Pipeline::default();
+        let main = pipeline.from_vec("main", vec![1_i32]).unwrap();
+        let signal = pipeline.from_vec("signal", vec![2_i32]).unwrap();
+        main.wait_on_named("wait", &signal)
+            .unwrap()
+            .map_named("map", |value| value)
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let (graph, registry) = pipeline.snapshot().unwrap();
+        let config = JobConfig::default();
+        let metrics = MetricsState::default();
+        let declines = |graph: &Graph| {
+            try_wait_sink_route(&pool, graph, &registry, "out", &config, &metrics)
+                .unwrap()
+                .is_none()
+        };
+
+        let mut no_parent = graph.clone();
+        no_parent
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "out")
+            .unwrap()
+            .input = None;
+        assert!(declines(&no_parent));
+
+        let mut absent_parent = graph.clone();
+        absent_parent
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "out")
+            .unwrap()
+            .input = Some("missing".into());
+        assert!(declines(&absent_parent));
+
+        let mut multi_input_map = graph.clone();
+        let map = multi_input_map
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "map")
+            .unwrap();
+        map.additional_inputs.push(InputEdge {
+            key: "signal".into(),
+            element: map.input_element.clone().unwrap(),
+        });
+        assert!(declines(&multi_input_map));
+
+        let mut detached_map = graph.clone();
+        detached_map
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "map")
+            .unwrap()
+            .input = None;
+        assert!(declines(&detached_map));
+
+        let mut wrong_operation = graph.clone();
+        wrong_operation
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "wait")
+            .unwrap()
+            .operation = Operation::Reshuffle;
+        assert!(declines(&wrong_operation));
+
+        let mut unbounded_wait = graph.clone();
+        unbounded_wait
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "wait")
+            .unwrap()
+            .boundedness = Boundedness::Unbounded;
+        assert!(declines(&unbounded_wait));
+
+        let mut detached_wait = graph;
+        detached_wait
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == "wait")
+            .unwrap()
+            .input = None;
+        assert!(declines(&detached_wait));
     }
 
     #[test]

@@ -37,6 +37,40 @@ fn registry_rejects_missing_portable_coder_contracts() {
 }
 
 #[test]
+fn global_combine_group_coder_accepts_only_unkeyed_valid_elements() {
+    let pipeline = Pipeline::default();
+    let values = pipeline.from_vec("source", vec![7_i32]).unwrap();
+    values
+        .combine_globally_named("sum", |values| values.into_iter().sum::<i32>())
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.has_group_coder("sum"));
+
+    let encoded = 7_i32.encode().unwrap();
+    let (key, value) = registry.split_group_input("sum", &encoded).unwrap();
+    assert_eq!(key, Vec::<u8>::new());
+    assert_eq!(value, encoded);
+    assert_eq!(
+        registry.assemble_group_input("sum", &key, &value).unwrap(),
+        encoded
+    );
+    assert_eq!(
+        registry
+            .assemble_group_input("sum", &[1], &value)
+            .unwrap_err()
+            .kind,
+        ErrorKind::Incompatible
+    );
+    assert!(registry.split_group_input("sum", &[1]).is_err());
+    assert!(registry.assemble_group_input("sum", &[], &[1]).is_err());
+    assert!(
+        registry
+            .assemble_group_output("sum", &[], &[value])
+            .is_err()
+    );
+}
+
+#[test]
 fn registry_distinguishes_single_and_multi_result_dispatch() {
     let pipeline = Pipeline::default();
     let source = pipeline.from_vec("source", vec![1_i32]).unwrap();

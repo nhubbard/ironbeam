@@ -2119,6 +2119,155 @@ fn phase4_builder_rejects_incompatible_inputs() {
 }
 
 #[test]
+fn cogroup_uses_earliest_event_time_across_all_inputs() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 2_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 3_i32)]).unwrap();
+    cogroup_by_key_2_named("cogroup", &left, &right).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let event = |time, value| Envelope {
+        value: Box::new((1_i32, value)),
+        timestamp_ns: time,
+        window: Window::Global,
+        assigned_window: None,
+    };
+    let mut output = registry
+        .apply_aggregate(
+            "cogroup",
+            vec![vec![event(5, 2), event(3, 4)], vec![event(1, 10)]],
+        )
+        .unwrap();
+    assert_eq!(output.len(), 1);
+    assert_eq!(output.pop().unwrap().timestamp_ns, 1);
+}
+
+#[test]
+fn aggregate_registry_rejects_missing_and_mistyped_runner_inputs() {
+    struct Sum;
+    impl OrderedFoldFn<i32, i32, i32> for Sum {
+        fn create(&self) -> i32 {
+            0
+        }
+        fn add_input(&self, accumulator: &mut i32, value: i32) {
+            *accumulator += value;
+        }
+        fn finish(&self, accumulator: i32) -> i32 {
+            accumulator
+        }
+    }
+    fn event<T: Element>(value: T) -> Envelope {
+        Envelope {
+            value: Box::new(value),
+            timestamp_ns: 0,
+            window: Window::Global,
+            assigned_window: None,
+        }
+    }
+
+    let pipeline = Pipeline::default();
+    let values = pipeline.from_vec("values", vec![1_i32]).unwrap();
+    values
+        .fold_globally_ordered_by_named("ordered", |value| *value, Sum)
+        .unwrap();
+    values
+        .latest_globally_by_named("latest-tie", |value| *value)
+        .unwrap();
+    pipeline
+        .from_vec("pairs", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .map_values_batches_named("batch", 2, <[i32]>::to_vec)
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    for key in ["ordered", "latest-tie", "batch"] {
+        assert_eq!(
+            registry
+                .apply_aggregate(key, Vec::new())
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Execution
+        );
+        assert_eq!(
+            registry
+                .apply_aggregate(key, vec![vec![event("wrong type".to_owned())]])
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Execution
+        );
+    }
+}
+
+#[test]
+fn stateful_global_inputs_require_compatible_finite_windows() {
+    let pipeline = Pipeline::default();
+    let bounded = pipeline.from_vec("bounded", vec![(1_i32, 2_i32)]).unwrap();
+    let foreign = Pipeline::default()
+        .from_vec("foreign", vec![(1_i32, 3_i32)])
+        .unwrap();
+    assert!(cogroup_by_key_2_named("foreign-cogroup", &bounded, &foreign).is_err());
+    let windowed = bounded.fixed_windows("windowed", 10).unwrap();
+    assert!(cogroup_by_key_2_named("window-cogroup", &bounded, &windowed).is_err());
+
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: true,
+    };
+    let streaming_pairs = pipeline
+        .unbounded_source::<(i32, i32)>("streaming-pairs", progress.clone(), 0)
+        .unwrap();
+    assert!(cogroup_by_key_2_named("global-cogroup", &bounded, &streaming_pairs).is_err());
+    assert!(
+        streaming_pairs
+            .join_full_named("global-join", &bounded)
+            .is_err()
+    );
+    assert!(
+        streaming_pairs
+            .map_values_batches_named("global-batch", 2, <[i32]>::to_vec)
+            .is_err()
+    );
+    assert!(
+        streaming_pairs
+            .fold_values_ordered_by_named("global-ordered", |value| *value, SumI32)
+            .is_err()
+    );
+    assert!(
+        streaming_pairs
+            .latest_per_key_by_named("global-latest", |value| *value)
+            .is_err()
+    );
+
+    let streaming_values = pipeline
+        .unbounded_source::<i32>("streaming-values", progress, 0)
+        .unwrap();
+    assert!(
+        bounded
+            .wait_on_named("unbounded-wait", &streaming_values)
+            .is_err()
+    );
+    assert!(
+        streaming_values
+            .latest_globally_by_named("global-latest-tie", |value| *value)
+            .is_err()
+    );
+}
+
+struct SumI32;
+impl OrderedFoldFn<i32, i32, i32> for SumI32 {
+    fn create(&self) -> i32 {
+        0
+    }
+    fn add_input(&self, accumulator: &mut i32, value: i32) {
+        *accumulator += value;
+    }
+    fn finish(&self, accumulator: i32) -> i32 {
+        accumulator
+    }
+}
+
+#[test]
 fn aggregate_registry_reports_bad_arity_and_runtime_types() {
     fn event(value: impl Send + 'static) -> Envelope {
         Envelope {

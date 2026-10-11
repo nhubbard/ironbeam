@@ -24,1091 +24,1463 @@ staged locally.
 
 The sections below preserve historical measurements and intermediate results.
 For the current decision and checklist, use the [status page](V5_RELEASE_GATE_STATUS.md).
+Each record below has a short title; expand only the evidence you need. The
+records preserve historical results, including measurements that later runs
+superseded.
 
 ## Verified in this checkout
 
 ### Foundation and parity
 
-- An opt-in `ironbeam-coder-postcard` crate now implements v5 `Element` for
-  Serde user records through `impl_postcard_element!`, with explicit type and
-  versioned coder identity. The root `coders` feature reexports the macro.
-  Tests cover round-trip, malformed decode, encode failure, explicit coder ID,
-  and Direct execution. Its isolated coverage gate measures 13/13 source
-  locations, with no instrumented branches. The 26-package local gate passes.
-  In the separate Dataflow checkout, the production unbounded Avro row now
-  uses this coder; all 15 local Prism tests and the Dataflow workspace suite
-  pass. This proves the user record crosses the real v5 worker boundary.
+<details>
+<summary>Windowed join and CoGroupByKey parity</summary>
 
-- The root source tree now contains only the v5 facade and its docs; the
-  `legacy-v4` feature and 101 local v4 source files have been removed. Published
-  4.1.1 remains in `ironbeam-compat` for the reference corpus. The root
-  all-feature tests, complete workspace suite, and all-feature root example
-  checks pass after this cutover. The follow-up manifest cleanup removed the
-  root's duplicate format, codec, and legacy cloud dependencies; its default
-  direct dependencies are now only core, Direct, transforms, shared I/O, and
-  JSONL. The root's version and the remaining API, runtime, and portable gates
-  still prevent a 5.0.0 release.
+A shared two-source, fixed-window fixture now executes a full join and a
+CoGroupByKey from the same inputs, merges both outputs, and compares the
+committed rows from Direct and local Prism. It checks duplicate-key matches,
+a right-only key, grouped values, event timestamps, and window intervals.
+The fixture exposed Direct CoGroupByKey retaining the first left event time;
+Direct now selects the earliest event time across every input for each
+key/window. A core regression covers out-of-order values in one input and an
+earlier value in another. The 16-test local Prism suite passes with exact
+cross-runner output parity.
 
-- Ordinary v5 `GroupByKey` now assigns the earliest input event timestamp in
-  each key/window on Direct, independent of arrival order. Beam lowering asks
-  Prism for the same earliest-input output time (`ironbeam-dataflow` `2d1cc47`). An out-of-order fixed-window
-  Direct/Prism job matches values, timestamp, and window end; the production
-  unbounded Prism fixture now checks an exact grouped timestamp where it
-  previously allowed two outcomes. The live 14-test Prism suite and full
-  core/Direct suites pass. Group fold checkpoint state has a new version so
-  old first-arrival time snapshots fail closed.
+</details>
 
-- The runner contract package now executes its bounded map/filter/flat-map fixture on
-  the real v5 Direct runner as well as published v4 Direct. The obsolete fake
-  Dataflow lowering preview was removed. The separate Dataflow workspace now
-  runs the same graph on Direct and a separately launched
-  worker through live Prism (`f309cfe`, `184a929`); both produce `[4, 5, 8, 9]` and the
-  Prism job reaches `DONE`. The full 13-test local Prism suite passes. This
-  small shared-value case does not close the broader cross-runner parity gate.
+<details>
+<summary>Current shared coverage corpus</summary>
 
-- Explicit tie-key global and keyed `latest` variants now select the greatest
-  tie key at the maximum event time within each window, rejecting repeated
-  time/tie pairs. Direct tests cover values, time/window metadata, duplicate
-  errors, and one/four-worker keyed execution. A live local Prism job matches
-  Direct for both forms and separately fails duplicate keyed, duplicate global,
-  and empty global jobs before sink commit. Existing first-arrival tie methods remain Direct
-  compatibility behavior.
-- Explicit-order keyed and global folds now use the same grouped and sorted
-  logic on Direct and portable execution. They reject duplicate order keys
-  within a key/window and give the result the first ordered value's event
-  time; an empty global input emits the fold identity at time zero. Direct
-  tests cover both variants, duplicate errors, values, event time, and
-  windows. Live local Prism jobs match Direct keyed values and metadata,
-  global values and empty identity, and failure on duplicate global and keyed
-  order keys. The encounter-order v4 compatibility methods remain Direct-only.
-- Bounded Direct `run_sinks` accepts idempotent sink branches from multiple
-  sources joined through `Flatten`. It opens each source once, executes shared
-  stateless stages once, clones values at nested fan-out through registered
-  coders, and writes each sink in bounded batches. Tests cover heterogeneous
-  branches, a two-source merge with a shared post-merge stage, a repeated
-  Flatten input, validation, buffer limits, abort before commit on write
-  failure, and partial-commit reporting on a later commit failure. Other
-  fan-in, stateful branches, and checkpointed bounded multi-sink execution
-  remain open.
-- Vector-based `combine_globally_named` now uses the same constant-key Beam
-  GroupByKey boundary as mergeable global folds, while the worker invokes the
-  registered vector aggregate. The bounded global-window path retains its
-  Impulse seed, so an empty input calls the aggregate with an empty vector.
-  Focused graph and worker tests pass; a live Prism job reached `DONE` and
-  wrote 5 for `[2, 3]` and 0 for empty input. The full six-test local Prism
-  corpus and strict graph/worker/proof lint pass. This shuffle materializes
-  each global window in the worker, and portable order-sensitive vector
-  aggregate parity remains unproven.
+The clean core/Direct/transforms coverage corpus passes its existing floors
+after focused tests for malformed global-combine coder boundaries, missing
+and mistyped aggregate input, finite-window validation, and Direct planner
+fallback on incomplete or non-linear grouped and wait routes. Measured source
+locations and branches are core 3,055/3,178 and 468/528, Direct 3,913/4,187
+and 837/928, and transforms 1,163/1,189 and 108/116. A reused instrumented
+target initially inflated the denominator; these figures come from a fresh
+isolated target. Passing floors still requires a review of remaining
+uncovered contract paths before release.
+
+</details>
+
+<details>
+<summary>Postcard user record coder</summary>
+
+An opt-in `ironbeam-coder-postcard` crate now implements v5 `Element` for
+Serde user records through `impl_postcard_element!`, with explicit type and
+versioned coder identity. The root `coders` feature reexports the macro.
+Tests cover round-trip, malformed decode, encode failure, explicit coder ID,
+and Direct execution. Its isolated coverage gate measures 13/13 source
+locations, with no instrumented branches. The 26-package local gate passes.
+In the separate Dataflow checkout, the production unbounded Avro row now
+uses this coder; all 15 local Prism tests and the Dataflow workspace suite
+pass. This proves the user record crosses the real v5 worker boundary.
+
+</details>
+
+<details>
+<summary>V5-only root source cutover</summary>
+
+The root source tree now contains only the v5 facade and its docs; the
+`legacy-v4` feature and 101 local v4 source files have been removed. Published
+4.1.1 remains in `ironbeam-compat` for the reference corpus. The root
+all-feature tests, complete workspace suite, and all-feature root example
+checks pass after this cutover. The follow-up manifest cleanup removed the
+root's duplicate format, codec, and legacy cloud dependencies; its default
+direct dependencies are now only core, Direct, transforms, shared I/O, and
+JSONL. The root's version and the remaining API, runtime, and portable gates
+still prevent a 5.0.0 release.
+
+</details>
+
+<details>
+<summary>GroupByKey event-time agreement</summary>
+
+Ordinary v5 `GroupByKey` now assigns the earliest input event timestamp in
+each key/window on Direct, independent of arrival order. Beam lowering asks
+Prism for the same earliest-input output time (`ironbeam-dataflow` `2d1cc47`). An out-of-order fixed-window
+Direct/Prism job matches values, timestamp, and window end; the production
+unbounded Prism fixture now checks an exact grouped timestamp where it
+previously allowed two outcomes. The live 14-test Prism suite and full
+core/Direct suites pass. Group fold checkpoint state has a new version so
+old first-arrival time snapshots fail closed.
+
+</details>
+
+<details>
+<summary>Shared bounded runner contract</summary>
+
+The runner contract package now executes its bounded map/filter/flat-map fixture on
+the real v5 Direct runner as well as published v4 Direct. The obsolete fake
+Dataflow lowering preview was removed. The separate Dataflow workspace now
+runs the same graph on Direct and a separately launched
+worker through live Prism (`f309cfe`, `184a929`); both produce `[4, 5, 8, 9]` and the
+Prism job reaches `DONE`. The full 13-test local Prism suite passes. This
+small shared-value case does not close the broader cross-runner parity gate.
+
+</details>
+
+<details>
+<summary>Explicit tie-key latest</summary>
+
+Explicit tie-key global and keyed `latest` variants now select the greatest
+tie key at the maximum event time within each window, rejecting repeated
+time/tie pairs. Direct tests cover values, time/window metadata, duplicate
+errors, and one/four-worker keyed execution. A live local Prism job matches
+Direct for both forms and separately fails duplicate keyed, duplicate global,
+and empty global jobs before sink commit. Existing first-arrival tie methods remain Direct
+compatibility behavior.
+
+</details>
+
+<details>
+<summary>Explicit-order folds</summary>
+
+Explicit-order keyed and global folds now use the same grouped and sorted
+logic on Direct and portable execution. They reject duplicate order keys
+within a key/window and give the result the first ordered value's event
+time; an empty global input emits the fold identity at time zero. Direct
+tests cover both variants, duplicate errors, values, event time, and
+windows. Live local Prism jobs match Direct keyed values and metadata,
+global values and empty identity, and failure on duplicate global and keyed
+order keys. The encounter-order v4 compatibility methods remain Direct-only.
+
+</details>
+
+<details>
+<summary>Direct multi-source sink branches</summary>
+
+Bounded Direct `run_sinks` accepts idempotent sink branches from multiple
+sources joined through `Flatten`. It opens each source once, executes shared
+stateless stages once, clones values at nested fan-out through registered
+coders, and writes each sink in bounded batches. Tests cover heterogeneous
+branches, a two-source merge with a shared post-merge stage, a repeated
+Flatten input, validation, buffer limits, abort before commit on write
+failure, and partial-commit reporting on a later commit failure. Other
+fan-in, stateful branches, and checkpointed bounded multi-sink execution
+remain open.
+
+</details>
+
+<details>
+<summary>Global vector combine lowering</summary>
+
+Vector-based `combine_globally_named` now uses the same constant-key Beam
+GroupByKey boundary as mergeable global folds, while the worker invokes the
+registered vector aggregate. The bounded global-window path retains its
+Impulse seed, so an empty input calls the aggregate with an empty vector.
+Focused graph and worker tests pass; a live Prism job reached `DONE` and
+wrote 5 for `[2, 3]` and 0 for empty input. The full six-test local Prism
+corpus and strict graph/worker/proof lint pass. This shuffle materializes
+each global window in the worker, and portable order-sensitive vector
+aggregate parity remains unproven.
+
+</details>
+
 ### V4 reference corpus
 
-- Another 90 v4 behavior cases for mean, count-per-element, keys/values, and
-  key/value swap now run in `ironbeam-compat` against published Ironbeam 4.1.1.
-  The four suites pass there, and their root legacy test targets are removed.
-  The local package script and CI explicitly retain this reference corpus.
-- The 49-case v4 basic-helper suite now runs from `ironbeam-compat` against
-  published 4.1.1. Its duplicate root test module was removed, and CI lists
-  the compatibility target explicitly. It retains global and keyed summaries,
-  collection materializers, and top/bottom selection reference behavior.
-- The other 225 root helper cases now run in `ironbeam-compat` against published
-  4.1.1. The whole root helper test tree is gone. CI runs the full compatibility
-  test corpus and separately enables the 15-case Parquet family through an
-  opt-in feature, preserving default build isolation. These are v4 reference
-  results; v5 helper behavior remains covered by its own package tests and
-  differential corpus.
-- The 115-case v4 combiner and 54-case testing families now live in
-  `ironbeam-compat` against published 4.1.1. Five mock-I/O checks run in the default
-  compatibility target; the sixth CSV check runs under an opt-in feature in
-  CI. The two combiner tests that used the root test macro carry its unchanged
-  definition locally.
-- The v4 cloud-I/O suites now run in `ironbeam-compat` against published
-  4.1.1: 80 default cases cover fake providers, cloud traits, utilities, and
-  readers. The gzip/zstd reader branches run in a separate opt-in target and
-  are retained in CI. The format-specific v4 reference suites now also run in
-  `ironbeam-compat`, each with an isolated feature set through
-  `scripts/check_v4_format_reference.sh`. Arrow, Avro, CBOR, compression, CSV,
-  JSONL, MessagePack, Parquet, Protobuf, TFRecord, and XML passed individually.
-  The 21 SQLite SQL tests also run from `ironbeam-compat` under `v4-sql`.
-  The PostgreSQL, MySQL, and MongoDB service suites now run from
-  `ironbeam-compat` under explicit connector and service-test features. All
-  9 SQL and 30 MongoDB container cases passed locally through Rancher Desktop.
-  The root combined legacy I/O test target has been removed.
-- The v4 dictionary, hash-map, and display-string conversion suites also moved
-  to `ironbeam-compat`; their 58 cases pass against published v4. The root no
-  longer owns those three legacy test targets, and CI retains the reference
-  suites explicitly.
-- The v4 core collection, node identity, custom extension, and utility suites
-  now run in `ironbeam-compat` against published 4.1.1. Their 38 cases pass,
-  and the five duplicate root test targets are removed.
-- Seven more v4 batching, enhanced-filtering, sampling, tee, and wait-on
-  suites now run in `ironbeam-compat` against published 4.1.1. Their 114 cases
-  pass without optional format or service features; the duplicate root
-  targets are removed.
-- Six more v4 dead-letter, logging, named-operation, multi-output, validation,
-  and testing-utility suites now run in `ironbeam-compat`. Their 122 cases pass
-  against published 4.1.1, and the duplicate root targets are removed.
-- The v4 CoGroupByKey, graph explanation, ordering, and planner references
-  now run in `ironbeam-compat`. Their 113 cases pass against published 4.1.1,
-  and the duplicate root targets are removed.
-- The v4 pipeline and runner references now run in `ironbeam-compat`: 54
-  default cases and 67 cases with metrics and checkpointing enabled passed
-  against published 4.1.1. CI retains the opt-in branches, and the duplicate
-  root targets are removed.
-- The v4 approximate-distinct and Bloom filter suites now contribute 26
-  default compatibility cases. The metrics and coder suites contribute 45
-  opt-in cases under `v4-metrics,v4-coders`; all passed against published
-  4.1.1, and their duplicate root targets are removed.
-- The v4 checkpoint, parallel JSONL writing, spill, and spill-integration
-  suites now contribute 48 opt-in compatibility cases. They pass against
-  published 4.1.1 with checkpoint, JSONL, parallel I/O, spill, and zstd
-  features enabled; the duplicate root targets are removed.
-- The v4 disabled-feature stub checks (two cases) and broad integration
-  fixture (one opt-in case under `v4-mega`) now run from `ironbeam-compat`
-  against published 4.1.1. All passed. The root test tree now contains only
-  v5 facade tests.
-- After that migration, `scripts/check_v5_packages.sh` passed the default
-  workspace suite, selected v5 feature variants, all-feature documentation,
-  and local packaging checks for all 25 v5 crates using Mr Boxington. The
-  script now accepts `IRONBEAM_CARGO` for the configured wrapper. No crate was
-  published.
-- The two v4 checkpoint-policy examples now live in `ironbeam-compat` and
-  compile against published 4.1.1 under `v4-checkpointing`. Their text now
-  states the v4 recovery limit: it reloads progress metadata but re-executes
-  from the start. The root example tree uses v5 only. V5 scheduling-policy
-  parity remains open.
-- The bounded v4 behavior and v4/v5 Direct differential corpora now live in
-  `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
-  All nine moved tests and the full compatibility crate suite pass. The
-  root no longer owns those duplicate test binaries; its facade tests and
-  strict compatibility-crate lint pass. The root workspace test suite and
-  local `ironbeam-compat` package verification also pass. This preserves the comparison baseline
-  after the root v4 deletion without changing the v5 runtime graph.
-  The TFRecord wire-compatibility tests also moved to `ironbeam-compat` and
-  pass against records written by published v4.
-  The v4 benchmark driver now lives there as well. All seven 1,000-row
-  workload outputs match the v5 driver in row count and checksum against
-  published v4; these single debug runs do not close the latency gate.
+<details>
+<summary>Summary and key/value helpers</summary>
+
+Another 90 v4 behavior cases for mean, count-per-element, keys/values, and
+key/value swap now run in `ironbeam-compat` against published Ironbeam 4.1.1.
+The four suites pass there, and their root legacy test targets are removed.
+The local package script and CI explicitly retain this reference corpus.
+
+</details>
+
+<details>
+<summary>Basic helper suite</summary>
+
+The 49-case v4 basic-helper suite now runs from `ironbeam-compat` against
+published 4.1.1. Its duplicate root test module was removed, and CI lists
+the compatibility target explicitly. It retains global and keyed summaries,
+collection materializers, and top/bottom selection reference behavior.
+
+</details>
+
+<details>
+<summary>Additional helper corpus</summary>
+
+The other 225 root helper cases now run in `ironbeam-compat` against published
+4.1.1. The whole root helper test tree is gone. CI runs the full compatibility
+test corpus and separately enables the 15-case Parquet family through an
+opt-in feature, preserving default build isolation. These are v4 reference
+results; v5 helper behavior remains covered by its own package tests and
+differential corpus.
+
+</details>
+
+<details>
+<summary>Combiners and testing</summary>
+
+The 115-case v4 combiner and 54-case testing families now live in
+`ironbeam-compat` against published 4.1.1. Five mock-I/O checks run in the default
+compatibility target; the sixth CSV check runs under an opt-in feature in
+CI. The two combiner tests that used the root test macro carry its unchanged
+definition locally.
+
+</details>
+
+<details>
+<summary>Cloud, format, SQL, and service references</summary>
+
+The v4 cloud-I/O suites now run in `ironbeam-compat` against published
+4.1.1: 80 default cases cover fake providers, cloud traits, utilities, and
+readers. The gzip/zstd reader branches run in a separate opt-in target and
+are retained in CI. The format-specific v4 reference suites now also run in
+`ironbeam-compat`, each with an isolated feature set through
+`scripts/check_v4_format_reference.sh`. Arrow, Avro, CBOR, compression, CSV,
+JSONL, MessagePack, Parquet, Protobuf, TFRecord, and XML passed individually.
+The 21 SQLite SQL tests also run from `ironbeam-compat` under `v4-sql`.
+The PostgreSQL, MySQL, and MongoDB service suites now run from
+`ironbeam-compat` under explicit connector and service-test features. All
+9 SQL and 30 MongoDB container cases passed locally through Rancher Desktop.
+The root combined legacy I/O test target has been removed.
+
+</details>
+
+<details>
+<summary>Conversions</summary>
+
+The v4 dictionary, hash-map, and display-string conversion suites also moved
+to `ironbeam-compat`; their 58 cases pass against published v4. The root no
+longer owns those three legacy test targets, and CI retains the reference
+suites explicitly.
+
+</details>
+
+<details>
+<summary>Core collection and extension references</summary>
+
+The v4 core collection, node identity, custom extension, and utility suites
+now run in `ironbeam-compat` against published 4.1.1. Their 38 cases pass,
+and the five duplicate root test targets are removed.
+
+</details>
+
+<details>
+<summary>Batching, filtering, sampling, tee, and wait</summary>
+
+Seven more v4 batching, enhanced-filtering, sampling, tee, and wait-on
+suites now run in `ironbeam-compat` against published 4.1.1. Their 114 cases
+pass without optional format or service features; the duplicate root
+targets are removed.
+
+</details>
+
+<details>
+<summary>Dead-letter, logging, multi-output, and validation</summary>
+
+Six more v4 dead-letter, logging, named-operation, multi-output, validation,
+and testing-utility suites now run in `ironbeam-compat`. Their 122 cases pass
+against published 4.1.1, and the duplicate root targets are removed.
+
+</details>
+
+<details>
+<summary>CoGroupByKey, ordering, and planner</summary>
+
+The v4 CoGroupByKey, graph explanation, ordering, and planner references
+now run in `ironbeam-compat`. Their 113 cases pass against published 4.1.1,
+and the duplicate root targets are removed.
+
+</details>
+
+<details>
+<summary>Pipeline and runner</summary>
+
+The v4 pipeline and runner references now run in `ironbeam-compat`: 54
+default cases and 67 cases with metrics and checkpointing enabled passed
+against published 4.1.1. CI retains the opt-in branches, and the duplicate
+root targets are removed.
+
+</details>
+
+<details>
+<summary>Approximate distinct, Bloom, metrics, and coders</summary>
+
+The v4 approximate-distinct and Bloom filter suites now contribute 26
+default compatibility cases. The metrics and coder suites contribute 45
+opt-in cases under `v4-metrics,v4-coders`; all passed against published
+4.1.1, and their duplicate root targets are removed.
+
+</details>
+
+<details>
+<summary>Checkpoint, JSONL, and spill</summary>
+
+The v4 checkpoint, parallel JSONL writing, spill, and spill-integration
+suites now contribute 48 opt-in compatibility cases. They pass against
+published 4.1.1 with checkpoint, JSONL, parallel I/O, spill, and zstd
+features enabled; the duplicate root targets are removed.
+
+</details>
+
+<details>
+<summary>Disabled features and broad integration</summary>
+
+The v4 disabled-feature stub checks (two cases) and broad integration
+fixture (one opt-in case under `v4-mega`) now run from `ironbeam-compat`
+against published 4.1.1. All passed. The root test tree now contains only
+v5 facade tests.
+
+</details>
+
+<details>
+<summary>Local package verification after migration</summary>
+
+After that migration, `scripts/check_v5_packages.sh` passed the default
+workspace suite, selected v5 feature variants, all-feature documentation,
+and local packaging checks for all 25 v5 crates using Mr Boxington. The
+script now accepts `IRONBEAM_CARGO` for the configured wrapper. No crate was
+published.
+
+</details>
+
+<details>
+<summary>Checkpoint policy examples</summary>
+
+The two v4 checkpoint-policy examples now live in `ironbeam-compat` and
+compile against published 4.1.1 under `v4-checkpointing`. Their text now
+states the v4 recovery limit: it reloads progress metadata but re-executes
+from the start. The root example tree uses v5 only. V5 scheduling-policy
+parity remains open.
+
+</details>
+
+<details>
+<summary>Differential behavior and benchmark corpus</summary>
+
+The bounded v4 behavior and v4/v5 Direct differential corpora now live in
+`ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
+All nine moved tests and the full compatibility crate suite pass. The
+root no longer owns those duplicate test binaries; its facade tests and
+strict compatibility-crate lint pass. The root workspace test suite and
+local `ironbeam-compat` package verification also pass. This preserves the comparison baseline
+after the root v4 deletion without changing the v5 runtime graph.
+The TFRecord wire-compatibility tests also moved to `ironbeam-compat` and
+pass against records written by published v4.
+The v4 benchmark driver now lives there as well. All seven 1,000-row
+workload outputs match the v5 driver in row count and checksum against
+published v4; these single debug runs do not close the latency gate.
+
+</details>
+
 ### Streaming and aggregation
 
-- Mergeable global `CombineFn` folds now lower through a constant-key Beam
-  GroupByKey into the typed v5 worker. A bounded global-window fold merges an
-  Impulse seed with real inputs so empty input produces the combiner identity;
-  a separate local Prism job reaches `DONE` and writes 5 for `[2, 3]` and 0
-  for empty input. The production unbounded fixture also folds values in two
-  fixed windows and reaches `DONE` with 16 and 8, preserving their intervals
-  and event times. The five-test live Prism corpus, all-feature Dataflow
-  workspace suite, core/Direct suites, and strict changed-package lint pass.
-  The runner still shuffles raw inputs before folding; distributed partial
-  accumulator merging and ordered folds remain open.
-- Keyed mergeable `CombineFn` folds now lower through native Beam GroupByKey
-  into the v5 worker. A fold-specific tag branch keeps the parent collection's
-  coder intact when an ordinary GroupByKey also consumes it. Core registers typed key/value split coders with the
-  fold node; the worker shuffles each value with its event timestamp and
-  applies the registered fold once per grouped key. A production unbounded,
-  fixed-window Prism job reaches `DONE` with sums for two keys/windows,
-  expected fold event times and intervals, and two committed sink inputs. The
-  same parent feeds an ordinary GroupByKey branch in that job; it reaches
-  `DONE` with the same sums and window intervals. The runner may choose either
-  input event time for the grouped output in the second window. The
-  full four-test live Prism corpus, all-feature Dataflow workspace suite,
-  focused malformed-boundary/contract tests, and strict package lint pass.
-  Direct initially mistook the new group coder for a GroupByKey node and
-  applied its materialized-source budget to streaming folds; the Direct
-  planner now checks the graph operation, and its full all-feature suite
-  passes. Vector-based global combines now have a bounded Prism proof;
-  ordered folds and order-sensitive vector aggregate parity remain open.
-- Sequential typed vector map/filter collection now runs inline when the job
-  requests one worker, avoiding a thread-pool setup for each short job. The
-  Direct all-feature suite and ordinary `-D warnings` lint pass. In local
-  100,000-row map/filter samples on this machine, the v5 median moved from
-  0.519 ms (20 runs) to 0.416 ms (30 runs); v4 measured 0.107 ms in the latter
-  sample. Output remained 50,000 rows with checksum 7,499,850,000. These are
-  small unpaired samples, and the performance gate remains open. The current
-  1.101.0 nightly pedantic/nursery Direct lint gate and all-feature Direct
-  suite pass after a focused cleanup of existing lint findings. The combined
-  core/Direct/transforms coverage gate also passes: core 2,857/2,972 source
-  locations and 435/492 branches, Direct 3,605/3,853 and 775/858, and
-  transforms 1,163/1,189 and 108/116.
-- The separate Dataflow production unbounded-source Prism fixture now
-  finalizes native JSONL output across at least two residual bundles, checks
-  its accepted fragment total against committed sink metrics, publishes only
-  after `DONE`, and reopens values 7, 8, and 9 through the v5 JSONL source.
-  All four local Prism graph tests pass together, and the separate Arrow IPC
-  proof passes on a fresh Prism service and again after that suite. One prior
-  long-lived Prism instance stalled two Arrow jobs beyond the fixture's
-  ten-second deadline; a restart cleared the stall. Its cause is unverified,
-  so repeatability across a long-lived service remains an open proof gate.
-- The production unbounded-source fixture now also writes user-defined
-  Protobuf rows through at least two finalized Prism bundles and reopens the
-  published native file with the expected values. A repeated live suite
-  exposed occasional lost input in the ten-source co-group: Fn Data arrival
-  could race reader registration between separate pending and reader locks.
-  The worker now routes both under one lock. Its concurrent regression and
-  all-feature harness suite pass; the four-test live Prism suite passed ten
-  consecutive times on one service, followed by the Arrow IPC proof. This
-  closes that reproduced race, while broader worker restart and portable
-  operation parity remain open.
-- The same production unbounded-source Prism fixture now writes a user-defined
-  record through native-schema Avro fragments. At least two bundles finalize;
-  their accepted row total matches Prism's committed sink metric, and the
-  published Avro file reopens with all three IDs and labels. Repeated
-  publication returns the same receipt. The updated four-test live Prism
-  corpus and strict proof-package lint pass.
-- The same production source now sends a user-defined Protobuf payload into
-  native TFRecord fragments across at least two finalized bundles. The
-  accepted row total matches Prism's committed metric, publication validates
-  TFRecord framing and CRCs, and the v5 reader reopens all three payloads.
-  The updated four-test Prism corpus and strict proof-package lint pass.
-- The production-source fixture now publishes MessagePack and CBOR from at
-  least two finalized bundles each, matching committed row counts and
-  reopening values 7, 8, and 9. The updated full local Prism corpus passes.
-  Prism coalesced adjacent Reshuffles in the first fixture attempt, causing
-  the worker's graph-parent check to fail. The worker now accepts a runner
-  collection only if it lies on a chain of Reshuffle parents; a focused
-  negative test rejects aliases across a user Map. The live MessagePack
-  branch passes with two consecutive Reshuffles and CBOR with three, without
-  fixture Maps. The full four-test Prism corpus and strict harness/proof lint
-  pass with this graph-shape fix.
-- The separate Dataflow worker now validates connected branches and
-  fixed-window assignment after a production unbounded SDF source. A live
-  local Prism `Run` reached `DONE` across two residual bundles; three idempotent
-  sinks verified six elementwise values, event timestamps, assigned intervals,
-  and two grouped results, including a native GroupByKey that combined two
-  production rows in one window. A Fn API test verifies both branches with
-  one source open per bundle across a rebuilt graph. A separate Fn Data test
-  runs the residual bundle in a new
-  OS process with a newly built graph and verifies cursor resume. Killing the
-  Prism process worker during a bundle makes this local Prism version fail the
-  job rather than restart the worker; runner-managed process recovery is not
-  claimed. Other SDF graph shapes remain open.
+<details>
+<summary>Global mergeable folds</summary>
+
+Mergeable global `CombineFn` folds now lower through a constant-key Beam
+GroupByKey into the typed v5 worker. A bounded global-window fold merges an
+Impulse seed with real inputs so empty input produces the combiner identity;
+a separate local Prism job reaches `DONE` and writes 5 for `[2, 3]` and 0
+for empty input. The production unbounded fixture also folds values in two
+fixed windows and reaches `DONE` with 16 and 8, preserving their intervals
+and event times. The five-test live Prism corpus, all-feature Dataflow
+workspace suite, core/Direct suites, and strict changed-package lint pass.
+The runner still shuffles raw inputs before folding; distributed partial
+accumulator merging and ordered folds remain open.
+
+</details>
+
+<details>
+<summary>Keyed mergeable folds</summary>
+
+Keyed mergeable `CombineFn` folds now lower through native Beam GroupByKey
+into the v5 worker. A fold-specific tag branch keeps the parent collection's
+coder intact when an ordinary GroupByKey also consumes it. Core registers typed key/value split coders with the
+fold node; the worker shuffles each value with its event timestamp and
+applies the registered fold once per grouped key. A production unbounded,
+fixed-window Prism job reaches `DONE` with sums for two keys/windows,
+expected fold event times and intervals, and two committed sink inputs. The
+same parent feeds an ordinary GroupByKey branch in that job; it reaches
+`DONE` with the same sums and window intervals. The runner may choose either
+input event time for the grouped output in the second window. The
+full four-test live Prism corpus, all-feature Dataflow workspace suite,
+focused malformed-boundary/contract tests, and strict package lint pass.
+Direct initially mistook the new group coder for a GroupByKey node and
+applied its materialized-source budget to streaming folds; the Direct
+planner now checks the graph operation, and its full all-feature suite
+passes. Vector-based global combines now have a bounded Prism proof;
+ordered folds and order-sensitive vector aggregate parity remain open.
+
+</details>
+
+<details>
+<summary>Typed map/filter and local performance</summary>
+
+Sequential typed vector map/filter collection now runs inline when the job
+requests one worker, avoiding a thread-pool setup for each short job. The
+Direct all-feature suite and ordinary `-D warnings` lint pass. In local
+100,000-row map/filter samples on this machine, the v5 median moved from
+0.519 ms (20 runs) to 0.416 ms (30 runs); v4 measured 0.107 ms in the latter
+sample. Output remained 50,000 rows with checksum 7,499,850,000. These are
+small unpaired samples, and the performance gate remains open. The current
+1.101.0 nightly pedantic/nursery Direct lint gate and all-feature Direct
+suite pass after a focused cleanup of existing lint findings. The combined
+core/Direct/transforms coverage gate also passes: core 2,857/2,972 source
+locations and 435/492 branches, Direct 3,605/3,853 and 775/858, and
+transforms 1,163/1,189 and 108/116.
+
+</details>
+
+<details>
+<summary>Unbounded JSONL finalization</summary>
+
+The separate Dataflow production unbounded-source Prism fixture now
+finalizes native JSONL output across at least two residual bundles, checks
+its accepted fragment total against committed sink metrics, publishes only
+after `DONE`, and reopens values 7, 8, and 9 through the v5 JSONL source.
+All four local Prism graph tests pass together, and the separate Arrow IPC
+proof passes on a fresh Prism service and again after that suite. One prior
+long-lived Prism instance stalled two Arrow jobs beyond the fixture's
+ten-second deadline; a restart cleared the stall. Its cause is unverified,
+so repeatability across a long-lived service remains an open proof gate.
+
+</details>
+
+<details>
+<summary>Unbounded user records</summary>
+
+The production unbounded-source fixture now also writes user-defined
+Protobuf rows through at least two finalized Prism bundles and reopens the
+published native file with the expected values. A repeated live suite
+exposed occasional lost input in the ten-source co-group: Fn Data arrival
+could race reader registration between separate pending and reader locks.
+The worker now routes both under one lock. Its concurrent regression and
+all-feature harness suite pass; the four-test live Prism suite passed ten
+consecutive times on one service, followed by the Arrow IPC proof. This
+closes that reproduced race, while broader worker restart and portable
+operation parity remain open.
+
+</details>
+
+<details>
+<summary>Unbounded Avro records</summary>
+
+The same production unbounded-source Prism fixture now writes a user-defined
+record through native-schema Avro fragments. At least two bundles finalize;
+their accepted row total matches Prism's committed sink metric, and the
+published Avro file reopens with all three IDs and labels. Repeated
+publication returns the same receipt. The updated four-test live Prism
+corpus and strict proof-package lint pass.
+
+</details>
+
+<details>
+<summary>Unbounded Protobuf records</summary>
+
+The same production source now sends a user-defined Protobuf payload into
+native TFRecord fragments across at least two finalized bundles. The
+accepted row total matches Prism's committed metric, publication validates
+TFRecord framing and CRCs, and the v5 reader reopens all three payloads.
+The updated four-test Prism corpus and strict proof-package lint pass.
+
+</details>
+
+<details>
+<summary>Unbounded MessagePack and CBOR</summary>
+
+The production-source fixture now publishes MessagePack and CBOR from at
+least two finalized bundles each, matching committed row counts and
+reopening values 7, 8, and 9. The updated full local Prism corpus passes.
+Prism coalesced adjacent Reshuffles in the first fixture attempt, causing
+the worker's graph-parent check to fail. The worker now accepts a runner
+collection only if it lies on a chain of Reshuffle parents; a focused
+negative test rejects aliases across a user Map. The live MessagePack
+branch passes with two consecutive Reshuffles and CBOR with three, without
+fixture Maps. The full four-test Prism corpus and strict harness/proof lint
+pass with this graph-shape fix.
+
+</details>
+
+<details>
+<summary>Worker graph validation and bundle handling</summary>
+
+The separate Dataflow worker now validates connected branches and
+fixed-window assignment after a production unbounded SDF source. A live
+local Prism `Run` reached `DONE` across two residual bundles; three idempotent
+sinks verified six elementwise values, event timestamps, assigned intervals,
+and two grouped results, including a native GroupByKey that combined two
+production rows in one window. A Fn API test verifies both branches with
+one source open per bundle across a rebuilt graph. A separate Fn Data test
+runs the residual bundle in a new
+OS process with a newly built graph and verifies cursor resume. Killing the
+Prism process worker during a bundle makes this local Prism version fail the
+job rather than restart the worker; runner-managed process recovery is not
+claimed. Other SDF graph shapes remain open.
+
+</details>
+
 ### Direct and package quality
 
-- The root and separate Dataflow checkouts now pass `cargo fmt --all --check`
-  on the local nightly toolchain. Root CI now checks formatting. After the
-  mechanical change, both workspace test suites, all root all-feature
-  examples, and all 15 local Prism tests pass. This closes the formatting
-  subgate while leaving the broader performance and release-quality gates
-  open.
+<details>
+<summary>Formatting gate</summary>
 
-- Direct bounded linear sinks now write one source batch at a time instead of
-  collecting the entire result before opening the sink. Typed sinks can opt in
-  to `write_with_metadata` to receive event time, window, and assigned interval;
-  existing value-only sinks keep their `write` implementation. A bounded
-  source fixture verifies that a batch is written before the next is read, and
-  tests cover metadata on linear and materialized paths, filtering, cancellation,
-  and panic attribution. Sequential same-type map/filter routes over built-in
-  vector sources now use typed batches before writing each sink batch; the
-  sink test confirms the first batch is written before the next transform runs.
-  Parallel or metadata-changing routes retain the envelope path. Full Direct
-  tests and strict lint pass for this addition. Directly connected GroupByKey,
-  global combine, and keyed combine folds can now drain completed results into
-  their sinks one at a time, avoiding a second whole-result vector. Sequential
-  fold routes can also stream through downstream map, filter, flat-map, and
-  time/window stages; a test proves one group is written before the next is
-  transformed and checks filtered-row metrics. Tests cover
-  grouped values, sink write failure and abort, fixed-window metadata, empty
-  global input, and keyed sums; core and Direct suites and strict lint pass.
-  A bounded linear `wait_on` sink route now drains its linear signal first and
-  writes the main branch in bounded element batches. A 1,000-row signal and
-  1,000-row main branch pass with a 256-byte configured memory budget,
-  preserve signal-before-main ordering, and report the expected source,
-  filter, and output counts. This avoids whole-branch collection; exact
-  per-batch byte accounting remains open. Nonlinear signals and main branches
-  retain the materialized evaluator.
-  Fold state still retains groups, and other materialized sink routes
-  still evaluate their full bounded graph before writing, so streaming and
-  memory limits remain an open Direct gate. An alternating 16-run release sample of the
-  100,000-row JSONL round trip measured 10.52 ms median after this change
-  versus 10.74 ms in the preserved pre-change binary, with matching 100,000
-  rows and checksum 4,999,950,000. This is a local performance sample, and the
-  broader v4/v5 performance gate remains open. The fresh combined
-  core/Direct/transforms coverage corpus passes the unchanged core and Direct
-  gates: core 2,337/2,424 source locations and 348/396 branches; Direct
-  1,638/1,734 source locations and 311/340 branches.
-- The all-feature Dataflow workspace suite and the opt-in live local Prism
-  fixture passed with the metadata-aware core contract. The fixture completed
-  its multi-source, format, grouping, side-input, and finalized-sink job; the
-  temporary Prism service was stopped afterward.
-- Clean core and Direct coverage corpora now pass their unchanged CI ratios:
-  core 2,194/2,282 source locations and 341/390 branch outcomes; Direct
-  1,283/1,365 source locations and 238/258 branch outcomes. New Direct tests
-  exercise fallible terminals, cancellation, lifted combine failures, and
-  checkpoint recovery through flat-map output. That recovery test exposed an
-  invalid assumption that output count cannot exceed source position. The
-  checkpoint manifest now binds its progress fields and data digest with a
-  canonical checksum, and its schema version is 1.1. Corrupt progress and frame counts
-  are rejected; flat-map checkpoints recover successfully. Direct now aborts
-  an open sink and reports cancellation if the job is cancelled while writing
-  or immediately before commit. The typed source-only route now appends bounded
-  output batches in one budget check when spill is disabled; exact-budget,
-  spill, and panic-attribution tests pass.
-- `bash scripts/check_v5_packages.sh` passed after the JSONL glob dependency cleanup:
-  workspace tests, selected feature variants, all-feature
-  documentation, and local package verification for all twenty-five v5 crates.
-  No package was published.
-- Root v5 tests no longer compile Testcontainers as an unconditional dev
-  dependency. The legacy MongoDB/Postgres/MySQL suites have since moved into
-  `ironbeam-compat` behind `v4-service-tests`; the root package no longer
-  depends on either service-test library. The manual Docker CI job runs the
-  compatibility targets with their connector features enabled.
-- The `cloud_io_demo` example now runs entirely through v5: it writes JSONL
-  through a deferred URI object sink, reads and transforms the rows through a
-  URI source, then copies the object between two registered schemes. URI glob
-  sources also work; their child sources bind scheme and content identity.
-  The URI sink binds its destination to the graph configuration. Its v5-only
-  build and strict lint pass. The remaining legacy fake cloud-service
-  families are still an API migration gap.
-  Provider-neutral object access now offers atomic create-if-absent for
-  immutable manifests. The local backend and the opt-in hosted adapter use
-  the same contract; local and in-memory hosted-adapter tests verify that
-  conflicting writes cannot replace the first object. The isolated cloud
-  object coverage gate measures 260/269 source locations and 49/56 branches,
-  above its unchanged CI baseline.
-- `ironbeam-transform-regex` owns the v5 regex helpers and measures 45/45
-  source locations in its isolated tests. The ordinary
-  `ironbeam-transforms` dependency tree no longer includes `regex`. The
-  root v5 prelude exposes `RegexExt` under `v5-regex`, and the compatibility
-  prelude still exposes it directly. The extracted package, common transforms,
-  and compatibility crates pass CI-strength pedantic and nursery lint.
-- `ironbeam-transform-approx` owns KMV/HLL approximate distinct helpers. Its
-  sketch merge and error-bound tests measure 108/108 source locations and
-  12/12 branches. The v5 root prelude exposes them under `v5-approx`; common
-  transforms no longer depends on `hyperloglogplus`. The tests caught and
-  fixed a zero-error-bound acceptance bug in v5 HLL construction.
-- `ironbeam-io-csv` is isolated from the common file lifecycle package. Its
-  minimal and all-feature tests, package verification, strict lint, and
-  85/86 source-location plus 8/8 branch coverage passed. Scalar and tuple
-  writes fail before replacing a previous output file.
-- `ironbeam-io-xml` is isolated from common I/O. Its all-feature tests measure
-  42/43 source locations and 2/2 branches. Strict lint and local package
-  verification pass; shared I/O's default tree has no `quick-xml` dependency.
-- `ironbeam-io-msgpack` is isolated from common I/O. Its all-feature tests
-  measure 63/66 source locations and 5/6 branches. The complete package gate
-  passes. Shared I/O's default tree has no `rmp-serde` dependency.
-- `ironbeam-io-cbor` is isolated from common I/O. Its all-feature tests
-  measure 60/63 source locations and 5/6 branches. The full package gate
-  passes. Shared I/O's default tree has no `ciborium` dependency.
-- `ironbeam-io-jsonl` owns file and object adapters. Its all-feature tests
-  now measure 342/361 source locations and 32/34 active branch outcomes,
-  including append failure cleanup, four compressed object formats, and
-  cloud glob behavior; both exceed its existing CI coverage ratios. Its
-  all-feature dependency tree has no legacy `ironbeam-cloud` dependency.
-  Cloud globs now use a focused wildcard matcher that preserves the existing
-  `*`, `**`, `?`, literal, Unicode, and newline rules without pulling the
-  regex engine into default v5 root tests. The package gate checks that both
-  regex and Testcontainers stay out of the v5-only root dependency tree.
-  Protobuf is in `ironbeam-io-protobuf` with a bundle-compatible append sink;
-  it measures 136/146 source locations and 18/20 branches under all features,
-  above its CI ratios. TFRecord has its own crate and a bundle-compatible
-  append sink; its all-feature coverage is 209/226 source locations and 18/20
-  branches, above the existing CI ratios. Shared lifecycle I/O measures 265/276
-  locations and 25/26 branches through the extracted format packages.
-  These measured baselines still leave uncovered error paths for release review.
+The root and separate Dataflow checkouts now pass `cargo fmt --all --check`
+on the local nightly toolchain. Root CI now checks formatting. After the
+mechanical change, both workspace test suites, all root all-feature
+examples, and all 15 local Prism tests pass. This closes the formatting
+subgate while leaving the broader performance and release-quality gates
+open.
+
+</details>
+
+<details>
+<summary>Bounded sink streaming and metadata</summary>
+
+Direct bounded linear sinks now write one source batch at a time instead of
+collecting the entire result before opening the sink. Typed sinks can opt in
+to `write_with_metadata` to receive event time, window, and assigned interval;
+existing value-only sinks keep their `write` implementation. A bounded
+source fixture verifies that a batch is written before the next is read, and
+tests cover metadata on linear and materialized paths, filtering, cancellation,
+and panic attribution. Sequential same-type map/filter routes over built-in
+vector sources now use typed batches before writing each sink batch; the
+sink test confirms the first batch is written before the next transform runs.
+Parallel or metadata-changing routes retain the envelope path. Full Direct
+tests and strict lint pass for this addition. Directly connected GroupByKey,
+global combine, and keyed combine folds can now drain completed results into
+their sinks one at a time, avoiding a second whole-result vector. Sequential
+fold routes can also stream through downstream map, filter, flat-map, and
+time/window stages; a test proves one group is written before the next is
+transformed and checks filtered-row metrics. Tests cover
+grouped values, sink write failure and abort, fixed-window metadata, empty
+global input, and keyed sums; core and Direct suites and strict lint pass.
+A bounded linear `wait_on` sink route now drains its linear signal first and
+writes the main branch in bounded element batches. A 1,000-row signal and
+1,000-row main branch pass with a 256-byte configured memory budget,
+preserve signal-before-main ordering, and report the expected source,
+filter, and output counts. This avoids whole-branch collection; exact
+per-batch byte accounting remains open. Nonlinear signals and main branches
+retain the materialized evaluator.
+Fold state still retains groups, and other materialized sink routes
+still evaluate their full bounded graph before writing, so streaming and
+memory limits remain an open Direct gate. An alternating 16-run release sample of the
+100,000-row JSONL round trip measured 10.52 ms median after this change
+versus 10.74 ms in the preserved pre-change binary, with matching 100,000
+rows and checksum 4,999,950,000. This is a local performance sample, and the
+broader v4/v5 performance gate remains open. The fresh combined
+core/Direct/transforms coverage corpus passes the unchanged core and Direct
+gates: core 2,337/2,424 source locations and 348/396 branches; Direct
+1,638/1,734 source locations and 311/340 branches.
+
+</details>
+
+<details>
+<summary>All-feature Dataflow and Prism verification</summary>
+
+The all-feature Dataflow workspace suite and the opt-in live local Prism
+fixture passed with the metadata-aware core contract. The fixture completed
+its multi-source, format, grouping, side-input, and finalized-sink job; the
+temporary Prism service was stopped afterward.
+
+</details>
+
+<details>
+<summary>Checkpoint and cancellation coverage</summary>
+
+Clean core and Direct coverage corpora now pass their unchanged CI ratios:
+core 2,194/2,282 source locations and 341/390 branch outcomes; Direct
+1,283/1,365 source locations and 238/258 branch outcomes. New Direct tests
+exercise fallible terminals, cancellation, lifted combine failures, and
+checkpoint recovery through flat-map output. That recovery test exposed an
+invalid assumption that output count cannot exceed source position. The
+checkpoint manifest now binds its progress fields and data digest with a
+canonical checksum, and its schema version is 1.1. Corrupt progress and frame counts
+are rejected; flat-map checkpoints recover successfully. Direct now aborts
+an open sink and reports cancellation if the job is cancelled while writing
+or immediately before commit. The typed source-only route now appends bounded
+output batches in one budget check when spill is disabled; exact-budget,
+spill, and panic-attribution tests pass.
+
+</details>
+
+<details>
+<summary>Package gate after JSONL cleanup</summary>
+
+`bash scripts/check_v5_packages.sh` passed after the JSONL glob dependency cleanup:
+workspace tests, selected feature variants, all-feature
+documentation, and local package verification for all twenty-five v5 crates.
+No package was published.
+
+</details>
+
+<details>
+<summary>Testcontainers build isolation</summary>
+
+Root v5 tests no longer compile Testcontainers as an unconditional dev
+dependency. The legacy MongoDB/Postgres/MySQL suites have since moved into
+`ironbeam-compat` behind `v4-service-tests`; the root package no longer
+depends on either service-test library. The manual Docker CI job runs the
+compatibility targets with their connector features enabled.
+
+</details>
+
+<details>
+<summary>Cloud I/O demo and object contract</summary>
+
+The `cloud_io_demo` example now runs entirely through v5: it writes JSONL
+through a deferred URI object sink, reads and transforms the rows through a
+URI source, then copies the object between two registered schemes. URI glob
+sources also work; their child sources bind scheme and content identity.
+The URI sink binds its destination to the graph configuration. Its v5-only
+build and strict lint pass. The remaining legacy fake cloud-service
+families are still an API migration gap.
+Provider-neutral object access now offers atomic create-if-absent for
+immutable manifests. The local backend and the opt-in hosted adapter use
+the same contract; local and in-memory hosted-adapter tests verify that
+conflicting writes cannot replace the first object. The isolated cloud
+object coverage gate measures 260/269 source locations and 49/56 branches,
+above its unchanged CI baseline.
+
+</details>
+
+<details>
+<summary>Regex extraction</summary>
+
+`ironbeam-transform-regex` owns the v5 regex helpers and measures 45/45
+source locations in its isolated tests. The ordinary
+`ironbeam-transforms` dependency tree no longer includes `regex`. The
+root v5 prelude exposes `RegexExt` under `v5-regex`, and the compatibility
+prelude still exposes it directly. The extracted package, common transforms,
+and compatibility crates pass CI-strength pedantic and nursery lint.
+
+</details>
+
+<details>
+<summary>Approximate-distinct extraction</summary>
+
+`ironbeam-transform-approx` owns KMV/HLL approximate distinct helpers. Its
+sketch merge and error-bound tests measure 108/108 source locations and
+12/12 branches. The v5 root prelude exposes them under `v5-approx`; common
+transforms no longer depends on `hyperloglogplus`. The tests caught and
+fixed a zero-error-bound acceptance bug in v5 HLL construction.
+
+</details>
+
+<details>
+<summary>CSV extraction</summary>
+
+`ironbeam-io-csv` is isolated from the common file lifecycle package. Its
+minimal and all-feature tests, package verification, strict lint, and
+85/86 source-location plus 8/8 branch coverage passed. Scalar and tuple
+writes fail before replacing a previous output file.
+
+</details>
+
+<details>
+<summary>XML extraction</summary>
+
+`ironbeam-io-xml` is isolated from common I/O. Its all-feature tests measure
+42/43 source locations and 2/2 branches. Strict lint and local package
+verification pass; shared I/O's default tree has no `quick-xml` dependency.
+
+</details>
+
+<details>
+<summary>MessagePack extraction</summary>
+
+`ironbeam-io-msgpack` is isolated from common I/O. Its all-feature tests
+measure 63/66 source locations and 5/6 branches. The complete package gate
+passes. Shared I/O's default tree has no `rmp-serde` dependency.
+
+</details>
+
+<details>
+<summary>CBOR extraction</summary>
+
+`ironbeam-io-cbor` is isolated from common I/O. Its all-feature tests
+measure 60/63 source locations and 5/6 branches. The full package gate
+passes. Shared I/O's default tree has no `ciborium` dependency.
+
+</details>
+
+<details>
+<summary>JSONL, Protobuf, TFRecord, and shared I/O</summary>
+
+`ironbeam-io-jsonl` owns file and object adapters. Its all-feature tests
+now measure 342/361 source locations and 32/34 active branch outcomes,
+including append failure cleanup, four compressed object formats, and
+cloud glob behavior; both exceed its existing CI coverage ratios. Its
+all-feature dependency tree has no legacy `ironbeam-cloud` dependency.
+Cloud globs now use a focused wildcard matcher that preserves the existing
+`*`, `**`, `?`, literal, Unicode, and newline rules without pulling the
+regex engine into default v5 root tests. The package gate checks that both
+regex and Testcontainers stay out of the v5-only root dependency tree.
+Protobuf is in `ironbeam-io-protobuf` with a bundle-compatible append sink;
+it measures 136/146 source locations and 18/20 branches under all features,
+above its CI ratios. TFRecord has its own crate and a bundle-compatible
+append sink; its all-feature coverage is 209/226 source locations and 18/20
+branches, above the existing CI ratios. Shared lifecycle I/O measures 265/276
+locations and 25/26 branches through the extracted format packages.
+These measured baselines still leave uncovered error paths for release review.
+
+</details>
+
 ### Portable worker and Prism
 
-- The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for twenty-three bounded sources, including a keyed
-  input shared by GroupByKey and an ordinary branch, native Flatten and
-  GroupByKey, event-time assignment, native fixed-window assignment with
-  offset, per-window GroupByKey, two-, three-, and ten-input CoGroupByKey,
-  fixed-window CoGroupByKey, all four join variants with duplicate and
-  unmatched keys, a fixed-window full join that retains input timestamps,
-  a bounded side input fetched over Beam Fn State, including a side collection
-  with values in two fixed windows that is globally materialized to match
-  Direct's side-view behavior,
-  native Reshuffle in global and fixed windows,
-  and thirty terminal
-  sinks. Six sinks commit pending fragments and accept them only after
-  Prism's `FinalizeBundle` callback; the live proof verifies all three rows and
-  leaves no pending fragments. The translator requires an immediate Reshuffle
-  before a finalized sink, since a fused stage reached `DONE` without delivering
-  that callback. User-defined records pass through both the extracted file JSONL
-  adapter and a provider-neutral object-backed JSONL source in that live job.
-  The latter reconstructs and verifies the same object digest in the separately
-  launched worker. The live job also reads a native Avro container written
-  with an explicit schema by v5 Direct and checks its transformed record.
-  An extracted CSV source crosses the live Prism worker coder boundary.
-  A length-delimited Protobuf file source decodes a typed v5 element, runs a
-  transform in the worker, and writes the asserted result through a terminal sink.
-  A separate Protobuf append sink writes length-delimited records in the worker;
-  the v5 reader verifies the typed output. The append path needs a shared
-  filesystem and may duplicate records on replay. A separate finalized
-  Protobuf sink now publishes one validated length-delimited file after
-  `DONE`; the v5 reader reopens all three original rows.
-  A TFRecord source reads a v5 Direct-written record through the separately
-  launched worker, decodes its Protobuf payload, and writes the asserted
-  transformed row. A separate TFRecord append sink writes complete frames in
-  the Prism worker; the v5 reader validates the output bytes and CRCs. This
-  append path has at-least-once replay semantics and needs a shared filesystem.
-  The original TFRecord whole-job replacement sink still needs the finalized
-  fragment adapter when used through the portable worker.
-  CSV globs also lower to multiple source nodes and native Flatten in the
-  mock worker contract. The format-heavy live proof now lives in the
-  unpublished `ironbeam-prism-proof` package, so the Dataflow runtime package
-  no longer directly depends on those connector crates.
-  The JSONL append sink uses a shared filesystem and may duplicate records on
-  replay. This is a local runner proof of this bounded slice.
-- The separate Dataflow checkout's graph translator, Fn API harness, and
-  Dataflow runtime packages now have v5-only dependencies and protocol tests.
-  The old v4 entrypoints, translator, handler, and example have been removed;
-  the all-feature Dataflow workspace suite passes. The root `ironbeam` package
-  now contains only the v5 facade. Its default build has only core, Direct,
-  transforms, shared I/O, and JSONL as direct dependencies; it excludes the
-  legacy cloud package. V4 integration tests, examples, and the benchmark
-  corpus now run in `ironbeam-compat` against published 4.1.1. The crate root
-  and README show a v5 quick start, with a passing doctest. Advanced joins, CoGroupByKey, JSONL
-  globbing, pluggable compression, the Direct plan explanation example, and
-  the data-quality validation, windowing aggregation, combiners showcase, and
-  multi-output, ETL, SQLite, and MongoDB examples now run through v5. The ETL
-  example verifies grouping, traffic ranking, bot counts, and CSV and JSONL
-  round trips. The database
-  examples verify their sources, transforms, and deferred sinks against a
-  temporary SQLite file and a temporary local MongoDB container, respectively.
-  The seven-part testing example
-  uses the separate `ironbeam-testing` crate through an opt-in `v5-testing`
-  feature. Its package-local assertion, builder, fixture, mock I/O, and graph
-  tests now measure 493/495 source locations and 30/30 active branch outcomes
-  from a clean instrumented target. Those ratios are gated in CI. The tests
-  caught unordered comparisons that ignored duplicate counts and a CSV mock
-  writer that emitted a header when disabled; both are fixed. The two
-  remaining uncovered source paths are failed graph snapshot and temporary
-  CSV creation. The metrics example now uses optional `ironbeam-metrics` for custom
-  counters, gauges, histograms, and JSON reports. Direct job configuration
-  attaches that collector while `JobHandle` keeps the built-in execution
-  counters. The `metrics` feature aliases `v5-metrics`; neither the optional
-  crate nor its JSON dependency enters the default root dependency graph.
-  Its isolated test corpus measures 215/216 source locations and 15/16
-  active branch outcomes, and local Cargo packaging passes without publishing.
-  Compression remains opt-in under
-  `compression-gzip`. The multi-output example collects one classified bounded
-  output per job and separates typed buckets locally. A counting-source test
-  verifies one source open per partition job. Direct still lacks general
-  graph-level side outputs that run independent downstream branches together;
-  the multi-output runner gate remains open.
-  Direct now also offers `run_collect_pair` for two bounded linear output
-  branches in one job. It opens their shared source once, evaluates their
-  common transforms once, preserves time and window metadata, and applies a
-  combined memory budget with optional spilling. The split value needs a
-  registered coder; fan-in, stateful routes, and checkpointed pair jobs are
-  rejected before source access. Arbitrary multi-sink graph execution is
-  still required to close the multi-output runner gate. Pair transform stages
-  now reject element expansion beyond the configured buffer budget, and
-  parallel pair jobs drain outputs after at most one worker-width chunk rather
-  than materializing every result in a source batch. A user transform can
-  still allocate its own result before returning it, so this is not a hard
-  process memory bound. Eleven focused pair-job
-  tests pass, and a clean core/Direct/transforms coverage run passes the CI
-  thresholds: Direct 1,479/1,576 source locations and 267/292 branch outcomes;
-  core 2,230/2,318 source locations and 341/390 branch outcomes.
-  Direct now also runs two deferred sink branches from the same bounded linear
-  source in one job. Their common transforms execute once, and each sink keeps
-  event-time/window metadata. Both sinks must declare idempotent replay because
-  commits happen in sequence: a failure in the second commit can leave the
-  first committed. Tests cover single source execution, branch values and
-  metadata, preflight rejection, write and factory failures, cancellation,
-  both commit-failure positions, and source-batch backpressure. Sequential
-  pair sinks write each element before moving to the next. The fresh combined
-  coverage corpus passes the existing gates: core 2,340/2,427 source locations
-  and 348/396 branches; Direct 1,781/1,893 source locations and 344/376
-  branches. General multi-sink DAGs, atomic commit,
-  checkpointed sink jobs, and unbounded execution remain open.
-  Both v4 and v5 benchmark examples produce matching counts and checksums
-  for four workloads at 1,000 rows. A single aligned 100,000-row release
-  sample found substantial v5 latency regressions in all four cases; see
-  `V5_PHASE0_BASELINE.md`. Exact encoded-length accounting reduced allocations
-  and improved join latency in repeated release runs, but the performance gate
-  remains open. Reusing the vector-source digest buffer reduced a 100,000-row
-  scalar source probe from 4.13 ms to roughly 1.2 ms without changing its
-  versioned digest; Direct execution remains the larger gap. The v4
-  implementation remains in the repository. A dedicated single-result
-  transform path then reduced the 100,000-row v5 map/filter median from
-  24.572 ms to 14.058 ms, preserving filter metrics and flat-map behavior;
-  streaming the single-worker results within the dedicated pool reduced the
-  median further to 13.332 ms. Binding those transforms once per route then
-  reduced the five-run median to 5.565 ms. This is still about 12 times the
-  measured v4 median of 0.456 ms. Reserving source batches from the iterator
-  size hint subsequently brought the warmed five-run map/filter median to
-  4.786 ms, still roughly 10.5 times the v4 median. Direct now updates its
-  output counters once per source batch rather than once per emitted row. In a
-  warmed five-run 100,000-row sample, the median moved from 5.07 ms to 4.79 ms;
-  this is a local sample, and the performance gate remains open. The v5 Direct
-  source-only route now opens typed values without creating and downcasting an
-  envelope for each row. Four warmed 100,000-row samples moved from
-  2.48–2.62 ms before this change to 0.922–0.928 ms afterward; map/filter
-  still uses the envelope route. Moving sequential Direct panic isolation to
-  each source batch, while retaining the failing transform key, brought a
-  warmed 100,000-row map/filter sample from about 4.0 ms to 3.2 ms with
-  matching output counts and checksums. The v4 map/filter implementation is
-  still substantially faster, so the performance gate remains open. Direct
-  now keeps same-type sequential map/filter routes typed from source through
-  output. A five-run 100,000-row release sample moved the map/filter run
-  median from roughly 3.2 ms to 0.63 ms with the same 50,000 output rows and
-  checksum. Type-changing, metadata-bearing, and parallel routes keep the
-  envelope path; core, Direct, root workspace, and Dataflow workspace tests
-  pass. The v4 map/filter path remains faster in local measurements, and the
-  performance gate stays open. The two-element tuple coder now reuses its
-  encoded buffer while preserving the wire digest. A warmed five-run v5
-  corpus sample moved GroupByKey from 12.384 to 4.529 ms and inner join from
-  33.240 to 19.233 ms at 100,000 rows; see `V5_PHASE0_BASELINE.md` for the
-  paired v4 figures and phase breakdown. Higher-arity tuples, vectors, and
-  options now reuse coder buffers with byte-compatibility tests; no paired
-  latency number has been recorded for them yet. A later alternating
-  five-run 100,000-row paired sample still measured v5/v4 ratios of 17.4×
-  for source copy, 9.5× for map/filter, 7.1× for GroupByKey, 1.6× for inner
-  join, and 2.9× for JSONL; counts and checksums matched. The performance
-  gate remains open. The v5 Direct
-  collection trait now accepts `PCollection` as well as `Output`; it builds
-  an isolated terminal snapshot, so repeated v4-shaped `collect_seq` and `collect_par`
-  calls leave the user's graph unchanged. Named `Output` terminals remain for
-  portable and durable jobs. The root package
-  version is still 4.1.1, until the replacement gates close.
+<details>
+<summary>Live Prism pipeline and format proof</summary>
+
+The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
+separately launched v5 worker for twenty-three bounded sources, including a keyed
+input shared by GroupByKey and an ordinary branch, native Flatten and
+GroupByKey, event-time assignment, native fixed-window assignment with
+offset, per-window GroupByKey, two-, three-, and ten-input CoGroupByKey,
+fixed-window CoGroupByKey, all four join variants with duplicate and
+unmatched keys, a fixed-window full join that retains input timestamps,
+a bounded side input fetched over Beam Fn State, including a side collection
+with values in two fixed windows that is globally materialized to match
+Direct's side-view behavior,
+native Reshuffle in global and fixed windows,
+and thirty terminal
+sinks. Six sinks commit pending fragments and accept them only after
+Prism's `FinalizeBundle` callback; the live proof verifies all three rows and
+leaves no pending fragments. The translator requires an immediate Reshuffle
+before a finalized sink, since a fused stage reached `DONE` without delivering
+that callback. User-defined records pass through both the extracted file JSONL
+adapter and a provider-neutral object-backed JSONL source in that live job.
+The latter reconstructs and verifies the same object digest in the separately
+launched worker. The live job also reads a native Avro container written
+with an explicit schema by v5 Direct and checks its transformed record.
+An extracted CSV source crosses the live Prism worker coder boundary.
+A length-delimited Protobuf file source decodes a typed v5 element, runs a
+transform in the worker, and writes the asserted result through a terminal sink.
+A separate Protobuf append sink writes length-delimited records in the worker;
+the v5 reader verifies the typed output. The append path needs a shared
+filesystem and may duplicate records on replay. A separate finalized
+Protobuf sink now publishes one validated length-delimited file after
+`DONE`; the v5 reader reopens all three original rows.
+A TFRecord source reads a v5 Direct-written record through the separately
+launched worker, decodes its Protobuf payload, and writes the asserted
+transformed row. A separate TFRecord append sink writes complete frames in
+the Prism worker; the v5 reader validates the output bytes and CRCs. This
+append path has at-least-once replay semantics and needs a shared filesystem.
+The original TFRecord whole-job replacement sink still needs the finalized
+fragment adapter when used through the portable worker.
+CSV globs also lower to multiple source nodes and native Flatten in the
+mock worker contract. The format-heavy live proof now lives in the
+unpublished `ironbeam-prism-proof` package, so the Dataflow runtime package
+no longer directly depends on those connector crates.
+The JSONL append sink uses a shared filesystem and may duplicate records on
+replay. This is a local runner proof of this bounded slice.
+
+</details>
+
+<details>
+<summary>Translator, worker, facade, examples, and performance history</summary>
+
+The separate Dataflow checkout's graph translator, Fn API harness, and
+Dataflow runtime packages now have v5-only dependencies and protocol tests.
+The old v4 entrypoints, translator, handler, and example have been removed;
+the all-feature Dataflow workspace suite passes. The root `ironbeam` package
+now contains only the v5 facade. Its default build has only core, Direct,
+transforms, shared I/O, and JSONL as direct dependencies; it excludes the
+legacy cloud package. V4 integration tests, examples, and the benchmark
+corpus now run in `ironbeam-compat` against published 4.1.1. The crate root
+and README show a v5 quick start, with a passing doctest. Advanced joins, CoGroupByKey, JSONL
+globbing, pluggable compression, the Direct plan explanation example, and
+the data-quality validation, windowing aggregation, combiners showcase, and
+multi-output, ETL, SQLite, and MongoDB examples now run through v5. The ETL
+example verifies grouping, traffic ranking, bot counts, and CSV and JSONL
+round trips. The database
+examples verify their sources, transforms, and deferred sinks against a
+temporary SQLite file and a temporary local MongoDB container, respectively.
+The seven-part testing example
+uses the separate `ironbeam-testing` crate through an opt-in `v5-testing`
+feature. Its package-local assertion, builder, fixture, mock I/O, and graph
+tests now measure 493/495 source locations and 30/30 active branch outcomes
+from a clean instrumented target. Those ratios are gated in CI. The tests
+caught unordered comparisons that ignored duplicate counts and a CSV mock
+writer that emitted a header when disabled; both are fixed. The two
+remaining uncovered source paths are failed graph snapshot and temporary
+CSV creation. The metrics example now uses optional `ironbeam-metrics` for custom
+counters, gauges, histograms, and JSON reports. Direct job configuration
+attaches that collector while `JobHandle` keeps the built-in execution
+counters. The `metrics` feature aliases `v5-metrics`; neither the optional
+crate nor its JSON dependency enters the default root dependency graph.
+Its isolated test corpus measures 215/216 source locations and 15/16
+active branch outcomes, and local Cargo packaging passes without publishing.
+Compression remains opt-in under
+`compression-gzip`. The multi-output example collects one classified bounded
+output per job and separates typed buckets locally. A counting-source test
+verifies one source open per partition job. Direct still lacks general
+graph-level side outputs that run independent downstream branches together;
+the multi-output runner gate remains open.
+Direct now also offers `run_collect_pair` for two bounded linear output
+branches in one job. It opens their shared source once, evaluates their
+common transforms once, preserves time and window metadata, and applies a
+combined memory budget with optional spilling. The split value needs a
+registered coder; fan-in, stateful routes, and checkpointed pair jobs are
+rejected before source access. Arbitrary multi-sink graph execution is
+still required to close the multi-output runner gate. Pair transform stages
+now reject element expansion beyond the configured buffer budget, and
+parallel pair jobs drain outputs after at most one worker-width chunk rather
+than materializing every result in a source batch. A user transform can
+still allocate its own result before returning it, so this is not a hard
+process memory bound. Eleven focused pair-job
+tests pass, and a clean core/Direct/transforms coverage run passes the CI
+thresholds: Direct 1,479/1,576 source locations and 267/292 branch outcomes;
+core 2,230/2,318 source locations and 341/390 branch outcomes.
+Direct now also runs two deferred sink branches from the same bounded linear
+source in one job. Their common transforms execute once, and each sink keeps
+event-time/window metadata. Both sinks must declare idempotent replay because
+commits happen in sequence: a failure in the second commit can leave the
+first committed. Tests cover single source execution, branch values and
+metadata, preflight rejection, write and factory failures, cancellation,
+both commit-failure positions, and source-batch backpressure. Sequential
+pair sinks write each element before moving to the next. The fresh combined
+coverage corpus passes the existing gates: core 2,340/2,427 source locations
+and 348/396 branches; Direct 1,781/1,893 source locations and 344/376
+branches. General multi-sink DAGs, atomic commit,
+checkpointed sink jobs, and unbounded execution remain open.
+Both v4 and v5 benchmark examples produce matching counts and checksums
+for four workloads at 1,000 rows. A single aligned 100,000-row release
+sample found substantial v5 latency regressions in all four cases; see
+`V5_PHASE0_BASELINE.md`. Exact encoded-length accounting reduced allocations
+and improved join latency in repeated release runs, but the performance gate
+remains open. Reusing the vector-source digest buffer reduced a 100,000-row
+scalar source probe from 4.13 ms to roughly 1.2 ms without changing its
+versioned digest; Direct execution remains the larger gap. The v4
+implementation remains in the repository. A dedicated single-result
+transform path then reduced the 100,000-row v5 map/filter median from
+24.572 ms to 14.058 ms, preserving filter metrics and flat-map behavior;
+streaming the single-worker results within the dedicated pool reduced the
+median further to 13.332 ms. Binding those transforms once per route then
+reduced the five-run median to 5.565 ms. This is still about 12 times the
+measured v4 median of 0.456 ms. Reserving source batches from the iterator
+size hint subsequently brought the warmed five-run map/filter median to
+4.786 ms, still roughly 10.5 times the v4 median. Direct now updates its
+output counters once per source batch rather than once per emitted row. In a
+warmed five-run 100,000-row sample, the median moved from 5.07 ms to 4.79 ms;
+this is a local sample, and the performance gate remains open. The v5 Direct
+source-only route now opens typed values without creating and downcasting an
+envelope for each row. Four warmed 100,000-row samples moved from
+2.48–2.62 ms before this change to 0.922–0.928 ms afterward; map/filter
+still uses the envelope route. Moving sequential Direct panic isolation to
+each source batch, while retaining the failing transform key, brought a
+warmed 100,000-row map/filter sample from about 4.0 ms to 3.2 ms with
+matching output counts and checksums. The v4 map/filter implementation is
+still substantially faster, so the performance gate remains open. Direct
+now keeps same-type sequential map/filter routes typed from source through
+output. A five-run 100,000-row release sample moved the map/filter run
+median from roughly 3.2 ms to 0.63 ms with the same 50,000 output rows and
+checksum. Type-changing, metadata-bearing, and parallel routes keep the
+envelope path; core, Direct, root workspace, and Dataflow workspace tests
+pass. The v4 map/filter path remains faster in local measurements, and the
+performance gate stays open. The two-element tuple coder now reuses its
+encoded buffer while preserving the wire digest. A warmed five-run v5
+corpus sample moved GroupByKey from 12.384 to 4.529 ms and inner join from
+33.240 to 19.233 ms at 100,000 rows; see `V5_PHASE0_BASELINE.md` for the
+paired v4 figures and phase breakdown. Higher-arity tuples, vectors, and
+options now reuse coder buffers with byte-compatibility tests; no paired
+latency number has been recorded for them yet. A later alternating
+five-run 100,000-row paired sample still measured v5/v4 ratios of 17.4×
+for source copy, 9.5× for map/filter, 7.1× for GroupByKey, 1.6× for inner
+join, and 2.9× for JSONL; counts and checksums matched. The performance
+gate remains open. The v5 Direct
+collection trait now accepts `PCollection` as well as `Output`; it builds
+an isolated terminal snapshot, so repeated v4-shaped `collect_seq` and `collect_par`
+calls leave the user's graph unchanged. Named `Output` terminals remain for
+portable and durable jobs. The root package
+version is still 4.1.1, until the replacement gates close.
+
+</details>
+
 ### Storage and compression
 
-- `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
-  object contract, and a filesystem-backed local adapter. Its isolated corpus
-  measures 234/243 source locations and 46/54 active branch outcomes. The
-  previous `ironbeam-cloud` crate reexports this API during migration. A JSONL
-  graph source and sink round-trip through that adapter. Opt-in
-  `ironbeam-cloud-object-store` builds S3, GCS,
-  and Azure Blob clients from environment credentials. Its
-  `object_stores_from_env()` constructor registers all enabled providers in
-  one URI router, with bucket clients still initialized on first use. Default
-  and all-provider tests and strict lint pass. `ObjectStores::copy_prefix`
-  copies relative keys across URI schemes using a fixed listing snapshot;
-  local and in-memory cross-provider tests pass. The common adapter's operations
-  pass against Apache `object_store`'s in-memory backend. Hosted
-  storage authentication and live service behavior remain unverified.
-- `ironbeam-compression` owns codec detection and stream wrapping, with a
-  bounded writer that finalizes object bytes without a second JSONL buffer.
-  All four codecs pass
-  source/sink round trips; its isolated all-feature corpus measures at least 140/157
-  source locations and 29/34 active branch outcomes. Compression-only shared
-  I/O depends on this crate without pulling in legacy cloud helpers. Shared
-  I/O's `cloud` feature now reexports the provider-neutral object contract;
-  its all-feature dependency tree also excludes the legacy cloud package.
+<details>
+<summary>Provider-neutral object storage</summary>
+
+`ironbeam-cloud-objects` owns URI routing, registered provider handles, the
+object contract, and a filesystem-backed local adapter. Its isolated corpus
+measures 234/243 source locations and 46/54 active branch outcomes. The
+previous `ironbeam-cloud` crate reexports this API during migration. A JSONL
+graph source and sink round-trip through that adapter. Opt-in
+`ironbeam-cloud-object-store` builds S3, GCS,
+and Azure Blob clients from environment credentials. Its
+`object_stores_from_env()` constructor registers all enabled providers in
+one URI router, with bucket clients still initialized on first use. Default
+and all-provider tests and strict lint pass. `ObjectStores::copy_prefix`
+copies relative keys across URI schemes using a fixed listing snapshot;
+local and in-memory cross-provider tests pass. The common adapter's operations
+pass against Apache `object_store`'s in-memory backend. Hosted
+storage authentication and live service behavior remain unverified.
+
+</details>
+
+<details>
+<summary>Compression package</summary>
+
+`ironbeam-compression` owns codec detection and stream wrapping, with a
+bounded writer that finalizes object bytes without a second JSONL buffer.
+All four codecs pass
+source/sink round trips; its isolated all-feature corpus measures at least 140/157
+source locations and 29/34 active branch outcomes. Compression-only shared
+I/O depends on this crate without pulling in legacy cloud helpers. Shared
+I/O's `cloud` feature now reexports the provider-neutral object contract;
+its all-feature dependency tree also excludes the legacy cloud package.
+
+</details>
 
 ## Open replacement gates
 
-1. **Core coverage quality:** The old package-only CI baseline recorded 972/974
-   source locations and 210/222 branches before core grew. It omitted paths
-   exercised through Direct and transforms tests, so CI now gates the
-   three-package corpus. An earlier local report combined stale instrumented
-   generic and macro instances, yielding 2,121/2,656 source locations and a
-   false threshold failure. Repeating the exact CI corpus with an isolated
-   coverage target measured 1,841/1,917 source locations and 326/378 branches.
-   Tests for malformed set/map headers, tuple parts, and result bytes then
-   raised the clean corpus to 1,846/1,917 (96.30%) and 327/378 (86.51%),
-   above both existing CI thresholds. Coverage runs must start from a clean
-   instrumented target; the denominator is sensitive to cached generic
-   instances. Remaining uncovered paths include impossible-length guards and
-   failure branches for graph and runner contracts. Continue targeted coverage
-   work rather than treating this ratio as complete unit test coverage.
-   The common transforms package now has a reviewed isolated baseline of
-   1,092/1,120 source locations (97.50%) and 82/90 active branch outcomes
-   (91.11%). The old 89/89, zero-branch baseline predates the expanded helper
-   corpus and did not measure branches. Tests now exercise partial accumulator
-   merges, constant side-input variants, sampler output forms, malformed
-   dead-letter coders, validation collection, t-digest merges, and custom
-   window combiners. The last test exposed and fixed recursion in both custom
-   window-combiner helpers. Remaining uncovered locations include allocation
-   overflow guards that cannot be reached with ordinary 64-bit buffers, plus
-   statistical and side-input edges. The new extension packages have separate
-   passing coverage gates. A fresh rerun after registry dispatch and time
-   metadata tests measured core at 2,049/2,127 source locations (96.33%) and
-   332/384 branches (86.46%), passing both current CI ratios. This remains
-   a coverage quality review gate rather than a claim of complete unit tests;
-   untested validation and capability branches still need review.
-   The finalization adapter and fail-closed tests raised the fresh combined
-   core/Direct/transforms corpus to 2,297/2,384 source locations (96.35%) and
-   346/394 branches (87.82%), above both unchanged CI thresholds.
-2. **Portable feature corpus:** The v5 translator now supports bounded,
-   global-window `group_by_key_named` through native Beam KV/iterable coders
-   and a live Prism shuffle proof. Its keyed input can also feed an ordinary
-   branch, verified by another sink in that Prism job. It still rejects
-   some unbounded source graph shapes, update sinks, and
-   whole-job final-result sinks. Core now registers typed split/reassembly
-   coders for actual `group_by_key_named` nodes. `latest_per_key_named` now
-   composes timestamp capture, a native keyed shuffle, first-seen maximum
-   selection, and event-time restoration. A live local Prism job verifies
-   the latest value for two keys with the selected timestamps and fixed-window
-   intervals intact; the complete four-test Prism suite passes. Equal-time
-   ties are first-seen in Direct, while portable shuffle order is not stable.
-   Direct now specializes the private keyed-latest grouping fold to keep one
-   candidate per key and window; a unit test saves and restores that fold
-   state. Timestamp capture and selection each use one graph node, and the
-   updated local Prism fixture still reaches `DONE`. The 100,000-row,
-   100-key v4/v5 benchmark corpus produces the same 100 rows and checksum
-   9,994,950. A single-output Direct fold route now passes elements through
-   map, filter, timestamp, and window stages without allocating temporary
-   vectors at each stage; routes with FlatMap keep their multi-output path.
-   For a built-in vector source followed immediately by timestamp assignment
-   and the private keyed timestamp-capture node, Direct now feeds typed batches
-   into that fold without per-row envelopes. Other graph shapes keep the
-   general route. In a 14-run alternating local sample, v5's median was
-   1.328 ms against v4's 0.762 ms, down from 5.390 ms in the prior v5
-   12-run sample. One peak-RSS run measured 4.1 MiB for v5 and 7.3 MiB for
-   v4; these are local measurements, not a broad performance conclusion.
-   The wider v4/v5 latency gate remains open.
-   Direct now checkpoints GroupByKey routes with validated stateless stages
-   after the group, including keyed-latest selection and time/window metadata
-   projection. An end-to-end test fails after the first saved two-row group
-   batch, resumes the remaining three rows without replaying the committed
-   batch, verifies selected event times and the fixed-window interval, then
-   loads completed output without reopening the source. The full Direct suite
-   and strict lint pass for this route extension. The full local package gate
-   passed after this extension, verifying all twenty-five v5 packages without
-   publishing. The live Prism fixture passed before this Direct-only extension. A Direct
-   regression test checks three typed batches,
-   selected timestamps, equal-time ties, timestamp-panic attribution, and
-   cancellation before output publication. The current coverage corpus passes
-   the core gates at 2,857/2,972 source locations (96.13%) and 435/492
-   branches (88.41%), and passes the transforms gates at 1,163/1,189
-   source locations (97.81%) and 108/116 branches (93.10%). Direct source
-   coverage passes at 3,588/3,835 (93.56%) and 761/844 branches (90.17%)
-   against the unchanged 91% line and 90% branch floors. The exact CI corpus
-   passed again after cleaning the instrumented target, and the full workspace
-   tests, strict Direct lint, and local gate for all twenty-five v5 packages
-   passed with these additions. A downstream flat-map
-   failure also resumes from the finished group state without reopening its
-   source, and a parallel grouped sink keeps its filtered rows and metrics.
-   Added tests cover malformed
-   latest registry input, fold checkpoint corruption, duplicate stream sinks,
-   repeated stream cursors, non-idempotent or uncommitted stream sinks, source
-   and combined branch buffer limits, accumulated fan-out budgets, filtered
-   sink and wait-on stages, non-vector grouped-source memory limits, and
-   stream checkpoint identity rejection, and sink abort when a later route
-   stage observes cancellation. New tests also cover mid-transform cancellation
-   on typed, envelope, and materialized routes, wait-on signal cancellation,
-   generic output memory limits, checkpoint directory races, and pair terminal
-   validation. The numeric Direct coverage gate now passes; uncovered paths
-   still need quality review before declaring complete unit test coverage.
-   Bounded Direct now rejects sinks registered for runner bundle finalization
-   before opening sources or sink sessions. It also probes opened sessions,
-   aborting them if an undeclared finalization requirement or a probe panic is
-   found. Single and paired sink regressions pass, as do the full workspace
-   suite, strict Direct lint, and the clean combined coverage corpus.
-   Bounded `run_collect_pair` now checkpoints both coded output branches in one
-   checksum-verified, versioned manifest bound to their keys and coder versions.
-   Recovery reopens the source and skips accepted rows without re-running their
-   transforms; it preserves both result orders. A completed checkpoint returns
-   without reopening a source with a length hint.
-   Tests cover retry after a second-batch transform failure, an empty source,
-   asymmetric spilled branches, build identity mismatch, and corrupted side
-   tags, counts, and checkpoint kind. This is limited to the existing linear
-   two-output route; general fan-out, atomic multi-sink commit, and bounded
-   sink-pair checkpointing remain open. The full workspace tests, strict Direct
-   lint, clean combined coverage, and local verification of all twenty-five
-   v5 packages pass after this change; publication remains staged locally.
-   `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
-   typed tagged-value coder contracts for their inputs. Tests cover
-   heterogeneous values, empty groups, and invalid tags. The translator now
-   expands co-group nodes into tagged ParDos, native Flatten, and native
-   GroupByKey. A live Prism job verifies two and three heterogeneous inputs,
-   ten same-typed inputs, shared branches, and fixed-window groups. Intermediate arities use
-   the same generated path but lack individual live fixtures. The worker
-   also reconstructs per-key left and right events from Beam's tagged
-   shuffle and invokes the same aggregate used by Direct for inner, left,
-   right, and full joins. Tagged join values preserve each input timestamp;
-   the live Prism corpus checks duplicate-key products, unmatched rows,
-   interval windows, and timestamps.
-   The worker decodes fixed and chunked inline iterables and can resolve
-   Beam state-backed iterables through the Fn State client. Prefix, token,
-   and fetched suffix assembly have focused tests, and a mock runner drives
-   the actual Fn Data and Fn State RPCs into a typed grouped result. A Prism-emitted
-   state-backed group still needs a live proof. A local Prism job now also
-   groups 512 distinct 4 KiB values and verifies the count, total payload
-   length, and full-byte SHA-256 after shuffle. The tested Prism build encodes
-   GBK iterables inline, so this verifies large inline payloads rather than
-   state-backed fetching. Bounded millisecond-aligned fixed windows lower
-   to native Beam
-   `WindowInto`; the worker carries interval metadata across Fn API boundaries.
-   One live Prism job verifies assigned intervals and keyed counts in each
-   fixed window. The same job verifies native Reshuffle with values and
-   fixed-window metadata intact. Other window types and full time-metadata
-   parity remain open. Core now exposes the same bounded side-view
-   materialization and mapping functions to Direct and portable workers;
-   materialized views are transferable across executor threads. The separate
-   Dataflow harness uses a tested Fn State client with continuation and error
-   handling. Beam side-input ParDo lowering, bundle validation, and worker
-   materialization reach `DONE` in local Prism for bounded global and
-   fixed-window views. For a fixed-window side collection, the translator
-   inserts a global-window branch so Beam materializes the same whole view
-   as Direct. The live fixture uses an order-independent materializer;
-   iterable order across the portable side branch is not yet proven to match
-   Direct for order-sensitive materializers. Stateful or unbounded side views
-   remain outside this proof.
-   Bounded `wait_on` now lowers through a completion side view, with a
-   global-window mapping for a windowed signal. A live Prism job verifies that
-   its sink receives main values and fixed-window metadata only after the
-   signal source finishes; altered signal wiring fails contract validation.
-3. **Remote I/O:** Provider clients can access hosted object storage from the
-   bounded `ObjectIO` interface, but the local Prism worker still shares the
-   driver's filesystem. Driver-local file paths are not staged to cloud
-   workers, and root file sinks use whole-job final-result commit semantics
-   that are unsafe across independent Fn API bundles. Remote worker staging,
-   a runner-wide output commit protocol, and live provider tests remain.
-4. **Root replacement:** The root package is now v5-only; its local v4 modules
-   and `legacy-v4` feature are removed. Published 4.1.1 remains the reference
-   through `ironbeam-compat`. The root package is still versioned `4.1.1`, and
-   its public API, runtime, and portable feature gates must pass before setting
-   version `5.0.0`.
-   The published v4 `with_keys` and flatten suites (37 tests) now run from
-   `ironbeam-compat` instead of root legacy test binaries. A twelve-input
-   corpus compares those v4 results with sequential and three-worker v5
-   Direct keying, constant-key assignment, and flatten results.
-   The separate Dataflow workspace's WordCount example now uses the v5 graph,
-   typed sink, and `run_v5_from_env`; its Direct result and portable protobuf
-   preparation pass, and its default dependency tree excludes the v4 root.
-   The Dataflow runtime and graph translator now expose only v5 lowering;
-   their v4 entrypoints, translation tests, and example have been replaced.
-   The all-feature Dataflow workspace suite and strict package lint pass.
-   The separate Dataflow harness has also removed its optional v4 root
-   dependency and old DynOp execution path. Its remaining plan, control, and
-   worker fixtures use the v5 DoFn wire contract; the planner rejects the
-   old v4 URN. The all-feature Dataflow workspace tests and strict graphx
-   and harness lint pass, and its lockfile no longer contains `ironbeam` v4.
-   The full multi-source, format, grouping, and finalized-sink Prism fixture
-   reached `DONE` again through a separate v5 worker after this cutover.
-   The root package's own v4 modules and compatibility feature have since been
-   removed; the remaining behavior and API replacement gates are still open.
-   `ironbeam-cloud` still contains legacy traits, fake services, readers,
-   and helpers. Its compression and object APIs now reexport separate crates;
-   v5 JSONL and shared I/O no longer depend on it. Remove
-   the remaining legacy package from the v5 runtime and root feature graph
-   during the v4 cutover. Its earlier isolated source corpus measured only
-   37/1,695 locations after the object extraction, so reexports alone do not
-   make the legacy package release-ready.
-5. **Execution proof:** The user chose local Prism proof for now. On
-   2026-10-10, the opt-in `ironbeam-prism-proof` test passed against a real
-   local Prism JobService. It passed again on 2026-10-11 after the core coder
-   and Direct changes, after the object source migrated to the URI adapter,
-   and with an actual `FinalizeBundle` callback for a pending sink fragment;
-   the Prism service was stopped afterward. That fixture
-   checks completed jobs and captured
-   values for its bounded sources and sinks, JSONL, Avro, CSV, protobuf,
-   object-backed JSONL, Flatten, grouping, joins, side input, Reshuffle,
-   event-time assignment, and fixed windows. Its object-backed fixture uses
-   a shared local filesystem, so it does not prove remote staging.
-   The v5 worker now serves compact Fn API monitoring metadata, and a live
-   Prism run returns committed element counts for sources and intermediate
-   collections. A transform-scoped user counter now records the finalized
-   sink's input count; the live fixture verifies that this committed count
-   equals the accepted fragment row total. Shared I/O now stages immutable,
-   scoped, checksummed local fragments and accepts them only after the bundle
-   callback. After `DONE`, the Prism driver verifies committed row accounting,
-   validates the assembled framed records before visibility, atomically
-   publishes one file, and confirms an idempotent retry. This is a live
-   single-bundle local proof. A real TFRecord fragment sink now spools each
-   bundle to disk, stages it through shared I/O, and publishes after `DONE`;
-   the publisher checks every frame and CRC, and the v5 reader reopens the
-   original three rows. A native-schema Avro fragment sink also publishes one
-   Avro container after `DONE`; the v5 reader reopens all three rows, and a
-   repeated publication produces identical bytes. MessagePack and CBOR now
-   use a shared sequence-fragment lifecycle with format-specific streaming
-   validation; both publish and reopen the same three rows after `DONE` in
-   local Prism. Protobuf uses that lifecycle too, validating every
-   length-delimited record before publication and reopening the same rows.
-   JSONL now uses the same finalized fragment lifecycle: each record is
-   validated as JSON with a complete newline before publication. The live
-   local Prism job publishes and reopens all three rows after `DONE`, and
-   retrying publication is idempotent. Local tests reject malformed and
-   truncated fragments without replacing an existing result. Its isolated
-   coverage is 380/403 source locations and 36/38 branches, above the
-   unchanged package baseline.
-   CSV now has a header-aware finalized bundle sink. The same live Prism
-   job publishes one CSV header and reopens all three rows after `DONE`;
-   local tests cover multiple bundles, quoted multiline values, mismatched
-   headers, malformed rows, empty bundles, and retry recovery. Publication
-   checks the runner's committed row count and is idempotent.
-   The expanded CSV crate's isolated all-feature coverage is 329/355 source
-   locations and 34/38 branches; this measured baseline replaces the former
-   67/68 and 2/2 threshold from before bundle finalization existed.
-   Portable CSV publication currently targets an uncompressed file; the
-   existing Direct CSV sink retains its optional compressed output.
-   XML now stages complete item elements per bundle. The live Prism fixture
-   reads XML input, publishes a single validated XML document after `DONE`,
-   and reopens all three output rows. Local tests cover escaped text,
-   multiple fragments, empty output, malformed elements, row-count mismatch,
-   and idempotent publication. Portable XML publication is uncompressed.
-   Its isolated all-feature coverage is 160/169 source locations and 6/6
-   branches, replacing the former 42/43 source baseline from before the
-   fragment lifecycle was added.
-   Parquet now stages typed coder frames per bundle and publishes one native
-   Parquet file after `DONE`, decoding in batches of at most 1,024 rows.
-   The live Prism fixture reads a Parquet source and reopens all three
-   finalized output rows. Local tests cover multiple bundles, more than one
-   record batch, empty output, corrupt frames, uncoded types, wrong counts,
-   and idempotent publication. Its isolated all-feature coverage is 310/338
-   source locations and 23/24 branches, above the existing package gate.
-   Arrow IPC row output now uses the same accepted-bundle lifecycle and
-   publishes one native file in batches of at most 1,024 decoded rows. Local
-   tests cover multiple bundles, batch rollover, empty output, corrupt frames,
-   uncoded types, wrong counts, and idempotent publication. A separate local
-   Prism fixture reads native Arrow input, crosses Reshuffle, publishes after
-   `DONE`, and reopens all three rows with the finalized sink as its only
-   terminal. The initial lowering gave that terminal an unused Beam output;
-   Prism reported `DONE` with zero Impulse elements. The Dataflow integration
-   now lowers sinks without Beam outputs, and both the isolated final-only
-   Arrow job and the larger multi-source Prism job pass with that contract.
-   Arrow's isolated all-feature coverage is 560/618 source locations and
-   39/44 branches, above the existing package gate; its strict lint and
-   offline package verification pass.
-   Native Arrow record-batch output now stages one coded batch per element,
-   verifies every batch's schema and committed count, and publishes one Arrow
-   IPC file after `DONE`. Unit tests cover multiple bundle fragments, schema
-   disagreement, corrupt frames, empty output, and idempotent publication.
-   The separate Prism job now also reads the input as record batches and
-   reopens the finalized batch file with its three original rows.
-   Publication also rejects pending or orphaned staging
-   entries even if their row count is zero. Malformed MessagePack and CBOR
-   fragments cannot replace an existing result, and failed serialization
-   leaves no accepted fragment. The combined I/O coverage corpus measured
-   shared I/O at 873/901 source locations and 102/106 branches, MessagePack
-   at 112/116 and 8/8, CBOR at 100/104 and 7/8, Protobuf at 172/183 and
-   18/20, and TFRecord at 398/422 and 35/38; all pass unchanged gates.
-   Avro's gate is rebased to its expanded native fragment module at 367/387
-   source locations and 27/28 branches. The untested lines are primarily
-   filesystem and integer-overflow errors; malformed datum, wrong schema,
-   wrong count, pending fragments, and repeated publication are exercised.
-   Multi-bundle retry and worker-restart recovery remain unproved. A local
-   two-source Flatten experiment reached `DONE`, but Prism coalesced its Avro
-   output into one final sink bundle, so it did not close the multi-bundle gate.
-   A later production SDF fixture closed the successful multi-bundle slice:
-   its residual restriction produced at least two finalized framed fragments
-   in a live Prism job. The driver published all three original values only
-   after `DONE` with committed row-count validation. A runner retry or
-   abandoned attempt and no-partial-publish proof on failure remain open.
-   The worker now passes a stable bundle attempt ID to each sink before writes;
-   the Prism probe uses it for deterministic fragment names and rejects a
-   conflicting replay. This prepares durable manifest and publication work.
-   Shared local fragment acceptance can now resume after a process stops
-   between creating the accepted hard link and removing the pending name:
-   a reopened scope verifies both complete files are byte-identical before
-   removing the pending name. Conflicting bytes still fail closed. This fixes
-   the fragment-store crash window. The worker can now record the exact sink
-   set for each bundle in a local, identity-bound finalization journal before
-   returning `ProcessBundleResponse`. A fresh registry recovers a Protobuf
-   fragment using only that record, rejects unknown and missing fragments,
-   and persists a completion marker for duplicate callbacks. The ten-sink
-   local Prism job reached `DONE` with journal records and matching completion
-   markers. A separate two-process test exits immediately after staging and
-   reopens the journal in a fresh process to finalize and publish Protobuf.
-   The worker also has an object-backed journal using the provider-neutral
-   object API; a local object-provider test verifies exact multi-sink recovery.
-   An actual worker kill/restart during a live Prism job and a hosted object
-   storage proof remain open.
-   The two-process Protobuf recovery test now rebuilds `V5BundleExecutor` in
-   each process and invokes its bundle-finalization callback, rather than
-   calling the journal registry directly. A changed worker build ID fails
-   identity validation before recovery; a duplicate callback in another
-   fresh process succeeds after the completion marker is durable. The full
-   local Prism graph and Arrow fixture still reach `DONE` after the latest
-   core changes. Prism's process environment does not itself restart a dead
-   worker process, so a supervised live restart proof remains open.
-   A transient Prism run also exposed an empty source-rooted bundle; the worker
-   now closes its runner outputs without opening the user source for that case,
-   with a focused Fn Data regression test and a subsequent live passing run.
-   Recovery requires `IRONBEAM_V5_FINALIZATION_JOURNAL_DIR` to point to the
-   same durable local directory after restart. Without that setting the
-   worker uses its in-memory registry and cannot recover after process loss.
-   The v5 worker now tracks progress across multiple sinks in one bundle:
-   when a later finalizer fails, retry resumes at that sink without replaying
-   earlier successes. A two-bundle registry test also verifies isolated and
-   duplicate callbacks; the live Prism proof above covers successful
-   multi-bundle completion.
-   The larger opt-in Prism graph fixture now reaches `DONE` again. The stall
-   was a concurrent Fn Data connection race: source bundles could open
-   multiple streams for one endpoint before the worker cached one, leaving
-   input on a discarded stream. Endpoint connection creation is now
-   serialized and covered by a concurrent two-bundle test. The fixture also
-   locks its shared capture files so concurrent append bundles cannot
-   interleave record bytes. All four live `prism_v5_run` tests pass together;
-   the full harness suite and strict harness/proof lint pass.
-   No real Dataflow cloud job has reached `DONE` with the
-   v5 worker; cloud execution remains unverified and is not the requested
-   release proof at this stage.
-6. **Performance and formatting:** Two adjacent paired 100,000-row source-copy
-   samples measured v5 about 12.4–13.4× slower than v4, with matching output counts
-   and checksums; other workload ratios are in `V5_PHASE0_BASELINE.md`.
-   Source construction and Direct execution both contribute materially.
-   Fixed-size wire-length accounting removes a per-value length call on
-   source-only batches, but the adjacent timing change is too small to
-   distinguish confidently from run noise. A bounded slice reader for
-   `from_vec` then reduced an adjacent v5 source-copy median from 0.897 to
-   0.768 ms; the performance gate remains open.
-   Plain single-worker vector copies now collect inline without creating a
-   Rayon pool; transformed, materialized, parallel, and sink jobs retain their
-   job-owned pools. An alternating release sample moved source copy from
-   0.770 to 0.602 ms with the same output checksum, while map/filter stayed
-   near 1.15 ms. This does not close the v4 performance gap.
-   A paired whole-corpus peak-RSS sample measured 25.8 MiB for v4 and
-   54.4 MiB for v5. A per-operation allocation profile and a defined
-   performance threshold are still needed before calling performance
-   acceptable.
-   Isolated case runs now show 100,000-row GroupByKey at 5.41 MiB peak RSS
-   for v4 versus 14.16 MiB for v5, and inner join at 21.44 versus 50.48 MiB.
-   Source copy, map/filter, and JSONL peaks are much closer. A source-vector
-   reservation trial helped grouping but hurt joining and was reverted.
-   Streaming linear GroupByKey input directly into its keyed accumulator then
-   reduced an adjacent 100,000-row peak from 14.19 to 4.72 MiB, with matching
-   results and the source memory-limit behavior preserved. Its median latency
-   moved from 4.506 to 4.739 ms in that sample; the join memory gap remains.
-   The root workspace and all-feature Dataflow suites pass with this change;
-   the live local Prism fixture still reaches `DONE`. Fresh core/Direct/transforms
-   coverage passes the unchanged gates: core 2,354/2,443 source locations and
-   348/396 branches, Direct 1,779/1,891 and 349/380, and isolated common
-   transforms 1,163/1,189 and 108/116. Additional validator boundary cases
-   raised the isolated transforms branch ratio above its existing threshold.
-   The local test, documentation, and package matrix verified all twenty-five
-   v5 crates without publishing them.
-   A subsequent join-index change stores one left row position inline per
-   key and allocates a vector only for duplicate keys. An alternating
-   100,000-row unique-key sample moved from 17.332 to 15.356 ms and from
-   50.53 to 47.42 MiB peak RSS; a duplicate-key sample stayed near 7.7 ms
-   and 31.61 MiB. Both retained matching output counts and checksums. The
-   live Prism fixture still reaches `DONE`, and fresh core and Direct coverage
-   pass their unchanged gates at 2,367/2,457 source locations and 348/396
-   branches for core, and 1,779/1,891 and 349/380 for Direct. The larger
-   root workspace and all-feature Dataflow suites pass, and the changed core
-   and Direct crates verify as local packages. The larger join memory and
-   latency gaps versus v4 remain release work.
-   A later twelve-run alternating release sample still measured v5 at 9.9×
-   v4 for source copy, 11.1× for map/filter, 6.9× for GroupByKey, 1.4× for
-   inner join, and 2.8× for JSONL, with matching results. A short-frame
-   SHA-256 update trial slowed source construction and was reverted; its
-   paired timings are recorded in `V5_PHASE0_BASELINE.md`.
-   Built-in vector source digests are now computed only when checkpointing or
-   portable lowering requests source identity. The digest bytes are unchanged;
-   custom coder failures remain eager. A paired local release sample moved
-   source copy from 0.605 to 0.104 ms and map/filter from 1.217 to 0.728 ms
-   at 100,000 rows, with matching output. A separate paired v4/v5 sample
-   measured a 1.8× source-copy gap, while map/filter was still 6.4× and
-   GroupByKey 7.7×. Core and Direct tests, strict lint, Dataflow graph
-   translation tests, and unchanged coverage gates pass. This narrows the
-   source-copy cost but does not close the broader performance gate.
-   Sequential typed transform routes now read bounded vector batches directly
-   when no checkpoint is active. A paired local sample moved map/filter from
-   0.708 to 0.611 ms with identical output; source copy and GroupByKey were
-   flat. The wider transform performance gap remains open.
-   Typed Direct map/filter routes now append each completed batch through the
-   same checked output-store path as source-only routes. A 22-pair alternating
-   release sample at 100,000 rows moved the map/filter median from 0.620 to
-   0.489 ms with identical rows and checksum; source copy stayed near 0.10 ms.
-   Against a rebuilt, case-selected v4 benchmark, paired medians were v4
-   0.137 ms and v5 0.490 ms for map/filter (3.59×), 0.056 and 0.102 ms for
-   source copy (1.83×), and 0.616 and 4.608 ms for GroupByKey (7.49×).
-   Direct tests, the root v5 facade tests, strict Direct lint, and exact
-   transformed-output budget/spill regression tests pass. The grouping gap
-   remains the larger performance gate.
-   Built-in bounded vector sources can now feed a matching GroupByKey fold as
-   typed batches without allocating an envelope per tuple. Sources carrying
-   transform stages or other metadata retain the existing envelope path. A
-   22-pair alternating release sample at 100,000 keyed rows measured v4
-   0.605 ms and v5 2.472 ms (4.09×), versus 4.608 ms for v5 before this
-   change. Deferring the built-in `(u32, u32)` vector source digest until
-   checkpointing or portable lowering requests it preserved its exact coder
-   digest and moved a further paired sample to v4 0.619 ms and v5 1.340 ms
-   (2.16×). Group values, source memory limits, non-vector fallback, core,
-   Direct, transforms, root facade, and Dataflow graph/worker tests pass;
-   strict core and Direct lint passes. Grouping remains slower than v4.
-   A clean core/Direct/transforms coverage run passes unchanged CI gates:
-   core 2,420/2,515 source locations and 350/398 branches; Direct
-   1,821/1,938 source locations and 373/408 branches. The added failure-path
-   test verifies that vector source clone panics and grouping fold panics are
-   attributed to their respective nodes.
-   Separating the unassigned-window index lets a repeated key reuse its
-   existing group without cloning the key. A further 22-pair alternating
-   100,000-row release sample measured v4 0.609 ms and v5 1.045 ms (1.72×).
-   Core, Direct, Dataflow graph/worker tests and strict core/Direct lint pass;
-   a clean coverage rerun remains above the existing gates at core
-   2,430/2,525 lines and 354/402 branches and Direct 1,821/1,938 lines and
-   373/408 branches. The performance gap is still open.
-   The typed map/filter route now accumulates rejected-row metrics within each
-   batch and publishes one total, preserving transform order and cancellation
-   checks. An alternating 40-pair release comparison against the same checkout
-   before this change measured 100,000-row map/filter medians of 0.497 ms
-   before and 0.483 ms after; at one million rows, 3.984 ms before and
-   3.879 ms after. Output counts and checksums matched. Full Direct tests and
-   strict Direct lint pass. This is a small improvement, not closure of the
-   broader v4/v5 performance gate.
-   Local checkpoint replacement now generates a recognizable data filename
-   and validates the previous manifest before deleting its referenced data.
-   Tests show that path traversal, a sibling file, `latest.json`, mismatched
-   version or identity, and a bad progress checksum cannot trigger cleanup;
-   valid replacement still removes the prior data file. This does not add
-   aggregate-state recovery or v4 checkpoint policy parity. Full Direct tests,
-   strict lint, and clean coverage pass: Direct 1,894/2,011 source locations
-   and 384/420 branches, with core unchanged at 2,430/2,525 and 354/402.
-   The current core and worker also passed the live local Prism multi-source
-   execution fixture to `DONE`, and the root workspace all-feature test suite
-   completed successfully after these changes.
-   Direct can now checkpoint the completed output of a one-source bounded
-   aggregate when the source is a built-in vector and the output has a coder.
-   A second run recovers global-combine and GroupByKey results without opening
-   the source; grouped output also recovers through the spill path. A changed
-   source identity, partial source offset, and custom source fail closed.
-   Checkpoints are written only after the aggregate finishes, so mid-aggregate
-   restart and v4 barrier/time/node policies remain open. Full Direct tests,
-   strict lint, Dataflow graph/worker tests, and clean coverage pass: Direct
-   1,946/2,064 source locations and 399/436 branches, core 2,430/2,525 and
-   354/402.
-   Core now exposes an optional fold-state snapshot/restore contract.
-   GroupByKey serializes its in-progress keyed values and earliest-input time
-   metadata with an independently versioned, coder-bound state format, and restores its
-   group indexes before accepting more input. Tests cover resumed values and
-   windows, malformed coder bytes, duplicate groups, incompatible versions or coders,
-   and folds without a state coder. At this stage Direct had not yet connected
-   these snapshots to its checkpoint manager.
-   Clean core/Direct/transforms coverage passes unchanged gates at core
-   2,492/2,590 source locations and 370/420 branches, Direct 1,946/2,064
-   and 399/436; strict core lint passes.
-   Direct now persists and restores GroupByKey fold state between batches for
-   the exact built-in vector source → GroupByKey → output route. An interrupted
-   three-batch run resumes after its first committed batch and reads only the
-   remaining source rows; a later run recovers the completed output without
-   reading the source. Checkpoints bind the graph, source, output coder, binary
-   build, data digest, progress, and checkpoint kind. Invalid fold payloads,
-   altered manifests, offsets beyond the source, and state on a different
-   route fail closed. Checkpoint interval and memory budget are covered. The
-   local manifest schema is now 1.2; older v5 draft manifests are rejected.
-   Arbitrary folds, transforms before grouping, custom and unbounded sources,
-   and the v4 barrier/time/node policies still lack mid-run recovery. Fresh
-   coverage clears the core and Direct gates: core 2,492/2,590 lines and
-   370/420 branches; Direct 2,186/2,331 lines and 441/482 branches.
-   Affected core/Direct tests and strict lint, the root default-feature facade
-   tests, Dataflow graph/worker tests, and both live local Prism execution
-   fixtures pass. The first full all-feature workspace build exhausted local
-   disk space before tests started. After clearing generated build artifacts,
-   the full all-feature workspace test and doctest suite passed with Mr
-   Boxington enabled. This closes the workspace test gate for this change.
-   The GroupByKey restart path now also accepts linear map, filter, flat-map,
-   timestamp, and fixed-window stages after a built-in vector source. Its
-   vector-slice envelope reader starts at the saved source offset, while the
-   original typed-batch path remains for a direct vector → GroupByKey route.
-   A cancelled map/filter fixture resumes without revisiting committed rows;
-   a flat-map fixture preserves both outputs from committed source rows, and a
-   fixed-window fixture restores one window and completes another. Saved
-   state on a reshuffle route still fails closed. Source clone and transform
-   panics retain their respective node attribution. Fresh coverage passes at
-   core 2,509/2,607 lines and 370/420 branches, and Direct 2,259/2,407 lines
-   and 450/492 branches. Multi-input, custom, and unbounded sources remain
-   outside this mid-run checkpoint contract.
-   The full all-feature workspace tests and doctests, strict core/Direct lint,
-   separate Dataflow graph/worker tests, and both live local Prism fixtures
-   pass after this change.
-   Fold-state persistence and recovery now enforce the Direct job memory
-   budget before writing state or loading saved state bytes. Oversized saves leave the
-   previous valid checkpoint intact. Recovery rejects manifests over 1 MiB,
-   and rejects symlinked or non-regular manifest and data files before loading
-   the payload. Direct tests cover the manager checks and a grouped job whose
-   snapshot exceeds its budget. V4's scheduling policies persist only progress
-   markers and re-execute from the start; their v5 replacement still needs a
-   restorable-state scheduling contract. Fresh core and Direct coverage pass
-   unchanged gates at core 2,509/2,607 lines and 370/420 branches, and Direct
-   2,366/2,515 lines and 463/506 branches; strict Direct lint and the full
-   workspace all-feature test and doctest suite pass.
-   Workspace-wide `cargo fmt --all --check` currently reports formatting
-   changes in many untouched files. Changed files in this batch were formatted
-   locally; a focused workspace formatting pass remains for the final cutover.
+<details>
+<summary>Core coverage quality</summary>
+
+**Core coverage quality:** The old package-only CI baseline recorded 972/974
+ source locations and 210/222 branches before core grew. It omitted paths
+ exercised through Direct and transforms tests, so CI now gates the
+ three-package corpus. An earlier local report combined stale instrumented
+ generic and macro instances, yielding 2,121/2,656 source locations and a
+ false threshold failure. Repeating the exact CI corpus with an isolated
+ coverage target measured 1,841/1,917 source locations and 326/378 branches.
+ Tests for malformed set/map headers, tuple parts, and result bytes then
+ raised the clean corpus to 1,846/1,917 (96.30%) and 327/378 (86.51%),
+ above both existing CI thresholds. Coverage runs must start from a clean
+ instrumented target; the denominator is sensitive to cached generic
+ instances. Remaining uncovered paths include impossible-length guards and
+ failure branches for graph and runner contracts. Continue targeted coverage
+ work rather than treating this ratio as complete unit test coverage.
+ The common transforms package now has a reviewed isolated baseline of
+ 1,092/1,120 source locations (97.50%) and 82/90 active branch outcomes
+ (91.11%). The old 89/89, zero-branch baseline predates the expanded helper
+ corpus and did not measure branches. Tests now exercise partial accumulator
+ merges, constant side-input variants, sampler output forms, malformed
+ dead-letter coders, validation collection, t-digest merges, and custom
+ window combiners. The last test exposed and fixed recursion in both custom
+ window-combiner helpers. Remaining uncovered locations include allocation
+ overflow guards that cannot be reached with ordinary 64-bit buffers, plus
+ statistical and side-input edges. The new extension packages have separate
+ passing coverage gates. A fresh rerun after registry dispatch and time
+ metadata tests measured core at 2,049/2,127 source locations (96.33%) and
+ 332/384 branches (86.46%), passing both current CI ratios. This remains
+ a coverage quality review gate rather than a claim of complete unit tests;
+ untested validation and capability branches still need review.
+ The finalization adapter and fail-closed tests raised the fresh combined
+ core/Direct/transforms corpus to 2,297/2,384 source locations (96.35%) and
+ 346/394 branches (87.82%), above both unchanged CI thresholds.
+
+</details>
+
+<details>
+<summary>Portable feature corpus</summary>
+
+**Portable feature corpus:** The v5 translator now supports bounded,
+ global-window `group_by_key_named` through native Beam KV/iterable coders
+ and a live Prism shuffle proof. Its keyed input can also feed an ordinary
+ branch, verified by another sink in that Prism job. It still rejects
+ some unbounded source graph shapes, update sinks, and
+ whole-job final-result sinks. Core now registers typed split/reassembly
+ coders for actual `group_by_key_named` nodes. `latest_per_key_named` now
+ composes timestamp capture, a native keyed shuffle, first-seen maximum
+ selection, and event-time restoration. A live local Prism job verifies
+ the latest value for two keys with the selected timestamps and fixed-window
+ intervals intact; the complete four-test Prism suite passes. Equal-time
+ ties are first-seen in Direct, while portable shuffle order is not stable.
+ Direct now specializes the private keyed-latest grouping fold to keep one
+ candidate per key and window; a unit test saves and restores that fold
+ state. Timestamp capture and selection each use one graph node, and the
+ updated local Prism fixture still reaches `DONE`. The 100,000-row,
+ 100-key v4/v5 benchmark corpus produces the same 100 rows and checksum
+ 9,994,950. A single-output Direct fold route now passes elements through
+ map, filter, timestamp, and window stages without allocating temporary
+ vectors at each stage; routes with FlatMap keep their multi-output path.
+ For a built-in vector source followed immediately by timestamp assignment
+ and the private keyed timestamp-capture node, Direct now feeds typed batches
+ into that fold without per-row envelopes. Other graph shapes keep the
+ general route. In a 14-run alternating local sample, v5's median was
+ 1.328 ms against v4's 0.762 ms, down from 5.390 ms in the prior v5
+ 12-run sample. One peak-RSS run measured 4.1 MiB for v5 and 7.3 MiB for
+ v4; these are local measurements, not a broad performance conclusion.
+ The wider v4/v5 latency gate remains open.
+ Direct now checkpoints GroupByKey routes with validated stateless stages
+ after the group, including keyed-latest selection and time/window metadata
+ projection. An end-to-end test fails after the first saved two-row group
+ batch, resumes the remaining three rows without replaying the committed
+ batch, verifies selected event times and the fixed-window interval, then
+ loads completed output without reopening the source. The full Direct suite
+ and strict lint pass for this route extension. The full local package gate
+ passed after this extension, verifying all twenty-five v5 packages without
+ publishing. The live Prism fixture passed before this Direct-only extension. A Direct
+ regression test checks three typed batches,
+ selected timestamps, equal-time ties, timestamp-panic attribution, and
+ cancellation before output publication. The current coverage corpus passes
+ the core gates at 2,857/2,972 source locations (96.13%) and 435/492
+ branches (88.41%), and passes the transforms gates at 1,163/1,189
+ source locations (97.81%) and 108/116 branches (93.10%). Direct source
+ coverage passes at 3,588/3,835 (93.56%) and 761/844 branches (90.17%)
+ against the unchanged 91% line and 90% branch floors. The exact CI corpus
+ passed again after cleaning the instrumented target, and the full workspace
+ tests, strict Direct lint, and local gate for all twenty-five v5 packages
+ passed with these additions. A downstream flat-map
+ failure also resumes from the finished group state without reopening its
+ source, and a parallel grouped sink keeps its filtered rows and metrics.
+ Added tests cover malformed
+ latest registry input, fold checkpoint corruption, duplicate stream sinks,
+ repeated stream cursors, non-idempotent or uncommitted stream sinks, source
+ and combined branch buffer limits, accumulated fan-out budgets, filtered
+ sink and wait-on stages, non-vector grouped-source memory limits, and
+ stream checkpoint identity rejection, and sink abort when a later route
+ stage observes cancellation. New tests also cover mid-transform cancellation
+ on typed, envelope, and materialized routes, wait-on signal cancellation,
+ generic output memory limits, checkpoint directory races, and pair terminal
+ validation. The numeric Direct coverage gate now passes; uncovered paths
+ still need quality review before declaring complete unit test coverage.
+ Bounded Direct now rejects sinks registered for runner bundle finalization
+ before opening sources or sink sessions. It also probes opened sessions,
+ aborting them if an undeclared finalization requirement or a probe panic is
+ found. Single and paired sink regressions pass, as do the full workspace
+ suite, strict Direct lint, and the clean combined coverage corpus.
+ Bounded `run_collect_pair` now checkpoints both coded output branches in one
+ checksum-verified, versioned manifest bound to their keys and coder versions.
+ Recovery reopens the source and skips accepted rows without re-running their
+ transforms; it preserves both result orders. A completed checkpoint returns
+ without reopening a source with a length hint.
+ Tests cover retry after a second-batch transform failure, an empty source,
+ asymmetric spilled branches, build identity mismatch, and corrupted side
+ tags, counts, and checkpoint kind. This is limited to the existing linear
+ two-output route; general fan-out, atomic multi-sink commit, and bounded
+ sink-pair checkpointing remain open. The full workspace tests, strict Direct
+ lint, clean combined coverage, and local verification of all twenty-five
+ v5 packages pass after this change; publication remains staged locally.
+ `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
+ typed tagged-value coder contracts for their inputs. Tests cover
+ heterogeneous values, empty groups, and invalid tags. The translator now
+ expands co-group nodes into tagged ParDos, native Flatten, and native
+ GroupByKey. A live Prism job verifies two and three heterogeneous inputs,
+ ten same-typed inputs, shared branches, and fixed-window groups. Intermediate arities use
+ the same generated path but lack individual live fixtures. The worker
+ also reconstructs per-key left and right events from Beam's tagged
+ shuffle and invokes the same aggregate used by Direct for inner, left,
+ right, and full joins. Tagged join values preserve each input timestamp;
+ the live Prism corpus checks duplicate-key products, unmatched rows,
+ interval windows, and timestamps.
+ The worker decodes fixed and chunked inline iterables and can resolve
+ Beam state-backed iterables through the Fn State client. Prefix, token,
+ and fetched suffix assembly have focused tests, and a mock runner drives
+ the actual Fn Data and Fn State RPCs into a typed grouped result. A Prism-emitted
+ state-backed group still needs a live proof. A local Prism job now also
+ groups 512 distinct 4 KiB values and verifies the count, total payload
+ length, and full-byte SHA-256 after shuffle. The tested Prism build encodes
+ GBK iterables inline, so this verifies large inline payloads rather than
+ state-backed fetching. Bounded millisecond-aligned fixed windows lower
+ to native Beam
+ `WindowInto`; the worker carries interval metadata across Fn API boundaries.
+ One live Prism job verifies assigned intervals and keyed counts in each
+ fixed window. The same job verifies native Reshuffle with values and
+ fixed-window metadata intact. Other window types and full time-metadata
+ parity remain open. Core now exposes the same bounded side-view
+ materialization and mapping functions to Direct and portable workers;
+ materialized views are transferable across executor threads. The separate
+ Dataflow harness uses a tested Fn State client with continuation and error
+ handling. Beam side-input ParDo lowering, bundle validation, and worker
+ materialization reach `DONE` in local Prism for bounded global and
+ fixed-window views. For a fixed-window side collection, the translator
+ inserts a global-window branch so Beam materializes the same whole view
+ as Direct. The live fixture uses an order-independent materializer;
+ iterable order across the portable side branch is not yet proven to match
+ Direct for order-sensitive materializers. Stateful or unbounded side views
+ remain outside this proof.
+ Bounded `wait_on` now lowers through a completion side view, with a
+ global-window mapping for a windowed signal. A live Prism job verifies that
+ its sink receives main values and fixed-window metadata only after the
+ signal source finishes; altered signal wiring fails contract validation.
+
+</details>
+
+<details>
+<summary>Remote I/O</summary>
+
+**Remote I/O:** Provider clients can access hosted object storage from the
+ bounded `ObjectIO` interface, but the local Prism worker still shares the
+ driver's filesystem. Driver-local file paths are not staged to cloud
+ workers, and root file sinks use whole-job final-result commit semantics
+ that are unsafe across independent Fn API bundles. Remote worker staging,
+ a runner-wide output commit protocol, and live provider tests remain.
+
+</details>
+
+<details>
+<summary>Root replacement</summary>
+
+**Root replacement:** The root package is now v5-only; its local v4 modules
+ and `legacy-v4` feature are removed. Published 4.1.1 remains the reference
+ through `ironbeam-compat`. The root package is still versioned `4.1.1`, and
+ its public API, runtime, and portable feature gates must pass before setting
+ version `5.0.0`.
+ The published v4 `with_keys` and flatten suites (37 tests) now run from
+ `ironbeam-compat` instead of root legacy test binaries. A twelve-input
+ corpus compares those v4 results with sequential and three-worker v5
+ Direct keying, constant-key assignment, and flatten results.
+ The separate Dataflow workspace's WordCount example now uses the v5 graph,
+ typed sink, and `run_v5_from_env`; its Direct result and portable protobuf
+ preparation pass, and its default dependency tree excludes the v4 root.
+ The Dataflow runtime and graph translator now expose only v5 lowering;
+ their v4 entrypoints, translation tests, and example have been replaced.
+ The all-feature Dataflow workspace suite and strict package lint pass.
+ The separate Dataflow harness has also removed its optional v4 root
+ dependency and old DynOp execution path. Its remaining plan, control, and
+ worker fixtures use the v5 DoFn wire contract; the planner rejects the
+ old v4 URN. The all-feature Dataflow workspace tests and strict graphx
+ and harness lint pass, and its lockfile no longer contains `ironbeam` v4.
+ The full multi-source, format, grouping, and finalized-sink Prism fixture
+ reached `DONE` again through a separate v5 worker after this cutover.
+ The root package's own v4 modules and compatibility feature have since been
+ removed; the remaining behavior and API replacement gates are still open.
+ `ironbeam-cloud` still contains legacy traits, fake services, readers,
+ and helpers. Its compression and object APIs now reexport separate crates;
+ v5 JSONL and shared I/O no longer depend on it. Remove
+ the remaining legacy package from the v5 runtime and root feature graph
+ during the v4 cutover. Its earlier isolated source corpus measured only
+ 37/1,695 locations after the object extraction, so reexports alone do not
+ make the legacy package release-ready.
+
+</details>
+
+<details>
+<summary>Execution proof</summary>
+
+**Execution proof:** The user chose local Prism proof for now. On
+ 2026-10-10, the opt-in `ironbeam-prism-proof` test passed against a real
+ local Prism JobService. It passed again on 2026-10-11 after the core coder
+ and Direct changes, after the object source migrated to the URI adapter,
+ and with an actual `FinalizeBundle` callback for a pending sink fragment;
+ the Prism service was stopped afterward. That fixture
+ checks completed jobs and captured
+ values for its bounded sources and sinks, JSONL, Avro, CSV, protobuf,
+ object-backed JSONL, Flatten, grouping, joins, side input, Reshuffle,
+ event-time assignment, and fixed windows. Its object-backed fixture uses
+ a shared local filesystem, so it does not prove remote staging.
+ The v5 worker now serves compact Fn API monitoring metadata, and a live
+ Prism run returns committed element counts for sources and intermediate
+ collections. A transform-scoped user counter now records the finalized
+ sink's input count; the live fixture verifies that this committed count
+ equals the accepted fragment row total. Shared I/O now stages immutable,
+ scoped, checksummed local fragments and accepts them only after the bundle
+ callback. After `DONE`, the Prism driver verifies committed row accounting,
+ validates the assembled framed records before visibility, atomically
+ publishes one file, and confirms an idempotent retry. This is a live
+ single-bundle local proof. A real TFRecord fragment sink now spools each
+ bundle to disk, stages it through shared I/O, and publishes after `DONE`;
+ the publisher checks every frame and CRC, and the v5 reader reopens the
+ original three rows. A native-schema Avro fragment sink also publishes one
+ Avro container after `DONE`; the v5 reader reopens all three rows, and a
+ repeated publication produces identical bytes. MessagePack and CBOR now
+ use a shared sequence-fragment lifecycle with format-specific streaming
+ validation; both publish and reopen the same three rows after `DONE` in
+ local Prism. Protobuf uses that lifecycle too, validating every
+ length-delimited record before publication and reopening the same rows.
+ JSONL now uses the same finalized fragment lifecycle: each record is
+ validated as JSON with a complete newline before publication. The live
+ local Prism job publishes and reopens all three rows after `DONE`, and
+ retrying publication is idempotent. Local tests reject malformed and
+ truncated fragments without replacing an existing result. Its isolated
+ coverage is 380/403 source locations and 36/38 branches, above the
+ unchanged package baseline.
+ CSV now has a header-aware finalized bundle sink. The same live Prism
+ job publishes one CSV header and reopens all three rows after `DONE`;
+ local tests cover multiple bundles, quoted multiline values, mismatched
+ headers, malformed rows, empty bundles, and retry recovery. Publication
+ checks the runner's committed row count and is idempotent.
+ The expanded CSV crate's isolated all-feature coverage is 329/355 source
+ locations and 34/38 branches; this measured baseline replaces the former
+ 67/68 and 2/2 threshold from before bundle finalization existed.
+ Portable CSV publication currently targets an uncompressed file; the
+ existing Direct CSV sink retains its optional compressed output.
+ XML now stages complete item elements per bundle. The live Prism fixture
+ reads XML input, publishes a single validated XML document after `DONE`,
+ and reopens all three output rows. Local tests cover escaped text,
+ multiple fragments, empty output, malformed elements, row-count mismatch,
+ and idempotent publication. Portable XML publication is uncompressed.
+ Its isolated all-feature coverage is 160/169 source locations and 6/6
+ branches, replacing the former 42/43 source baseline from before the
+ fragment lifecycle was added.
+ Parquet now stages typed coder frames per bundle and publishes one native
+ Parquet file after `DONE`, decoding in batches of at most 1,024 rows.
+ The live Prism fixture reads a Parquet source and reopens all three
+ finalized output rows. Local tests cover multiple bundles, more than one
+ record batch, empty output, corrupt frames, uncoded types, wrong counts,
+ and idempotent publication. Its isolated all-feature coverage is 310/338
+ source locations and 23/24 branches, above the existing package gate.
+ Arrow IPC row output now uses the same accepted-bundle lifecycle and
+ publishes one native file in batches of at most 1,024 decoded rows. Local
+ tests cover multiple bundles, batch rollover, empty output, corrupt frames,
+ uncoded types, wrong counts, and idempotent publication. A separate local
+ Prism fixture reads native Arrow input, crosses Reshuffle, publishes after
+ `DONE`, and reopens all three rows with the finalized sink as its only
+ terminal. The initial lowering gave that terminal an unused Beam output;
+ Prism reported `DONE` with zero Impulse elements. The Dataflow integration
+ now lowers sinks without Beam outputs, and both the isolated final-only
+ Arrow job and the larger multi-source Prism job pass with that contract.
+ Arrow's isolated all-feature coverage is 560/618 source locations and
+ 39/44 branches, above the existing package gate; its strict lint and
+ offline package verification pass.
+ Native Arrow record-batch output now stages one coded batch per element,
+ verifies every batch's schema and committed count, and publishes one Arrow
+ IPC file after `DONE`. Unit tests cover multiple bundle fragments, schema
+ disagreement, corrupt frames, empty output, and idempotent publication.
+ The separate Prism job now also reads the input as record batches and
+ reopens the finalized batch file with its three original rows.
+ Publication also rejects pending or orphaned staging
+ entries even if their row count is zero. Malformed MessagePack and CBOR
+ fragments cannot replace an existing result, and failed serialization
+ leaves no accepted fragment. The combined I/O coverage corpus measured
+ shared I/O at 873/901 source locations and 102/106 branches, MessagePack
+ at 112/116 and 8/8, CBOR at 100/104 and 7/8, Protobuf at 172/183 and
+ 18/20, and TFRecord at 398/422 and 35/38; all pass unchanged gates.
+ Avro's gate is rebased to its expanded native fragment module at 367/387
+ source locations and 27/28 branches. The untested lines are primarily
+ filesystem and integer-overflow errors; malformed datum, wrong schema,
+ wrong count, pending fragments, and repeated publication are exercised.
+ Multi-bundle retry and worker-restart recovery remain unproved. A local
+ two-source Flatten experiment reached `DONE`, but Prism coalesced its Avro
+ output into one final sink bundle, so it did not close the multi-bundle gate.
+ A later production SDF fixture closed the successful multi-bundle slice:
+ its residual restriction produced at least two finalized framed fragments
+ in a live Prism job. The driver published all three original values only
+ after `DONE` with committed row-count validation. A runner retry or
+ abandoned attempt and no-partial-publish proof on failure remain open.
+ The worker now passes a stable bundle attempt ID to each sink before writes;
+ the Prism probe uses it for deterministic fragment names and rejects a
+ conflicting replay. This prepares durable manifest and publication work.
+ Shared local fragment acceptance can now resume after a process stops
+ between creating the accepted hard link and removing the pending name:
+ a reopened scope verifies both complete files are byte-identical before
+ removing the pending name. Conflicting bytes still fail closed. This fixes
+ the fragment-store crash window. The worker can now record the exact sink
+ set for each bundle in a local, identity-bound finalization journal before
+ returning `ProcessBundleResponse`. A fresh registry recovers a Protobuf
+ fragment using only that record, rejects unknown and missing fragments,
+ and persists a completion marker for duplicate callbacks. The ten-sink
+ local Prism job reached `DONE` with journal records and matching completion
+ markers. A separate two-process test exits immediately after staging and
+ reopens the journal in a fresh process to finalize and publish Protobuf.
+ The worker also has an object-backed journal using the provider-neutral
+ object API; a local object-provider test verifies exact multi-sink recovery.
+ An actual worker kill/restart during a live Prism job and a hosted object
+ storage proof remain open.
+ The two-process Protobuf recovery test now rebuilds `V5BundleExecutor` in
+ each process and invokes its bundle-finalization callback, rather than
+ calling the journal registry directly. A changed worker build ID fails
+ identity validation before recovery; a duplicate callback in another
+ fresh process succeeds after the completion marker is durable. The full
+ local Prism graph and Arrow fixture still reach `DONE` after the latest
+ core changes. Prism's process environment does not itself restart a dead
+ worker process, so a supervised live restart proof remains open.
+ A transient Prism run also exposed an empty source-rooted bundle; the worker
+ now closes its runner outputs without opening the user source for that case,
+ with a focused Fn Data regression test and a subsequent live passing run.
+ Recovery requires `IRONBEAM_V5_FINALIZATION_JOURNAL_DIR` to point to the
+ same durable local directory after restart. Without that setting the
+ worker uses its in-memory registry and cannot recover after process loss.
+ The v5 worker now tracks progress across multiple sinks in one bundle:
+ when a later finalizer fails, retry resumes at that sink without replaying
+ earlier successes. A two-bundle registry test also verifies isolated and
+ duplicate callbacks; the live Prism proof above covers successful
+ multi-bundle completion.
+ The larger opt-in Prism graph fixture now reaches `DONE` again. The stall
+ was a concurrent Fn Data connection race: source bundles could open
+ multiple streams for one endpoint before the worker cached one, leaving
+ input on a discarded stream. Endpoint connection creation is now
+ serialized and covered by a concurrent two-bundle test. The fixture also
+ locks its shared capture files so concurrent append bundles cannot
+ interleave record bytes. All four live `prism_v5_run` tests pass together;
+ the full harness suite and strict harness/proof lint pass.
+ No real Dataflow cloud job has reached `DONE` with the
+ v5 worker; cloud execution remains unverified and is not the requested
+ release proof at this stage.
+
+</details>
+
+<details>
+<summary>Performance and formatting</summary>
+
+**Performance and formatting:** Two adjacent paired 100,000-row source-copy
+ samples measured v5 about 12.4–13.4× slower than v4, with matching output counts
+ and checksums; other workload ratios are in `V5_PHASE0_BASELINE.md`.
+ Source construction and Direct execution both contribute materially.
+ Fixed-size wire-length accounting removes a per-value length call on
+ source-only batches, but the adjacent timing change is too small to
+ distinguish confidently from run noise. A bounded slice reader for
+ `from_vec` then reduced an adjacent v5 source-copy median from 0.897 to
+ 0.768 ms; the performance gate remains open.
+ Plain single-worker vector copies now collect inline without creating a
+ Rayon pool; transformed, materialized, parallel, and sink jobs retain their
+ job-owned pools. An alternating release sample moved source copy from
+ 0.770 to 0.602 ms with the same output checksum, while map/filter stayed
+ near 1.15 ms. This does not close the v4 performance gap.
+ A paired whole-corpus peak-RSS sample measured 25.8 MiB for v4 and
+ 54.4 MiB for v5. A per-operation allocation profile and a defined
+ performance threshold are still needed before calling performance
+ acceptable.
+ Isolated case runs now show 100,000-row GroupByKey at 5.41 MiB peak RSS
+ for v4 versus 14.16 MiB for v5, and inner join at 21.44 versus 50.48 MiB.
+ Source copy, map/filter, and JSONL peaks are much closer. A source-vector
+ reservation trial helped grouping but hurt joining and was reverted.
+ Streaming linear GroupByKey input directly into its keyed accumulator then
+ reduced an adjacent 100,000-row peak from 14.19 to 4.72 MiB, with matching
+ results and the source memory-limit behavior preserved. Its median latency
+ moved from 4.506 to 4.739 ms in that sample; the join memory gap remains.
+ The root workspace and all-feature Dataflow suites pass with this change;
+ the live local Prism fixture still reaches `DONE`. Fresh core/Direct/transforms
+ coverage passes the unchanged gates: core 2,354/2,443 source locations and
+ 348/396 branches, Direct 1,779/1,891 and 349/380, and isolated common
+ transforms 1,163/1,189 and 108/116. Additional validator boundary cases
+ raised the isolated transforms branch ratio above its existing threshold.
+ The local test, documentation, and package matrix verified all twenty-five
+ v5 crates without publishing them.
+ A subsequent join-index change stores one left row position inline per
+ key and allocates a vector only for duplicate keys. An alternating
+ 100,000-row unique-key sample moved from 17.332 to 15.356 ms and from
+ 50.53 to 47.42 MiB peak RSS; a duplicate-key sample stayed near 7.7 ms
+ and 31.61 MiB. Both retained matching output counts and checksums. The
+ live Prism fixture still reaches `DONE`, and fresh core and Direct coverage
+ pass their unchanged gates at 2,367/2,457 source locations and 348/396
+ branches for core, and 1,779/1,891 and 349/380 for Direct. The larger
+ root workspace and all-feature Dataflow suites pass, and the changed core
+ and Direct crates verify as local packages. The larger join memory and
+ latency gaps versus v4 remain release work.
+ A later twelve-run alternating release sample still measured v5 at 9.9×
+ v4 for source copy, 11.1× for map/filter, 6.9× for GroupByKey, 1.4× for
+ inner join, and 2.8× for JSONL, with matching results. A short-frame
+ SHA-256 update trial slowed source construction and was reverted; its
+ paired timings are recorded in `V5_PHASE0_BASELINE.md`.
+ Built-in vector source digests are now computed only when checkpointing or
+ portable lowering requests source identity. The digest bytes are unchanged;
+ custom coder failures remain eager. A paired local release sample moved
+ source copy from 0.605 to 0.104 ms and map/filter from 1.217 to 0.728 ms
+ at 100,000 rows, with matching output. A separate paired v4/v5 sample
+ measured a 1.8× source-copy gap, while map/filter was still 6.4× and
+ GroupByKey 7.7×. Core and Direct tests, strict lint, Dataflow graph
+ translation tests, and unchanged coverage gates pass. This narrows the
+ source-copy cost but does not close the broader performance gate.
+ Sequential typed transform routes now read bounded vector batches directly
+ when no checkpoint is active. A paired local sample moved map/filter from
+ 0.708 to 0.611 ms with identical output; source copy and GroupByKey were
+ flat. The wider transform performance gap remains open.
+ Typed Direct map/filter routes now append each completed batch through the
+ same checked output-store path as source-only routes. A 22-pair alternating
+ release sample at 100,000 rows moved the map/filter median from 0.620 to
+ 0.489 ms with identical rows and checksum; source copy stayed near 0.10 ms.
+ Against a rebuilt, case-selected v4 benchmark, paired medians were v4
+ 0.137 ms and v5 0.490 ms for map/filter (3.59×), 0.056 and 0.102 ms for
+ source copy (1.83×), and 0.616 and 4.608 ms for GroupByKey (7.49×).
+ Direct tests, the root v5 facade tests, strict Direct lint, and exact
+ transformed-output budget/spill regression tests pass. The grouping gap
+ remains the larger performance gate.
+ Built-in bounded vector sources can now feed a matching GroupByKey fold as
+ typed batches without allocating an envelope per tuple. Sources carrying
+ transform stages or other metadata retain the existing envelope path. A
+ 22-pair alternating release sample at 100,000 keyed rows measured v4
+ 0.605 ms and v5 2.472 ms (4.09×), versus 4.608 ms for v5 before this
+ change. Deferring the built-in `(u32, u32)` vector source digest until
+ checkpointing or portable lowering requests it preserved its exact coder
+ digest and moved a further paired sample to v4 0.619 ms and v5 1.340 ms
+ (2.16×). Group values, source memory limits, non-vector fallback, core,
+ Direct, transforms, root facade, and Dataflow graph/worker tests pass;
+ strict core and Direct lint passes. Grouping remains slower than v4.
+ A clean core/Direct/transforms coverage run passes unchanged CI gates:
+ core 2,420/2,515 source locations and 350/398 branches; Direct
+ 1,821/1,938 source locations and 373/408 branches. The added failure-path
+ test verifies that vector source clone panics and grouping fold panics are
+ attributed to their respective nodes.
+ Separating the unassigned-window index lets a repeated key reuse its
+ existing group without cloning the key. A further 22-pair alternating
+ 100,000-row release sample measured v4 0.609 ms and v5 1.045 ms (1.72×).
+ Core, Direct, Dataflow graph/worker tests and strict core/Direct lint pass;
+ a clean coverage rerun remains above the existing gates at core
+ 2,430/2,525 lines and 354/402 branches and Direct 1,821/1,938 lines and
+ 373/408 branches. The performance gap is still open.
+ The typed map/filter route now accumulates rejected-row metrics within each
+ batch and publishes one total, preserving transform order and cancellation
+ checks. An alternating 40-pair release comparison against the same checkout
+ before this change measured 100,000-row map/filter medians of 0.497 ms
+ before and 0.483 ms after; at one million rows, 3.984 ms before and
+ 3.879 ms after. Output counts and checksums matched. Full Direct tests and
+ strict Direct lint pass. This is a small improvement, not closure of the
+ broader v4/v5 performance gate.
+ Local checkpoint replacement now generates a recognizable data filename
+ and validates the previous manifest before deleting its referenced data.
+ Tests show that path traversal, a sibling file, `latest.json`, mismatched
+ version or identity, and a bad progress checksum cannot trigger cleanup;
+ valid replacement still removes the prior data file. This does not add
+ aggregate-state recovery or v4 checkpoint policy parity. Full Direct tests,
+ strict lint, and clean coverage pass: Direct 1,894/2,011 source locations
+ and 384/420 branches, with core unchanged at 2,430/2,525 and 354/402.
+ The current core and worker also passed the live local Prism multi-source
+ execution fixture to `DONE`, and the root workspace all-feature test suite
+ completed successfully after these changes.
+ Direct can now checkpoint the completed output of a one-source bounded
+ aggregate when the source is a built-in vector and the output has a coder.
+ A second run recovers global-combine and GroupByKey results without opening
+ the source; grouped output also recovers through the spill path. A changed
+ source identity, partial source offset, and custom source fail closed.
+ Checkpoints are written only after the aggregate finishes, so mid-aggregate
+ restart and v4 barrier/time/node policies remain open. Full Direct tests,
+ strict lint, Dataflow graph/worker tests, and clean coverage pass: Direct
+ 1,946/2,064 source locations and 399/436 branches, core 2,430/2,525 and
+ 354/402.
+ Core now exposes an optional fold-state snapshot/restore contract.
+ GroupByKey serializes its in-progress keyed values and earliest-input time
+ metadata with an independently versioned, coder-bound state format, and restores its
+ group indexes before accepting more input. Tests cover resumed values and
+ windows, malformed coder bytes, duplicate groups, incompatible versions or coders,
+ and folds without a state coder. At this stage Direct had not yet connected
+ these snapshots to its checkpoint manager.
+ Clean core/Direct/transforms coverage passes unchanged gates at core
+ 2,492/2,590 source locations and 370/420 branches, Direct 1,946/2,064
+ and 399/436; strict core lint passes.
+ Direct now persists and restores GroupByKey fold state between batches for
+ the exact built-in vector source → GroupByKey → output route. An interrupted
+ three-batch run resumes after its first committed batch and reads only the
+ remaining source rows; a later run recovers the completed output without
+ reading the source. Checkpoints bind the graph, source, output coder, binary
+ build, data digest, progress, and checkpoint kind. Invalid fold payloads,
+ altered manifests, offsets beyond the source, and state on a different
+ route fail closed. Checkpoint interval and memory budget are covered. The
+ local manifest schema is now 1.2; older v5 draft manifests are rejected.
+ Arbitrary folds, transforms before grouping, custom and unbounded sources,
+ and the v4 barrier/time/node policies still lack mid-run recovery. Fresh
+ coverage clears the core and Direct gates: core 2,492/2,590 lines and
+ 370/420 branches; Direct 2,186/2,331 lines and 441/482 branches.
+ Affected core/Direct tests and strict lint, the root default-feature facade
+ tests, Dataflow graph/worker tests, and both live local Prism execution
+ fixtures pass. The first full all-feature workspace build exhausted local
+ disk space before tests started. After clearing generated build artifacts,
+ the full all-feature workspace test and doctest suite passed with Mr
+ Boxington enabled. This closes the workspace test gate for this change.
+ The GroupByKey restart path now also accepts linear map, filter, flat-map,
+ timestamp, and fixed-window stages after a built-in vector source. Its
+ vector-slice envelope reader starts at the saved source offset, while the
+ original typed-batch path remains for a direct vector → GroupByKey route.
+ A cancelled map/filter fixture resumes without revisiting committed rows;
+ a flat-map fixture preserves both outputs from committed source rows, and a
+ fixed-window fixture restores one window and completes another. Saved
+ state on a reshuffle route still fails closed. Source clone and transform
+ panics retain their respective node attribution. Fresh coverage passes at
+ core 2,509/2,607 lines and 370/420 branches, and Direct 2,259/2,407 lines
+ and 450/492 branches. Multi-input, custom, and unbounded sources remain
+ outside this mid-run checkpoint contract.
+ The full all-feature workspace tests and doctests, strict core/Direct lint,
+ separate Dataflow graph/worker tests, and both live local Prism fixtures
+ pass after this change.
+ Fold-state persistence and recovery now enforce the Direct job memory
+ budget before writing state or loading saved state bytes. Oversized saves leave the
+ previous valid checkpoint intact. Recovery rejects manifests over 1 MiB,
+ and rejects symlinked or non-regular manifest and data files before loading
+ the payload. Direct tests cover the manager checks and a grouped job whose
+ snapshot exceeds its budget. V4's scheduling policies persist only progress
+ markers and re-execute from the start; their v5 replacement still needs a
+ restorable-state scheduling contract. Fresh core and Direct coverage pass
+ unchanged gates at core 2,509/2,607 lines and 370/420 branches, and Direct
+ 2,366/2,515 lines and 463/506 branches; strict Direct lint and the full
+ workspace all-feature test and doctest suite pass.
+ Workspace-wide `cargo fmt --all --check` currently reports formatting
+ changes in many untouched files. Changed files in this batch were formatted
+ locally; a focused workspace formatting pass remains for the final cutover.
 
 The core now registers typed TestStream fixtures with a stable source digest,
 timestamped encoded elements, and monotonic watermark controls. The separate
@@ -1175,6 +1547,9 @@ larger runner surface; the former 93.74%/91.38% ratios were measured before
 unbounded execution was added. This is a coverage floor, not a claim that
 the remaining runner paths are complete.
 
+</details>
+
 The detailed architecture and exit criteria remain in
-`WORKSPACE_ARCHITECTURE_PLAN.md`, `IRONBEAM_V5_EXECUTION_PLAN.md`, and
-`V5_REPLACEMENT_ROADMAP.md`.
+[WORKSPACE_ARCHITECTURE_PLAN.md](WORKSPACE_ARCHITECTURE_PLAN.md),
+[IRONBEAM_V5_EXECUTION_PLAN.md](IRONBEAM_V5_EXECUTION_PLAN.md), and
+[V5_REPLACEMENT_ROADMAP.md](V5_REPLACEMENT_ROADMAP.md).
