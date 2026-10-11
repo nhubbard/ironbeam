@@ -70,9 +70,9 @@ staged locally.
   `*`, `**`, `?`, literal, Unicode, and newline rules without pulling the
   regex engine into default v5 root tests. The package gate checks that both
   regex and Testcontainers stay out of the v5-only root dependency tree.
-  Protobuf is now in
-  `ironbeam-io-protobuf` with 93/100 source locations and 16/18 branches
-  measured under all features. TFRecord has its own crate and a bundle-compatible
+  Protobuf is in `ironbeam-io-protobuf` with a bundle-compatible append sink;
+  it measures 136/146 source locations and 18/20 branches under all features,
+  above its CI ratios. TFRecord has its own crate and a bundle-compatible
   append sink; its all-feature coverage is 209/226 source locations and 18/20
   branches, above the existing CI ratios. Shared lifecycle I/O measures 265/276
   locations and 25/26 branches through the extracted format packages.
@@ -88,7 +88,7 @@ staged locally.
   with values in two fixed windows that is globally materialized to match
   Direct's side-view behavior,
   native Reshuffle in global and fixed windows,
-  and twenty-three terminal
+  and twenty-four terminal
   append sinks. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
@@ -97,6 +97,10 @@ staged locally.
   An extracted CSV source crosses the live Prism worker coder boundary.
   A length-delimited Protobuf file source decodes a typed v5 element, runs a
   transform in the worker, and writes the asserted result through a terminal sink.
+  A separate Protobuf append sink writes length-delimited records in the worker;
+  the v5 reader verifies the typed output. The append path needs a shared
+  filesystem and may duplicate records on replay. Whole-job replacement still
+  needs a runner-wide commit protocol.
   A TFRecord source reads a v5 Direct-written record through the separately
   launched worker, decodes its Protobuf payload, and writes the asserted
   transformed row. A separate TFRecord append sink writes complete frames in

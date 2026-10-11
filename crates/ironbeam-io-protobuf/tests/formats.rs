@@ -1,4 +1,4 @@
-use ironbeam_core::{Element, ErrorKind, Pipeline};
+use ironbeam_core::{Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
 use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_io_protobuf::*;
 use std::fs;
@@ -13,6 +13,63 @@ struct ProtoRow {
 impl Element for ProtoRow {
     const TYPE_ID: &'static str = "tests/proto-row";
     const CODER_ID: &'static str = "tests/proto-row-protobuf";
+}
+
+#[test]
+fn append_sink_preserves_delimited_records_and_reports_destination_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nested").join("rows.pb");
+    let old = ProtoRow {
+        id: 1,
+        name: "old".into(),
+    };
+    let new = ProtoRow {
+        id: 2,
+        name: "new".into(),
+    };
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![old.clone()]).unwrap();
+    let sink = protobuf_append_sink(&input, "append-old", &path).unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert!(matches!(
+        &graph.node("append-old").unwrap().operation,
+        Operation::Sink { spec }
+            if spec.mode == SinkMode::Append && spec.replay == Replay::AtLeastOnce && spec.commit
+    ));
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let second = Pipeline::default().from_vec("second", vec![new.clone()]).unwrap();
+    DirectRunner
+        .run_sink(
+            &protobuf_append_sink(&second, "append-new", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let output = protobuf_source::<ProtoRow>(&Pipeline::default(), "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(output.collect_seq().unwrap(), vec![old, new]);
+    assert_eq!(
+        protobuf_append_sink(&second, "compressed", dir.path().join("rows.pb.gz"))
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+    let destination_is_directory = dir.path().join("directory");
+    fs::create_dir(&destination_is_directory).unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_sink(
+                &protobuf_append_sink(&second, "append-directory", &destination_is_directory)
+                    .unwrap(),
+                &JobConfig::default(),
+            )
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
 }
 
 #[cfg(feature = "compression-gzip")]

@@ -1,7 +1,10 @@
 //! Protobuf file sources and deferred sinks for Ironbeam 5.
 #![allow(clippy::missing_errors_doc)]
 
-use ironbeam_core::{Element, Error, PCollection, Pipeline, Sink, TypedSourceIterator};
+use ironbeam_core::{
+    Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, TypedSink,
+    TypedSourceIterator,
+};
 #[cfg(feature = "parallel-io")]
 use ironbeam_io::framed_parallel_sink;
 use ironbeam_io::{
@@ -129,6 +132,94 @@ pub fn protobuf_sink<T: Element + prost::Message>(
     path: impl AsRef<Path>,
 ) -> Result<Sink<T>, Error> {
     sink(input, key, path, write_protobuf::<T>)
+}
+
+struct ProtobufAppendSink<T> {
+    path: PathBuf,
+    key: String,
+    values: Vec<T>,
+}
+
+impl<T: Element + prost::Message> TypedSink<T> for ProtobufAppendSink<T> {
+    fn write(&mut self, value: T) -> Result<(), Error> {
+        self.values.push(value);
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        use std::io::Write;
+        let mut bytes = Vec::new();
+        for value in &self.values {
+            value
+                .encode_length_delimited(&mut bytes)
+                .map_err(|error| io(&self.key, error))?;
+        }
+        let parent = self
+            .path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent).map_err(|error| io(&self.key, error))?;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|error| io(&self.key, error))?;
+        file.write_all(&bytes)
+            .map_err(|error| io(&self.key, error))?;
+        file.flush().map_err(|error| io(&self.key, error))?;
+        self.values.clear();
+        Ok(())
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.values.clear();
+        Ok(())
+    }
+}
+
+/// Append length-delimited Protobuf records at each bundle commit.
+///
+/// Replays may duplicate records. Use `protobuf_sink` for whole-job replacement.
+/// This local filesystem sink requires a path shared by all workers.
+pub fn protobuf_append_sink<T: Element + prost::Message>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<T>, Error> {
+    let path = path.as_ref().to_path_buf();
+    if path
+        .extension()
+        .and_then(|part| part.to_str())
+        .is_some_and(|part| {
+            matches!(
+                part.to_ascii_lowercase().as_str(),
+                "gz" | "gzip" | "zst" | "zstd" | "bz2" | "xz"
+            )
+        })
+    {
+        return Err(Error::graph(
+            key,
+            "append sink does not support compressed output",
+        ));
+    }
+    let name = key.to_owned();
+    input.sink_named_with_config(
+        key,
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("protobuf-append:{}", path.display()),
+        move || {
+            Ok(Box::new(ProtobufAppendSink::<T> {
+                path: path.clone(),
+                key: name.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
 }
 
 #[cfg(feature = "parallel-io")]
