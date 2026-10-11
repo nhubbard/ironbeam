@@ -498,6 +498,14 @@ staged locally.
    object API; a local object-provider test verifies exact multi-sink recovery.
    An actual worker kill/restart during a live Prism job and a hosted object
    storage proof remain open.
+   The two-process Protobuf recovery test now rebuilds `V5BundleExecutor` in
+   each process and invokes its bundle-finalization callback, rather than
+   calling the journal registry directly. A changed worker build ID fails
+   identity validation before recovery; a duplicate callback in another
+   fresh process succeeds after the completion marker is durable. The full
+   local Prism graph and Arrow fixture still reach `DONE` after the latest
+   core changes. Prism's process environment does not itself restart a dead
+   worker process, so a supervised live restart proof remains open.
    A transient Prism run also exposed an empty source-rooted bundle; the worker
    now closes its runner outputs without opening the user source for that case,
    with a focused Fn Data regression test and a subsequent live passing run.
