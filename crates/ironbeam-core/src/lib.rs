@@ -1586,6 +1586,18 @@ impl<V, A, O, C: OrderedFoldFn<V, A, O>> FoldLogic<V, A, O> for OrderedAdapter<C
 }
 pub trait FoldSession: Send {
     fn add(&mut self, event: Envelope) -> Result<(), Error>;
+    /// Return a versioned snapshot when this fold supports in-progress recovery.
+    fn checkpoint_state(&self) -> Result<Option<Vec<u8>>, Error> {
+        Ok(None)
+    }
+    /// Restore a snapshot into a newly opened fold before feeding more input.
+    fn restore_checkpoint_state(&mut self, _state: &[u8]) -> Result<(), Error> {
+        Err(Error::unsupported(
+            "fold",
+            "runner",
+            "fold-checkpoint-state",
+        ))
+    }
     /// Whether a built-in vector source can feed a whole globally windowed batch.
     fn accepts_vec_batch(&self, _batch_type: TypeId) -> bool {
         false
@@ -3683,6 +3695,25 @@ struct GroupByKeyFoldState<K, V> {
     groups: GroupBuffer<K, V>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct GroupFoldCheckpoint {
+    version: Version,
+    key_coder: String,
+    value_coder: String,
+    groups: Vec<GroupFoldCheckpointRow>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GroupFoldCheckpointRow {
+    key: Vec<u8>,
+    values: Vec<u8>,
+    timestamp_ns: i64,
+    window: Window,
+    assigned_window: Option<WindowInterval>,
+}
+
+const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 1, minor: 0 };
+
 impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
     fn add_row(
         &mut self,
@@ -3734,6 +3765,95 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
 
     fn accepts_vec_batch(&self, batch_type: TypeId) -> bool {
         batch_type == TypeId::of::<Vec<(K, V)>>()
+    }
+
+    fn checkpoint_state(&self) -> Result<Option<Vec<u8>>, Error> {
+        if !<(K, Vec<V>) as Element>::supports_coder() {
+            return Ok(None);
+        }
+        let groups = self
+            .groups
+            .iter()
+            .map(|(key, values, timestamp_ns, window, assigned_window)| {
+                Ok(GroupFoldCheckpointRow {
+                    key: key.encode()?,
+                    values: values.encode()?,
+                    timestamp_ns: *timestamp_ns,
+                    window: window.clone(),
+                    assigned_window: *assigned_window,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        serde_json::to_vec(&GroupFoldCheckpoint {
+            version: GROUP_FOLD_CHECKPOINT_VERSION,
+            key_coder: K::coder_identity(),
+            value_coder: V::coder_identity(),
+            groups,
+        })
+        .map(Some)
+        .map_err(|error| Error::recovery(&self.key, error.to_string()))
+    }
+
+    fn restore_checkpoint_state(&mut self, state: &[u8]) -> Result<(), Error> {
+        if !self.groups.is_empty() {
+            return Err(Error::recovery(&self.key, "fold already contains input"));
+        }
+        let checkpoint: GroupFoldCheckpoint = serde_json::from_slice(state)
+            .map_err(|error| Error::recovery(&self.key, error.to_string()))?;
+        if checkpoint.version != GROUP_FOLD_CHECKPOINT_VERSION {
+            return Err(Error::incompatible(
+                "group fold checkpoint version mismatch",
+            ));
+        }
+        if checkpoint.key_coder != K::coder_identity()
+            || checkpoint.value_coder != V::coder_identity()
+        {
+            return Err(Error::incompatible("group fold checkpoint coder mismatch"));
+        }
+        let mut restored = Self {
+            key: self.key.clone(),
+            global_indices: HashMap::new(),
+            window_indices: HashMap::new(),
+            groups: Vec::with_capacity(checkpoint.groups.len()),
+        };
+        for row in checkpoint.groups {
+            let key = K::decode(&row.key)?;
+            let values = Vec::<V>::decode(&row.values)?;
+            if values.is_empty() {
+                return Err(Error::recovery(&self.key, "empty group in fold checkpoint"));
+            }
+            let position = restored.groups.len();
+            if let Some(interval) = row.assigned_window {
+                if restored
+                    .window_indices
+                    .insert((key.clone(), interval), position)
+                    .is_some()
+                {
+                    return Err(Error::recovery(
+                        &self.key,
+                        "duplicate group in fold checkpoint",
+                    ));
+                }
+            } else if restored
+                .global_indices
+                .insert(key.clone(), position)
+                .is_some()
+            {
+                return Err(Error::recovery(
+                    &self.key,
+                    "duplicate group in fold checkpoint",
+                ));
+            }
+            restored.groups.push((
+                key,
+                values,
+                row.timestamp_ns,
+                row.window,
+                row.assigned_window,
+            ));
+        }
+        *self = restored;
+        Ok(())
     }
 
     fn add_vec_batch(&mut self, values: Payload) -> Result<(), Error> {

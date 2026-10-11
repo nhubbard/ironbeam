@@ -649,6 +649,16 @@ staged locally.
    strict lint, Dataflow graph/worker tests, and clean coverage pass: Direct
    1,946/2,064 source locations and 399/436 branches, core 2,430/2,525 and
    354/402.
+   Core now exposes an optional fold-state snapshot/restore contract.
+   GroupByKey serializes its in-progress keyed values and first-element time
+   metadata with an independently versioned, coder-bound state format, and restores its
+   group indexes before accepting more input. Tests cover resumed values and
+   windows, malformed coder bytes, duplicate groups, incompatible versions or coders,
+   and folds without a state coder. Direct has not yet connected these snapshots
+   to its checkpoint manager, so this does not claim in-progress recovery.
+   Clean core/Direct/transforms coverage passes unchanged gates at core
+   2,492/2,590 source locations and 370/420 branches, Direct 1,946/2,064
+   and 399/436; strict core lint passes.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.
