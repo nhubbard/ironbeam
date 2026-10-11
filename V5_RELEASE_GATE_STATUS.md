@@ -48,11 +48,13 @@ staged locally.
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for four bounded sources, including a keyed
+  separately launched v5 worker for five bounded sources, including a keyed
   input shared by GroupByKey and an ordinary branch, native Flatten and
-  GroupByKey, event-time assignment, and seven terminal
-  append sinks. A user-defined record passes through the extracted JSONL source and append
-  sink in that live job. An extracted CSV source also crosses the mock worker
+  GroupByKey, event-time assignment, and eight terminal
+  append sinks. User-defined records pass through both the extracted file JSONL
+  adapter and a provider-neutral object-backed JSONL source in that live job.
+  The latter reconstructs and verifies the same object digest in the separately
+  launched worker. An extracted CSV source also crosses the mock worker
   coder contract; CSV globs lower to multiple source nodes and native Flatten.
   The JSONL append sink uses a shared filesystem and may duplicate records on
   replay. This is a local runner proof of this bounded slice.
@@ -138,7 +140,9 @@ staged locally.
    Prism job reaches `DONE` for the bounded elementwise, Flatten, and
    global-window GroupByKey slice, including a JSONL connector round-trip.
    The remaining portable feature
-   corpus and other source/sink data still need local Prism runs. No real Dataflow cloud job has reached `DONE` with the
+   corpus and other source/sink data still need local Prism runs. The object-backed
+   fixture uses a shared local filesystem, so it does not prove remote staging.
+   No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.
 
