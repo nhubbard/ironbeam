@@ -736,6 +736,40 @@ fn feed_fold_events(
     fold_key: &str,
     fold: &mut dyn FoldSession,
 ) -> Result<(), Error> {
+    let single_stages = stages
+        .iter()
+        .map(|key| {
+            registry
+                .single_transform(key)
+                .map(|transform| (key, transform))
+        })
+        .collect::<Option<Vec<_>>>();
+    if let Some(single_stages) = single_stages {
+        for event in batch {
+            let mut current = Some(event);
+            for (key, transform) in &single_stages {
+                let Some(event) = current.take() else {
+                    break;
+                };
+                current =
+                    catch_unwind(AssertUnwindSafe(|| transform(event))).unwrap_or_else(|_| {
+                        Err(Error::execution(*key, "direct", "user transform panicked"))
+                    })?;
+                if current.is_none() {
+                    metrics.filtered_elements.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            if let Some(event) = current {
+                if config.cancellation.load(Ordering::Acquire) {
+                    return Err(cancelled());
+                }
+                catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
+                    Err(Error::execution(fold_key, "direct", "user fold panicked"))
+                })?;
+            }
+        }
+        return Ok(());
+    }
     for event in batch {
         let mut events = vec![event];
         for key in stages {

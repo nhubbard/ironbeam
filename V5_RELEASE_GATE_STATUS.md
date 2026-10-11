@@ -368,8 +368,12 @@ staged locally.
    state. Timestamp capture and selection each use one graph node, and the
    updated local Prism fixture still reaches `DONE`. The 100,000-row,
    100-key v4/v5 benchmark corpus produces the same 100 rows and checksum
-   9,994,950. In a 10-run local sample, v5's median was 13.926 ms against
-   v4's 0.784 ms, so keyed-latest latency remains a release performance gap.
+   9,994,950. A single-output Direct fold route now passes elements through
+   map, filter, timestamp, and window stages without allocating temporary
+   vectors at each stage; routes with FlatMap keep their multi-output path.
+   In a 12-run local sample after this change, v5's median was 5.390 ms
+   against v4's 0.729 ms, down from 13.926 ms for v5 in the earlier
+   10-run sample. Keyed-latest latency remains a release performance gap.
    The standalone fold state test does not prove in-progress recovery of the
    entire keyed-latest output route. The full local package gate passed after
    the initial portable change; this later optimization has the full root
