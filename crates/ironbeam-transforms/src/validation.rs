@@ -9,6 +9,99 @@ use std::sync::{
 
 pub type ValidationResult = Result<(), Vec<ValidationError>>;
 
+/// Combine validation results, retaining every error in check order.
+pub fn combine_validations(results: Vec<ValidationResult>) -> ValidationResult {
+    let errors: Vec<_> = results
+        .into_iter()
+        .filter_map(Result::err)
+        .flatten()
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Built-in validators with the same acceptance rules as Ironbeam v4.
+pub mod validators {
+    use super::{ValidationError, ValidationResult};
+    use std::fmt::Display;
+
+    pub fn not_empty(field: &str, value: &str) -> ValidationResult {
+        if value.is_empty() {
+            Err(vec![ValidationError::field(field, "must not be empty")])
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn contains(field: &str, value: &str, substring: &str) -> ValidationResult {
+        if value.contains(substring) {
+            Ok(())
+        } else {
+            Err(vec![ValidationError::field(
+                field,
+                format!("must contain '{substring}'"),
+            )])
+        }
+    }
+
+    pub fn in_range<T: PartialOrd + Display>(
+        field: &str,
+        value: &T,
+        min: &T,
+        max: &T,
+    ) -> ValidationResult {
+        if value >= min && value <= max {
+            Ok(())
+        } else {
+            Err(vec![ValidationError::field(
+                field,
+                format!("must be between {min} and {max}"),
+            )])
+        }
+    }
+
+    pub fn is_email(field: &str, value: &str) -> ValidationResult {
+        if let Some(at_pos) = value.find('@') {
+            let local = &value[..at_pos];
+            let domain = &value[at_pos + 1..];
+            if !local.is_empty()
+                && !domain.is_empty()
+                && domain.contains('.')
+                && let Some(dot_pos) = domain.rfind('.')
+                && dot_pos < domain.len() - 1
+            {
+                return Ok(());
+            }
+        }
+        Err(vec![ValidationError::field(field, "invalid email format")])
+    }
+
+    pub fn min_length(field: &str, value: &str, min: usize) -> ValidationResult {
+        if value.len() >= min {
+            Ok(())
+        } else {
+            Err(vec![ValidationError::field(
+                field,
+                format!("must have at least {min} characters"),
+            )])
+        }
+    }
+
+    pub fn max_length(field: &str, value: &str, max: usize) -> ValidationResult {
+        if value.len() <= max {
+            Ok(())
+        } else {
+            Err(vec![ValidationError::field(
+                field,
+                format!("must have at most {max} characters"),
+            )])
+        }
+    }
+}
+
 pub trait Validate {
     fn validate(&self) -> ValidationResult;
 }

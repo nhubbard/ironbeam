@@ -2,7 +2,7 @@ use ironbeam_core::{ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_transforms::{
     ErrorCollector, KeyedValidationExt, Validate, ValidationError, ValidationExt, ValidationMode,
-    ValidationResult,
+    ValidationResult, combine_validations, validators,
 };
 use std::sync::{Arc, Mutex};
 
@@ -41,6 +41,38 @@ fn validation_errors_and_collector_keep_record_context() {
     collector.clear();
     assert_eq!(collector.error_count(), 0);
     assert_eq!(collector.errors(), []);
+}
+
+#[test]
+fn built_in_validators_match_v4_boundaries_and_error_order() {
+    assert!(validators::not_empty("name", "ok").is_ok());
+    assert!(validators::contains("name", "abc", "bc").is_ok());
+    assert!(validators::in_range("score", &0, &0, &10).is_ok());
+    assert!(validators::in_range("score", &10, &0, &10).is_ok());
+    assert!(validators::is_email("email", "a@b.c").is_ok());
+    assert!(validators::min_length("name", "é", 2).is_ok());
+    assert!(validators::max_length("name", "é", 2).is_ok());
+    let errors = combine_validations(vec![
+        validators::not_empty("name", ""),
+        validators::contains("name", "abc", "z"),
+        validators::in_range("score", &11, &0, &10),
+        validators::is_email("email", "a@b."),
+        validators::min_length("name", "a", 2),
+        validators::max_length("name", "abc", 2),
+    ])
+    .unwrap_err();
+    assert_eq!(
+        errors.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        [
+            "[name] must not be empty",
+            "[name] must contain 'z'",
+            "[score] must be between 0 and 10",
+            "[email] invalid email format",
+            "[name] must have at least 2 characters",
+            "[name] must have at most 2 characters",
+        ]
+    );
+    assert!(combine_validations(vec![Ok(()), Ok(())]).is_ok());
 }
 
 #[test]

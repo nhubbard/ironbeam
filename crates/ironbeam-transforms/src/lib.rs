@@ -55,6 +55,7 @@ pub use validation::{
     ErrorCollector, KeyedValidationExt, RecordError, Validate, ValidationError, ValidationExt,
     ValidationMode, ValidationResult,
 };
+pub use validation::{combine_validations, validators};
 mod dead_letter;
 pub use dead_letter::{Classified, DeadLetter, DeadLetterExt};
 mod tee;
