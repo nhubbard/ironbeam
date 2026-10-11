@@ -501,6 +501,17 @@ staged locally.
    raised the isolated transforms branch ratio above its existing threshold.
    The local test, documentation, and package matrix verified all twenty-five
    v5 crates without publishing them.
+   A subsequent join-index change stores one left row position inline per
+   key and allocates a vector only for duplicate keys. An alternating
+   100,000-row unique-key sample moved from 17.332 to 15.356 ms and from
+   50.53 to 47.42 MiB peak RSS; a duplicate-key sample stayed near 7.7 ms
+   and 31.61 MiB. Both retained matching output counts and checksums. The
+   live Prism fixture still reaches `DONE`, and fresh core and Direct coverage
+   pass their unchanged gates at 2,367/2,457 source locations and 348/396
+   branches for core, and 1,779/1,891 and 349/380 for Direct. The larger
+   root workspace and all-feature Dataflow suites pass, and the changed core
+   and Direct crates verify as local packages. The larger join memory and
+   latency gaps versus v4 remain release work.
    A later twelve-run alternating release sample still measured v5 at 9.9×
    v4 for source copy, 11.1× for map/filter, 6.9× for GroupByKey, 1.4× for
    inner join, and 2.8× for JSONL, with matching results. A short-frame

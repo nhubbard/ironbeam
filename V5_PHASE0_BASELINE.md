@@ -264,6 +264,17 @@ the peak-memory reduction is much larger and consistent with avoiding the
 whole-source envelope vector. Join output uses a separate path and its memory
 gate remains open.
 
+The benchmark corpus now also isolates a duplicate-key inner join: 100,000
+left rows over 100 keys joined to one right row per key. The two versions
+produce the same 100,000 output rows and checksum 5,005,000,000. The v5 join
+index now stores a single left position inline and allocates a positions
+vector only when a key repeats. In ten alternating release runs per case,
+discarding the first run of each binary, the unique-key join moved from
+17.332 ms and 50.53 MiB peak RSS to 15.356 ms and 47.42 MiB. The
+duplicate-key join moved from 7.625 to 7.690 ms with peak RSS unchanged at
+31.61 MiB. Counts and checksums matched in every run. This is a local sample;
+the remaining v4/v5 join memory gap is still large.
+
 Direct source-only batch collection now uses a fixed wire-length hint for
 built-in scalars and fixed-size tuples, preserving the exact output budget
 without asking each value for its encoded length. The existing exact-budget,

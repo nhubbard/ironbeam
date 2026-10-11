@@ -13,7 +13,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let case = std::env::args().nth(2);
     assert!(case.as_deref().is_none_or(|name| matches!(
         name,
-        "source_copy" | "map_filter" | "group_by_key" | "join_inner" | "jsonl_roundtrip"
+        "source_copy"
+            | "map_filter"
+            | "group_by_key"
+            | "join_inner"
+            | "join_duplicates"
+            | "jsonl_roundtrip"
     )));
     let selected = |name: &str| case.as_deref().is_none_or(|chosen| chosen == name);
     println!("case,rows,elapsed_ns,output_rows,checksum");
@@ -123,6 +128,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!(
             "join_inner,{count},{},{},{}",
+            start.elapsed().as_nanos(),
+            joined.len(),
+            joined
+                .iter()
+                .map(|(_, (a, b))| u64::from(*a) + u64::from(*b))
+                .sum::<u64>()
+        );
+    }
+
+    if selected("join_duplicates") {
+        let p = Pipeline::default();
+        let start = Instant::now();
+        let left = p.from_vec("duplicate-left", (0..count).map(|n| (n % 100, n)).collect())?;
+        let right = p.from_vec(
+            "duplicate-right",
+            (0..count.min(100)).map(|n| (n, n + 1)).collect(),
+        )?;
+        let joined = left
+            .join_inner_named("duplicate-join", &right)?
+            .output("duplicate-result")?
+            .collect_seq()?;
+        println!(
+            "join_duplicates,{count},{},{},{}",
             start.elapsed().as_nanos(),
             joined.len(),
             joined

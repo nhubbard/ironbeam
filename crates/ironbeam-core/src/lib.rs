@@ -3571,6 +3571,28 @@ impl<T: Element> PCollection<(i64, T)> {
 }
 
 type GroupBuffer<K, V> = Vec<(K, Vec<V>, i64, Window, Option<WindowInterval>)>;
+enum JoinPositions {
+    One(usize),
+    Many(Vec<usize>),
+}
+impl JoinPositions {
+    fn push(&mut self, position: usize) {
+        match self {
+            Self::One(first) => {
+                let first = *first;
+                *self = Self::Many(vec![first, position]);
+            }
+            Self::Many(positions) => positions.push(position),
+        }
+    }
+
+    fn as_slice(&self) -> &[usize] {
+        match self {
+            Self::One(position) => std::slice::from_ref(position),
+            Self::Many(positions) => positions.as_slice(),
+        }
+    }
+}
 struct GroupByKeyFoldState<K, V> {
     key: String,
     indices: HashMap<(K, Option<WindowInterval>), usize>,
@@ -4166,16 +4188,21 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             let [left, right]: [Vec<Envelope>; 2] = inputs
                 .try_into()
                 .map_err(|_| Error::execution(&key_owned, "direct", "join requires two inputs"))?;
-            let mut index: HashMap<(K, Option<WindowInterval>), Vec<usize>> = HashMap::new();
+            let mut index: HashMap<(K, Option<WindowInterval>), JoinPositions> = HashMap::new();
             let mut left_rows = Vec::with_capacity(left.len());
             for event in left {
                 let (row_key, value) = *event.value.downcast::<(K, V)>().map_err(|_| {
                     Error::execution(&key_owned, "direct", "left join type mismatch")
                 })?;
-                index
-                    .entry((row_key.clone(), event.assigned_window))
-                    .or_default()
-                    .push(left_rows.len());
+                let position = left_rows.len();
+                match index.entry((row_key.clone(), event.assigned_window)) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        entry.get_mut().push(position);
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(JoinPositions::One(position));
+                    }
+                }
                 left_rows.push((
                     row_key,
                     value,
@@ -4197,7 +4224,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     Error::execution(&key_owned, "direct", "right join type mismatch")
                 })?;
                 if let Some(matches) = index.get(&(row_key.clone(), assigned_window)) {
-                    for &position in matches {
+                    for &position in matches.as_slice() {
                         let (_, left_value, _, _, _, matched) = &mut left_rows[position];
                         *matched = true;
                         if let Some(pair) = emit(Some(left_value.clone()), Some(value.clone())) {
