@@ -153,7 +153,12 @@ staged locally.
    One live Prism job verifies assigned intervals and keyed counts in each
    fixed window. The same job verifies native Reshuffle with values and
    fixed-window metadata intact. Other window types and full time-metadata
-   parity remain open.
+   parity remain open. Core now exposes the same bounded side-view
+   materialization and mapping functions to Direct and portable workers;
+   materialized views are transferable across executor threads. The separate
+   Dataflow harness has a tested Fn State client with continuation and error
+   handling. Beam side-input graph lowering and worker integration remain
+   open, so this is not yet a portable side-input execution proof.
 3. **Remote I/O:** Provider clients can access hosted object storage from the
    bounded `ObjectIO` interface, but the local Prism worker still shares the
    driver's filesystem. Driver-local file paths are not staged to cloud
