@@ -154,8 +154,11 @@ staged locally.
   33.240 to 19.233 ms at 100,000 rows; see `V5_PHASE0_BASELINE.md` for the
   paired v4 figures and phase breakdown. Higher-arity tuples, vectors, and
   options now reuse coder buffers with byte-compatibility tests; no paired
-  latency number has been recorded for them yet. The
-  v5 Direct
+  latency number has been recorded for them yet. A later alternating
+  five-run 100,000-row paired sample still measured v5/v4 ratios of 17.4×
+  for source copy, 9.5× for map/filter, 7.1× for GroupByKey, 1.6× for inner
+  join, and 2.9× for JSONL; counts and checksums matched. The performance
+  gate remains open. The v5 Direct
   collection trait now accepts `PCollection` as well as `Output`; it builds
   an isolated terminal snapshot, so repeated v4-shaped `collect_seq` and `collect_par`
   calls leave the user's graph unchanged. Named `Output` terminals remain for

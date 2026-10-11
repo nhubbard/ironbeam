@@ -149,6 +149,28 @@ length-prefixed encoding and verify that a custom element encodes only once.
 Their latency has not yet been measured in the paired corpus. The performance
 gate remains open.
 
+On the later `ced416a` testing-coverage revision, six alternating release runs
+per version at 100,000 rows used the first pair as warmup and compared the
+five remaining medians. Each workload's output row count and checksum matched
+between v4 and v5. These local timings still include source construction
+through terminal completion and are characterization samples:
+
+| Workload | v4 ms | v5 ms | v5/v4 |
+| --- | ---: | ---: | ---: |
+| Source copy | 0.066 | 1.152 | 17.4× |
+| Map/filter | 0.126 | 1.191 | 9.5× |
+| GroupByKey | 0.621 | 4.391 | 7.1× |
+| Inner join | 11.235 | 17.671 | 1.6× |
+| JSONL round trip | 4.085 | 11.710 | 2.9× |
+
+In the warmed v5 runs, map/filter spent roughly 0.5–0.6 ms constructing the
+versioned source and 0.6–0.8 ms in Direct execution. GroupByKey spent roughly
+1.2–1.4 ms constructing its source and 3.1–3.4 ms executing. Inner join spent
+roughly 2.4–2.7 ms constructing both sources and 14.9–15.5 ms executing.
+The source-content digest is a real v5 contract cost, but it does not explain
+the grouping and join execution gaps. Peak memory and build/test-time paired
+measurements remain open.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
