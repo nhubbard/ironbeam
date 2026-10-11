@@ -102,7 +102,9 @@ staged locally.
   streaming the single-worker results within the dedicated pool reduced the
   median further to 13.332 ms. Binding those transforms once per route then
   reduced the five-run median to 5.565 ms. This is still about 12 times the
-  measured v4 median of 0.456 ms. The root package
+  measured v4 median of 0.456 ms. Reserving source batches from the iterator
+  size hint subsequently brought the warmed five-run map/filter median to
+  4.786 ms, still roughly 10.5 times the v4 median. The root package
   version is still 4.1.1, until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus

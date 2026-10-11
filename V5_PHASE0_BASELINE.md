@@ -79,6 +79,17 @@ for the map/filter case with `IRONBEAM_BENCH_PHASES=1`. In four warmed
 construction 0.004–0.006 ms, and Direct execution 4.94–5.54 ms. The
 remaining gap is concentrated in row execution, not graph construction.
 
+`examples/v5_hotpath_probe.rs` separates source-only, map-only, filter-only,
+and map/filter execution and accepts `IRONBEAM_BENCH_BATCH` for a buffer-size
+probe. At the default 4,096-element batch size, source-only execution
+accounted for roughly 2.6–3.0 ms in warmed 100,000-row runs before changing
+batch allocation. Direct now reserves source batch capacity from the iterator's
+lower size hint, retaining the configured limit and existing error handling.
+Five warmed source-only runs then took 2.14–2.36 ms. The five warmed aligned
+corpus runs measured medians (ms) of map/filter 4.786, GroupByKey 11.286,
+inner join 32.388, and JSONL 15.093. The map/filter gap against the earlier
+v4 median of 0.456 ms remains roughly 10.5×.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
