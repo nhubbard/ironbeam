@@ -403,8 +403,10 @@ staged locally.
    fragment using only that record, rejects unknown and missing fragments,
    and persists a completion marker for duplicate callbacks. The six-sink
    local Prism job reached `DONE` with journal records and matching completion
-   markers. This is a local filesystem proof; an actual worker kill/restart
-   during a live Prism job and a remote journal implementation remain open.
+   markers. A separate two-process test exits immediately after staging and
+   reopens the journal in a fresh process to finalize and publish Protobuf.
+   This is a local filesystem proof; an actual worker kill/restart during a
+   live Prism job and a remote journal implementation remain open.
    A transient Prism run also exposed an empty source-rooted bundle; the worker
    now closes its runner outputs without opening the user source for that case,
    with a focused Fn Data regression test and a subsequent live passing run.
@@ -436,6 +438,11 @@ staged locally.
    54.4 MiB for v5. A per-operation allocation profile and a defined
    performance threshold are still needed before calling performance
    acceptable.
+   A later twelve-run alternating release sample still measured v5 at 9.9×
+   v4 for source copy, 11.1× for map/filter, 6.9× for GroupByKey, 1.4× for
+   inner join, and 2.8× for JSONL, with matching results. A short-frame
+   SHA-256 update trial slowed source construction and was reverted; its
+   paired timings are recorded in `V5_PHASE0_BASELINE.md`.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.

@@ -276,6 +276,17 @@ the terminal, and 0.214 ms executing Direct. Those phases indicate source
 identity construction is the largest remaining source-copy cost; the sample
 does not isolate every operation within that phase.
 
+A later twelve-run alternating release sample, with each executable's first
+two runs discarded, measured v4/v5 medians (ms) of 0.061/0.607 for source copy
+(9.9×), 0.105/1.159 for map/filter (11.1×), 0.617/4.285 for GroupByKey
+(6.9×), 11.261/16.297 for inner join (1.4×), and 3.800/10.466 for JSONL
+round trip (2.8×). Counts and checksums matched in every run. Host load
+changed absolute times, but the paired gap persists. A separate alternating
+source probe compared the existing per-row SHA-256 length and payload updates
+with a single update of a short stack frame. Source-construction medians were
+0.519 ms and 0.597 ms respectively, so the trial was reverted. The digest
+bytes and source identity contract remain unchanged.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
