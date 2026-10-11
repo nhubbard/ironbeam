@@ -16,6 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "source_copy"
             | "map_filter"
             | "group_by_key"
+            | "latest_per_key"
             | "join_inner"
             | "join_duplicates"
             | "jsonl_roundtrip"
@@ -100,6 +101,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             start.elapsed().as_nanos(),
             groups.len(),
             groups.iter().map(|(_, values)| values.len()).sum::<usize>()
+        );
+    }
+
+    if selected("latest_per_key") {
+        let p = Pipeline::default();
+        let start = Instant::now();
+        let input = p.from_vec("latest-input", (0..count).map(|n| (n % 100, n)).collect())?;
+        let source_ready = Instant::now();
+        let output = input
+            .assign_timestamps_named("latest-time", |(_, n)| i64::from(*n) * 1_000_000)?
+            .latest_per_key_named("latest")?
+            .output("latest-result")?;
+        let graph_ready = Instant::now();
+        let latest = output.collect_seq()?;
+        let run_ready = Instant::now();
+        if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
+            eprintln!(
+                "latest_per_key_phases_ns,source={},graph={},run={}",
+                source_ready.duration_since(start).as_nanos(),
+                graph_ready.duration_since(source_ready).as_nanos(),
+                run_ready.duration_since(graph_ready).as_nanos()
+            );
+        }
+        println!(
+            "latest_per_key,{count},{},{},{}",
+            start.elapsed().as_nanos(),
+            latest.len(),
+            latest
+                .iter()
+                .map(|(_, value)| u64::from(*value))
+                .sum::<u64>()
         );
     }
 

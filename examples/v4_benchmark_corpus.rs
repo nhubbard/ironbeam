@@ -16,6 +16,7 @@ fn main() {
         "source_copy"
             | "map_filter"
             | "group_by_key"
+            | "latest_per_key"
             | "join_inner"
             | "join_duplicates"
             | "jsonl_roundtrip"
@@ -69,6 +70,29 @@ fn main() {
             start.elapsed().as_nanos(),
             groups.len(),
             groups.iter().map(|(_, v)| v.len()).sum::<usize>()
+        );
+    }
+
+    if selected("latest_per_key") {
+        let p = Pipeline::default();
+        let start = Instant::now();
+        let latest = from_vec(
+            &p,
+            (0..count)
+                .map(|n| (n % 100, ironbeam::window::Timestamped::new(u64::from(n), n)))
+                .collect(),
+        )
+        .latest_per_key()
+        .collect_seq()
+        .unwrap();
+        println!(
+            "latest_per_key,{count},{},{},{}",
+            start.elapsed().as_nanos(),
+            latest.len(),
+            latest
+                .iter()
+                .map(|(_, value)| u64::from(*value))
+                .sum::<u64>()
         );
     }
 
