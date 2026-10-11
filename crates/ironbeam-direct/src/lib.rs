@@ -624,44 +624,52 @@ fn execute<T: Element>(
                 Ordering::Relaxed,
             );
             if single_route {
-                let results: Vec<Result<Option<Envelope>, Error>> = pool.install(|| {
-                    batch
-                        .into_par_iter()
-                        .map(|event| {
-                            let mut current = Some(event);
-                            for key in &route.operations {
-                                let Some(event) = current else {
-                                    break;
-                                };
-                                if config.cancellation.load(Ordering::Acquire) {
-                                    return Err(cancelled());
-                                }
-                                current = match catch_unwind(AssertUnwindSafe(|| {
-                                    registry.apply(key, event)
-                                })) {
-                                    Ok(result) => result?,
-                                    Err(_) => {
-                                        return Err(Error::execution(
-                                            key,
-                                            "direct",
-                                            "user transform panicked",
-                                        ));
-                                    }
-                                };
-                                if current.is_none() {
-                                    handle
-                                        .metrics
-                                        .filtered_elements
-                                        .fetch_add(1, Ordering::Relaxed);
-                                }
+                let apply_single = |event| {
+                    let mut current = Some(event);
+                    for key in &route.operations {
+                        let Some(event) = current else {
+                            break;
+                        };
+                        if config.cancellation.load(Ordering::Acquire) {
+                            return Err(cancelled());
+                        }
+                        current = match catch_unwind(AssertUnwindSafe(|| {
+                            registry.apply(key, event)
+                        })) {
+                            Ok(result) => result?,
+                            Err(_) => {
+                                return Err(Error::execution(
+                                    key,
+                                    "direct",
+                                    "user transform panicked",
+                                ));
                             }
-                            Ok(current)
-                        })
-                        .collect()
-                });
-                for result in results {
-                    if let Some(event) = result? {
-                        push_output(event, &mut store, output_key, handle)?;
+                        };
+                        if current.is_none() {
+                            handle
+                                .metrics
+                                .filtered_elements
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    Ok(current)
+                };
+                if config.parallelism == 1 {
+                    pool.install(|| -> Result<(), Error> {
+                        for event in batch {
+                            if let Some(event) = apply_single(event)? {
+                                push_output(event, &mut store, output_key, handle)?;
+                            }
+                        }
+                        Ok(())
+                    })?;
+                } else {
+                    let results: Vec<Result<Option<Envelope>, Error>> =
+                        pool.install(|| batch.into_par_iter().map(apply_single).collect());
+                    for result in results {
+                        if let Some(event) = result? {
+                            push_output(event, &mut store, output_key, handle)?;
+                        }
                     }
                 }
             } else {
