@@ -47,9 +47,7 @@ fn failed_direct_job_still_closes_its_custom_metrics_interval() {
         .from_vec("source", vec![1_i32, 2, 3])
         .unwrap()
         .map_named("failure", |value| {
-            if value == 2 {
-                panic!("expected failure");
-            }
+            assert!(value != 2, "expected failure");
             value
         })
         .unwrap();

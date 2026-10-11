@@ -64,9 +64,7 @@ fn batched_sequential_transform_panic_reports_the_failing_node() {
         .map_named("first", |value| value + 1)
         .unwrap()
         .filter_named("second", |value| {
-            if *value == 6 {
-                panic!("intentional transform failure");
-            }
+            assert!(*value != 6, "intentional transform failure");
             *value % 2 == 0
         })
         .unwrap()

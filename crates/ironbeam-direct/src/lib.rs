@@ -111,7 +111,8 @@ impl JobHandle {
         self.metrics.snapshot()
     }
     #[cfg(feature = "metrics")]
-    pub fn custom_metrics(&self) -> Option<&ironbeam_metrics::MetricsCollector> {
+    #[must_use]
+    pub const fn custom_metrics(&self) -> Option<&ironbeam_metrics::MetricsCollector> {
         self.metrics_collector.as_ref()
     }
     pub fn cancel(&self) {
@@ -360,7 +361,7 @@ impl DirectRunner {
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
         {
-            handle.metrics_collector = config.metrics_collector.clone();
+            handle.metrics_collector.clone_from(&config.metrics_collector);
         }
         if config.cancellation.load(Ordering::Acquire) {
             handle.cancel();
@@ -399,6 +400,7 @@ impl DirectRunner {
     ///
     /// # Errors
     /// Returns typed validation, source, transform, sink, or commit errors.
+    #[allow(clippy::too_many_lines)]
     pub fn run_sink<T: Element>(
         &self,
         sink: &Sink<T>,
@@ -436,7 +438,7 @@ impl DirectRunner {
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
         {
-            handle.metrics_collector = config.metrics_collector.clone();
+            handle.metrics_collector.clone_from(&config.metrics_collector);
         }
         if config.cancellation.load(Ordering::Acquire) {
             handle.cancel();

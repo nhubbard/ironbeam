@@ -102,9 +102,7 @@ fn typed_partition_terminals_open_shared_source_once_per_job() {
 
     let error = source
         .collect_partitioned3_named("panicking-classifier", &JobConfig::default(), |value| {
-            if value == 2 {
-                panic!("bad classifier");
-            }
+            assert!(value != 2, "bad classifier");
             Partition3::<i32, i32, i32>::First(value)
         })
         .err()

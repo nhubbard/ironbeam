@@ -276,6 +276,7 @@ fn multiway_cogroup_preserves_keys_values_and_empty_sides() {
 }
 
 #[test]
+#[allow(clippy::many_single_char_names)]
 fn every_public_cogroup_arity_executes_all_inputs() {
     let pipeline = Pipeline::default();
     let a = pipeline.from_vec("arity-a", vec![(1_i32, 1_i32)]).unwrap();
@@ -379,7 +380,7 @@ fn latest_uses_event_time_globally_per_key_and_per_window() {
         .unwrap();
     let keyed = values
         .map_named("latest-key", |(timestamp, value)| {
-            (value.len() as i32, (timestamp, value))
+            (i32::try_from(value.len()).expect("sample length fits i32"), (timestamp, value))
         })
         .unwrap()
         .latest_per_key_named("latest-keyed")
