@@ -48,7 +48,7 @@ staged locally.
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for twenty-one bounded sources, including a keyed
+  separately launched v5 worker for twenty-two bounded sources, including a keyed
   input shared by GroupByKey and an ordinary branch, native Flatten and
   GroupByKey, event-time assignment, native fixed-window assignment with
   offset, per-window GroupByKey, two-, three-, and ten-input CoGroupByKey,
@@ -58,13 +58,15 @@ staged locally.
   with values in two fixed windows that is globally materialized to match
   Direct's side-view behavior,
   native Reshuffle in global and fixed windows,
-  and twenty terminal
+  and twenty-one terminal
   append sinks. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
   launched worker. The live job also reads a native Avro container written
   with an explicit schema by v5 Direct and checks its transformed record.
   An extracted CSV source crosses the live Prism worker coder boundary.
+  A length-delimited Protobuf file source decodes a typed v5 element, runs a
+  transform in the worker, and writes the asserted result through a terminal sink.
   CSV globs also lower to multiple source nodes and native Flatten in the
   mock worker contract. The format-heavy live proof now lives in the
   unpublished `ironbeam-prism-proof` package, so the Dataflow runtime package
@@ -165,7 +167,10 @@ staged locally.
    materialization reach `DONE` in local Prism for bounded global and
    fixed-window views. For a fixed-window side collection, the translator
    inserts a global-window branch so Beam materializes the same whole view
-   as Direct. Stateful or unbounded side views remain outside this proof.
+   as Direct. The live fixture uses an order-independent materializer;
+   iterable order across the portable side branch is not yet proven to match
+   Direct for order-sensitive materializers. Stateful or unbounded side views
+   remain outside this proof.
 3. **Remote I/O:** Provider clients can access hosted object storage from the
    bounded `ObjectIO` interface, but the local Prism worker still shares the
    driver's filesystem. Driver-local file paths are not staged to cloud
