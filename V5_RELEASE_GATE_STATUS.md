@@ -380,11 +380,14 @@ staged locally.
    The separate Dataflow workspace's WordCount example now uses the v5 graph,
    typed sink, and `run_v5_from_env`; its Direct result and portable protobuf
    preparation pass, and its default dependency tree excludes the v4 root.
+   The Dataflow runtime and graph translator now expose only v5 lowering;
+   their v4 entrypoints, translation tests, and example have been replaced.
+   The all-feature Dataflow workspace suite and strict package lint pass.
    Its optional `legacy-v4` harness still depends on this checkout: the
    published 4.1.1 crate lacks the local grouped-KV coder contract used by
    that harness. Repointing that feature to crates.io failed to compile, so
    the dependency change was reverted. Remove or replace the optional v4
-   Dataflow path before changing the root package to 5.0.0.
+   harness path before changing the root package to 5.0.0.
    `ironbeam-cloud` still contains legacy traits, fake services, readers,
    and helpers. Its compression and object APIs now reexport separate crates;
    v5 JSONL and shared I/O no longer depend on it. Remove
