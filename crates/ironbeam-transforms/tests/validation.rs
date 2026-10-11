@@ -35,12 +35,34 @@ fn validation_errors_and_collector_keep_record_context() {
     let mut collector = ErrorCollector::new();
     collector.add_error(Some("row-17".into()), vec![plain, coded.clone()]);
     assert_eq!(collector.error_count(), 1);
+    assert_eq!(collector.to_string(), "ErrorCollector(1 errors)");
     assert_eq!(collector.errors()[0].record_id.as_deref(), Some("row-17"));
     assert_eq!(collector.errors()[0].errors[1], coded);
     collector.print_errors();
     collector.clear();
     assert_eq!(collector.error_count(), 0);
     assert_eq!(collector.errors(), []);
+}
+
+#[cfg(feature = "validation-json")]
+#[test]
+fn error_collector_json_and_file_match_v4_shape() {
+    let mut collector = ErrorCollector::new();
+    collector.add_error(
+        Some("row-17".into()),
+        vec![ValidationError::field("score", "invalid").with_code("bad_score")],
+    );
+    let json = collector.to_json().unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value[0]["record_id"], "row-17");
+    assert_eq!(value[0]["errors"][0]["field"], "score");
+    assert_eq!(value[0]["errors"][0]["message"], "invalid");
+    assert_eq!(value[0]["errors"][0]["code"], "bad_score");
+    let file =
+        std::env::temp_dir().join(format!("ironbeam-validation-{}.json", std::process::id()));
+    collector.write_to_file(&file).unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), json);
+    std::fs::remove_file(file).unwrap();
 }
 
 #[test]

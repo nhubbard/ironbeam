@@ -2541,6 +2541,7 @@ dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

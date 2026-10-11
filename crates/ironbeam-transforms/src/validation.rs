@@ -184,10 +184,14 @@ impl ErrorCollector {
         self.errors.clear();
     }
     pub fn print_errors(&self) {
-        for record in &self.errors {
+        for (index, record) in self.errors.iter().enumerate() {
+            let id = record
+                .record_id
+                .as_deref()
+                .map_or_else(|| format!("#{index}"), str::to_owned);
             eprintln!(
-                "{:?}: {}",
-                record.record_id,
+                "Record {}: {}",
+                id,
                 record
                     .errors
                     .iter()
@@ -196,6 +200,25 @@ impl ErrorCollector {
                     .join(", ")
             );
         }
+    }
+
+    /// Export collected errors using the same JSON shape as Ironbeam v4.
+    #[cfg(feature = "validation-json")]
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(&self.errors)
+    }
+
+    /// Write the JSON error report to a file.
+    #[cfg(feature = "validation-json")]
+    pub fn write_to_file(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+        let json = self.to_json().map_err(std::io::Error::other)?;
+        std::fs::write(path, json)
+    }
+}
+
+impl fmt::Display for ErrorCollector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ErrorCollector({} errors)", self.error_count())
     }
 }
 

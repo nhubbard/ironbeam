@@ -7,9 +7,13 @@ license = "MIT"
 description = "Convenience transforms for Ironbeam 5 logical collections"
 repository = "https://github.com/nhubbard/ironbeam"
 
+[features]
+validation-json = ["dep:serde_json"]
+
 [dependencies]
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
 serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
