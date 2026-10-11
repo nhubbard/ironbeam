@@ -112,12 +112,12 @@
   "ironbeam-io-csv": {
     "source": "crates/ironbeam-io-csv/src",
     "lines": {
-      "covered": 67,
-      "count": 68
+      "covered": 329,
+      "count": 355
     },
     "branches": {
-      "covered": 2,
-      "count": 2
+      "covered": 34,
+      "count": 38
     }
   },
   "ironbeam-io-xml": {

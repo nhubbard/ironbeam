@@ -421,6 +421,16 @@ staged locally.
    truncated fragments without replacing an existing result. Its isolated
    coverage is 380/403 source locations and 36/38 branches, above the
    unchanged package baseline.
+   CSV now has a header-aware finalized bundle sink. The same live Prism
+   job publishes one CSV header and reopens all three rows after `DONE`;
+   local tests cover multiple bundles, quoted multiline values, mismatched
+   headers, malformed rows, empty bundles, and retry recovery. Publication
+   checks the runner's committed row count and is idempotent.
+   The expanded CSV crate's isolated all-feature coverage is 329/355 source
+   locations and 34/38 branches; this measured baseline replaces the former
+   67/68 and 2/2 threshold from before bundle finalization existed.
+   Portable CSV publication currently targets an uncompressed file; the
+   existing Direct CSV sink retains its optional compressed output.
    Publication also rejects pending or orphaned staging
    entries even if their row count is zero. Malformed MessagePack and CBOR
    fragments cannot replace an existing result, and failed serialization

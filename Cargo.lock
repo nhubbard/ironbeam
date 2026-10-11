@@ -2388,6 +2388,7 @@ dependencies = [
  "ironbeam-direct",
  "ironbeam-io",
  "serde",
+ "serde_json",
  "tempfile",
 ]
 
