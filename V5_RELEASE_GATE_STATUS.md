@@ -86,11 +86,16 @@ staged locally.
   integration tests are also gated by `legacy-v4`, allowing the complete
   root test target set to build in v5-only mode. The crate root and README
   now show a v5 quick start, with a passing doctest; legacy builds retain
-  their old documentation. Ten examples still require `legacy-v4`,
+  their old documentation. Nine examples still require `legacy-v4`,
   including the v4 benchmark corpus. Advanced joins, CoGroupByKey, JSONL
   globbing, pluggable compression, the Direct plan explanation example, and
-  the data-quality validation, windowing aggregation, and combiners showcase examples now
-  run through v5; compression remains opt-in under `compression-gzip`.
+  the data-quality validation, windowing aggregation, combiners showcase, and
+  multi-output examples now run through v5; compression remains opt-in under
+  `compression-gzip`. The multi-output example collects one classified bounded
+  output per job and separates typed buckets locally. A counting-source test
+  verifies one source open per partition job. Direct still lacks general
+  graph-level side outputs that run independent downstream branches together;
+  the multi-output runner gate remains open.
   Both v4 and v5 benchmark examples produce matching counts and checksums
   for four workloads at 1,000 rows. A single aligned 100,000-row release
   sample found substantial v5 latency regressions in all four cases; see
