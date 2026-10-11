@@ -204,7 +204,12 @@ staged locally.
   combined memory budget with optional spilling. The split value needs a
   registered coder; fan-in, stateful routes, and checkpointed pair jobs are
   rejected before source access. Arbitrary multi-sink graph execution is
-  still required to close the multi-output runner gate. Ten focused pair-job
+  still required to close the multi-output runner gate. Pair transform stages
+  now reject element expansion beyond the configured buffer budget, and
+  parallel pair jobs drain outputs after at most one worker-width chunk rather
+  than materializing every result in a source batch. A user transform can
+  still allocate its own result before returning it, so this is not a hard
+  process memory bound. Eleven focused pair-job
   tests pass, and a clean core/Direct/transforms coverage run passes the CI
   thresholds: Direct 1,479/1,576 source locations and 267/292 branch outcomes;
   core 2,230/2,318 source locations and 341/390 branch outcomes.

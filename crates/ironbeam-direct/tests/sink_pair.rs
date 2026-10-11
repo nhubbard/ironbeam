@@ -637,6 +637,74 @@ fn pair_writes_each_batch_before_reading_the_next() {
     assert_eq!(writes.load(Ordering::SeqCst), 4);
 }
 
+#[test]
+fn parallel_pair_writes_before_transforming_the_next_chunk() {
+    struct FirstWriteCheck {
+        transformed: Arc<AtomicUsize>,
+        writes: Arc<AtomicUsize>,
+    }
+    impl TypedSink<i32> for FirstWriteCheck {
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            if self.writes.fetch_add(1, Ordering::SeqCst) == 0 {
+                assert_eq!(self.transformed.load(Ordering::SeqCst), 2);
+            }
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+    let transformed = Arc::new(AtomicUsize::new(0));
+    let writes = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32, 2, 3, 4]).unwrap();
+    let count = Arc::clone(&transformed);
+    let shared = source
+        .map_named("count", move |value| {
+            count.fetch_add(1, Ordering::SeqCst);
+            value
+        })
+        .unwrap();
+    let make_sink = |transformed: Arc<AtomicUsize>, writes: Arc<AtomicUsize>| {
+        move || {
+            Ok(Box::new(FirstWriteCheck {
+                transformed: Arc::clone(&transformed),
+                writes: Arc::clone(&writes),
+            }) as Box<dyn TypedSink<i32>>)
+        }
+    };
+    let left = shared
+        .sink_named(
+            "left",
+            spec(Replay::Idempotent),
+            make_sink(Arc::clone(&transformed), Arc::clone(&writes)),
+        )
+        .unwrap();
+    let right = shared
+        .sink_named(
+            "right",
+            spec(Replay::Idempotent),
+            make_sink(Arc::clone(&transformed), Arc::clone(&writes)),
+        )
+        .unwrap();
+    DirectRunner
+        .run_sink_pair(
+            &left,
+            &right,
+            &JobConfig {
+                parallelism: 2,
+                buffer_budget_elements: 4,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(transformed.load(Ordering::SeqCst), 4);
+    assert_eq!(writes.load(Ordering::SeqCst), 8);
+}
+
 struct AbortOnly(Arc<AtomicUsize>);
 impl TypedSink<i32> for AbortOnly {
     fn write(&mut self, _: i32) -> Result<(), Error> {

@@ -328,17 +328,24 @@ pub(crate) fn execute_sinks(
                 Ok::<u64, Error>(written)
             })?
         } else {
-            let results: Vec<_> = pool.install(|| {
-                batch
-                    .into_par_iter()
-                    .map(|event| process_event(event, plan, registry, config, &handle.metrics))
-                    .collect()
-            });
             let mut written = 0_u64;
-            for result in results {
-                written = written.saturating_add(write_sink_pair(
-                    result?, left, right, left_key, right_key, config,
-                )?);
+            let mut pending = batch.into_iter();
+            loop {
+                let chunk: Vec<_> = pending.by_ref().take(config.parallelism).collect();
+                if chunk.is_empty() {
+                    break;
+                }
+                let results: Vec<_> = pool.install(|| {
+                    chunk
+                        .into_par_iter()
+                        .map(|event| process_event(event, plan, registry, config, &handle.metrics))
+                        .collect()
+                });
+                for result in results {
+                    written = written.saturating_add(write_sink_pair(
+                        result?, left, right, left_key, right_key, config,
+                    )?);
+                }
             }
             written
         };
@@ -392,24 +399,31 @@ pub(crate) fn execute<T: Element, U: Element>(
             .peak_batch_elements
             .fetch_max(source_count, Ordering::Relaxed);
         handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
-        let results: Vec<_> = pool.install(|| {
-            batch
-                .into_par_iter()
-                .map(|event| process_event(event, plan, registry, config, &handle.metrics))
-                .collect()
-        });
         let mut output_count = 0_u64;
-        for result in results {
-            let (left_events, right_events) = result?;
-            for event in left_events {
-                push_output(event, left_key, &mut left)?;
-                enforce_memory(&mut left, &mut right, config)?;
-                output_count = output_count.saturating_add(1);
+        let mut pending = batch.into_iter();
+        loop {
+            let chunk: Vec<_> = pending.by_ref().take(config.parallelism).collect();
+            if chunk.is_empty() {
+                break;
             }
-            for event in right_events {
-                push_output(event, right_key, &mut right)?;
-                enforce_memory(&mut left, &mut right, config)?;
-                output_count = output_count.saturating_add(1);
+            let results: Vec<_> = pool.install(|| {
+                chunk
+                    .into_par_iter()
+                    .map(|event| process_event(event, plan, registry, config, &handle.metrics))
+                    .collect()
+            });
+            for result in results {
+                let (left_events, right_events) = result?;
+                for event in left_events {
+                    push_output(event, left_key, &mut left)?;
+                    enforce_memory(&mut left, &mut right, config)?;
+                    output_count = output_count.saturating_add(1);
+                }
+                for event in right_events {
+                    push_output(event, right_key, &mut right)?;
+                    enforce_memory(&mut left, &mut right, config)?;
+                    output_count = output_count.saturating_add(1);
+                }
             }
         }
         let total = handle
