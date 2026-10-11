@@ -13,8 +13,12 @@ staged locally.
   sinks verified six elementwise values, event timestamps, assigned intervals,
   and two grouped results, including a native GroupByKey that combined two
   production rows in one window. A Fn API test verifies both branches with
-  one source open per bundle across a
-  rebuilt graph. Other SDF graph shapes and process restart remain open.
+  one source open per bundle across a rebuilt graph. A separate Fn Data test
+  runs the residual bundle in a new
+  OS process with a newly built graph and verifies cursor resume. Killing the
+  Prism process worker during a bundle makes this local Prism version fail the
+  job rather than restart the worker; runner-managed process recovery is not
+  claimed. Other SDF graph shapes remain open.
 - Direct bounded linear sinks now write one source batch at a time instead of
   collecting the entire result before opening the sink. Typed sinks can opt in
   to `write_with_metadata` to receive event time, window, and assigned interval;
