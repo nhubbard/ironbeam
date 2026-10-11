@@ -146,7 +146,9 @@ staged locally.
   encoded buffer while preserving the wire digest. A warmed five-run v5
   corpus sample moved GroupByKey from 12.384 to 4.529 ms and inner join from
   33.240 to 19.233 ms at 100,000 rows; see `V5_PHASE0_BASELINE.md` for the
-  paired v4 figures and phase breakdown. The
+  paired v4 figures and phase breakdown. Higher-arity tuples, vectors, and
+  options now reuse coder buffers with byte-compatibility tests; no paired
+  latency number has been recorded for them yet. The
   v5 Direct
   collection trait now accepts `PCollection` as well as `Output`; it builds
   an isolated terminal snapshot, so repeated v4-shaped `collect_seq` and `collect_par`

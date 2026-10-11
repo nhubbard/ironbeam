@@ -143,8 +143,11 @@ are unchanged. In a five-run warmed v5 sample, the GroupByKey median fell
 from 12.384 to 4.529 ms and inner join from 33.240 to 19.233 ms, with matching
 counts and checksums. A phased sample put GroupByKey source construction near
 1.3 ms and execution near 3.1 ms, down from about 9.1 and 3.0 ms before the
-coder change. Higher-arity tuples and other composite coders still allocate
-through their default encoding paths. The performance gate remains open.
+coder change. Higher-arity tuples, vectors, and options now append into a
+reusable wire buffer as well. Tests compare their bytes with the earlier
+length-prefixed encoding and verify that a custom element encodes only once.
+Their latency has not yet been measured in the paired corpus. The performance
+gate remains open.
 
 ## Runner-specific assumptions and Dataflow dependency check
 
