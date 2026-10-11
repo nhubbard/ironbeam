@@ -56,8 +56,11 @@ staged locally.
 - `ironbeam-cloud` now has URI routing, registered provider handles, and a
   filesystem-backed local adapter. A JSONL graph source and sink round-trip
   through that adapter. Opt-in `ironbeam-cloud-object-store` builds S3, GCS,
-  and Azure Blob clients from environment credentials; the common adapter's
-  operations pass against Apache `object_store`'s in-memory backend. Hosted
+  and Azure Blob clients from environment credentials. Its
+  `object_stores_from_env()` constructor registers all enabled providers in
+  one URI router, with bucket clients still initialized on first use. Default
+  and all-provider tests and strict lint pass; the common adapter's operations
+  pass against Apache `object_store`'s in-memory backend. Hosted
   storage authentication and live service behavior remain unverified.
 
 ## Open replacement gates

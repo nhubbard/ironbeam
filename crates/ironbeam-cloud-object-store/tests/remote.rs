@@ -1,5 +1,5 @@
 use ironbeam_cloud::{ErrorKind, ObjectIO, ObjectStores};
-use ironbeam_cloud_object_store::RemoteObjectIO;
+use ironbeam_cloud_object_store::{RemoteObjectIO, object_stores_from_env};
 use object_store::{ObjectStore, memory::InMemory};
 use std::sync::{
     Arc,
@@ -50,4 +50,12 @@ fn missing_object_and_invalid_path_keep_meaningful_errors() {
             .kind,
         ErrorKind::InvalidInput
     );
+}
+
+#[test]
+fn environment_router_registers_each_enabled_provider_lazily() {
+    let stores = object_stores_from_env().unwrap();
+    assert_eq!(stores.provider("s3").is_ok(), cfg!(feature = "aws"));
+    assert_eq!(stores.provider("gs").is_ok(), cfg!(feature = "gcp"));
+    assert_eq!(stores.provider("az").is_ok(), cfg!(feature = "azure"));
 }

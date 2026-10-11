@@ -9,19 +9,18 @@ ironbeam-cloud-object-store = { version = "0.1", features = ["gcp"] }
 ```
 
 ```rust,ignore
-use ironbeam_cloud::ObjectStores;
-use ironbeam_cloud_object_store::RemoteObjectIO;
+use ironbeam_cloud_object_store::object_stores_from_env;
 
-let mut objects = ObjectStores::new();
-objects.register("gs", RemoteObjectIO::gcs_from_env()?)?;
+let objects = object_stores_from_env()?;
 objects.write("gs://my-bucket/output/results.jsonl", b"{\"id\":1}\n")?;
 let bytes = objects.read("gs://my-bucket/output/results.jsonl")?;
 ```
 
-`RemoteObjectIO::s3_from_env()` (`aws` feature) and
-`RemoteObjectIO::azure_from_env()` (`azure` feature) use the same API. The
-provider constructors read their normal environment configuration; bucket or
-container clients are built on first use and cached. `RemoteObjectIO::new`
+The router also recognizes `s3://` with `aws` enabled and `az://` with
+`azure` enabled. The returned `ObjectStores` can register a local or custom
+provider alongside those hosted clients. Provider constructors read their
+normal environment configuration; bucket or container clients are built on
+first use and cached. `RemoteObjectIO::new`
 accepts any `object_store` client factory, including local emulators and
 custom S3-compatible endpoints.
 

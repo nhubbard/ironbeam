@@ -6,13 +6,38 @@
 //! synchronous Ironbeam sources can call it from a runner thread.
 
 use futures_util::TryStreamExt;
-use ironbeam_cloud::{CloudIOError, CloudResult, ErrorKind, ObjectIO, ObjectMetadata};
+use ironbeam_cloud::{
+    CloudIOError, CloudResult, ErrorKind, ObjectIO, ObjectMetadata, ObjectStores,
+};
 use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt, path::Path};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex, mpsc};
 
 type Factory = dyn Fn(&str) -> CloudResult<Arc<dyn ObjectStore>> + Send + Sync;
+
+/// Build one URI router for every enabled hosted provider.
+///
+/// Enable `aws`, `gcp`, or `azure` on this crate. The router recognizes
+/// `s3://`, `gs://`, and `az://` respectively. Clients are created lazily for
+/// each bucket or container, so construction does not require credentials.
+/// A caller can also register a local or custom provider on the returned
+/// [`ObjectStores`] before using it.
+///
+/// # Errors
+/// Returns an error if a provider's dedicated request runtime cannot start.
+pub fn object_stores_from_env() -> CloudResult<ObjectStores> {
+    let stores = ObjectStores::new();
+    #[cfg(any(feature = "aws", feature = "gcp", feature = "azure"))]
+    let mut stores = stores;
+    #[cfg(feature = "aws")]
+    stores.register("s3", RemoteObjectIO::s3_from_env()?)?;
+    #[cfg(feature = "gcp")]
+    stores.register("gs", RemoteObjectIO::gcs_from_env()?)?;
+    #[cfg(feature = "azure")]
+    stores.register("az", RemoteObjectIO::azure_from_env()?)?;
+    Ok(stores)
+}
 
 /// One provider family, with clients cached separately for each bucket.
 pub struct RemoteObjectIO {
