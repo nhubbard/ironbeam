@@ -1,9 +1,8 @@
-#![cfg(feature = "legacy-v4")]
 //! Tests for the execution plan explanation feature.
 
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::*;
 
 #[test]
 fn test_explain_simple_pipeline() -> Result<()> {

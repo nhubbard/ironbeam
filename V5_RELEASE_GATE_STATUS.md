@@ -85,6 +85,9 @@ staged locally.
 - Six more v4 dead-letter, logging, named-operation, multi-output, validation,
   and testing-utility suites now run in `ironbeam-compat`. Their 122 cases pass
   against published 4.1.1, and the duplicate root targets are removed.
+- The v4 CoGroupByKey, graph explanation, ordering, and planner references
+  now run in `ironbeam-compat`. Their 113 cases pass against published 4.1.1,
+  and the duplicate root targets are removed.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The

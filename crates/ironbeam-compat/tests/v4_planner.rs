@@ -1,11 +1,10 @@
-#![cfg(feature = "legacy-v4")]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::node::Node;
-use ironbeam::planner::{build_dominator_tree, find_cache_node_via_dominators};
-use ironbeam::testing::*;
-use ironbeam::{
+use ironbeam_v4::node::Node;
+use ironbeam_v4::planner::{build_dominator_tree, find_cache_node_via_dominators};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{
     NodeId, OptimizationDecision, PCollection, Pipeline, Runner, SharedCSECache, build_plan,
     cogroup_by_key, flatten, from_vec,
 };
@@ -99,7 +98,7 @@ fn cse_shared_prefix_executes_once() -> Result<()> {
 
     let cache = SharedCSECache::default();
     let runner = Runner {
-        mode: ironbeam::ExecMode::Sequential,
+        mode: ironbeam_v4::ExecMode::Sequential,
         ..Runner::default()
     };
 
@@ -910,8 +909,8 @@ fn cogroup_equal_cardinality_not_reordered() -> Result<()> {
 
 // ---- 3.10: Tree Reduction for Associative Combiners ----
 
-use ironbeam::collection::Count;
-use ironbeam::combiners::{Count as CombCount, Max, Min, Sum};
+use ironbeam_v4::collection::Count;
+use ironbeam_v4::combiners::{Count as CombCount, Max, Min, Sum};
 
 /// `Sum` is associative+commutative, so a `CombineGlobal` built from it must
 /// have `tree_reduce == true` in the compiled plan.
@@ -983,7 +982,7 @@ fn tree_reduce_flag_set_for_min_combiner() -> Result<()> {
 /// A custom combiner that does NOT declare AC must NOT set `tree_reduce`.
 #[test]
 fn tree_reduce_not_set_for_non_ac_combiner() -> Result<()> {
-    use ironbeam::CombineFn;
+    use ironbeam_v4::CombineFn;
 
     #[derive(Clone, Default)]
     struct ConcatStr;
@@ -1103,7 +1102,7 @@ fn tree_reduction_appears_in_explain() -> Result<()> {
 /// `TreeReduction` does NOT appear for a non-AC combiner.
 #[test]
 fn tree_reduction_absent_for_non_ac_combiner() -> Result<()> {
-    use ironbeam::CombineFn;
+    use ironbeam_v4::CombineFn;
 
     #[derive(Clone, Default)]
     struct SumButNotAC;
@@ -1475,7 +1474,7 @@ fn cse_fanout_still_works_with_dominator_approach() -> Result<()> {
 
     let cache = SharedCSECache::default();
     let runner = Runner {
-        mode: ironbeam::ExecMode::Sequential,
+        mode: ironbeam_v4::ExecMode::Sequential,
         ..Runner::default()
     };
 
@@ -1512,7 +1511,7 @@ fn cse_flatten_pipeline_correct_results() -> Result<()> {
 
     let cache = SharedCSECache::default();
     let runner = Runner {
-        mode: ironbeam::ExecMode::Sequential,
+        mode: ironbeam_v4::ExecMode::Sequential,
         ..Runner::default()
     };
 
@@ -1548,7 +1547,7 @@ fn cse_linear_pipeline_caches_on_repeated_calls() -> Result<()> {
 
     let cache = SharedCSECache::default();
     let runner = Runner {
-        mode: ironbeam::ExecMode::Sequential,
+        mode: ironbeam_v4::ExecMode::Sequential,
         ..Runner::default()
     };
 
@@ -1858,7 +1857,7 @@ fn lifted_gbk_combine_appears_in_explain() -> Result<()> {
 /// those flag values, so they can only be reached this way).
 #[test]
 fn display_unreachable_branches_render() {
-    use ironbeam::{CostEstimate, ExecutionExplanation, ExplainStep};
+    use ironbeam_v4::{CostEstimate, ExecutionExplanation, ExplainStep};
     let step = ExplainStep {
         step: 0,
         node_type: "Source".to_string(),

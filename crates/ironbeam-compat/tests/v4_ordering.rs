@@ -1,7 +1,6 @@
-#![cfg(feature = "legacy-v4")]
 use anyhow::Result;
-use ironbeam::from_vec;
-use ironbeam::testing::*;
+use ironbeam_v4::from_vec;
+use ironbeam_v4::testing::*;
 
 #[test]
 fn par_equals_seq_after_sort() -> Result<()> {

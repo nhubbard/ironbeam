@@ -252,14 +252,6 @@ name = "checkpoint"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "co_gbk"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "explain"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "feature_gating"
 required-features = ["legacy-v4"]
 
@@ -276,19 +268,11 @@ name = "metrics"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "ordering"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "par_write"
 required-features = ["legacy-v4"]
 
 [[test]]
 name = "pipeline"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "planner"
 required-features = ["legacy-v4"]
 
 [[test]]

@@ -1,8 +1,7 @@
-#![cfg(feature = "legacy-v4")]
 //! Tests for multi-way `CoGroupByKey` operations
 
 use anyhow::Result;
-use ironbeam::*;
+use ironbeam_v4::*;
 
 #[test]
 fn test_cogroup_2_way() -> Result<()> {
