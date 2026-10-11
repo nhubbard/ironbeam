@@ -1404,7 +1404,13 @@ pub struct Envelope {
 pub type SourceIterator = Box<dyn Iterator<Item = Result<Envelope, Error>> + Send>;
 pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Send>;
 type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
-type Transform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
+type SingleTransform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync>;
+type MultiTransform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
+#[derive(Clone)]
+enum Transform {
+    Single(SingleTransform),
+    Multi(MultiTransform),
+}
 type Aggregate = Arc<dyn Fn(Vec<Vec<Envelope>>) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     fn create(&self) -> A;
@@ -1865,20 +1871,37 @@ impl Registry {
             .and_then(|source| source.config_digest.as_deref())
     }
     pub fn apply(&self, key: &str, input: Envelope) -> Result<Option<Envelope>, Error> {
-        let mut values = self.apply_many(key, input)?;
-        if values.len() > 1 {
-            return Err(Error::execution(
-                key,
-                "direct",
-                "operation emits multiple elements",
-            ));
+        match self
+            .transforms
+            .get(key)
+            .ok_or_else(|| Error::execution(key, "direct", "transform missing"))?
+        {
+            Transform::Single(transform) => transform(input),
+            Transform::Multi(transform) => {
+                let mut values = transform(input)?;
+                if values.len() > 1 {
+                    return Err(Error::execution(
+                        key,
+                        "direct",
+                        "operation emits multiple elements",
+                    ));
+                }
+                Ok(values.pop())
+            }
         }
-        Ok(values.pop())
     }
     pub fn apply_many(&self, key: &str, input: Envelope) -> Result<Vec<Envelope>, Error> {
-        self.transforms
+        match self.transforms
             .get(key)
-            .ok_or_else(|| Error::execution(key, "direct", "transform missing"))?(input)
+            .ok_or_else(|| Error::execution(key, "direct", "transform missing"))?
+        {
+            Transform::Single(transform) => Ok(transform(input)?.into_iter().collect()),
+            Transform::Multi(transform) => transform(input),
+        }
+    }
+    #[must_use]
+    pub fn has_single_transform(&self, key: &str) -> bool {
+        matches!(self.transforms.get(key), Some(Transform::Single(_)))
     }
     pub fn apply_aggregate(
         &self,
@@ -2412,14 +2435,14 @@ impl<T: Element> PCollection<T> {
         f: impl Fn(T) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
         let key_owned = key.to_owned();
-        let transform: Transform = Arc::new(move |mut e| {
+        let transform = Transform::Single(Arc::new(move |mut e| {
             let value = e
                 .value
                 .downcast::<T>()
                 .map_err(|_| Error::execution(&key_owned, "direct", "input type mismatch"))?;
             e.value = Box::new(f(*value));
-            Ok(vec![e])
-        });
+            Ok(Some(e))
+        }));
         self.next(key, Operation::Map, Some(transform), None)
     }
     pub fn filter_named(
@@ -2428,13 +2451,13 @@ impl<T: Element> PCollection<T> {
         f: impl Fn(&T) -> bool + Send + Sync + 'static,
     ) -> Result<Self, Error> {
         let key_owned = key.to_owned();
-        let transform: Transform = Arc::new(move |e| {
+        let transform = Transform::Single(Arc::new(move |e| {
             let value = e
                 .value
                 .downcast_ref::<T>()
                 .ok_or_else(|| Error::execution(&key_owned, "direct", "input type mismatch"))?;
-            Ok(if f(value) { vec![e] } else { Vec::new() })
-        });
+            Ok(if f(value) { Some(e) } else { None })
+        }));
         self.next(key, Operation::Filter, Some(transform), None)
     }
     pub fn flat_map_named<U: Element>(
@@ -2443,7 +2466,7 @@ impl<T: Element> PCollection<T> {
         f: impl Fn(T) -> Vec<U> + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
         let key_owned = key.to_owned();
-        let transform: Transform = Arc::new(move |e| {
+        let transform = Transform::Multi(Arc::new(move |e| {
             let Envelope {
                 value,
                 timestamp_ns,
@@ -2462,7 +2485,7 @@ impl<T: Element> PCollection<T> {
                     assigned_window,
                 })
                 .collect())
-        });
+        }));
         self.next(key, Operation::FlatMap, Some(transform), None)
     }
     pub fn flatten_named(&self, key: &str, others: &[Self]) -> Result<Self, Error> {
@@ -2587,11 +2610,11 @@ impl<T: Element> PCollection<T> {
         }
         let window = Window::Fixed { size_ns };
         let runtime_window = window.clone();
-        let transform: Transform = Arc::new(move |mut e| {
+        let transform = Transform::Single(Arc::new(move |mut e| {
             e.assigned_window = runtime_window.assign(e.timestamp_ns)?;
             e.window = runtime_window.clone();
-            Ok(vec![e])
-        });
+            Ok(Some(e))
+        }));
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
     pub fn fixed_windows_with_offset(
@@ -2605,11 +2628,11 @@ impl<T: Element> PCollection<T> {
         }
         let window = Window::FixedOffset { size_ns, offset_ns };
         let runtime_window = window.clone();
-        let transform: Transform = Arc::new(move |mut event| {
+        let transform = Transform::Single(Arc::new(move |mut event| {
             event.assigned_window = runtime_window.assign(event.timestamp_ns)?;
             event.window = runtime_window.clone();
-            Ok(vec![event])
-        });
+            Ok(Some(event))
+        }));
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
     pub fn with_window_named(&self, key: &str) -> Result<PCollection<(WindowInterval, T)>, Error> {
@@ -2620,7 +2643,7 @@ impl<T: Element> PCollection<T> {
             ));
         }
         let node_key = key.to_owned();
-        let transform: Transform = Arc::new(move |event| {
+        let transform = Transform::Single(Arc::new(move |event| {
             let Envelope {
                 value,
                 timestamp_ns,
@@ -2632,13 +2655,13 @@ impl<T: Element> PCollection<T> {
             let value = *value
                 .downcast::<T>()
                 .map_err(|_| Error::execution(&node_key, "direct", "window input type mismatch"))?;
-            Ok(vec![Envelope {
+            Ok(Some(Envelope {
                 value: Box::new((interval, value)),
                 timestamp_ns,
                 window,
                 assigned_window,
-            }])
-        });
+            }))
+        }));
         self.next(key, Operation::Map, Some(transform), None)
     }
     pub fn assign_timestamps_named(
@@ -2650,20 +2673,20 @@ impl<T: Element> PCollection<T> {
             return Err(Error::graph(key, "assign timestamps before windowing"));
         }
         let key_owned = key.to_owned();
-        let transform: Transform = Arc::new(move |mut event| {
+        let transform = Transform::Single(Arc::new(move |mut event| {
             let value = event.value.downcast_ref::<T>().ok_or_else(|| {
                 Error::execution(&key_owned, "direct", "timestamp input type mismatch")
             })?;
             event.timestamp_ns = f(value);
-            Ok(vec![event])
-        });
+            Ok(Some(event))
+        }));
         self.next(key, Operation::AssignTimestamp, Some(transform), None)
     }
     /// Expose each element's event timestamp as `(nanoseconds, value)` while
     /// retaining the timestamp and window in the output envelope.
     pub fn reify_timestamps_named(&self, key: &str) -> Result<PCollection<(i64, T)>, Error> {
         let key_owned = key.to_owned();
-        let transform: Transform = Arc::new(move |event| {
+        let transform = Transform::Single(Arc::new(move |event| {
             let Envelope {
                 value,
                 timestamp_ns,
@@ -2673,13 +2696,13 @@ impl<T: Element> PCollection<T> {
             let value = *value.downcast::<T>().map_err(|_| {
                 Error::execution(&key_owned, "direct", "timestamp input type mismatch")
             })?;
-            Ok(vec![Envelope {
+            Ok(Some(Envelope {
                 value: Box::new((timestamp_ns, value)),
                 timestamp_ns,
                 window,
                 assigned_window,
-            }])
-        });
+            }))
+        }));
         self.next(key, Operation::Map, Some(transform), None)
     }
     pub fn output(&self, key: &str) -> Result<Output<T>, Error> {

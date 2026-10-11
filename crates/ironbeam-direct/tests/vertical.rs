@@ -37,6 +37,36 @@ fn small_graph_runs_with_job_owned_settings() {
 }
 
 #[test]
+fn single_output_route_preserves_filter_metrics_and_multi_output_fallback() {
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![1_i32, 2, 3, 4]).unwrap();
+    let mapped = input.map_named("double", |value| value * 2).unwrap();
+    let filtered = mapped.filter_named("keep-four", |value| value % 4 == 0).unwrap();
+    let output = filtered.output("single-result").unwrap();
+    let (values, job) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(values, vec![4, 8]);
+    assert_eq!(job.metrics().source_elements, 4);
+    assert_eq!(job.metrics().filtered_elements, 2);
+    assert_eq!(job.metrics().output_elements, 2);
+
+    let expanded = mapped
+        .flat_map_named("expand", |value| vec![value, value + 1])
+        .unwrap()
+        .filter_named("keep-even", |value| value % 2 == 0)
+        .unwrap();
+    let output = expanded.output("multi-result").unwrap();
+    let (values, job) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(values, vec![2, 4, 6, 8]);
+    assert_eq!(job.metrics().source_elements, 4);
+    assert_eq!(job.metrics().filtered_elements, 4);
+    assert_eq!(job.metrics().output_elements, 4);
+}
+
+#[test]
 fn distinct_job_pools_are_visible_to_user_code() {
     let p = Pipeline::default();
     let input = p.from_vec("input", vec![1_i32]).unwrap();

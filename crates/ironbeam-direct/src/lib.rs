@@ -590,6 +590,10 @@ fn execute<T: Element>(
         Ordering::Relaxed,
     );
     for route in &plan.routes {
+        let single_route = route
+            .operations
+            .iter()
+            .all(|key| registry.has_single_transform(key));
         let mut source_offset = recovered_offset;
         let mut source = open_source_safe(registry, &route.source_key)?;
         for _ in 0..source_offset {
@@ -619,30 +623,23 @@ fn execute<T: Element>(
                 u64::try_from(batch_len).unwrap_or(u64::MAX),
                 Ordering::Relaxed,
             );
-            let results: Vec<Result<Vec<Envelope>, Error>> = pool.install(|| {
-                batch
-                    .into_par_iter()
-                    .map(|event| {
-                        let mut events = vec![event];
-                        for key in &route.operations {
-                            let mut next_events = Vec::new();
-                            for event in events {
+            if single_route {
+                let results: Vec<Result<Option<Envelope>, Error>> = pool.install(|| {
+                    batch
+                        .into_par_iter()
+                        .map(|event| {
+                            let mut current = Some(event);
+                            for key in &route.operations {
+                                let Some(event) = current else {
+                                    break;
+                                };
                                 if config.cancellation.load(Ordering::Acquire) {
                                     return Err(cancelled());
                                 }
-                                match catch_unwind(AssertUnwindSafe(|| {
-                                    registry.apply_many(key, event)
+                                current = match catch_unwind(AssertUnwindSafe(|| {
+                                    registry.apply(key, event)
                                 })) {
-                                    Ok(Ok(produced)) => {
-                                        if produced.is_empty() {
-                                            handle
-                                                .metrics
-                                                .filtered_elements
-                                                .fetch_add(1, Ordering::Relaxed);
-                                        }
-                                        next_events.extend(produced);
-                                    }
-                                    Ok(Err(error)) => return Err(error),
+                                    Ok(result) => result?,
                                     Err(_) => {
                                         return Err(Error::execution(
                                             key,
@@ -650,27 +647,67 @@ fn execute<T: Element>(
                                             "user transform panicked",
                                         ));
                                     }
+                                };
+                                if current.is_none() {
+                                    handle
+                                        .metrics
+                                        .filtered_elements
+                                        .fetch_add(1, Ordering::Relaxed);
                                 }
                             }
-                            events = next_events;
-                        }
-                        Ok(events)
-                    })
-                    .collect()
-            });
-            for result in results {
-                let values = result?;
-                for event in values {
-                    let value = event.value.downcast::<T>().map_err(|_| {
-                        Error::execution(output_key, "direct", "output type mismatch")
-                    })?;
-                    store.push(*value)?;
-                    let total = handle
-                        .metrics
-                        .output_elements
-                        .fetch_add(1, Ordering::Relaxed)
-                        + 1;
-                    handle.processed.store(total, Ordering::Relaxed);
+                            Ok(current)
+                        })
+                        .collect()
+                });
+                for result in results {
+                    if let Some(event) = result? {
+                        push_output(event, &mut store, output_key, handle)?;
+                    }
+                }
+            } else {
+                let results: Vec<Result<Vec<Envelope>, Error>> = pool.install(|| {
+                    batch
+                        .into_par_iter()
+                        .map(|event| {
+                            let mut events = vec![event];
+                            for key in &route.operations {
+                                let mut next_events = Vec::new();
+                                for event in events {
+                                    if config.cancellation.load(Ordering::Acquire) {
+                                        return Err(cancelled());
+                                    }
+                                    match catch_unwind(AssertUnwindSafe(|| {
+                                        registry.apply_many(key, event)
+                                    })) {
+                                        Ok(Ok(produced)) => {
+                                            if produced.is_empty() {
+                                                handle
+                                                    .metrics
+                                                    .filtered_elements
+                                                    .fetch_add(1, Ordering::Relaxed);
+                                            }
+                                            next_events.extend(produced);
+                                        }
+                                        Ok(Err(error)) => return Err(error),
+                                        Err(_) => {
+                                            return Err(Error::execution(
+                                                key,
+                                                "direct",
+                                                "user transform panicked",
+                                            ));
+                                        }
+                                    }
+                                }
+                                events = next_events;
+                            }
+                            Ok(events)
+                        })
+                        .collect()
+                });
+                for result in results {
+                    for event in result? {
+                        push_output(event, &mut store, output_key, handle)?;
+                    }
                 }
             }
             source_offset = source_offset
@@ -692,6 +729,25 @@ fn execute<T: Element>(
         }
     }
     store.into_vec()
+}
+fn push_output<T: Element>(
+    event: Envelope,
+    store: &mut OutputStore<T>,
+    output_key: &str,
+    handle: &JobHandle,
+) -> Result<(), Error> {
+    let value = event
+        .value
+        .downcast::<T>()
+        .map_err(|_| Error::execution(output_key, "direct", "output type mismatch"))?;
+    store.push(*value)?;
+    let total = handle
+        .metrics
+        .output_elements
+        .fetch_add(1, Ordering::Relaxed)
+        + 1;
+    handle.processed.store(total, Ordering::Relaxed);
+    Ok(())
 }
 fn cancelled() -> Error {
     Error {
