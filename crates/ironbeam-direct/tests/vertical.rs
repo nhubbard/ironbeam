@@ -84,6 +84,13 @@ fn typed_map_filter_route_preserves_values_and_metrics() {
         labels.collect_seq().unwrap(),
         vec!["0", "4", "8", "12", "16", "20", "24", "28", "32"]
     );
+    let after_filter = filtered
+        .map_named("after-filter", |value| value + 1)
+        .unwrap();
+    assert_eq!(
+        after_filter.collect_seq().unwrap(),
+        vec![1, 5, 9, 13, 17, 21, 25, 29, 33]
+    );
 }
 
 #[test]
@@ -105,7 +112,12 @@ fn typed_source_only_route_preserves_results_and_metrics() {
         .output("result")
         .unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
-    assert!(registry.open_typed_source::<String>("source").unwrap().is_none());
+    assert!(
+        registry
+            .open_typed_source::<String>("source")
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         registry
             .open_typed_source::<i32>("source")
@@ -162,13 +174,9 @@ fn typed_source_only_route_reports_factory_and_iterator_panics() {
 
     let pipeline = Pipeline::default();
     let output = pipeline
-        .bounded_source::<i32>(
-            "source",
-            progress,
-            "iterator-panic-v1".into(),
-            None,
-            || Ok(Box::new(std::iter::once_with(|| panic!("iterator panic")))),
-        )
+        .bounded_source::<i32>("source", progress, "iterator-panic-v1".into(), None, || {
+            Ok(Box::new(std::iter::once_with(|| panic!("iterator panic"))))
+        })
         .unwrap()
         .output("result")
         .unwrap();
@@ -204,8 +212,14 @@ fn collection_collect_repeats_without_mutating_the_graph() {
     let (recovered, job) = filtered.collect_with(&config).unwrap();
     assert_eq!(recovered, vec![2, 4]);
     assert_eq!(job.metrics().recovered_elements, 2);
-    assert_eq!(pipeline.snapshot().unwrap().0.fingerprint().unwrap(), original);
-    assert_eq!(filtered.output("explicit").unwrap().collect_seq().unwrap(), vec![2, 4]);
+    assert_eq!(
+        pipeline.snapshot().unwrap().0.fingerprint().unwrap(),
+        original
+    );
+    assert_eq!(
+        filtered.output("explicit").unwrap().collect_seq().unwrap(),
+        vec![2, 4]
+    );
 }
 
 #[test]
@@ -213,7 +227,9 @@ fn single_output_route_preserves_filter_metrics_and_multi_output_fallback() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("input", vec![1_i32, 2, 3, 4]).unwrap();
     let mapped = input.map_named("double", |value| value * 2).unwrap();
-    let filtered = mapped.filter_named("keep-four", |value| value % 4 == 0).unwrap();
+    let filtered = mapped
+        .filter_named("keep-four", |value| value % 4 == 0)
+        .unwrap();
     let output = filtered.output("single-result").unwrap();
     let (values, job) = DirectRunner
         .run_collect(&output, &JobConfig::default())
@@ -372,6 +388,57 @@ fn cancelled_job_never_opens_source() {
 }
 
 #[test]
+fn cancellation_during_source_read_stops_typed_and_materialized_routes() {
+    for materialized in [false, true] {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let pipeline = Pipeline::default();
+        let source = pipeline
+            .bounded_source::<i32>(
+                "source",
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: false,
+                },
+                "cancel-on-read-v1".into(),
+                Some(2),
+                {
+                    let cancelled = Arc::clone(&cancelled);
+                    move || {
+                        let cancelled = Arc::clone(&cancelled);
+                        Ok(Box::new((0..2).map(move |value| {
+                            cancelled.store(true, Ordering::Release);
+                            Ok(value)
+                        })))
+                    }
+                },
+            )
+            .unwrap();
+        let config = JobConfig {
+            cancellation: cancelled,
+            buffer_budget_elements: 1,
+            ..JobConfig::default()
+        };
+        let error = if materialized {
+            let output = source
+                .combine_globally_named("sum", |values| values.into_iter().sum::<i32>())
+                .unwrap()
+                .output("out")
+                .unwrap();
+            DirectRunner.run_collect(&output, &config).err().unwrap()
+        } else {
+            let output = source
+                .map_named("map", |value| value + 1)
+                .unwrap()
+                .output("out")
+                .unwrap();
+            DirectRunner.run_collect(&output, &config).err().unwrap()
+        };
+        assert_eq!(error.kind, ErrorKind::Cancelled);
+    }
+}
+
+#[test]
 fn empty_and_filtered_outputs_are_valid() {
     let p = Pipeline::default();
     let output = p
@@ -419,6 +486,21 @@ fn invalid_resources_are_rejected_and_bounded_windows_execute() {
         DirectRunner.run_collect(&output, &bad).err().unwrap().kind,
         ErrorKind::Graph
     );
+    for bad in [
+        JobConfig {
+            memory_budget_bytes: 0,
+            ..JobConfig::default()
+        },
+        JobConfig {
+            buffer_budget_elements: 0,
+            ..JobConfig::default()
+        },
+    ] {
+        assert_eq!(
+            DirectRunner.run_collect(&output, &bad).err().unwrap().kind,
+            ErrorKind::Graph
+        );
+    }
     let windowed = input
         .fixed_windows("window", 100)
         .unwrap()

@@ -384,7 +384,10 @@ fn latest_uses_event_time_globally_per_key_and_per_window() {
         .unwrap();
     let keyed = values
         .map_named("latest-key", |(timestamp, value)| {
-            (i32::try_from(value.len()).expect("sample length fits i32"), (timestamp, value))
+            (
+                i32::try_from(value.len()).expect("sample length fits i32"),
+                (timestamp, value),
+            )
         })
         .unwrap()
         .latest_per_key_named("latest-keyed")
@@ -812,6 +815,128 @@ fn lifted_combines_stream_linear_sources_with_small_memory_budget() {
             .0,
         vec![0]
     );
+}
+
+#[test]
+fn lifted_combine_reports_user_panics_in_accumulation_and_finish() {
+    use ironbeam_core::CombineFn;
+    struct PanickingCombine {
+        in_finish: bool,
+    }
+    impl CombineFn<i32, i32, i32> for PanickingCombine {
+        fn create(&self) -> i32 {
+            0
+        }
+        fn add_input(&self, accumulator: &mut i32, value: i32) {
+            assert!(self.in_finish, "add panic");
+            *accumulator += value;
+        }
+        fn merge(&self, accumulator: &mut i32, other: i32) {
+            *accumulator += other;
+        }
+        fn finish(&self, accumulator: i32) -> i32 {
+            assert!(!self.in_finish, "finish panic");
+            accumulator
+        }
+    }
+    for in_finish in [false, true] {
+        let pipeline = Pipeline::default();
+        let output = pipeline
+            .from_vec("source", vec![1_i32, 2])
+            .unwrap()
+            .combine_globally_lifted_named("fold", PanickingCombine { in_finish })
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let error = DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert_eq!(error.node.as_deref(), Some("fold"));
+    }
+}
+
+#[test]
+fn lifted_combine_accepts_a_materialized_multi_source_input() {
+    use ironbeam_core::CombineFn;
+    struct Sum;
+    impl CombineFn<i32, i32, i32> for Sum {
+        fn create(&self) -> i32 {
+            0
+        }
+        fn add_input(&self, accumulator: &mut i32, value: i32) {
+            *accumulator += value;
+        }
+        fn merge(&self, accumulator: &mut i32, other: i32) {
+            *accumulator += other;
+        }
+        fn finish(&self, accumulator: i32) -> i32 {
+            accumulator
+        }
+    }
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![1_i32, 2]).unwrap();
+    let right = pipeline.from_vec("right", vec![3_i32, 4]).unwrap();
+    let output = left
+        .flatten_named("merged", &[right])
+        .unwrap()
+        .combine_globally_lifted_named("sum", Sum)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        [10]
+    );
+}
+
+#[test]
+fn lifted_combine_stops_when_cancelled_during_accumulation() {
+    use ironbeam_core::CombineFn;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    struct CancelOnFirst(Arc<AtomicBool>);
+    impl CombineFn<i32, i32, i32> for CancelOnFirst {
+        fn create(&self) -> i32 {
+            0
+        }
+        fn add_input(&self, accumulator: &mut i32, value: i32) {
+            *accumulator += value;
+            self.0.store(true, Ordering::Release);
+        }
+        fn merge(&self, accumulator: &mut i32, other: i32) {
+            *accumulator += other;
+        }
+        fn finish(&self, accumulator: i32) -> i32 {
+            accumulator
+        }
+    }
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", vec![1_i32, 2])
+        .unwrap()
+        .combine_globally_lifted_named("fold", CancelOnFirst(Arc::clone(&cancelled)))
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                cancellation: cancelled,
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Cancelled);
 }
 
 #[test]

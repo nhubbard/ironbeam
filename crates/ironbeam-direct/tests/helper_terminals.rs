@@ -1,7 +1,7 @@
 use ironbeam_core::{ErrorKind, Pipeline, Replay, SourceProgress};
 use ironbeam_direct::{
-    DirectKeySortedExt, DirectKeyedCollectExt, DirectPartitionByExt, DirectSortedExt, JobConfig,
-    Partition3, Partition4,
+    DirectFallibleExt, DirectFlatPartitionExt, DirectKeySortedExt, DirectKeyedCollectExt,
+    DirectPartitionByExt, DirectPartitionExt, DirectSortedExt, JobConfig, Partition3, Partition4,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -47,6 +47,48 @@ fn sorted_terminals_and_hashmap_materialization_match_v4() {
             ("b".to_string(), 2)
         ]
     );
+}
+
+#[test]
+fn fallible_terminals_preserve_successes_and_report_errors() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("fallible", vec![Ok(2_i32), Err("bad".to_string()), Ok(5)])
+        .unwrap();
+    let (good, errors) = values
+        .collect_partitioned_named("partitioned", &JobConfig::default())
+        .unwrap();
+    assert_eq!(good, [2, 5]);
+    assert_eq!(errors, ["bad"]);
+
+    let error = values
+        .collect_fail_fast_named("fail-fast", &JobConfig::default())
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("fail-fast"));
+    assert!(error.message.contains("bad"));
+
+    let successes = pipeline
+        .from_vec("all-good", vec![Ok::<_, String>(3_i32), Ok(7)])
+        .unwrap();
+    assert_eq!(
+        successes
+            .collect_fail_fast_named("all-good-out", &JobConfig::default())
+            .unwrap(),
+        [3, 7]
+    );
+
+    let batches = pipeline
+        .from_vec(
+            "batches",
+            vec![Ok(vec![1_i32, 2]), Err("skip".to_string()), Ok(vec![3])],
+        )
+        .unwrap();
+    let (flat, errors) = batches
+        .collect_flat_partitioned_named("flat", &JobConfig::default())
+        .unwrap();
+    assert_eq!(flat, [1, 2, 3]);
+    assert_eq!(errors, ["skip"]);
 }
 
 #[test]
