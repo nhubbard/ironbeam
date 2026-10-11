@@ -171,6 +171,10 @@ required-features = ["legacy-v4"]
 name = "v5_benchmark_corpus"
 required-features = ["v5-preview"]
 
+[[example]]
+name = "v5_checkpoint_recovery"
+required-features = ["v5-preview"]
+
 # Legacy examples remain opt-in until their v5 replacements are complete.
 
 [[example]]

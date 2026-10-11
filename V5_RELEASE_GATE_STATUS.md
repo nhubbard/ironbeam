@@ -319,7 +319,7 @@ staged locally.
    global-window `group_by_key_named` through native Beam KV/iterable coders
    and a live Prism shuffle proof. Its keyed input can also feed an ordinary
    branch, verified by another sink in that Prism job. It still rejects
-   unbounded sources, update sinks, and
+   some unbounded source graph shapes, update sinks, and
    whole-job final-result sinks. Core now registers typed split/reassembly
    coders for actual `group_by_key_named` nodes, distinct from
    `latest_per_key_named`, which uses the same local operation marker.

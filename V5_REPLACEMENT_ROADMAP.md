@@ -73,6 +73,10 @@ the separate CSV and JSONL connectors with checked temporary round trips.
 The v4 checkpoint examples remain legacy-gated because v5 does not yet
 implement their barrier, time, and node-based policies. V5 Direct recovers the
 completed output of a coded aggregate from one bounded built-in vector source.
+The `v5_checkpoint_recovery` example rebuilds the graph after a completed
+aggregate and verifies that the second run reads zero source rows from its
+versioned local checkpoint. It uses a temporary directory and does not claim
+parity with the v4 scheduling policies or recovery after every graph shape.
 For a bounded vector source followed by linear map, filter, flat-map,
 timestamp, or fixed-window stages and then GroupByKey → output, it also restores
 versioned fold state from the last committed source batch and reads only the
