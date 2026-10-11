@@ -8,13 +8,13 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::fmt::Write as _;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 mod ordered_f64;
 pub use ordered_f64::OrdF64;
@@ -1796,7 +1796,64 @@ struct SourceRegistration {
     typed_factory: Option<Arc<dyn Any + Send + Sync>>,
     vec_batch_factory: Option<Arc<dyn Any + Send + Sync>>,
     len_hint: Option<usize>,
-    config_digest: Option<String>,
+    config_digest: Option<SourceConfigDigest>,
+}
+
+#[derive(Clone)]
+enum SourceConfigDigest {
+    Ready(String),
+    Deferred(Arc<DeferredSourceDigest>),
+}
+
+struct DeferredSourceDigest {
+    value: OnceLock<String>,
+    compute: Box<dyn Fn() -> String + Send + Sync>,
+}
+
+impl SourceConfigDigest {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Ready(value) => value,
+            Self::Deferred(deferred) => deferred.value.get_or_init(|| (deferred.compute)()),
+        }
+    }
+}
+
+fn infallible_builtin_coder<T: Element>() -> bool {
+    let type_id = TypeId::of::<T>();
+    [
+        TypeId::of::<i32>(),
+        TypeId::of::<i64>(),
+        TypeId::of::<u32>(),
+        TypeId::of::<u64>(),
+        TypeId::of::<f32>(),
+        TypeId::of::<f64>(),
+        TypeId::of::<bool>(),
+        TypeId::of::<String>(),
+    ]
+    .contains(&type_id)
+}
+
+fn vector_source_digest<T: Element>(values: &[T]) -> Result<String, Error> {
+    let mut hash = Sha256::new();
+    hash.update(T::coder_identity().as_bytes());
+    hash.update(T::CODER_VERSION.major.to_le_bytes());
+    hash.update(T::CODER_VERSION.minor.to_le_bytes());
+    let mut encoded = Vec::new();
+    for value in values {
+        value.encode_reusing(&mut encoded)?;
+        // Supported Rust targets have at most 64-bit `usize`.
+        #[allow(clippy::cast_possible_truncation)]
+        let length = encoded.len() as u64;
+        hash.update(length.to_le_bytes());
+        hash.update(&encoded);
+    }
+    let digest = hash.finalize();
+    let mut result = String::from("sha256-v1:");
+    for byte in digest {
+        write!(result, "{byte:02x}").map_err(|e| Error::incompatible(e.to_string()))?;
+    }
+    Ok(result)
 }
 
 #[derive(Clone, Default)]
@@ -2132,9 +2189,12 @@ impl Registry {
     }
     #[must_use]
     pub fn source_config_digest(&self, key: &str) -> Option<&str> {
-        self.sources
-            .get(key)
-            .and_then(|source| source.config_digest.as_deref())
+        self.sources.get(key).and_then(|source| {
+            source
+                .config_digest
+                .as_ref()
+                .map(SourceConfigDigest::as_str)
+        })
     }
     pub fn apply(&self, key: &str, input: Envelope) -> Result<Option<Envelope>, Error> {
         match self
@@ -2427,30 +2487,23 @@ impl Pipeline {
         key: &str,
         values: Vec<T>,
     ) -> Result<PCollection<T>, Error> {
-        let config_digest = if T::supports_coder() {
-            let mut hash = Sha256::new();
-            hash.update(T::coder_identity().as_bytes());
-            hash.update(T::CODER_VERSION.major.to_le_bytes());
-            hash.update(T::CODER_VERSION.minor.to_le_bytes());
-            let mut encoded = Vec::new();
-            for value in &values {
-                value.encode_reusing(&mut encoded)?;
-                // Supported Rust targets have at most 64-bit `usize`.
-                #[allow(clippy::cast_possible_truncation)]
-                let length = encoded.len() as u64;
-                hash.update(length.to_le_bytes());
-                hash.update(&encoded);
-            }
-            let digest = hash.finalize();
-            let mut result = String::from("sha256-v1:");
-            for byte in digest {
-                write!(result, "{byte:02x}").map_err(|e| Error::incompatible(e.to_string()))?;
-            }
-            Some(result)
-        } else {
-            None
-        };
         let values = Arc::new(values);
+        let config_digest = if !T::supports_coder() {
+            None
+        } else if infallible_builtin_coder::<T>() {
+            let digest_values = Arc::clone(&values);
+            Some(SourceConfigDigest::Deferred(Arc::new(
+                DeferredSourceDigest {
+                    value: OnceLock::new(),
+                    compute: Box::new(move || {
+                        vector_source_digest(&digest_values)
+                            .expect("built-in vector coder is infallible")
+                    }),
+                },
+            )))
+        } else {
+            Some(SourceConfigDigest::Ready(vector_source_digest(&values)?))
+        };
         let len_hint = values.len();
         let batch_values = Arc::clone(&values);
         let batch_key = key.to_owned();
@@ -2563,7 +2616,7 @@ impl Pipeline {
                 typed_factory: Some(Arc::new(typed_factory)),
                 vec_batch_factory: None,
                 len_hint,
-                config_digest: Some(config_digest),
+                config_digest: Some(SourceConfigDigest::Ready(config_digest)),
             }),
             0,
         )

@@ -352,9 +352,16 @@ impl DirectRunner {
         let checkpoint_identity = if config.checkpoint.is_some() {
             Some(checkpoint::Identity::new::<T>(
                 plan.summary.graph_fingerprint.clone(),
-                plan.source_digest.clone().ok_or_else(|| {
-                    Error::unsupported(&plan.summary.source_key, "direct", "source-config-digest")
-                })?,
+                registry
+                    .source_config_digest(&plan.summary.source_key)
+                    .map(str::to_owned)
+                    .ok_or_else(|| {
+                        Error::unsupported(
+                            &plan.summary.source_key,
+                            "direct",
+                            "source-config-digest",
+                        )
+                    })?,
                 plan.summary.source_key.clone(),
                 output.key().to_owned(),
                 config

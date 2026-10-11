@@ -340,6 +340,23 @@ A separate local microbenchmark also found per-value BLAKE3 updates slower
 than the existing hardware-accelerated SHA-256 path on this arm64 host.
 No source digest algorithm or version changed.
 
+The next trial defers `from_vec` source hashing for the built-in infallible
+coders until a runner requests source identity. Direct only requests that
+identity for checkpointed jobs; portable lowering still requests and receives
+the original `sha256-v1` digest. Custom coders still encode during source
+registration so their errors retain the original timing. In twenty alternating
+release runs per binary at 100,000 rows, discarding the first two of each,
+source copy fell from 0.605 to 0.104 ms and map/filter from 1.217 to 0.728 ms.
+Source construction fell from 0.523 to 0.028 ms in source copy. GroupByKey
+was 4.634/4.804 ms and did not improve. All cases kept identical output
+counts and checksums. A separate fourteen-run alternating v4/v5 sample,
+discarding the first two of each, measured 0.059/0.109 ms for source copy
+(1.8×), 0.102/0.652 ms for map/filter (6.4×), 0.587/4.493 ms for
+GroupByKey (7.7×), 10.987/15.206 ms for inner join (1.4×), and
+3.846/10.376 ms for JSONL round trip (2.7×). These are local medians, not
+release thresholds. The source-copy gap narrowed substantially; the
+remaining transform, grouping, and I/O costs still need work.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

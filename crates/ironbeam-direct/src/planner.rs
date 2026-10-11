@@ -42,7 +42,6 @@ pub(crate) struct Route {
 pub(crate) struct PhysicalPlan {
     pub(crate) summary: PlanSummary,
     pub(crate) routes: Vec<Route>,
-    pub(crate) source_digest: Option<String>,
     pub(crate) materialized: bool,
 }
 
@@ -138,7 +137,6 @@ pub(crate) fn lower(
                 materialized: true,
             },
             routes: Vec::new(),
-            source_digest: None,
             materialized: true,
         });
     }
@@ -182,13 +180,6 @@ pub(crate) fn lower(
     };
     Ok(PhysicalPlan {
         summary,
-        source_digest: (routes.len() == 1)
-            .then(|| {
-                registry
-                    .source_config_digest(&source_key)
-                    .map(str::to_owned)
-            })
-            .flatten(),
         routes,
         materialized: false,
     })

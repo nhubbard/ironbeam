@@ -943,6 +943,27 @@ fn vector_source_digest_matches_the_existing_coder_byte_contract() {
 }
 
 #[test]
+fn custom_vector_coder_error_is_reported_during_source_registration() {
+    #[derive(Clone)]
+    struct Failing;
+    impl Element for Failing {
+        const TYPE_ID: &'static str = "test/failing";
+        const CODER_ID: &'static str = "test/failing-v1";
+        fn supports_coder() -> bool {
+            true
+        }
+        fn encode(&self) -> Result<Vec<u8>, Error> {
+            Err(Error::incompatible("cannot encode source"))
+        }
+    }
+
+    let pipeline = Pipeline::default();
+    let error = pipeline.from_vec("source", vec![Failing]).err().unwrap();
+    assert_eq!(error.kind, ErrorKind::Incompatible);
+    assert!(pipeline.snapshot().unwrap().0.node("source").is_none());
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn bounded_source_and_deferred_sink_registry_contract() {
     use std::sync::{Arc, Mutex};
