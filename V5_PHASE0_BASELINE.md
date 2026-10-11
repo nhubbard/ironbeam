@@ -179,6 +179,15 @@ five-run warmed v5 sample measured the inner join at 17.167 ms versus
 4.391 ms. This small difference may be run noise and does not close the
 performance gate.
 
+On 2026-10-11, six alternating release runs of the 100,000-row source-copy
+case used the first pair as warmup. The remaining medians were 0.304 ms for
+v4 and 3.072 ms for v5, a 10.1× gap on that host load; row counts and checksums
+matched. These absolute times differ from the earlier paired sample, so the
+ratio should be read within this run. An experimental 16 KiB batch of the
+source digest's SHA-256 updates preserved the digest byte contract but did not
+improve repeated v5 timing, so the change was reverted. The source-copy
+performance gate remains open.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
