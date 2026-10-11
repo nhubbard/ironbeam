@@ -732,6 +732,11 @@ routes, non-idempotent sinks, and sinks requiring bundle finalization. The
 ordinary bounded `run_sink` path still rejects unbounded graphs. The separate
 Dataflow translator still rejects production source polling, so portable
 source execution and remote Dataflow remain release gates.
+The separate Dataflow workspace now has a versioned SDF restriction payload
+and a tested worker-side polling adapter that preserves reader state across
+`Pending` and returns an encoded residual cursor. The Beam SDF transform
+lowering and Fn API split response are not yet connected, so the translator's
+production-source rejection remains in place.
 The new Direct stream and checkpoint modules have 605/665 source locations
 covered in isolation. With the expanded failure-path tests, the package now
 measures 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%).
