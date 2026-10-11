@@ -137,6 +137,15 @@ but raised the warmed source-copy median to about 1.32 ms and map/filter to
 about 1.34 ms, so it was reverted. The performance replacement gate remains
 open, especially for vector-source identity and grouping.
 
+The built-in two-element tuple coder now appends scalar wire bytes directly
+into a reusable buffer. Its length prefixes, source digest, and decode format
+are unchanged. In a five-run warmed v5 sample, the GroupByKey median fell
+from 12.384 to 4.529 ms and inner join from 33.240 to 19.233 ms, with matching
+counts and checksums. A phased sample put GroupByKey source construction near
+1.3 ms and execution near 3.1 ms, down from about 9.1 and 3.0 ms before the
+coder change. Higher-arity tuples and other composite coders still allocate
+through their default encoding paths. The performance gate remains open.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

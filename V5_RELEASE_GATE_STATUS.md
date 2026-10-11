@@ -132,7 +132,11 @@ staged locally.
   checksum. Type-changing, metadata-bearing, and parallel routes keep the
   envelope path; core, Direct, root workspace, and Dataflow workspace tests
   pass. The v4 map/filter path remains faster in local measurements, and the
-  performance gate stays open. The
+  performance gate stays open. The two-element tuple coder now reuses its
+  encoded buffer while preserving the wire digest. A warmed five-run v5
+  corpus sample moved GroupByKey from 12.384 to 4.529 ms and inner join from
+  33.240 to 19.233 ms at 100,000 rows; see `V5_PHASE0_BASELINE.md` for the
+  paired v4 figures and phase breakdown. The
   v5 Direct
   collection trait now accepts `PCollection` as well as `Output`; it builds
   an isolated terminal snapshot, so repeated v4-shaped `collect_seq` and `collect_par`

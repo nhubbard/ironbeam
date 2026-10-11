@@ -42,10 +42,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let p = Pipeline::default();
     let start = Instant::now();
-    let groups = p.from_vec("group-input", (0..count).map(|n| (n % 100, n)).collect())?
+    let group_input = p.from_vec("group-input", (0..count).map(|n| (n % 100, n)).collect())?;
+    let source_ready = Instant::now();
+    let group_output = group_input
         .group_by_key_named("group")?
-        .output("group-result")?
-        .collect_seq()?;
+        .output("group-result")?;
+    let graph_ready = Instant::now();
+    let groups = group_output.collect_seq()?;
+    let run_ready = Instant::now();
+    if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
+        eprintln!("group_by_key_phases_ns,source={},graph={},run={}",
+            source_ready.duration_since(start).as_nanos(),
+            graph_ready.duration_since(source_ready).as_nanos(),
+            run_ready.duration_since(graph_ready).as_nanos());
+    }
     println!("group_by_key,{count},{},{},{}", start.elapsed().as_nanos(),
         groups.len(), groups.iter().map(|(_, values)| values.len()).sum::<usize>());
 
@@ -53,9 +63,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
     let left = p.from_vec("join-left", (0..count).map(|n| (n, n)).collect())?;
     let right = p.from_vec("join-right", (0..count).map(|n| (n, n.wrapping_add(1))).collect())?;
-    let joined = left.join_inner_named("join", &right)?
-        .output("join-result")?
-        .collect_seq()?;
+    let source_ready = Instant::now();
+    let join_output = left.join_inner_named("join", &right)?.output("join-result")?;
+    let graph_ready = Instant::now();
+    let joined = join_output.collect_seq()?;
+    let run_ready = Instant::now();
+    if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
+        eprintln!("join_inner_phases_ns,source={},graph={},run={}",
+            source_ready.duration_since(start).as_nanos(),
+            graph_ready.duration_since(source_ready).as_nanos(),
+            run_ready.duration_since(graph_ready).as_nanos());
+    }
     println!("join_inner,{count},{},{},{}", start.elapsed().as_nanos(),
         joined.len(), joined.iter().map(|(_, (a, b))| u64::from(*a) + u64::from(*b)).sum::<u64>());
 
