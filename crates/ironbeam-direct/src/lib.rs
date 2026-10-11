@@ -4,22 +4,23 @@ mod checkpoint;
 mod helpers;
 mod materialized;
 mod metrics;
+mod multi_output;
 mod planner;
 mod spill;
 
 pub use checkpoint::CheckpointConfig;
 pub use helpers::{
     DirectFallibleExt, DirectFlatPartitionExt, DirectKeySortedExt, DirectKeyedCollectExt,
-    DirectPartitionByExt, DirectPartitionExt, DirectSortedExt, Partition3, Partition4, Partitioned3,
-    Partitioned4,
+    DirectPartitionByExt, DirectPartitionExt, DirectSortedExt, Partition3, Partition4,
+    Partitioned3, Partitioned4,
 };
 pub use metrics::JobMetrics;
 pub use planner::PlanSummary;
 pub use spill::SpillConfig;
 
 use ironbeam_core::{
-    Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection, Registry,
-    RetryClass, Sink, SinkMode, SourceIterator, TypedSourceIterator, Window,
+    Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection,
+    Registry, RetryClass, Sink, SinkMode, SourceIterator, TypedSourceIterator, Window,
 };
 use metrics::MetricsState;
 use rayon::prelude::*;
@@ -40,6 +41,13 @@ pub struct JobConfig {
     pub checkpoint: Option<CheckpointConfig>,
     #[cfg(feature = "metrics")]
     pub metrics_collector: Option<ironbeam_metrics::MetricsCollector>,
+}
+
+/// Values from two output branches completed by one Direct job.
+pub struct PairResult<T, U> {
+    pub left: Vec<T>,
+    pub right: Vec<U>,
+    pub job: JobHandle,
 }
 impl Default for JobConfig {
     fn default() -> Self {
@@ -121,7 +129,10 @@ impl JobHandle {
             .status
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !matches!(*status, JobStatus::Succeeded | JobStatus::Failed | JobStatus::Cancelled) {
+        if !matches!(
+            *status,
+            JobStatus::Succeeded | JobStatus::Failed | JobStatus::Cancelled
+        ) {
             *status = JobStatus::Cancelled;
             drop(status);
             #[cfg(feature = "metrics")]
@@ -361,7 +372,9 @@ impl DirectRunner {
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
         {
-            handle.metrics_collector.clone_from(&config.metrics_collector);
+            handle
+                .metrics_collector
+                .clone_from(&config.metrics_collector);
         }
         if config.cancellation.load(Ordering::Acquire) {
             handle.cancel();
@@ -385,6 +398,77 @@ impl DirectRunner {
             Ok(values) => {
                 handle.set_status(JobStatus::Succeeded);
                 Ok((values, handle))
+            }
+            Err(error) => {
+                handle.set_status(if error.kind == ErrorKind::Cancelled {
+                    JobStatus::Cancelled
+                } else {
+                    JobStatus::Failed
+                });
+                Err(error)
+            }
+        }
+    }
+    /// Collect two linear output branches in one bounded job, opening their
+    /// shared source once. The split element needs a registered coder so each
+    /// branch receives its own value and time metadata.
+    ///
+    /// # Errors
+    /// Rejects different builders, fan-in or stateful routes, uncoded split
+    /// values, and checkpointing before opening a source.
+    pub fn run_collect_pair<T: Element, U: Element>(
+        &self,
+        left: &Output<T>,
+        right: &Output<U>,
+        config: &JobConfig,
+    ) -> Result<PairResult<T, U>, Error> {
+        if !left.shares_pipeline_with(right) {
+            return Err(Error::graph("job", "outputs belong to different pipelines"));
+        }
+        let (graph, registry) = left.snapshot()?;
+        self.validate(&graph)?;
+        validate_config(config)?;
+        if config.checkpoint.is_some() {
+            return Err(Error::unsupported(
+                "job",
+                "direct",
+                "multi-output-checkpoint",
+            ));
+        }
+        let plan = multi_output::prepare(&graph, &registry, left.key(), right.key())?;
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(config.parallelism)
+            .build()
+            .map_err(|error| Error::execution("job", "direct", error.to_string()))?;
+        #[allow(unused_mut)]
+        let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+        #[cfg(feature = "metrics")]
+        {
+            handle
+                .metrics_collector
+                .clone_from(&config.metrics_collector);
+        }
+        if config.cancellation.load(Ordering::Acquire) {
+            handle.cancel();
+            return Err(cancelled());
+        }
+        handle.set_status(JobStatus::Running);
+        match multi_output::execute(
+            &pool,
+            &registry,
+            &plan,
+            left.key(),
+            right.key(),
+            config,
+            &handle,
+        ) {
+            Ok((left_values, right_values)) => {
+                handle.set_status(JobStatus::Succeeded);
+                Ok(PairResult {
+                    left: left_values,
+                    right: right_values,
+                    job: handle,
+                })
             }
             Err(error) => {
                 handle.set_status(if error.kind == ErrorKind::Cancelled {
@@ -438,7 +522,9 @@ impl DirectRunner {
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
         {
-            handle.metrics_collector.clone_from(&config.metrics_collector);
+            handle
+                .metrics_collector
+                .clone_from(&config.metrics_collector);
         }
         if config.cancellation.load(Ordering::Acquire) {
             handle.cancel();
@@ -723,8 +809,14 @@ fn execute<T: Element>(
                 }
                 let batch_len = batch.len();
                 let count = u64::try_from(batch_len).unwrap_or(u64::MAX);
-                handle.metrics.source_elements.fetch_add(count, Ordering::Relaxed);
-                handle.metrics.peak_batch_elements.fetch_max(count, Ordering::Relaxed);
+                handle
+                    .metrics
+                    .source_elements
+                    .fetch_add(count, Ordering::Relaxed);
+                handle
+                    .metrics
+                    .peak_batch_elements
+                    .fetch_max(count, Ordering::Relaxed);
                 let mut output_count = 0_u64;
                 let mut panic_node = route.source_key.as_str();
                 let result = pool.install(|| {
@@ -738,14 +830,19 @@ fn execute<T: Element>(
                         for value in batch {
                             let mut current = Some(value);
                             for (key, transform) in route.operations.iter().zip(&typed_transforms) {
-                                let Some(value) = current else { break; };
+                                let Some(value) = current else {
+                                    break;
+                                };
                                 if config.cancellation.load(Ordering::Acquire) {
                                     return Err(cancelled());
                                 }
                                 panic_node = key;
                                 current = transform.apply(value);
                                 if current.is_none() {
-                                    handle.metrics.filtered_elements.fetch_add(1, Ordering::Relaxed);
+                                    handle
+                                        .metrics
+                                        .filtered_elements
+                                        .fetch_add(1, Ordering::Relaxed);
                                 }
                             }
                             if let Some(value) = current {
@@ -759,13 +856,23 @@ fn execute<T: Element>(
                 });
                 match result {
                     Ok(result) => result?,
-                    Err(_) => return Err(Error::execution(
-                        panic_node,
-                        "direct",
-                        if panic_node == output_key { "output collection panicked" } else { "user transform panicked" },
-                    )),
+                    Err(_) => {
+                        return Err(Error::execution(
+                            panic_node,
+                            "direct",
+                            if panic_node == output_key {
+                                "output collection panicked"
+                            } else {
+                                "user transform panicked"
+                            },
+                        ));
+                    }
                 }
-                let total = handle.metrics.output_elements.fetch_add(output_count, Ordering::Relaxed) + output_count;
+                let total = handle
+                    .metrics
+                    .output_elements
+                    .fetch_add(output_count, Ordering::Relaxed)
+                    + output_count;
                 handle.processed.store(total, Ordering::Relaxed);
                 source_offset = source_offset
                     .checked_add(batch_len)

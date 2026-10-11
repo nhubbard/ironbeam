@@ -85,6 +85,9 @@ pub(crate) struct OutputStore<T: Element> {
     metrics: Arc<MetricsState>,
 }
 impl<T: Element> OutputStore<T> {
+    pub(crate) const fn memory_usage(&self) -> usize {
+        self.memory_bytes
+    }
     pub(crate) fn new(
         memory_budget: usize,
         spill: Option<&SpillConfig>,
@@ -166,7 +169,7 @@ impl<T: Element> OutputStore<T> {
         self.memory.extend(values);
         Ok(())
     }
-    fn flush(&mut self) -> Result<(), Error> {
+    pub(crate) fn flush(&mut self) -> Result<(), Error> {
         if self.memory.is_empty() {
             return Ok(());
         }

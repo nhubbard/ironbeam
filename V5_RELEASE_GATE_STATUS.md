@@ -145,6 +145,16 @@ staged locally.
   verifies one source open per partition job. Direct still lacks general
   graph-level side outputs that run independent downstream branches together;
   the multi-output runner gate remains open.
+  Direct now also offers `run_collect_pair` for two bounded linear output
+  branches in one job. It opens their shared source once, evaluates their
+  common transforms once, preserves time and window metadata, and applies a
+  combined memory budget with optional spilling. The split value needs a
+  registered coder; fan-in, stateful routes, and checkpointed pair jobs are
+  rejected before source access. Arbitrary multi-sink graph execution is
+  still required to close the multi-output runner gate. Ten focused pair-job
+  tests pass, and a clean core/Direct/transforms coverage run passes the CI
+  thresholds: Direct 1,479/1,576 source locations and 267/292 branch outcomes;
+  core 2,230/2,318 source locations and 341/390 branch outcomes.
   Both v4 and v5 benchmark examples produce matching counts and checksums
   for four workloads at 1,000 rows. A single aligned 100,000-row release
   sample found substantial v5 latency regressions in all four cases; see

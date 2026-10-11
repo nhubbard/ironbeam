@@ -1480,8 +1480,7 @@ pub struct Envelope {
 pub type SourceIterator = Box<dyn Iterator<Item = Result<Envelope, Error>> + Send>;
 pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Send>;
 type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
-type TypedSourceFactory<T> =
-    Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
+type TypedSourceFactory<T> = Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
 type SingleTransform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync>;
 type MultiTransform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 type TypedMap<T, U> = Arc<dyn Fn(T) -> U + Send + Sync>;
@@ -1801,19 +1800,26 @@ impl Registry {
 
     /// Materialize a decoded bounded side input once per execution scope.
     pub fn materialize_side_input(
-        &self, key: &str, values: Vec<Payload>,
+        &self,
+        key: &str,
+        values: Vec<Payload>,
     ) -> Result<Payload, Error> {
-        let side = self.side_inputs.get(key).ok_or_else(||
-            Error::incompatible(format!("no side input registered for node {key}")))?;
+        let side = self.side_inputs.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no side input registered for node {key}"))
+        })?;
         (side.materialize)(values)
     }
 
     /// Apply a main element using a view made by `materialize_side_input`.
     pub fn apply_side_input(
-        &self, key: &str, event: Envelope, view: &dyn Any,
+        &self,
+        key: &str,
+        event: Envelope,
+        view: &dyn Any,
     ) -> Result<Envelope, Error> {
-        let side = self.side_inputs.get(key).ok_or_else(||
-            Error::incompatible(format!("no side input registered for node {key}")))?;
+        let side = self.side_inputs.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no side input registered for node {key}"))
+        })?;
         (side.apply)(event, view)
     }
 
@@ -1824,15 +1830,24 @@ impl Registry {
 
     /// Preserve each input event timestamp inside the tagged shuffle value.
     pub fn split_join_input(
-        &self, key: &str, input_index: usize, bytes: &[u8], timestamp_ns: i64,
+        &self,
+        key: &str,
+        input_index: usize,
+        bytes: &[u8],
+        timestamp_ns: i64,
     ) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let coder = self.join_coders.get(key).ok_or_else(||
-            Error::incompatible(format!("no join coder registered for node {key}")))?;
-        let splitter = coder.split_inputs.get(input_index).ok_or_else(||
-            Error::incompatible(format!("join input index {input_index} is out of range")))?;
+        let coder = self.join_coders.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no join coder registered for node {key}"))
+        })?;
+        let splitter = coder.split_inputs.get(input_index).ok_or_else(|| {
+            Error::incompatible(format!("join input index {input_index} is out of range"))
+        })?;
         let (encoded_key, encoded_value) = splitter(bytes)?;
         let mut tagged = Vec::with_capacity(9 + encoded_value.len());
-        tagged.push(u8::try_from(input_index).map_err(|_| Error::incompatible("join input tag exceeds one byte"))?);
+        tagged.push(
+            u8::try_from(input_index)
+                .map_err(|_| Error::incompatible("join input tag exceeds one byte"))?,
+        );
         tagged.extend_from_slice(&timestamp_ns.to_be_bytes());
         tagged.extend_from_slice(&encoded_value);
         Ok((encoded_key, tagged))
@@ -1840,29 +1855,46 @@ impl Registry {
 
     /// Reuse the Direct join aggregate for each Beam grouped key.
     pub fn execute_join_group(
-        &self, key: &str, encoded_key: &[u8], tagged_values: &[Vec<u8>],
-        window: &Window, assigned_window: Option<WindowInterval>,
+        &self,
+        key: &str,
+        encoded_key: &[u8],
+        tagged_values: &[Vec<u8>],
+        window: &Window,
+        assigned_window: Option<WindowInterval>,
     ) -> Result<Vec<(Vec<u8>, i64)>, Error> {
-        let coder = self.join_coders.get(key).ok_or_else(||
-            Error::incompatible(format!("no join coder registered for node {key}")))?;
+        let coder = self.join_coders.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no join coder registered for node {key}"))
+        })?;
         let mut inputs = [Vec::new(), Vec::new()];
         for tagged in tagged_values {
-            let (&tag, payload) = tagged.split_first().ok_or_else(||
-                Error::incompatible("join tagged value is empty"))?;
-            let assembler = coder.assemble_inputs.get(usize::from(tag)).ok_or_else(||
-                Error::incompatible("join input tag is out of range"))?;
-            let timestamp_bytes = payload.get(..8).ok_or_else(||
-                Error::incompatible("join tagged value lacks timestamp"))?;
+            let (&tag, payload) = tagged
+                .split_first()
+                .ok_or_else(|| Error::incompatible("join tagged value is empty"))?;
+            let assembler = coder
+                .assemble_inputs
+                .get(usize::from(tag))
+                .ok_or_else(|| Error::incompatible("join input tag is out of range"))?;
+            let timestamp_bytes = payload
+                .get(..8)
+                .ok_or_else(|| Error::incompatible("join tagged value lacks timestamp"))?;
             let mut timestamp_array = [0_u8; 8];
             timestamp_array.copy_from_slice(timestamp_bytes);
             let timestamp_ns = i64::from_be_bytes(timestamp_array);
             inputs[usize::from(tag)].push(Envelope {
                 value: assembler(encoded_key, &payload[8..])?,
-                timestamp_ns, window: window.clone(), assigned_window,
+                timestamp_ns,
+                window: window.clone(),
+                assigned_window,
             });
         }
-        self.apply_aggregate(key, inputs.into_iter().collect())?.into_iter()
-            .map(|event| Ok((self.encode_element(key, event.value.as_ref())?, event.timestamp_ns)))
+        self.apply_aggregate(key, inputs.into_iter().collect())?
+            .into_iter()
+            .map(|event| {
+                Ok((
+                    self.encode_element(key, event.value.as_ref())?,
+                    event.timestamp_ns,
+                ))
+            })
             .collect()
     }
 
@@ -1874,21 +1906,32 @@ impl Registry {
 
     /// Encode an input pair as a common key and a tagged value for Beam GBK.
     pub fn split_cogroup_input(
-        &self, key: &str, input_index: usize, bytes: &[u8],
+        &self,
+        key: &str,
+        input_index: usize,
+        bytes: &[u8],
     ) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let coder = self.cogroup_coders.get(key).ok_or_else(||
-            Error::incompatible(format!("no co-group coder registered for node {key}")))?;
-        let splitter = coder.split_inputs.get(input_index).ok_or_else(||
-            Error::incompatible(format!("co-group input index {input_index} is out of range")))?;
+        let coder = self.cogroup_coders.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no co-group coder registered for node {key}"))
+        })?;
+        let splitter = coder.split_inputs.get(input_index).ok_or_else(|| {
+            Error::incompatible(format!(
+                "co-group input index {input_index} is out of range"
+            ))
+        })?;
         splitter(bytes)
     }
 
     /// Reassemble a Beam GBK of tagged values into the typed co-group result.
     pub fn assemble_cogroup_output(
-        &self, key: &str, encoded_key: &[u8], encoded_values: &[Vec<u8>],
+        &self,
+        key: &str,
+        encoded_key: &[u8],
+        encoded_values: &[Vec<u8>],
     ) -> Result<Vec<u8>, Error> {
-        let coder = self.cogroup_coders.get(key).ok_or_else(||
-            Error::incompatible(format!("no co-group coder registered for node {key}")))?;
+        let coder = self.cogroup_coders.get(key).ok_or_else(|| {
+            Error::incompatible(format!("no co-group coder registered for node {key}"))
+        })?;
         (coder.assemble_output)(encoded_key, encoded_values)
     }
 
@@ -1970,9 +2013,10 @@ impl Registry {
         &self,
         key: &str,
     ) -> Result<Option<TypedSourceIterator<T>>, Error> {
-        let source = self.sources.get(key).ok_or_else(|| {
-            Error::execution(key, "direct", "source factory missing")
-        })?;
+        let source = self
+            .sources
+            .get(key)
+            .ok_or_else(|| Error::execution(key, "direct", "source factory missing"))?;
         source
             .typed_factory
             .as_ref()
@@ -2011,7 +2055,8 @@ impl Registry {
         }
     }
     pub fn apply_many(&self, key: &str, input: Envelope) -> Result<Vec<Envelope>, Error> {
-        match self.transforms
+        match self
+            .transforms
             .get(key)
             .ok_or_else(|| Error::execution(key, "direct", "transform missing"))?
         {
@@ -2022,6 +2067,10 @@ impl Registry {
     #[must_use]
     pub fn has_single_transform(&self, key: &str) -> bool {
         matches!(self.transforms.get(key), Some(Transform::Single(_)))
+    }
+    #[must_use]
+    pub fn has_transform(&self, key: &str) -> bool {
+        self.transforms.contains_key(key)
     }
     #[must_use]
     pub fn single_transform(
@@ -2035,7 +2084,10 @@ impl Registry {
     }
     /// Return a typed same-type map or filter when a route can avoid envelopes.
     #[must_use]
-    pub fn typed_value_transform<T: Element>(&self, key: &str) -> Option<TypedValueTransform<'_, T>> {
+    pub fn typed_value_transform<T: Element>(
+        &self,
+        key: &str,
+    ) -> Option<TypedValueTransform<'_, T>> {
         match self.typed_transforms.get(key)? {
             TypedTransformRegistration::Map(map) => map
                 .downcast_ref::<TypedMap<T, T>>()
@@ -2296,7 +2348,9 @@ impl Pipeline {
         let len_hint = values.len();
         let typed_factory: TypedSourceFactory<T> = Arc::new(move || {
             let values = Arc::clone(&values);
-            Ok(Box::new((0..values.len()).map(move |i| Ok(values[i].clone()))))
+            Ok(Box::new(
+                (0..values.len()).map(move |i| Ok(values[i].clone())),
+            ))
         });
         let envelope_factory = Arc::clone(&typed_factory);
         let factory: SourceFactory = Arc::new(move || {
@@ -2611,7 +2665,8 @@ impl<T: Element> PCollection<T> {
             Ok(Some(e))
         }));
         let output = self.next(key, Operation::Map, Some(transform), None)?;
-        self.pipeline.add_typed_transform(key, TypedTransformRegistration::Map(Arc::new(typed_f)))?;
+        self.pipeline
+            .add_typed_transform(key, TypedTransformRegistration::Map(Arc::new(typed_f)))?;
         Ok(output)
     }
     pub fn filter_named(
@@ -2631,7 +2686,8 @@ impl<T: Element> PCollection<T> {
             Ok(if envelope_f(value) { Some(e) } else { None })
         }));
         let output = self.next(key, Operation::Filter, Some(transform), None)?;
-        self.pipeline.add_typed_transform(key, TypedTransformRegistration::Filter(Arc::new(typed_f)))?;
+        self.pipeline
+            .add_typed_transform(key, TypedTransformRegistration::Filter(Arc::new(typed_f)))?;
         Ok(output)
     }
     pub fn flat_map_named<U: Element>(
@@ -3306,7 +3362,12 @@ impl<T: Element> PCollection<T> {
                 Ok(Box::new(materialize(typed)?) as Payload)
             }),
             apply: Arc::new(move |event, view| {
-                let Envelope { value, timestamp_ns, window, assigned_window } = event;
+                let Envelope {
+                    value,
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                } = event;
                 let value = *value.downcast::<T>().map_err(|_| {
                     Error::execution(&main_key, "direct", "main input type mismatch")
                 })?;
@@ -3314,7 +3375,10 @@ impl<T: Element> PCollection<T> {
                     Error::execution(&main_key, "direct", "side input view type mismatch")
                 })?;
                 Ok(Envelope {
-                    value: Box::new(f(value, view)?), timestamp_ns, window, assigned_window,
+                    value: Box::new(f(value, view)?),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
                 })
             }),
         };
@@ -3325,7 +3389,8 @@ impl<T: Element> PCollection<T> {
                     Error::execution(&key_owned, "direct", "side input requires two inputs")
                 })?;
             let side_view = (direct_registration.materialize)(
-                side_values.into_iter().map(|event| event.value).collect())?;
+                side_values.into_iter().map(|event| event.value).collect(),
+            )?;
             let mut output = Vec::with_capacity(main_values.len());
             for event in main_values {
                 output.push((direct_registration.apply)(event, side_view.as_ref())?);
@@ -3347,9 +3412,14 @@ impl<T: Element> PCollection<T> {
             aggregate,
             None,
         )?;
-        collection.pipeline.inner.lock()
+        collection
+            .pipeline
+            .inner
+            .lock()
             .map_err(|_| Error::graph(key, "builder lock poisoned"))?
-            .registry.side_inputs.insert(key.to_owned(), registration);
+            .registry
+            .side_inputs
+            .insert(key.to_owned(), registration);
         Ok(collection)
     }
 }
@@ -4019,13 +4089,28 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 },
             ],
             assemble_inputs: [
-                |encoded_key, encoded_value| Ok(Box::new((K::decode(encoded_key)?, V::decode(encoded_value)?))),
-                |encoded_key, encoded_value| Ok(Box::new((K::decode(encoded_key)?, W::decode(encoded_value)?))),
+                |encoded_key, encoded_value| {
+                    Ok(Box::new((
+                        K::decode(encoded_key)?,
+                        V::decode(encoded_value)?,
+                    )))
+                },
+                |encoded_key, encoded_value| {
+                    Ok(Box::new((
+                        K::decode(encoded_key)?,
+                        W::decode(encoded_value)?,
+                    )))
+                },
             ],
         };
-        collection.pipeline.inner.lock()
+        collection
+            .pipeline
+            .inner
+            .lock()
             .map_err(|_| Error::graph(key, "builder lock poisoned"))?
-            .registry.join_coders.insert(key.to_owned(), registration);
+            .registry
+            .join_coders
+            .insert(key.to_owned(), registration);
         Ok(collection)
     }
 }
@@ -4058,6 +4143,12 @@ impl<T> Output<T> {
     }
     pub fn snapshot(&self) -> Result<(Graph, Registry), Error> {
         self.pipeline.snapshot()
+    }
+
+    /// Whether two terminals belong to the same in-memory graph builder.
+    #[must_use]
+    pub fn shares_pipeline_with<U>(&self, other: &Output<U>) -> bool {
+        Arc::ptr_eq(&self.pipeline.inner, &other.pipeline.inner)
     }
 }
 

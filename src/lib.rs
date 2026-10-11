@@ -39,7 +39,7 @@ pub mod v5 {
     pub use ironbeam_compression::*;
     pub use ironbeam_direct::{
         CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobMetrics,
-        JobStatus, Partition3, Partition4, PlanSummary, SpillConfig,
+        JobStatus, PairResult, Partition3, Partition4, PlanSummary, SpillConfig,
     };
     pub use ironbeam_io::*;
     pub use ironbeam_io_jsonl::*;

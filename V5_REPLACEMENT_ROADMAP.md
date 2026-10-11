@@ -129,6 +129,9 @@ today; unbounded and portable execution parity remains open.
    cancellation, and sink commit behavior. Unbounded graphs either run with
    defined progress/window/state semantics or have an explicit, documented
    v5-only capability boundary accepted as the replacement contract.
+   The first shared-source slice is `run_collect_pair` for two bounded linear
+   branches with a coded split. General graph fan-out, fan-in, checkpointed
+   multi-output jobs, and independent sinks remain open.
 4. **Dataflow contract:** The separate integration builds against the v5 core
    and lowers the full v4 feature corpus. A local Beam Prism `Run` must reach
    `DONE` through a separately launched v5 Fn API worker and verify values for
