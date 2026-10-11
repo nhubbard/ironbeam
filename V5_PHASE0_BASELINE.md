@@ -256,6 +256,17 @@ source construction. The added byte copying outweighed fewer hash calls, so
 the implementation was reverted. This is a local comparison, not a release
 threshold; source identity and output checksums were unchanged.
 
+Another eight-run alternating v4/v5 release sample on 2026-10-11 discarded
+the first run of each executable. The 100,000-row medians were 0.069/0.924 ms
+for source copy (13.5×), 0.100/1.322 ms for map/filter (13.2×),
+0.629/4.802 ms for GroupByKey (7.6×), 11.646/18.182 ms for inner join
+(1.6×), and 4.322/11.300 ms for JSONL round trip (2.6×). The examples
+produced matching output counts and checksums. One v5 source-copy phase sample
+within that run spent 0.664 ms constructing the source, 0.003 ms attaching
+the terminal, and 0.214 ms executing Direct. Those phases indicate source
+identity construction is the largest remaining source-copy cost; the sample
+does not isolate every operation within that phase.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
