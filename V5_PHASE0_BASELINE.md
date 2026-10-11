@@ -67,6 +67,13 @@ measured medians (ms) of map/filter 13.332, GroupByKey 20.640, inner join
 40.000, and JSONL 19.102. Map/filter improved modestly and remains about
 29× the v4 median. The dedicated-pool and full workspace tests pass.
 
+Direct now resolves single-result transform closures once per route instead
+of looking up each node in the registry for every element. Five release runs
+at 100,000 rows measured v5 medians (ms) of map/filter 5.565, GroupByKey
+12.377, inner join 32.654, and JSONL 15.992. Counts and checksums matched
+the earlier corpus. The map/filter median is still about 12× the previously
+measured v4 median of 0.456 ms, so the performance gate remains open.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

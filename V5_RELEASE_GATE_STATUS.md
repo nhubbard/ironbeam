@@ -100,8 +100,9 @@ staged locally.
   transform path then reduced the 100,000-row v5 map/filter median from
   24.572 ms to 14.058 ms, preserving filter metrics and flat-map behavior;
   streaming the single-worker results within the dedicated pool reduced the
-  median further to 13.332 ms. This is still about 29 times the v4 median
-  of 0.456 ms. The root package
+  median further to 13.332 ms. Binding those transforms once per route then
+  reduced the five-run median to 5.565 ms. This is still about 12 times the
+  measured v4 median of 0.456 ms. The root package
   version is still 4.1.1, until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
@@ -212,13 +213,13 @@ staged locally.
    during the v4 cutover. Its earlier isolated source corpus measured only
    37/1,695 locations after the object extraction, so reexports alone do not
    make the legacy package release-ready.
-5. **Execution proof:** The user chose local Prism proof for now. The existing
-   Prism job reaches `DONE` for the bounded elementwise, Flatten, and
-   global-window GroupByKey and fixed-window GroupByKey slices, including a
-   JSONL connector round-trip.
-   The remaining portable feature
-   corpus and other source/sink data still need local Prism runs. The object-backed
-   fixture uses a shared local filesystem, so it does not prove remote staging.
+5. **Execution proof:** The user chose local Prism proof for now. On
+   2026-10-10, the opt-in `ironbeam-prism-proof` test passed against a real
+   local Prism JobService. That fixture checks completed jobs and captured
+   values for its bounded sources and sinks, JSONL, Avro, CSV, protobuf,
+   object-backed JSONL, Flatten, grouping, joins, side input, Reshuffle,
+   event-time assignment, and fixed windows. Its object-backed fixture uses
+   a shared local filesystem, so it does not prove remote staging.
    No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.
