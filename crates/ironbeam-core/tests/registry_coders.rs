@@ -1,4 +1,4 @@
-use ironbeam_core::{Element, Error, Pipeline, Window};
+use ironbeam_core::{Element, Envelope, Error, Pipeline, Window};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct UserRow(u32);
@@ -132,4 +132,29 @@ fn portable_join_reuses_direct_matching_and_input_timestamps() {
     ]);
     assert!(registry.execute_join_group("join", &key, &[vec![2]], Window::Global, None).is_err());
     assert!(registry.split_join_input("join", 2, &[], 0).is_err());
+}
+
+#[test]
+fn side_input_registration_reuses_direct_materialization_and_mapping() {
+    let pipeline = Pipeline::default();
+    let main = pipeline.from_vec("main", vec![1_i32]).unwrap();
+    let side = pipeline.from_vec("side", vec![10_i32, 20]).unwrap();
+    main.map_with_materialized_side_named("with-side", &side,
+        |values| Ok(values.iter().sum::<i32>()),
+        |value, sum| Ok(value + sum)).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.has_side_input("with-side"));
+    let values = [10_i32, 20].into_iter().map(|value| Box::new(value) as _).collect();
+    let view = registry.materialize_side_input("with-side", values).unwrap();
+    let output = registry.apply_side_input("with-side", Envelope {
+        value: Box::new(1_i32), timestamp_ns: 4, window: Window::Global,
+        assigned_window: None,
+    }, view.as_ref()).unwrap();
+    assert_eq!(*output.value.downcast::<i32>().unwrap(), 31);
+    assert_eq!(output.timestamp_ns, 4);
+    assert!(registry.apply_side_input("with-side", Envelope {
+        value: Box::new(1_i32), timestamp_ns: 0, window: Window::Global,
+        assigned_window: None,
+    }, &"wrong view").is_err());
+    assert!(registry.materialize_side_input("with-side", vec![Box::new(true)]).is_err());
 }

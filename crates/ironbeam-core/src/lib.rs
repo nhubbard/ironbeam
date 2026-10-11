@@ -1546,6 +1546,7 @@ pub struct Registry {
     group_coders: BTreeMap<String, GroupCoderRegistration>,
     cogroup_coders: BTreeMap<String, CoGroupCoderRegistration>,
     join_coders: BTreeMap<String, JoinCoderRegistration>,
+    side_inputs: BTreeMap<String, SideInputRegistration>,
 }
 #[derive(Clone, Copy)]
 struct CoderRegistration {
@@ -1573,6 +1574,13 @@ struct JoinCoderRegistration {
     assemble_inputs: [JoinInputAssembler; 2],
 }
 type JoinInputAssembler = fn(&[u8], &[u8]) -> Result<Payload, Error>;
+#[derive(Clone)]
+struct SideInputRegistration {
+    materialize: SideMaterializer,
+    apply: SideMapper,
+}
+type SideMaterializer = Arc<dyn Fn(Vec<Payload>) -> Result<Payload, Error> + Send + Sync>;
+type SideMapper = Arc<dyn Fn(Envelope, &dyn Any) -> Result<Envelope, Error> + Send + Sync>;
 impl GroupCoderRegistration {
     fn for_elements<K: Element, V: Element>() -> Self {
         Self {
@@ -1608,6 +1616,29 @@ impl CoderRegistration {
     }
 }
 impl Registry {
+    #[must_use]
+    pub fn has_side_input(&self, key: &str) -> bool {
+        self.side_inputs.contains_key(key)
+    }
+
+    /// Materialize a decoded bounded side input once per execution scope.
+    pub fn materialize_side_input(
+        &self, key: &str, values: Vec<Payload>,
+    ) -> Result<Payload, Error> {
+        let side = self.side_inputs.get(key).ok_or_else(||
+            Error::incompatible(format!("no side input registered for node {key}")))?;
+        (side.materialize)(values)
+    }
+
+    /// Apply a main element using a view made by `materialize_side_input`.
+    pub fn apply_side_input(
+        &self, key: &str, event: Envelope, view: &dyn Any,
+    ) -> Result<Envelope, Error> {
+        let side = self.side_inputs.get(key).ok_or_else(||
+            Error::incompatible(format!("no side input registered for node {key}")))?;
+        (side.apply)(event, view)
+    }
+
     #[must_use]
     pub fn has_join_coder(&self, key: &str) -> bool {
         self.join_coders.contains_key(key)
@@ -2949,8 +2980,10 @@ impl<T: Element> PCollection<T> {
         })
     }
     /// Build a bounded side view once per execution, then apply it to each main value.
-    /// Materialization failures are returned as typed execution errors.
-    pub fn map_with_materialized_side_named<S: Element, M: 'static, U: Element>(
+    /// Materialization failures are returned as typed execution errors. The
+    /// view must be transferable because portable workers can resume a bundle
+    /// on another executor thread.
+    pub fn map_with_materialized_side_named<S: Element, M: Send + 'static, U: Element>(
         &self,
         key: &str,
         side: &PCollection<S>,
@@ -2975,39 +3008,48 @@ impl<T: Element> PCollection<T> {
             ));
         }
         let key_owned = key.to_owned();
+        let materialize = Arc::new(materialize);
+        let f = Arc::new(f);
+        let side_key = key_owned.clone();
+        let main_key = key_owned.clone();
+        let registration = SideInputRegistration {
+            materialize: Arc::new(move |values| {
+                let mut typed = Vec::with_capacity(values.len());
+                for value in values {
+                    typed.push(*value.downcast::<S>().map_err(|_| {
+                        Error::execution(&side_key, "direct", "side input type mismatch")
+                    })?);
+                }
+                Ok(Box::new(materialize(typed)?) as Payload)
+            }),
+            apply: Arc::new(move |event, view| {
+                let Envelope { value, timestamp_ns, window, assigned_window } = event;
+                let value = *value.downcast::<T>().map_err(|_| {
+                    Error::execution(&main_key, "direct", "main input type mismatch")
+                })?;
+                let view = view.downcast_ref::<M>().ok_or_else(|| {
+                    Error::execution(&main_key, "direct", "side input view type mismatch")
+                })?;
+                Ok(Envelope {
+                    value: Box::new(f(value, view)?), timestamp_ns, window, assigned_window,
+                })
+            }),
+        };
+        let direct_registration = registration.clone();
         let aggregate: Aggregate = Arc::new(move |inputs| {
             let [main_values, side_values]: [Vec<Envelope>; 2] =
                 inputs.try_into().map_err(|_| {
                     Error::execution(&key_owned, "direct", "side input requires two inputs")
                 })?;
-            let mut typed_side = Vec::with_capacity(side_values.len());
-            for event in side_values {
-                typed_side.push(*event.value.downcast::<S>().map_err(|_| {
-                    Error::execution(&key_owned, "direct", "side input type mismatch")
-                })?);
-            }
-            let side_view = materialize(typed_side)?;
+            let side_view = (direct_registration.materialize)(
+                side_values.into_iter().map(|event| event.value).collect())?;
             let mut output = Vec::with_capacity(main_values.len());
             for event in main_values {
-                let Envelope {
-                    value,
-                    timestamp_ns,
-                    window,
-                    assigned_window,
-                } = event;
-                let value = *value.downcast::<T>().map_err(|_| {
-                    Error::execution(&key_owned, "direct", "main input type mismatch")
-                })?;
-                output.push(Envelope {
-                    value: Box::new(f(value, &side_view)?),
-                    timestamp_ns,
-                    window,
-                    assigned_window,
-                });
+                output.push((direct_registration.apply)(event, side_view.as_ref())?);
             }
             Ok(output)
         });
-        self.next_aggregate(
+        let collection = self.next_aggregate(
             key,
             Operation::SideInputMap,
             vec![InputEdge {
@@ -3021,7 +3063,11 @@ impl<T: Element> PCollection<T> {
             main.boundedness,
             aggregate,
             None,
-        )
+        )?;
+        collection.pipeline.inner.lock()
+            .map_err(|_| Error::graph(key, "builder lock poisoned"))?
+            .registry.side_inputs.insert(key.to_owned(), registration);
+        Ok(collection)
     }
 }
 
