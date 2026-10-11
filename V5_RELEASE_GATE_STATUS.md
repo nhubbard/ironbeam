@@ -48,13 +48,15 @@ staged locally.
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for five bounded sources, including a keyed
+  separately launched v5 worker for six bounded sources, including a keyed
   input shared by GroupByKey and an ordinary branch, native Flatten and
-  GroupByKey, event-time assignment, and eight terminal
+  GroupByKey, event-time assignment, and nine terminal
   append sinks. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
-  launched worker. An extracted CSV source also crosses the mock worker
+  launched worker. The live job also reads a native Avro container written
+  with an explicit schema by v5 Direct and checks its transformed record.
+  An extracted CSV source also crosses the mock worker
   coder contract; CSV globs lower to multiple source nodes and native Flatten.
   The JSONL append sink uses a shared filesystem and may duplicate records on
   replay. This is a local runner proof of this bounded slice.
