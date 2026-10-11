@@ -112,6 +112,12 @@ staged locally.
    feature graph, examples, and compatibility paths remain. Continue format
    extraction, API migration, and the focused v4 removal gate in
    `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
+   The current `ironbeam-cloud` package also still contains 5,446 lines of
+   legacy traits, fake services, readers, compression, and helpers alongside
+   the new object router. Its isolated test corpus measures only 230/1,741
+   source locations and 31/50 active branch outcomes. Extract the useful
+   object contract from that legacy surface and give it a separate coverage
+   gate before claiming cloud module quality.
 5. **Execution proof:** The user chose local Prism proof for now. The existing
    Prism job reaches `DONE` for the bounded elementwise, Flatten, and
    global-window GroupByKey slice, including a JSONL connector round-trip.
