@@ -714,8 +714,8 @@ Dataflow translator lowers these fixtures to Beam's unbounded TestStream
 primitive. A local Prism `Run` reaches `DONE` through the v5 worker and
 verifies two values in their fixed windows; the existing bounded live corpus
 also passes. This closes the scripted unbounded fixture proof. The production
-reader and checkpoint proof is described below; remote Dataflow execution
-remains a separate release gate.
+reader and checkpoint proof is described below. Remote Dataflow execution is
+a later cloud integration proof, outside the requested local Prism gate.
 
 The core also now registers a production unbounded reader factory with a
 nonblocking poll result, bounded event batches, timestamped values, and a
@@ -731,7 +731,7 @@ covered by Direct tests. Direct rejects stateful or multi-source streaming
 routes, non-idempotent sinks, and sinks requiring bundle finalization. The
 ordinary bounded `run_sink` path still rejects unbounded graphs. The separate
 Dataflow production source polling is now covered by a local Prism run;
-broader portable graph shapes and remote Dataflow remain release gates.
+broader portable graph shapes remain release gates.
 The separate Dataflow workspace now has a versioned SDF restriction payload
 and a tested worker-side polling adapter that preserves reader state across
 `Pending` and returns an encoded residual cursor. The Beam SDF transform
@@ -748,8 +748,8 @@ bundle Fn Data test verifies resume from the saved cursor; a bad restriction
 fails before opening the reader. Local Prism `Run` now reaches `DONE` with two
 timestamped batches and an idempotent sink that checks each value and event
 timestamp. The prior TestStream Prism proof still passes. An explicit worker
-restart after an accepted batch, split-response roots, additional portable
-graph shapes, and remote cloud execution remain unproved.
+restart after an accepted batch, split-response roots, and additional portable
+graph shapes remain unproved. Remote cloud execution is a later extension.
 The new Direct stream and checkpoint modules have 605/665 source locations
 covered in isolation. With the expanded failure-path tests, the package now
 measures 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%).
