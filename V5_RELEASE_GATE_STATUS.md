@@ -7,6 +7,12 @@ staged locally.
 
 ## Verified in this checkout
 
+- The separate Dataflow worker now validates and executes fixed-window
+  assignment after a production unbounded SDF source. A live local Prism
+  `Run` reached `DONE` across two residual bundles; its idempotent sink
+  verified both values, event timestamps, and assigned intervals. The
+  worker and Prism proof targets pass strict lint, and all seventeen Fn API
+  data tests pass. Other SDF graph shapes and process restart remain open.
 - Direct bounded linear sinks now write one source batch at a time instead of
   collecting the entire result before opening the sink. Typed sinks can opt in
   to `write_with_metadata` to receive event time, window, and assigned interval;
