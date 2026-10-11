@@ -48,14 +48,15 @@ staged locally.
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for twenty bounded sources, including a keyed
+  separately launched v5 worker for twenty-one bounded sources, including a keyed
   input shared by GroupByKey and an ordinary branch, native Flatten and
   GroupByKey, event-time assignment, native fixed-window assignment with
   offset, per-window GroupByKey, two-, three-, and ten-input CoGroupByKey,
   fixed-window CoGroupByKey, all four join variants with duplicate and
   unmatched keys, a fixed-window full join that retains input timestamps,
+  a bounded global-window side input fetched over Beam Fn State,
   native Reshuffle in global and fixed windows,
-  and nineteen terminal
+  and twenty terminal
   append sinks. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
@@ -129,7 +130,7 @@ staged locally.
    global-window `group_by_key_named` through native Beam KV/iterable coders
    and a live Prism shuffle proof. Its keyed input can also feed an ordinary
    branch, verified by another sink in that Prism job. It still rejects
-   side inputs, unbounded sources, update sinks, and
+   windowed side views, unbounded sources, update sinks, and
    whole-job final-result sinks. Core now registers typed split/reassembly
    coders for actual `group_by_key_named` nodes, distinct from
    `latest_per_key_named`, which uses the same local operation marker.
@@ -146,8 +147,8 @@ staged locally.
    the live Prism corpus checks duplicate-key products, unmatched rows,
    interval windows, and timestamps.
    The worker decodes fixed and chunked inline iterables but still rejects
-   Beam state-backed iterables, which
-   require the Fn State API. Bounded millisecond-aligned fixed windows lower
+   Beam state-backed iterables, which still need integration with the new
+   Fn State client. Bounded millisecond-aligned fixed windows lower
    to native Beam
    `WindowInto`; the worker carries interval metadata across Fn API boundaries.
    One live Prism job verifies assigned intervals and keyed counts in each
@@ -156,9 +157,11 @@ staged locally.
    parity remain open. Core now exposes the same bounded side-view
    materialization and mapping functions to Direct and portable workers;
    materialized views are transferable across executor threads. The separate
-   Dataflow harness has a tested Fn State client with continuation and error
-   handling. Beam side-input graph lowering and worker integration remain
-   open, so this is not yet a portable side-input execution proof.
+   Dataflow harness uses a tested Fn State client with continuation and error
+   handling. Beam side-input ParDo lowering, bundle validation, and worker
+   materialization reach `DONE` in local Prism for a bounded global view.
+   Windowed views still need semantics that preserve Direct's whole-view
+   materialization across windows; the translator rejects them explicitly.
 3. **Remote I/O:** Provider clients can access hosted object storage from the
    bounded `ObjectIO` interface, but the local Prism worker still shares the
    driver's filesystem. Driver-local file paths are not staged to cloud
