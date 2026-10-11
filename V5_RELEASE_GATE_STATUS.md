@@ -104,6 +104,11 @@ staged locally.
   fixture (one opt-in case under `v4-mega`) now run from `ironbeam-compat`
   against published 4.1.1. All passed. The root test tree now contains only
   v5 facade tests.
+- After that migration, `scripts/check_v5_packages.sh` passed the default
+  workspace suite, selected v5 feature variants, all-feature documentation,
+  and local packaging checks for all 25 v5 crates using Mr Boxington. The
+  script now accepts `IRONBEAM_CARGO` for the configured wrapper. No crate was
+  published.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cargo_bin="${IRONBEAM_CARGO:-cargo}"
+
 # Verify distributable packages against local v5 dependencies. No registry
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
@@ -16,71 +18,71 @@ transforms_patch=(--config "patch.crates-io.ironbeam-transforms.path=\"$root/cra
 regex_patch=(--config "patch.crates-io.ironbeam-transform-regex.path=\"$root/crates/ironbeam-transform-regex\"")
 approx_patch=(--config "patch.crates-io.ironbeam-transform-approx.path=\"$root/crates/ironbeam-transform-approx\"")
 
-if cargo tree -p ironbeam --no-default-features --features v5-preview --edges normal | grep -E 'ironbeam-cloud v|hyperloglogplus v|ordered-float v|num_cpus v'; then
+if "$cargo_bin" tree -p ironbeam --no-default-features --features v5-preview --edges normal | grep -E 'ironbeam-cloud v|hyperloglogplus v|ordered-float v|num_cpus v'; then
   echo "V5-only facade unexpectedly depends on the legacy root implementation." >&2
   exit 1
 fi
-if cargo tree -p ironbeam --no-default-features --features v5-preview --edges normal,dev | grep -E 'testcontainers(-modules)? v'; then
+if "$cargo_bin" tree -p ironbeam --no-default-features --features v5-preview --edges normal,dev | grep -E 'testcontainers(-modules)? v'; then
   echo "V5-only root tests unexpectedly depend on the legacy service harness." >&2
   exit 1
 fi
-if cargo tree -p ironbeam --no-default-features --features v5-preview --edges normal,dev | grep -E '(^|[[:space:]])regex v'; then
+if "$cargo_bin" tree -p ironbeam --no-default-features --features v5-preview --edges normal,dev | grep -E '(^|[[:space:]])regex v'; then
   echo "V5-only root tests unexpectedly depend on the regex engine." >&2
   exit 1
 fi
-if cargo tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro|prost|crc32c) v'; then
+if "$cargo_bin" tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro|prost|crc32c) v'; then
   echo "Default ironbeam-io unexpectedly depends on a heavy opt-in adapter." >&2
   exit 1
 fi
-if cargo tree -p ironbeam-io --no-default-features --features compression-gzip --edges normal | grep -E 'ironbeam-cloud v'; then
+if "$cargo_bin" tree -p ironbeam-io --no-default-features --features compression-gzip --edges normal | grep -E 'ironbeam-cloud v'; then
   echo "Compression-only v5 I/O unexpectedly depends on legacy cloud helpers." >&2
   exit 1
 fi
-if cargo tree -p ironbeam-io --all-features --edges normal | grep -E 'ironbeam-cloud v'; then
+if "$cargo_bin" tree -p ironbeam-io --all-features --edges normal | grep -E 'ironbeam-cloud v'; then
   echo "Shared v5 I/O unexpectedly depends on legacy cloud helpers." >&2
   exit 1
 fi
-if cargo tree -p ironbeam-io-jsonl --all-features --edges normal | grep -E 'ironbeam-cloud v'; then
+if "$cargo_bin" tree -p ironbeam-io-jsonl --all-features --edges normal | grep -E 'ironbeam-cloud v'; then
   echo "V5 JSONL unexpectedly depends on legacy cloud helpers." >&2
   exit 1
 fi
 
-cargo test --workspace
-cargo run --example cloud_io_demo --no-default-features --features v5-preview
-cargo test -p ironbeam-compat --test v4_baseline --test differential --test mean --test count_per_element --test keys_values --test kv_swap --test to_dict --test to_hashmap --test to_display_string
-cargo test -p ironbeam --features legacy-v4,v5-preview --test v5_facade_preview --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features v5-approx --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features v5-io-csv --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features io-csv --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features v5-io-xml --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features v5-io-msgpack --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features v5-io-cbor --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features v5-io-protobuf --test v5_facade_prelude
-cargo test -p ironbeam --no-default-features --features v5-io-tfrecord --test v5_facade_prelude
-cargo test -p ironbeam-compat --test tfrecord_wire
-cargo test -p ironbeam --no-default-features --features v5-preview,v5-io-arrow --test v5_facade_prelude
-cargo test -p ironbeam-io --all-features
-cargo test -p ironbeam-compression --all-features
-cargo test -p ironbeam-cloud-object-store --all-features
-cargo test -p ironbeam-transform-regex --all-features
-cargo test -p ironbeam-transform-approx --all-features
-cargo test -p ironbeam-metrics
-cargo test -p ironbeam-direct --features metrics --test custom_metrics
-cargo test -p ironbeam-io-jsonl --all-features
-cargo test -p ironbeam-io-protobuf --all-features
-cargo test -p ironbeam-io-tfrecord --all-features
-cargo test -p ironbeam-io-csv --all-features
-cargo test -p ironbeam-io-xml --all-features
-cargo test -p ironbeam-io-msgpack --all-features
-cargo test -p ironbeam-io-cbor --all-features
-cargo test -p ironbeam-io-avro --all-features
-cargo test -p ironbeam-io-parquet --all-features
-cargo test -p ironbeam-io-arrow --all-features
-cargo test -p ironbeam-io-sql
-cargo test -p ironbeam-io-mongodb
-cargo doc --workspace --all-features --no-deps
+"$cargo_bin" test --workspace
+"$cargo_bin" run --example cloud_io_demo --no-default-features --features v5-preview
+"$cargo_bin" test -p ironbeam-compat --test v4_baseline --test differential --test mean --test count_per_element --test keys_values --test kv_swap --test to_dict --test to_hashmap --test to_display_string
+"$cargo_bin" test -p ironbeam --features legacy-v4,v5-preview --test v5_facade_preview --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-approx --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-io-csv --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features io-csv --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-io-xml --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-io-msgpack --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-io-cbor --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-io-protobuf --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-io-tfrecord --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam-compat --test tfrecord_wire
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-preview,v5-io-arrow --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam-io --all-features
+"$cargo_bin" test -p ironbeam-compression --all-features
+"$cargo_bin" test -p ironbeam-cloud-object-store --all-features
+"$cargo_bin" test -p ironbeam-transform-regex --all-features
+"$cargo_bin" test -p ironbeam-transform-approx --all-features
+"$cargo_bin" test -p ironbeam-metrics
+"$cargo_bin" test -p ironbeam-direct --features metrics --test custom_metrics
+"$cargo_bin" test -p ironbeam-io-jsonl --all-features
+"$cargo_bin" test -p ironbeam-io-protobuf --all-features
+"$cargo_bin" test -p ironbeam-io-tfrecord --all-features
+"$cargo_bin" test -p ironbeam-io-csv --all-features
+"$cargo_bin" test -p ironbeam-io-xml --all-features
+"$cargo_bin" test -p ironbeam-io-msgpack --all-features
+"$cargo_bin" test -p ironbeam-io-cbor --all-features
+"$cargo_bin" test -p ironbeam-io-avro --all-features
+"$cargo_bin" test -p ironbeam-io-parquet --all-features
+"$cargo_bin" test -p ironbeam-io-arrow --all-features
+"$cargo_bin" test -p ironbeam-io-sql
+"$cargo_bin" test -p ironbeam-io-mongodb
+"$cargo_bin" doc --workspace --all-features --no-deps
 for package in "${packages[@]}"; do
   patches=()
   case "$package" in
@@ -101,6 +103,6 @@ for package in "${packages[@]}"; do
     ironbeam-compat)
       patches=("${core_patch[@]}" "${direct_patch[@]}" "${transforms_patch[@]}" "${regex_patch[@]}" "${approx_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"" --config "patch.crates-io.ironbeam-io-tfrecord.path=\"$root/crates/ironbeam-io-tfrecord\"") ;;
   esac
-  cargo package -p "$package" --allow-dirty --offline "${patches[@]}"
+  "$cargo_bin" package -p "$package" --allow-dirty --offline "${patches[@]}"
 done
 echo "All twenty-five v5 packages verified locally; no crates were published."
