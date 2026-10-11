@@ -33,6 +33,21 @@ superseded.
 ### Foundation and parity
 
 <details>
+<summary>Mixed bounded and unbounded portable joins</summary>
+
+Core permits finite-window joins and co-groups with bounded and unbounded
+inputs. Beam lowering had labeled every tagged input bounded, and the worker
+did not recognize a native TestStream → WindowInto stage as a valid input
+boundary. Both contracts are corrected. A local Prism job now runs one
+TestStream and one bounded vector source through a full join and CoGroupByKey,
+merges their outputs, and commits the exact expected values, earliest event
+times, and window intervals. The graph translation test checks each tagged
+input's boundedness and the unbounded merged collection. All 17 live Prism
+tests pass. Worker replacement recovery remains a separate open gate.
+
+</details>
+
+<details>
 <summary>Windowed join and CoGroupByKey parity</summary>
 
 A shared two-source, fixed-window fixture now executes a full join and a

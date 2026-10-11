@@ -14,7 +14,7 @@ extension.
 | --- | --- | --- |
 | Workspace cutover | **Mostly complete** | The root's local v4 source and `legacy-v4` feature are gone. All 26 local v5 packages passed package verification. |
 | Bounded Direct behavior | **In progress** | The v4 reference corpus and v5 Direct helper tests pass. Public API and edge-case parity still need a complete audit. |
-| Portable behavior | **In progress** | The 16-test live local Prism suite passes, including a shared windowed full join and CoGroupByKey graph with exact values and time metadata. More shared cases are needed. |
+| Portable behavior | **In progress** | All 17 live local Prism tests pass. Bounded Direct/Prism and mixed bounded/unbounded Prism joins and co-groups verify values and time metadata. More shared cases are needed. |
 | Streaming and recovery | **In progress** | Direct cursor checkpoints and portable production-source fixtures work. Worker restart and runner-wide output commit proofs remain. |
 | Quality and release | **In progress** | Coverage floors, package verification, and formatting pass. The final clean matrix, benchmarks, and version change remain. |
 
@@ -58,7 +58,7 @@ shuffle does not preserve encounter order. See the
 | --- | --- |
 | Root workspace tests and doctests | Passed after the CoGroupByKey event-time correction. |
 | Local release script | Passed dependency checks, workspace tests, feature matrix, documentation, and verification of 26 packages on 2026-10-11 using Mr Boxington. No crate was published. |
-| Local Prism suite | All 16 live tests passed, including windowed full join and CoGroupByKey parity across values, event time, and window interval. |
+| Local Prism suite | All 17 live tests passed. The new TestStream plus bounded-input join/co-group job verified exact values, event time, and window interval. |
 | Separate Dataflow workspace | Tests and doctests passed with the new coder; warning-free lint passed for the changed proof package. |
 | Clean shared coverage corpus | Core: 3,055/3,178 source locations (96.13%), 468/528 branches (88.64%). Direct: 3,913/4,187 (93.46%), 837/928 (90.19%). Transforms: 1,163/1,189 (97.81%), 108/116 (93.10%). All pass their existing floors. |
 | Postcard coder coverage | 13/13 source locations passed the new isolated gate; LLVM reports no instrumented branches. |
