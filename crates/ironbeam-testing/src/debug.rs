@@ -8,9 +8,13 @@ use std::sync::{
 };
 
 pub trait PCollectionDebugExt<T: Element> {
+    /// # Errors
+    /// Returns a graph construction error for an invalid debug node.
     fn debug_inspect_named(&self, key: &str, label: &str) -> Result<PCollection<T>, Error>
     where
         T: Debug;
+    /// # Errors
+    /// Returns a graph construction error for an invalid debug node.
     fn debug_inspect_with_named(
         &self,
         key: &str,
@@ -19,9 +23,13 @@ pub trait PCollectionDebugExt<T: Element> {
     ) -> Result<PCollection<T>, Error>
     where
         T: Debug;
+    /// # Errors
+    /// Returns a graph construction error for an invalid debug node.
     fn debug_sample_named(&self, key: &str, label: &str, n: usize) -> Result<PCollection<T>, Error>
     where
         T: Debug;
+    /// # Errors
+    /// Returns a graph or Direct execution error.
     fn collect_debug_count_named(
         &self,
         key: &str,

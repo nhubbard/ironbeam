@@ -1,4 +1,4 @@
-//! MessagePack sources and deferred final-result sinks for Ironbeam 5.
+//! `MessagePack` sources and deferred final-result sinks for Ironbeam 5.
 #![allow(clippy::missing_errors_doc)]
 
 use ironbeam_core::{Element, Error, PCollection, Pipeline, Sink, TypedSourceIterator};
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 fn read_msgpack<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     let mut cursor = std::io::Cursor::new(bytes);
     let mut rows = Vec::new();
-    while (cursor.position() as usize) < bytes.len() {
+    while cursor.position() < bytes.len() as u64 {
         rows.push(rmp_serde::from_read(&mut cursor).map_err(|e| ironbeam_io::io("msgpack", e))?);
     }
     Ok(rows)
@@ -27,6 +27,8 @@ pub fn msgpack_source<T: Element + DeserializeOwned>(
 ) -> Result<PCollection<T>, Error> {
     ironbeam_io::source(pipeline, key, path, "msgpack", read_msgpack::<T>)
 }
+// The shared lazy-source callback owns its path even though opening only borrows it.
+#[allow(clippy::needless_pass_by_value)]
 fn read_msgpack_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
@@ -86,7 +88,7 @@ pub fn msgpack_parallel_sink<T: Element + Serialize + Sync>(
     ironbeam_io::framed_parallel_sink(input, key, path, shards, write_msgpack::<T>)
 }
 
-/// Expand a MessagePack file glob into stable bounded source nodes.
+/// Expand a `MessagePack` file glob into stable bounded source nodes.
 pub fn msgpack_glob_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -109,7 +111,7 @@ fn read_msgpack_range<T: Element + DeserializeOwned>(
     ironbeam_io::read_lazy_range(path, start, end, read_msgpack_lazy::<T>)
 }
 
-/// Create stable bounded MessagePack record-range sources.
+/// Create stable bounded `MessagePack` record-range sources.
 pub fn msgpack_sharded_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,

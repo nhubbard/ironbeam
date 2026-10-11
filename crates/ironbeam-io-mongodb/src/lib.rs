@@ -43,7 +43,7 @@ fn digest(
     }
     Ok(result)
 }
-fn source_progress() -> SourceProgress {
+const fn source_progress() -> SourceProgress {
     SourceProgress {
         stable_split_id: false,
         replay: Replay::AtLeastOnce,

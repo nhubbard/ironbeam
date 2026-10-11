@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 fn read_cbor<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     let mut cursor = std::io::Cursor::new(bytes);
     let mut rows = Vec::new();
-    while (cursor.position() as usize) < bytes.len() {
+    while cursor.position() < bytes.len() as u64 {
         rows.push(ciborium::de::from_reader(&mut cursor).map_err(|e| ironbeam_io::io("cbor", e))?);
     }
     Ok(rows)
@@ -27,6 +27,8 @@ pub fn cbor_source<T: Element + DeserializeOwned>(
 ) -> Result<PCollection<T>, Error> {
     ironbeam_io::source(pipeline, key, path, "cbor", read_cbor::<T>)
 }
+// The shared lazy-source callback owns its path even though opening only borrows it.
+#[allow(clippy::needless_pass_by_value)]
 fn read_cbor_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {

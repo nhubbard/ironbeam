@@ -42,7 +42,7 @@ fn digest(url: &str, query: &str, batch_size: Option<usize>) -> String {
     }
     result
 }
-fn source_progress() -> SourceProgress {
+const fn source_progress() -> SourceProgress {
     SourceProgress {
         stable_split_id: false,
         replay: Replay::AtLeastOnce,
@@ -178,6 +178,7 @@ where
 }
 
 /// Build stable finite SQL range nodes without connecting during graph construction.
+///
 /// `query` must use a total `ORDER BY`, and `snapshot_id` must identify an
 /// unchanged database snapshot across retries. A changed range length fails recovery.
 pub fn sql_sharded_source<T>(

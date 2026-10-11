@@ -19,12 +19,21 @@ pub struct TestPipeline {
     pipeline: Pipeline,
 }
 impl TestPipeline {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
+    /// Returns the number of nodes in the current graph.
+    ///
+    /// # Errors
+    /// Returns a graph error if the pipeline builder cannot be read.
     pub fn node_count(&self) -> Result<usize, Error> {
         Ok(self.pipeline.snapshot()?.0.nodes.len())
     }
+    /// Returns the number of input edges in the current graph.
+    ///
+    /// # Errors
+    /// Returns a graph error if the pipeline builder cannot be read.
     pub fn edge_count(&self) -> Result<usize, Error> {
         Ok(self
             .pipeline
@@ -35,7 +44,8 @@ impl TestPipeline {
             .map(|node| usize::from(node.input.is_some()) + node.additional_inputs.len())
             .sum())
     }
-    pub fn pipeline(&self) -> &Pipeline {
+    #[must_use]
+    pub const fn pipeline(&self) -> &Pipeline {
         &self.pipeline
     }
 }

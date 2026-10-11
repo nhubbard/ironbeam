@@ -3,6 +3,7 @@
 
 use ironbeam_core::{Element, Error, PCollection, Pipeline, Sink};
 use serde::{Serialize, de::DeserializeOwned};
+use std::io::Write;
 use std::path::Path;
 
 #[derive(serde::Deserialize)]
@@ -30,7 +31,6 @@ fn read_xml<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
 fn write_xml<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
     let contents = quick_xml::se::to_string(&XmlWrite { item: values })
         .map_err(|e| ironbeam_io::io("xml", e))?;
-    use std::io::Write;
     let mut writer = ironbeam_io::open_encoded_output(path, "xml")?;
     writer
         .write_all(contents.as_bytes())
