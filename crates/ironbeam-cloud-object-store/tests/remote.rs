@@ -1,5 +1,5 @@
-use ironbeam_cloud::{ErrorKind, ObjectIO, ObjectStores};
 use ironbeam_cloud_object_store::{RemoteObjectIO, object_stores_from_env};
+use ironbeam_cloud_objects::{ErrorKind, ObjectIO, ObjectStores};
 use object_store::{ObjectStore, memory::InMemory};
 use std::sync::{
     Arc,

@@ -8,6 +8,7 @@ description = "Provider-neutral cloud contracts and helpers for Ironbeam"
 repository = "https://github.com/nhubbard/ironbeam"
 
 [dependencies]
+ironbeam-cloud-objects = { version = "0.1.0", path = "../ironbeam-cloud-objects" }
 anyhow = "1"
 regex = "1"
 serde = { version = "1", features = ["derive"] }

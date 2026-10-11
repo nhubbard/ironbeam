@@ -6,7 +6,7 @@
 //! synchronous Ironbeam sources can call it from a runner thread.
 
 use futures_util::TryStreamExt;
-use ironbeam_cloud::{
+use ironbeam_cloud_objects::{
     CloudIOError, CloudResult, ErrorKind, ObjectIO, ObjectMetadata, ObjectStores,
 };
 use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt, path::Path};

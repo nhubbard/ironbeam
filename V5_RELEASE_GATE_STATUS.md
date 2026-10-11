@@ -10,7 +10,7 @@ staged locally.
 - `bash scripts/check_v5_packages.sh` passed after the regex and approximate
   distinct extension splits:
   workspace tests, selected feature variants, all-feature
-  documentation, and local package verification for all twenty-two v5 crates.
+  documentation, and local package verification for all twenty-three v5 crates.
   No package was published.
 - `ironbeam-transform-regex` owns the v5 regex helpers and measures 45/45
   source locations in its isolated tests. The ordinary
@@ -53,9 +53,12 @@ staged locally.
   coder contract; CSV globs lower to multiple source nodes and native Flatten.
   The JSONL append sink uses a shared filesystem and may duplicate records on
   replay. This is a local runner proof of this bounded slice.
-- `ironbeam-cloud` now has URI routing, registered provider handles, and a
-  filesystem-backed local adapter. A JSONL graph source and sink round-trip
-  through that adapter. Opt-in `ironbeam-cloud-object-store` builds S3, GCS,
+- `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
+  object contract, and a filesystem-backed local adapter. Its isolated corpus
+  measures 234/243 source locations and 46/54 active branch outcomes. The
+  previous `ironbeam-cloud` crate reexports this API during migration. A JSONL
+  graph source and sink round-trip through that adapter. Opt-in
+  `ironbeam-cloud-object-store` builds S3, GCS,
   and Azure Blob clients from environment credentials. Its
   `object_stores_from_env()` constructor registers all enabled providers in
   one URI router, with bucket clients still initialized on first use. Default
@@ -112,12 +115,13 @@ staged locally.
    feature graph, examples, and compatibility paths remain. Continue format
    extraction, API migration, and the focused v4 removal gate in
    `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
-   The current `ironbeam-cloud` package also still contains 5,446 lines of
-   legacy traits, fake services, readers, compression, and helpers alongside
-   the new object router. Its isolated test corpus measures only 230/1,741
-   source locations and 31/50 active branch outcomes. Extract the useful
-   object contract from that legacy surface and give it a separate coverage
-   gate before claiming cloud module quality.
+   `ironbeam-cloud` still contains legacy traits, fake services, readers,
+   compression, and helpers. After the object contract extraction, its
+   isolated source corpus measures only 37/1,695 locations and no active
+   branches. Migrate the JSONL cloud helpers away from this legacy package,
+   then remove or explicitly retain its remaining public surface before the
+   v5-only cutover. The new object contract has a separate passing coverage
+   gate; it does not make the legacy package release-ready.
 5. **Execution proof:** The user chose local Prism proof for now. The existing
    Prism job reaches `DONE` for the bounded elementwise, Flatten, and
    global-window GroupByKey slice, including a JSONL connector round-trip.

@@ -5,7 +5,8 @@ set -euo pipefail
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+packages=(ironbeam-cloud-objects ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+cloud_objects_patch=(--config "patch.crates-io.ironbeam-cloud-objects.path=\"$root/crates/ironbeam-cloud-objects\"")
 cloud_patch=(--config "patch.crates-io.ironbeam-cloud.path=\"$root/crates/ironbeam-cloud\"")
 core_patch=(--config "patch.crates-io.ironbeam-core.path=\"$root/crates/ironbeam-core\"")
 direct_patch=(--config "patch.crates-io.ironbeam-direct.path=\"$root/crates/ironbeam-direct\"")
@@ -51,17 +52,18 @@ cargo doc --workspace --all-features --no-deps
 for package in "${packages[@]}"; do
   patches=()
   case "$package" in
-    ironbeam-cloud|ironbeam-core) ;;
-    ironbeam-cloud-object-store) patches=("${cloud_patch[@]}") ;;
+    ironbeam-cloud-objects|ironbeam-core) ;;
+    ironbeam-cloud) patches=("${cloud_objects_patch[@]}") ;;
+    ironbeam-cloud-object-store) patches=("${cloud_objects_patch[@]}") ;;
     ironbeam-direct) patches=("${core_patch[@]}") ;;
     ironbeam-transforms|ironbeam-transform-regex|ironbeam-transform-approx|ironbeam-testing)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io-sql|ironbeam-io-mongodb)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io)
-      patches=("${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
+      patches=("${cloud_objects_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io-jsonl|ironbeam-io-protobuf|ironbeam-io-tfrecord|ironbeam-io-csv|ironbeam-io-xml|ironbeam-io-msgpack|ironbeam-io-cbor|ironbeam-io-avro)
-      patches=("${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
+      patches=("${cloud_objects_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-io-parquet|ironbeam-io-arrow)
       patches=("${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-compat)
@@ -69,4 +71,4 @@ for package in "${packages[@]}"; do
   esac
   cargo package -p "$package" --allow-dirty "${patches[@]}"
 done
-echo "All twenty-two v5 packages verified locally; no crates were published."
+echo "All twenty-three v5 packages verified locally; no crates were published."

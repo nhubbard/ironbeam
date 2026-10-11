@@ -2247,6 +2247,7 @@ dependencies = [
  "bzip2",
  "flate2",
  "futures-executor",
+ "ironbeam-cloud-objects",
  "regex",
  "serde",
  "serde_json",
@@ -2260,9 +2261,16 @@ name = "ironbeam-cloud-object-store"
 version = "0.1.0"
 dependencies = [
  "futures-util",
- "ironbeam-cloud",
+ "ironbeam-cloud-objects",
  "object_store",
  "tokio",
+]
+
+[[package]]
+name = "ironbeam-cloud-objects"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]

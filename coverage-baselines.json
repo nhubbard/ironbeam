@@ -207,5 +207,16 @@
       "covered": 12,
       "count": 12
     }
+  },
+  "ironbeam-cloud-objects": {
+    "source": "crates/ironbeam-cloud-objects/src",
+    "lines": {
+      "covered": 234,
+      "count": 243
+    },
+    "branches": {
+      "covered": 46,
+      "count": 54
+    }
   }
 }
