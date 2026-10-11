@@ -152,7 +152,8 @@ staged locally.
    interval windows, and timestamps.
    The worker decodes fixed and chunked inline iterables and can resolve
    Beam state-backed iterables through the Fn State client. Prefix, token,
-   and fetched suffix assembly have focused tests; a runner-emitted
+   and fetched suffix assembly have focused tests, and a mock runner drives
+   the actual Fn Data and Fn State RPCs into a typed grouped result. A Prism-emitted
    state-backed group still needs a live proof. Bounded millisecond-aligned fixed windows lower
    to native Beam
    `WindowInto`; the worker carries interval metadata across Fn API boundaries.
