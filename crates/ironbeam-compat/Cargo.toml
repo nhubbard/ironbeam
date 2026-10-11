@@ -20,6 +20,7 @@ v4-checkpointing = ["ironbeam-v4/checkpointing", "dep:postcard"]
 v4-gzip = ["ironbeam-v4/compression-gzip", "dep:flate2"]
 v4-jsonl = ["ironbeam-v4/io-jsonl"]
 v4-metrics = ["ironbeam-v4/metrics"]
+v4-mega = ["v4-csv", "v4-gzip", "v4-jsonl", "v4-parallel-io", "v4-parquet", "v4-spilling", "v4-zstd"]
 v4-msgpack = ["ironbeam-v4/io-msgpack"]
 v4-mongodb = ["ironbeam-v4/io-mongodb", "dep:bson"]
 v4-parallel-io = ["ironbeam-v4/parallel-io"]
@@ -65,6 +66,10 @@ tempfile = "3"
 [[test]]
 name = "v4_helper_parquet"
 required-features = ["v4-parquet"]
+
+[[test]]
+name = "v4_mega_integration"
+required-features = ["v4-mega"]
 
 [[test]]
 name = "v4_checkpoint"

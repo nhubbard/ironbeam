@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Mega comprehensive integration test covering EVERY Ironbeam feature.
 //!
 //! This test exercises the entire API surface to ensure all features work together:
@@ -21,12 +20,12 @@
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::combiners::*;
-use ironbeam::*;
+use ironbeam_v4::combiners::*;
+use ironbeam_v4::*;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::f64::consts::PI;
-#[cfg(any(feature = "io-jsonl", feature = "io-csv", feature = "io-parquet"))]
+#[cfg(any(feature = "v4-jsonl", feature = "v4-csv", feature = "v4-parquet"))]
 use tempfile::tempdir;
 
 struct DoubleAndFilter;
@@ -683,7 +682,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     // =============================================================================
     // SECTION 14: I/O operations (all formats + compression)
     // =============================================================================
-    #[cfg(any(feature = "io-jsonl", feature = "io-csv", feature = "io-parquet"))]
+    #[cfg(any(feature = "v4-jsonl", feature = "v4-csv", feature = "v4-parquet"))]
     {
         println!("📦 Section 14: I/O Operations");
 
@@ -709,10 +708,10 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         ];
 
         // 14a. JSONL I/O
-        #[cfg(feature = "io-jsonl")]
+        #[cfg(feature = "v4-jsonl")]
         {
             // Vector I/O
-            use ironbeam::io::jsonl::{read_jsonl_vec, write_jsonl_vec};
+            use ironbeam_v4::io::jsonl::{read_jsonl_vec, write_jsonl_vec};
             let jsonl_path = base_path.join("test.jsonl");
             write_jsonl_vec(&jsonl_path, &test_records)?;
             let loaded: Vec<Record> = read_jsonl_vec(&jsonl_path)?;
@@ -733,7 +732,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
             println!("  ✅ JSONL I/O (vector, streaming, parallel) works");
 
             // 14b. Compression with JSONL
-            #[cfg(feature = "compression-gzip")]
+            #[cfg(feature = "v4-gzip")]
             {
                 let gz_path = base_path.join("test.jsonl.gz");
                 write_jsonl_vec(&gz_path, &test_records)?;
@@ -742,7 +741,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
                 println!("  ✅ JSONL + Gzip compression works");
             }
 
-            #[cfg(feature = "compression-zstd")]
+            #[cfg(feature = "v4-zstd")]
             {
                 let zst_path = base_path.join("test.jsonl.zst");
                 write_jsonl_vec(&zst_path, &test_records)?;
@@ -753,9 +752,9 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         }
 
         // 14c. CSV I/O
-        #[cfg(feature = "io-csv")]
+        #[cfg(feature = "v4-csv")]
         {
-            use ironbeam::io::csv::{read_csv_vec, write_csv_vec};
+            use ironbeam_v4::io::csv::{read_csv_vec, write_csv_vec};
             let csv_path = base_path.join("test.csv");
             write_csv_vec(&csv_path, true, &test_records)?;
             let csv_loaded: Vec<Record> = read_csv_vec(&csv_path, true)?;
@@ -770,7 +769,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
             println!("  ✅ CSV I/O (vector, streaming) works");
 
             // Compression
-            #[cfg(feature = "compression-gzip")]
+            #[cfg(feature = "v4-gzip")]
             {
                 let csv_gz_path = base_path.join("test.csv.gz");
                 write_csv_vec(&csv_gz_path, true, &test_records)?;
@@ -781,9 +780,9 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         }
 
         // 14d. Parquet I/O
-        #[cfg(feature = "io-parquet")]
+        #[cfg(feature = "v4-parquet")]
         {
-            use ironbeam::io::parquet::{read_parquet_vec, write_parquet_vec};
+            use ironbeam_v4::io::parquet::{read_parquet_vec, write_parquet_vec};
             let parquet_path = base_path.join("test.parquet");
             write_parquet_vec(&parquet_path, &test_records)?;
             let parquet_loaded: Vec<Record> = read_parquet_vec(&parquet_path)?;
@@ -875,10 +874,10 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
     // =============================================================================
     // SECTION 17: Memory Spilling (with artificial limits)
     // =============================================================================
-    #[cfg(feature = "spilling")]
+    #[cfg(feature = "v4-spilling")]
     {
-        use ironbeam::spill::SpillConfig;
-        use ironbeam::spill_integration::init_spilling;
+        use ironbeam_v4::spill::SpillConfig;
+        use ironbeam_v4::spill_integration::init_spilling;
 
         println!("📦 Section 17: Memory Spilling");
 
@@ -918,7 +917,7 @@ fn mega_integration_everything_kitchen_sink() -> Result<()> {
         println!("  ✅ Memory spilling (with artificial limits) works correctly\n");
     }
 
-    #[cfg(not(feature = "spilling"))]
+    #[cfg(not(feature = "v4-spilling"))]
     println!("  ⏭️  Memory spilling tests skipped (feature not enabled)\n");
 
     println!("🎉 MEGA INTEGRATION TEST PASSED! All features work correctly! 🎉");

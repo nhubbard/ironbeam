@@ -175,7 +175,7 @@ jobs:
 
       # With the I/O features off, the always-present API must fail at runtime.
       - name: Verify disabled-feature runtime stubs
-        run: cargo test -p ironbeam --no-default-features --features legacy-v4 --test feature_gating
+        run: cargo test -p ironbeam-compat --no-default-features --test v4_feature_gating
 
       - name: Test facade default and minimal modes
         run: |
@@ -192,6 +192,7 @@ jobs:
           cargo test -p ironbeam-compat --features v4-metrics,v4-checkpointing --test v4_pipeline --test v4_runner
           cargo test -p ironbeam-compat --features v4-metrics,v4-coders --test v4_metrics --test v4_serde_coders
           cargo test -p ironbeam-compat --features v4-checkpointing,v4-jsonl,v4-parallel-io,v4-spilling,v4-zstd --test v4_checkpoint --test v4_par_write --test v4_spill --test v4_spill_integration
+          cargo test -p ironbeam-compat --features v4-mega --test v4_mega_integration
 
       - name: Check published v4 file-format references independently
         run: bash scripts/check_v4_format_reference.sh

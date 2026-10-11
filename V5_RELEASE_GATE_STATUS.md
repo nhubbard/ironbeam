@@ -100,6 +100,10 @@ staged locally.
   suites now contribute 48 opt-in compatibility cases. They pass against
   published 4.1.1 with checkpoint, JSONL, parallel I/O, spill, and zstd
   features enabled; the duplicate root targets are removed.
+- The v4 disabled-feature stub checks (two cases) and broad integration
+  fixture (one opt-in case under `v4-mega`) now run from `ironbeam-compat`
+  against published 4.1.1. All passed. The root test tree now contains only
+  v5 facade tests.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The
