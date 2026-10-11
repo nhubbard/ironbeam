@@ -8,6 +8,6 @@ description = "Test-only runner contract fixtures for the Ironbeam v5 migration"
 license = "MIT"
 
 [dev-dependencies]
-ironbeam = { path = "../..", default-features = false }
+ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false }
 ironbeam-core = { path = "../ironbeam-core" }
 ironbeam-direct = { path = "../ironbeam-direct" }
