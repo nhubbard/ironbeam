@@ -272,14 +272,6 @@ name = "par_write"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "pipeline"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "runner"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "serde_coders"
 required-features = ["legacy-v4"]
 

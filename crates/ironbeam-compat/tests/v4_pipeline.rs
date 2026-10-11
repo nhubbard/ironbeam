@@ -1,9 +1,8 @@
-#![cfg(feature = "legacy-v4")]
 //! Tests for pipeline graph functionality.
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::testing::*;
-use ironbeam::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::*;
 
 #[test]
 fn test_pipeline_default() {
@@ -100,10 +99,10 @@ fn test_pipeline_join_creates_edges() {
     assert!(!edges.is_empty());
 }
 
-#[cfg(feature = "metrics")]
+#[cfg(feature = "v4-metrics")]
 mod metrics_tests {
     use super::*;
-    use ironbeam::metrics::{CounterMetric, MetricsCollector};
+    use ironbeam_v4::metrics::{CounterMetric, MetricsCollector};
 
     #[test]
     fn test_pipeline_metrics_set_and_get() {

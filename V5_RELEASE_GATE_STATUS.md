@@ -88,6 +88,10 @@ staged locally.
 - The v4 CoGroupByKey, graph explanation, ordering, and planner references
   now run in `ironbeam-compat`. Their 113 cases pass against published 4.1.1,
   and the duplicate root targets are removed.
+- The v4 pipeline and runner references now run in `ironbeam-compat`: 54
+  default cases and 67 cases with metrics and checkpointing enabled passed
+  against published 4.1.1. CI retains the opt-in branches, and the duplicate
+  root targets are removed.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The

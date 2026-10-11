@@ -1,12 +1,11 @@
-#![cfg(feature = "legacy-v4")]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::collection::{CombineFn, Count};
-use ironbeam::flatten;
-use ironbeam::from_vec;
-use ironbeam::runner::{ExecMode, Runner};
-use ironbeam::testing::*;
+use ironbeam_v4::collection::{CombineFn, Count};
+use ironbeam_v4::flatten;
+use ironbeam_v4::from_vec;
+use ironbeam_v4::runner::{ExecMode, Runner};
+use ironbeam_v4::testing::*;
 
 fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
     v.sort();
@@ -515,7 +514,7 @@ fn combine_global_unlimited_fanout() -> Result<()> {
 /// Test runner with custom mode configuration
 #[test]
 fn custom_runner_mode() -> Result<()> {
-    use ironbeam::runner::{ExecMode, Runner};
+    use ironbeam_v4::runner::{ExecMode, Runner};
 
     let p = TestPipeline::new();
     let data = from_vec(&p, vec![1u32, 2, 3, 4, 5]);
@@ -524,7 +523,7 @@ fn custom_runner_mode() -> Result<()> {
     let runner = Runner {
         mode: ExecMode::Sequential,
         default_partitions: 4,
-        #[cfg(feature = "checkpointing")]
+        #[cfg(feature = "v4-checkpointing")]
         checkpoint_config: None,
     };
 
@@ -748,11 +747,11 @@ fn exec_par_limit_truncate_single_partition_result() -> Result<()> {
 }
 
 // Checkpointing tests - only compiled when checkpointing feature is enabled
-#[cfg(feature = "checkpointing")]
+#[cfg(feature = "v4-checkpointing")]
 mod checkpointing_tests {
     use super::*;
-    use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
-    use ironbeam::runner::{ExecMode, Runner};
+    use ironbeam_v4::checkpoint::{CheckpointConfig, CheckpointPolicy};
+    use ironbeam_v4::runner::{ExecMode, Runner};
     use tempfile::TempDir;
 
     /// Test sequential execution with checkpointing enabled
