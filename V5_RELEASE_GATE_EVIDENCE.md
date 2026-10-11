@@ -1616,10 +1616,15 @@ both fused and across a runner boundary. Its process stage polls a registered
 reader, emits timestamped values, and returns residual bundle roots. A two
 bundle Fn Data test verifies resume from the saved cursor; a bad restriction
 fails before opening the reader. Local Prism `Run` now reaches `DONE` with two
-timestamped batches and an idempotent sink that checks each value and event
-timestamp. The prior TestStream Prism proof still passes. An explicit worker
-restart after an accepted batch, split-response roots, and additional portable
-graph shapes remain unproved. Remote cloud execution is a later extension.
+ timestamped batches and an idempotent sink that checks each value and event
+ timestamp. The prior TestStream Prism proof still passes. A later Fn Data
+ process fixture now issues a split while the reader is pending, then resumes
+ the initial restriction in a second OS process and its accepted-batch residual
+ in a third. It verifies no premature output, the two expected rows, cursor
+ progress, and distinct worker processes. The full harness suite and
+ warning-free lint pass. A supervised live Prism process restart and additional
+ portable graph shapes remain unproved. Remote cloud execution is a later
+ extension.
 The new Direct stream and checkpoint modules have 605/665 source locations
 covered in isolation. With the expanded failure-path tests, the package now
 measures 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%).

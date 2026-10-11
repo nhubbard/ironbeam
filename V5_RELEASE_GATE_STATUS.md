@@ -14,7 +14,7 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 | Workspace | V5-only root source, including with no default features; 28 local packages verify | Finish API and legacy package audit |
 | Direct | V4 reference corpus and v5 helper tests pass | Close public API and edge-case parity |
 | Portable | 18 live local Prism tests pass | Expand shared Direct/Prism corpus |
-| Streaming | Production reader resumes through join and co-group | Prove worker restart and output recovery |
+| Streaming | A split and accepted batches survive separate worker process restarts in the Fn Data fixture; the production reader also resumes through join and co-group | Prove live Prism worker restart and output recovery |
 | Quality | Coverage floors, formatting, and package checks pass | Set performance limits and run final clean matrix |
 
 Passing a current check does not close a release gate unless its full proof
@@ -34,7 +34,7 @@ below is complete.
 
 | Gate | Done when |
 | --- | --- |
-| ☐ Unbounded recovery | A worker resumes after an accepted batch, handles split responses, and covers the remaining graph shapes. |
+| ☐ Unbounded recovery | Extend the passing Fn Data process restart proof to a supervised live Prism restart and cover the remaining graph shapes. |
 | ☐ Output durability | The runner-wide commit contract passes abandoned-attempt and restart proofs; v4 checkpoint-policy replacements are decided. |
 
 ### Packaging and release quality
@@ -56,6 +56,7 @@ workspace tests and the live Prism suite.
 | Root workspace | Tests and doctests passed after the CoGroupByKey event-time fix. |
 | Local release script | Dependency and feature checks, tests, docs, and verification of 28 packages passed with Mr Boxington after the cloud fake extraction. |
 | Local Prism | 18 live tests passed. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. |
+| Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch; the full harness suite and warning-free lint pass. |
 | Separate Dataflow workspace | Tests and doctests passed; changed proof package passed warning-free lint. |
 | Clean coverage | Core **96.13% locations / 88.64% branches**; Direct **93.46% / 90.19%**; transforms **97.81% / 93.10%**. Existing floors pass. |
 | Postcard coder | 13/13 source locations covered; LLVM reports no instrumented branches. |
