@@ -432,4 +432,4 @@ the join memory gate open.
 
 ## Phase 1 entry check
 
-The Phase 0 API inventory and contract sketch are in `V5_PHASE0_API_INVENTORY.md` and `V5_LOGICAL_GRAPH_CONTRACT.md`. Numeric coverage gates and package-specific CI should use the portable measured report rather than the historical LCOV file. The first workspace shell can preserve the v4 facade; package splits and the public runner trait wait for the vertical slice.
+The [Phase 0 API inventory](V5_PHASE0_API_INVENTORY.md) remains the public-surface audit input. The historical graph sketch and initial workspace plans are available in Git history; current contract decisions and open work are in the [release gate status](V5_RELEASE_GATE_STATUS.md) and [replacement roadmap](V5_REPLACEMENT_ROADMAP.md). Numeric coverage gates and package-specific CI should use the portable measured report rather than the historical LCOV file.

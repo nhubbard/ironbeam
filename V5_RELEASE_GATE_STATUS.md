@@ -95,7 +95,7 @@ run is needed before performance can be judged against release limits.
 | --- | --- |
 | [Evidence archive](V5_RELEASE_GATE_EVIDENCE.md) | Implementation history, fixtures, measurements, and known limits |
 | [Replacement roadmap](V5_REPLACEMENT_ROADMAP.md) | API and runtime scope |
-| [Workspace architecture plan](WORKSPACE_ARCHITECTURE_PLAN.md) | Package structure and design |
-| [V5 execution plan](IRONBEAM_V5_EXECUTION_PLAN.md) | Phase criteria and exit gates |
+| [API inventory](V5_PHASE0_API_INVENTORY.md) | V4 surface and feature mapping still used for the parity audit |
+| [Baseline](V5_PHASE0_BASELINE.md) | Repeatable behavior and performance comparisons |
 
 Publishing the packages remains a separate decision after these gates close.

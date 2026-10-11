@@ -1673,6 +1673,6 @@ the remaining runner paths are complete.
 </details>
 
 The detailed architecture and exit criteria remain in
-[WORKSPACE_ARCHITECTURE_PLAN.md](WORKSPACE_ARCHITECTURE_PLAN.md),
-[IRONBEAM_V5_EXECUTION_PLAN.md](IRONBEAM_V5_EXECUTION_PLAN.md), and
-[V5_REPLACEMENT_ROADMAP.md](V5_REPLACEMENT_ROADMAP.md).
+[V5_REPLACEMENT_ROADMAP.md](V5_REPLACEMENT_ROADMAP.md) and the
+[release gate status](V5_RELEASE_GATE_STATUS.md). The original Phase 0 plans
+remain available in Git history.
