@@ -654,11 +654,30 @@ staged locally.
    metadata with an independently versioned, coder-bound state format, and restores its
    group indexes before accepting more input. Tests cover resumed values and
    windows, malformed coder bytes, duplicate groups, incompatible versions or coders,
-   and folds without a state coder. Direct has not yet connected these snapshots
-   to its checkpoint manager, so this does not claim in-progress recovery.
+   and folds without a state coder. At this stage Direct had not yet connected
+   these snapshots to its checkpoint manager.
    Clean core/Direct/transforms coverage passes unchanged gates at core
    2,492/2,590 source locations and 370/420 branches, Direct 1,946/2,064
    and 399/436; strict core lint passes.
+   Direct now persists and restores GroupByKey fold state between batches for
+   the exact built-in vector source → GroupByKey → output route. An interrupted
+   three-batch run resumes after its first committed batch and reads only the
+   remaining source rows; a later run recovers the completed output without
+   reading the source. Checkpoints bind the graph, source, output coder, binary
+   build, data digest, progress, and checkpoint kind. Invalid fold payloads,
+   altered manifests, offsets beyond the source, and state on a different
+   route fail closed. Checkpoint interval and memory budget are covered. The
+   local manifest schema is now 1.2; older v5 draft manifests are rejected.
+   Arbitrary folds, transforms before grouping, custom and unbounded sources,
+   and the v4 barrier/time/node policies still lack mid-run recovery. Fresh
+   coverage clears the core and Direct gates: core 2,492/2,590 lines and
+   370/420 branches; Direct 2,186/2,331 lines and 441/482 branches.
+   Affected core/Direct tests and strict lint, the root default-feature facade
+   tests, Dataflow graph/worker tests, and both live local Prism execution
+   fixtures pass. The full all-feature workspace test build exhausted local
+   disk space before tests started; generated root-crate artifacts were cleaned
+   afterward. Its all-feature gate needs a fresh run with sufficient build
+   space before release.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.

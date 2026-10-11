@@ -31,7 +31,13 @@ pub(crate) fn execute<T: Element>(
                 .map(|manager| (manager, source_len))
         })
         .transpose()?;
-    if let Some((manager, source_len)) = &checkpoint
+    let mut pending_state = checkpoint
+        .as_ref()
+        .map(|(manager, _)| manager.recover_fold_state())
+        .transpose()?
+        .flatten();
+    if pending_state.is_none()
+        && let Some((manager, source_len)) = &checkpoint
         && manager.recover_completed(*source_len, &mut store)?
     {
         let values = store.into_vec()?;
@@ -41,7 +47,28 @@ pub(crate) fn execute<T: Element>(
         );
         return Ok(values);
     }
-    let events = eval(pool, graph, registry, output_key, config, &handle.metrics)?;
+    let events = if let Some((manager, source_len)) = &checkpoint
+        && let Some((group_key, source_key)) = checkpointed_group_route(graph, output_key)
+    {
+        eval_checkpointed_group(
+            registry,
+            group_key,
+            source_key,
+            *source_len,
+            pending_state.take(),
+            manager,
+            config,
+            &handle.metrics,
+        )?
+    } else {
+        if pending_state.is_some() {
+            return Err(Error::recovery(
+                output_key,
+                "fold state has no resumable Direct route",
+            ));
+        }
+        eval(pool, graph, registry, output_key, config, &handle.metrics)?
+    };
     let output_count = u64::try_from(events.len()).unwrap_or(u64::MAX);
     for event in events {
         if config.cancellation.load(Ordering::Acquire) {
@@ -64,6 +91,125 @@ pub(crate) fn execute<T: Element>(
         .saturating_add(output_count);
     handle.processed.store(count, Ordering::Relaxed);
     Ok(values)
+}
+
+fn checkpointed_group_route<'a>(graph: &'a Graph, output_key: &str) -> Option<(&'a str, &'a str)> {
+    let output = graph.node(output_key)?;
+    if !matches!(output.operation, Operation::Output) {
+        return None;
+    }
+    let group = graph.node(output.input.as_deref()?)?;
+    if !matches!(group.operation, Operation::GroupByKey) || !group.additional_inputs.is_empty() {
+        return None;
+    }
+    let source = graph.node(group.input.as_deref()?)?;
+    if !matches!(source.operation, Operation::Source { .. }) {
+        return None;
+    }
+    Some((&group.key, &source.key))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn eval_checkpointed_group(
+    registry: &Registry,
+    group_key: &str,
+    source_key: &str,
+    source_len: usize,
+    pending_state: Option<(usize, Vec<u8>)>,
+    manager: &CheckpointManager,
+    config: &JobConfig,
+    metrics: &MetricsState,
+) -> Result<Vec<Envelope>, Error> {
+    let mut fold = catch_unwind(AssertUnwindSafe(|| registry.open_fold(group_key)))
+        .unwrap_or_else(|_| {
+            Err(Error::execution(
+                group_key,
+                "direct",
+                "fold factory panicked",
+            ))
+        })?;
+    let (registered_len, batch_type, read_batch) =
+        registry
+            .erased_vec_source_batches(source_key)
+            .ok_or_else(|| Error::unsupported(source_key, "direct", "fold-checkpoint-source"))?;
+    if registered_len != source_len || !fold.accepts_vec_batch(batch_type) {
+        return Err(Error::unsupported(
+            group_key,
+            "direct",
+            "fold-checkpoint-batch",
+        ));
+    }
+    let mut offset = 0_usize;
+    if let Some((saved_offset, state)) = pending_state {
+        if saved_offset > source_len {
+            return Err(Error::recovery(
+                group_key,
+                "fold checkpoint exceeds source length",
+            ));
+        }
+        catch_unwind(AssertUnwindSafe(|| fold.restore_checkpoint_state(&state))).unwrap_or_else(
+            |_| {
+                Err(Error::execution(
+                    group_key,
+                    "direct",
+                    "fold recovery panicked",
+                ))
+            },
+        )?;
+        offset = saved_offset;
+    }
+    let mut batches = 0_usize;
+    while offset < source_len {
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        let batch_len = (source_len - offset).min(config.buffer_budget_elements);
+        let batch = catch_unwind(AssertUnwindSafe(|| read_batch(offset, batch_len)))
+            .unwrap_or_else(|_| {
+                Err(Error::execution(
+                    source_key,
+                    "direct",
+                    "source value clone panicked",
+                ))
+            })?;
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        if offset
+            .saturating_add(batch_len)
+            .saturating_mul(std::mem::size_of::<Envelope>())
+            > config.memory_budget_bytes
+        {
+            return Err(Error::resource(
+                source_key,
+                "materialized source exceeds job memory budget",
+            ));
+        }
+        let count = u64::try_from(batch_len).unwrap_or(u64::MAX);
+        metrics.source_elements.fetch_add(count, Ordering::Relaxed);
+        metrics
+            .peak_batch_elements
+            .fetch_max(count, Ordering::Relaxed);
+        metrics.batches.fetch_add(1, Ordering::Relaxed);
+        catch_unwind(AssertUnwindSafe(|| fold.add_vec_batch(batch)))
+            .unwrap_or_else(|_| Err(Error::execution(group_key, "direct", "user fold panicked")))?;
+        offset += batch_len;
+        batches += 1;
+        if manager.should_save(batches) {
+            let state = catch_unwind(AssertUnwindSafe(|| fold.checkpoint_state()))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        group_key,
+                        "direct",
+                        "fold snapshot panicked",
+                    ))
+                })?
+                .ok_or_else(|| Error::unsupported(group_key, "direct", "fold-checkpoint-state"))?;
+            manager.save_fold_state(offset, &state)?;
+        }
+    }
+    catch_unwind(AssertUnwindSafe(|| fold.finish()))
+        .unwrap_or_else(|_| Err(Error::execution(group_key, "direct", "user fold panicked")))
 }
 
 #[allow(clippy::too_many_lines)] // One bounded traversal keeps recursive evaluation and errors together.
@@ -355,4 +501,163 @@ fn feed_linear_fold(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+    use crate::{CheckpointConfig, DirectRunner};
+    use ironbeam_core::{ErrorKind, Output, Pipeline};
+    use std::sync::Arc;
+
+    fn manager<T: Element>(output: &Output<T>, config: &CheckpointConfig) -> CheckpointManager {
+        let (graph, registry) = output.snapshot().unwrap();
+        let plan = crate::planner::lower(&graph, &registry, output.key(), 1).unwrap();
+        let identity = Identity::new::<T>(
+            plan.summary.graph_fingerprint,
+            registry
+                .source_config_digest(&plan.summary.source_key)
+                .unwrap()
+                .to_owned(),
+            plan.summary.source_key,
+            output.key().to_owned(),
+            config.binary_build_id.clone(),
+        );
+        CheckpointManager::new(config, identity, Arc::new(MetricsState::default())).unwrap()
+    }
+
+    #[test]
+    fn fold_state_requires_the_same_direct_group_route_and_valid_source_offset() {
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
+        let direct = source
+            .group_by_key_named("group")
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let plain = source.output("plain").unwrap();
+        let (graph, _) = direct.snapshot().unwrap();
+        assert_eq!(
+            checkpointed_group_route(&graph, "out"),
+            Some(("group", "source"))
+        );
+        assert!(checkpointed_group_route(&graph, "source").is_none());
+        assert!(checkpointed_group_route(&graph, plain.key()).is_none());
+        let dir = tempfile::tempdir().unwrap();
+        let checkpoint = CheckpointConfig {
+            directory: dir.path().to_path_buf(),
+            binary_build_id: "route-test".into(),
+            ..CheckpointConfig::default()
+        };
+        manager(&direct, &checkpoint)
+            .save_fold_state(2, b"state")
+            .unwrap();
+        let config = JobConfig {
+            checkpoint: Some(checkpoint),
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner
+                .run_collect(&direct, &config)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Recovery
+        );
+
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
+        let mapped = source.map_named("map", |pair| pair).unwrap();
+        let output = mapped
+            .group_by_key_named("group")
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let (graph, _) = output.snapshot().unwrap();
+        assert!(checkpointed_group_route(&graph, "out").is_none());
+        let dir = tempfile::tempdir().unwrap();
+        let checkpoint = CheckpointConfig {
+            directory: dir.path().to_path_buf(),
+            binary_build_id: "route-test".into(),
+            ..CheckpointConfig::default()
+        };
+        manager(&output, &checkpoint)
+            .save_fold_state(0, b"state")
+            .unwrap();
+        let config = JobConfig {
+            checkpoint: Some(checkpoint),
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &config)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Recovery
+        );
+    }
+
+    #[test]
+    fn checkpointed_group_preserves_the_materialized_source_budget() {
+        let pipeline = Pipeline::default();
+        let output = pipeline
+            .from_vec("source", vec![(1_i32, 2_i32)])
+            .unwrap()
+            .group_by_key_named("group")
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let config = JobConfig {
+            memory_budget_bytes: 1,
+            checkpoint: Some(CheckpointConfig {
+                directory: dir.path().to_path_buf(),
+                binary_build_id: "budget-test".into(),
+                ..CheckpointConfig::default()
+            }),
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &config)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Resource
+        );
+    }
+
+    #[test]
+    fn checkpointed_group_rejects_invalid_fold_payload() {
+        let pipeline = Pipeline::default();
+        let output = pipeline
+            .from_vec("source", vec![(1_i32, 2_i32)])
+            .unwrap()
+            .group_by_key_named("group")
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let checkpoint = CheckpointConfig {
+            directory: dir.path().to_path_buf(),
+            binary_build_id: "corrupt-state-test".into(),
+            ..CheckpointConfig::default()
+        };
+        manager(&output, &checkpoint)
+            .save_fold_state(0, b"invalid fold payload")
+            .unwrap();
+        let config = JobConfig {
+            checkpoint: Some(checkpoint),
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &config)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Recovery
+        );
+    }
 }

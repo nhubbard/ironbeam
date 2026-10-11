@@ -1244,13 +1244,159 @@ fn completed_group_checkpoint_recovers_spilled_output() {
     };
     let (mut first, job) = DirectRunner.run_collect(&output, &config).unwrap();
     first.sort_by_key(|(key, _)| *key);
-    assert_eq!(job.metrics().checkpoints, 1);
+    assert_eq!(job.metrics().checkpoints, 2);
     assert!(job.metrics().spill_files > 0);
     let (mut second, recovered) = DirectRunner.run_collect(&output, &config).unwrap();
     second.sort_by_key(|(key, _)| *key);
     assert_eq!(second, first);
     assert_eq!(recovered.metrics().source_elements, 0);
     assert_eq!(recovered.metrics().recovered_elements, 10);
+}
+
+#[test]
+fn grouped_checkpoint_respects_batch_interval() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            interval_batches: 2,
+            binary_build_id: "group-interval-test".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let (groups, first) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(groups, vec![(1, vec![2])]);
+    assert_eq!(first.metrics().checkpoints, 1);
+    let (again, recovered) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(again, groups);
+    assert_eq!(recovered.metrics().source_elements, 0);
+}
+
+#[test]
+fn grouped_fold_resumes_from_last_committed_batch_after_cancellation() {
+    use ironbeam_core::Element;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+
+    struct CloneControl {
+        count: AtomicUsize,
+        cancellation: Arc<AtomicBool>,
+    }
+    struct CancelValue {
+        value: i32,
+        control: Arc<CloneControl>,
+    }
+    impl Clone for CancelValue {
+        fn clone(&self) -> Self {
+            if self.control.count.fetch_add(1, Ordering::Relaxed) == 1 {
+                self.control.cancellation.store(true, Ordering::Release);
+            }
+            Self {
+                value: self.value,
+                control: Arc::clone(&self.control),
+            }
+        }
+    }
+    impl Element for CancelValue {
+        const TYPE_ID: &'static str = "test/group-resume-value";
+        const CODER_ID: &'static str = "test/group-resume-value-i32-le";
+        fn supports_coder() -> bool {
+            true
+        }
+        fn encode(&self) -> Result<Vec<u8>, ironbeam_core::Error> {
+            Ok(self.value.to_le_bytes().to_vec())
+        }
+        fn decode(bytes: &[u8]) -> Result<Self, ironbeam_core::Error> {
+            let value = i32::decode(bytes)?;
+            Ok(Self {
+                value,
+                control: Arc::new(CloneControl {
+                    count: AtomicUsize::new(0),
+                    cancellation: Arc::new(AtomicBool::new(false)),
+                }),
+            })
+        }
+    }
+    let token = Arc::new(AtomicBool::new(false));
+    let control = Arc::new(CloneControl {
+        count: AtomicUsize::new(0),
+        cancellation: Arc::clone(&token),
+    });
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec(
+            "source",
+            (1..=3)
+                .map(|value| {
+                    (
+                        1_i32,
+                        CancelValue {
+                            value,
+                            control: Arc::clone(&control),
+                        },
+                    )
+                })
+                .collect(),
+        )
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        buffer_budget_elements: 1,
+        cancellation: Arc::clone(&token),
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            interval_batches: 1,
+            binary_build_id: "group-resume-test".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Cancelled
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.path().join("latest.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["kind"], "fold_state");
+    assert_eq!(manifest["source_offset"], 1);
+    token.store(false, Ordering::Release);
+    let (groups, job) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].0, 1);
+    assert_eq!(
+        groups[0]
+            .1
+            .iter()
+            .map(|value| value.value)
+            .collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    assert_eq!(job.metrics().source_elements, 2);
+    assert_eq!(job.metrics().recovered_elements, 0);
+    let (again, completed) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(again[0].1.len(), 3);
+    assert_eq!(completed.metrics().source_elements, 0);
+    assert_eq!(completed.metrics().recovered_elements, 1);
 }
 
 #[test]

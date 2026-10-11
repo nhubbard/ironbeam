@@ -21,7 +21,7 @@ pub use ordered_f64::OrdF64;
 
 pub const GRAPH_VERSION: Version = Version { major: 3, minor: 0 };
 pub const CODER_VERSION: Version = Version { major: 1, minor: 0 };
-pub const CHECKPOINT_VERSION: Version = Version { major: 1, minor: 1 };
+pub const CHECKPOINT_VERSION: Version = Version { major: 1, minor: 2 };
 pub const BUILTIN_OPERATION_VERSION: Version = Version { major: 1, minor: 0 };
 
 /// Stable semantic type and wire coder identities supplied by the element owner.

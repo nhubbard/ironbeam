@@ -63,6 +63,8 @@ impl Identity {
 #[derive(Serialize, Deserialize)]
 struct Manifest {
     version: Version,
+    #[serde(default)]
+    kind: CheckpointKind,
     identity: Identity,
     source_offset: usize,
     output_count: usize,
@@ -70,6 +72,30 @@ struct Manifest {
     data_sha256: String,
     #[serde(default)]
     progress_sha256: String,
+}
+
+#[derive(Clone, Copy, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CheckpointKind {
+    #[default]
+    Output,
+    FoldState,
+}
+
+impl Manifest {
+    fn progress_hash(&self) -> String {
+        let hash = progress_sha256(
+            self.source_offset,
+            self.output_count,
+            &self.data_file,
+            &self.data_sha256,
+        );
+        if self.kind == CheckpointKind::FoldState {
+            fold_progress_sha256(&hash)
+        } else {
+            hash
+        }
+    }
 }
 
 pub(crate) struct CheckpointManager {
@@ -99,13 +125,13 @@ impl CheckpointManager {
     fn manifest_path(&self) -> PathBuf {
         self.config.directory.join("latest.json")
     }
-    pub(crate) fn recover<T: Element>(&self, store: &mut OutputStore<T>) -> Result<usize, Error> {
+    fn load_manifest(&self) -> Result<Option<(Manifest, PathBuf)>, Error> {
         if !self.config.recover {
-            return Ok(0);
+            return Ok(None);
         }
         let path = self.manifest_path();
         if !path.exists() {
-            return Ok(0);
+            return Ok(None);
         }
         let bytes = fs::read(&path).map_err(|e| io_error("checkpoint", e))?;
         let manifest: Manifest = serde_json::from_slice(&bytes)
@@ -119,14 +145,7 @@ impl CheckpointManager {
             ));
         }
         validate_data_file_name(&manifest.data_file)?;
-        if manifest.progress_sha256
-            != progress_sha256(
-                manifest.source_offset,
-                manifest.output_count,
-                &manifest.data_file,
-                &manifest.data_sha256,
-            )
-        {
+        if manifest.progress_sha256 != manifest.progress_hash() {
             return Err(Error::recovery(
                 "checkpoint",
                 "checkpoint progress checksum mismatch",
@@ -139,7 +158,44 @@ impl CheckpointManager {
                 "checkpoint checksum mismatch",
             ));
         }
-        let count = visit_frames(&data_path, "checkpoint", |bytes| {
+        Ok(Some((manifest, data_path)))
+    }
+    pub(crate) fn recover<T: Element>(&self, store: &mut OutputStore<T>) -> Result<usize, Error> {
+        let Some((manifest, data_path)) = self.load_manifest()? else {
+            return Ok(0);
+        };
+        if manifest.kind != CheckpointKind::Output {
+            return Err(Error::recovery("checkpoint", "expected output checkpoint"));
+        }
+        self.recover_output(&manifest, &data_path, store)
+    }
+    pub(crate) fn recover_completed<T: Element>(
+        &self,
+        source_len: usize,
+        store: &mut OutputStore<T>,
+    ) -> Result<bool, Error> {
+        let Some((manifest, data_path)) = self.load_manifest()? else {
+            return Ok(false);
+        };
+        if manifest.kind != CheckpointKind::Output {
+            return Ok(false);
+        }
+        if manifest.source_offset != source_len {
+            return Err(Error::recovery(
+                "checkpoint",
+                "completed aggregate checkpoint source length mismatch",
+            ));
+        }
+        self.recover_output(&manifest, &data_path, store)?;
+        Ok(true)
+    }
+    fn recover_output<T: Element>(
+        &self,
+        manifest: &Manifest,
+        data_path: &Path,
+        store: &mut OutputStore<T>,
+    ) -> Result<usize, Error> {
+        let count = visit_frames(data_path, "checkpoint", |bytes| {
             store.push(T::decode(bytes)?)
         })?;
         if count != manifest.output_count {
@@ -156,21 +212,21 @@ impl CheckpointManager {
             .store(u64::try_from(count).unwrap_or(u64::MAX), Ordering::Relaxed);
         Ok(manifest.source_offset)
     }
-    pub(crate) fn recover_completed<T: Element>(
-        &self,
-        source_len: usize,
-        store: &mut OutputStore<T>,
-    ) -> Result<bool, Error> {
-        if !self.config.recover || !self.manifest_path().exists() {
-            return Ok(false);
+    pub(crate) fn recover_fold_state(&self) -> Result<Option<(usize, Vec<u8>)>, Error> {
+        let Some((manifest, data_path)) = self.load_manifest()? else {
+            return Ok(None);
+        };
+        if manifest.kind != CheckpointKind::FoldState {
+            return Ok(None);
         }
-        if self.recover(store)? != source_len {
+        if manifest.output_count != 0 {
             return Err(Error::recovery(
                 "checkpoint",
-                "completed aggregate checkpoint source length mismatch",
+                "fold checkpoint has an output count",
             ));
         }
-        Ok(true)
+        let state = fs::read(data_path).map_err(|error| io_error("checkpoint", error))?;
+        Ok(Some((manifest.source_offset, state)))
     }
     pub(crate) const fn should_save(&self, batches: usize) -> bool {
         batches.is_multiple_of(self.config.interval_batches)
@@ -194,21 +250,62 @@ impl CheckpointManager {
             .map_err(|e| io_error("checkpoint", e))?;
         let data_hash = sha256_file(data_tmp.path())?;
         let (_, data_path) = data_tmp.keep().map_err(|e| io_error("checkpoint", e))?;
+        self.persist_data(
+            CheckpointKind::Output,
+            source_offset,
+            output_count,
+            &data_path,
+            data_hash,
+        )
+    }
+    pub(crate) fn save_fold_state(&self, source_offset: usize, state: &[u8]) -> Result<(), Error> {
+        let mut data_tmp = tempfile::Builder::new()
+            .prefix("checkpoint-data-")
+            .tempfile_in(&self.config.directory)
+            .map_err(|error| io_error("checkpoint", error))?;
+        data_tmp
+            .write_all(state)
+            .map_err(|error| io_error("checkpoint", error))?;
+        data_tmp
+            .as_file()
+            .sync_all()
+            .map_err(|error| io_error("checkpoint", error))?;
+        let data_hash = sha256_file(data_tmp.path())?;
+        let (_, data_path) = data_tmp
+            .keep()
+            .map_err(|error| io_error("checkpoint", error))?;
+        self.persist_data(
+            CheckpointKind::FoldState,
+            source_offset,
+            0,
+            &data_path,
+            data_hash,
+        )
+    }
+    fn persist_data(
+        &self,
+        kind: CheckpointKind,
+        source_offset: usize,
+        output_count: usize,
+        data_path: &Path,
+        data_hash: String,
+    ) -> Result<(), Error> {
         let data_file = data_path
             .file_name()
             .ok_or_else(|| Error::recovery("checkpoint", "checkpoint data path lacks file name"))?
             .to_string_lossy()
             .into_owned();
-        let progress_hash = progress_sha256(source_offset, output_count, &data_file, &data_hash);
-        let manifest = Manifest {
+        let mut manifest = Manifest {
             version: CHECKPOINT_VERSION,
+            kind,
             identity: self.identity.clone(),
             source_offset,
             output_count,
             data_file,
-            progress_sha256: progress_hash,
+            progress_sha256: String::new(),
             data_sha256: data_hash,
         };
+        manifest.progress_sha256 = manifest.progress_hash();
         let mut manifest_tmp = tempfile::NamedTempFile::new_in(&self.config.directory)
             .map_err(|e| io_error("checkpoint", e))?;
         serde_json::to_writer(&mut manifest_tmp, &manifest)
@@ -232,13 +329,7 @@ impl CheckpointManager {
             && old.data_file.starts_with("checkpoint-data-")
             && old.data_file != manifest.data_file
             && validate_data_file_name(&old.data_file).is_ok()
-            && old.progress_sha256
-                == progress_sha256(
-                    old.source_offset,
-                    old.output_count,
-                    &old.data_file,
-                    &old.data_sha256,
-                )
+            && old.progress_sha256 == old.progress_hash()
         {
             let _ = fs::remove_file(self.config.directory.join(old.data_file));
         }
@@ -272,6 +363,18 @@ fn progress_sha256(
     hash.update(data_file.as_bytes());
     hash.update([0]);
     hash.update(data_sha256.as_bytes());
+    let digest = hash.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+fn fold_progress_sha256(output_progress_hash: &str) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"ironbeam/checkpoint-fold-progress/v1\0");
+    hash.update(output_progress_hash.as_bytes());
     let digest = hash.finalize();
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -413,6 +516,7 @@ mod tests {
         for data_file in ["../outside.txt", "notes.txt", "latest.json"] {
             let mut forged = Manifest {
                 version: original.version,
+                kind: original.kind,
                 identity: original.identity.clone(),
                 source_offset: original.source_offset,
                 output_count: original.output_count,
@@ -436,6 +540,7 @@ mod tests {
         for case in 0..4 {
             let mut forged = Manifest {
                 version: original.version,
+                kind: original.kind,
                 identity: original.identity.clone(),
                 source_offset: original.source_offset,
                 output_count: original.output_count,
@@ -501,6 +606,62 @@ mod tests {
                 .recover_completed(2, &mut recovered)
                 .unwrap_err()
                 .kind,
+            ErrorKind::Recovery
+        );
+    }
+
+    #[test]
+    fn fold_state_checkpoint_is_distinct_and_integrity_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: dir.path().to_path_buf(),
+            binary_build_id: "fold-state-test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "fold-state-test".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+        assert!(manager.recover_fold_state().unwrap().is_none());
+        manager.save_fold_state(2, b"group state").unwrap();
+        assert_eq!(
+            manager.recover_fold_state().unwrap(),
+            Some((2, b"group state".to_vec()))
+        );
+        let mut output = OutputStore::<i32>::new(1024, None, metrics).unwrap();
+        assert!(!manager.recover_completed(3, &mut output).unwrap());
+        assert_eq!(
+            manager.recover(&mut output).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+
+        let manifest_path = dir.path().join("latest.json");
+        let mut manifest: Manifest =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        let data_path = dir.path().join(&manifest.data_file);
+        fs::write(&data_path, b"tampered").unwrap();
+        assert_eq!(
+            manager.recover_fold_state().unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+        fs::write(&data_path, b"group state").unwrap();
+        manifest.kind = CheckpointKind::Output;
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert_eq!(
+            manager.recover_fold_state().unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+        manifest.kind = CheckpointKind::FoldState;
+        manifest.output_count = 1;
+        manifest.progress_sha256 = manifest.progress_hash();
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        assert_eq!(
+            manager.recover_fold_state().unwrap_err().kind,
             ErrorKind::Recovery
         );
     }
