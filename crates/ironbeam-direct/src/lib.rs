@@ -5,6 +5,7 @@ mod helpers;
 mod materialized;
 mod metrics;
 mod multi_output;
+mod multi_sink;
 mod planner;
 mod sink;
 mod spill;
@@ -24,7 +25,7 @@ pub use stream::StreamJob;
 
 use ironbeam_core::{
     Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection,
-    Registry, Replay, RetryClass, Sink, SinkMode, SinkSession, SourceIterator, TypedSourceIterator,
+    Pipeline, Registry, Replay, RetryClass, Sink, SinkMode, SinkSession, SourceIterator, TypedSourceIterator,
 };
 use metrics::MetricsState;
 use rayon::prelude::*;
@@ -693,6 +694,52 @@ impl DirectRunner {
             Ok(())
         })();
         match result {
+            Ok(()) => {
+                handle.set_status(JobStatus::Succeeded);
+                Ok(handle)
+            }
+            Err(error) => {
+                handle.set_status(if error.kind == ErrorKind::Cancelled {
+                    JobStatus::Cancelled
+                } else {
+                    JobStatus::Failed
+                });
+                Err(error)
+            }
+        }
+    }
+    /// Run two or more named idempotent sinks from one bounded source.
+    /// Shared stateless stages execute once, and each branch receives its own
+    /// coded value at a fan-out. Sinks commit in the supplied order.
+    ///
+    /// # Errors
+    /// Rejects fan-in, stateful branches, uncoded splits, non-idempotent sinks,
+    /// and checkpoints before opening a source or sink.
+    pub fn run_sinks(
+        &self,
+        pipeline: &Pipeline,
+        keys: &[&str],
+        config: &JobConfig,
+    ) -> Result<JobHandle, Error> {
+        let (graph, registry) = pipeline.snapshot()?;
+        self.validate(&graph)?;
+        validate_config(config)?;
+        if config.checkpoint.is_some() {
+            return Err(Error::unsupported("job", "direct", "multi-sink-checkpoint"));
+        }
+        let plan = multi_sink::prepare(&graph, &registry, keys)?;
+        #[allow(unused_mut)]
+        let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+        #[cfg(feature = "metrics")]
+        {
+            handle.metrics_collector.clone_from(&config.metrics_collector);
+        }
+        if config.cancellation.load(Ordering::Acquire) {
+            handle.cancel();
+            return Err(cancelled());
+        }
+        handle.set_status(JobStatus::Running);
+        match multi_sink::execute(&registry, &plan, keys, config, &handle) {
             Ok(()) => {
                 handle.set_status(JobStatus::Succeeded);
                 Ok(handle)

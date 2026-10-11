@@ -142,6 +142,16 @@ No percentage of source compatibility is asserted. The migration guide gives
 the actual edits. Bounded result parity is stronger than source compatibility
 today; unbounded and portable execution parity remains open.
 
+Ordered folds require an explicit user order key for identical Direct and
+portable behavior. The existing encounter-order fold methods retain their
+Direct compatibility behavior; Beam grouping does not preserve that encounter
+order. Add order-key variants for global and keyed folds, sort within each
+key/window before invoking the fold, and reject duplicate order keys in a
+key/window on both runners rather than depending on arrival order. Include
+matching metadata and error behavior in the cross-runner corpus before
+claiming parity. The order-key extractor is part of the rebuilt worker
+registry and must match the driver binary build identity.
+
 ## Gates before deleting `src/` v4 runtime modules
 
 1. **Public API ledger:** Every v4 public type, helper, source, sink, feature,
@@ -166,8 +176,13 @@ today; unbounded and portable execution parity remains open.
    idempotent append sinks after both commits, with a replay test for failure
    after the first commit. `run_collect_pair` now checkpoints two coded linear
    output branches together and recovers accepted batches without re-running
-   their transforms. General graph fan-out, fan-in, and atomic multi-sink
-   commit remain open; the bounded sink pair still has no checkpoint route.
+   their transforms. Bounded `run_sinks` now accepts any number of named,
+   idempotent sink branches from one source, including shared stateless stages
+   and nested fan-out; it runs each shared stage once and copies branch values
+   through registered coders. Sink commits remain sequential, with explicit
+   retry semantics if a later commit fails. Stateful branches, fan-in,
+   multi-source jobs, atomic multi-sink commit, and bounded sink checkpointing
+   remain open.
 4. **Dataflow contract:** The separate integration builds against the v5 core
    and lowers the full v4 feature corpus. A local Beam Prism `Run` must reach
    `DONE` through a separately launched v5 Fn API worker and verify values for
