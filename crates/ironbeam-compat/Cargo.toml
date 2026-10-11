@@ -18,5 +18,7 @@ ironbeam-transform-approx = { version = "0.1.0", path = "../ironbeam-transform-a
 anyhow = "1"
 
 [dev-dependencies]
-ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false, features = ["io-jsonl"] }
+ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false, features = ["io-jsonl", "io-tfrecord", "io-protobuf"] }
+ironbeam-io-tfrecord = { version = "0.1.0", path = "../ironbeam-io-tfrecord" }
+prost = "0.14"
 tempfile = "3"

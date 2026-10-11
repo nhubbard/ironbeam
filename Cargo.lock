@@ -2230,11 +2230,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fe20a0a0eca7ca1a1f25d300687f749edf8170a91c929b6ee3822e16b39ff39"
 dependencies = [
  "anyhow",
+ "crc32c",
  "glob",
  "hyperloglogplus",
  "num_cpus",
  "ordered-float",
  "paste",
+ "prost",
  "rayon",
  "regex",
  "serde",
@@ -2285,9 +2287,11 @@ dependencies = [
  "ironbeam 4.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ironbeam-core",
  "ironbeam-direct",
+ "ironbeam-io-tfrecord",
  "ironbeam-transform-approx",
  "ironbeam-transform-regex",
  "ironbeam-transforms",
+ "prost",
  "tempfile",
 ]
 

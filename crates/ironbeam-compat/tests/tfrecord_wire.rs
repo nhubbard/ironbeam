@@ -1,17 +1,10 @@
-#![cfg(feature = "legacy-v4")]
-#![cfg(all(
-    feature = "v5-preview",
-    feature = "v5-io-tfrecord",
-    feature = "io-tfrecord",
-    feature = "io-protobuf"
-))]
+//! Decode TFRecord bytes written by published Ironbeam 4 with the v5 adapter.
 
-use ironbeam::io::tfrecord::write_tfrecord_vec;
-use ironbeam::io::tfrecord_proto as v4_proto;
-use ironbeam::v5::{
-    DirectRunner, Element, ErrorKind, JobConfig, Pipeline, tfrecord_examples_sharded_source,
-    tfrecord_examples_source, tfrecord_examples_streaming_source,
-};
+use ironbeam_v4::io::tfrecord::write_tfrecord_vec;
+use ironbeam_v4::io::tfrecord_proto as v4_proto;
+use ironbeam_core::{Element, ErrorKind, Pipeline};
+use ironbeam_direct::{DirectRunner, JobConfig};
+use ironbeam_io_tfrecord::{tfrecord_examples_sharded_source, tfrecord_examples_source, tfrecord_examples_streaming_source, Example};
 use prost::Message;
 
 #[test]
@@ -53,7 +46,7 @@ fn v5_tfrecord_example_sources_decode_v4_wire_records() {
         assert_eq!(records.len(), 2);
         for record in records {
             assert_eq!(Element::encode(&record).unwrap(), wire);
-            let decoded = <ironbeam::v5::Example as Element>::decode(&wire).unwrap();
+            let decoded = <Example as Element>::decode(&wire).unwrap();
             assert_eq!(record, decoded);
         }
     }

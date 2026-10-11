@@ -159,7 +159,7 @@ jobs:
           cargo test -p ironbeam-io-jsonl --all-features
           cargo test -p ironbeam-io-protobuf --all-features
           cargo test -p ironbeam-io-tfrecord --all-features
-          cargo test -p ironbeam --features v5-io-tfrecord,io-tfrecord,io-protobuf --test v5_tfrecord_examples
+          cargo test -p ironbeam-compat --test tfrecord_wire
           cargo test -p ironbeam-io-csv --all-features
           cargo test -p ironbeam-io-xml --all-features
           cargo test -p ironbeam-io-msgpack --all-features

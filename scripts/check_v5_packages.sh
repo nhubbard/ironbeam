@@ -48,7 +48,7 @@ fi
 cargo test --workspace
 cargo run --example cloud_io_demo --no-default-features --features v5-preview
 cargo test -p ironbeam-compat --test v4_baseline --test differential
-cargo test -p ironbeam --features legacy-v4,v5-preview --test v5_facade_preview --test v5_facade_prelude --test v5_tfrecord_examples
+cargo test -p ironbeam --features legacy-v4,v5-preview --test v5_facade_preview --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-approx --test v5_facade_prelude
@@ -59,7 +59,7 @@ cargo test -p ironbeam --no-default-features --features v5-io-msgpack --test v5_
 cargo test -p ironbeam --no-default-features --features v5-io-cbor --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-protobuf --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-tfrecord --test v5_facade_prelude
-cargo test -p ironbeam --features legacy-v4,v5-io-tfrecord,io-tfrecord,io-protobuf --test v5_tfrecord_examples
+cargo test -p ironbeam-compat --test tfrecord_wire
 cargo test -p ironbeam --no-default-features --features v5-preview,v5-io-arrow --test v5_facade_prelude
 cargo test -p ironbeam-io --all-features
 cargo test -p ironbeam-compression --all-features
@@ -99,7 +99,7 @@ for package in "${packages[@]}"; do
     ironbeam-io-parquet|ironbeam-io-arrow)
       patches=("${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-compat)
-      patches=("${core_patch[@]}" "${direct_patch[@]}" "${transforms_patch[@]}" "${regex_patch[@]}" "${approx_patch[@]}") ;;
+      patches=("${core_patch[@]}" "${direct_patch[@]}" "${transforms_patch[@]}" "${regex_patch[@]}" "${approx_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"" --config "patch.crates-io.ironbeam-io-tfrecord.path=\"$root/crates/ironbeam-io-tfrecord\"") ;;
   esac
   cargo package -p "$package" --allow-dirty --offline "${patches[@]}"
 done

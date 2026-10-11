@@ -416,10 +416,6 @@ name = "utils"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "v5_tfrecord_examples"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "validation"
 required-features = ["legacy-v4"]
 
