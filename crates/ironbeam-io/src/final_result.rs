@@ -57,10 +57,15 @@ pub struct AcceptedFragment {
 }
 
 impl AcceptedFragment {
-    pub fn copy_payload(&self, output: &mut impl Write) -> Result<(), Error> {
+    /// Open only this fragment's payload bytes after metadata and digest checks.
+    pub fn open_payload(&self) -> Result<std::io::Take<File>, Error> {
         let mut file = File::open(&self.path).map_err(io)?;
         file.seek(SeekFrom::Start(HEADER_LEN)).map_err(io)?;
-        let copied = std::io::copy(&mut file.take(self.payload_len), output).map_err(io)?;
+        Ok(file.take(self.payload_len))
+    }
+
+    pub fn copy_payload(&self, output: &mut impl Write) -> Result<(), Error> {
+        let copied = std::io::copy(&mut self.open_payload()?, output).map_err(io)?;
         if copied != self.payload_len {
             return Err(invalid("accepted fragment payload was truncated"));
         }
@@ -292,6 +297,24 @@ impl LocalFinalResult {
         target: impl AsRef<Path>,
         validate: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<PublishedResult, Error> {
+        self.publish_merged(expected_rows, target, |fragments, path, output| {
+            for fragment in fragments {
+                fragment.copy_payload(output)?;
+            }
+            output.sync_all().map_err(io)?;
+            validate(path)?;
+            Ok(expected_rows)
+        })
+    }
+
+    /// Merge accepted fragments into one temporary file, then atomically
+    /// publish only when the merger confirms the decoded row count.
+    pub fn publish_merged(
+        &self,
+        expected_rows: u64,
+        target: impl AsRef<Path>,
+        merge: impl FnOnce(&[AcceptedFragment], &Path, &mut File) -> Result<u64, Error>,
+    ) -> Result<PublishedResult, Error> {
         let fragments = self.scan_fragments(true)?;
         let rows = fragments.iter().try_fold(0_u64, |sum, part| {
             sum.checked_add(part.rows)
@@ -306,11 +329,12 @@ impl LocalFinalResult {
         let parent = target.parent().unwrap_or_else(|| Path::new("."));
         fs::create_dir_all(parent).map_err(io)?;
         let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(io)?;
-        for fragment in &fragments {
-            fragment.copy_payload(&mut temp)?;
+        let temp_path = temp.path().to_path_buf();
+        let merged_rows = merge(&fragments, &temp_path, temp.as_file_mut())?;
+        if merged_rows != expected_rows {
+            return Err(invalid("merged result row count does not match runner"));
         }
         temp.as_file().sync_all().map_err(io)?;
-        validate(temp.path())?;
         let bytes = temp.as_file().metadata().map_err(io)?.len();
         match temp.persist_noclobber(target) {
             Ok(_) => sync_directory(parent)?,
@@ -542,5 +566,38 @@ mod tests {
         assert!(store.publish_concatenated(1, &output).is_err());
         fs::remove_file(orphan).unwrap();
         assert_eq!(store.publish_concatenated(1, &output).unwrap().rows, 1);
+    }
+
+    #[test]
+    fn merged_publication_checks_decoded_rows_before_visibility() {
+        let temp = tempfile::tempdir().unwrap();
+        let store =
+            LocalFinalResult::new(temp.path().join("stage"), "job", "graph", "sink").unwrap();
+        store.stage("bundle", 2, b"one").unwrap();
+        store.accept("bundle").unwrap();
+        let output = temp.path().join("merged.bin");
+        assert!(
+            store
+                .publish_merged(2, &output, |parts, _, file| {
+                    for part in parts {
+                        part.copy_payload(file)?;
+                    }
+                    Ok(1)
+                })
+                .is_err()
+        );
+        assert!(!output.exists());
+        assert_eq!(
+            store
+                .publish_merged(2, &output, |parts, _, file| {
+                    for part in parts {
+                        part.copy_payload(file)?;
+                    }
+                    Ok(2)
+                })
+                .unwrap()
+                .bytes,
+            3
+        );
     }
 }

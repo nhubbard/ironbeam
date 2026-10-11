@@ -21,7 +21,8 @@ ironbeam-io = { version = "0.1.0", path = "../ironbeam-io", default-features = f
 apache-avro = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = "3"
+sha2 = "0.11"
 
 [dev-dependencies]
 ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
-tempfile = "3"

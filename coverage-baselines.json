@@ -156,12 +156,12 @@
   "ironbeam-io-avro": {
     "source": "crates/ironbeam-io-avro/src",
     "lines": {
-      "covered": 92,
-      "count": 93
+      "covered": 367,
+      "count": 387
     },
     "branches": {
-      "covered": 2,
-      "count": 2
+      "covered": 27,
+      "count": 28
     }
   },
   "ironbeam-io-parquet": {

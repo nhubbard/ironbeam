@@ -132,6 +132,11 @@ pub fn avro_sink<T: Element + Serialize>(
     })
 }
 
+mod fragment;
+pub use fragment::{
+    AvroFragmentStore, avro_fragment_sink, avro_fragment_store, publish_avro_fragments,
+};
+
 /// Write ordered Avro shards, then publish one complete container.
 #[cfg(feature = "parallel-io")]
 pub fn avro_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
