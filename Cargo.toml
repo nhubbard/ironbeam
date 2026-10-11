@@ -272,10 +272,6 @@ name = "core"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "count_per_element"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "dead_letter"
 required-features = ["legacy-v4"]
 
@@ -300,14 +296,6 @@ name = "group_into_batches"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "keys_values"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "kv_swap"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "lib"
 required-features = ["legacy-v4"]
 
@@ -317,10 +305,6 @@ required-features = ["legacy-v4"]
 
 [[test]]
 name = "macros"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "mean"
 required-features = ["legacy-v4"]
 
 [[test]]

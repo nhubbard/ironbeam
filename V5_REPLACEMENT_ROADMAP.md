@@ -13,6 +13,9 @@ published Ironbeam 4.1.1. Their reference results remain available after the
 temporary root v4 implementation is deleted.
 The v4 benchmark driver is also in that leaf crate; it retains the seven
 workload names used by the v5 benchmark example.
+The v4 mean, count-per-element, keys/values, and key/value-swap suites now run
+there against the published package as well, removing another 90 root-owned
+legacy test cases while retaining their behavior evidence.
 
 This is a replacement gate, not a claim that the current workspace has already
 reached it. `V5_HELPER_PARITY_TRACKER.md` closes *bounded Direct helper* parity.

@@ -16,6 +16,10 @@ staged locally.
   corpus and strict graph/worker/proof lint pass. This shuffle materializes
   each global window in the worker, and portable order-sensitive vector
   aggregate parity remains unproven.
+- Another 90 v4 behavior cases for mean, count-per-element, keys/values, and
+  key/value swap now run in `ironbeam-compat` against published Ironbeam 4.1.1.
+  The four suites pass there, and their root legacy test targets are removed.
+  The local package script and CI explicitly retain this reference corpus.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The

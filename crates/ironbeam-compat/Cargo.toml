@@ -21,4 +21,5 @@ anyhow = "1"
 ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false, features = ["io-jsonl", "io-tfrecord", "io-protobuf"] }
 ironbeam-io-tfrecord = { version = "0.1.0", path = "../ironbeam-io-tfrecord" }
 prost = "0.14"
+serde = { version = "1", features = ["derive"] }
 tempfile = "3"

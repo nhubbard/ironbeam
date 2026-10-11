@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.3: `Mean<O>` combiner + helpers.
 //!
 //! This test suite validates:
@@ -9,8 +8,8 @@
 //! - The `mean_globally::<O>()` and `mean_per_key::<O>()` helpers.
 //! - Edge cases: empty, single element, parallel, large collections.
 
-use ironbeam::combiners::Mean;
-use ironbeam::*;
+use ironbeam_v4::combiners::Mean;
+use ironbeam_v4::*;
 
 const F64_EPS: f64 = 1e-12;
 const F32_EPS: f32 = 1e-6;

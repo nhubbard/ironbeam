@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.1: `Keys` / `Values` transforms.
 //!
 //! This test suite validates:
@@ -7,7 +6,7 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 // ── keys() ───────────────────────────────────────────────────────────────────

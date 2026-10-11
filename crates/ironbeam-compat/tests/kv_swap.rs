@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.2: `KvSwap` transform.
 //!
 //! This test suite validates `kv_swap()` — swaps the key and value of each
@@ -6,7 +5,7 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 /// Basic: swap `(String, u32)` -> `(u32, String)`.

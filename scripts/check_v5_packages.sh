@@ -47,7 +47,7 @@ fi
 
 cargo test --workspace
 cargo run --example cloud_io_demo --no-default-features --features v5-preview
-cargo test -p ironbeam-compat --test v4_baseline --test differential
+cargo test -p ironbeam-compat --test v4_baseline --test differential --test mean --test count_per_element --test keys_values --test kv_swap
 cargo test -p ironbeam --features legacy-v4,v5-preview --test v5_facade_preview --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude
