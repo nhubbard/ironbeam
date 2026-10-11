@@ -54,7 +54,9 @@ staged locally.
   offset, per-window GroupByKey, two-, three-, and ten-input CoGroupByKey,
   fixed-window CoGroupByKey, all four join variants with duplicate and
   unmatched keys, a fixed-window full join that retains input timestamps,
-  a bounded global-window side input fetched over Beam Fn State,
+  a bounded side input fetched over Beam Fn State, including a side collection
+  with values in two fixed windows that is globally materialized to match
+  Direct's side-view behavior,
   native Reshuffle in global and fixed windows,
   and twenty terminal
   append sinks. User-defined records pass through both the extracted file JSONL
@@ -130,7 +132,7 @@ staged locally.
    global-window `group_by_key_named` through native Beam KV/iterable coders
    and a live Prism shuffle proof. Its keyed input can also feed an ordinary
    branch, verified by another sink in that Prism job. It still rejects
-   windowed side views, unbounded sources, update sinks, and
+   unbounded sources, update sinks, and
    whole-job final-result sinks. Core now registers typed split/reassembly
    coders for actual `group_by_key_named` nodes, distinct from
    `latest_per_key_named`, which uses the same local operation marker.
