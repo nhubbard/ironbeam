@@ -146,9 +146,11 @@ today; unbounded and portable execution parity remains open.
    v5-only capability boundary accepted as the replacement contract.
    The first shared-source slices are `run_collect_pair` and `run_sink_pair`
    for two bounded linear branches with a coded split. The sink pair requires
-   idempotent replay because commits are sequential. General graph fan-out,
-   fan-in, atomic multi-sink commit, and checkpointed multi-output jobs remain
-   open.
+   idempotent replay because commits are sequential. The unbounded
+   `start_stream_sink_pair` route now checkpoints one coded split and two
+   idempotent append sinks after both commits, with a replay test for failure
+   after the first commit. General graph fan-out, fan-in, atomic multi-sink
+   commit, and checkpointed bounded multi-output jobs remain open.
 4. **Dataflow contract:** The separate integration builds against the v5 core
    and lowers the full v4 feature corpus. A local Beam Prism `Run` must reach
    `DONE` through a separately launched v5 Fn API worker and verify values for

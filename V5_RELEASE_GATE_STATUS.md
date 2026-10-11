@@ -739,8 +739,13 @@ source through a linear transform route to an idempotent append sink. Each
 bounded poll batch receives a stable sink bundle ID, commits before its cursor
 is checkpointed, and must advance the cursor when it carries data; cancellation,
 restart, completed recovery, failed commits, and checkpoint integrity are
-covered by Direct tests. Direct rejects stateful or multi-source streaming
-routes, non-idempotent sinks, and sinks requiring bundle finalization. The
+covered by Direct tests. `start_stream_sink_pair` now executes two linear
+branches from the same source with one coded split and checkpoints only after
+both idempotent append sinks commit. Tests verify source sharing, cancellation
+and cursor resume, and replay after the second sink fails following the first
+sink's commit. The checkpoint identity binds both sink digests and coders.
+Direct still rejects stateful or multi-source streaming routes, non-idempotent
+sinks, and sinks requiring bundle finalization. The
 ordinary bounded `run_sink` path still rejects unbounded graphs. The separate
 Dataflow production source polling is now covered by a local Prism run;
 broader portable graph shapes remain release gates.

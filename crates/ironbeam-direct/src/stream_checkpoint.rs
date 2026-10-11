@@ -19,7 +19,17 @@ struct StreamIdentity {
     sink_key: String,
     coder_id: String,
     coder_version: Version,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    second_sink: Option<SecondSinkIdentity>,
     binary_build_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+struct SecondSinkIdentity {
+    key: String,
+    digest: String,
+    coder_id: String,
+    coder_version: Version,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -69,10 +79,36 @@ impl StreamCheckpoint {
                 sink_key: sink_key.to_owned(),
                 coder_id: T::coder_identity(),
                 coder_version: T::CODER_VERSION,
+                second_sink: None,
                 binary_build_id: config.binary_build_id.clone(),
             },
             recover: config.recover,
         })
+    }
+
+    pub(crate) fn new_pair<T: Element, U: Element>(
+        config: &CheckpointConfig,
+        graph_fingerprint: &str,
+        source_digest: &str,
+        source_key: &str,
+        left: (&str, &str),
+        right: (&str, &str),
+    ) -> Result<Self, Error> {
+        let mut checkpoint = Self::new::<T>(
+            config,
+            graph_fingerprint,
+            source_digest,
+            left.1,
+            source_key,
+            left.0,
+        )?;
+        checkpoint.identity.second_sink = Some(SecondSinkIdentity {
+            key: right.0.to_owned(),
+            digest: right.1.to_owned(),
+            coder_id: U::coder_identity(),
+            coder_version: U::CODER_VERSION,
+        });
+        Ok(checkpoint)
     }
 
     pub(crate) fn load(&self) -> Result<Option<ProgressSignal>, Error> {
@@ -252,6 +288,50 @@ mod tests {
         invalid.source_key = "other".into();
         assert!(checkpoint.save(&invalid).is_err());
         assert_eq!(checkpoint.load().unwrap(), Some(signal()));
+    }
+
+    #[test]
+    fn pair_checkpoint_binds_both_sink_and_coder_contracts() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: temporary.path().into(),
+            interval_batches: 1,
+            recover: true,
+            binary_build_id: "test-build".into(),
+        };
+        let pair = |right_digest: &str| {
+            StreamCheckpoint::new_pair::<i32, i64>(
+                &config,
+                "graph",
+                "source",
+                "events",
+                ("left", "left-v1"),
+                ("right", right_digest),
+            )
+            .unwrap()
+        };
+        pair("right-v1").save(&signal()).unwrap();
+        assert_eq!(pair("right-v1").load().unwrap(), Some(signal()));
+        assert!(pair("right-v2").load().is_err());
+        assert!(
+            StreamCheckpoint::new_pair::<i32, i32>(
+                &config,
+                "graph",
+                "source",
+                "events",
+                ("left", "left-v1"),
+                ("right", "right-v1"),
+            )
+            .unwrap()
+            .load()
+            .is_err()
+        );
+        assert!(
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "left-v1", "events", "left",)
+                .unwrap()
+                .load()
+                .is_err()
+        );
     }
 
     #[cfg(unix)]

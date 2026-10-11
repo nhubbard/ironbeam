@@ -8,7 +8,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
 
 pub(crate) struct PairPlan {
-    source_key: String,
+    pub(crate) source_key: String,
     split_key: String,
     common_stages: Vec<String>,
     left_stages: Vec<String>,
@@ -152,7 +152,7 @@ fn apply_stages(
     Ok(events)
 }
 
-fn process_event(
+pub(crate) fn process_event(
     event: Envelope,
     plan: &PairPlan,
     registry: &Registry,

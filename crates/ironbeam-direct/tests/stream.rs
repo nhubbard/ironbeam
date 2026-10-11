@@ -4,7 +4,7 @@ use ironbeam_core::{
     UnboundedSource,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus, SpillConfig};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -25,6 +25,135 @@ struct Capture {
     committed: Arc<Mutex<Vec<i32>>>,
     staged: Vec<i32>,
     fail_commit: Arc<AtomicBool>,
+}
+
+struct BundleCapture {
+    committed: Arc<Mutex<Vec<i32>>>,
+    accepted: Arc<Mutex<HashSet<String>>>,
+    staged: Vec<i32>,
+    bundle: Option<String>,
+    fail_commit: Arc<AtomicBool>,
+    cancel_on_write: Option<Arc<AtomicBool>>,
+}
+
+impl TypedSink<i32> for BundleCapture {
+    fn begin_bundle(&mut self, instruction_id: &str) -> Result<(), Error> {
+        self.bundle = Some(instruction_id.to_owned());
+        Ok(())
+    }
+    fn write(&mut self, value: i32) -> Result<(), Error> {
+        self.staged.push(value);
+        if let Some(token) = &self.cancel_on_write {
+            token.store(true, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+    fn commit(&mut self) -> Result<(), Error> {
+        if self.fail_commit.load(Ordering::SeqCst) {
+            return Err(Error::execution("sink", "direct", "commit failed"));
+        }
+        let id = self.bundle.take().unwrap();
+        if self.accepted.lock().unwrap().insert(id) {
+            self.committed.lock().unwrap().extend(self.staged.drain(..));
+        }
+        Ok(())
+    }
+    fn abort(&mut self) -> Result<(), Error> {
+        self.staged.clear();
+        Ok(())
+    }
+}
+
+fn pair_fixture(
+    left_values: Arc<Mutex<Vec<i32>>>,
+    right_values: Arc<Mutex<Vec<i32>>>,
+    opens: Arc<Mutex<Vec<Option<Vec<u8>>>>>,
+    common_visits: Arc<AtomicUsize>,
+    hold_after_first: Arc<AtomicBool>,
+    right_fails: Arc<AtomicBool>,
+    cancel_on_left_write: Option<Arc<AtomicBool>>,
+) -> (ironbeam_core::Sink<i32>, ironbeam_core::Sink<i32>) {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "pair-source-v1".into(),
+            0,
+            move |position| {
+                opens.lock().unwrap().push(position.clone());
+                let polls = match position.as_deref() {
+                    None if hold_after_first.load(Ordering::SeqCst) => {
+                        vec![batch(1, 1, false)].into()
+                    }
+                    None => vec![batch(1, 1, false), batch(2, 2, true)].into(),
+                    Some([1]) if hold_after_first.load(Ordering::SeqCst) => VecDeque::new(),
+                    Some([1]) => vec![batch(2, 2, true)].into(),
+                    _ => return Err(Error::incompatible("unexpected pair source cursor")),
+                };
+                Ok(Box::new(Script { polls }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let common = source
+        .map_named("plus-ten", move |value| {
+            common_visits.fetch_add(1, Ordering::SeqCst);
+            value + 10
+        })
+        .unwrap();
+    let left_accepted = Arc::new(Mutex::new(HashSet::new()));
+    let right_accepted = Arc::new(Mutex::new(HashSet::new()));
+    let left = common
+        .map_named("double", |value| value * 2)
+        .unwrap()
+        .sink_named_with_config(
+            "left-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "pair-left-v1".into(),
+            move || {
+                Ok(Box::new(BundleCapture {
+                    committed: Arc::clone(&left_values),
+                    accepted: Arc::clone(&left_accepted),
+                    staged: Vec::new(),
+                    bundle: None,
+                    fail_commit: Arc::new(AtomicBool::new(false)),
+                    cancel_on_write: cancel_on_left_write.clone(),
+                }))
+            },
+        )
+        .unwrap();
+    let right = common
+        .map_named("plus-hundred", |value| value + 100)
+        .unwrap()
+        .sink_named_with_config(
+            "right-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "pair-right-v1".into(),
+            move || {
+                Ok(Box::new(BundleCapture {
+                    committed: Arc::clone(&right_values),
+                    accepted: Arc::clone(&right_accepted),
+                    staged: Vec::new(),
+                    bundle: None,
+                    fail_commit: Arc::clone(&right_fails),
+                    cancel_on_write: None,
+                }))
+            },
+        )
+        .unwrap();
+    (left, right)
 }
 
 impl TypedSink<i32> for Capture {
@@ -130,6 +259,130 @@ fn config(directory: &std::path::Path) -> JobConfig {
         }),
         ..JobConfig::default()
     }
+}
+
+#[test]
+fn stream_pair_shares_source_and_recovers_both_branches() {
+    let temporary = tempfile::tempdir().unwrap();
+    let left_values = Arc::new(Mutex::new(Vec::new()));
+    let right_values = Arc::new(Mutex::new(Vec::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let visits = Arc::new(AtomicUsize::new(0));
+    let hold = Arc::new(AtomicBool::new(true));
+    let (left, right) = pair_fixture(
+        Arc::clone(&left_values),
+        Arc::clone(&right_values),
+        Arc::clone(&opens),
+        Arc::clone(&visits),
+        Arc::clone(&hold),
+        Arc::new(AtomicBool::new(false)),
+        None,
+    );
+    let job = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config(temporary.path()))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while job
+        .progress()
+        .as_ref()
+        .and_then(|progress| progress.checkpoint_position.as_deref())
+        != Some(&[1][..])
+    {
+        assert!(Instant::now() < deadline, "first pair batch did not commit");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(*left_values.lock().unwrap(), [22]);
+    assert_eq!(*right_values.lock().unwrap(), [111]);
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    hold.store(false, Ordering::SeqCst);
+
+    let resumed = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config(temporary.path()))
+        .unwrap();
+    assert_eq!(resumed.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(*left_values.lock().unwrap(), [22, 24]);
+    assert_eq!(*right_values.lock().unwrap(), [111, 112]);
+    assert_eq!(visits.load(Ordering::SeqCst), 2);
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+    let completed = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config(temporary.path()))
+        .unwrap();
+    assert!(completed.progress().unwrap().completed);
+    assert_eq!(completed.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(opens.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn stream_pair_replays_first_commit_idempotently_after_second_fails() {
+    let temporary = tempfile::tempdir().unwrap();
+    let left_values = Arc::new(Mutex::new(Vec::new()));
+    let right_values = Arc::new(Mutex::new(Vec::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let visits = Arc::new(AtomicUsize::new(0));
+    let fails = Arc::new(AtomicBool::new(true));
+    let (left, right) = pair_fixture(
+        Arc::clone(&left_values),
+        Arc::clone(&right_values),
+        Arc::clone(&opens),
+        Arc::clone(&visits),
+        Arc::new(AtomicBool::new(false)),
+        Arc::clone(&fails),
+        None,
+    );
+    let error = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config(temporary.path()))
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(*left_values.lock().unwrap(), [22]);
+    assert!(right_values.lock().unwrap().is_empty());
+    assert!(!temporary.path().join("stream-latest.json").exists());
+
+    fails.store(false, Ordering::SeqCst);
+    let recovered = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config(temporary.path()))
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(recovered.status(), JobStatus::Succeeded);
+    assert_eq!(*left_values.lock().unwrap(), [22, 24]);
+    assert_eq!(*right_values.lock().unwrap(), [111, 112]);
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, None]);
+    assert_eq!(visits.load(Ordering::SeqCst), 3);
+}
+
+#[test]
+fn stream_pair_cancellation_between_sinks_aborts_without_checkpoint() {
+    let temporary = tempfile::tempdir().unwrap();
+    let left_values = Arc::new(Mutex::new(Vec::new()));
+    let right_values = Arc::new(Mutex::new(Vec::new()));
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let (left, right) = pair_fixture(
+        Arc::clone(&left_values),
+        Arc::clone(&right_values),
+        Arc::new(Mutex::new(Vec::new())),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+        Some(Arc::clone(&cancellation)),
+    );
+    let config = JobConfig {
+        cancellation,
+        ..config(temporary.path())
+    };
+    let error = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config)
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Cancelled);
+    assert!(left_values.lock().unwrap().is_empty());
+    assert!(right_values.lock().unwrap().is_empty());
+    assert!(!temporary.path().join("stream-latest.json").exists());
 }
 
 #[test]
