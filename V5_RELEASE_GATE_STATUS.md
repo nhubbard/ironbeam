@@ -19,6 +19,15 @@ staged locally.
   core/Direct/transforms coverage gate also passes: core 2,857/2,972 source
   locations and 435/492 branches, Direct 3,605/3,853 and 775/858, and
   transforms 1,163/1,189 and 108/116.
+- The separate Dataflow production unbounded-source Prism fixture now
+  finalizes native JSONL output across at least two residual bundles, checks
+  its accepted fragment total against committed sink metrics, publishes only
+  after `DONE`, and reopens values 7, 8, and 9 through the v5 JSONL source.
+  All four local Prism graph tests pass together, and the separate Arrow IPC
+  proof passes on a fresh Prism service and again after that suite. One prior
+  long-lived Prism instance stalled two Arrow jobs beyond the fixture's
+  ten-second deadline; a restart cleared the stall. Its cause is unverified,
+  so repeatability across a long-lived service remains an open proof gate.
 - The separate Dataflow worker now validates connected branches and
   fixed-window assignment after a production unbounded SDF source. A live
   local Prism `Run` reached `DONE` across two residual bundles; three idempotent
