@@ -506,4 +506,42 @@ fn pair_outputs_enforce_combined_memory_budget_and_support_spill() {
     assert_eq!(result.left, (0_u64..8).collect::<Vec<_>>());
     assert_eq!(result.right, result.left);
     assert!(result.job.metrics().spill_files > 0);
+
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![7_u64]).unwrap();
+    let left = source.output("left-out").unwrap();
+    let right = source
+        .flat_map_named("expand-right", |value| vec![value, value + 1])
+        .unwrap()
+        .output("right-out")
+        .unwrap();
+    let asymmetric = JobConfig {
+        memory_budget_bytes: 20,
+        spill: Some(SpillConfig {
+            directory: directory.path().join("asymmetric-spill"),
+            threshold_bytes: 20,
+        }),
+        ..JobConfig::default()
+    };
+    let result = DirectRunner
+        .run_collect_pair(&left, &right, &asymmetric)
+        .unwrap();
+    assert_eq!(result.left, [7]);
+    assert_eq!(result.right, [7, 8]);
+    assert!(result.job.metrics().spill_files > 0);
+
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![9_u64]).unwrap();
+    let left = source
+        .flat_map_named("expand-left", |value| vec![value, value + 1])
+        .unwrap()
+        .output("left-out")
+        .unwrap();
+    let right = source.output("right-out").unwrap();
+    let result = DirectRunner
+        .run_collect_pair(&left, &right, &asymmetric)
+        .unwrap();
+    assert_eq!(result.left, [9, 10]);
+    assert_eq!(result.right, [9]);
+    assert!(result.job.metrics().spill_files > 0);
 }

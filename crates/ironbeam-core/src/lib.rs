@@ -1502,6 +1502,9 @@ pub type SourceIterator = Box<dyn Iterator<Item = Result<Envelope, Error>> + Sen
 pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Send>;
 type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
 type TypedSourceFactory<T> = Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
+type TypedVecBatchFactory<T> = Arc<dyn Fn(usize, usize) -> Result<Vec<T>, Error> + Send + Sync>;
+/// A typed bounded-slice reader retained by an in-memory vector source.
+pub type VecBatchReader<'a, T> = &'a (dyn Fn(usize, usize) -> Result<Vec<T>, Error> + Send + Sync);
 type SingleTransform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync>;
 type MultiTransform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 type TypedMap<T, U> = Arc<dyn Fn(T) -> U + Send + Sync>;
@@ -1728,6 +1731,7 @@ impl<T: Element> SinkSession for SinkAdapter<T> {
 struct SourceRegistration {
     factory: SourceFactory,
     typed_factory: Option<Arc<dyn Any + Send + Sync>>,
+    vec_batch_factory: Option<Arc<dyn Any + Send + Sync>>,
     len_hint: Option<usize>,
     config_digest: Option<String>,
 }
@@ -2044,6 +2048,20 @@ impl Registry {
             .and_then(|factory| factory.downcast_ref::<TypedSourceFactory<T>>())
             .map(|factory| factory())
             .transpose()
+    }
+    /// Read bounded slices directly from an immutable in-memory vector source.
+    /// Other source kinds retain their ordinary factory contract.
+    #[must_use]
+    pub fn vec_source_batches<T: Element>(
+        &self,
+        key: &str,
+    ) -> Option<(usize, VecBatchReader<'_, T>)> {
+        let source = self.sources.get(key)?;
+        let batch = source
+            .vec_batch_factory
+            .as_ref()?
+            .downcast_ref::<TypedVecBatchFactory<T>>()?;
+        Some((source.len_hint?, batch.as_ref()))
     }
     #[must_use]
     pub fn source_len_hint(&self, key: &str) -> Option<usize> {
@@ -2367,6 +2385,17 @@ impl Pipeline {
         };
         let values = Arc::new(values);
         let len_hint = values.len();
+        let batch_values = Arc::clone(&values);
+        let batch_key = key.to_owned();
+        let vec_batch_factory: TypedVecBatchFactory<T> = Arc::new(move |start, len| {
+            let end = start
+                .checked_add(len)
+                .ok_or_else(|| Error::graph(&batch_key, "vector source batch range overflow"))?;
+            let slice = batch_values.get(start..end).ok_or_else(|| {
+                Error::graph(&batch_key, "vector source batch range exceeds length")
+            })?;
+            Ok(slice.to_vec())
+        });
         let typed_factory: TypedSourceFactory<T> = Arc::new(move || {
             let values = Arc::clone(&values);
             Ok(Box::new(
@@ -2397,6 +2426,7 @@ impl Pipeline {
             Some(SourceRegistration {
                 factory,
                 typed_factory: Some(Arc::new(typed_factory)),
+                vec_batch_factory: Some(Arc::new(vec_batch_factory)),
                 len_hint: Some(len_hint),
                 config_digest,
             }),
@@ -2464,6 +2494,7 @@ impl Pipeline {
             Some(SourceRegistration {
                 factory,
                 typed_factory: Some(Arc::new(typed_factory)),
+                vec_batch_factory: None,
                 len_hint,
                 config_digest: Some(config_digest),
             }),

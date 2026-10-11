@@ -152,6 +152,16 @@ fn typed_source_batch_append_respects_exact_memory_and_spill_limits() {
         .unwrap()
         .output("out")
         .unwrap();
+    let (_, registry) = output.snapshot().unwrap();
+    let (len, read_batch) = registry.vec_source_batches::<i32>("source").unwrap();
+    assert_eq!(len, 5);
+    assert_eq!(read_batch(1, 2).unwrap(), [2, 3]);
+    assert_eq!(read_batch(5, 1).err().unwrap().kind, ErrorKind::Graph);
+    assert_eq!(
+        read_batch(usize::MAX, 2).err().unwrap().kind,
+        ErrorKind::Graph
+    );
+    assert!(registry.vec_source_batches::<String>("source").is_none());
     let exact = JobConfig {
         memory_budget_bytes: 20,
         buffer_budget_elements: 2,
@@ -215,6 +225,79 @@ fn typed_source_batch_append_respects_exact_memory_and_spill_limits() {
             .kind,
         ErrorKind::Resource
     );
+}
+
+#[test]
+fn vector_source_clone_panic_reports_the_source_node() {
+    struct PanickingClone;
+    impl Clone for PanickingClone {
+        fn clone(&self) -> Self {
+            panic!("expected source clone panic")
+        }
+    }
+    impl Element for PanickingClone {
+        const TYPE_ID: &'static str = "test/panicking-source-clone";
+        const CODER_ID: &'static str = "test/panicking-source-clone";
+    }
+    let output = Pipeline::default()
+        .from_vec("source", vec![PanickingClone])
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("source"));
+}
+
+#[test]
+fn vector_source_honors_cancellation_between_batches() {
+    struct CancelOnClone(Arc<AtomicBool>);
+    impl Clone for CancelOnClone {
+        fn clone(&self) -> Self {
+            self.0.store(true, Ordering::Release);
+            Self(Arc::clone(&self.0))
+        }
+    }
+    impl Element for CancelOnClone {
+        const TYPE_ID: &'static str = "test/cancel-on-clone";
+        const CODER_ID: &'static str = "test/cancel-on-clone";
+    }
+    let config = JobConfig {
+        buffer_budget_elements: 1,
+        ..JobConfig::default()
+    };
+    let output = Pipeline::default()
+        .from_vec(
+            "source",
+            vec![
+                CancelOnClone(Arc::clone(&config.cancellation)),
+                CancelOnClone(Arc::clone(&config.cancellation)),
+            ],
+        )
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let error = DirectRunner.run_collect(&output, &config).err().unwrap();
+    assert_eq!(error.kind, ErrorKind::Cancelled);
+}
+
+#[test]
+fn empty_vector_source_completes_without_a_batch() {
+    let output = Pipeline::default()
+        .from_vec("source", Vec::<i32>::new())
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let (values, job) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(values, Vec::<i32>::new());
+    assert_eq!(job.status(), JobStatus::Succeeded);
+    assert_eq!(job.metrics().source_elements, 0);
+    assert_eq!(job.metrics().batches, 0);
 }
 
 #[test]

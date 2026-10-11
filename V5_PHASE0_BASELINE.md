@@ -233,6 +233,20 @@ with matching output and checksums. The prior v5 median was 0.936 ms, but the
 small difference is within the range of local run variation and is not yet a
 demonstrated performance improvement.
 
+The `from_vec` source now retains a bounded slice reader alongside its typed
+iterator. Source-only Direct jobs use that reader to clone each configured
+batch without the per-value `Result` iterator layer; other source kinds and
+checkpointed jobs keep their existing path. Adjacent six-run alternating
+release samples measured source copy at 0.062 ms for v4 and 0.768 ms for v5
+(12.4×), with matching counts and checksum. The previous v5 median was
+0.897 ms. This improvement is promising but remains a local sample; source
+construction and remaining Direct overhead still dominate v4.
+After adding typed range errors to that reader, another alternating six-run
+sample measured 0.058 ms for v4 and 0.780 ms for v5 (13.4×). Counts and
+checksums still matched across all five workloads. The two adjacent v5
+source-copy medians agree within 0.012 ms; the v4 denominator moved enough
+to change the ratio.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

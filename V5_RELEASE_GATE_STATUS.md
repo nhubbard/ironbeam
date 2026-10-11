@@ -339,13 +339,15 @@ staged locally.
    No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.
-6. **Performance and formatting:** The latest paired 100,000-row source-copy
-   sample measured v5 about 14.8× slower than v4, with matching output counts
+6. **Performance and formatting:** Two adjacent paired 100,000-row source-copy
+   samples measured v5 about 12.4–13.4× slower than v4, with matching output counts
    and checksums; other workload ratios are in `V5_PHASE0_BASELINE.md`.
    Source construction and Direct execution both contribute materially.
    Fixed-size wire-length accounting removes a per-value length call on
    source-only batches, but the adjacent timing change is too small to
-   distinguish confidently from run noise.
+   distinguish confidently from run noise. A bounded slice reader for
+   `from_vec` then reduced an adjacent v5 source-copy median from 0.897 to
+   0.768 ms; the performance gate remains open.
    A paired whole-corpus peak-RSS sample measured 25.8 MiB for v4 and
    54.4 MiB for v5. A per-operation allocation profile and a defined
    performance threshold are still needed before calling performance

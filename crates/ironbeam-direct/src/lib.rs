@@ -781,6 +781,54 @@ fn execute<T: Element>(
             .iter()
             .map(|key| registry.single_transform(key))
             .collect();
+        if route.operations.is_empty()
+            && checkpoint.is_none()
+            && let Some((source_len, read_batch)) =
+                registry.vec_source_batches::<T>(&route.source_key)
+        {
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            for start in (0..source_len).step_by(plan.summary.batch_limit) {
+                if config.cancellation.load(Ordering::Acquire) {
+                    return Err(cancelled());
+                }
+                let len = (source_len - start).min(plan.summary.batch_limit);
+                let batch = catch_unwind(AssertUnwindSafe(|| read_batch(start, len)))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            &route.source_key,
+                            "direct",
+                            "source value clone panicked",
+                        ))
+                    })?;
+                let count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+                handle
+                    .metrics
+                    .source_elements
+                    .fetch_add(count, Ordering::Relaxed);
+                handle
+                    .metrics
+                    .peak_batch_elements
+                    .fetch_max(count, Ordering::Relaxed);
+                pool.install(|| catch_unwind(AssertUnwindSafe(|| store.extend_batch(batch))))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            output_key,
+                            "direct",
+                            "output collection panicked",
+                        ))
+                    })?;
+                let total = handle
+                    .metrics
+                    .output_elements
+                    .fetch_add(count, Ordering::Relaxed)
+                    .saturating_add(count);
+                handle.processed.store(total, Ordering::Relaxed);
+                handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+            }
+            continue;
+        }
         let mut source_offset = recovered_offset;
         if (config.parallelism == 1 || route.operations.is_empty())
             && let Some(typed_transforms) = typed_transforms
