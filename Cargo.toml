@@ -208,7 +208,7 @@ required-features = ["v5-preview"]
 
 [[example]]
 name = "etl_pipeline"
-required-features = ["legacy-v4"]
+required-features = ["io-csv"]
 
 [[example]]
 name = "explain_pipeline"

@@ -1,39 +1,38 @@
-//! Complete ETL (Extract, Transform, Load) pipeline example.
+//! Extract sample server logs, aggregate path traffic, and load CSV and JSONL.
 //!
-//! This example demonstrates a realistic data processing workflow:
-//! 1. **Extract**: Read web server logs from multiple sources
-//! 2. **Transform**: Clean, validate, enrich, and aggregate data
-//! 3. **Load**: Write results to multiple output formats
-//!
-//! Run with: `cargo run --example etl_pipeline --features io-jsonl,io-csv`
+//! Run with `cargo run --example etl_pipeline --features io-csv`.
 
-use anyhow::Result;
-use ironbeam::{Count, Pipeline, from_vec};
+use ironbeam::v5::{
+    DirectRunner, Element, JobConfig, Pipeline, csv_sink, csv_source, jsonl_sink, jsonl_source,
+    prelude::*,
+};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 struct RawLogEntry {
-    timestamp: u64,
-    ip: String,
-    method: String,
     path: String,
     status: u16,
     bytes: u64,
     user_agent: String,
 }
+impl Element for RawLogEntry {
+    const TYPE_ID: &'static str = "examples/raw-log";
+    const CODER_ID: &'static str = "examples/raw-log-local";
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[derive(Clone, Debug)]
 struct CleanLogEntry {
-    timestamp: u64,
-    ip: String,
-    method: String,
     path: String,
     status: u16,
     bytes: u64,
     is_bot: bool,
 }
+impl Element for CleanLogEntry {
+    const TYPE_ID: &'static str = "examples/clean-log";
+    const CODER_ID: &'static str = "examples/clean-log-local";
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct PathStats {
     path: String,
     total_requests: u64,
@@ -41,231 +40,110 @@ struct PathStats {
     avg_bytes: f64,
     error_count: u64,
 }
-
-impl PartialEq for PathStats {
-    fn eq(&self, other: &Self) -> bool {
-        self.path == other.path
-    }
+impl Element for PathStats {
+    const TYPE_ID: &'static str = "examples/path-stats";
+    const CODER_ID: &'static str = "examples/path-stats-local";
 }
 
-impl Eq for PathStats {}
-
-impl PartialOrd for PathStats {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
+fn sample_logs() -> Vec<RawLogEntry> {
+    [
+        ("/api/users", 200, 1024, "Mozilla/5.0"),
+        ("/api/users", 201, 512, "curl/7.64.1"),
+        ("/api/posts", 200, 2048, "Googlebot/2.1"),
+        ("/api/users", 404, 256, "Mozilla/5.0"),
+        ("/api/posts", 500, 128, "PostmanRuntime/7.26.8"),
+    ]
+    .into_iter()
+    .map(|(path, status, bytes, user_agent)| RawLogEntry {
+        path: path.into(),
+        status,
+        bytes,
+        user_agent: user_agent.into(),
+    })
+    .collect()
 }
 
-impl Ord for PathStats {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.path.cmp(&other.path)
-    }
-}
-
-#[allow(clippy::too_many_lines, clippy::cast_precision_loss)]
-fn main() -> Result<()> {
-    println!("🚀 ETL Pipeline Example: Web Server Log Analysis\n");
-
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pipeline = Pipeline::default();
-
-    // =============================================================================
-    // EXTRACT: Generate sample data (simulating multiple log files)
-    // =============================================================================
-    println!("📥 EXTRACT: Loading log data...");
-
-    let raw_logs = vec![
-        RawLogEntry {
-            timestamp: 1_000_000,
-            ip: "192.168.1.100".to_string(),
-            method: "GET".to_string(),
-            path: "/api/users".to_string(),
-            status: 200,
-            bytes: 1024,
-            user_agent: "Mozilla/5.0".to_string(),
-        },
-        RawLogEntry {
-            timestamp: 1_000_100,
-            ip: "192.168.1.101".to_string(),
-            method: "POST".to_string(),
-            path: "/api/users".to_string(),
-            status: 201,
-            bytes: 512,
-            user_agent: "curl/7.64.1".to_string(),
-        },
-        RawLogEntry {
-            timestamp: 1_000_200,
-            ip: "192.168.1.102".to_string(),
-            method: "GET".to_string(),
-            path: "/api/posts".to_string(),
-            status: 200,
-            bytes: 2048,
-            user_agent: "Googlebot/2.1".to_string(),
-        },
-        RawLogEntry {
-            timestamp: 1_000_300,
-            ip: "192.168.1.100".to_string(),
-            method: "GET".to_string(),
-            path: "/api/users".to_string(),
-            status: 404,
-            bytes: 256,
-            user_agent: "Mozilla/5.0".to_string(),
-        },
-        RawLogEntry {
-            timestamp: 1_000_400,
-            ip: "192.168.1.103".to_string(),
-            method: "DELETE".to_string(),
-            path: "/api/posts".to_string(),
-            status: 500,
-            bytes: 128,
-            user_agent: "PostmanRuntime/7.26.8".to_string(),
-        },
-    ];
-
-    let logs = from_vec(&pipeline, raw_logs);
-
-    println!(
-        "  ✓ Loaded {} log entries\n",
-        logs.clone().collect_seq()?.len()
-    );
-
-    // =============================================================================
-    // TRANSFORM: Clean, validate, and enrich data
-    // =============================================================================
-    println!("🔄 TRANSFORM: Processing log data...");
-
-    // Step 1: Data cleaning and validation
-    let valid_logs = logs
-        .filter(|entry: &RawLogEntry| {
-            // Filter out invalid entries
-            !entry.ip.is_empty() && entry.status > 0 && entry.bytes < 10_000_000
-        })
-        .map(|entry: &RawLogEntry| {
-            // Detect bots based on user agent
-            let is_bot = entry.user_agent.contains("bot")
-                || entry.user_agent.contains("Bot")
-                || entry.user_agent.contains("crawler");
-
-            CleanLogEntry {
-                timestamp: entry.timestamp,
-                ip: entry.ip.clone(),
-                method: entry.method.clone(),
-                path: entry.path.clone(),
-                status: entry.status,
-                bytes: entry.bytes,
-                is_bot,
-            }
-        });
-
-    println!("  ✓ Cleaned and enriched log entries");
-
-    // Step 2: Aggregate by path
-    let path_stats = valid_logs
-        .clone()
-        .key_by(|entry: &CleanLogEntry| entry.path.clone())
-        .map_values(|entry| {
-            (
-                1u64,                           // request count
-                entry.bytes,                    // bytes
-                u64::from(entry.status >= 400), // error count
-            )
-        })
-        .group_by_key()
-        .map(|(path, values): &(String, Vec<(u64, u64, u64)>)| {
-            let total_requests: u64 = values.iter().map(|(count, _, _)| count).sum();
-            let total_bytes: u64 = values.iter().map(|(_, bytes, _)| bytes).sum();
-            let error_count: u64 = values.iter().map(|(_, _, errors)| errors).sum();
-            let avg_bytes = if total_requests > 0 {
-                total_bytes as f64 / total_requests as f64
-            } else {
-                0.0
-            };
-
+    let logs = pipeline.from_vec("raw-logs", sample_logs())?;
+    let clean = logs
+        .filter_named("valid-logs", |row| row.status > 0 && row.bytes < 10_000_000)?
+        .map_named("detect-bots", |row| CleanLogEntry {
+            path: row.path,
+            status: row.status,
+            bytes: row.bytes,
+            is_bot: row.user_agent.to_ascii_lowercase().contains("bot"),
+        })?;
+    let stats = clean
+        .key_by_named("by-path", |row| row.path.clone())?
+        .map_values_named("path-measures", |row| {
+            (row.bytes, u64::from(row.status >= 400))
+        })?
+        .group_by_key_named("path-groups")?
+        .map_named("path-stats", |(path, values)| {
+            let total_requests = u64::try_from(values.len()).unwrap();
+            let total_bytes = values.iter().map(|(bytes, _)| bytes).sum();
+            let error_count = values.iter().map(|(_, errors)| errors).sum();
+            // The report is approximate by design; source totals stay exact integers.
+            #[allow(clippy::cast_precision_loss)]
+            let avg_bytes = total_bytes as f64 / total_requests as f64;
             PathStats {
-                path: path.clone(),
+                path,
                 total_requests,
                 total_bytes,
                 avg_bytes,
                 error_count,
             }
-        });
+        })?;
 
-    println!("  ✓ Aggregated statistics by path");
+    let mut all_stats = stats.collect_seq()?;
+    all_stats.sort_by(|a, b| a.path.cmp(&b.path));
+    assert_eq!(all_stats.len(), 2);
+    assert_eq!(all_stats[0].path, "/api/posts");
+    assert_eq!(all_stats[0].total_bytes, 2176);
+    assert_eq!(all_stats[1].path, "/api/users");
+    assert_eq!(all_stats[1].total_requests, 3);
+    assert_eq!(all_stats.iter().map(|row| row.error_count).sum::<u64>(), 2);
 
-    // Step 3: Identify top paths by traffic
-    let _top_paths = path_stats
-        .clone()
-        .map(|stats: &PathStats| (stats.total_bytes, stats.clone()))
-        .top_k_per_key(3);
+    let top = stats
+        .map_named("traffic-rank", |row| (row.total_bytes, row.path))?
+        .top_k_globally_named("top-paths", 1)?
+        .collect_seq()?;
+    assert_eq!(top, vec![vec![(2176, "/api/posts".to_string())]]);
+    let mut bots = clean
+        .key_by_named("by-bot", |row| row.is_bot)?
+        .count_per_key_named("bot-groups", "bot-counts")?
+        .collect_seq()?;
+    bots.sort_by_key(|(is_bot, _)| *is_bot);
+    assert_eq!(bots, vec![(false, 4), (true, 1)]);
 
-    println!("  ✓ Identified top paths by traffic\n");
+    let dir = tempfile::tempdir()?;
+    let csv_path = dir.path().join("path_stats.csv");
+    let jsonl_path = dir.path().join("path_stats.jsonl");
+    DirectRunner.run_sink(
+        &csv_sink(&stats, "csv-output", &csv_path)?,
+        &JobConfig::default(),
+    )?;
+    DirectRunner.run_sink(
+        &jsonl_sink(&stats, "jsonl-output", &jsonl_path)?,
+        &JobConfig::default(),
+    )?;
+    let mut csv_rows =
+        csv_source::<PathStats>(&Pipeline::default(), "csv-verify", &csv_path)?.collect_seq()?;
+    let mut jsonl_rows =
+        jsonl_source::<PathStats>(&Pipeline::default(), "jsonl-verify", &jsonl_path)?
+            .collect_seq()?;
+    csv_rows.sort_by(|a, b| a.path.cmp(&b.path));
+    jsonl_rows.sort_by(|a, b| a.path.cmp(&b.path));
+    assert_eq!(csv_rows, all_stats);
+    assert_eq!(jsonl_rows, all_stats);
 
-    // =============================================================================
-    // LOAD: Write results to output files
-    // =============================================================================
-    println!("💾 LOAD: Writing results...");
-
-    // Collect and display results
-    let all_stats = path_stats.collect_seq_sorted()?;
-
-    println!("\n📊 Path Statistics:");
-    println!("{:-<80}", "");
-    println!(
-        "{:<30} {:>12} {:>12} {:>12} {:>12}",
-        "Path", "Requests", "Total KB", "Avg KB", "Errors"
-    );
-    println!("{:-<80}", "");
-
-    for stats in &all_stats {
+    for row in all_stats {
         println!(
-            "{:<30} {:>12} {:>12} {:>12.2} {:>12}",
-            stats.path,
-            stats.total_requests,
-            stats.total_bytes / 1024,
-            stats.avg_bytes / 1024.0,
-            stats.error_count
+            "{}: {} requests, {} bytes",
+            row.path, row.total_requests, row.total_bytes
         );
     }
-
-    println!("{:-<80}", "");
-
-    // Write to files
-    #[cfg(feature = "io-csv")]
-    {
-        use ironbeam::io::csv::write_csv_vec;
-        write_csv_vec("path_stats.csv", true, &all_stats)?;
-        println!("  ✓ Wrote path_stats.csv");
-    }
-
-    #[cfg(feature = "io-jsonl")]
-    {
-        use ironbeam::io::jsonl::write_jsonl_vec;
-        write_jsonl_vec("path_stats.jsonl", &all_stats)?;
-        println!("  ✓ Wrote path_stats.jsonl");
-    }
-
-    // Compute additional metrics
-    let bot_stats = valid_logs
-        .key_by(|entry: &CleanLogEntry| entry.is_bot)
-        .combine_values(Count);
-
-    let bot_counts = bot_stats.collect_seq()?;
-
-    println!("\n🤖 Bot vs Human Traffic:");
-    for (is_bot, count) in bot_counts {
-        println!(
-            "  {}: {} requests",
-            if is_bot { "Bots" } else { "Humans" },
-            count
-        );
-    }
-
-    println!("\n✅ ETL Pipeline Complete!");
-    println!("\nKey Concepts Demonstrated:");
-    println!("  • Extract: Reading from multiple sources");
-    println!("  • Transform: Filtering, mapping, enrichment");
-    println!("  • Load: Writing to multiple formats");
-    println!("  • Aggregation: GroupByKey + custom aggregations");
-    println!("  • TopK: Finding top items efficiently");
-
+    println!("Bots: {}, humans: {}", bots[1].1, bots[0].1);
     Ok(())
 }

@@ -86,11 +86,13 @@ staged locally.
   integration tests are also gated by `legacy-v4`, allowing the complete
   root test target set to build in v5-only mode. The crate root and README
   now show a v5 quick start, with a passing doctest; legacy builds retain
-  their old documentation. Five examples still require `legacy-v4`,
+  their old documentation. Four examples still require `legacy-v4`,
   including the v4 benchmark corpus. Advanced joins, CoGroupByKey, JSONL
   globbing, pluggable compression, the Direct plan explanation example, and
   the data-quality validation, windowing aggregation, combiners showcase, and
-  multi-output, SQLite, and MongoDB examples now run through v5. The database
+  multi-output, ETL, SQLite, and MongoDB examples now run through v5. The ETL
+  example verifies grouping, traffic ranking, bot counts, and CSV and JSONL
+  round trips. The database
   examples verify their sources, transforms, and deferred sinks against a
   temporary SQLite file and a temporary local MongoDB container, respectively.
   The seven-part testing example

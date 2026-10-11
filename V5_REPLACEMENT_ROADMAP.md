@@ -58,6 +58,8 @@ The `sql_pipeline` example now uses the isolated v5 SQL extension and checks
 its deferred read-transform-write path against a temporary SQLite database.
 The `mongodb_pipeline` example uses its separate v5 extension and passed a
 read-transform-write check against a temporary local MongoDB container.
+The `etl_pipeline` example now uses v5 grouping, global TopK, bot counts, and
+the separate CSV and JSONL connectors with checked temporary round trips.
 The v4 checkpoint examples remain legacy-gated because v5 does not yet
 implement their barrier, time, and node-based policies.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
