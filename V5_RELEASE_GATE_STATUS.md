@@ -95,7 +95,13 @@ staged locally.
   temporary SQLite file and a temporary local MongoDB container, respectively.
   The seven-part testing example
   uses the separate `ironbeam-testing` crate through an opt-in `v5-testing`
-  feature. The metrics example now uses optional `ironbeam-metrics` for custom
+  feature. Its package-local assertion, builder, fixture, mock I/O, and graph
+  tests now measure 493/495 source locations and 30/30 active branch outcomes
+  from a clean instrumented target. Those ratios are gated in CI. The tests
+  caught unordered comparisons that ignored duplicate counts and a CSV mock
+  writer that emitted a header when disabled; both are fixed. The two
+  remaining uncovered source paths are failed graph snapshot and temporary
+  CSV creation. The metrics example now uses optional `ironbeam-metrics` for custom
   counters, gauges, histograms, and JSON reports. Direct job configuration
   attaches that collector while `JobHandle` keeps the built-in execution
   counters. The `metrics` feature aliases `v5-metrics`; neither the optional

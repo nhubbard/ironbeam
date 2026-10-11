@@ -54,6 +54,17 @@
       "count": 16
     }
   },
+  "ironbeam-testing": {
+    "source": "crates/ironbeam-testing/src",
+    "lines": {
+      "covered": 493,
+      "count": 495
+    },
+    "branches": {
+      "covered": 30,
+      "count": 30
+    }
+  },
   "ironbeam-io": {
     "source": "crates/ironbeam-io/src",
     "lines": {
