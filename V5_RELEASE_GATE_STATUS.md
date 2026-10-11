@@ -621,6 +621,13 @@ staged locally.
    1,821/1,938 source locations and 373/408 branches. The added failure-path
    test verifies that vector source clone panics and grouping fold panics are
    attributed to their respective nodes.
+   Separating the unassigned-window index lets a repeated key reuse its
+   existing group without cloning the key. A further 22-pair alternating
+   100,000-row release sample measured v4 0.609 ms and v5 1.045 ms (1.72×).
+   Core, Direct, Dataflow graph/worker tests and strict core/Direct lint pass;
+   a clean coverage rerun remains above the existing gates at core
+   2,430/2,525 lines and 354/402 branches and Direct 1,821/1,938 lines and
+   373/408 branches. The performance gap is still open.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.

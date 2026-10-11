@@ -3678,7 +3678,8 @@ impl JoinPositions {
 }
 struct GroupByKeyFoldState<K, V> {
     key: String,
-    indices: HashMap<(K, Option<WindowInterval>), usize>,
+    global_indices: HashMap<K, usize>,
+    window_indices: HashMap<(K, WindowInterval), usize>,
     groups: GroupBuffer<K, V>,
 }
 
@@ -3691,19 +3692,28 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
         window: Window,
         assigned_window: Option<WindowInterval>,
     ) {
-        let scope = (group_key.clone(), assigned_window);
-        if let Some(&index) = self.indices.get(&scope) {
-            self.groups[index].1.push(value);
+        if let Some(interval) = assigned_window {
+            let scope = (group_key.clone(), interval);
+            if let Some(&index) = self.window_indices.get(&scope) {
+                self.groups[index].1.push(value);
+                return;
+            }
+            self.window_indices.insert(scope, self.groups.len());
         } else {
-            self.indices.insert(scope, self.groups.len());
-            self.groups.push((
-                group_key,
-                vec![value],
-                timestamp_ns,
-                window,
-                assigned_window,
-            ));
+            if let Some(&index) = self.global_indices.get(&group_key) {
+                self.groups[index].1.push(value);
+                return;
+            }
+            self.global_indices
+                .insert(group_key.clone(), self.groups.len());
         }
+        self.groups.push((
+            group_key,
+            vec![value],
+            timestamp_ns,
+            window,
+            assigned_window,
+        ));
     }
 }
 
@@ -4173,7 +4183,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let fold_factory: FoldFactory = Arc::new(move || {
             Box::new(GroupByKeyFoldState::<K, V> {
                 key: fold_key.clone(),
-                indices: HashMap::new(),
+                global_indices: HashMap::new(),
+                window_indices: HashMap::new(),
                 groups: Vec::new(),
             })
         });
@@ -4183,7 +4194,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 .ok_or_else(|| Error::execution(&key_owned, "direct", "group input missing"))?;
             let mut fold: Box<dyn FoldSession> = Box::new(GroupByKeyFoldState::<K, V> {
                 key: key_owned.clone(),
-                indices: HashMap::new(),
+                global_indices: HashMap::new(),
+                window_indices: HashMap::new(),
                 groups: Vec::new(),
             });
             for event in events {
