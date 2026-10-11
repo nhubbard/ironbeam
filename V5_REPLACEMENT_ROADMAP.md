@@ -156,9 +156,8 @@ Beam GroupByKey, and a sorted fold on both runners. The global
 `fold_globally_ordered_by_named` variant uses the same constant-key Beam
 grouping as other global combines, including an empty-input seed. Live Prism
 jobs match Direct keyed values, event times, and windows; global values and
-empty identity; and rejection of duplicate global order keys. Add a portable
-duplicate keyed order-key proof and the remaining behavior corpus before
-closing this gate.
+empty identity; and rejection of duplicate global and keyed order keys. Add
+the remaining behavior corpus before closing this gate.
 
 ## Gates before deleting `src/` v4 runtime modules
 
