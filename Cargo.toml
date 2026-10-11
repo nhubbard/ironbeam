@@ -232,7 +232,7 @@ required-features = ["v5-preview"]
 
 [[example]]
 name = "sql_pipeline"
-required-features = ["legacy-v4"]
+required-features = ["io-sql"]
 
 [[example]]
 name = "testing_pipeline"

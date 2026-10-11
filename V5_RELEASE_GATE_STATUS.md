@@ -86,11 +86,13 @@ staged locally.
   integration tests are also gated by `legacy-v4`, allowing the complete
   root test target set to build in v5-only mode. The crate root and README
   now show a v5 quick start, with a passing doctest; legacy builds retain
-  their old documentation. Seven examples still require `legacy-v4`,
+  their old documentation. Six examples still require `legacy-v4`,
   including the v4 benchmark corpus. Advanced joins, CoGroupByKey, JSONL
   globbing, pluggable compression, the Direct plan explanation example, and
   the data-quality validation, windowing aggregation, combiners showcase, and
-  multi-output examples now run through v5; the seven-part testing example
+  multi-output and SQLite ETL examples now run through v5; the latter verifies
+  a SQL source, transform, and deferred sink against a temporary database.
+  The seven-part testing example
   uses the separate `ironbeam-testing` crate through an opt-in `v5-testing`
   feature. The metrics example now uses optional `ironbeam-metrics` for custom
   counters, gauges, histograms, and JSON reports. Direct job configuration

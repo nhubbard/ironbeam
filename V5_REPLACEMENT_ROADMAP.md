@@ -54,6 +54,8 @@ feature; gzip and a registered custom codec both round-trip the sample rows.
 The `explain_pipeline` example now uses v5 Direct's read-only plan summary for
 elementwise, grouped, and fused paths. V4's detailed optimization decisions
 remain a planner-parity gap.
+The `sql_pipeline` example now uses the isolated v5 SQL extension and checks
+its deferred read-transform-write path against a temporary SQLite database.
 The v4 checkpoint examples remain legacy-gated because v5 does not yet
 implement their barrier, time, and node-based policies.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
