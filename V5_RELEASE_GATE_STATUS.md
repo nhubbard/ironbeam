@@ -736,14 +736,16 @@ The separate Dataflow workspace now has a versioned SDF restriction payload
 and a tested worker-side polling adapter that preserves reader state across
 `Pending` and returns an encoded residual cursor. The Beam SDF transform
 lowering now has a structural test for pair, split/size, process, coder graph,
-and SDF requirement. Fn API worker execution and residual split responses are
-not yet connected, so the translator's production-source rejection remains
-in place.
+and SDF requirement. The translator's production-source rejection remains
+in place pending process-stage execution and residual split responses.
 The Fn API control loop now accepts split requests while a bundle runs, and a
 live Prism TestStream run still reaches `DONE`. The Dataflow bundle planner
 recognizes the three v5 SDF stages and validates their restriction-coder
-payloads. The worker explicitly rejects these stages until execution and
-residual checkpoint responses are implemented.
+payloads. The worker now executes pair and split/size preparation over Fn
+Data, both fused and across a runner boundary. Tests verify the sized
+restriction payload and that preparation does not open the source reader.
+The process stage, residual checkpoint response, and live production-source
+Prism run remain open.
 The new Direct stream and checkpoint modules have 605/665 source locations
 covered in isolation. With the expanded failure-path tests, the package now
 measures 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%).
