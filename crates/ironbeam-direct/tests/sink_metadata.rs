@@ -533,6 +533,8 @@ fn wait_sink_streams_main_batches_after_signal_completion() {
             }
             value
         })
+        .unwrap()
+        .filter_named("signal-even", |value| *value % 2 == 0)
         .unwrap();
     let main_ready = Arc::clone(&ready);
     let sink = pipeline
@@ -572,7 +574,7 @@ fn wait_sink_streams_main_batches_after_signal_completion() {
         .unwrap();
     assert_eq!(writes.load(Ordering::SeqCst), 500);
     assert_eq!(job.metrics().source_elements, 2_000);
-    assert_eq!(job.metrics().filtered_elements, 500);
+    assert_eq!(job.metrics().filtered_elements, 1_000);
     assert_eq!(job.metrics().output_elements, 500);
     assert!(job.metrics().peak_batch_elements <= 8);
 }
