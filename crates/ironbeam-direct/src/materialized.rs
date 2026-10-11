@@ -96,7 +96,8 @@ pub(crate) fn eval(
             | Operation::FoldPerKey
             | Operation::FoldOrderedGlobal
             | Operation::FoldOrderedPerKey
-    ) {
+    ) || matches!(node.operation, Operation::GroupByKey) && registry.has_fold(key)
+    {
         let mut fold = catch_unwind(AssertUnwindSafe(|| registry.open_fold(key)))
             .unwrap_or_else(|_| Err(Error::execution(key, "direct", "fold factory panicked")))?;
         if let Some((source_key, stages)) = linear_fold_route(graph, primary) {
@@ -226,6 +227,8 @@ fn feed_linear_fold(
     fold: &mut dyn FoldSession,
 ) -> Result<(), Error> {
     let mut source = open_source_safe(registry, source_key)?;
+    let mut source_count = 0_usize;
+    let enforce_source_budget = registry.has_group_coder(fold_key);
     loop {
         if config.cancellation.load(Ordering::Acquire) {
             return Err(cancelled());
@@ -235,12 +238,29 @@ fn feed_linear_fold(
             break;
         }
         let count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+        if enforce_source_budget {
+            source_count = source_count.saturating_add(batch.len());
+            if source_count.saturating_mul(std::mem::size_of::<Envelope>())
+                > config.memory_budget_bytes
+            {
+                return Err(Error::resource(
+                    source_key,
+                    "materialized source exceeds job memory budget",
+                ));
+            }
+        }
         metrics.source_elements.fetch_add(count, Ordering::Relaxed);
         metrics
             .peak_batch_elements
             .fetch_max(count, Ordering::Relaxed);
         metrics.batches.fetch_add(1, Ordering::Relaxed);
         for event in batch {
+            if stages.is_empty() {
+                catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
+                    Err(Error::execution(fold_key, "direct", "user fold panicked"))
+                })?;
+                continue;
+            }
             let mut events = vec![event];
             for key in stages {
                 let mut next = Vec::new();

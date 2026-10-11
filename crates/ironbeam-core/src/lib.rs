@@ -3571,6 +3571,54 @@ impl<T: Element> PCollection<(i64, T)> {
 }
 
 type GroupBuffer<K, V> = Vec<(K, Vec<V>, i64, Window, Option<WindowInterval>)>;
+struct GroupByKeyFoldState<K, V> {
+    key: String,
+    indices: HashMap<(K, Option<WindowInterval>), usize>,
+    groups: GroupBuffer<K, V>,
+}
+
+impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldState<K, V> {
+    fn add(&mut self, event: Envelope) -> Result<(), Error> {
+        let Envelope {
+            value,
+            timestamp_ns,
+            window,
+            assigned_window,
+        } = event;
+        let (group_key, value) = *value
+            .downcast::<(K, V)>()
+            .map_err(|_| Error::execution(&self.key, "direct", "group input type mismatch"))?;
+        let scope = (group_key.clone(), assigned_window);
+        if let Some(&index) = self.indices.get(&scope) {
+            self.groups[index].1.push(value);
+        } else {
+            self.indices.insert(scope, self.groups.len());
+            self.groups.push((
+                group_key,
+                vec![value],
+                timestamp_ns,
+                window,
+                assigned_window,
+            ));
+        }
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error> {
+        Ok(self
+            .groups
+            .into_iter()
+            .map(
+                |(key, values, timestamp_ns, window, assigned_window)| Envelope {
+                    value: Box::new((key, values)),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                },
+            )
+            .collect())
+    }
+}
 pub type Joined<K, V, W> = (K, (V, W));
 pub type LeftJoined<K, V, W> = (K, (V, Option<W>));
 pub type RightJoined<K, V, W> = (K, (Option<V>, W));
@@ -3989,56 +4037,44 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             ));
         }
         let key_owned = key.to_owned();
+        let fold_key = key_owned.clone();
+        let fold_factory: FoldFactory = Arc::new(move || {
+            Box::new(GroupByKeyFoldState::<K, V> {
+                key: fold_key.clone(),
+                indices: HashMap::new(),
+                groups: Vec::new(),
+            })
+        });
         let aggregate: Aggregate = Arc::new(move |mut inputs| {
             let events = inputs
                 .pop()
                 .ok_or_else(|| Error::execution(&key_owned, "direct", "group input missing"))?;
-            let mut indices = HashMap::<(K, Option<WindowInterval>), usize>::new();
-            let mut groups: GroupBuffer<K, V> = Vec::new();
+            let mut fold: Box<dyn FoldSession> = Box::new(GroupByKeyFoldState::<K, V> {
+                key: key_owned.clone(),
+                indices: HashMap::new(),
+                groups: Vec::new(),
+            });
             for event in events {
-                let Envelope {
-                    value,
-                    timestamp_ns,
-                    window,
-                    assigned_window,
-                } = event;
-                let (group_key, value) = *value.downcast::<(K, V)>().map_err(|_| {
-                    Error::execution(&key_owned, "direct", "group input type mismatch")
-                })?;
-                let scope = (group_key.clone(), assigned_window);
-                if let Some(&index) = indices.get(&scope) {
-                    groups[index].1.push(value);
-                } else {
-                    indices.insert(scope, groups.len());
-                    groups.push((
-                        group_key,
-                        vec![value],
-                        timestamp_ns,
-                        window,
-                        assigned_window,
-                    ));
-                }
+                fold.add(event)?;
             }
-            Ok(groups
-                .into_iter()
-                .map(
-                    |(key, values, timestamp_ns, window, assigned_window)| Envelope {
-                        value: Box::new((key, values)),
-                        timestamp_ns,
-                        window,
-                        assigned_window,
-                    },
-                )
-                .collect())
+            fold.finish()
         });
-        self.next_aggregate(
+        let result = self.next_aggregate(
             key,
             Operation::GroupByKey,
             Vec::new(),
             parent.boundedness,
             aggregate,
             Some(GroupCoderRegistration::for_elements::<K, V>()),
-        )
+        )?;
+        self.pipeline
+            .inner
+            .lock()
+            .map_err(|_| Error::graph(key, "builder lock poisoned"))?
+            .registry
+            .folds
+            .insert(key.to_owned(), fold_factory);
+        Ok(result)
     }
 
     pub fn join_inner_named<W: Element + Clone>(

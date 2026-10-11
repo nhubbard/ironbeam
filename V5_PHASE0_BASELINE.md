@@ -233,6 +233,37 @@ Six alternating runs of the full 100,000-row corpus under macOS
 All five workloads' counts and checksums matched. This is whole-process peak
 memory, not a per-operation allocation profile; the memory gate remains open.
 
+The benchmark examples now accept an optional second argument naming one case,
+so macOS can measure each workload in a separate process. Four paired release
+runs per case at 100,000 rows, discarding each binary's first run, measured:
+
+| Case | v4 time | v5 time | v4 peak RSS | v5 peak RSS |
+| --- | ---: | ---: | ---: | ---: |
+| source copy | 0.099 ms | 0.880 ms | 3.33 MiB | 3.81 MiB |
+| map/filter | 0.131 ms | 1.358 ms | 3.73 MiB | 3.67 MiB |
+| GroupByKey | 0.641 ms | 4.207 ms | 5.41 MiB | 14.16 MiB |
+| inner join | 11.018 ms | 16.533 ms | 21.44 MiB | 50.48 MiB |
+| JSONL round trip | 3.882 ms | 10.740 ms | 4.36 MiB | 4.91 MiB |
+
+Every pair matched output rows and checksums. These are whole-process peaks
+for isolated cases, so they include runtime setup; they do not count retained
+or temporary allocations within each operation. Grouping and joins are the
+clearest memory targets. An exact source-vector reservation trial reduced
+GroupByKey peak RSS from 14.19 to 13.08 MiB in an adjacent eight-run
+comparison, but inner join moved from 48.94 to 50.48 MiB and its median
+latency from 17.345 to 19.156 ms. That trial was reverted.
+
+Direct now streams bounded linear GroupByKey input batches into its keyed
+accumulator instead of retaining every input envelope before grouping. It
+preserves the previous source budget check and group ordering; non-linear
+inputs retain the materialized fallback. An adjacent eight-run alternating
+release comparison at 100,000 rows measured GroupByKey at 14.19 MiB peak RSS
+and 4.506 ms before, versus 4.72 MiB and 4.739 ms after. Output counts and
+checksums matched. The roughly 5% latency difference needs more sampling;
+the peak-memory reduction is much larger and consistent with avoiding the
+whole-source envelope vector. Join output uses a separate path and its memory
+gate remains open.
+
 Direct source-only batch collection now uses a fixed wire-length hint for
 built-in scalars and fixed-size tuples, preserving the exact output budget
 without asking each value for its encoded length. The existing exact-budget,

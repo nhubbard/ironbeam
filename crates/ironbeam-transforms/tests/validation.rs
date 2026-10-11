@@ -71,7 +71,11 @@ fn built_in_validators_match_v4_boundaries_and_error_order() {
     assert!(validators::contains("name", "abc", "bc").is_ok());
     assert!(validators::in_range("score", &0, &0, &10).is_ok());
     assert!(validators::in_range("score", &10, &0, &10).is_ok());
+    assert!(validators::in_range("score", &-1, &0, &10).is_err());
     assert!(validators::is_email("email", "a@b.c").is_ok());
+    for invalid in ["plain", "@b.c", "a@", "a@bc", "a@.", "a@b."] {
+        assert!(validators::is_email("email", invalid).is_err(), "{invalid}");
+    }
     assert!(validators::min_length("name", "é", 2).is_ok());
     assert!(validators::max_length("name", "é", 2).is_ok());
     let errors = combine_validations(vec![

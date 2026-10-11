@@ -485,6 +485,22 @@ staged locally.
    54.4 MiB for v5. A per-operation allocation profile and a defined
    performance threshold are still needed before calling performance
    acceptable.
+   Isolated case runs now show 100,000-row GroupByKey at 5.41 MiB peak RSS
+   for v4 versus 14.16 MiB for v5, and inner join at 21.44 versus 50.48 MiB.
+   Source copy, map/filter, and JSONL peaks are much closer. A source-vector
+   reservation trial helped grouping but hurt joining and was reverted.
+   Streaming linear GroupByKey input directly into its keyed accumulator then
+   reduced an adjacent 100,000-row peak from 14.19 to 4.72 MiB, with matching
+   results and the source memory-limit behavior preserved. Its median latency
+   moved from 4.506 to 4.739 ms in that sample; the join memory gap remains.
+   The root workspace and all-feature Dataflow suites pass with this change;
+   the live local Prism fixture still reaches `DONE`. Fresh core/Direct/transforms
+   coverage passes the unchanged gates: core 2,354/2,443 source locations and
+   348/396 branches, Direct 1,779/1,891 and 349/380, and isolated common
+   transforms 1,163/1,189 and 108/116. Additional validator boundary cases
+   raised the isolated transforms branch ratio above its existing threshold.
+   The local test, documentation, and package matrix verified all twenty-five
+   v5 crates without publishing them.
    A later twelve-run alternating release sample still measured v5 at 9.9×
    v4 for source copy, 11.1× for map/filter, 6.9× for GroupByKey, 1.4× for
    inner join, and 2.8× for JSONL, with matching results. A short-frame

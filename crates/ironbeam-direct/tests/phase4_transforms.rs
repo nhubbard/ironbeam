@@ -4,6 +4,75 @@ use ironbeam_core::{
 use ironbeam_direct::{CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig};
 
 #[test]
+fn keyed_group_streams_source_batches_and_preserves_resource_limit() {
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec(
+            "group-source",
+            (0..100).map(|value| (value % 4, value)).collect(),
+        )
+        .unwrap();
+    let grouped = input
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.has_fold("group"));
+
+    let config = JobConfig {
+        buffer_budget_elements: 3,
+        ..JobConfig::default()
+    };
+    let mut groups = DirectRunner.run_collect(&grouped, &config).unwrap().0;
+    groups.sort_by_key(|(key, _)| *key);
+    assert_eq!(groups.len(), 4);
+    for (key, values) in groups {
+        assert_eq!(
+            values,
+            (0..100)
+                .filter(|value| value % 4 == key)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    let limited = JobConfig {
+        memory_budget_bytes: 1,
+        ..config
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&grouped, &limited)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+}
+
+#[test]
+fn keyed_group_materializes_non_linear_input_without_changing_groups() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("left", vec![(1_i32, 10_i32), (2, 20)])
+        .unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 30_i32)]).unwrap();
+    let grouped = left
+        .flatten_named("merged", &[right])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let mut groups = DirectRunner
+        .run_collect(&grouped, &JobConfig::default())
+        .unwrap()
+        .0;
+    groups.sort_by_key(|(key, _)| *key);
+    assert_eq!(groups, [(1, vec![10, 30]), (2, vec![20])]);
+}
+
+#[test]
 fn grouping_join_and_combine_execute_from_typed_graph() {
     let pipeline = Pipeline::default();
     let left = pipeline
