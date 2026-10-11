@@ -178,12 +178,12 @@
   "ironbeam-transforms": {
     "source": "crates/ironbeam-transforms/src",
     "lines": {
-      "covered": 89,
-      "count": 89
+      "covered": 1092,
+      "count": 1120
     },
     "branches": {
-      "covered": 0,
-      "count": 0
+      "covered": 82,
+      "count": 90
     }
   },
   "ironbeam-transform-regex": {

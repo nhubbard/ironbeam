@@ -75,12 +75,17 @@ staged locally.
    with generic and macro instantiation, so this gate needs a reviewed
    measurement method as well as additional behavior coverage. The branch
    threshold still passes.
-   The common transforms package also has a stale 89/89 source-location and
-   zero-branch baseline. Its current isolated corpus measures 881/1,005
-   source locations (87.66%) and 68/84 instrumented branches after the regex
-   and sketch splits, so its existing CI coverage gate is red. The new
-   extension packages have their own passing coverage gates. Review the common transforms corpus
-   and baseline before release; do not treat the package gate as coverage proof.
+   The common transforms package now has a reviewed isolated baseline of
+   1,092/1,120 source locations (97.50%) and 82/90 active branch outcomes
+   (91.11%). The old 89/89, zero-branch baseline predates the expanded helper
+   corpus and did not measure branches. Tests now exercise partial accumulator
+   merges, constant side-input variants, sampler output forms, malformed
+   dead-letter coders, validation collection, t-digest merges, and custom
+   window combiners. The last test exposed and fixed recursion in both custom
+   window-combiner helpers. Remaining uncovered locations include allocation
+   overflow guards that cannot be reached with ordinary 64-bit buffers, plus
+   statistical and side-input edges. The new extension packages have separate
+   passing coverage gates. Core coverage remains the release blocker here.
 2. **Portable feature corpus:** The v5 translator now supports bounded,
    global-window `group_by_key_named` through native Beam KV/iterable coders
    and a live Prism shuffle proof. Its keyed input can also feed an ordinary

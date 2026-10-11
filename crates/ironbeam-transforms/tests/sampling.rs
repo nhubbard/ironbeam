@@ -68,6 +68,16 @@ fn per_key_reservoir_keeps_each_group_independent() {
         .unwrap()
         .output("out")
         .unwrap();
+    let flattened = input
+        .sample_values_reservoir_named("flat-group", "flat-sample", "flat", 2, 17)
+        .unwrap()
+        .output("flat-out")
+        .unwrap();
+    let default_sample = input
+        .sample_per_key_named("default-group", "default-sample", 2)
+        .unwrap()
+        .output("default-out")
+        .unwrap();
     let values = DirectRunner
         .run_collect(&sampled, &JobConfig::default())
         .unwrap()
@@ -77,6 +87,23 @@ fn per_key_reservoir_keeps_each_group_independent() {
     assert_eq!(values[0].1.len(), 2);
     assert!(values[0].1.iter().all(|value| [1, 2, 3].contains(value)));
     assert_eq!(values[1], ("b".to_string(), vec![9]));
+    let expected_flattened = values
+        .iter()
+        .flat_map(|(key, items)| items.iter().map(|item| (key.clone(), *item)))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&flattened, &JobConfig::default())
+            .unwrap()
+            .0,
+        expected_flattened
+    );
+    let default_values = DirectRunner
+        .run_collect(&default_sample, &JobConfig::default())
+        .unwrap()
+        .0;
+    assert_eq!(default_values.len(), 2);
+    assert_eq!(default_values[0].1.len(), 2);
 }
 
 #[test]

@@ -20,6 +20,15 @@ fn digest_handles_empty_non_finite_and_merge() {
     assert_eq!(digest.quantile(1.0), 4.0);
     assert!(digest.quantile(0.5).is_finite());
     assert!((0.0..=1.0).contains(&digest.cdf(2.5)));
+    assert_eq!(digest.cdf(0.0), 0.0);
+    assert_eq!(digest.cdf(4.0), 1.0);
+    assert_eq!(digest.quantiles(&[0.0, 1.0]), [1.0, 4.0]);
+    let mut singleton = TDigest::new(100.0);
+    singleton.add(7.0);
+    assert_eq!(singleton.quantile(0.5), 7.0);
+    assert_eq!(singleton.cdf(7.0), 1.0);
+    digest.merge(&TDigest::new(100.0));
+    assert_eq!(digest.count(), 4.0);
 }
 
 #[test]

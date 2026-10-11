@@ -27,6 +27,23 @@ impl Validate for Row {
 }
 
 #[test]
+fn validation_errors_and_collector_keep_record_context() {
+    let plain = ValidationError::new("missing value");
+    assert_eq!(plain.to_string(), "missing value");
+    let coded = ValidationError::field("score", "invalid").with_code("bad_score");
+    assert_eq!(coded.to_string(), "[score] invalid (code: bad_score)");
+    let mut collector = ErrorCollector::new();
+    collector.add_error(Some("row-17".into()), vec![plain, coded.clone()]);
+    assert_eq!(collector.error_count(), 1);
+    assert_eq!(collector.errors()[0].record_id.as_deref(), Some("row-17"));
+    assert_eq!(collector.errors()[0].errors[1], coded);
+    collector.print_errors();
+    collector.clear();
+    assert_eq!(collector.error_count(), 0);
+    assert_eq!(collector.errors(), []);
+}
+
+#[test]
 fn skip_log_and_fail_modes_match_v4_values() {
     let pipeline = Pipeline::default();
     let rows = pipeline

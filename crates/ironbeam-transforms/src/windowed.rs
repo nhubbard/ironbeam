@@ -92,7 +92,8 @@ impl<T: Element> WindowedExt<T> for PCollection<T> {
         offset_ns: i64,
         f: impl Fn(Vec<T>) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<(WindowInterval, U)>, Error> {
-        Self::combine_per_window_named(self, key, size_ns, offset_ns, f)
+        self.group_by_window_named(&format!("{key}/group"), size_ns, offset_ns)?
+            .map_named(key, move |(window, values)| (window, f(values)))
     }
     fn sum_per_window_named(
         &self,
@@ -251,7 +252,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> KeyedWindowedExt<K, V> for PCol
         offset_ns: i64,
         f: impl Fn(Vec<V>) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<KeyedWindowed<K, U>>, Error> {
-        Self::combine_per_key_and_window_named(self, key, size_ns, offset_ns, f)
+        self.group_by_key_and_window_named(&format!("{key}/group"), size_ns, offset_ns)?
+            .map_named(key, move |(key_and_window, values)| {
+                (key_and_window, f(values))
+            })
     }
     fn sum_per_key_and_window_named(
         &self,

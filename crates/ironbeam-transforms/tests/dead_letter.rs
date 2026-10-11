@@ -57,6 +57,11 @@ fn dead_letter_coder_round_trips_and_rejects_truncation() {
     let bytes = item.encode().unwrap();
     assert_eq!(DeadLetter::<String>::decode(&bytes).unwrap(), item);
     assert!(DeadLetter::<String>::decode(&bytes[..bytes.len() - 1]).is_err());
+    assert!(DeadLetter::<String>::decode(&bytes[..7]).is_err());
+    assert!(DeadLetter::<String>::decode(&u64::MAX.to_le_bytes()).is_err());
+    let mut trailing = bytes;
+    trailing.push(0);
+    assert!(DeadLetter::<String>::decode(&trailing).is_err());
 }
 
 #[test]

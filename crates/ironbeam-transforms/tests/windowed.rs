@@ -3,6 +3,90 @@ use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_transforms::{KeyedWindowedExt, WindowedExt};
 
 #[test]
+fn custom_window_combiners_apply_once_per_group() {
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec("custom-values", vec![1_i32, 2, 11])
+        .unwrap()
+        .assign_timestamps_named("custom-times", |value| i64::from(*value))
+        .unwrap();
+    let windowed = input
+        .combine_per_window_named("custom-window", 10, 0, |values| values.len() as u64)
+        .unwrap()
+        .output("custom-window-out")
+        .unwrap();
+    let keyed = input
+        .map_named("custom-keys", |value| (value.rem_euclid(2), value))
+        .unwrap()
+        .combine_per_key_and_window_named("custom-keyed-window", 10, 0, |values| {
+            values.len() as u64
+        })
+        .unwrap()
+        .output("custom-keyed-window-out")
+        .unwrap();
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&windowed, &config).unwrap().0,
+            [
+                (
+                    WindowInterval {
+                        start_ns: 0,
+                        end_ns: 10
+                    },
+                    2
+                ),
+                (
+                    WindowInterval {
+                        start_ns: 10,
+                        end_ns: 20
+                    },
+                    1
+                ),
+            ]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&keyed, &config).unwrap().0,
+            [
+                (
+                    (
+                        1,
+                        WindowInterval {
+                            start_ns: 0,
+                            end_ns: 10
+                        }
+                    ),
+                    1
+                ),
+                (
+                    (
+                        0,
+                        WindowInterval {
+                            start_ns: 0,
+                            end_ns: 10
+                        }
+                    ),
+                    1
+                ),
+                (
+                    (
+                        1,
+                        WindowInterval {
+                            start_ns: 10,
+                            end_ns: 20
+                        }
+                    ),
+                    1
+                ),
+            ]
+        );
+    }
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn windowed_numeric_helpers_match_v4_shapes() {
     let pipeline = Pipeline::default();

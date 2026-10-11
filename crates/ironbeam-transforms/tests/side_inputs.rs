@@ -6,6 +6,7 @@ use ironbeam_transforms::{
 };
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn constant_side_inputs_match_v4_lookups_and_filters() {
     let pipeline = Pipeline::default();
     let input = pipeline
@@ -17,6 +18,13 @@ fn constant_side_inputs_match_v4_lookups_and_filters() {
         .unwrap()
         .output("filtered")
         .unwrap();
+    let vec_sizes = input
+        .map_with_side_vec_named("map-vec", &allowed, |value, allow| {
+            (value.clone(), u64::try_from(allow.len()).unwrap())
+        })
+        .unwrap()
+        .output("vec-sizes")
+        .unwrap();
     let extras = side_hashmap(vec![("a".to_string(), 10_u32), ("b".to_string(), 20)]);
     let mapped = input
         .map_with_side_map_named("map", &extras, |value, map| {
@@ -25,11 +33,25 @@ fn constant_side_inputs_match_v4_lookups_and_filters() {
         .unwrap()
         .output("mapped")
         .unwrap();
+    let map_filtered = input
+        .filter_with_side_map_named("filter-map", &extras, |value, map| {
+            map.get(value).is_some_and(|score| *score > 10)
+        })
+        .unwrap()
+        .output("map-filtered")
+        .unwrap();
     let threshold = side_singleton("b".to_string());
     let above = input
         .filter_with_singleton_named("above", &threshold, |value, t| value > t)
         .unwrap()
         .output("above-out")
+        .unwrap();
+    let with_threshold = input
+        .map_with_singleton_named("map-singleton", &threshold, |value, side| {
+            format!("{value}:{side}")
+        })
+        .unwrap()
+        .output("with-threshold")
         .unwrap();
     let tags = side_multimap(vec![
         ("a".to_string(), 1_u32),
@@ -43,6 +65,13 @@ fn constant_side_inputs_match_v4_lookups_and_filters() {
         })
         .unwrap()
         .output("tags-out")
+        .unwrap();
+    let multi_filtered = input
+        .filter_with_side_multimap_named("filter-multimap", &tags, |value, map| {
+            map.get(value).is_some_and(|values| values.len() > 1)
+        })
+        .unwrap()
+        .output("multi-filtered")
         .unwrap();
     for parallelism in [1, 3] {
         let config = JobConfig {
@@ -58,12 +87,38 @@ fn constant_side_inputs_match_v4_lookups_and_filters() {
             [10, 20, 0]
         );
         assert_eq!(
+            DirectRunner.run_collect(&vec_sizes, &config).unwrap().0,
+            [
+                ("a".to_string(), 2),
+                ("b".to_string(), 2),
+                ("c".to_string(), 2)
+            ]
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&map_filtered, &config).unwrap().0,
+            ["b"]
+        );
+        assert_eq!(
             DirectRunner.run_collect(&above, &config).unwrap().0,
             ["c".to_string()]
         );
         assert_eq!(
+            DirectRunner
+                .run_collect(&with_threshold, &config)
+                .unwrap()
+                .0,
+            ["a:b", "b:b", "c:b"]
+        );
+        assert_eq!(
             DirectRunner.run_collect(&tagged, &config).unwrap().0,
             [2, 1, 0]
+        );
+        assert_eq!(
+            DirectRunner
+                .run_collect(&multi_filtered, &config)
+                .unwrap()
+                .0,
+            ["a"]
         );
     }
 }

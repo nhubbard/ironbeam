@@ -29,6 +29,7 @@ impl<T> Ord for Ranked<T> {
             .then_with(|| other.index.cmp(&self.index))
     }
 }
+
 struct Reservoir<T> {
     state: u64,
     index: usize,
@@ -208,5 +209,34 @@ impl<K: Element + Eq + Hash + Clone, V: Element> KeyedSamplingExt<K, V> for PCol
         seed: u64,
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
         self.sample_values_reservoir_vec_named(group_key, key, k, seed)
+    }
+}
+
+#[cfg(test)]
+mod rank_tests {
+    use super::Ranked;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn equal_priorities_keep_earlier_input_first() {
+        let first = Ranked {
+            priority_bits: 7,
+            index: 0,
+            value: "first",
+        };
+        let second = Ranked {
+            priority_bits: 7,
+            index: 1,
+            value: "second",
+        };
+        let same_rank = Ranked {
+            priority_bits: 7,
+            index: 0,
+            value: "other",
+        };
+        assert!(first == same_rank);
+        assert!(first != second);
+        assert_eq!(first.cmp(&second), Ordering::Greater);
+        assert_eq!(first.partial_cmp(&second), Some(Ordering::Greater));
     }
 }
