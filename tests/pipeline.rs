@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Tests for pipeline graph functionality.
 #![allow(clippy::assert_is_empty)]
 

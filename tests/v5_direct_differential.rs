@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! First Phase 3 differential case: the same bounded elementwise corpus on v4 and v5.
 #![cfg(feature = "v5-preview")]
 

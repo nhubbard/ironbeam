@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.12: `PCollection::wait_on`.
 //!
 //! Validates that `wait_on(&signal)` is a strict passthrough on its element

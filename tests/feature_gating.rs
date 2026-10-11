@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Runtime-stub contract for feature-gated I/O connectors.
 //!
 //! Ironbeam keeps the full I/O API surface present in every build: when an

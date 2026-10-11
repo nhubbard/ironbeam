@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.8: `to_display_string`.
 //!
 //! Validates that each element's [`Display`] representation is emitted as a

@@ -83,7 +83,9 @@ staged locally.
   preserving that feature in its current default. A no-default-feature
   `v5-preview` build has only core, Direct, transforms, and shared I/O as
   direct dependencies; it excludes the legacy cloud package. The v4 root
-  implementation remains in the repository until the replacement gates close.
+  integration tests are also gated by `legacy-v4`, allowing the complete
+  root test target set to build in v5-only mode. The v4 implementation remains
+  in the repository until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
   measures 234/243 source locations and 46/54 active branch outcomes. The

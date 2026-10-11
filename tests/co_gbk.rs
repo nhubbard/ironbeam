@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Tests for multi-way `CoGroupByKey` operations
 
 use anyhow::Result;

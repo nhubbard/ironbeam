@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Tests for `PCollection::map_values_batches` (backed by `BatchMapValuesOp`).
 //!
 //! Covers:

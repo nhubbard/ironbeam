@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Dedicated tests for the per-PCollection element coders (`coders` feature).
 //!
 //! Covers, per the adoption plan's Phase 7:

@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Common test macros.
 
 /// Macro to check if a floating-point value is within an acceptable tolerance.

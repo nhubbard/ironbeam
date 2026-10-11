@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;

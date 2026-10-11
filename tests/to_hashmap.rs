@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for `to_hashmap` transform.
 //!
 //! This test suite validates the conversion of `PCollection<(K, V)>` to `HashMap<K, V>`,

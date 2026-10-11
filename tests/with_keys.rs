@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for `WithKeys` transform (feature 1.4).
 //!
 //! This test suite validates the keying operations including:

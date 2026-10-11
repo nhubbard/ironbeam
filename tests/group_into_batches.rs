@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.6: `group_into_batches`.
 //!
 //! Validates that per-key values are chunked into fixed-size `Vec` batches:

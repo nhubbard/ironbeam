@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 #![cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
 
 use anyhow::Result;

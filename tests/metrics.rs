@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Tests for the metrics module.
 
 #![cfg(feature = "metrics")]

@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for the flatten transform.
 
 use anyhow::Result;

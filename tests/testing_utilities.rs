@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Integration tests demonstrating the testing utilities.
 
 use anyhow::Result;

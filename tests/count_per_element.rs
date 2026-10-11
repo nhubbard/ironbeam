@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.4: `count_per_element`.
 //!
 //! The `count_per_element` helper has existed since v2.4.0 (originally added

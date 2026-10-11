@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.7: `batch_elements` + `batch_by_size`.
 //!
 //! Validates that elements within each partition are grouped into `Vec<T>`

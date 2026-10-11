@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 use anyhow::Result;
 use ironbeam::collection::Count;
 use ironbeam::from_vec;

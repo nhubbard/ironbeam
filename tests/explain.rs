@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Tests for the execution plan explanation feature.
 
 use anyhow::Result;

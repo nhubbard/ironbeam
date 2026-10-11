@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Stable v4 observations for the v5 direct-runner differential suite.
 use ironbeam::{Pipeline, from_vec};
 

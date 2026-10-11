@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Tests for automatic memory spilling functionality.
 
 #![cfg(feature = "spilling")]

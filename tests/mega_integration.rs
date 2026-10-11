@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Mega comprehensive integration test covering EVERY Ironbeam feature.
 //!
 //! This test exercises the entire API surface to ensure all features work together:

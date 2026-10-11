@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.2: `KvSwap` transform.
 //!
 //! This test suite validates `kv_swap()` — swaps the key and value of each

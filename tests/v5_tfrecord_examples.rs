@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 #![cfg(all(
     feature = "v5-preview",
     feature = "v5-io-tfrecord",

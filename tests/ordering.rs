@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 use anyhow::Result;
 use ironbeam::from_vec;
 use ironbeam::testing::*;

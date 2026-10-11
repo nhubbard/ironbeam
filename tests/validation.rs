@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Tests for validation functionality.
 
 use ironbeam::testing::*;

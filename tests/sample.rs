@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.14: Beam-style fixed-size sample.
 //!
 //! Covers:

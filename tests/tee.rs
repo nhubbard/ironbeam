@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.9: `tee` / `tee_n`.
 //!
 //! Validates fan-out semantics: each branch independently observes the same

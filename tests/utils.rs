@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 #[macro_use]
 mod macros;
 

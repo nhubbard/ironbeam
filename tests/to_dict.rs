@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.5: `ToDict` combiner + `to_dict` helper.
 //!
 //! This test suite validates:

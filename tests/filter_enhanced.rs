@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for enhanced filter operations.
 //!
 //! This test suite validates the convenience filter methods added in feature 1.3,

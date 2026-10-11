@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.10: `log_elements` / `log_elements_with`.
 //!
 //! Validates that the debug-tap helpers behave as a strict passthrough — the

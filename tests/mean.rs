@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.3: `Mean<O>` combiner + helpers.
 //!
 //! This test suite validates:

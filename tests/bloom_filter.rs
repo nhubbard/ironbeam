@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Tests for [`BloomFilter`]: the no-false-negatives guarantee, a bounded
 //! false-positive rate, the empty filter, and hashable non-integer keys.
 

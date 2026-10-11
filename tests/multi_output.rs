@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for multi-output (side outputs) pattern using enums and partition! macro.
 
 #![allow(clippy::match_wildcard_for_single_variants)]

@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.1: `Keys` / `Values` transforms.
 //!
 //! This test suite validates:

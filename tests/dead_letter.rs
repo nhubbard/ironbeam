@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.15: dead-letter / error-routing
 //! pattern.
 //!

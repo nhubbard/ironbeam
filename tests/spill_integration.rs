@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 //! Tests for spill integration with the runner.
 
 #![cfg(feature = "spilling")]

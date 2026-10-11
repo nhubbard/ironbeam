@@ -175,7 +175,7 @@ jobs:
         run: |
           cargo test -p ironbeam --lib --tests
           cargo test -p ironbeam --no-default-features --features legacy-v4 --lib --tests
-          cargo test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
+          cargo test -p ironbeam --no-default-features --features v5-preview --lib --tests
 
       - name: Compare v4 and v5 direct elementwise results
         run: cargo test -p ironbeam --features v5-preview --test v5_direct_differential

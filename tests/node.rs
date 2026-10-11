@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy-v4")]
 use ironbeam::Partition;
 use ironbeam::node::DynOp;
 use std::sync::Arc;
