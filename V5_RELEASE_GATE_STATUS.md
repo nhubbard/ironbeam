@@ -1,6 +1,6 @@
 # Ironbeam 5.0.0 release gate status
 
-Measured on `codex/ironbeam-v5-runner-core` on 2026-10-10. This is a working
+Measured on `codex/ironbeam-v5-runner-core` through 2026-10-11. This is a working
 audit, not a release declaration. The v5 packages remain at `0.1.0`, the root
 facade defaults to v5 but is still versioned `4.1.1`, and publication is
 staged locally.
@@ -287,7 +287,9 @@ staged locally.
    make the legacy package release-ready.
 5. **Execution proof:** The user chose local Prism proof for now. On
    2026-10-10, the opt-in `ironbeam-prism-proof` test passed against a real
-   local Prism JobService. That fixture checks completed jobs and captured
+   local Prism JobService. It passed again on 2026-10-11 after the core coder
+   and Direct changes, with the Prism service stopped afterward. That fixture
+   checks completed jobs and captured
    values for its bounded sources and sinks, JSONL, Avro, CSV, protobuf,
    object-backed JSONL, Flatten, grouping, joins, side input, Reshuffle,
    event-time assignment, and fixed windows. Its object-backed fixture uses
