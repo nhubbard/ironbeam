@@ -49,6 +49,13 @@ staged locally.
   accepted row total matches Prism's committed metric, publication validates
   TFRecord framing and CRCs, and the v5 reader reopens all three payloads.
   The updated four-test Prism corpus and strict proof-package lint pass.
+- The production-source fixture now publishes MessagePack and CBOR from at
+  least two finalized bundles each, matching committed row counts and
+  reopening values 7, 8, and 9. The updated full local Prism corpus passes.
+  Prism coalesced adjacent Reshuffles in the first fixture attempt, causing
+  the worker's graph-parent check to fail; each branch now includes a Map
+  before its required finalization boundary. General adjacent-Reshuffle
+  lowering remains a portable graph-shape gap.
 - The separate Dataflow worker now validates connected branches and
   fixed-window assignment after a production unbounded SDF source. A live
   local Prism `Run` reached `DONE` across two residual bundles; three idempotent
