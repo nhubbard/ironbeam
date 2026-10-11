@@ -50,6 +50,10 @@ v5 can replace the entire v4 package; they are not hidden by helper parity.
 - Typed TensorFlow `tf.Example` records are decoded from v4-produced TFRecord
   bytes. Timestamp tuple conversion and unkeyed/keyed tumbling shapes have
   sequential and parallel Direct tests.
+- The v4/v5 Direct differential corpus now compares grouped, inner-join, and
+  all three outer-join multisets for twenty-four deterministic bounded input
+  pairs, including empty sides, duplicate keys, and duplicate values. Both
+  sequential and three-worker v5 executions match v4 for every case.
 - Parquet row-group and Arrow IPC batch-index sources have multi-split tests;
   file changes after graph construction fail recovery. SQL and MongoDB helper
   round trips were also exercised against live local containers.
