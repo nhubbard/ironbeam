@@ -357,8 +357,12 @@ staged locally.
    branch, verified by another sink in that Prism job. It still rejects
    some unbounded source graph shapes, update sinks, and
    whole-job final-result sinks. Core now registers typed split/reassembly
-   coders for actual `group_by_key_named` nodes, distinct from
-   `latest_per_key_named`, which uses the same local operation marker.
+   coders for actual `group_by_key_named` nodes. `latest_per_key_named` now
+   composes timestamp capture, a native keyed shuffle, first-seen maximum
+   selection, and event-time restoration. A live local Prism job verifies
+   the latest value for two keys with the selected timestamps and fixed-window
+   intervals intact; the complete four-test Prism suite passes. Equal-time
+   ties are first-seen in Direct, while portable shuffle order is not stable.
    `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
    typed tagged-value coder contracts for their inputs. Tests cover
    heterogeneous values, empty groups, and invalid tags. The translator now

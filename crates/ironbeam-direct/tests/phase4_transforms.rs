@@ -607,6 +607,46 @@ fn latest_uses_event_time_globally_per_key_and_per_window() {
 }
 
 #[test]
+fn latest_per_key_restores_selected_time_within_fixed_window() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec(
+            "source",
+            vec![
+                (1_000_000_i64, (1_i32, 7_i32)),
+                (3_000_000, (1, 9)),
+                (3_000_000, (1, 10)),
+                (2_000_000, (2, 8)),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("time")
+        .unwrap()
+        .fixed_windows("window", 4_000_000)
+        .unwrap()
+        .latest_per_key_named("latest")
+        .unwrap()
+        .reify_timestamps_named("reify")
+        .unwrap()
+        .with_window_named("interval")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let rows = output.collect_seq().unwrap();
+    let interval = ironbeam_core::WindowInterval {
+        start_ns: 0,
+        end_ns: 4_000_000,
+    };
+    assert_eq!(
+        rows,
+        vec![
+            (interval, (3_000_000, (1, 9))),
+            (interval, (2_000_000, (2, 8))),
+        ]
+    );
+}
+
+#[test]
 fn windowed_combine_helpers_emit_explicit_offset_intervals() {
     let pipeline = Pipeline::default();
     let input = pipeline

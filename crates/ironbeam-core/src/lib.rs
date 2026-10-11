@@ -4094,6 +4094,28 @@ impl<T: Element> PCollection<(i64, T)> {
         let assigned = self.assign_timestamps_named(&format!("{key}/assign"), |pair| pair.0)?;
         assigned.map_named(key, |(_, value)| value)
     }
+
+    fn restore_reified_timestamp_named(&self, key: &str) -> Result<PCollection<T>, Error> {
+        let key_owned = key.to_owned();
+        let transform = Transform::Single(Arc::new(move |event| {
+            let Envelope {
+                value,
+                window,
+                assigned_window,
+                ..
+            } = event;
+            let (timestamp_ns, value) = *value.downcast::<(i64, T)>().map_err(|_| {
+                Error::execution(&key_owned, "direct", "reified timestamp type mismatch")
+            })?;
+            Ok(Some(Envelope {
+                value: Box::new(value),
+                timestamp_ns,
+                window,
+                assigned_window,
+            }))
+        }));
+        self.next(key, Operation::Map, Some(transform), None)
+    }
 }
 
 type GroupBuffer<K, V> = Vec<(K, Vec<V>, i64, Window, Option<WindowInterval>)>;
@@ -4687,54 +4709,24 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 "unbounded global aggregation requires a finite window",
             ));
         }
-        let node_key = key.to_owned();
-        let aggregate: Aggregate = Arc::new(move |mut inputs| {
-            let events = inputs.pop().ok_or_else(|| {
-                Error::execution(&node_key, "direct", "latest keyed input missing")
-            })?;
-            let mut indices: HashMap<(K, Option<WindowInterval>), usize> = HashMap::new();
-            let mut rows: Vec<(K, V, i64, Window, Option<WindowInterval>)> = Vec::new();
-            for event in events {
-                let Envelope {
-                    value,
-                    timestamp_ns,
-                    window,
-                    assigned_window,
-                } = event;
-                let (row_key, row_value) = *value.downcast::<(K, V)>().map_err(|_| {
-                    Error::execution(&node_key, "direct", "latest keyed input type mismatch")
-                })?;
-                let scope = (row_key.clone(), assigned_window);
-                if let Some(&position) = indices.get(&scope) {
-                    if timestamp_ns > rows[position].2 {
-                        rows[position] =
-                            (row_key, row_value, timestamp_ns, window, assigned_window);
+        self.reify_timestamps_named(&format!("{key}/timestamp"))?
+            .map_named(&format!("{key}/keyed"), |(timestamp, (key, value))| {
+                (key, (timestamp, value))
+            })?
+            .group_by_key_named(&format!("{key}/group"))?
+            .map_named(&format!("{key}/select"), |(key, values)| {
+                let mut values = values.into_iter();
+                let (mut latest_timestamp, mut latest_value) =
+                    values.next().expect("GroupByKey emits nonempty groups");
+                for (timestamp, value) in values {
+                    if timestamp > latest_timestamp {
+                        latest_timestamp = timestamp;
+                        latest_value = value;
                     }
-                } else {
-                    indices.insert(scope, rows.len());
-                    rows.push((row_key, row_value, timestamp_ns, window, assigned_window));
                 }
-            }
-            Ok(rows
-                .into_iter()
-                .map(
-                    |(key, value, timestamp_ns, window, assigned_window)| Envelope {
-                        value: Box::new((key, value)),
-                        timestamp_ns,
-                        window,
-                        assigned_window,
-                    },
-                )
-                .collect())
-        });
-        self.next_aggregate(
-            key,
-            Operation::GroupByKey,
-            Vec::new(),
-            parent.boundedness,
-            aggregate,
-            None,
-        )
+                (latest_timestamp, (key, latest_value))
+            })?
+            .restore_reified_timestamp_named(key)
     }
     pub fn group_by_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error> {
         let parent = self.parent()?;
