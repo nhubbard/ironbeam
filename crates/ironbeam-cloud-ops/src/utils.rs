@@ -179,7 +179,7 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if any chunk processing operation fails
+/// Returns an error if `chunk_size` is zero or any chunk processing operation fails.
 pub fn batch_in_chunks<T, R, F>(
     items: &[T],
     chunk_size: usize,
@@ -189,6 +189,12 @@ where
     T: Clone,
     F: FnMut(Vec<T>) -> CloudResult<Vec<R>>,
 {
+    if chunk_size == 0 {
+        return Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            "batch chunk size must be positive",
+        ));
+    }
     let mut results = Vec::new();
 
     for chunk in items.chunks(chunk_size) {
@@ -222,7 +228,8 @@ impl Default for PaginationConfig {
 /// Helper for paginating through results
 ///
 /// Many cloud APIs return paginated results. This helper automatically
-/// fetches all pages and combines them.
+/// fetches all pages and combines them. An empty page can still have a
+/// continuation, so it does not end the scan while `has_more` is true.
 ///
 /// # Example
 /// ```ignore
@@ -234,28 +241,31 @@ impl Default for PaginationConfig {
 ///
 /// # Errors
 ///
-/// Returns an error if any page fetch operation fails
+/// Returns an error if the page size or maximum page count is zero, the page
+/// index overflows, or any page fetch operation fails.
 pub fn paginate<T, F>(config: &PaginationConfig, mut fetch_page: F) -> CloudResult<Vec<T>>
 where
     F: FnMut(u32, u32) -> CloudResult<(Vec<T>, bool)>, // Returns (items, has_more)
 {
+    if config.page_size == 0 || config.max_pages == Some(0) {
+        return Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            "page size and maximum page count must be positive",
+        ));
+    }
     let mut all_items = Vec::new();
     let mut page = 0;
 
     loop {
         let (items, has_more) = fetch_page(page, config.page_size)?;
 
-        if items.is_empty() {
-            break;
-        }
-
         all_items.extend(items);
-        page += 1;
-
         if !has_more {
             break;
         }
-
+        page = page.checked_add(1).ok_or_else(|| {
+            CloudIOError::new(ErrorKind::InvalidInput, "page index exceeded u32 range")
+        })?;
         if let Some(max_pages) = config.max_pages
             && page >= max_pages
         {

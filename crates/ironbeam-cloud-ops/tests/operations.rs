@@ -77,6 +77,35 @@ fn pagination_and_context_keep_page_and_operation_metadata() {
 }
 
 #[test]
+fn pagination_follows_empty_continuations_and_rejects_zero_limits() {
+    let mut seen = Vec::new();
+    let values = paginate(&PaginationConfig::default(), |page, _| {
+        seen.push(page);
+        Ok((if page == 0 { vec![] } else { vec![7] }, page == 0))
+    })
+    .unwrap();
+    assert_eq!(seen, [0, 1]);
+    assert_eq!(values, [7]);
+
+    for config in [
+        PaginationConfig {
+            page_size: 0,
+            max_pages: None,
+        },
+        PaginationConfig {
+            page_size: 1,
+            max_pages: Some(0),
+        },
+    ] {
+        let error = paginate(&config, |_, _| -> CloudResult<(Vec<i32>, bool)> {
+            panic!("invalid pagination must not call the provider")
+        })
+        .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::InvalidInput);
+    }
+}
+
+#[test]
 fn batch_and_cloud_wrappers_preserve_item_order() {
     let source = [1, 2, 3, 4, 5];
     let chunks = batch_in_chunks(&source, 2, Ok).unwrap();
@@ -105,6 +134,25 @@ fn batch_and_cloud_wrappers_preserve_item_order() {
     })
     .unwrap();
     assert_eq!(pages, [0]);
+}
+
+#[test]
+fn batch_helpers_reject_zero_chunk_size_before_invoking_provider() {
+    let error = batch_in_chunks(&[1], 0, |_| -> CloudResult<Vec<i32>> {
+        panic!("invalid batch must not call the provider")
+    })
+    .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::InvalidInput);
+    let error = run_batch_operation(
+        &[1],
+        &BatchConfig {
+            chunk_size: 0,
+            parallel: false,
+        },
+        |_| -> CloudResult<Vec<i32>> { panic!("invalid batch must not call the provider") },
+    )
+    .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::InvalidInput);
 }
 
 #[test]

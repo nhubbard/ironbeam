@@ -255,12 +255,12 @@
   "ironbeam-cloud-ops": {
     "source": "crates/ironbeam-cloud-ops/src",
     "lines": {
-      "covered": 161,
-      "count": 235
+      "covered": 165,
+      "count": 240
     },
     "branches": {
-      "covered": 25,
-      "count": 34
+      "covered": 30,
+      "count": 38
     }
   },
   "ironbeam-coder-postcard": {

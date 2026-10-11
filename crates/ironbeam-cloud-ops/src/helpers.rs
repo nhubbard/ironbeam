@@ -282,7 +282,7 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if any batch operation fails
+/// Returns an error if the chunk size is zero or any batch operation fails.
 pub fn run_batch_operation<T, R, F>(
     items: &[T],
     config: &BatchConfig,
@@ -339,7 +339,7 @@ impl Default for BatchConfig {
 ///
 /// # Errors
 ///
-/// Returns an error if any page fetch operation fails
+/// Returns an error if pagination settings are invalid or any page fetch fails.
 pub fn run_paginated_operation<T, F>(
     config: &PaginationConfig,
     fetch_page: F,
