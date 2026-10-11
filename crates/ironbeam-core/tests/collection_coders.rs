@@ -2,6 +2,24 @@ use ironbeam_core::{Element, Error, ErrorKind};
 use std::collections::{HashMap, HashSet};
 
 #[test]
+fn encoded_lengths_match_nested_wire_shapes_used_for_output_budgets() {
+    let values = vec![
+        (7_u32, Some("éclair".to_string()), vec![true, false]),
+        (8_u32, None, vec![]),
+    ];
+    assert_eq!(values.encoded_len().unwrap(), values.encode().unwrap().len());
+    assert_eq!(
+        (1_u32, (2_u64, "text".to_string()))
+            .encoded_len()
+            .unwrap(),
+        (1_u32, (2_u64, "text".to_string()))
+            .encode()
+            .unwrap()
+            .len()
+    );
+}
+
+#[test]
 fn set_and_map_coders_ignore_hash_iteration_order() {
     let a: HashSet<i32> = [3, 1, 2].into_iter().collect();
     let b: HashSet<i32> = [2, 3, 1].into_iter().collect();

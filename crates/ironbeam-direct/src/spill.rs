@@ -115,7 +115,7 @@ impl<T: Element> OutputStore<T> {
     }
     pub(crate) fn push(&mut self, value: T) -> Result<(), Error> {
         let size = if T::supports_coder() {
-            value.encode()?.len().max(std::mem::size_of::<T>()).max(1)
+            value.encoded_len()?.max(std::mem::size_of::<T>()).max(1)
         } else {
             std::mem::size_of::<T>().max(1)
         };

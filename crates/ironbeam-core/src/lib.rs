@@ -42,6 +42,10 @@ pub trait Element: Send + 'static {
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"))
     }
+    /// Exact encoded byte length. Override when it can be computed without allocating.
+    fn encoded_len(&self) -> Result<usize, Error> {
+        Ok(self.encode()?.len())
+    }
     fn decode(_bytes: &[u8]) -> Result<Self, Error>
     where
         Self: Sized,
@@ -59,6 +63,9 @@ macro_rules! integer_element {
             }
             fn encode(&self) -> Result<Vec<u8>, Error> {
                 Ok(self.to_le_bytes().to_vec())
+            }
+            fn encoded_len(&self) -> Result<usize, Error> {
+                Ok($size)
             }
             fn decode(bytes: &[u8]) -> Result<Self, Error> {
                 let array: [u8; $size] = bytes
@@ -88,6 +95,9 @@ impl Element for bool {
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![u8::from(*self)])
     }
+    fn encoded_len(&self) -> Result<usize, Error> {
+        Ok(1)
+    }
     fn decode(bytes: &[u8]) -> Result<Self, Error> {
         match bytes {
             [0] => Ok(false),
@@ -105,6 +115,9 @@ impl Element for String {
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Ok(self.as_bytes().to_vec())
     }
+    fn encoded_len(&self) -> Result<usize, Error> {
+        Ok(self.len())
+    }
     fn decode(bytes: &[u8]) -> Result<Self, Error> {
         Self::from_utf8(bytes.to_vec())
             .map_err(|_| Error::incompatible("invalid UTF-8 coder value"))
@@ -115,6 +128,11 @@ fn encode_part(bytes: &[u8], output: &mut Vec<u8>) {
     let length = bytes.len() as u64;
     output.extend_from_slice(&length.to_le_bytes());
     output.extend_from_slice(bytes);
+}
+fn checked_encoded_add(total: usize, part: usize) -> Result<usize, Error> {
+    total
+        .checked_add(part)
+        .ok_or_else(|| Error::resource("coder", "encoded length overflow"))
 }
 fn decode_part<'a>(bytes: &mut &'a [u8]) -> Result<&'a [u8], Error> {
     let prefix = bytes
@@ -171,6 +189,14 @@ impl<T: Element> Element for Vec<T> {
         }
         Ok(output)
     }
+    fn encoded_len(&self) -> Result<usize, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        self.iter().try_fold(8, |total, value| {
+            checked_encoded_add(total, checked_encoded_add(8, value.encoded_len()?)?)
+        })
+    }
     fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
         if !Self::supports_coder() {
             return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
@@ -217,6 +243,15 @@ impl<T: Element> Element for Option<T> {
             }
         }
     }
+    fn encoded_len(&self) -> Result<usize, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        match self {
+            None => Ok(1),
+            Some(value) => checked_encoded_add(1, value.encoded_len()?),
+        }
+    }
     fn decode(bytes: &[u8]) -> Result<Self, Error> {
         if !Self::supports_coder() {
             return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
@@ -253,6 +288,14 @@ impl<A: Element, B: Element> Element for (A, B) {
         encode_part(&self.1.encode()?, &mut output);
         Ok(output)
     }
+    fn encoded_len(&self) -> Result<usize, Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        let first = checked_encoded_add(8, self.0.encoded_len()?)?;
+        let second = checked_encoded_add(8, self.1.encoded_len()?)?;
+        checked_encoded_add(first, second)
+    }
     fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
         if !Self::supports_coder() {
             return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
@@ -287,6 +330,14 @@ macro_rules! impl_tuple_element {
                 let mut bytes = Vec::new();
                 $(encode_part(&self.$index.encode()?, &mut bytes);)+
                 Ok(bytes)
+            }
+            fn encoded_len(&self) -> Result<usize, Error> {
+                if !Self::supports_coder() {
+                    return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+                }
+                let mut total = 0;
+                $(total = checked_encoded_add(total, checked_encoded_add(8, self.$index.encoded_len()?)?)?;)+
+                Ok(total)
             }
             fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
                 if !Self::supports_coder() {
