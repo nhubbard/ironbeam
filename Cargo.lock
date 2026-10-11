@@ -2194,6 +2194,7 @@ dependencies = [
  "ironbeam-io-sql",
  "ironbeam-io-tfrecord",
  "ironbeam-io-xml",
+ "ironbeam-testing",
  "ironbeam-transform-approx",
  "ironbeam-transform-regex",
  "ironbeam-transforms",
