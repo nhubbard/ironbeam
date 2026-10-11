@@ -363,6 +363,18 @@ staged locally.
    the latest value for two keys with the selected timestamps and fixed-window
    intervals intact; the complete four-test Prism suite passes. Equal-time
    ties are first-seen in Direct, while portable shuffle order is not stable.
+   Direct now specializes the private keyed-latest grouping fold to keep one
+   candidate per key and window; a unit test saves and restores that fold
+   state. Timestamp capture and selection each use one graph node, and the
+   updated local Prism fixture still reaches `DONE`. The 100,000-row,
+   100-key v4/v5 benchmark corpus produces the same 100 rows and checksum
+   9,994,950. In a 10-run local sample, v5's median was 13.926 ms against
+   v4's 0.784 ms, so keyed-latest latency remains a release performance gap.
+   The standalone fold state test does not prove in-progress recovery of the
+   entire keyed-latest output route. The full local package gate passed after
+   the initial portable change; this later optimization has the full root
+   workspace test suite, strict core/Direct lint, and the live Prism fixture
+   verified separately.
    `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
    typed tagged-value coder contracts for their inputs. Tests cover
    heterogeneous values, empty groups, and invalid tags. The translator now

@@ -4094,31 +4094,11 @@ impl<T: Element> PCollection<(i64, T)> {
         let assigned = self.assign_timestamps_named(&format!("{key}/assign"), |pair| pair.0)?;
         assigned.map_named(key, |(_, value)| value)
     }
-
-    fn restore_reified_timestamp_named(&self, key: &str) -> Result<PCollection<T>, Error> {
-        let key_owned = key.to_owned();
-        let transform = Transform::Single(Arc::new(move |event| {
-            let Envelope {
-                value,
-                window,
-                assigned_window,
-                ..
-            } = event;
-            let (timestamp_ns, value) = *value.downcast::<(i64, T)>().map_err(|_| {
-                Error::execution(&key_owned, "direct", "reified timestamp type mismatch")
-            })?;
-            Ok(Some(Envelope {
-                value: Box::new(value),
-                timestamp_ns,
-                window,
-                assigned_window,
-            }))
-        }));
-        self.next(key, Operation::Map, Some(transform), None)
-    }
 }
 
 type GroupBuffer<K, V> = Vec<(K, Vec<V>, i64, Window, Option<WindowInterval>)>;
+type ReifiedKeyedValue<K, V> = (K, (i64, V));
+type LatestGroupBuffer<K, V> = Vec<(K, (i64, V), i64, Window, Option<WindowInterval>)>;
 enum JoinPositions {
     One(usize),
     Many(Vec<usize>),
@@ -4341,6 +4321,138 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         for (key, values, timestamp_ns, window, assigned_window) in self.groups {
             emit(Envelope {
                 value: Box::new((key, values)),
+                timestamp_ns,
+                window,
+                assigned_window,
+            })?;
+        }
+        Ok(())
+    }
+}
+
+// This fold is used only by latest_per_key's private GroupByKey node. Beam
+// performs the ordinary shuffle; Direct can discard older values as they
+// arrive instead of retaining every member of each group.
+struct LatestPerKeyFoldState<K, V> {
+    key: String,
+    indices: HashMap<(K, Option<WindowInterval>), usize>,
+    groups: LatestGroupBuffer<K, V>,
+}
+
+const LATEST_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 2, minor: 0 };
+
+impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFoldState<K, V> {
+    fn add(&mut self, event: Envelope) -> Result<(), Error> {
+        let Envelope {
+            value,
+            timestamp_ns,
+            window,
+            assigned_window,
+        } = event;
+        let (group_key, candidate) = *value.downcast::<(K, (i64, V))>().map_err(|_| {
+            Error::execution(&self.key, "direct", "latest group input type mismatch")
+        })?;
+        let scope = (group_key.clone(), assigned_window);
+        if let Some(&index) = self.indices.get(&scope) {
+            if candidate.0 > self.groups[index].1.0 {
+                self.groups[index].1 = candidate;
+            }
+        } else {
+            self.indices.insert(scope, self.groups.len());
+            self.groups
+                .push((group_key, candidate, timestamp_ns, window, assigned_window));
+        }
+        Ok(())
+    }
+
+    fn checkpoint_state(&self) -> Result<Option<Vec<u8>>, Error> {
+        if !<(K, Vec<(i64, V)>) as Element>::supports_coder() {
+            return Ok(None);
+        }
+        let groups = self
+            .groups
+            .iter()
+            .map(|(key, value, timestamp_ns, window, assigned_window)| {
+                Ok(GroupFoldCheckpointRow {
+                    key: key.encode()?,
+                    values: value.encode()?,
+                    timestamp_ns: *timestamp_ns,
+                    window: window.clone(),
+                    assigned_window: *assigned_window,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        serde_json::to_vec(&GroupFoldCheckpoint {
+            version: LATEST_GROUP_FOLD_CHECKPOINT_VERSION,
+            key_coder: K::coder_identity(),
+            value_coder: <(i64, V) as Element>::coder_identity(),
+            groups,
+        })
+        .map(Some)
+        .map_err(|error| Error::recovery(&self.key, error.to_string()))
+    }
+
+    fn restore_checkpoint_state(&mut self, state: &[u8]) -> Result<(), Error> {
+        if !self.groups.is_empty() {
+            return Err(Error::recovery(&self.key, "fold already contains input"));
+        }
+        let checkpoint: GroupFoldCheckpoint = serde_json::from_slice(state)
+            .map_err(|error| Error::recovery(&self.key, error.to_string()))?;
+        if checkpoint.version != LATEST_GROUP_FOLD_CHECKPOINT_VERSION {
+            return Err(Error::incompatible(
+                "latest group checkpoint version mismatch",
+            ));
+        }
+        if checkpoint.key_coder != K::coder_identity()
+            || checkpoint.value_coder != <(i64, V) as Element>::coder_identity()
+        {
+            return Err(Error::incompatible(
+                "latest group checkpoint coder mismatch",
+            ));
+        }
+        for row in checkpoint.groups {
+            let key = K::decode(&row.key)?;
+            let value = <(i64, V)>::decode(&row.values)?;
+            let scope = (key.clone(), row.assigned_window);
+            if self.indices.insert(scope, self.groups.len()).is_some() {
+                return Err(Error::recovery(
+                    &self.key,
+                    "duplicate latest group in checkpoint",
+                ));
+            }
+            self.groups.push((
+                key,
+                value,
+                row.timestamp_ns,
+                row.window,
+                row.assigned_window,
+            ));
+        }
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error> {
+        Ok(self
+            .groups
+            .into_iter()
+            .map(
+                |(key, value, timestamp_ns, window, assigned_window)| Envelope {
+                    value: Box::new((key, vec![value])),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                },
+            )
+            .collect())
+    }
+
+    fn finish_into(
+        self: Box<Self>,
+        emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        for (key, value, timestamp_ns, window, assigned_window) in self.groups {
+            emit(Envelope {
+                value: Box::new((key, vec![value])),
                 timestamp_ns,
                 window,
                 assigned_window,
@@ -4709,24 +4821,95 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 "unbounded global aggregation requires a finite window",
             ));
         }
-        self.reify_timestamps_named(&format!("{key}/timestamp"))?
-            .map_named(&format!("{key}/keyed"), |(timestamp, (key, value))| {
-                (key, (timestamp, value))
-            })?
-            .group_by_key_named(&format!("{key}/group"))?
-            .map_named(&format!("{key}/select"), |(key, values)| {
-                let mut values = values.into_iter();
-                let (mut latest_timestamp, mut latest_value) =
-                    values.next().expect("GroupByKey emits nonempty groups");
-                for (timestamp, value) in values {
-                    if timestamp > latest_timestamp {
-                        latest_timestamp = timestamp;
-                        latest_value = value;
-                    }
+        let group_key = format!("{key}/group");
+        let grouped = self
+            .reify_keyed_timestamp_named(&format!("{key}/timestamp"))?
+            .group_by_key_named(&group_key)?;
+        let fold_key = group_key.clone();
+        let fold_factory: FoldFactory = Arc::new(move || {
+            Box::new(LatestPerKeyFoldState::<K, V> {
+                key: fold_key.clone(),
+                indices: HashMap::new(),
+                groups: Vec::new(),
+            })
+        });
+        let aggregate_factory = Arc::clone(&fold_factory);
+        let aggregate_key = group_key.clone();
+        let aggregate: Aggregate = Arc::new(move |mut inputs| {
+            let events = inputs.pop().ok_or_else(|| {
+                Error::execution(&aggregate_key, "direct", "latest group input missing")
+            })?;
+            let mut fold = aggregate_factory();
+            for event in events {
+                fold.add(event)?;
+            }
+            fold.finish()
+        });
+        {
+            let mut builder = grouped
+                .pipeline
+                .inner
+                .lock()
+                .map_err(|_| Error::graph(&group_key, "builder lock poisoned"))?;
+            builder
+                .registry
+                .aggregates
+                .insert(group_key.clone(), aggregate);
+            builder.registry.folds.insert(group_key, fold_factory);
+        }
+        let select_key = key.to_owned();
+        let select = Transform::Single(Arc::new(move |event| {
+            let Envelope {
+                value,
+                window,
+                assigned_window,
+                ..
+            } = event;
+            let (group_key, values) = *value.downcast::<(K, Vec<(i64, V)>)>().map_err(|_| {
+                Error::execution(&select_key, "direct", "latest group type mismatch")
+            })?;
+            let mut values = values.into_iter();
+            let (mut latest_timestamp, mut latest_value) = values
+                .next()
+                .ok_or_else(|| Error::execution(&select_key, "direct", "latest group is empty"))?;
+            for (timestamp, value) in values {
+                if timestamp > latest_timestamp {
+                    latest_timestamp = timestamp;
+                    latest_value = value;
                 }
-                (latest_timestamp, (key, latest_value))
-            })?
-            .restore_reified_timestamp_named(key)
+            }
+            Ok(Some(Envelope {
+                value: Box::new((group_key, latest_value)),
+                timestamp_ns: latest_timestamp,
+                window,
+                assigned_window,
+            }))
+        }));
+        grouped.next(key, Operation::Map, Some(select), None)
+    }
+    fn reify_keyed_timestamp_named(
+        &self,
+        key: &str,
+    ) -> Result<PCollection<ReifiedKeyedValue<K, V>>, Error> {
+        let reify_key = key.to_owned();
+        let transform = Transform::Single(Arc::new(move |event| {
+            let Envelope {
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let (group_key, value) = *value.downcast::<(K, V)>().map_err(|_| {
+                Error::execution(&reify_key, "direct", "latest input type mismatch")
+            })?;
+            Ok(Some(Envelope {
+                value: Box::new((group_key, (timestamp_ns, value))),
+                timestamp_ns,
+                window,
+                assigned_window,
+            }))
+        }));
+        self.next(key, Operation::Map, Some(transform), None)
     }
     pub fn group_by_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error> {
         let parent = self.parent()?;

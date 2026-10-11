@@ -1680,6 +1680,58 @@ fn grouped_tuple_coder_exposes_beam_key_and_value_halves() {
 }
 
 #[test]
+fn latest_per_key_direct_fold_keeps_one_value_and_restores_checkpoint() {
+    fn event(key: &str, timestamp: i64, value: i32) -> Envelope {
+        Envelope {
+            value: Box::new((key.to_owned(), (timestamp, value))),
+            timestamp_ns: timestamp,
+            window: Window::Global,
+            assigned_window: None,
+        }
+    }
+
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .from_vec("source", Vec::<(String, i32)>::new())
+        .unwrap();
+    source
+        .map_named("ordinary-keyed", |(key, value)| (key, (1_i64, value)))
+        .unwrap()
+        .group_by_key_named("ordinary-group")
+        .unwrap();
+    source.latest_per_key_named("latest").unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut ordinary = registry.open_fold("ordinary-group").unwrap();
+    ordinary.add(event("a", 1, 7)).unwrap();
+    let ordinary_checkpoint = ordinary.checkpoint_state().unwrap().unwrap();
+    let mut fold = registry.open_fold("latest/group").unwrap();
+    fold.add(event("a", 1, 7)).unwrap();
+    fold.add(event("a", 2, 8)).unwrap();
+    fold.add(event("b", 1, 9)).unwrap();
+    let checkpoint = fold.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("latest/group").unwrap();
+    assert!(restored.restore_checkpoint_state(b"invalid").is_err());
+    assert!(
+        restored
+            .restore_checkpoint_state(&ordinary_checkpoint)
+            .is_err()
+    );
+    restored.restore_checkpoint_state(&checkpoint).unwrap();
+    restored.add(event("a", 3, 10)).unwrap();
+    restored.add(event("a", 3, 11)).unwrap();
+    let rows = restored
+        .finish()
+        .unwrap()
+        .into_iter()
+        .map(|event| *event.value.downcast::<(String, Vec<(i64, i32)>)>().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        vec![("a".into(), vec![(3, 10)]), ("b".into(), vec![(1, 9)])]
+    );
+}
+
+#[test]
 fn multi_input_validation_rejects_descriptor_and_topology_corruption() {
     let pipeline = Pipeline::default();
     let left = pipeline.from_vec("left", vec![(1_i32, 2_i32)]).unwrap();
