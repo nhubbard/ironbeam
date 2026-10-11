@@ -1,25 +1,20 @@
-//! Comprehensive combiners showcase.
+//! Basic, statistical, top-K, sampling, and global combiners on the v5 graph.
 //!
-//! Demonstrates all built-in combiners:
-//! - Basic: `Count`, `Sum`, `Min`, `Max`, `Average`
-//! - Statistical: Quantiles (`TDigest`), `DistinctCount`
-//! - `TopK`: Finding top N items
-//! - Sampling: Reservoir sampling
-//!
-//! Run with: `cargo run --example combiners_showcase`
+//! Run with `cargo run --example combiners_showcase`.
 
 use anyhow::Result;
-use ironbeam::combiners::{ApproxQuantiles, AverageF64, DistinctCount, Max, Min, Sum};
-use ironbeam::{Count, OrdF64, Pipeline, from_vec};
+use ironbeam::v5::{OrdF64, Pipeline, prelude::*};
+use std::collections::BTreeMap;
 
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 fn main() -> Result<()> {
     println!("🎯 Combiners Showcase Example\n");
-
     let pipeline = Pipeline::default();
-
-    // Sample e-commerce transaction data
-    let transactions = vec![
+    let transactions = [
         ("Electronics", 599.99),
         ("Books", 19.99),
         ("Electronics", 1299.99),
@@ -31,186 +26,163 @@ fn main() -> Result<()> {
         ("Clothing", 39.99),
         ("Electronics", 449.99),
     ];
-
-    let data = from_vec(
-        &pipeline,
+    let data = pipeline.from_vec(
+        "transactions",
         transactions
-            .iter()
-            .map(|(cat, price)| ((*cat).to_string(), *price))
+            .into_iter()
+            .map(|(category, price)| (category.to_string(), price))
             .collect(),
-    );
+    )?;
 
-    // =============================================================================
-    // Basic Combiners
-    // =============================================================================
     println!("📊 BASIC COMBINERS\n");
-
-    // Count per category
-    let counts = data.clone().combine_values(Count);
+    let counts: BTreeMap<_, _> = data
+        .count_per_key_named("count-group", "count-result")?
+        .collect_seq()?
+        .into_iter()
+        .collect();
+    assert_eq!(
+        counts,
+        BTreeMap::from([
+            ("Books".to_string(), 3),
+            ("Clothing".to_string(), 3),
+            ("Electronics".to_string(), 4),
+        ])
+    );
     println!("Transaction Counts by Category:");
-    for (category, count) in counts.collect_seq_sorted()? {
+    for (category, count) in &counts {
         println!("  {category}: {count} transactions");
     }
 
-    // Sum (total revenue) per category
-    let totals = data.clone().combine_values(Sum::<f64>::default());
+    let totals: BTreeMap<_, _> = data
+        .sum_per_key_named("revenue-group")?
+        .collect_seq()?
+        .into_iter()
+        .collect();
     println!("\nTotal Revenue by Category:");
-    let mut total_results = totals.collect_seq()?;
-    total_results.sort_by_key(|(cat, _)| cat.clone());
-    for (category, total) in total_results {
+    for (category, total) in &totals {
         println!("  {category}: ${total:.2}");
     }
 
-    // Min price per category
-    let mins = data
-        .clone()
-        .map_values(|&price| OrdF64(price))
-        .combine_values(Min::<OrdF64>::new());
-    println!("\nMinimum Price by Category:");
-    let mut min_results = mins.collect_seq()?;
-    min_results.sort_by_key(|(cat, _)| cat.clone());
-    for (category, min) in min_results {
-        println!("  {category}: ${:.2}", min.0);
-    }
-
-    // Max price per category
-    let maxs = data
-        .clone()
-        .map_values(|&price| OrdF64(price))
-        .combine_values(Max::<OrdF64>::new());
-    println!("\nMaximum Price by Category:");
-    let mut max_results = maxs.collect_seq()?;
-    max_results.sort_by_key(|(cat, _)| cat.clone());
-    for (category, max) in max_results {
-        println!("  {}: ${:.2}", category, max.0);
-    }
-
-    // Average price per category
-    let avgs = data.clone().combine_values(AverageF64);
-    println!("\nAverage Price by Category:");
-    let mut avg_results = avgs.collect_seq()?;
-    avg_results.sort_by_key(|(cat, _)| cat.clone());
-    for (category, avg) in avg_results {
-        println!("  {category}: ${avg:.2}");
-    }
-
-    // =============================================================================
-    // TopK Combiner
-    // =============================================================================
-    println!("\n📊 TOP-K COMBINER\n");
-
-    // Get the top 2 highest-priced items per category
-    let top2 = data
-        .clone()
-        .map_values(|&price| OrdF64(price))
-        .top_k_per_key(2);
-    println!("Top 2 Prices by Category:");
-    let mut top2_results = top2.collect_seq()?;
-    top2_results.sort_by_key(|(cat, _)| cat.clone());
-    for (category, prices) in top2_results {
+    let ordered = data.map_values_named("ordered-prices", OrdF64)?;
+    let mins: BTreeMap<_, _> = ordered
+        .min_per_key_named("min-group", "min-result")?
+        .collect_seq()?
+        .into_iter()
+        .collect();
+    let maxs: BTreeMap<_, _> = ordered
+        .max_per_key_named("max-group", "max-result")?
+        .collect_seq()?
+        .into_iter()
+        .collect();
+    let avgs: BTreeMap<_, _> = data
+        .average_per_key_named("average-group", "average-result")?
+        .collect_seq()?
+        .into_iter()
+        .collect();
+    assert_eq!(mins["Books"].0, 14.99);
+    assert_eq!(maxs["Electronics"].0, 1299.99);
+    println!("\nMin, Max, and Average Price by Category:");
+    for category in counts.keys() {
         println!(
-            "  {}: {:?}",
-            category,
+            "  {category}: ${:.2} / ${:.2} / ${:.2}",
+            mins[category].0, maxs[category].0, avgs[category]
+        );
+    }
+
+    println!("\n📊 TOP-K COMBINER\n");
+    let top_two: BTreeMap<_, _> = ordered
+        .top_k_per_key_named("top-two-group", "top-two-result", 2)?
+        .collect_seq()?
+        .into_iter()
+        .collect();
+    assert_eq!(
+        top_two["Electronics"],
+        vec![OrdF64(1299.99), OrdF64(799.99)]
+    );
+    for (category, prices) in &top_two {
+        println!(
+            "  {category}: {:?}",
             prices
                 .iter()
-                .map(|p| format!("${:.2}", p.0))
+                .map(|price| format!("${:.2}", price.0))
                 .collect::<Vec<_>>()
         );
     }
 
-    // =============================================================================
-    // Distinct Count
-    // =============================================================================
     println!("\n📊 DISTINCT COUNT\n");
-
-    // Count distinct price points per category
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let distinct_prices = data
-        .clone()
-        .map_values(|price| (price * 100.0) as u64) // Convert to cents for Ord
-        .combine_values(DistinctCount::<u64>::default());
-
-    println!("Distinct Price Points by Category:");
-    for (category, count) in distinct_prices.collect_seq_sorted()? {
+    let cents = data.map_values_named("prices-in-cents", |price| (price * 100.0) as u64)?;
+    let distinct_prices: BTreeMap<_, _> = cents
+        .distinct_count_per_key_named("distinct-group", "distinct-result")?
+        .collect_seq()?
+        .into_iter()
+        .collect();
+    assert_eq!(distinct_prices, counts);
+    for (category, count) in &distinct_prices {
         println!("  {category}: {count} unique prices");
     }
 
-    // =============================================================================
-    // Approximate Quantiles (TDigest)
-    // =============================================================================
     println!("\n📊 APPROXIMATE QUANTILES (TDigest)\n");
-
-    let quantiles = data
-        .clone()
-        .combine_values(ApproxQuantiles::new(vec![0.25, 0.5, 0.75, 0.95], 100.0));
-
-    println!("Price Quantiles by Category:");
-    let mut quantile_results = quantiles.collect_seq()?;
-    quantile_results.sort_by_key(|(cat, _)| cat.clone());
-    for (category, qs) in quantile_results {
-        println!("  {category}:");
-        println!("    25th percentile: ${:.2}", qs[0]);
-        println!("    50th percentile (median): ${:.2}", qs[1]);
-        println!("    75th percentile: ${:.2}", qs[2]);
-        println!("    95th percentile: ${:.2}", qs[3]);
+    let quantiles: BTreeMap<_, _> = data
+        .approx_quantiles_per_key_named(
+            "quantile-group",
+            "quantile-result",
+            vec![0.25, 0.5, 0.75, 0.95],
+            100.0,
+        )?
+        .collect_seq()?
+        .into_iter()
+        .collect();
+    for (category, values) in &quantiles {
+        assert_eq!(values.len(), 4);
+        assert!(values.windows(2).all(|pair| pair[0] <= pair[1]));
+        println!(
+            "  {category}: 25th ${:.2}, median ${:.2}, 75th ${:.2}, 95th ${:.2}",
+            values[0], values[1], values[2], values[3]
+        );
     }
 
-    // =============================================================================
-    // Reservoir Sampling
-    // =============================================================================
     println!("\n📊 RESERVOIR SAMPLING\n");
-
-    // Sample 2 transactions per category
-    let samples = data.clone().sample_values_reservoir_vec(2, 42);
-
-    println!("Random Sample (2 per category):");
-    let mut sample_results = samples.collect_seq()?;
-    sample_results.sort_by_key(|(cat, _)| cat.clone());
-    for (category, sampled_prices) in sample_results {
+    let samples: BTreeMap<_, _> = data
+        .sample_values_reservoir_vec_named("sample-group", "sample-result", 2, 42)?
+        .collect_seq()?
+        .into_iter()
+        .collect();
+    for (category, prices) in &samples {
+        assert_eq!(prices.len(), 2);
         println!(
-            "  {}: {:?}",
-            category,
-            sampled_prices
+            "  {category}: {:?}",
+            prices
                 .iter()
-                .map(|p: &f64| format!("${p:.2}"))
+                .map(|price| format!("${price:.2}"))
                 .collect::<Vec<_>>()
         );
     }
 
-    // =============================================================================
-    // Global Combiners (across all categories)
-    // =============================================================================
     println!("\n📊 GLOBAL COMBINERS\n");
-
-    let all_prices = data.map(|(_, price)| *price);
-
-    let global_count = all_prices.clone().combine_globally(Count, None);
-    let global_sum = all_prices
-        .clone()
-        .combine_globally(Sum::<f64>::default(), None);
-    let global_avg = all_prices.clone().combine_globally(AverageF64, None);
-    let global_min = all_prices
-        .clone()
-        .map(|&p| OrdF64(p))
-        .combine_globally(Min::<OrdF64>::new(), None);
-    let global_max = all_prices
-        .map(|&p| OrdF64(p))
-        .combine_globally(Max::<OrdF64>::new(), None);
-
+    let all_prices = data.values_named("all-prices")?;
+    let total_count = all_prices
+        .count_globally_named("global-count")?
+        .collect_seq()?;
+    let total_sum = all_prices.sum_globally_named("global-sum")?.collect_seq()?;
+    let overall_average = all_prices
+        .average_globally_named("global-average")?
+        .collect_seq()?;
+    let ordered_global = all_prices.map_named("ordered-global-prices", OrdF64)?;
+    let overall_min = ordered_global
+        .min_globally_named("global-min")?
+        .collect_seq()?;
+    let overall_max = ordered_global
+        .max_globally_named("global-max")?
+        .collect_seq()?;
+    assert_eq!(total_count, vec![10]);
+    assert_eq!(overall_min, vec![OrdF64(14.99)]);
+    assert_eq!(overall_max, vec![OrdF64(1299.99)]);
     println!("Overall Statistics:");
-    println!("  Total transactions: {}", global_count.collect_seq()?[0]);
-    println!("  Total revenue: ${:.2}", global_sum.collect_seq()?[0]);
-    println!("  Average price: ${:.2}", global_avg.collect_seq()?[0]);
-    println!("  Min price: ${:.2}", global_min.collect_seq()?[0].0);
-    println!("  Max price: ${:.2}", global_max.collect_seq()?[0].0);
-
+    println!("  Total transactions: {}", total_count[0]);
+    println!("  Total revenue: ${:.2}", total_sum[0]);
+    println!("  Average price: ${:.2}", overall_average[0]);
+    println!("  Min price: ${:.2}", overall_min[0].0);
+    println!("  Max price: ${:.2}", overall_max[0].0);
     println!("\n✅ Combiners Showcase Complete!");
-    println!("\nKey Concepts:");
-    println!("  • Combiners: Efficient aggregation with associative operations");
-    println!("  • Per-key: Use combine_values() on keyed collections");
-    println!("  • Global: Use combine_globally() for dataset-wide aggregations");
-    println!("  • Lifted: Pre-grouped data can use combine_values_lifted()");
-    println!("  • All combiners work in both sequential and parallel modes");
-
     Ok(())
 }

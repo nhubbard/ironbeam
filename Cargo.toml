@@ -192,7 +192,7 @@ required-features = ["v5-preview"]
 
 [[example]]
 name = "combiners_showcase"
-required-features = ["legacy-v4"]
+required-features = ["v5-preview"]
 
 [[example]]
 name = "compressed_io"
