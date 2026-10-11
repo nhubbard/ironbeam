@@ -88,8 +88,12 @@ staged locally.
   with values in two fixed windows that is globally materialized to match
   Direct's side-view behavior,
   native Reshuffle in global and fixed windows,
-  and twenty-four terminal
-  append sinks. User-defined records pass through both the extracted file JSONL
+  and twenty-five terminal
+  append sinks. One sink commits a pending fragment and accepts it only after
+  Prism's `FinalizeBundle` callback; the live proof verifies all three rows and
+  leaves no pending fragments. The translator requires an immediate Reshuffle
+  before a finalized sink, since a fused stage reached `DONE` without delivering
+  that callback. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
   launched worker. The live job also reads a native Avro container written
@@ -271,6 +275,9 @@ staged locally.
    332/384 branches (86.46%), passing both current CI ratios. This remains
    a coverage quality review gate rather than a claim of complete unit tests;
    untested validation and capability branches still need review.
+   The finalization adapter and fail-closed tests raised the fresh combined
+   core/Direct/transforms corpus to 2,297/2,384 source locations (96.35%) and
+   346/394 branches (87.82%), above both unchanged CI thresholds.
 2. **Portable feature corpus:** The v5 translator now supports bounded,
    global-window `group_by_key_named` through native Beam KV/iterable coders
    and a live Prism shuffle proof. Its keyed input can also feed an ordinary
@@ -341,13 +348,16 @@ staged locally.
 5. **Execution proof:** The user chose local Prism proof for now. On
    2026-10-10, the opt-in `ironbeam-prism-proof` test passed against a real
    local Prism JobService. It passed again on 2026-10-11 after the core coder
-   and Direct changes, and after the object source migrated to the URI adapter;
+   and Direct changes, after the object source migrated to the URI adapter,
+   and with an actual `FinalizeBundle` callback for a pending sink fragment;
    the Prism service was stopped afterward. That fixture
    checks completed jobs and captured
    values for its bounded sources and sinks, JSONL, Avro, CSV, protobuf,
    object-backed JSONL, Flatten, grouping, joins, side input, Reshuffle,
    event-time assignment, and fixed windows. Its object-backed fixture uses
    a shared local filesystem, so it does not prove remote staging.
+   This callback proof does not yet assemble accepted fragments into one
+   whole-job result or recover a pending finalizer after worker restart.
    No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.

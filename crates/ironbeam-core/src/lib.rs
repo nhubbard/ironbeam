@@ -1695,17 +1695,34 @@ pub trait SinkSession: Send {
     fn write(&mut self, event: Envelope) -> Result<(), Error>;
     fn commit(&mut self) -> Result<(), Error>;
     fn abort(&mut self) -> Result<(), Error>;
+    /// Whether this committed bundle needs a runner callback before its side
+    /// effect is considered accepted.
+    fn requires_bundle_finalization(&self) -> bool {
+        false
+    }
+    /// Complete a previously committed bundle after the runner accepts it.
+    /// Implementations must make retries idempotent.
+    fn finalize_bundle(&mut self) -> Result<(), Error> {
+        Err(Error::unsupported("sink", "runner", "bundle-finalization"))
+    }
 }
 pub trait TypedSink<T: Element>: Send {
     fn write(&mut self, value: T) -> Result<(), Error>;
     fn commit(&mut self) -> Result<(), Error>;
     fn abort(&mut self) -> Result<(), Error>;
+    fn requires_bundle_finalization(&self) -> bool {
+        false
+    }
+    fn finalize_bundle(&mut self) -> Result<(), Error> {
+        Err(Error::unsupported("sink", "runner", "bundle-finalization"))
+    }
 }
 type SinkFactory = Arc<dyn Fn() -> Result<Box<dyn SinkSession>, Error> + Send + Sync>;
 #[derive(Clone)]
 struct SinkRegistration {
     factory: SinkFactory,
     config_digest: Option<String>,
+    bundle_finalization: bool,
 }
 struct SinkAdapter<T: Element> {
     key: String,
@@ -1724,6 +1741,12 @@ impl<T: Element> SinkSession for SinkAdapter<T> {
     }
     fn abort(&mut self) -> Result<(), Error> {
         self.inner.abort()
+    }
+    fn requires_bundle_finalization(&self) -> bool {
+        self.inner.requires_bundle_finalization()
+    }
+    fn finalize_bundle(&mut self) -> Result<(), Error> {
+        self.inner.finalize_bundle()
     }
 }
 
@@ -2158,6 +2181,10 @@ impl Registry {
         self.sinks
             .get(key)
             .and_then(|sink| sink.config_digest.as_deref())
+    }
+    #[must_use]
+    pub fn sink_requires_bundle_finalization(&self, key: &str) -> bool {
+        self.sinks.get(key).is_some_and(|sink| sink.bundle_finalization)
     }
     pub fn open_sink(&self, key: &str) -> Result<Box<dyn SinkSession>, Error> {
         let sink = self
@@ -3030,7 +3057,7 @@ impl<T: Element> PCollection<T> {
         spec: SinkSpec,
         open: impl Fn() -> Result<Box<dyn TypedSink<T>>, Error> + Send + Sync + 'static,
     ) -> Result<Sink<T>, Error> {
-        self.sink_named_inner(key, spec, None, open)
+        self.sink_named_inner(key, spec, None, false, open)
     }
 
     /// Register a sink with a stable digest of its destination and options.
@@ -3046,7 +3073,22 @@ impl<T: Element> PCollection<T> {
         if config_digest.is_empty() {
             return Err(Error::graph(key, "sink configuration digest is required"));
         }
-        self.sink_named_inner(key, spec, Some(config_digest), open)
+        self.sink_named_inner(key, spec, Some(config_digest), false, open)
+    }
+
+    /// Register a sink whose bundle commit must be confirmed by the runner.
+    /// The session returned by `open` must also declare finalization support.
+    pub fn sink_named_with_config_and_finalization(
+        &self,
+        key: &str,
+        spec: SinkSpec,
+        config_digest: String,
+        open: impl Fn() -> Result<Box<dyn TypedSink<T>>, Error> + Send + Sync + 'static,
+    ) -> Result<Sink<T>, Error> {
+        if config_digest.is_empty() || !spec.commit {
+            return Err(Error::graph(key, "finalized sink needs a digest and commit"));
+        }
+        self.sink_named_inner(key, spec, Some(config_digest), true, open)
     }
 
     fn sink_named_inner(
@@ -3054,6 +3096,7 @@ impl<T: Element> PCollection<T> {
         key: &str,
         spec: SinkSpec,
         config_digest: Option<String>,
+        bundle_finalization: bool,
         open: impl Fn() -> Result<Box<dyn TypedSink<T>>, Error> + Send + Sync + 'static,
     ) -> Result<Sink<T>, Error> {
         let parent = self.parent()?;
@@ -3093,6 +3136,7 @@ impl<T: Element> PCollection<T> {
             Some(SinkRegistration {
                 factory,
                 config_digest,
+                bundle_finalization,
             }),
             None,
         )?;

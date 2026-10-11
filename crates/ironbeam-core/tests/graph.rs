@@ -1012,6 +1012,77 @@ fn bounded_source_and_deferred_sink_registry_contract() {
 }
 
 #[test]
+fn sink_session_exposes_bundle_finalization_through_typed_adapter() {
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+
+    struct Finalizable(Arc<AtomicUsize>);
+    impl TypedSink<i32> for Finalizable {
+        fn write(&mut self, _: i32) -> Result<(), Error> { Ok(()) }
+        fn commit(&mut self) -> Result<(), Error> { Ok(()) }
+        fn abort(&mut self) -> Result<(), Error> { Ok(()) }
+        fn requires_bundle_finalization(&self) -> bool { true }
+        fn finalize_bundle(&mut self) -> Result<(), Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    let completed = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![1_i32]).unwrap();
+    let action = Arc::clone(&completed);
+    input.sink_named_with_config_and_finalization(
+        "sink",
+        SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+        "test-finalizable".into(),
+        move || Ok(Box::new(Finalizable(Arc::clone(&action)))),
+    ).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.sink_requires_bundle_finalization("sink"));
+    let mut session = registry.open_sink("sink").unwrap();
+    assert!(session.requires_bundle_finalization());
+    session.commit().unwrap();
+    session.finalize_bundle().unwrap();
+    assert_eq!(completed.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn unregistered_sink_finalization_fails_closed() {
+    struct Ordinary;
+    impl TypedSink<i32> for Ordinary {
+        fn write(&mut self, _: i32) -> Result<(), Error> { Ok(()) }
+        fn commit(&mut self) -> Result<(), Error> { Ok(()) }
+        fn abort(&mut self) -> Result<(), Error> { Ok(()) }
+    }
+    struct Untyped;
+    impl SinkSession for Untyped {
+        fn write(&mut self, _: Envelope) -> Result<(), Error> { Ok(()) }
+        fn commit(&mut self) -> Result<(), Error> { Ok(()) }
+        fn abort(&mut self) -> Result<(), Error> { Ok(()) }
+    }
+    let mut untyped = Untyped;
+    assert!(!untyped.requires_bundle_finalization());
+    assert!(untyped.finalize_bundle().is_err());
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![1_i32]).unwrap();
+    let spec = SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true };
+    assert!(input.sink_named_with_config("empty", spec.clone(), String::new(),
+        || Ok(Box::new(Ordinary))).is_err());
+    assert!(input.sink_named_with_config_and_finalization("bad", spec.clone(), String::new(),
+        || Ok(Box::new(Ordinary))).is_err());
+    let mut uncommitted = spec.clone();
+    uncommitted.commit = false;
+    assert!(input.sink_named_with_config_and_finalization("no-commit", uncommitted, "digest".into(),
+        || Ok(Box::new(Ordinary))).is_err());
+    input.sink_named_with_config("ordinary", spec, "digest".into(),
+        || Ok(Box::new(Ordinary))).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(!registry.sink_requires_bundle_finalization("ordinary"));
+    let mut session = registry.open_sink("ordinary").unwrap();
+    assert!(!session.requires_bundle_finalization());
+    assert!(session.finalize_bundle().is_err());
+}
+
+#[test]
 fn transform_registry_preserves_time_and_runs_all_aggregates() {
     fn events<T: Element>(values: impl IntoIterator<Item = T>) -> Vec<Envelope> {
         values
