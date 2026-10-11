@@ -48,12 +48,14 @@ staged locally.
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for nineteen bounded sources, including a keyed
+  separately launched v5 worker for twenty bounded sources, including a keyed
   input shared by GroupByKey and an ordinary branch, native Flatten and
   GroupByKey, event-time assignment, native fixed-window assignment with
   offset, per-window GroupByKey, two-, three-, and ten-input CoGroupByKey,
-  fixed-window CoGroupByKey, native Reshuffle in global and fixed windows,
-  and seventeen terminal
+  fixed-window CoGroupByKey, all four join variants with duplicate and
+  unmatched keys, a fixed-window full join that retains input timestamps,
+  native Reshuffle in global and fixed windows,
+  and nineteen terminal
   append sinks. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
@@ -127,7 +129,7 @@ staged locally.
    global-window `group_by_key_named` through native Beam KV/iterable coders
    and a live Prism shuffle proof. Its keyed input can also feed an ordinary
    branch, verified by another sink in that Prism job. It still rejects
-   joins, side inputs, unbounded sources, update sinks, and
+   side inputs, unbounded sources, update sinks, and
    whole-job final-result sinks. Core now registers typed split/reassembly
    coders for actual `group_by_key_named` nodes, distinct from
    `latest_per_key_named`, which uses the same local operation marker.
@@ -138,8 +140,13 @@ staged locally.
    GroupByKey. A live Prism job verifies two and three heterogeneous inputs,
    ten same-typed inputs, shared branches, and fixed-window groups. Intermediate arities use
    the same generated path but lack individual live fixtures. The worker
-   decodes fixed and chunked
-   inline iterables but still rejects Beam state-backed iterables, which
+   also reconstructs per-key left and right events from Beam's tagged
+   shuffle and invokes the same aggregate used by Direct for inner, left,
+   right, and full joins. Tagged join values preserve each input timestamp;
+   the live Prism corpus checks duplicate-key products, unmatched rows,
+   interval windows, and timestamps.
+   The worker decodes fixed and chunked inline iterables but still rejects
+   Beam state-backed iterables, which
    require the Fn State API. Bounded millisecond-aligned fixed windows lower
    to native Beam
    `WindowInto`; the worker carries interval metadata across Fn API boundaries.
