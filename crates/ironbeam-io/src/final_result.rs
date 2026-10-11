@@ -105,6 +105,17 @@ impl LocalFinalResult {
 
     /// Stage one immutable fragment. A conflicting retry cannot overwrite it.
     pub fn stage(&self, bundle_id: &str, rows: u64, payload: &[u8]) -> Result<(), Error> {
+        self.stage_reader(bundle_id, rows, std::io::Cursor::new(payload))
+    }
+
+    /// Stream an immutable fragment without holding its payload in memory.
+    /// A read failure does not create a named pending fragment.
+    pub fn stage_reader(
+        &self,
+        bundle_id: &str,
+        rows: u64,
+        mut payload: impl Read,
+    ) -> Result<(), Error> {
         let pending = self.path(bundle_id, "pending")?;
         let accepted = self.path(bundle_id, "accepted")?;
         fs::create_dir_all(&self.staging).map_err(io)?;
@@ -117,10 +128,26 @@ impl LocalFinalResult {
         temp.write_all(&Sha256::digest(bundle_id.as_bytes()))
             .map_err(io)?;
         temp.write_all(&rows.to_le_bytes()).map_err(io)?;
-        temp.write_all(&(payload.len() as u64).to_le_bytes())
-            .map_err(io)?;
-        temp.write_all(&Sha256::digest(payload)).map_err(io)?;
-        temp.write_all(payload).map_err(io)?;
+        temp.write_all(&[0_u8; 8 + 32]).map_err(io)?;
+        let mut length = 0_u64;
+        let mut digest = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let size = payload.read(&mut buffer).map_err(io)?;
+            if size == 0 {
+                break;
+            }
+            length = length
+                .checked_add(
+                    u64::try_from(size).map_err(|_| invalid("fragment payload length overflow"))?,
+                )
+                .ok_or_else(|| invalid("fragment payload length overflow"))?;
+            digest.update(&buffer[..size]);
+            temp.write_all(&buffer[..size]).map_err(io)?;
+        }
+        temp.as_file_mut().seek(SeekFrom::Start(80)).map_err(io)?;
+        temp.write_all(&length.to_le_bytes()).map_err(io)?;
+        temp.write_all(&digest.finalize()).map_err(io)?;
         temp.as_file().sync_all().map_err(io)?;
         temp.persist_noclobber(&pending).map_err(io)?;
         sync_directory(&self.staging)
@@ -210,6 +237,10 @@ impl LocalFinalResult {
 
     /// Validate and enumerate accepted attempts, sorted by stable attempt ID.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
+        self.scan_fragments(false)
+    }
+
+    fn scan_fragments(&self, require_complete: bool) -> Result<Vec<AcceptedFragment>, Error> {
         let entries = match fs::read_dir(&self.staging) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -218,6 +249,17 @@ impl LocalFinalResult {
         let mut paths = entries
             .map(|entry| entry.map(|entry| entry.path()).map_err(io))
             .collect::<Result<Vec<_>, _>>()?;
+        if require_complete
+            && paths.iter().any(|path| {
+                !path
+                    .extension()
+                    .is_some_and(|extension| extension == "accepted")
+            })
+        {
+            return Err(invalid(
+                "unaccepted or incomplete fragment remains in staging",
+            ));
+        }
         paths.retain(|path| {
             path.extension()
                 .is_some_and(|extension| extension == "accepted")
@@ -250,7 +292,7 @@ impl LocalFinalResult {
         target: impl AsRef<Path>,
         validate: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<PublishedResult, Error> {
-        let fragments = self.accepted_fragments()?;
+        let fragments = self.scan_fragments(true)?;
         let rows = fragments.iter().try_fold(0_u64, |sum, part| {
             sum.checked_add(part.rows)
                 .ok_or_else(|| invalid("fragment row count overflow"))
@@ -393,13 +435,21 @@ mod tests {
         store.stage("bundle", 1, b"bad framing").unwrap();
         store.accept("bundle").unwrap();
         let output = temp.path().join("result.bin");
-        assert!(store
-            .publish_validated_concatenated(1, &output, |_| { Err(invalid("invalid row framing")) })
-            .is_err());
+        assert!(
+            store
+                .publish_validated_concatenated(1, &output, |_| {
+                    Err(invalid("invalid row framing"))
+                })
+                .is_err()
+        );
         assert!(!output.exists());
         let accepted = store.path("bundle", "accepted").unwrap();
         let original = fs::read(&accepted).unwrap();
-        assert!(store.read_fragment(&accepted, Some("another-bundle")).is_err());
+        assert!(
+            store
+                .read_fragment(&accepted, Some("another-bundle"))
+                .is_err()
+        );
         let mut wrong_magic = original.clone();
         wrong_magic[0] = b'X';
         fs::write(&accepted, &wrong_magic).unwrap();
@@ -436,5 +486,61 @@ mod tests {
         let directory = store.path("directory-bundle", "pending").unwrap();
         fs::create_dir(&directory).unwrap();
         assert!(store.abandon("directory-bundle").is_err());
+    }
+
+    #[test]
+    fn streamed_fragments_cross_buffer_boundaries_and_fail_atomically() {
+        struct FailingReader {
+            first: bool,
+        }
+        impl Read for FailingReader {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if !self.first {
+                    return Err(std::io::Error::other("source failed"));
+                }
+                self.first = false;
+                buffer[0] = b'X';
+                Ok(1)
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let store =
+            LocalFinalResult::new(temp.path().join("stage"), "job", "graph", "sink").unwrap();
+        assert!(
+            store
+                .stage_reader("failed", 1, FailingReader { first: true })
+                .is_err()
+        );
+        assert!(!store.path("failed", "pending").unwrap().exists());
+        let payload = vec![b'A'; 150_000];
+        store
+            .stage_reader("large", 1, std::io::Cursor::new(&payload))
+            .unwrap();
+        store.accept("large").unwrap();
+        let output = temp.path().join("large.bin");
+        assert_eq!(
+            store.publish_concatenated(1, &output).unwrap().bytes,
+            payload.len() as u64
+        );
+        assert_eq!(fs::read(output).unwrap(), payload);
+    }
+
+    #[test]
+    fn matching_row_count_cannot_hide_pending_or_orphaned_fragments() {
+        let temp = tempfile::tempdir().unwrap();
+        let store =
+            LocalFinalResult::new(temp.path().join("stage"), "job", "graph", "sink").unwrap();
+        store.stage("accepted", 1, b"one").unwrap();
+        store.accept("accepted").unwrap();
+        store.stage("pending-empty", 0, b"").unwrap();
+        let output = temp.path().join("result.bin");
+        assert!(store.publish_concatenated(1, &output).is_err());
+        assert!(!output.exists());
+        store.abandon("pending-empty").unwrap();
+        let orphan = store.staging.join("orphaned-tempfile");
+        fs::write(&orphan, b"incomplete").unwrap();
+        assert!(store.publish_concatenated(1, &output).is_err());
+        fs::remove_file(orphan).unwrap();
+        assert_eq!(store.publish_concatenated(1, &output).unwrap().rows, 1);
     }
 }
