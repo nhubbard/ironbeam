@@ -1,13 +1,16 @@
 //! `TFRecord` file sources, deferred sinks, and native TensorFlow Example schema for Ironbeam 5.
 #![allow(clippy::missing_errors_doc)]
 
-use ironbeam_core::{Error, PCollection, Pipeline, Sink, TypedSourceIterator};
+use ironbeam_core::{
+    Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, TypedSink, TypedSourceIterator,
+};
 #[cfg(feature = "parallel-io")]
 use ironbeam_io::framed_parallel_sink;
 use ironbeam_io::{
     count_lazy_records, file_glob_source, file_sharded_source, io, lazy_source,
     open_encoded_output, open_lazy_seek, read_lazy_range, sink, source,
 };
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub mod tfrecord_proto;
@@ -63,19 +66,23 @@ fn read_tfrecord(mut bytes: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
     }
     Ok(rows)
 }
-fn write_tfrecord(path: &Path, values: &[Vec<u8>]) -> Result<(), Error> {
-    use std::io::Write;
-    let mut file = open_encoded_output(path, "tfrecord")?;
+fn write_frames(writer: &mut impl Write, values: &[Vec<u8>]) -> Result<(), Error> {
     for value in values {
         let length = (value.len() as u64).to_le_bytes();
-        file.write_all(&length).map_err(|e| io("tfrecord", e))?;
-        file.write_all(&masked_crc(&length).to_le_bytes())
+        writer.write_all(&length).map_err(|e| io("tfrecord", e))?;
+        writer
+            .write_all(&masked_crc(&length).to_le_bytes())
             .map_err(|e| io("tfrecord", e))?;
-        file.write_all(value).map_err(|e| io("tfrecord", e))?;
-        file.write_all(&masked_crc(value).to_le_bytes())
+        writer.write_all(value).map_err(|e| io("tfrecord", e))?;
+        writer
+            .write_all(&masked_crc(value).to_le_bytes())
             .map_err(|e| io("tfrecord", e))?;
     }
     Ok(())
+}
+fn write_tfrecord(path: &Path, values: &[Vec<u8>]) -> Result<(), Error> {
+    let mut file = open_encoded_output(path, "tfrecord")?;
+    write_frames(&mut file, values)
 }
 pub fn tfrecord_source(
     pipeline: &Pipeline,
@@ -171,6 +178,89 @@ pub fn tfrecord_sink(
     path: impl AsRef<Path>,
 ) -> Result<Sink<Vec<u8>>, Error> {
     sink(input, key, path, write_tfrecord)
+}
+
+struct TfrecordAppendSink {
+    path: PathBuf,
+    key: String,
+    values: Vec<Vec<u8>>,
+}
+
+impl TypedSink<Vec<u8>> for TfrecordAppendSink {
+    fn write(&mut self, value: Vec<u8>) -> Result<(), Error> {
+        self.values.push(value);
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        let mut bytes = Vec::new();
+        write_frames(&mut bytes, &self.values)?;
+        let parent = self
+            .path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent).map_err(|error| io(&self.key, error))?;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|error| io(&self.key, error))?;
+        file.write_all(&bytes)
+            .map_err(|error| io(&self.key, error))?;
+        file.flush().map_err(|error| io(&self.key, error))?;
+        self.values.clear();
+        Ok(())
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.values.clear();
+        Ok(())
+    }
+}
+
+/// Append complete `TFRecord` frames at each bundle commit.
+///
+/// Replays may duplicate records. Use `tfrecord_sink` for whole-job replacement.
+/// This local filesystem sink requires a path shared by all workers.
+pub fn tfrecord_append_sink(
+    input: &PCollection<Vec<u8>>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<Vec<u8>>, Error> {
+    let path = path.as_ref().to_path_buf();
+    if path
+        .extension()
+        .and_then(|part| part.to_str())
+        .is_some_and(|part| {
+            matches!(
+                part.to_ascii_lowercase().as_str(),
+                "gz" | "gzip" | "zst" | "zstd" | "bz2" | "xz"
+            )
+        })
+    {
+        return Err(Error::graph(
+            key,
+            "append sink does not support compressed output",
+        ));
+    }
+    let name = key.to_owned();
+    input.sink_named_with_config(
+        key,
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("tfrecord-append:{}", path.display()),
+        move || {
+            Ok(Box::new(TfrecordAppendSink {
+                path: path.clone(),
+                key: name.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
 }
 
 #[cfg(feature = "parallel-io")]

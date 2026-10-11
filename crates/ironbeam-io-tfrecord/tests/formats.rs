@@ -1,8 +1,99 @@
-use ironbeam_core::{Element, ErrorKind, Pipeline};
+use ironbeam_core::{Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
 use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_io_tfrecord::*;
 use prost::Message;
 use std::fs;
+
+#[test]
+fn append_sink_keeps_complete_frames_and_declares_bundle_replay() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rows.tfrecord");
+    let seed = Pipeline::default()
+        .from_vec("seed", vec![b"old".to_vec()])
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &tfrecord_sink(&seed, "write-seed", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec("input", vec![b"new".to_vec(), b"later".to_vec()])
+        .unwrap();
+    let sink = tfrecord_append_sink(&input, "append", &path).unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert!(matches!(
+        &graph.node("append").unwrap().operation,
+        Operation::Sink { spec }
+            if spec.mode == SinkMode::Append && spec.replay == Replay::AtLeastOnce && spec.commit
+    ));
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let output = tfrecord_source(&Pipeline::default(), "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        output.collect_seq().unwrap(),
+        [b"old".to_vec(), b"new".to_vec(), b"later".to_vec()]
+    );
+    assert_eq!(
+        tfrecord_append_sink(&input, "compressed", dir.path().join("rows.tfrecord.gz"))
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+
+    let previous = fs::read(&path).unwrap();
+    let failed = Pipeline::default()
+        .from_vec("failed-input", vec![b"broken".to_vec()])
+        .unwrap()
+        .map_named("fail-before-commit", |_value| -> Vec<u8> {
+            panic!("expected transform failure")
+        })
+        .unwrap();
+    let failed_sink = tfrecord_append_sink(&failed, "failed-append", &path).unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_sink(&failed_sink, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+    assert_eq!(fs::read(&path).unwrap(), previous);
+}
+
+#[test]
+fn append_sink_creates_parent_and_reports_unwritable_destination() {
+    let dir = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![b"one".to_vec()]).unwrap();
+    let nested = dir.path().join("nested").join("rows.tfrecord");
+    DirectRunner
+        .run_sink(
+            &tfrecord_append_sink(&input, "append-nested", &nested).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    assert!(nested.exists());
+
+    let destination_is_directory = dir.path().join("existing-directory");
+    fs::create_dir(&destination_is_directory).unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_sink(
+                &tfrecord_append_sink(&input, "append-directory", &destination_is_directory)
+                    .unwrap(),
+                &JobConfig::default(),
+            )
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+}
 
 #[cfg(feature = "compression-gzip")]
 #[test]

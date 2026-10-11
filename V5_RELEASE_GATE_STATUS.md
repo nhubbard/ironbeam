@@ -72,8 +72,9 @@ staged locally.
   regex and Testcontainers stay out of the v5-only root dependency tree.
   Protobuf is now in
   `ironbeam-io-protobuf` with 93/100 source locations and 16/18 branches
-  measured under all features. TFRecord now has its own crate with 164/179
-  source locations and 16/18 branches. Shared lifecycle I/O measures 265/276
+  measured under all features. TFRecord has its own crate and a bundle-compatible
+  append sink; its all-feature coverage is 209/226 source locations and 18/20
+  branches, above the existing CI ratios. Shared lifecycle I/O measures 265/276
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
@@ -87,7 +88,7 @@ staged locally.
   with values in two fixed windows that is globally materialized to match
   Direct's side-view behavior,
   native Reshuffle in global and fixed windows,
-  and twenty-two terminal
+  and twenty-three terminal
   append sinks. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
@@ -96,10 +97,13 @@ staged locally.
   An extracted CSV source crosses the live Prism worker coder boundary.
   A length-delimited Protobuf file source decodes a typed v5 element, runs a
   transform in the worker, and writes the asserted result through a terminal sink.
-  A TFRecord source now reads a v5 Direct-written record through the separately
+  A TFRecord source reads a v5 Direct-written record through the separately
   launched worker, decodes its Protobuf payload, and writes the asserted
-  transformed row. The TFRecord file sink remains whole-job final-result and
-  is not yet portable across bundles.
+  transformed row. A separate TFRecord append sink writes complete frames in
+  the Prism worker; the v5 reader validates the output bytes and CRCs. This
+  append path has at-least-once replay semantics and needs a shared filesystem.
+  The original whole-job replacement sink still needs a runner-wide commit
+  protocol before it can be portable across bundles.
   CSV globs also lower to multiple source nodes and native Flatten in the
   mock worker contract. The format-heavy live proof now lives in the
   unpublished `ironbeam-prism-proof` package, so the Dataflow runtime package
