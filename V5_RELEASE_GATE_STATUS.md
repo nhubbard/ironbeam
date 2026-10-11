@@ -394,7 +394,7 @@ staged locally.
    the core gates at 2,857/2,972 source locations (96.13%) and 435/492
    branches (88.41%), and passes the transforms gates at 1,163/1,189
    source locations (97.81%) and 108/116 branches (93.10%). Direct source
-   coverage passes at 3,402/3,636 (93.56%) and 724/804 branches (90.05%)
+   coverage passes at 3,427/3,661 (93.61%) and 732/812 branches (90.15%)
    against the unchanged 91% line and 90% branch floors. The exact CI corpus
    passed again after cleaning the instrumented target, and the full workspace
    tests, strict Direct lint, and local gate for all twenty-five v5 packages
@@ -412,6 +412,11 @@ staged locally.
    generic output memory limits, checkpoint directory races, and pair terminal
    validation. The numeric Direct coverage gate now passes; uncovered paths
    still need quality review before declaring complete unit test coverage.
+   Bounded Direct now rejects sinks registered for runner bundle finalization
+   before opening sources or sink sessions. It also probes opened sessions,
+   aborting them if an undeclared finalization requirement or a probe panic is
+   found. Single and paired sink regressions pass, as do the full workspace
+   suite, strict Direct lint, and the clean combined coverage corpus.
    `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
    typed tagged-value coder contracts for their inputs. Tests cover
    heterogeneous values, empty groups, and invalid tags. The translator now
