@@ -340,9 +340,13 @@ staged locally.
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.
 6. **Performance and formatting:** The latest paired 100,000-row source-copy
-   sample measured v5 about 10.1× slower than v4. Typed batch append improved
-   adjacent v5 samples, but a fresh paired release corpus and peak-memory
-   measurement are still needed before calling performance acceptable.
+   sample measured v5 about 15.5× slower than v4, with matching output counts
+   and checksums; other workload ratios are in `V5_PHASE0_BASELINE.md`.
+   Source construction and Direct execution both contribute materially.
+   A paired whole-corpus peak-RSS sample measured 25.8 MiB for v4 and
+   54.4 MiB for v5. A per-operation allocation profile and a defined
+   performance threshold are still needed before calling performance
+   acceptable.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.

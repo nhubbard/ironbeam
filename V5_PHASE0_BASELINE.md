@@ -209,6 +209,21 @@ terminal, and 1.187 ms in Direct execution; the full case was 2.723 ms.
 These phases identify both construction and execution as material costs.
 They are a diagnostic sample, not a new v4/v5 paired result.
 
+After the bounded pair-output change, a new six-run alternating v4/v5 release
+sample at 100,000 rows discarded each version's first run. Five-run medians
+were 0.061/0.936 ms for source copy (15.5×), 0.099/1.158 ms for map/filter
+(11.7×), 0.612/4.135 ms for GroupByKey (6.8×), 11.163/16.154 ms for inner
+join (1.4×), and 3.990/10.665 ms for JSONL round trip (2.7×). Output counts
+and checksums matched in every case. A separate six-run v5 source-copy phase
+sample measured medians of 0.539 ms for source construction, 0.002 ms for
+terminal attachment, and 0.410 ms for Direct execution. Host-load variation
+remains material; these figures characterize the gap rather than set a
+release threshold.
+Six alternating runs of the full 100,000-row corpus under macOS
+`/usr/bin/time -l` gave post-warmup median peak RSS of 25.8 MiB for v4 and 54.4 MiB for v5.
+All five workloads' counts and checksums matched. This is whole-process peak
+memory, not a per-operation allocation profile; the memory gate remains open.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
