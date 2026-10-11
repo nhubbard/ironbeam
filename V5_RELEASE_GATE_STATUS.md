@@ -13,7 +13,7 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 | --- | --- | --- |
 | Workspace | V5-only root source, including with no default features; 28 local packages verify after legacy cloud retirement | Finish public API audit |
 | Direct | V4 reference corpus and v5 helper tests pass | Close public API and edge-case parity |
-| Portable | 18 live local Prism tests pass | Expand shared Direct/Prism corpus |
+| Portable | 19 live local Prism tests pass | Expand shared Direct/Prism corpus |
 | Streaming | A split and accepted batches survive separate worker process restarts in the Fn Data fixture; the production reader also resumes through join and co-group | Prove live Prism worker restart and output recovery |
 | Quality | Coverage floors, formatting, and package checks pass | Set performance limits and run final clean matrix |
 
@@ -60,7 +60,7 @@ below is complete.
 | Local release script | Dependency and feature checks, tests, docs, and verification of 28 packages passed with Mr Boxington after legacy cloud retirement. |
 | Cloud operation coverage | **186/261 source locations** and **34/42 branches** after bounding parallel helper concurrency; both CI ratchets pass. Uncovered utility paths remain in the quality review. |
 | JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** after eager cloud helper migration. |
-| Local Prism | 19 live tests passed across the prior suite and a new failed-bundle proof. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. The multi-source final-result job binds all ten finalized format publishers to completed journal bundle identities and rejects any missing or extra accepted attempt. A separate job failed after staging and left no fragment, journal completion, or published output. |
+| Local Prism | 19 live tests passed across the prior suite and a new failed-bundle proof. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. The multi-source final-result job validates a whole-job manifest against the translated graph's declared sinks, then binds all ten finalized publishers to completed bundle identities and rejects missing or extra accepted attempts. A separate job failed after staging and left no fragment, journal completion, or published output. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch; the full harness suite and warning-free lint pass. |
 | Separate Dataflow workspace | Tests and doctests passed; changed proof package passed warning-free lint. |
 | Clean coverage | Core **96.13% locations / 88.64% branches**; Direct **93.46% / 90.19%**; transforms **97.81% / 93.10%**. Existing floors pass. |
