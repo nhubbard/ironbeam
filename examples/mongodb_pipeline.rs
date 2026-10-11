@@ -21,8 +21,7 @@ impl Element for Person {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let uri = std::env::var("MONGODB_URI")
-        .unwrap_or_else(|_| "mongodb://localhost:27017".into());
+    let uri = std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".into());
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -34,7 +33,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let Ok(client) = mongodb::Client::with_options(options) else {
             return false;
         };
-        client.database("admin").run_command(bson::doc! { "ping": 1 }).await.is_ok()
+        client
+            .database("admin")
+            .run_command(bson::doc! { "ping": 1 })
+            .await
+            .is_ok()
     });
     if !reachable {
         println!("No MongoDB server reachable at {uri}; start one and retry.");
@@ -46,10 +49,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = seed.from_vec(
         "seed-people",
         vec![
-            Person { id: 1, name: "Alice".into(), age: 30 },
-            Person { id: 2, name: "Bob".into(), age: 17 },
-            Person { id: 3, name: "Carol".into(), age: 45 },
-            Person { id: 4, name: "Dave".into(), age: 8 },
+            Person {
+                id: 1,
+                name: "Alice".into(),
+                age: 30,
+            },
+            Person {
+                id: 2,
+                name: "Bob".into(),
+                age: 17,
+            },
+            Person {
+                id: 3,
+                name: "Carol".into(),
+                age: 45,
+            },
+            Person {
+                id: 4,
+                name: "Dave".into(),
+                age: 8,
+            },
         ],
     )?;
     DirectRunner.run_sink(
@@ -77,15 +96,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let verify = Pipeline::default();
-    let mut rows = mongodb_source::<Person>(
-        &verify,
-        "verify",
-        &uri,
-        &database,
-        "adults",
-        bson::doc! {},
-    )?
-    .collect_seq()?;
+    let mut rows =
+        mongodb_source::<Person>(&verify, "verify", &uri, &database, "adults", bson::doc! {})?
+            .collect_seq()?;
     rows.sort_by_key(|person| person.id);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].name, "ALICE");

@@ -19,7 +19,10 @@ impl Element for Order {
     const CODER_ID: &'static str = "examples/sql-order-local";
 }
 
-fn bind_order(mut separated: sqlx::query_builder::Separated<'_, sqlx::Any, &'static str>, row: &Order) {
+fn bind_order(
+    mut separated: sqlx::query_builder::Separated<'_, sqlx::Any, &'static str>,
+    row: &Order,
+) {
     separated
         .push_bind(row.id)
         .push_bind(row.customer.clone())
@@ -29,7 +32,10 @@ fn bind_order(mut separated: sqlx::query_builder::Separated<'_, sqlx::Any, &'sta
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     sqlx::any::install_default_drivers();
     let dir = tempfile::tempdir()?;
-    let url = format!("sqlite://{}?mode=rwc", dir.path().join("orders.db").display());
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        dir.path().join("orders.db").display()
+    );
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -48,10 +54,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = seed.from_vec(
         "seed-orders",
         vec![
-            Order { id: 1, customer: "Alice".into(), amount: 120.0 },
-            Order { id: 2, customer: "Bob".into(), amount: 45.5 },
-            Order { id: 3, customer: "Carol".into(), amount: 300.25 },
-            Order { id: 4, customer: "Dave".into(), amount: 12.75 },
+            Order {
+                id: 1,
+                customer: "Alice".into(),
+                amount: 120.0,
+            },
+            Order {
+                id: 2,
+                customer: "Bob".into(),
+                amount: 45.5,
+            },
+            Order {
+                id: 3,
+                customer: "Carol".into(),
+                amount: 300.25,
+            },
+            Order {
+                id: 4,
+                customer: "Dave".into(),
+                amount: 12.75,
+            },
         ],
     )?;
     DirectRunner.run_sink(
