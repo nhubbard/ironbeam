@@ -78,9 +78,12 @@ aggregate and verifies that the second run reads zero source rows from its
 versioned local checkpoint. It uses a temporary directory and does not claim
 parity with the v4 scheduling policies or recovery after every graph shape.
 For a bounded vector source followed by linear map, filter, flat-map,
-timestamp, or fixed-window stages and then GroupByKey → output, it also restores
+timestamp, or fixed-window stages and then GroupByKey, it also restores
 versioned fold state from the last committed source batch and reads only the
-remaining source rows. Other in-progress folds, multi-input routes, custom or
+remaining source rows. Validated stateless stages after GroupByKey, including
+keyed-latest selection and time/window projection, run after restoration;
+a downstream flat-map failure can retry without reopening the source. Other
+in-progress folds, multi-input routes, custom or
 unbounded sources, and the v4 checkpoint policies remain replacement work. The
 local manifest schema is 1.2 and rejects older v5 draft checkpoints.
 V4's barrier, node-count, time, and hybrid policies wrote progress markers;

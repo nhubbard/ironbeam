@@ -394,8 +394,11 @@ staged locally.
    the core gates at 2,857/2,972 source locations (96.13%) and 435/492
    branches (88.41%), and passes the transforms gates at 1,163/1,189
    source locations (97.81%) and 108/116 branches (93.10%). Direct source
-   coverage passes at 3,284/3,547 (92.59%), but its branch coverage is
-   698/800 (87.25%), below the unchanged 90% CI floor. Added tests cover malformed
+   coverage passes at 3,292/3,550 (92.73%), but its branch coverage is
+   700/800 (87.50%), below the unchanged 90% CI floor. A downstream flat-map
+   failure also resumes from the finished group state without reopening its
+   source, and a parallel grouped sink keeps its filtered rows and metrics.
+   Added tests cover malformed
    latest registry input, fold checkpoint corruption, duplicate stream sinks,
    repeated stream cursors, non-idempotent or uncommitted stream sinks, source
    and combined branch buffer limits, accumulated fan-out budgets, filtered
