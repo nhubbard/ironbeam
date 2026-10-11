@@ -7,6 +7,16 @@ staged locally.
 
 ## Verified in this checkout
 
+- Mergeable global `CombineFn` folds now lower through a constant-key Beam
+  GroupByKey into the typed v5 worker. A bounded global-window fold merges an
+  Impulse seed with real inputs so empty input produces the combiner identity;
+  a separate local Prism job reaches `DONE` and writes 5 for `[2, 3]` and 0
+  for empty input. The production unbounded fixture also folds values in two
+  fixed windows and reaches `DONE` with 16 and 8, preserving their intervals
+  and event times. The five-test live Prism corpus, all-feature Dataflow
+  workspace suite, core/Direct suites, and strict changed-package lint pass.
+  The runner still shuffles raw inputs before folding; distributed partial
+  accumulator merging and ordered folds remain open.
 - Keyed mergeable `CombineFn` folds now lower through native Beam GroupByKey
   into the v5 worker. A fold-specific tag branch keeps the parent collection's
   coder intact when an ordinary GroupByKey also consumes it. Core registers typed key/value split coders with the

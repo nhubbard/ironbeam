@@ -2176,6 +2176,22 @@ struct SideInputRegistration {
 type SideMaterializer = Arc<dyn Fn(Vec<Payload>) -> Result<Payload, Error> + Send + Sync>;
 type SideMapper = Arc<dyn Fn(Envelope, &dyn Any) -> Result<Envelope, Error> + Send + Sync>;
 impl GroupCoderRegistration {
+    fn for_global<T: Element>() -> Self {
+        Self {
+            split_input: |bytes| {
+                T::decode(bytes)?;
+                Ok((Vec::new(), bytes.to_vec()))
+            },
+            assemble_input: |key, value| {
+                if !key.is_empty() {
+                    return Err(Error::incompatible("global fold has a nonempty runner key"));
+                }
+                T::decode(value)?;
+                Ok(value.to_vec())
+            },
+            assemble_output: |_, _| Err(Error::incompatible("global fold has no grouped output coder")),
+        }
+    }
     fn for_elements<K: Element, V: Element>() -> Self {
         Self {
             split_input: |bytes| {
@@ -2352,8 +2368,8 @@ impl Registry {
         (coder.assemble_output)(encoded_key, encoded_values)
     }
 
-    /// Whether this node is a true keyed grouping with a registered tuple
-    /// coder. Other aggregate operations may also use `GroupByKey` locally.
+    /// Whether this node has a registered typed key/value split coder for a
+    /// runner grouping boundary. Global folds use the empty key.
     #[must_use]
     pub fn has_group_coder(&self, key: &str) -> bool {
         self.group_coders.contains_key(key)
@@ -3877,7 +3893,12 @@ impl<T: Element> PCollection<T> {
                 marker: PhantomData,
             })
         });
-        self.next_fold(key, Operation::FoldGlobal, factory, None)
+        self.next_fold(
+            key,
+            Operation::FoldGlobal,
+            factory,
+            Some(GroupCoderRegistration::for_global::<T>()),
+        )
     }
     pub fn fold_globally_ordered_named<C, A, O>(
         &self,
