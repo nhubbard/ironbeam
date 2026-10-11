@@ -93,6 +93,61 @@ fn keyed_group_uses_envelopes_for_non_vector_sources() {
 }
 
 #[test]
+fn keyed_vector_batch_attributes_clone_and_fold_panics() {
+    use ironbeam_core::Element;
+    use std::hash::{Hash, Hasher};
+
+    struct PanickingClone;
+    impl Clone for PanickingClone {
+        fn clone(&self) -> Self {
+            panic!("source clone failed")
+        }
+    }
+    impl Element for PanickingClone {
+        const TYPE_ID: &'static str = "test/group-panic-clone";
+        const CODER_ID: &'static str = "test/group-panic-clone";
+    }
+    let clone_output = Pipeline::default()
+        .from_vec("source", vec![(1_i32, PanickingClone)])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let clone_error = DirectRunner
+        .run_collect(&clone_output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(clone_error.kind, ErrorKind::Execution);
+    assert_eq!(clone_error.node.as_deref(), Some("source"));
+
+    #[derive(Clone, Eq, PartialEq)]
+    struct PanickingHash;
+    impl Hash for PanickingHash {
+        fn hash<H: Hasher>(&self, _: &mut H) {
+            panic!("group hash failed")
+        }
+    }
+    impl Element for PanickingHash {
+        const TYPE_ID: &'static str = "test/group-panic-hash";
+        const CODER_ID: &'static str = "test/group-panic-hash";
+    }
+    let fold_output = Pipeline::default()
+        .from_vec("source", vec![(PanickingHash, 1_i32)])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let fold_error = DirectRunner
+        .run_collect(&fold_output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(fold_error.kind, ErrorKind::Execution);
+    assert_eq!(fold_error.node.as_deref(), Some("group"));
+}
+
+#[test]
 fn keyed_group_materializes_non_linear_input_without_changing_groups() {
     let pipeline = Pipeline::default();
     let left = pipeline

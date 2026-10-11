@@ -616,6 +616,11 @@ staged locally.
    (2.16×). Group values, source memory limits, non-vector fallback, core,
    Direct, transforms, root facade, and Dataflow graph/worker tests pass;
    strict core and Direct lint passes. Grouping remains slower than v4.
+   A clean core/Direct/transforms coverage run passes unchanged CI gates:
+   core 2,420/2,515 source locations and 350/398 branches; Direct
+   1,821/1,938 source locations and 373/408 branches. The added failure-path
+   test verifies that vector source clone panics and grouping fold panics are
+   attributed to their respective nodes.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.
