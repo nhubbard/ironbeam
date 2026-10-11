@@ -13,4 +13,5 @@ ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = fal
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
 ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
 ironbeam-transforms = { version = "0.1.0", path = "../ironbeam-transforms" }
+ironbeam-transform-regex = { version = "0.1.0", path = "../ironbeam-transform-regex" }
 anyhow = "1"

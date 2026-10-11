@@ -1,3 +1,4 @@
+#![allow(clippy::missing_errors_doc)]
 //! V4-compatible regex results with construction-time pattern errors.
 use ironbeam_core::{Error, PCollection};
 use regex::Regex;

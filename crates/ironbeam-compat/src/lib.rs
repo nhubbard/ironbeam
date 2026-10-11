@@ -10,11 +10,12 @@ use std::fmt;
 /// Imports needed for the v5 convenience and local terminal methods.
 pub mod prelude {
     pub use ironbeam_direct::DirectCollectExt;
+    pub use ironbeam_transform_regex::RegexExt;
     pub use ironbeam_transforms::{
         ApproxDistinctExt, CollectionExt, ConstantSideInputExt, DeadLetterExt, DynamicSideInputExt,
         ElementwiseExt, KeyedApproxDistinctExt, KeyedCollectionExt, KeyedExt, KeyedSamplingExt,
         KeyedSelectionExt, KeyedStatisticalExt, KeyedValidationExt, KeyedWindowedExt,
-        LogElementsExt, PredicateExt, RegexExt, SamplingExt, SelectionExt, StatisticalExt, TeeExt,
+        LogElementsExt, PredicateExt, SamplingExt, SelectionExt, StatisticalExt, TeeExt,
         TryProcessExt, ValidationExt, WindowedExt,
     };
 }

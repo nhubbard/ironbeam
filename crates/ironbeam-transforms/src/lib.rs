@@ -17,7 +17,7 @@ impl MeanOutput for f32 {
     fn divide_count(total: Self, count: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]
         {
-            total / count as f32
+            total / count as Self
         }
     }
 }
@@ -25,7 +25,7 @@ impl MeanOutput for f64 {
     fn divide_count(total: Self, count: usize) -> Self {
         #[allow(clippy::cast_precision_loss)]
         {
-            total / count as f64
+            total / count as Self
         }
     }
 }
@@ -37,8 +37,6 @@ pub use selection::{KeyedSelectionExt, SelectionExt};
 mod collections;
 use collections::CollectVec;
 pub use collections::{CollectionExt, KeyedCollectionExt};
-mod regex_helpers;
-pub use regex_helpers::RegexExt;
 mod fallible;
 pub use fallible::TryProcessExt;
 mod sampling;

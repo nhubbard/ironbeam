@@ -185,5 +185,16 @@
       "covered": 0,
       "count": 0
     }
+  },
+  "ironbeam-transform-regex": {
+    "source": "crates/ironbeam-transform-regex/src",
+    "lines": {
+      "covered": 45,
+      "count": 45
+    },
+    "branches": {
+      "covered": 0,
+      "count": 0
+    }
   }
 }

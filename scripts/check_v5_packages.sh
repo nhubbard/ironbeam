@@ -5,11 +5,12 @@ set -euo pipefail
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+packages=(ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-transform-regex ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
 cloud_patch=(--config "patch.crates-io.ironbeam-cloud.path=\"$root/crates/ironbeam-cloud\"")
 core_patch=(--config "patch.crates-io.ironbeam-core.path=\"$root/crates/ironbeam-core\"")
 direct_patch=(--config "patch.crates-io.ironbeam-direct.path=\"$root/crates/ironbeam-direct\"")
 transforms_patch=(--config "patch.crates-io.ironbeam-transforms.path=\"$root/crates/ironbeam-transforms\"")
+regex_patch=(--config "patch.crates-io.ironbeam-transform-regex.path=\"$root/crates/ironbeam-transform-regex\"")
 
 if cargo tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro|prost|crc32c) v'; then
   echo "Default ironbeam-io unexpectedly depends on a heavy opt-in adapter." >&2
@@ -19,6 +20,7 @@ fi
 cargo test --workspace
 cargo test -p ironbeam --features v5-preview --test v5_behavior_corpus --test v5_direct_differential --test v5_facade_preview --test v5_facade_prelude --test v5_tfrecord_examples
 cargo test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
+cargo test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-csv --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-xml --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-msgpack --test v5_facade_prelude
@@ -29,6 +31,7 @@ cargo test -p ironbeam --features v5-io-tfrecord,io-tfrecord,io-protobuf --test 
 cargo test -p ironbeam --no-default-features --features v5-preview,v5-io-arrow --test v5_facade_prelude
 cargo test -p ironbeam-io --all-features
 cargo test -p ironbeam-cloud-object-store --all-features
+cargo test -p ironbeam-transform-regex --all-features
 cargo test -p ironbeam-io-jsonl --all-features
 cargo test -p ironbeam-io-protobuf --all-features
 cargo test -p ironbeam-io-tfrecord --all-features
@@ -48,7 +51,7 @@ for package in "${packages[@]}"; do
     ironbeam-cloud|ironbeam-core) ;;
     ironbeam-cloud-object-store) patches=("${cloud_patch[@]}") ;;
     ironbeam-direct) patches=("${core_patch[@]}") ;;
-    ironbeam-transforms|ironbeam-testing)
+    ironbeam-transforms|ironbeam-transform-regex|ironbeam-testing)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io-sql|ironbeam-io-mongodb)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
@@ -59,8 +62,8 @@ for package in "${packages[@]}"; do
     ironbeam-io-parquet|ironbeam-io-arrow)
       patches=("${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-compat)
-      patches=("${core_patch[@]}" "${direct_patch[@]}" "${transforms_patch[@]}") ;;
+      patches=("${core_patch[@]}" "${direct_patch[@]}" "${transforms_patch[@]}" "${regex_patch[@]}") ;;
   esac
   cargo package -p "$package" --allow-dirty "${patches[@]}"
 done
-echo "All twenty v5 packages verified locally; no crates were published."
+echo "All twenty-one v5 packages verified locally; no crates were published."

@@ -526,11 +526,13 @@ pub mod v5 {
             DirectCollectExt, DirectFallibleExt, DirectFlatPartitionExt, DirectKeySortedExt,
             DirectKeyedCollectExt, DirectPartitionExt, DirectSortedExt,
         };
+        #[cfg(feature = "v5-regex")]
+        pub use ironbeam_transform_regex::RegexExt;
         pub use ironbeam_transforms::{
             ApproxDistinctExt, CollectionExt, ConstantSideInputExt, DeadLetterExt,
             DynamicSideInputExt, ElementwiseExt, KeyedApproxDistinctExt, KeyedCollectionExt,
             KeyedExt, KeyedSamplingExt, KeyedSelectionExt, KeyedStatisticalExt, KeyedValidationExt,
-            KeyedWindowedExt, LogElementsExt, PredicateExt, RegexExt, SamplingExt, SelectionExt,
+            KeyedWindowedExt, LogElementsExt, PredicateExt, SamplingExt, SelectionExt,
             StatisticalExt, TeeExt, TryProcessExt, ValidationExt, WindowedExt,
         };
     }
@@ -541,6 +543,8 @@ pub mod v5 {
     };
     pub use ironbeam_io::*;
     pub use ironbeam_io_jsonl::*;
+    #[cfg(feature = "v5-regex")]
+    pub use ironbeam_transform_regex::*;
     #[cfg(feature = "v5-io-protobuf")]
     pub use ironbeam_io_protobuf::*;
     #[cfg(feature = "v5-io-tfrecord")]

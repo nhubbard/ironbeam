@@ -9,7 +9,6 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [dependencies]
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
-regex = "1"
 hyperloglogplus = "0.4"
 serde = { version = "1", features = ["derive"] }
 

@@ -59,7 +59,7 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
-          cargo clippy -p ironbeam-cloud -p ironbeam-cloud-object-store -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
+          cargo clippy -p ironbeam-cloud -p ironbeam-cloud-object-store -p ironbeam-core -p ironbeam-direct -p ironbeam-transforms -p ironbeam-transform-regex -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
@@ -114,6 +114,7 @@ jobs:
           cargo build -p ironbeam --no-default-features
           cargo build -p ironbeam --no-default-features --features v5-preview
           cargo build -p ironbeam --no-default-features --features v5-io-csv
+          cargo build -p ironbeam --no-default-features --features v5-regex
           cargo build -p ironbeam --no-default-features --features v5-io-xml
           cargo build -p ironbeam --no-default-features --features v5-io-msgpack
           cargo build -p ironbeam --no-default-features --features v5-io-cbor
@@ -126,6 +127,7 @@ jobs:
           cargo build -p ironbeam-core
           cargo build -p ironbeam-direct
           cargo build -p ironbeam-transforms
+          cargo build -p ironbeam-transform-regex
           cargo build -p ironbeam-io
           cargo build -p ironbeam-io --no-default-features
           cargo build -p ironbeam-io-jsonl
@@ -155,6 +157,7 @@ jobs:
           cargo test -p ironbeam-io-xml --all-features
           cargo test -p ironbeam-io-msgpack --all-features
           cargo test -p ironbeam-io-cbor --all-features
+          cargo test -p ironbeam-transform-regex --all-features
           cargo test -p ironbeam-io-avro --all-features
           cargo test -p ironbeam-io-parquet --all-features
           cargo test -p ironbeam-io-arrow --all-features
@@ -271,7 +274,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        package: [ironbeam-core, ironbeam-direct, ironbeam-transforms, ironbeam-io, ironbeam-io-jsonl, ironbeam-io-protobuf, ironbeam-io-tfrecord, ironbeam-io-csv, ironbeam-io-xml, ironbeam-io-msgpack, ironbeam-io-cbor, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-io-arrow, ironbeam-compat]
+        package: [ironbeam-core, ironbeam-direct, ironbeam-transforms, ironbeam-transform-regex, ironbeam-io, ironbeam-io-jsonl, ironbeam-io-protobuf, ironbeam-io-tfrecord, ironbeam-io-csv, ironbeam-io-xml, ironbeam-io-msgpack, ironbeam-io-cbor, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-io-arrow, ironbeam-compat]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

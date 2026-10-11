@@ -2193,6 +2193,7 @@ dependencies = [
  "ironbeam-io-sql",
  "ironbeam-io-tfrecord",
  "ironbeam-io-xml",
+ "ironbeam-transform-regex",
  "ironbeam-transforms",
  "mongodb",
  "num_cpus",
@@ -2271,6 +2272,7 @@ dependencies = [
  "ironbeam 4.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "ironbeam-core",
  "ironbeam-direct",
+ "ironbeam-transform-regex",
  "ironbeam-transforms",
 ]
 
@@ -2488,13 +2490,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironbeam-transform-regex"
+version = "0.1.0"
+dependencies = [
+ "ironbeam-core",
+ "ironbeam-direct",
+ "regex",
+]
+
+[[package]]
 name = "ironbeam-transforms"
 version = "0.1.0"
 dependencies = [
  "hyperloglogplus",
  "ironbeam-core",
  "ironbeam-direct",
- "regex",
  "serde",
 ]
 

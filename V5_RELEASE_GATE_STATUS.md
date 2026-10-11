@@ -7,10 +7,16 @@ staged locally.
 
 ## Verified in this checkout
 
-- `bash scripts/check_v5_packages.sh` passed after the opt-in cloud provider
-  package was added: workspace tests, selected feature variants, all-feature
-  documentation, and local package verification for all twenty v5 crates.
+- `bash scripts/check_v5_packages.sh` passed after the regex extension split:
+  workspace tests, selected feature variants, all-feature
+  documentation, and local package verification for all twenty-one v5 crates.
   No package was published.
+- `ironbeam-transform-regex` owns the v5 regex helpers and measures 45/45
+  source locations in its isolated tests. The ordinary
+  `ironbeam-transforms` dependency tree no longer includes `regex`. The
+  root v5 prelude exposes `RegexExt` under `v5-regex`, and the compatibility
+  prelude still exposes it directly. The extracted package, common transforms,
+  and compatibility crates pass CI-strength pedantic and nursery lint.
 - `ironbeam-io-csv` is isolated from the common file lifecycle package. Its
   minimal and all-feature tests, package verification, strict lint, and
   85/86 source-location plus 8/8 branch coverage passed. Scalar and tuple
@@ -63,6 +69,12 @@ staged locally.
    with generic and macro instantiation, so this gate needs a reviewed
    measurement method as well as additional behavior coverage. The branch
    threshold still passes.
+   The common transforms package also has a stale 89/89 source-location and
+   zero-branch baseline. Its current isolated corpus measures 933/1,075
+   source locations (86.79%) and 75/92 instrumented branches after the regex
+   split, so its existing CI coverage gate is red. The new regex package's
+   own 45/45 source-location gate passes. Review the common transforms corpus
+   and baseline before release; do not treat the package gate as coverage proof.
 2. **Portable feature corpus:** The v5 translator now supports bounded,
    global-window `group_by_key_named` through native Beam KV/iterable coders
    and a live Prism shuffle proof. Its keyed input can also feed an ordinary

@@ -19,6 +19,21 @@ fn facade_prelude_runs_v4_shaped_helper_chain_without_compat() {
     assert_eq!(result, vec![4]);
 }
 
+#[cfg(feature = "v5-regex")]
+#[test]
+fn facade_prelude_exposes_isolated_regex_helpers() {
+    let result = Pipeline::default()
+        .from_vec("input", vec!["a=7".to_owned(), "other".to_owned()])
+        .unwrap()
+        .regex_extract_named("extract", r"\d+", 0)
+        .unwrap()
+        .output("out")
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(result, ["7"]);
+}
+
 #[test]
 fn facade_exposes_isolated_jsonl_connector() {
     use ironbeam::v5::{DirectRunner, JobConfig, jsonl_sink, jsonl_source};

@@ -1,6 +1,6 @@
 use ironbeam_core::{ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_transforms::RegexExt;
+use ironbeam_transform_regex::RegexExt;
 
 #[test]
 fn regex_helpers_match_v4_results() {
