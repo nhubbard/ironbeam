@@ -552,11 +552,14 @@ staged locally.
    earlier successes. A two-bundle registry test also verifies isolated and
    duplicate callbacks; the live Prism proof above covers successful
    multi-bundle completion.
-   The larger opt-in Prism graph fixture currently remains `RUNNING` past its
-   ten-second test limit on a fresh local Prism service. The same stall occurs
-   with the committed Dataflow fixture before the multi-bundle addition, so
-   the new production proof is independently green but the full portable
-   fixture is not a current passing release gate.
+   The larger opt-in Prism graph fixture now reaches `DONE` again. The stall
+   was a concurrent Fn Data connection race: source bundles could open
+   multiple streams for one endpoint before the worker cached one, leaving
+   input on a discarded stream. Endpoint connection creation is now
+   serialized and covered by a concurrent two-bundle test. The fixture also
+   locks its shared capture files so concurrent append bundles cannot
+   interleave record bytes. All four live `prism_v5_run` tests pass together;
+   the full harness suite and strict harness/proof lint pass.
    No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.
