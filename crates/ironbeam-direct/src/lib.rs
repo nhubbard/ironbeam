@@ -503,7 +503,11 @@ fn read_source_batch(
     key: &str,
 ) -> Result<Vec<Envelope>, Error> {
     catch_unwind(AssertUnwindSafe(|| {
-        source.by_ref().take(limit).collect::<Result<_, _>>()
+        let mut batch = Vec::with_capacity(source.size_hint().0.min(limit));
+        for next in source.by_ref().take(limit) {
+            batch.push(next?);
+        }
+        Ok(batch)
     }))
     .unwrap_or_else(|_| Err(Error::execution(key, "direct", "source iterator panicked")))
 }
