@@ -394,7 +394,7 @@ staged locally.
    the core gates at 2,857/2,972 source locations (96.13%) and 435/492
    branches (88.41%), and passes the transforms gates at 1,163/1,189
    source locations (97.81%) and 108/116 branches (93.10%). Direct source
-   coverage passes at 3,427/3,661 (93.61%) and 732/812 branches (90.15%)
+   coverage passes at 3,588/3,835 (93.56%) and 761/844 branches (90.17%)
    against the unchanged 91% line and 90% branch floors. The exact CI corpus
    passed again after cleaning the instrumented target, and the full workspace
    tests, strict Direct lint, and local gate for all twenty-five v5 packages
@@ -417,6 +417,18 @@ staged locally.
    aborting them if an undeclared finalization requirement or a probe panic is
    found. Single and paired sink regressions pass, as do the full workspace
    suite, strict Direct lint, and the clean combined coverage corpus.
+   Bounded `run_collect_pair` now checkpoints both coded output branches in one
+   checksum-verified, versioned manifest bound to their keys and coder versions.
+   Recovery reopens the source and skips accepted rows without re-running their
+   transforms; it preserves both result orders. A completed checkpoint returns
+   without reopening a source with a length hint.
+   Tests cover retry after a second-batch transform failure, an empty source,
+   asymmetric spilled branches, build identity mismatch, and corrupted side
+   tags, counts, and checkpoint kind. This is limited to the existing linear
+   two-output route; general fan-out, atomic multi-sink commit, and bounded
+   sink-pair checkpointing remain open. The full workspace tests, strict Direct
+   lint, clean combined coverage, and local verification of all twenty-five
+   v5 packages pass after this change; publication remains staged locally.
    `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
    typed tagged-value coder contracts for their inputs. Tests cover
    heterogeneous values, empty groups, and invalid tags. The translator now
