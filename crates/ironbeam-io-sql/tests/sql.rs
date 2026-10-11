@@ -15,6 +15,7 @@ impl Element for Row {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // The fixture checks one database lifecycle across source and sink modes.
 fn sql_sources_and_sink_execute_only_after_runner_validation() {
     let dir = tempfile::tempdir().unwrap();
     let url = format!("sqlite://{}?mode=rwc", dir.path().join("rows.db").display());

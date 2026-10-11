@@ -86,7 +86,13 @@ fn empty_xml_and_non_utf8_input_are_explicit() {
     std::fs::write(&empty, b"<records/>").unwrap();
     let output = xml_source::<Row>(&Pipeline::default(), "empty", &empty)
         .unwrap().output("empty-out").unwrap();
-    assert!(DirectRunner.run_collect(&output, &JobConfig::default()).unwrap().0.is_empty());
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        Vec::<Row>::new()
+    );
 
     let bad = dir.path().join("non-utf8.xml");
     std::fs::write(&bad, [0xff]).unwrap();

@@ -28,7 +28,7 @@ fn rows() -> Vec<Row> {
         },
     ]
 }
-fn collect(collection: ironbeam_core::PCollection<Row>) -> Vec<Row> {
+fn collect(collection: &ironbeam_core::PCollection<Row>) -> Vec<Row> {
     let output = collection.output("out").unwrap();
     DirectRunner
         .run_collect(&output, &JobConfig::default())
@@ -49,20 +49,20 @@ fn msgpack_bounded_lazy_sharded_and_glob_round_trip() {
         )
         .unwrap();
     assert_eq!(
-        collect(msgpack_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
+        collect(&msgpack_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
         rows()
     );
     assert_eq!(
-        collect(msgpack_streaming_source::<Row>(&Pipeline::default(), "lazy", &path).unwrap()),
+        collect(&msgpack_streaming_source::<Row>(&Pipeline::default(), "lazy", &path).unwrap()),
         rows()
     );
     assert_eq!(
-        collect(msgpack_sharded_source::<Row>(&Pipeline::default(), "shards", &path, 1).unwrap()),
+        collect(&msgpack_sharded_source::<Row>(&Pipeline::default(), "shards", &path, 1).unwrap()),
         rows()
     );
     let pattern = format!("{}/*.msgpack", dir.path().display());
     assert_eq!(
-        collect(msgpack_glob_source::<Row>(&Pipeline::default(), "glob", &pattern).unwrap()),
+        collect(&msgpack_glob_source::<Row>(&Pipeline::default(), "glob", &pattern).unwrap()),
         rows()
     );
 }
@@ -159,7 +159,7 @@ fn parallel_msgpack_preserves_record_order() {
         )
         .unwrap();
     assert_eq!(
-        collect(msgpack_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
+        collect(&msgpack_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
         expected
     );
 }
@@ -178,7 +178,7 @@ fn gzip_msgpack_round_trip() {
         )
         .unwrap();
     assert_eq!(
-        collect(msgpack_streaming_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
+        collect(&msgpack_streaming_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
         rows()
     );
 }

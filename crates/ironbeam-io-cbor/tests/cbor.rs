@@ -27,7 +27,7 @@ fn rows() -> Vec<Row> {
         },
     ]
 }
-fn collect(collection: ironbeam_core::PCollection<Row>) -> Vec<Row> {
+fn collect(collection: &ironbeam_core::PCollection<Row>) -> Vec<Row> {
     let output = collection.output("out").unwrap();
     DirectRunner
         .run_collect(&output, &JobConfig::default())
@@ -48,20 +48,20 @@ fn cbor_bounded_lazy_sharded_and_glob_round_trip() {
         )
         .unwrap();
     assert_eq!(
-        collect(cbor_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
+        collect(&cbor_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
         rows()
     );
     assert_eq!(
-        collect(cbor_streaming_source::<Row>(&Pipeline::default(), "lazy", &path).unwrap()),
+        collect(&cbor_streaming_source::<Row>(&Pipeline::default(), "lazy", &path).unwrap()),
         rows()
     );
     assert_eq!(
-        collect(cbor_sharded_source::<Row>(&Pipeline::default(), "shards", &path, 1).unwrap()),
+        collect(&cbor_sharded_source::<Row>(&Pipeline::default(), "shards", &path, 1).unwrap()),
         rows()
     );
     let pattern = format!("{}/*.cbor", dir.path().display());
     assert_eq!(
-        collect(cbor_glob_source::<Row>(&Pipeline::default(), "glob", &pattern).unwrap()),
+        collect(&cbor_glob_source::<Row>(&Pipeline::default(), "glob", &pattern).unwrap()),
         rows()
     );
 }
@@ -158,7 +158,7 @@ fn parallel_cbor_preserves_record_order() {
         )
         .unwrap();
     assert_eq!(
-        collect(cbor_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
+        collect(&cbor_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
         expected
     );
 }
@@ -177,7 +177,7 @@ fn gzip_cbor_round_trip() {
         )
         .unwrap();
     assert_eq!(
-        collect(cbor_streaming_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
+        collect(&cbor_streaming_source::<Row>(&Pipeline::default(), "read", &path).unwrap()),
         rows()
     );
 }

@@ -104,6 +104,7 @@ fn mongodb_source_reports_open_failure_at_execution() {
 
 #[test]
 #[ignore = "requires a Docker-compatible daemon and mongo:5.0.6 image"]
+#[allow(clippy::too_many_lines)] // The live fixture verifies one container lifecycle across adapters.
 fn mongodb_bounded_sources_and_deferred_sink_round_trip() {
     let container = Mongo::default().start().unwrap();
     let uri = format!(
@@ -151,12 +152,12 @@ fn mongodb_bounded_sources_and_deferred_sink_round_trip() {
     .unwrap()
     .output("before-out")
     .unwrap();
-    assert!(
+    assert_eq!(
         DirectRunner
             .run_collect(&empty, &JobConfig::default())
             .unwrap()
-            .0
-            .is_empty()
+            .0,
+        Vec::<Doc>::new()
     );
     DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
     let reads = Pipeline::default();
