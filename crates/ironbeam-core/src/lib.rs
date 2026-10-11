@@ -1522,6 +1522,37 @@ pub struct Envelope {
 }
 pub type SourceIterator = Box<dyn Iterator<Item = Result<Envelope, Error>> + Send>;
 pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Send>;
+/// One nonblocking poll result from an unbounded source split.
+#[derive(Clone, Debug)]
+pub enum UnboundedPoll<T> {
+    Pending,
+    Ready(UnboundedBatch<T>),
+}
+
+/// One timestamped value emitted by a source poll.
+#[derive(Clone, Debug)]
+pub struct Timestamped<T> {
+    pub value: T,
+    pub timestamp_ns: i64,
+}
+
+/// Data and the durable position after those elements from one source split.
+#[derive(Clone, Debug)]
+pub struct UnboundedBatch<T> {
+    pub elements: Vec<T>,
+    pub progress: ProgressSignal,
+}
+
+/// A resumable, nonblocking reader. `Pending` lets a runner check cancellation
+/// and schedule another poll without trapping a worker thread in the source.
+pub trait UnboundedSource<T>: Send {
+    fn poll(&mut self, max_elements: usize) -> Result<UnboundedPoll<T>, Error>;
+}
+
+pub type UnboundedSourceReader = Box<dyn UnboundedSource<Envelope>>;
+pub type TypedUnboundedSourceReader<T> = Box<dyn UnboundedSource<Timestamped<T>>>;
+type UnboundedSourceFactory =
+    Arc<dyn Fn(Option<Vec<u8>>) -> Result<UnboundedSourceReader, Error> + Send + Sync>;
 type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
 type TypedSourceFactory<T> = Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
 type TypedVecBatchFactory<T> = Arc<dyn Fn(usize, usize) -> Result<Vec<T>, Error> + Send + Sync>;
@@ -1846,6 +1877,7 @@ impl<T: Element> SinkSession for SinkAdapter<T> {
 #[derive(Clone)]
 struct SourceRegistration {
     factory: SourceFactory,
+    unbounded_factory: Option<UnboundedSourceFactory>,
     typed_factory: Option<Arc<dyn Any + Send + Sync>>,
     vec_batch_factory: Option<Arc<dyn Any + Send + Sync>>,
     erased_vec_batch_factory: Option<(TypeId, ErasedVecBatchFactory)>,
@@ -1853,6 +1885,122 @@ struct SourceRegistration {
     len_hint: Option<usize>,
     config_digest: Option<SourceConfigDigest>,
     test_stream: Option<Vec<EncodedTestStreamEvent>>,
+}
+
+struct TypedUnboundedAdapter<T> {
+    inner: TypedUnboundedSourceReader<T>,
+}
+
+impl<T: Element> UnboundedSource<Envelope> for TypedUnboundedAdapter<T> {
+    fn poll(&mut self, max_elements: usize) -> Result<UnboundedPoll<Envelope>, Error> {
+        match self.inner.poll(max_elements)? {
+            UnboundedPoll::Pending => Ok(UnboundedPoll::Pending),
+            UnboundedPoll::Ready(batch) => Ok(UnboundedPoll::Ready(UnboundedBatch {
+                elements: batch
+                    .elements
+                    .into_iter()
+                    .map(|item| Envelope {
+                        value: Box::new(item.value),
+                        timestamp_ns: item.timestamp_ns,
+                        window: Window::Global,
+                        assigned_window: None,
+                    })
+                    .collect(),
+                progress: batch.progress,
+            })),
+        }
+    }
+}
+
+struct ValidatingUnboundedSource {
+    inner: UnboundedSourceReader,
+    key: String,
+    split_id: Option<String>,
+    last_watermark: Option<i64>,
+    completed: bool,
+}
+
+impl UnboundedSource<Envelope> for ValidatingUnboundedSource {
+    fn poll(&mut self, max_elements: usize) -> Result<UnboundedPoll<Envelope>, Error> {
+        if max_elements == 0 || self.completed {
+            return Err(Error::execution(
+                &self.key,
+                "source",
+                "invalid poll after completion or with zero capacity",
+            ));
+        }
+        let result = self.inner.poll(max_elements)?;
+        if let UnboundedPoll::Ready(batch) = &result {
+            let signal = &batch.progress;
+            if batch.elements.len() > max_elements {
+                return Err(Error::execution(
+                    &self.key,
+                    "source",
+                    "source exceeded poll capacity",
+                ));
+            }
+            if signal.source_key != self.key || signal.split_id.is_empty() {
+                return Err(Error::execution(
+                    &self.key,
+                    "source",
+                    "source progress identity differs",
+                ));
+            }
+            if self
+                .split_id
+                .as_ref()
+                .is_some_and(|id| id != &signal.split_id)
+            {
+                return Err(Error::execution(
+                    &self.key,
+                    "source",
+                    "source split changed during a session",
+                ));
+            }
+            if !batch.elements.is_empty() && signal.checkpoint_position.is_none() {
+                return Err(Error::execution(
+                    &self.key,
+                    "source",
+                    "data batch has no checkpoint position",
+                ));
+            }
+            if batch.elements.is_empty()
+                && signal.checkpoint_position.is_none()
+                && signal.event_time_ns.is_none()
+                && !signal.completed
+            {
+                return Err(Error::execution(
+                    &self.key,
+                    "source",
+                    "empty poll made no progress",
+                ));
+            }
+            if signal
+                .checkpoint_position
+                .as_ref()
+                .is_some_and(|position| position.len() > 1024 * 1024)
+            {
+                return Err(Error::execution(
+                    &self.key,
+                    "source",
+                    "source checkpoint position exceeds 1 MiB",
+                ));
+            }
+            if let Some(watermark) = signal.event_time_ns {
+                if self.last_watermark.is_some_and(|last| watermark < last) {
+                    return Err(Error::execution(
+                        &self.key,
+                        "source",
+                        "source watermark regressed",
+                    ));
+                }
+                self.last_watermark = Some(watermark);
+            }
+            self.split_id.get_or_insert_with(|| signal.split_id.clone());
+            self.completed = signal.completed;
+        }
+        Ok(result)
+    }
 }
 
 #[derive(Clone)]
@@ -2207,6 +2355,48 @@ impl Registry {
             .get(key)
             .ok_or_else(|| Error::execution(key, "direct", "source factory missing"))
             .and_then(|source| (source.factory)())
+    }
+    /// Resume a registered unbounded split from its last committed progress.
+    /// The returned reader validates source identity, poll limits, and watermark
+    /// order before a runner can consume its events.
+    pub fn open_unbounded_source(
+        &self,
+        key: &str,
+        resume: Option<ProgressSignal>,
+    ) -> Result<UnboundedSourceReader, Error> {
+        if let Some(signal) = &resume
+            && (signal.source_key != key
+                || signal.split_id.is_empty()
+                || signal.completed
+                || signal.checkpoint_position.is_none()
+                || signal
+                    .checkpoint_position
+                    .as_ref()
+                    .is_some_and(|position| position.len() > 1024 * 1024))
+        {
+            return Err(Error::execution(
+                key,
+                "source",
+                "invalid unbounded resume progress",
+            ));
+        }
+        let factory = self
+            .sources
+            .get(key)
+            .and_then(|source| source.unbounded_factory.as_ref())
+            .ok_or_else(|| Error::execution(key, "source", "unbounded source factory missing"))?;
+        let inner = factory(
+            resume
+                .as_ref()
+                .and_then(|signal| signal.checkpoint_position.clone()),
+        )?;
+        Ok(Box::new(ValidatingUnboundedSource {
+            inner,
+            key: key.to_owned(),
+            split_id: resume.as_ref().map(|signal| signal.split_id.clone()),
+            last_watermark: resume.as_ref().and_then(|signal| signal.event_time_ns),
+            completed: false,
+        }))
     }
     /// Open a source directly as `T` when its registration retains a typed factory.
     ///
@@ -2649,6 +2839,7 @@ impl Pipeline {
             },
             Some(SourceRegistration {
                 factory,
+                unbounded_factory: None,
                 typed_factory: Some(Arc::new(typed_factory)),
                 vec_batch_factory: Some(Arc::new(vec_batch_factory)),
                 erased_vec_batch_factory: Some((TypeId::of::<Vec<T>>(), erased_vec_batch_factory)),
@@ -2720,6 +2911,7 @@ impl Pipeline {
             progress,
             Some(SourceRegistration {
                 factory,
+                unbounded_factory: None,
                 typed_factory: Some(Arc::new(typed_factory)),
                 vec_batch_factory: None,
                 erased_vec_batch_factory: None,
@@ -2743,6 +2935,50 @@ impl Pipeline {
             Boundedness::Unbounded,
             progress,
             None,
+            initial_timestamp_ns,
+        )
+    }
+    /// Register a resumable, nonblocking unbounded source implementation.
+    /// `open` receives the last committed checkpoint position, if any.
+    pub fn unbounded_source_with_factory<T: Element>(
+        &self,
+        key: &str,
+        progress: SourceProgress,
+        config_digest: String,
+        initial_timestamp_ns: i64,
+        open: impl Fn(Option<Vec<u8>>) -> Result<TypedUnboundedSourceReader<T>, Error>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Result<PCollection<T>, Error> {
+        if config_digest.is_empty() {
+            return Err(Error::graph(
+                key,
+                "unbounded source configuration digest is required",
+            ));
+        }
+        let typed_factory = Arc::new(open);
+        let unbounded_factory: UnboundedSourceFactory = Arc::new(move |position| {
+            Ok(Box::new(TypedUnboundedAdapter {
+                inner: typed_factory(position)?,
+            }))
+        });
+        self.source_node::<T>(
+            key,
+            "ironbeam/source",
+            Boundedness::Unbounded,
+            progress,
+            Some(SourceRegistration {
+                factory: Arc::new(|| Err(Error::incompatible("unbounded source requires polling"))),
+                unbounded_factory: Some(unbounded_factory),
+                typed_factory: None,
+                vec_batch_factory: None,
+                erased_vec_batch_factory: None,
+                vec_envelope_batch_factory: None,
+                len_hint: None,
+                config_digest: Some(SourceConfigDigest::Ready(config_digest)),
+                test_stream: None,
+            }),
             initial_timestamp_ns,
         )
     }
@@ -2805,6 +3041,7 @@ impl Pipeline {
                         "test stream requires a portable runner",
                     ))
                 }),
+                unbounded_factory: None,
                 typed_factory: None,
                 vec_batch_factory: None,
                 erased_vec_batch_factory: None,

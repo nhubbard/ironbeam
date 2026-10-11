@@ -717,6 +717,16 @@ also passes. This closes the scripted unbounded fixture proof. Production
 unbounded source polling, split progress/checkpoint recovery, and remote
 Dataflow execution remain release gates.
 
+The core also now registers a production unbounded reader factory with a
+nonblocking poll result, bounded event batches, timestamped values, and a
+checkpoint progress signal. Reopening passes the saved cursor to the factory
+and validates split identity and nondecreasing watermark against the saved
+signal. Core tests cover progress-only polls, resume, capacity and cursor
+limits, and invalid source progress. Direct and the Dataflow translator both
+reject this source before opening it; neither runner executes production
+unbounded polling yet. The core and Direct coverage ratchets pass after this
+change.
+
 The detailed architecture and exit criteria remain in
 `WORKSPACE_ARCHITECTURE_PLAN.md`, `IRONBEAM_V5_EXECUTION_PLAN.md`, and
 `V5_REPLACEMENT_ROADMAP.md`.

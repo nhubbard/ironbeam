@@ -1,5 +1,306 @@
 use ironbeam_core::*;
 
+struct ScriptedUnbounded {
+    polls: std::collections::VecDeque<UnboundedPoll<Timestamped<i32>>>,
+}
+
+impl UnboundedSource<Timestamped<i32>> for ScriptedUnbounded {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+        Ok(self.polls.pop_front().unwrap_or(UnboundedPoll::Pending))
+    }
+}
+
+struct FailingUnbounded;
+
+impl UnboundedSource<Timestamped<i32>> for FailingUnbounded {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+        Err(Error::incompatible("source poll failed"))
+    }
+}
+
+fn unbounded_signal(
+    position: Option<Vec<u8>>,
+    watermark: Option<i64>,
+    completed: bool,
+) -> ProgressSignal {
+    ProgressSignal {
+        source_key: "events".into(),
+        split_id: "split-a".into(),
+        checkpoint_position: position,
+        event_time_ns: watermark,
+        completed,
+    }
+}
+
+#[test]
+fn unbounded_source_polling_resumes_and_preserves_time() {
+    let opened = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "stream-config-v1".into(),
+            -1_000_000,
+            {
+                let opened = opened.clone();
+                move |position| {
+                    opened.lock().unwrap().push(position.clone());
+                    let polls = if position.is_none() {
+                        vec![
+                            UnboundedPoll::Pending,
+                            UnboundedPoll::Ready(UnboundedBatch {
+                                elements: Vec::new(),
+                                progress: unbounded_signal(Some(vec![0]), None, false),
+                            }),
+                            UnboundedPoll::Ready(UnboundedBatch {
+                                elements: vec![Timestamped {
+                                    value: 7_i32,
+                                    timestamp_ns: 1_000_000,
+                                }],
+                                progress: unbounded_signal(Some(vec![1]), Some(500_000), false),
+                            }),
+                        ]
+                    } else {
+                        vec![UnboundedPoll::Ready(UnboundedBatch {
+                            elements: vec![Timestamped {
+                                value: 8_i32,
+                                timestamp_ns: 2_000_000,
+                            }],
+                            progress: unbounded_signal(Some(vec![2]), Some(1_500_000), true),
+                        })]
+                    };
+                    Ok(Box::new(ScriptedUnbounded {
+                        polls: polls.into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                }
+            },
+        )
+        .unwrap();
+    source.output("out").unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node("events").unwrap().boundedness,
+        Boundedness::Unbounded
+    );
+    assert_eq!(
+        graph.node("events").unwrap().time.initial_timestamp_ns,
+        -1_000_000
+    );
+    assert_eq!(
+        registry.source_config_digest("events"),
+        Some("stream-config-v1")
+    );
+
+    let mut reader = registry.open_unbounded_source("events", None).unwrap();
+    assert!(matches!(reader.poll(1).unwrap(), UnboundedPoll::Pending));
+    let UnboundedPoll::Ready(progress_only) = reader.poll(1).unwrap() else {
+        panic!("expected progress");
+    };
+    assert!(progress_only.elements.is_empty());
+    assert_eq!(progress_only.progress.checkpoint_position, Some(vec![0]));
+    let UnboundedPoll::Ready(batch) = reader.poll(1).unwrap() else {
+        panic!("expected data");
+    };
+    assert_eq!(batch.elements.len(), 1);
+    assert_eq!(*batch.elements[0].value.downcast_ref::<i32>().unwrap(), 7);
+    assert_eq!(batch.elements[0].timestamp_ns, 1_000_000);
+    assert_eq!(batch.progress.checkpoint_position, Some(vec![1]));
+    let saved_progress = batch.progress.clone();
+
+    let mut resumed = registry
+        .open_unbounded_source("events", Some(saved_progress.clone()))
+        .unwrap();
+    let UnboundedPoll::Ready(batch) = resumed.poll(1).unwrap() else {
+        panic!("expected resumed data");
+    };
+    assert_eq!(*batch.elements[0].value.downcast_ref::<i32>().unwrap(), 8);
+    assert!(batch.progress.completed);
+    assert!(resumed.poll(1).is_err());
+    assert_eq!(*opened.lock().unwrap(), [None, Some(vec![1])]);
+    assert!(
+        registry
+            .open_unbounded_source(
+                "events",
+                Some(ProgressSignal {
+                    source_key: "wrong".into(),
+                    ..saved_progress
+                })
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn unbounded_source_rejects_invalid_progress_and_capacity() {
+    let valid = UnboundedPoll::Ready(UnboundedBatch {
+        elements: vec![Timestamped {
+            value: 1_i32,
+            timestamp_ns: 0,
+        }],
+        progress: unbounded_signal(Some(vec![1]), Some(1), false),
+    });
+    let mut bad_key = valid.clone();
+    if let UnboundedPoll::Ready(batch) = &mut bad_key {
+        batch.progress.source_key = "wrong".into();
+    }
+    let mut bad_split = valid.clone();
+    if let UnboundedPoll::Ready(batch) = &mut bad_split {
+        batch.progress.split_id.clear();
+    }
+    let mut no_position = valid.clone();
+    if let UnboundedPoll::Ready(batch) = &mut no_position {
+        batch.progress.checkpoint_position = None;
+    }
+    let mut oversize = valid.clone();
+    if let UnboundedPoll::Ready(batch) = &mut oversize {
+        batch.progress.checkpoint_position = Some(vec![0; 1024 * 1024 + 1]);
+    }
+    let mut too_many = valid.clone();
+    if let UnboundedPoll::Ready(batch) = &mut too_many {
+        batch.elements.push(Timestamped {
+            value: 2_i32,
+            timestamp_ns: 0,
+        });
+    }
+    let no_progress = UnboundedPoll::Ready(UnboundedBatch {
+        elements: Vec::new(),
+        progress: unbounded_signal(None, None, false),
+    });
+    let changed_split = UnboundedPoll::Ready(UnboundedBatch {
+        elements: Vec::new(),
+        progress: ProgressSignal {
+            split_id: "split-b".into(),
+            ..unbounded_signal(Some(vec![2]), Some(2), false)
+        },
+    });
+    let regressed = UnboundedPoll::Ready(UnboundedBatch {
+        elements: Vec::new(),
+        progress: unbounded_signal(Some(vec![2]), Some(0), false),
+    });
+    for script in [
+        vec![bad_key],
+        vec![bad_split],
+        vec![no_position],
+        vec![oversize],
+        vec![too_many],
+        vec![no_progress],
+        vec![valid.clone(), changed_split],
+        vec![valid.clone(), regressed],
+    ] {
+        let pipeline = Pipeline::default();
+        pipeline
+            .unbounded_source_with_factory(
+                "events",
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                "test-script".into(),
+                0,
+                move |_| {
+                    Ok(Box::new(ScriptedUnbounded {
+                        polls: script.clone().into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                },
+            )
+            .unwrap();
+        let (_, registry) = pipeline.snapshot().unwrap();
+        let mut reader = registry.open_unbounded_source("events", None).unwrap();
+        if reader.poll(1).is_ok() {
+            assert!(reader.poll(1).is_err());
+        }
+    }
+    let pipeline = Pipeline::default();
+    pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "test-script".into(),
+            0,
+            move |_| {
+                Ok(Box::new(ScriptedUnbounded {
+                    polls: vec![valid.clone()].into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(
+        registry
+            .open_unbounded_source("events", None)
+            .unwrap()
+            .poll(0)
+            .is_err()
+    );
+    let mut resumed = registry
+        .open_unbounded_source(
+            "events",
+            Some(unbounded_signal(Some(vec![1]), Some(5), false)),
+        )
+        .unwrap();
+    assert!(resumed.poll(1).is_err());
+    assert!(
+        registry
+            .open_unbounded_source(
+                "events",
+                Some(unbounded_signal(
+                    Some(vec![0; 1024 * 1024 + 1]),
+                    None,
+                    false
+                )),
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn unbounded_source_reports_open_and_poll_failures() {
+    let pipeline = Pipeline::default();
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: true,
+    };
+    assert!(
+        pipeline
+            .unbounded_source_with_factory::<i32>(
+                "bad",
+                progress.clone(),
+                String::new(),
+                0,
+                |_| Ok(Box::new(FailingUnbounded)),
+            )
+            .is_err()
+    );
+    pipeline
+        .unbounded_source_with_factory("events", progress, "source-config".into(), 0, |position| {
+            if position.is_none() {
+                Err(Error::incompatible("source open failed"))
+            } else {
+                Ok(Box::new(FailingUnbounded) as TypedUnboundedSourceReader<i32>)
+            }
+        })
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.open_source("events").is_err());
+    assert!(registry.open_unbounded_source("missing", None).is_err());
+    assert!(registry.open_unbounded_source("events", None).is_err());
+    let mut reader = registry
+        .open_unbounded_source("events", Some(unbounded_signal(Some(vec![1]), None, false)))
+        .unwrap();
+    assert!(reader.poll(1).is_err());
+}
+
 #[test]
 fn typed_source_and_portable_join_registry_reject_malformed_inputs() {
     let pipeline = Pipeline::default();
@@ -1918,6 +2219,20 @@ fn test_stream_registers_replayable_unbounded_events() {
             EncodedTestStreamEvent::AdvanceProcessingTime(1_000_000),
         ]
     );
+    assert!(registry.open_source("events").is_err());
+    assert!(
+        pipeline
+            .test_stream_source::<i32>("empty", Vec::new())
+            .is_err()
+    );
+    assert!(
+        pipeline
+            .test_stream_source::<i32>(
+                "bad-duration",
+                vec![TestStreamEvent::AdvanceProcessingTime(0)]
+            )
+            .is_err()
+    );
     assert!(
         pipeline
             .test_stream_source::<i32>(
@@ -1926,6 +2241,30 @@ fn test_stream_registers_replayable_unbounded_events() {
                     TestStreamEvent::AdvanceWatermark(2),
                     TestStreamEvent::AdvanceWatermark(2),
                 ]
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn test_stream_rejects_an_element_with_a_broken_coder() {
+    struct BrokenCoder;
+    impl Element for BrokenCoder {
+        const TYPE_ID: &'static str = "tests/broken-test-stream-coder";
+        const CODER_ID: &'static str = "tests/broken-test-stream-coder-v1";
+        fn supports_coder() -> bool {
+            true
+        }
+        fn encode(&self) -> Result<Vec<u8>, Error> {
+            Err(Error::incompatible("intentional encoding failure"))
+        }
+    }
+    let pipeline = Pipeline::default();
+    assert!(
+        pipeline
+            .test_stream_source(
+                "broken",
+                vec![TestStreamEvent::Elements(vec![(BrokenCoder, 0)])]
             )
             .is_err()
     );

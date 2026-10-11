@@ -252,7 +252,13 @@ fn typed_transform_batch_append_preserves_budget_spill_and_filter_metrics() {
     assert_eq!(job.metrics().output_elements, 4);
     assert_eq!(
         DirectRunner
-            .run_collect(&output, &JobConfig { memory_budget_bytes: 15, ..exact.clone() })
+            .run_collect(
+                &output,
+                &JobConfig {
+                    memory_budget_bytes: 15,
+                    ..exact.clone()
+                }
+            )
             .err()
             .unwrap()
             .kind,
@@ -260,17 +266,19 @@ fn typed_transform_batch_append_preserves_budget_spill_and_filter_metrics() {
     );
 
     let directory = tempfile::tempdir().unwrap();
-    let (spilled, job) = DirectRunner.run_collect(
-        &output,
-        &JobConfig {
-            memory_budget_bytes: 8,
-            spill: Some(SpillConfig {
-                directory: directory.path().to_path_buf(),
-                threshold_bytes: 8,
-            }),
-            ..exact
-        },
-    ).unwrap();
+    let (spilled, job) = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                memory_budget_bytes: 8,
+                spill: Some(SpillConfig {
+                    directory: directory.path().to_path_buf(),
+                    threshold_bytes: 8,
+                }),
+                ..exact
+            },
+        )
+        .unwrap();
     assert_eq!(spilled, values);
     assert_eq!(job.metrics().filtered_elements, 6);
     assert!(job.metrics().spill_files > 0);
@@ -627,6 +635,44 @@ fn unbounded_fixture_rejected_and_long_lived_handle_cancels() {
     handle.cancel();
     handle.cancel();
     assert_eq!(handle.status(), JobStatus::Cancelled);
+}
+
+#[test]
+fn registered_unbounded_reader_is_rejected_before_opening() {
+    let opens = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory::<i32>(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "stream-config-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |_| {
+                    opens.fetch_add(1, Ordering::Relaxed);
+                    Err(ironbeam_core::Error::incompatible("reader must not open"))
+                }
+            },
+        )
+        .unwrap();
+    let output = source.output("out").unwrap();
+    let error = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.node.as_deref(), Some("events"));
+    assert_eq!(
+        error.kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "unbounded-source".into(),
+        }
+    );
+    assert_eq!(opens.load(Ordering::Relaxed), 0);
 }
 
 #[test]
