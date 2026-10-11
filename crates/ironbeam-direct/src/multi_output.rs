@@ -145,6 +145,12 @@ fn apply_stages(
             if produced.is_empty() {
                 metrics.filtered_elements.fetch_add(1, Ordering::Relaxed);
             }
+            if next.len().saturating_add(produced.len()) > config.buffer_budget_elements {
+                return Err(Error::resource(
+                    key,
+                    "pair transform output exceeds buffer budget",
+                ));
+            }
             next.extend(produced);
         }
         events = next;
@@ -183,20 +189,29 @@ pub(crate) fn process_event(
             window: event.window.clone(),
             assigned_window: event.assigned_window,
         };
-        left.extend(apply_stages(
-            registry,
-            vec![event],
-            &plan.left_stages,
-            config,
-            metrics,
-        )?);
-        right.extend(apply_stages(
+        let left_produced =
+            apply_stages(registry, vec![event], &plan.left_stages, config, metrics)?;
+        if left.len().saturating_add(left_produced.len()) > config.buffer_budget_elements {
+            return Err(Error::resource(
+                &plan.split_key,
+                "left pair output exceeds buffer budget",
+            ));
+        }
+        left.extend(left_produced);
+        let right_produced = apply_stages(
             registry,
             vec![right_event],
             &plan.right_stages,
             config,
             metrics,
-        )?);
+        )?;
+        if right.len().saturating_add(right_produced.len()) > config.buffer_budget_elements {
+            return Err(Error::resource(
+                &plan.split_key,
+                "right pair output exceeds buffer budget",
+            ));
+        }
+        right.extend(right_produced);
     }
     Ok((left, right))
 }

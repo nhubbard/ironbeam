@@ -145,6 +145,50 @@ fn pair_routes_filter_flat_map_and_reshuffle_independently() {
     assert_eq!(result.job.metrics().filtered_elements, 3);
 }
 
+#[test]
+fn pair_rejects_shared_and_branch_expansion_over_buffer_budget() {
+    let config = JobConfig {
+        buffer_budget_elements: 2,
+        ..JobConfig::default()
+    };
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    let shared = source
+        .flat_map_named("shared-expand", |value| vec![value; 3])
+        .unwrap();
+    let left = shared.output("left").unwrap();
+    let right = shared
+        .map_named("right-map", |value| value)
+        .unwrap()
+        .output("right")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect_pair(&left, &right, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    let left = source
+        .flat_map_named("left-expand", |value| vec![value; 3])
+        .unwrap()
+        .output("left")
+        .unwrap();
+    let right = source.output("right").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect_pair(&left, &right, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+}
+
 struct Uncoded(i32);
 impl Element for Uncoded {
     const TYPE_ID: &'static str = "tests/uncoded-pair";
