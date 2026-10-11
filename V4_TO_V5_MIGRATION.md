@@ -129,6 +129,8 @@ Sequential elementwise output is compared in order in the migration tests. Group
 
 `ironbeam-compat` depends on published Ironbeam 4.1.1 under the `ironbeam-v4`
 alias and directly on the v5 packages. The root facade exports only v5 source
-and does not depend on `ironbeam-compat`; its default `v5-preview` feature is
-a transitional feature name while the package remains versioned 4.1.1. See
+and does not depend on `ironbeam-compat`. Its core, Direct, transforms, and
+JSONL API remain available with no default features; the default `v5-preview`
+feature is a transitional name for cloud and JSON validation extras while the
+package remains versioned 4.1.1. See
 `PHASE5_COMPAT_RELEASE.md` for the staged publish order and checks.

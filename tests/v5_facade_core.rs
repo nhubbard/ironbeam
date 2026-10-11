@@ -1,5 +1,3 @@
-#![cfg(feature = "v5-preview")]
-
 use ironbeam::v5::{DirectRunner, JobConfig, Pipeline};
 
 #[test]

@@ -1,5 +1,3 @@
-#![cfg(feature = "v5-preview")]
-
 use ironbeam::v5::{Pipeline, prelude::*};
 
 #[test]
@@ -17,6 +15,7 @@ fn facade_prelude_runs_v4_shaped_helper_chain_without_compat() {
     assert_eq!(result, vec![4]);
 }
 
+#[cfg(feature = "v5-preview")]
 #[test]
 fn facade_cloud_module_routes_provider_neutral_objects() {
     use ironbeam::v5::cloud::{LocalObjectIO, ObjectStores};

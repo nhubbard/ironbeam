@@ -33,6 +33,21 @@ superseded.
 ### Foundation and parity
 
 <details>
+<summary>V5 root facade without default features</summary>
+
+The root facade now exports core, Direct, common transforms, shared I/O, and
+JSONL without requiring the transitional `v5-preview` feature. That feature
+only adds the default cloud and JSON validation extras while the root package
+is still versioned 4.1.1. Optional format and transform flags no longer
+implicitly enable those extras. No-default facade tests execute a core
+pipeline, a helper chain, and JSONL round trip; a CSV-only dependency check
+has no cloud package. The full local package script passed workspace tests,
+isolated feature checks, documentation, and verification of all 26 packages.
+Publication remains staged.
+
+</details>
+
+<details>
 <summary>Production reader joins and co-groups after residual resume</summary>
 
 The SDF process-stage worker now validates and executes join/co-group input

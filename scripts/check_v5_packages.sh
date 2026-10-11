@@ -18,16 +18,20 @@ transforms_patch=(--config "patch.crates-io.ironbeam-transforms.path=\"$root/cra
 regex_patch=(--config "patch.crates-io.ironbeam-transform-regex.path=\"$root/crates/ironbeam-transform-regex\"")
 approx_patch=(--config "patch.crates-io.ironbeam-transform-approx.path=\"$root/crates/ironbeam-transform-approx\"")
 
-if "$cargo_bin" tree -p ironbeam --no-default-features --features v5-preview --edges normal | grep -E 'ironbeam-cloud v|hyperloglogplus v|ordered-float v|num_cpus v'; then
+if "$cargo_bin" tree -p ironbeam --no-default-features --edges normal | grep -E 'ironbeam-cloud v|hyperloglogplus v|ordered-float v|num_cpus v'; then
   echo "V5-only facade unexpectedly depends on the legacy root implementation." >&2
   exit 1
 fi
-if "$cargo_bin" tree -p ironbeam --no-default-features --features v5-preview --edges normal,dev | grep -E 'testcontainers(-modules)? v'; then
+if "$cargo_bin" tree -p ironbeam --no-default-features --edges normal,dev | grep -E 'testcontainers(-modules)? v'; then
   echo "V5-only root tests unexpectedly depend on the legacy service harness." >&2
   exit 1
 fi
-if "$cargo_bin" tree -p ironbeam --no-default-features --features v5-preview --edges normal,dev | grep -E '(^|[[:space:]])regex v'; then
+if "$cargo_bin" tree -p ironbeam --no-default-features --edges normal,dev | grep -E '(^|[[:space:]])regex v'; then
   echo "V5-only root tests unexpectedly depend on the regex engine." >&2
+  exit 1
+fi
+if "$cargo_bin" tree -p ironbeam --no-default-features --features v5-io-csv --edges normal | grep -E 'ironbeam-cloud(-objects|-object-store)? v'; then
+  echo "The isolated CSV facade feature unexpectedly enables cloud packages." >&2
   exit 1
 fi
 if "$cargo_bin" tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro|prost|crc32c) v'; then
@@ -50,9 +54,9 @@ fi
 "$cargo_bin" test --workspace
 "$cargo_bin" run --example cloud_io_demo --no-default-features --features v5-preview
 "$cargo_bin" test -p ironbeam-compat --test v4_baseline --test differential --test mean --test count_per_element --test keys_values --test kv_swap --test to_dict --test to_hashmap --test to_display_string
-"$cargo_bin" test -p ironbeam --features v5-preview --test v5_facade_preview --test v5_facade_prelude
-"$cargo_bin" test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
-"$cargo_bin" test -p ironbeam --no-default-features --features coders --test v5_facade_preview
+"$cargo_bin" test -p ironbeam --test v5_facade_core --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --test v5_facade_core --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features coders --test v5_facade_core
 "$cargo_bin" test -p ironbeam-coder-postcard
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-approx --test v5_facade_prelude
@@ -64,7 +68,7 @@ fi
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-io-protobuf --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-io-tfrecord --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam-compat --test tfrecord_wire
-"$cargo_bin" test -p ironbeam --no-default-features --features v5-preview,v5-io-arrow --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features v5-io-arrow --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam-io --all-features
 "$cargo_bin" test -p ironbeam-compression --all-features
 "$cargo_bin" test -p ironbeam-cloud-object-store --all-features

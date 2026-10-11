@@ -23,5 +23,10 @@ Use an explicit `.output("result")?` for a named portable or durable terminal. E
 `v5-io-*` features only for the formats an application needs. The
 `V4_TO_V5_MIGRATION.md` guide maps familiar v4 calls to their v5 equivalents.
 
+The core, Direct runner, common transforms, and JSONL facade remain available
+with `--no-default-features`. Other formats and helpers are opt-in. The
+transitional `v5-preview` feature now only enables the default cloud and JSON
+validation extras; it no longer gates the v5 API.
+
 The root facade is v5-only. Published Ironbeam 4.1.1 remains available through
 the separate compatibility reference crate for migration checks.

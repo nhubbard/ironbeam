@@ -14,26 +14,26 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["v5-preview"]
-v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "ironbeam-transforms/validation-json", "dep:ironbeam-io", "ironbeam-io/cloud", "dep:ironbeam-io-jsonl", "ironbeam-io-jsonl/cloud"]
-v5-regex = ["v5-preview", "dep:ironbeam-transform-regex"]
-v5-approx = ["v5-preview", "dep:ironbeam-transform-approx"]
-v5-testing = ["v5-preview", "dep:ironbeam-testing"]
-v5-metrics = ["v5-preview", "dep:ironbeam-metrics", "ironbeam-direct/metrics"]
-v5-compression = ["v5-preview", "dep:ironbeam-compression"]
-v5-io-sql = ["v5-preview", "dep:ironbeam-io-sql"]
-v5-io-mongodb = ["v5-preview", "dep:ironbeam-io-mongodb"]
-v5-io-avro = ["v5-preview", "dep:ironbeam-io-avro"]
-v5-io-csv = ["v5-preview", "dep:ironbeam-io-csv"]
-v5-io-xml = ["v5-preview", "dep:ironbeam-io-xml"]
-v5-io-msgpack = ["v5-preview", "dep:ironbeam-io-msgpack"]
-v5-io-cbor = ["v5-preview", "dep:ironbeam-io-cbor"]
-v5-io-protobuf = ["v5-preview", "dep:ironbeam-io-protobuf"]
-v5-io-tfrecord = ["v5-preview", "dep:ironbeam-io-tfrecord"]
-v5-io-parquet = ["v5-preview", "dep:ironbeam-io-parquet"]
-v5-io-arrow = ["v5-preview", "dep:ironbeam-io-arrow"]
+v5-preview = ["ironbeam-transforms/validation-json", "ironbeam-io/cloud", "ironbeam-io-jsonl/cloud"]
+v5-regex = ["dep:ironbeam-transform-regex"]
+v5-approx = ["dep:ironbeam-transform-approx"]
+v5-testing = ["dep:ironbeam-testing"]
+v5-metrics = ["dep:ironbeam-metrics", "ironbeam-direct/metrics"]
+v5-compression = ["dep:ironbeam-compression"]
+v5-io-sql = ["dep:ironbeam-io-sql"]
+v5-io-mongodb = ["dep:ironbeam-io-mongodb"]
+v5-io-avro = ["dep:ironbeam-io-avro"]
+v5-io-csv = ["dep:ironbeam-io-csv"]
+v5-io-xml = ["dep:ironbeam-io-xml"]
+v5-io-msgpack = ["dep:ironbeam-io-msgpack"]
+v5-io-cbor = ["dep:ironbeam-io-cbor"]
+v5-io-protobuf = ["dep:ironbeam-io-protobuf"]
+v5-io-tfrecord = ["dep:ironbeam-io-tfrecord"]
+v5-io-parquet = ["dep:ironbeam-io-parquet"]
+v5-io-arrow = ["dep:ironbeam-io-arrow"]
 
 # IO backends
-io-jsonl = ["v5-preview"]
+io-jsonl = []
 io-csv = ["v5-io-csv"]
 io-parquet = ["v5-io-parquet"]
 io-avro = ["v5-io-avro"]
@@ -53,31 +53,31 @@ io-sql = ["v5-io-sql", "dep:sqlx", "dep:tokio"]
 io-mongodb = ["v5-io-mongodb", "dep:mongodb", "dep:bson", "dep:tokio"]
 
 # Compression codecs (pluggable)
-compression-gzip = ["v5-compression", "ironbeam-compression/compression-gzip", "ironbeam-io?/compression-gzip", "ironbeam-io-jsonl?/compression-gzip"]
-compression-zstd = ["v5-compression", "ironbeam-compression/compression-zstd", "ironbeam-io?/compression-zstd", "ironbeam-io-jsonl?/compression-zstd"]
-compression-bzip2 = ["v5-compression", "ironbeam-compression/compression-bzip2", "ironbeam-io?/compression-bzip2", "ironbeam-io-jsonl?/compression-bzip2"]
-compression-xz = ["v5-compression", "ironbeam-compression/compression-xz", "ironbeam-io?/compression-xz", "ironbeam-io-jsonl?/compression-xz"]
+compression-gzip = ["v5-compression", "ironbeam-compression/compression-gzip", "ironbeam-io/compression-gzip", "ironbeam-io-jsonl/compression-gzip"]
+compression-zstd = ["v5-compression", "ironbeam-compression/compression-zstd", "ironbeam-io/compression-zstd", "ironbeam-io-jsonl/compression-zstd"]
+compression-bzip2 = ["v5-compression", "ironbeam-compression/compression-bzip2", "ironbeam-io/compression-bzip2", "ironbeam-io-jsonl/compression-bzip2"]
+compression-xz = ["v5-compression", "ironbeam-compression/compression-xz", "ironbeam-io/compression-xz", "ironbeam-io-jsonl/compression-xz"]
 
 # Behaviors
-parallel-io = ["ironbeam-io?/parallel-io", "ironbeam-io-jsonl?/parallel-io"]
+parallel-io = ["ironbeam-io/parallel-io", "ironbeam-io-jsonl/parallel-io"]
 metrics = ["v5-metrics"]
-checkpointing = ["v5-preview"]
-spilling = ["v5-preview"]
+checkpointing = []
+spilling = []
 # Keep the old feature name for the opt-in Postcard Element implementation macro.
-coders = ["v5-preview", "dep:ironbeam-coder-postcard"]
+coders = ["dep:ironbeam-coder-postcard"]
 
 [dependencies]
 ironbeam-compression = { version = "0.1.0", path = "crates/ironbeam-compression", optional = true }
 ironbeam-coder-postcard = { version = "0.1.0", path = "crates/ironbeam-coder-postcard", optional = true }
-ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core", optional = true }
-ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct", optional = true }
-ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", optional = true }
+ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core" }
+ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct" }
+ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms" }
 ironbeam-transform-regex = { version = "0.1.0", path = "crates/ironbeam-transform-regex", optional = true }
 ironbeam-transform-approx = { version = "0.1.0", path = "crates/ironbeam-transform-approx", optional = true }
 ironbeam-testing = { version = "0.1.0", path = "crates/ironbeam-testing", optional = true }
 ironbeam-metrics = { version = "0.1.0", path = "crates/ironbeam-metrics", optional = true }
-ironbeam-io = { version = "0.1.0", path = "crates/ironbeam-io", default-features = false, optional = true }
-ironbeam-io-jsonl = { version = "0.1.0", path = "crates/ironbeam-io-jsonl", optional = true }
+ironbeam-io = { version = "0.1.0", path = "crates/ironbeam-io", default-features = false }
+ironbeam-io-jsonl = { version = "0.1.0", path = "crates/ironbeam-io-jsonl" }
 ironbeam-io-protobuf = { version = "0.1.0", path = "crates/ironbeam-io-protobuf", optional = true }
 ironbeam-io-tfrecord = { version = "0.1.0", path = "crates/ironbeam-io-tfrecord", optional = true }
 ironbeam-io-avro = { version = "0.1.0", path = "crates/ironbeam-io-avro", optional = true }

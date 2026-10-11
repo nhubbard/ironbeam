@@ -11,7 +11,7 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 
 | Area | Where it stands | Next proof |
 | --- | --- | --- |
-| Workspace | V5-only root source; 26 local packages verify | Finish API and legacy package audit |
+| Workspace | V5-only root source, including with no default features; 26 local packages verify | Finish API and legacy package audit |
 | Direct | V4 reference corpus and v5 helper tests pass | Close public API and edge-case parity |
 | Portable | 18 live local Prism tests pass | Expand shared Direct/Prism corpus |
 | Streaming | Production reader resumes through join and co-group | Prove worker restart and output recovery |
@@ -54,7 +54,7 @@ workspace tests and the live Prism suite.
 | Check | Result |
 | --- | --- |
 | Root workspace | Tests and doctests passed after the CoGroupByKey event-time fix. |
-| Local release script | Dependency and feature checks, tests, docs, and verification of 26 packages passed with Mr Boxington. |
+| Local release script | Dependency and feature checks, tests, docs, and verification of 26 packages passed with Mr Boxington after the root facade feature cleanup. |
 | Local Prism | 18 live tests passed. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. |
 | Separate Dataflow workspace | Tests and doctests passed; changed proof package passed warning-free lint. |
 | Clean coverage | Core **96.13% locations / 88.64% branches**; Direct **93.46% / 90.19%**; transforms **97.81% / 93.10%**. Existing floors pass. |

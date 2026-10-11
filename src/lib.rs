@@ -1,12 +1,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![cfg_attr(feature = "v5-preview", doc = include_str!("v5_docs.md"))]
-#![cfg_attr(
-    not(feature = "v5-preview"),
-    doc = "Enable `v5-preview` to build the Ironbeam 5 facade."
-)]
+#![doc = include_str!("v5_docs.md")]
 
 /// Ironbeam 5 graph, transforms, I/O, and Direct runner.
-#[cfg(feature = "v5-preview")]
 pub mod v5 {
     #[cfg(feature = "coders")]
     pub use ironbeam_coder_postcard::impl_postcard_element;
@@ -75,5 +70,4 @@ pub mod v5 {
     pub use ironbeam_transforms::*;
 }
 
-#[cfg(feature = "v5-preview")]
 pub use v5::*;
