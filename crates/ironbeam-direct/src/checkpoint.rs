@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+
 #[derive(Clone, Debug)]
 pub struct CheckpointConfig {
     pub directory: PathBuf,
@@ -125,13 +127,30 @@ impl CheckpointManager {
     fn manifest_path(&self) -> PathBuf {
         self.config.directory.join("latest.json")
     }
-    fn load_manifest(&self) -> Result<Option<(Manifest, PathBuf)>, Error> {
+    fn load_manifest(
+        &self,
+        max_fold_state_bytes: Option<usize>,
+    ) -> Result<Option<(Manifest, PathBuf)>, Error> {
         if !self.config.recover {
             return Ok(None);
         }
         let path = self.manifest_path();
-        if !path.exists() {
-            return Ok(None);
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(io_error("checkpoint", error)),
+        };
+        if !metadata.file_type().is_file() {
+            return Err(Error::recovery(
+                "checkpoint",
+                "checkpoint manifest is not a regular file",
+            ));
+        }
+        if metadata.len() > MAX_MANIFEST_BYTES {
+            return Err(Error::recovery(
+                "checkpoint",
+                "checkpoint manifest exceeds size limit",
+            ));
         }
         let bytes = fs::read(&path).map_err(|e| io_error("checkpoint", e))?;
         let manifest: Manifest = serde_json::from_slice(&bytes)
@@ -152,6 +171,22 @@ impl CheckpointManager {
             ));
         }
         let data_path = self.config.directory.join(&manifest.data_file);
+        let metadata = fs::symlink_metadata(&data_path).map_err(|e| io_error("checkpoint", e))?;
+        if !metadata.file_type().is_file() {
+            return Err(Error::recovery(
+                "checkpoint",
+                "checkpoint data is not a regular file",
+            ));
+        }
+        if manifest.kind == CheckpointKind::FoldState
+            && let Some(limit) = max_fold_state_bytes
+            && metadata.len() > u64::try_from(limit).unwrap_or(u64::MAX)
+        {
+            return Err(Error::resource(
+                "checkpoint",
+                "fold checkpoint exceeds job memory budget",
+            ));
+        }
         if sha256_file(&data_path)? != manifest.data_sha256 {
             return Err(Error::recovery(
                 "checkpoint",
@@ -161,7 +196,7 @@ impl CheckpointManager {
         Ok(Some((manifest, data_path)))
     }
     pub(crate) fn recover<T: Element>(&self, store: &mut OutputStore<T>) -> Result<usize, Error> {
-        let Some((manifest, data_path)) = self.load_manifest()? else {
+        let Some((manifest, data_path)) = self.load_manifest(None)? else {
             return Ok(0);
         };
         if manifest.kind != CheckpointKind::Output {
@@ -174,7 +209,7 @@ impl CheckpointManager {
         source_len: usize,
         store: &mut OutputStore<T>,
     ) -> Result<bool, Error> {
-        let Some((manifest, data_path)) = self.load_manifest()? else {
+        let Some((manifest, data_path)) = self.load_manifest(None)? else {
             return Ok(false);
         };
         if manifest.kind != CheckpointKind::Output {
@@ -212,8 +247,11 @@ impl CheckpointManager {
             .store(u64::try_from(count).unwrap_or(u64::MAX), Ordering::Relaxed);
         Ok(manifest.source_offset)
     }
-    pub(crate) fn recover_fold_state(&self) -> Result<Option<(usize, Vec<u8>)>, Error> {
-        let Some((manifest, data_path)) = self.load_manifest()? else {
+    pub(crate) fn recover_fold_state(
+        &self,
+        max_state_bytes: usize,
+    ) -> Result<Option<(usize, Vec<u8>)>, Error> {
+        let Some((manifest, data_path)) = self.load_manifest(Some(max_state_bytes))? else {
             return Ok(None);
         };
         if manifest.kind != CheckpointKind::FoldState {
@@ -258,7 +296,18 @@ impl CheckpointManager {
             data_hash,
         )
     }
-    pub(crate) fn save_fold_state(&self, source_offset: usize, state: &[u8]) -> Result<(), Error> {
+    pub(crate) fn save_fold_state(
+        &self,
+        source_offset: usize,
+        state: &[u8],
+        max_state_bytes: usize,
+    ) -> Result<(), Error> {
+        if state.len() > max_state_bytes {
+            return Err(Error::resource(
+                "checkpoint",
+                "fold checkpoint exceeds job memory budget",
+            ));
+        }
         let mut data_tmp = tempfile::Builder::new()
             .prefix("checkpoint-data-")
             .tempfile_in(&self.config.directory)
@@ -627,10 +676,10 @@ mod tests {
         );
         let metrics = Arc::new(MetricsState::default());
         let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
-        assert!(manager.recover_fold_state().unwrap().is_none());
-        manager.save_fold_state(2, b"group state").unwrap();
+        assert!(manager.recover_fold_state(1024).unwrap().is_none());
+        manager.save_fold_state(2, b"group state", 1024).unwrap();
         assert_eq!(
-            manager.recover_fold_state().unwrap(),
+            manager.recover_fold_state(1024).unwrap(),
             Some((2, b"group state".to_vec()))
         );
         let mut output = OutputStore::<i32>::new(1024, None, metrics).unwrap();
@@ -646,14 +695,14 @@ mod tests {
         let data_path = dir.path().join(&manifest.data_file);
         fs::write(&data_path, b"tampered").unwrap();
         assert_eq!(
-            manager.recover_fold_state().unwrap_err().kind,
+            manager.recover_fold_state(1024).unwrap_err().kind,
             ErrorKind::Recovery
         );
         fs::write(&data_path, b"group state").unwrap();
         manifest.kind = CheckpointKind::Output;
         fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         assert_eq!(
-            manager.recover_fold_state().unwrap_err().kind,
+            manager.recover_fold_state(1024).unwrap_err().kind,
             ErrorKind::Recovery
         );
         manifest.kind = CheckpointKind::FoldState;
@@ -661,7 +710,126 @@ mod tests {
         manifest.progress_sha256 = manifest.progress_hash();
         fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         assert_eq!(
-            manager.recover_fold_state().unwrap_err().kind,
+            manager.recover_fold_state(1024).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+    }
+
+    #[test]
+    fn fold_state_respects_the_job_memory_budget_on_save_and_recovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "fold-budget-test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "fold-budget-test".into(),
+        );
+        let manager =
+            CheckpointManager::new(&config, identity, Arc::new(MetricsState::default())).unwrap();
+        assert_eq!(
+            manager
+                .save_fold_state(1, b"group state", 4)
+                .unwrap_err()
+                .kind,
+            ErrorKind::Resource
+        );
+        assert!(!directory.path().join("latest.json").exists());
+        manager.save_fold_state(1, b"group state", 1024).unwrap();
+        assert_eq!(
+            manager
+                .save_fold_state(2, b"larger group state", 4)
+                .unwrap_err()
+                .kind,
+            ErrorKind::Resource
+        );
+        assert_eq!(
+            manager.recover_fold_state(4).unwrap_err().kind,
+            ErrorKind::Resource
+        );
+        assert_eq!(
+            manager.recover_fold_state(1024).unwrap(),
+            Some((1, b"group state".to_vec()))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkpoint_recovery_rejects_symlinked_data_even_with_matching_bytes() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: parent.path().join("checkpoints"),
+            binary_build_id: "symlink-test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "symlink-test".into(),
+        );
+        let manager =
+            CheckpointManager::new(&config, identity, Arc::new(MetricsState::default())).unwrap();
+        manager.save_fold_state(1, b"group state", 1024).unwrap();
+        let manifest: Manifest =
+            serde_json::from_slice(&fs::read(config.directory.join("latest.json")).unwrap())
+                .unwrap();
+        let outside = parent.path().join("outside.txt");
+        fs::write(&outside, b"group state").unwrap();
+        let data_path = config.directory.join(&manifest.data_file);
+        fs::remove_file(&data_path).unwrap();
+        symlink(&outside, &data_path).unwrap();
+        assert_eq!(
+            manager.recover_fold_state(1024).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+        assert_eq!(fs::read(outside).unwrap(), b"group state");
+
+        fs::remove_file(&data_path).unwrap();
+        fs::write(&data_path, b"group state").unwrap();
+        let manifest_path = config.directory.join("latest.json");
+        let external_manifest = parent.path().join("external-manifest.json");
+        fs::copy(&manifest_path, &external_manifest).unwrap();
+        fs::remove_file(&manifest_path).unwrap();
+        symlink(&external_manifest, &manifest_path).unwrap();
+        assert_eq!(
+            manager.recover_fold_state(1024).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+    }
+
+    #[test]
+    fn checkpoint_recovery_rejects_oversized_manifest_before_parsing() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "manifest-limit-test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "manifest-limit-test".into(),
+        );
+        let manager =
+            CheckpointManager::new(&config, identity, Arc::new(MetricsState::default())).unwrap();
+        fs::write(
+            directory.path().join("latest.json"),
+            vec![b' '; MAX_MANIFEST_BYTES as usize + 1],
+        )
+        .unwrap();
+        assert_eq!(
+            manager.recover_fold_state(1024).unwrap_err().kind,
             ErrorKind::Recovery
         );
     }

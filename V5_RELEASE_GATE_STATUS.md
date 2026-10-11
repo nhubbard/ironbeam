@@ -693,6 +693,17 @@ staged locally.
    The full all-feature workspace tests and doctests, strict core/Direct lint,
    separate Dataflow graph/worker tests, and both live local Prism fixtures
    pass after this change.
+   Fold-state persistence and recovery now enforce the Direct job memory
+   budget before writing state or loading saved state bytes. Oversized saves leave the
+   previous valid checkpoint intact. Recovery rejects manifests over 1 MiB,
+   and rejects symlinked or non-regular manifest and data files before loading
+   the payload. Direct tests cover the manager checks and a grouped job whose
+   snapshot exceeds its budget. V4's scheduling policies persist only progress
+   markers and re-execute from the start; their v5 replacement still needs a
+   restorable-state scheduling contract. Fresh core and Direct coverage pass
+   unchanged gates at core 2,509/2,607 lines and 370/420 branches, and Direct
+   2,366/2,515 lines and 463/506 branches; strict Direct lint and the full
+   workspace all-feature test and doctest suite pass.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.

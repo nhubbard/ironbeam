@@ -79,6 +79,10 @@ versioned fold state from the last committed source batch and reads only the
 remaining source rows. Other in-progress folds, multi-input routes, custom or
 unbounded sources, and the v4 checkpoint policies remain replacement work. The
 local manifest schema is 1.2 and rejects older v5 draft checkpoints.
+V4's barrier, node-count, time, and hybrid policies wrote progress markers;
+its runner reopened those markers but re-executed from the start. V5 must retain
+the useful scheduling options only when they govern restorable state, rather
+than presenting metadata-only checkpoints as recovery parity.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
 `RegexExt` when `v5-regex` is enabled. Plain `ironbeam-transforms` builds no
 longer compile the regex engine. The v4 root helpers retain their current

@@ -33,7 +33,7 @@ pub(crate) fn execute<T: Element>(
         .transpose()?;
     let mut pending_state = checkpoint
         .as_ref()
-        .map(|(manager, _)| manager.recover_fold_state())
+        .map(|(manager, _)| manager.recover_fold_state(config.memory_budget_bytes))
         .transpose()?
         .flatten();
     if pending_state.is_none()
@@ -258,7 +258,7 @@ fn eval_checkpointed_group(
                     ))
                 })?
                 .ok_or_else(|| Error::unsupported(group_key, "direct", "fold-checkpoint-state"))?;
-            manager.save_fold_state(offset, &state)?;
+            manager.save_fold_state(offset, &state, config.memory_budget_bytes)?;
         }
     }
     catch_unwind(AssertUnwindSafe(|| fold.finish()))
@@ -609,7 +609,7 @@ mod checkpoint_tests {
             ..CheckpointConfig::default()
         };
         manager(&direct, &checkpoint)
-            .save_fold_state(2, b"state")
+            .save_fold_state(2, b"state", 1024)
             .unwrap();
         let config = JobConfig {
             checkpoint: Some(checkpoint),
@@ -654,7 +654,7 @@ mod checkpoint_tests {
             ..CheckpointConfig::default()
         };
         manager(&output, &checkpoint)
-            .save_fold_state(0, b"state")
+            .save_fold_state(0, b"state", 1024)
             .unwrap();
         let config = JobConfig {
             checkpoint: Some(checkpoint),
@@ -701,6 +701,37 @@ mod checkpoint_tests {
     }
 
     #[test]
+    fn checkpointed_group_rejects_state_larger_than_the_job_budget() {
+        let pipeline = Pipeline::default();
+        let output = pipeline
+            .from_vec("source", vec![(1_i32, "x".repeat(5000))])
+            .unwrap()
+            .group_by_key_named("group")
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let config = JobConfig {
+            memory_budget_bytes: 1024,
+            checkpoint: Some(CheckpointConfig {
+                directory: directory.path().to_path_buf(),
+                binary_build_id: "state-budget-test".into(),
+                ..CheckpointConfig::default()
+            }),
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &config)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Resource
+        );
+        assert!(!directory.path().join("latest.json").exists());
+    }
+
+    #[test]
     fn checkpointed_group_rejects_invalid_fold_payload() {
         let pipeline = Pipeline::default();
         let output = pipeline
@@ -717,7 +748,7 @@ mod checkpoint_tests {
             ..CheckpointConfig::default()
         };
         manager(&output, &checkpoint)
-            .save_fold_state(0, b"invalid fold payload")
+            .save_fold_state(0, b"invalid fold payload", 1024)
             .unwrap();
         let config = JobConfig {
             checkpoint: Some(checkpoint),
