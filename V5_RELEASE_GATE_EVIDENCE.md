@@ -33,6 +33,20 @@ superseded.
 ### Foundation and parity
 
 <details>
+<summary>Production reader joins and co-groups after residual resume</summary>
+
+The SDF process-stage worker now validates and executes join/co-group input
+tags downstream of a resumable production source. In a local Prism job, a
+first accepted source batch returns a residual cursor, a second batch resumes
+from it, and both join and co-group with a bounded side in two fixed windows.
+Five idempotently committed rows match exact values, earliest event times,
+and window intervals. All 18 live Prism tests, Dataflow workspace tests,
+formatting, and changed-package lint pass. Worker replacement and abandoned
+attempt recovery remain open.
+
+</details>
+
+<details>
 <summary>Mixed bounded and unbounded portable joins</summary>
 
 Core permits finite-window joins and co-groups with bounded and unbounded
