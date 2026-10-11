@@ -713,9 +713,9 @@ timestamped encoded elements, and monotonic watermark controls. The separate
 Dataflow translator lowers these fixtures to Beam's unbounded TestStream
 primitive. A local Prism `Run` reaches `DONE` through the v5 worker and
 verifies two values in their fixed windows; the existing bounded live corpus
-also passes. This closes the scripted unbounded fixture proof. Production
-unbounded source polling, split progress/checkpoint recovery, and remote
-Dataflow execution remain release gates.
+also passes. This closes the scripted unbounded fixture proof. The production
+reader and checkpoint proof is described below; remote Dataflow execution
+remains a separate release gate.
 
 The core also now registers a production unbounded reader factory with a
 nonblocking poll result, bounded event batches, timestamped values, and a
@@ -730,22 +730,26 @@ restart, completed recovery, failed commits, and checkpoint integrity are
 covered by Direct tests. Direct rejects stateful or multi-source streaming
 routes, non-idempotent sinks, and sinks requiring bundle finalization. The
 ordinary bounded `run_sink` path still rejects unbounded graphs. The separate
-Dataflow translator still rejects production source polling, so portable
-source execution and remote Dataflow remain release gates.
+Dataflow production source polling is now covered by a local Prism run;
+broader portable graph shapes and remote Dataflow remain release gates.
 The separate Dataflow workspace now has a versioned SDF restriction payload
 and a tested worker-side polling adapter that preserves reader state across
 `Pending` and returns an encoded residual cursor. The Beam SDF transform
-lowering now has a structural test for pair, split/size, process, coder graph,
-and SDF requirement. The translator's production-source rejection remains
-in place pending process-stage execution and residual split responses.
+lowering now submits a splittable ParDo and SDF requirement for Prism to
+expand into pair, split/size, and process stages. Public translation validates
+the source before opening its reader.
 The Fn API control loop now accepts split requests while a bundle runs, and a
 live Prism TestStream run still reaches `DONE`. The Dataflow bundle planner
 recognizes the three v5 SDF stages and validates their restriction-coder
-payloads. The worker now executes pair and split/size preparation over Fn
-Data, both fused and across a runner boundary. Tests verify the sized
-restriction payload and that preparation does not open the source reader.
-The process stage, residual checkpoint response, and live production-source
-Prism run remain open.
+payloads. The worker executes pair and split/size preparation over Fn Data,
+both fused and across a runner boundary. Its process stage polls a registered
+reader, emits timestamped values, and returns residual bundle roots. A two
+bundle Fn Data test verifies resume from the saved cursor; a bad restriction
+fails before opening the reader. Local Prism `Run` now reaches `DONE` with two
+timestamped batches and an idempotent sink that checks each value and event
+timestamp. The prior TestStream Prism proof still passes. An explicit worker
+restart after an accepted batch, split-response roots, additional portable
+graph shapes, and remote cloud execution remain unproved.
 The new Direct stream and checkpoint modules have 605/665 source locations
 covered in isolation. With the expanded failure-path tests, the package now
 measures 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%).
