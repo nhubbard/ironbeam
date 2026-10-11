@@ -39,6 +39,102 @@ fn small_graph_runs_with_job_owned_settings() {
 }
 
 #[test]
+fn typed_source_only_route_preserves_results_and_metrics() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .bounded_source::<i32>(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "test-source-v1".into(),
+            Some(5),
+            || Ok(Box::new((0..5).map(Ok))),
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.open_typed_source::<String>("source").unwrap().is_none());
+    assert_eq!(
+        registry
+            .open_typed_source::<i32>("source")
+            .unwrap()
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap(),
+        vec![0, 1, 2, 3, 4]
+    );
+    let (values, job) = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                buffer_budget_elements: 2,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(values, vec![0, 1, 2, 3, 4]);
+    assert_eq!(job.metrics().source_elements, 5);
+    assert_eq!(job.metrics().output_elements, 5);
+    assert_eq!(job.metrics().batches, 3);
+    assert_eq!(job.metrics().peak_batch_elements, 2);
+    assert_eq!(job.processed(), 5);
+}
+
+#[test]
+fn typed_source_only_route_reports_factory_and_iterator_panics() {
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: false,
+    };
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .bounded_source::<i32>(
+            "source",
+            progress.clone(),
+            "factory-panic-v1".into(),
+            None,
+            || panic!("factory panic"),
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .bounded_source::<i32>(
+            "source",
+            progress,
+            "iterator-panic-v1".into(),
+            None,
+            || Ok(Box::new(std::iter::once_with(|| panic!("iterator panic")))),
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+}
+
+#[test]
 fn collection_collect_repeats_without_mutating_the_graph() {
     let pipeline = Pipeline::default();
     let source = pipeline.from_vec("input", vec![1_i32, 2, 3, 4]).unwrap();

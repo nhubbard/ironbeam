@@ -110,6 +110,11 @@ staged locally.
   output counters once per source batch rather than once per emitted row. In a
   warmed five-run 100,000-row sample, the median moved from 5.07 ms to 4.79 ms;
   this is a local sample, and the performance gate remains open. The v5 Direct
+  source-only route now opens typed values without creating and downcasting an
+  envelope for each row. Four warmed 100,000-row samples moved from
+  2.48–2.62 ms before this change to 0.922–0.928 ms afterward; map/filter
+  still uses the envelope route and its performance gate remains open. The
+  v5 Direct
   collection trait now accepts `PCollection` as well as `Output`; it builds
   an isolated terminal snapshot, so repeated v4-shaped `collect_seq` and `collect_par`
   calls leave the user's graph unchanged. Named `Output` terminals remain for

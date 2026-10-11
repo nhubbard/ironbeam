@@ -104,6 +104,17 @@ updates also reduced the earlier five-run v5 map/filter median from 5.07 to
 4.79 ms before `source_copy` was inserted; those measurements used a different
 warmup sequence and should not be mixed with the paired times above.
 
+Direct now opens a typed iterator when a source feeds an output without
+transforms. This avoids creating and immediately downcasting one boxed
+envelope per element. The ordinary envelope factory remains registered for
+transform routes and portable workers, and both factories open the same
+repeatable source. Four warmed 100,000-row `source_copy` runs after this
+change measured 0.922–0.928 ms, down from the earlier 2.48–2.62 ms range.
+The corresponding map/filter route still uses envelopes; its timings varied
+between runs and do not establish a transform-path improvement. The Direct
+tests cover typed custom source values, batch metrics, source-only checkpoint
+recovery, and factory/iterator panic conversion.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

@@ -18,7 +18,7 @@ pub use spill::SpillConfig;
 
 use ironbeam_core::{
     Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection, Registry,
-    RetryClass, Sink, SinkMode, SourceIterator, Window,
+    RetryClass, Sink, SinkMode, SourceIterator, TypedSourceIterator, Window,
 };
 use metrics::MetricsState;
 use rayon::prelude::*;
@@ -514,6 +514,27 @@ fn open_source_safe(registry: &Registry, key: &str) -> Result<SourceIterator, Er
     catch_unwind(AssertUnwindSafe(|| registry.open_source(key)))
         .unwrap_or_else(|_| Err(Error::execution(key, "direct", "source factory panicked")))
 }
+fn open_typed_source_safe<T: Element>(
+    registry: &Registry,
+    key: &str,
+) -> Result<Option<TypedSourceIterator<T>>, Error> {
+    catch_unwind(AssertUnwindSafe(|| registry.open_typed_source::<T>(key)))
+        .unwrap_or_else(|_| Err(Error::execution(key, "direct", "source factory panicked")))
+}
+fn read_typed_source_batch<T: Element>(
+    source: &mut TypedSourceIterator<T>,
+    limit: usize,
+    key: &str,
+) -> Result<Vec<T>, Error> {
+    catch_unwind(AssertUnwindSafe(|| {
+        let mut batch = Vec::with_capacity(source.size_hint().0.min(limit));
+        for next in source.by_ref().take(limit) {
+            batch.push(next?);
+        }
+        Ok(batch)
+    }))
+    .unwrap_or_else(|_| Err(Error::execution(key, "direct", "source iterator panicked")))
+}
 fn read_source_batch(
     source: &mut SourceIterator,
     limit: usize,
@@ -617,6 +638,58 @@ fn execute<T: Element>(
             .map(|key| registry.single_transform(key))
             .collect();
         let mut source_offset = recovered_offset;
+        if route.operations.is_empty()
+            && let Some(mut source) = open_typed_source_safe::<T>(registry, &route.source_key)?
+        {
+            for _ in 0..source_offset {
+                if read_typed_source_batch(&mut source, 1, &route.source_key)?.is_empty() {
+                    return Err(Error::recovery(
+                        &route.source_key,
+                        "source ended before checkpoint position",
+                    ));
+                }
+            }
+            let mut batches = 0_usize;
+            loop {
+                if config.cancellation.load(Ordering::Acquire) {
+                    return Err(cancelled());
+                }
+                let batch = read_typed_source_batch(
+                    &mut source,
+                    plan.summary.batch_limit,
+                    &route.source_key,
+                )?;
+                if batch.is_empty() {
+                    break;
+                }
+                let batch_len = batch.len();
+                let count = u64::try_from(batch_len).unwrap_or(u64::MAX);
+                handle.metrics.source_elements.fetch_add(count, Ordering::Relaxed);
+                handle.metrics.peak_batch_elements.fetch_max(count, Ordering::Relaxed);
+                for value in batch {
+                    store.push(value)?;
+                }
+                let total = handle.metrics.output_elements.fetch_add(count, Ordering::Relaxed) + count;
+                handle.processed.store(total, Ordering::Relaxed);
+                source_offset = source_offset
+                    .checked_add(batch_len)
+                    .ok_or_else(|| Error::resource("job", "source offset overflow"))?;
+                batches += 1;
+                handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+                if let Some(manager) = &checkpoint
+                    && manager.should_save(batches)
+                {
+                    manager.save(source_offset, &store)?;
+                }
+            }
+            if let Some(manager) = &checkpoint
+                && batches > 0
+                && !manager.should_save(batches)
+            {
+                manager.save(source_offset, &store)?;
+            }
+            continue;
+        }
         let mut source = open_source_safe(registry, &route.source_key)?;
         for _ in 0..source_offset {
             if read_source_batch(&mut source, 1, &route.source_key)?.is_empty() {

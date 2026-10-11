@@ -1404,6 +1404,8 @@ pub struct Envelope {
 pub type SourceIterator = Box<dyn Iterator<Item = Result<Envelope, Error>> + Send>;
 pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Send>;
 type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
+type TypedSourceFactory<T> =
+    Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
 type SingleTransform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync>;
 type MultiTransform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 #[derive(Clone)]
@@ -1608,6 +1610,7 @@ impl<T: Element> SinkSession for SinkAdapter<T> {
 #[derive(Clone)]
 struct SourceRegistration {
     factory: SourceFactory,
+    typed_factory: Option<Arc<dyn Any + Send + Sync>>,
     len_hint: Option<usize>,
     config_digest: Option<String>,
 }
@@ -1859,6 +1862,23 @@ impl Registry {
             .get(key)
             .ok_or_else(|| Error::execution(key, "direct", "source factory missing"))
             .and_then(|source| (source.factory)())
+    }
+    /// Open a source directly as `T` when its registration retains a typed factory.
+    ///
+    /// `None` means that the backend should use the regular envelope source.
+    pub fn open_typed_source<T: Element>(
+        &self,
+        key: &str,
+    ) -> Result<Option<TypedSourceIterator<T>>, Error> {
+        let source = self.sources.get(key).ok_or_else(|| {
+            Error::execution(key, "direct", "source factory missing")
+        })?;
+        source
+            .typed_factory
+            .as_ref()
+            .and_then(|factory| factory.downcast_ref::<TypedSourceFactory<T>>())
+            .map(|factory| factory())
+            .transpose()
     }
     #[must_use]
     pub fn source_len_hint(&self, key: &str) -> Option<usize> {
@@ -2149,11 +2169,16 @@ impl Pipeline {
         };
         let values = Arc::new(values);
         let len_hint = values.len();
-        let factory: SourceFactory = Arc::new(move || {
+        let typed_factory: TypedSourceFactory<T> = Arc::new(move || {
             let values = Arc::clone(&values);
-            Ok(Box::new((0..values.len()).map(move |i| {
-                Ok(Envelope {
-                    value: Box::new(values[i].clone()),
+            Ok(Box::new((0..values.len()).map(move |i| Ok(values[i].clone()))))
+        });
+        let envelope_factory = Arc::clone(&typed_factory);
+        let factory: SourceFactory = Arc::new(move || {
+            let source = envelope_factory()?;
+            Ok(Box::new(source.map(|result| {
+                result.map(|value| Envelope {
+                    value: Box::new(value),
                     timestamp_ns: 0,
                     window: Window::Global,
                     assigned_window: None,
@@ -2171,6 +2196,7 @@ impl Pipeline {
             },
             Some(SourceRegistration {
                 factory,
+                typed_factory: Some(Arc::new(typed_factory)),
                 len_hint: Some(len_hint),
                 config_digest,
             }),
@@ -2217,8 +2243,10 @@ impl Pipeline {
                 "bounded source configuration digest is required",
             ));
         }
+        let typed_factory: TypedSourceFactory<T> = Arc::new(open);
+        let envelope_factory = Arc::clone(&typed_factory);
         let factory: SourceFactory = Arc::new(move || {
-            let source = open()?;
+            let source = envelope_factory()?;
             Ok(Box::new(source.map(|result| {
                 result.map(|value| Envelope {
                     value: Box::new(value),
@@ -2235,6 +2263,7 @@ impl Pipeline {
             progress,
             Some(SourceRegistration {
                 factory,
+                typed_factory: Some(Arc::new(typed_factory)),
                 len_hint,
                 config_digest: Some(config_digest),
             }),
