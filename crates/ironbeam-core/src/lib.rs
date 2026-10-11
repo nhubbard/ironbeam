@@ -379,9 +379,23 @@ macro_rules! impl_tuple_element {
                 if !Self::supports_coder() {
                     return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
                 }
-                let mut bytes = Vec::new();
-                $(encode_part(&self.$index.encode()?, &mut bytes);)+
+                let mut bytes = Vec::with_capacity(self.encoded_len()?);
+                self.encode_into(&mut bytes)?;
                 Ok(bytes)
+            }
+            fn encode_into(&self, output: &mut Vec<u8>) -> Result<(), Error> {
+                if !Self::supports_coder() {
+                    return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+                }
+                $(
+                    output.extend_from_slice(&(self.$index.encoded_len()? as u64).to_le_bytes());
+                    self.$index.encode_into(output)?;
+                )+
+                Ok(())
+            }
+            fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
+                buffer.clear();
+                self.encode_into(buffer)
             }
             fn encoded_len(&self) -> Result<usize, Error> {
                 if !Self::supports_coder() {

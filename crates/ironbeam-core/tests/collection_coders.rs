@@ -20,6 +20,31 @@ fn encoded_lengths_match_nested_wire_shapes_used_for_output_budgets() {
 }
 
 #[test]
+fn higher_arity_tuple_append_and_reuse_preserve_wire_bytes() {
+    let value = (7_u32, "éclair".to_string(), Some(9_i64), vec![true, false]);
+    let expected = value.encode().unwrap();
+    let mut legacy_wire = Vec::new();
+    for part in [
+        value.0.encode().unwrap(),
+        value.1.encode().unwrap(),
+        value.2.encode().unwrap(),
+        value.3.encode().unwrap(),
+    ] {
+        legacy_wire.extend_from_slice(&u64::try_from(part.len()).unwrap().to_le_bytes());
+        legacy_wire.extend_from_slice(&part);
+    }
+    assert_eq!(expected, legacy_wire);
+    let mut buffer = b"prefix".to_vec();
+    value.encode_into(&mut buffer).unwrap();
+    assert_eq!(&buffer[..6], b"prefix");
+    assert_eq!(&buffer[6..], expected);
+    value.encode_reusing(&mut buffer).unwrap();
+    assert_eq!(buffer, expected);
+    assert_eq!(buffer.len(), value.encoded_len().unwrap());
+    assert_eq!(<(u32, String, Option<i64>, Vec<bool>)>::decode(&buffer).unwrap(), value);
+}
+
+#[test]
 fn set_and_map_coders_ignore_hash_iteration_order() {
     let a: HashSet<i32> = [3, 1, 2].into_iter().collect();
     let b: HashSet<i32> = [2, 3, 1].into_iter().collect();
