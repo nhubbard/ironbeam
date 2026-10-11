@@ -5,6 +5,37 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[test]
+fn flat_map_route_checkpoints_complete_and_partial_intervals() {
+    for interval_batches in [1, 4] {
+        let directory = tempfile::tempdir().unwrap();
+        let pipeline = Pipeline::default();
+        let output = pipeline
+            .from_vec("source", vec![1_i32, 2, 3])
+            .unwrap()
+            .flat_map_named("duplicate", |value| vec![value, value])
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let config = JobConfig {
+            buffer_budget_elements: 1,
+            checkpoint: Some(CheckpointConfig {
+                directory: directory.path().to_path_buf(),
+                interval_batches,
+                recover: true,
+                binary_build_id: "flat-map-checkpoint-test".into(),
+            }),
+            ..JobConfig::default()
+        };
+        let (first, first_job) = DirectRunner.run_collect(&output, &config).unwrap();
+        assert_eq!(first, [1, 1, 2, 2, 3, 3]);
+        assert_eq!(first_job.metrics().recovered_elements, 0);
+        let (second, second_job) = DirectRunner.run_collect(&output, &config).unwrap();
+        assert_eq!(second, first);
+        assert_eq!(second_job.metrics().recovered_elements, 6);
+    }
+}
+
+#[test]
 fn physical_plan_fuses_operations_and_batches_preserve_order() {
     let pipeline = Pipeline::default();
     let values: Vec<i32> = (0..101).collect();
@@ -114,11 +145,19 @@ fn explain_does_not_open_a_source() {
         .unwrap()
         .output("result")
         .unwrap();
-    let summary = DirectRunner.explain(&output, &JobConfig::default()).unwrap();
+    let summary = DirectRunner
+        .explain(&output, &JobConfig::default())
+        .unwrap();
     assert!(!summary.materialized);
     assert_eq!(summary.source_len_hint, Some(2));
     assert_eq!(opened.load(Ordering::Relaxed), 0);
-    assert_eq!(DirectRunner.run_collect(&output, &JobConfig::default()).unwrap().0, [1, 2]);
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        [1, 2]
+    );
     assert_eq!(opened.load(Ordering::Relaxed), 1);
 }
 
@@ -445,6 +484,16 @@ fn checkpoint_manifest_validation_and_disabled_recovery() {
             .kind,
         ErrorKind::Recovery
     );
+    changed["data_file"] = serde_json::json!("nested/data");
+    fs::write(&path, serde_json::to_vec(&changed).unwrap()).unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
     fs::write(&path, b"not json").unwrap();
     assert_eq!(
         DirectRunner
@@ -459,6 +508,42 @@ fn checkpoint_manifest_validation_and_disabled_recovery() {
         DirectRunner.run_collect(&output, &config).unwrap().0,
         vec![1, 2]
     );
+}
+
+#[test]
+fn recovery_rejects_checkpoint_past_source_length_hint() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .bounded_source::<i32>(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "short-hint-v1".into(),
+            Some(1),
+            || Ok(Box::new([Ok(1), Ok(2)].into_iter())),
+        )
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let config = JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "short-hint-build".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner.run_collect(&output, &config).unwrap().0,
+        [1, 2]
+    );
+    let error = DirectRunner.run_collect(&output, &config).err().unwrap();
+    assert_eq!(error.kind, ErrorKind::Recovery);
+    assert!(error.message.contains("exceeds source length"));
 }
 
 #[test]

@@ -7,10 +7,18 @@ staged locally.
 
 ## Verified in this checkout
 
-- `bash scripts/check_v5_packages.sh` passed after the regex and approximate
-  distinct extension splits:
+- Clean core and Direct coverage corpora now pass their unchanged CI ratios:
+  core 2,194/2,282 source locations and 341/390 branch outcomes; Direct
+  1,243/1,324 source locations and 226/246 branch outcomes. New Direct tests
+  exercise fallible terminals, cancellation, lifted combine failures, and
+  checkpoint recovery through flat-map output. That recovery test exposed an
+  invalid assumption that output count cannot exceed source position. The
+  checkpoint manifest now binds its progress fields and data digest with a
+  checksum, and its schema version is 1.1. Corrupt progress and frame counts
+  are rejected; flat-map checkpoints recover successfully.
+- `bash scripts/check_v5_packages.sh` passed after the checkpoint schema fix:
   workspace tests, selected feature variants, all-feature
-  documentation, and local package verification for all twenty-four v5 crates.
+  documentation, and local package verification for all twenty-five v5 crates.
   No package was published.
 - `ironbeam-transform-regex` owns the v5 regex helpers and measures 45/45
   source locations in its isolated tests. The ordinary

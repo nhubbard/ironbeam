@@ -68,6 +68,8 @@ struct Manifest {
     output_count: usize,
     data_file: String,
     data_sha256: String,
+    #[serde(default)]
+    progress_sha256: String,
 }
 
 pub(crate) struct CheckpointManager {
@@ -122,10 +124,17 @@ impl CheckpointManager {
         {
             return Err(Error::recovery("checkpoint", "invalid data file name"));
         }
-        if manifest.output_count > manifest.source_offset {
+        if manifest.progress_sha256
+            != progress_sha256(
+                manifest.source_offset,
+                manifest.output_count,
+                &manifest.data_file,
+                &manifest.data_sha256,
+            )
+        {
             return Err(Error::recovery(
                 "checkpoint",
-                "checkpoint output count exceeds source position",
+                "checkpoint progress checksum mismatch",
             ));
         }
         let data_path = self.config.directory.join(&manifest.data_file);
@@ -177,12 +186,14 @@ impl CheckpointManager {
             .ok_or_else(|| Error::recovery("checkpoint", "checkpoint data path lacks file name"))?
             .to_string_lossy()
             .into_owned();
+        let progress_sha256 = progress_sha256(source_offset, output_count, &data_file, &data_hash);
         let manifest = Manifest {
             version: CHECKPOINT_VERSION,
             identity: self.identity.clone(),
             source_offset,
             output_count,
             data_file,
+            progress_sha256,
             data_sha256: data_hash,
         };
         let mut manifest_tmp = tempfile::NamedTempFile::new_in(&self.config.directory)
@@ -208,6 +219,26 @@ impl CheckpointManager {
         self.metrics.checkpoints.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
+}
+
+fn progress_sha256(
+    source_offset: usize,
+    output_count: usize,
+    data_file: &str,
+    data_sha256: &str,
+) -> String {
+    let mut hash = Sha256::new();
+    hash.update(source_offset.to_le_bytes());
+    hash.update(output_count.to_le_bytes());
+    hash.update(data_file.as_bytes());
+    hash.update([0]);
+    hash.update(data_sha256.as_bytes());
+    let digest = hash.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
 }
 
 fn sha256_file(path: &Path) -> Result<String, Error> {
@@ -263,5 +294,42 @@ mod tests {
             sha256_file(&dir.path().join("missing")).unwrap_err().kind,
             ErrorKind::Io
         );
+    }
+
+    #[test]
+    fn recovery_rejects_manifest_count_that_disagrees_with_valid_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "count-test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "count-test".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+        let mut store = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        store.push(7).unwrap();
+        manager.save(1, &store).unwrap();
+
+        let path = directory.path().join("latest.json");
+        let mut manifest: Manifest = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        manifest.output_count = 2;
+        manifest.progress_sha256 = progress_sha256(
+            manifest.source_offset,
+            manifest.output_count,
+            &manifest.data_file,
+            &manifest.data_sha256,
+        );
+        fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let mut recovered = OutputStore::<i32>::new(1024, None, metrics).unwrap();
+        let error = manager.recover(&mut recovered).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Recovery);
+        assert!(error.message.contains("output count mismatch"));
     }
 }
