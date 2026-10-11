@@ -44,6 +44,7 @@ The same v5 API remains available under `ironbeam::v5::*` during migration.
 | `ironbeam-cloud-objects` | Provider-neutral object URIs and storage operations |
 | `ironbeam-cloud-service-api` | Provider-neutral contracts for non-object service extensions |
 | `ironbeam-cloud-fakes` | In-memory implementations of the cloud service contracts for tests |
+| `ironbeam-cloud-ops` | Provider-neutral retry, pagination, batching, and operation helpers |
 | `ironbeam-cloud-object-store` | Opt-in S3, GCS, and Azure Blob clients |
 
 Regex and approximate distinct helpers have separate extension crates. Avro,

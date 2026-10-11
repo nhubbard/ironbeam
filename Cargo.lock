@@ -2269,9 +2269,9 @@ dependencies = [
  "anyhow",
  "bzip2",
  "flate2",
- "futures-executor",
  "ironbeam-cloud-fakes",
  "ironbeam-cloud-objects",
+ "ironbeam-cloud-ops",
  "ironbeam-cloud-service-api",
  "ironbeam-compression",
  "regex",
@@ -2304,6 +2304,15 @@ name = "ironbeam-cloud-objects"
 version = "0.1.0"
 dependencies = [
  "tempfile",
+]
+
+[[package]]
+name = "ironbeam-cloud-ops"
+version = "0.1.0"
+dependencies = [
+ "futures-executor",
+ "ironbeam-cloud-fakes",
+ "ironbeam-cloud-service-api",
 ]
 
 [[package]]

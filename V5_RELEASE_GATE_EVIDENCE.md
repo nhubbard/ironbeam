@@ -42,7 +42,7 @@ features enable the default extras while the root package is still versioned
 extras. No-default facade tests execute a core
 pipeline, a helper chain, and JSONL round trip; a CSV-only dependency check
 has no cloud package. The full local package script passed workspace tests,
-isolated feature checks, documentation, and verification of all 28 packages.
+isolated feature checks, documentation, and verification of all 29 packages.
 Publication remains staged.
 
 </details>
@@ -56,7 +56,7 @@ The existing `ironbeam-cloud::traits` path reexports them, so its fake service
 implementations and callers continue to compile. Isolated API coverage is
 61/61 source locations and 2/2 branches; its tests, the compatibility cloud
 tests and doctests, strict lint, and the local package gate pass. The
-operation helpers remain in the compatibility crate.
+operation helpers were subsequently extracted as described below.
 
 </details>
 
@@ -67,6 +67,21 @@ The in-memory fake services now live in `ironbeam-cloud-fakes`, depending on
 the service API crate. `ironbeam-cloud::fake` and root reexports preserve the
 existing paths. Credential, warehouse, and object storage behavior tests pass
 inside the new crate, and compatibility tests and doctests still pass.
+
+</details>
+
+<details>
+<summary>Provider-neutral cloud operation helpers</summary>
+
+`ironbeam-cloud-ops` now owns retry, timeout, batching, pagination, resource
+validation, and high-level operation helpers. It depends on the service API
+at runtime and uses fakes only for doctests. The old `ironbeam-cloud::helpers`
+and `ironbeam-cloud::utils` paths reexport the same operations; test credential
+constructors stay in the compatibility wrapper. Five behavior tests cover
+transient and permanent failures, ordered batches, page progression, metadata,
+timeout classification, resources, and connection reuse. Its initial source
+coverage is 152/226 locations and 25/34 branches, now included in CI's
+coverage ratchet. Remaining paths need quality review.
 
 </details>
 

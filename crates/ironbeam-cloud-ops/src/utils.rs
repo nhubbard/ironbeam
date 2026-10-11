@@ -1,0 +1,497 @@
+//! Implementation utilities for cloud service integrations.
+//!
+//! This module provides low-level helper functions that are useful when implementing
+//! cloud I/O traits for specific providers. These are **implementation helpers** rather
+//! than end-user APIs.
+//!
+//! For high-level end-user helpers that work with any cloud I/O trait implementation,
+//! see [`crate::helpers`].
+//!
+//! ## Available Utilities
+//!
+//! ### Retry and Resilience
+//! - [`retry_with_backoff`] - Retry with exponential backoff for transient failures
+//! - [`with_timeout`] - Execute operations with timeout enforcement
+//!
+//! ### Batch Processing
+//! - [`batch_in_chunks`] - Split large batches into smaller chunks
+//! - [`paginate`] - Fetch all pages from paginated APIs
+//!
+//! ### Connection Management
+//! - [`ConnectionPool`] - Simple connection pooling for cloud services
+//!
+//! ### Credential and Configuration
+//! - [`credentials_from_env`] - Load credentials from environment variables
+//! - [`config_from_env`] - Load configuration from environment variables
+//!
+//! ### Resource Handling
+//! - [`parse_resource_uri`] - Parse cloud resource URIs (e.g., `s3://bucket/key`)
+//! - [`validate_resource_name`] - Validate resource names per cloud conventions
+//! - [`validate_key_path`] - Validate object storage key paths
+//!
+//! ### Error Conversion
+//! - [`IntoCloudError`] - Convert standard errors to [`CloudIOError`]
+//!
+
+use ironbeam_cloud_service_api::{CloudIOError, CloudResult, ErrorKind};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+// ============================================================================
+// Retry Helper
+// ============================================================================
+
+/// Configuration for retry behavior
+#[derive(Debug, Clone, Copy)]
+pub struct RetryConfig {
+    pub max_attempts: u32,
+    pub initial_delay_ms: u64,
+    pub max_delay_ms: u64,
+    pub backoff_multiplier: f64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_attempts: 3,
+            initial_delay_ms: 100,
+            max_delay_ms: 5000,
+            backoff_multiplier: 2.0,
+        }
+    }
+}
+
+/// Retry a function with exponential backoff
+///
+/// This helper automatically retries operations that fail due to transient errors
+/// like network issues or rate limiting.
+///
+/// # Example
+/// ```ignore
+/// let result = retry_with_backoff(&retry_config, || {
+///     // Your cloud API call here
+///     api_client.get_data()
+/// })?;
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The operation fails with a non-retryable error kind
+/// - The maximum number of retry attempts is exceeded
+/// - The underlying operation returns an error that should not be retried
+pub fn retry_with_backoff<F, T>(config: &RetryConfig, mut operation: F) -> CloudResult<T>
+where
+    F: FnMut() -> CloudResult<T>,
+{
+    let mut attempt = 0;
+    let mut delay_ms = config.initial_delay_ms;
+
+    loop {
+        attempt += 1;
+        match operation() {
+            Ok(result) => return Ok(result),
+            Err(err) => {
+                let should_retry = matches!(
+                    err.kind,
+                    ErrorKind::Network
+                        | ErrorKind::Timeout
+                        | ErrorKind::ServiceUnavailable
+                        | ErrorKind::RateLimited
+                );
+
+                if !should_retry || attempt >= config.max_attempts {
+                    return Err(err);
+                }
+
+                std::thread::sleep(Duration::from_millis(delay_ms));
+
+                // Calculate next delay with exponential backoff
+                // We use saturating operations to avoid overflow
+                // For a typical backoff multiplier of 2.0, we just double the delay
+                let new_delay = if config.backoff_multiplier >= 2.0 {
+                    delay_ms.saturating_mul(2)
+                } else {
+                    delay_ms
+                };
+                delay_ms = new_delay.min(config.max_delay_ms);
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Timeout Helper
+// ============================================================================
+
+/// Execute an operation with a timeout
+///
+/// This helper reports when a synchronous operation took longer than the
+/// specified limit. It cannot interrupt or cancel the operation; configure
+/// provider network timeouts separately.
+///
+/// # Example
+/// ```ignore
+/// let result = with_timeout(Duration::from_secs(30), || {
+///     // Your long-running operation
+///     process_large_file()
+/// })?;
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The operation itself returns an error
+/// - The operation exceeds the specified timeout duration
+pub fn with_timeout<F, T>(timeout: Duration, operation: F) -> CloudResult<T>
+where
+    F: FnOnce() -> CloudResult<T>,
+{
+    let start = Instant::now();
+    let result = operation()?;
+
+    if start.elapsed() > timeout {
+        Err(CloudIOError::new(
+            ErrorKind::Timeout,
+            format!("Operation exceeded timeout of {timeout:?}"),
+        ))
+    } else {
+        Ok(result)
+    }
+}
+
+// ============================================================================
+// Batch Helper
+// ============================================================================
+
+/// Split a batch operation into smaller chunks
+///
+/// Many cloud APIs have limits on batch sizes. This helper automatically
+/// chunks large batches and processes them in multiple requests.
+///
+/// # Example
+/// ```ignore
+/// let items = vec![...]; // 1000 items
+/// let results = batch_in_chunks(&items, 100, |chunk| {
+///     api_client.batch_upload(chunk)
+/// })?;
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if any chunk processing operation fails
+pub fn batch_in_chunks<T, R, F>(
+    items: &[T],
+    chunk_size: usize,
+    mut process_chunk: F,
+) -> CloudResult<Vec<R>>
+where
+    T: Clone,
+    F: FnMut(Vec<T>) -> CloudResult<Vec<R>>,
+{
+    let mut results = Vec::new();
+
+    for chunk in items.chunks(chunk_size) {
+        let chunk_results = process_chunk(chunk.to_vec())?;
+        results.extend(chunk_results);
+    }
+
+    Ok(results)
+}
+
+// ============================================================================
+// Pagination Helper
+// ============================================================================
+
+/// Configuration for pagination
+#[derive(Debug, Clone, Copy)]
+pub struct PaginationConfig {
+    pub page_size: u32,
+    pub max_pages: Option<u32>,
+}
+
+impl Default for PaginationConfig {
+    fn default() -> Self {
+        Self {
+            page_size: 100,
+            max_pages: None,
+        }
+    }
+}
+
+/// Helper for paginating through results
+///
+/// Many cloud APIs return paginated results. This helper automatically
+/// fetches all pages and combines them.
+///
+/// # Example
+/// ```ignore
+/// let config = PaginationConfig { page_size: 50, max_pages: Some(10) };
+/// let all_items = paginate(&config, |page, page_size| {
+///     api_client.list_items(page, page_size)
+/// })?;
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if any page fetch operation fails
+pub fn paginate<T, F>(config: &PaginationConfig, mut fetch_page: F) -> CloudResult<Vec<T>>
+where
+    F: FnMut(u32, u32) -> CloudResult<(Vec<T>, bool)>, // Returns (items, has_more)
+{
+    let mut all_items = Vec::new();
+    let mut page = 0;
+
+    loop {
+        let (items, has_more) = fetch_page(page, config.page_size)?;
+
+        if items.is_empty() {
+            break;
+        }
+
+        all_items.extend(items);
+        page += 1;
+
+        if !has_more {
+            break;
+        }
+
+        if let Some(max_pages) = config.max_pages
+            && page >= max_pages
+        {
+            break;
+        }
+    }
+
+    Ok(all_items)
+}
+
+// ============================================================================
+// Connection Pool Helper
+// ============================================================================
+
+/// Simple connection pool for cloud services
+///
+/// This provides basic connection pooling to reuse connections across
+/// multiple operations, which can improve performance.
+pub struct ConnectionPool<T> {
+    connections: Vec<T>,
+    max_size: usize,
+}
+
+impl<T> ConnectionPool<T> {
+    #[must_use]
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            connections: Vec::with_capacity(max_size),
+            max_size,
+        }
+    }
+
+    /// Acquire a connection from the pool or create a new one
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection creation function fails
+    pub fn acquire<F>(&mut self, create: F) -> CloudResult<T>
+    where
+        F: FnOnce() -> CloudResult<T>,
+    {
+        self.connections.pop().map_or_else(create, |conn| Ok(conn))
+    }
+
+    pub fn release(&mut self, connection: T) {
+        if self.connections.len() < self.max_size {
+            self.connections.push(connection);
+        }
+    }
+
+    #[must_use]
+    pub const fn size(&self) -> usize {
+        self.connections.len()
+    }
+}
+
+// ============================================================================
+// Credential Helpers
+// ============================================================================
+
+/// Helper for loading credentials from environment variables
+///
+/// # Errors
+///
+/// Returns an error if no environment variables matching the prefix are found
+pub fn credentials_from_env(prefix: &str) -> CloudResult<HashMap<String, String>> {
+    let mut creds = HashMap::new();
+
+    for (key, value) in std::env::vars() {
+        if key.starts_with(prefix) {
+            let key_name = key.strip_prefix(prefix).unwrap_or(&key);
+            creds.insert(key_name.to_lowercase(), value);
+        }
+    }
+
+    if creds.is_empty() {
+        return Err(CloudIOError::new(
+            ErrorKind::Authentication,
+            format!("No credentials found with prefix '{prefix}'"),
+        ));
+    }
+
+    Ok(creds)
+}
+
+/// Helper for loading config from environment variables
+#[must_use]
+pub fn config_from_env(prefix: &str) -> HashMap<String, String> {
+    let mut config = HashMap::new();
+
+    for (key, value) in std::env::vars() {
+        if key.starts_with(prefix) {
+            let key_name = key.strip_prefix(prefix).unwrap_or(&key);
+            config.insert(key_name.to_lowercase(), value);
+        }
+    }
+
+    config
+}
+
+// ============================================================================
+// Resource Identifier Parsing
+// ============================================================================
+
+/// Parse a resource identifier from a URI-like string
+///
+/// # Examples
+/// - `s3://bucket-name/key` -> `ObjectIO` resource
+/// - `bigquery://project/dataset/table` -> `WarehouseIO` resource
+/// - `dynamodb://table-name` -> `KeyValueIO` resource
+///
+/// # Errors
+///
+/// Returns an error if the URI format is invalid (missing `://` separator)
+pub fn parse_resource_uri(uri: &str) -> CloudResult<(String, Vec<String>)> {
+    let parts: Vec<&str> = uri.splitn(2, "://").collect();
+
+    if parts.len() != 2 {
+        return Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            format!("Invalid resource URI format: {uri}"),
+        ));
+    }
+
+    let provider = parts[0].to_string();
+    let path_parts: Vec<String> = parts[1].split('/').map(ToString::to_string).collect();
+
+    Ok((provider, path_parts))
+}
+
+// ============================================================================
+// Async to Sync Wrapper
+// ============================================================================
+
+/// Run a runtime-independent future to completion on the calling thread.
+/// Futures that require a Tokio runtime or network reactor must use their own
+/// runtime; hosted object adapters manage that internally.
+///
+/// # Example
+/// ```ignore
+/// let result = block_on_async(async {
+///     async_api_client.get_data().await
+/// })?;
+/// ```
+///
+/// # Errors
+///
+/// Returns the error produced by the future.
+pub fn block_on_async<F, T>(future: F) -> CloudResult<T>
+where
+    F: Future<Output = CloudResult<T>>,
+{
+    futures_executor::block_on(future)
+}
+
+// ============================================================================
+// Error Conversion Helpers
+// ============================================================================
+
+/// Convert common error types to `CloudIOError`
+pub trait IntoCloudError<T> {
+    /// Convert a standard Result to a cloud IO Result
+    ///
+    /// # Errors
+    ///
+    /// Returns a `CloudIOError` with the specified kind if the Result is an error
+    fn into_cloud_error(self, kind: ErrorKind) -> CloudResult<T>;
+}
+
+impl<T, E: std::error::Error> IntoCloudError<T> for Result<T, E> {
+    fn into_cloud_error(self, kind: ErrorKind) -> CloudResult<T> {
+        self.map_err(|e| CloudIOError::new(kind, e.to_string()))
+    }
+}
+
+// ============================================================================
+// Validation Helpers
+// ============================================================================
+
+/// Validate a resource name according to common cloud provider rules
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The resource name is empty
+/// - The resource name exceeds 255 characters
+/// - The resource name contains invalid characters (only alphanumeric, hyphens, underscores, and periods are allowed)
+pub fn validate_resource_name(name: &str) -> CloudResult<()> {
+    if name.is_empty() {
+        return Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            "Resource name cannot be empty",
+        ));
+    }
+
+    if name.len() > 255 {
+        return Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            "Resource name too long (max 255 characters)",
+        ));
+    }
+
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            "Resource name contains invalid characters",
+        ));
+    }
+
+    Ok(())
+}
+
+/// Validate a key path (for object storage, etc.)
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The key path is empty
+/// - The key path starts with a forward slash
+pub fn validate_key_path(path: &str) -> CloudResult<()> {
+    if path.is_empty() {
+        return Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            "Key path cannot be empty",
+        ));
+    }
+
+    if path.starts_with('/') {
+        return Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            "Key path cannot start with '/'",
+        ));
+    }
+
+    Ok(())
+}

@@ -252,6 +252,17 @@
       "count": 2
     }
   },
+  "ironbeam-cloud-ops": {
+    "source": "crates/ironbeam-cloud-ops/src",
+    "lines": {
+      "covered": 152,
+      "count": 226
+    },
+    "branches": {
+      "covered": 25,
+      "count": 34
+    }
+  },
   "ironbeam-coder-postcard": {
     "source": "crates/ironbeam-coder-postcard/src",
     "lines": {

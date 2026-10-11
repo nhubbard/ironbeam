@@ -18,7 +18,7 @@ DIRECT_FILES = {
     "spill.rs", "spill_integration.rs",
 }
 DIRECT_HELPERS = {"collect_sorted.rs", "reshuffle.rs", "tee.rs", "wait_on.rs"}
-V5_PACKAGES = {"ironbeam-compression", "ironbeam-coder-postcard", "ironbeam-cloud-objects", "ironbeam-cloud-service-api", "ironbeam-core", "ironbeam-direct", "ironbeam-metrics", "ironbeam-testing", "ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-transform-approx", "ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
+V5_PACKAGES = {"ironbeam-compression", "ironbeam-coder-postcard", "ironbeam-cloud-objects", "ironbeam-cloud-service-api", "ironbeam-cloud-ops", "ironbeam-core", "ironbeam-direct", "ironbeam-metrics", "ironbeam-testing", "ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-transform-approx", "ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
 
 
 def area_for(package: str, relative: Path) -> str:
@@ -30,6 +30,8 @@ def area_for(package: str, relative: Path) -> str:
         return "cloud-objects"
     if package == "ironbeam-cloud-service-api":
         return "cloud-service-contracts"
+    if package == "ironbeam-cloud-ops":
+        return "cloud-operations"
     if package == "ironbeam-core":
         return "logical-graph"
     if package == "ironbeam-direct":
