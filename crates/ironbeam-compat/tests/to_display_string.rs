@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.8: `to_display_string`.
 //!
 //! Validates that each element's [`Display`] representation is emitted as a
@@ -6,7 +5,7 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 

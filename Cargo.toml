@@ -380,18 +380,6 @@ name = "testing_utilities"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "to_dict"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "to_display_string"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "to_hashmap"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "utils"
 required-features = ["legacy-v4"]
 

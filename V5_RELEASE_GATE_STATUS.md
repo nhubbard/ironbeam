@@ -20,6 +20,10 @@ staged locally.
   key/value swap now run in `ironbeam-compat` against published Ironbeam 4.1.1.
   The four suites pass there, and their root legacy test targets are removed.
   The local package script and CI explicitly retain this reference corpus.
+- The v4 dictionary, hash-map, and display-string conversion suites also moved
+  to `ironbeam-compat`; their 58 cases pass against published v4. The root no
+  longer owns those three legacy test targets, and CI retains the reference
+  suites explicitly.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The

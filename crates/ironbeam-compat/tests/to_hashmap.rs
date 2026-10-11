@@ -1,10 +1,9 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for `to_hashmap` transform.
 //!
 //! This test suite validates the conversion of `PCollection<(K, V)>` to `HashMap<K, V>`,
 //! including edge cases, duplicate key handling, and various data types.
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 /// Test basic `to_hashmap` with string keys and numeric values

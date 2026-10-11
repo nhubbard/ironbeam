@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.5: `ToDict` combiner + `to_dict` helper.
 //!
 //! This test suite validates:
@@ -8,8 +7,8 @@
 //! - Edge cases: empty / single / parallel / duplicates / large input.
 //! - Composition: chaining `to_dict()` with downstream transforms.
 
-use ironbeam::combiners::ToDict;
-use ironbeam::*;
+use ironbeam_v4::combiners::ToDict;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
