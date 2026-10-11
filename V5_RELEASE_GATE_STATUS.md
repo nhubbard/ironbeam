@@ -91,7 +91,9 @@ staged locally.
   Both v4 and v5 benchmark examples produce matching counts and checksums
   for four workloads at 1,000 rows. A single aligned 100,000-row release
   sample found substantial v5 latency regressions in all four cases; see
-  `V5_PHASE0_BASELINE.md`. The v4 implementation remains in the repository,
+  `V5_PHASE0_BASELINE.md`. Exact encoded-length accounting reduced allocations
+  and improved join latency in repeated release runs, but the performance gate
+  remains open. The v4 implementation remains in the repository,
   and the root package version is still 4.1.1, until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus

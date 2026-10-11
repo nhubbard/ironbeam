@@ -35,6 +35,16 @@ construction probe measured 4.13 ms for v5 and 0.06 ms for v4 on one run.
 This explains only part of the map/filter gap; the runner path still needs
 profiling. Both examples now include input construction in the timed region.
 
+The v5 Direct output store now obtains exact encoded lengths without
+allocating for built-in scalar, string, vector, option, and tuple values.
+Five repeated 100,000-row release runs after that change had v4/v5 median
+times (ms) of map/filter 0.456/26.016, GroupByKey 1.862/18.142, inner join
+22.775/38.610, and JSONL round trip 6.976/22.061. Join latency improved
+from the earlier 52.93 ms sample, but a substantial gap remains in every
+case. A trial that removed a per-row result vector only in single-worker
+execution had no measurable gain and was reverted. The dedicated job worker
+pool must remain in use even at parallelism one, as its existing test verifies.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
