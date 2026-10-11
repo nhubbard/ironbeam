@@ -10,6 +10,7 @@ repository = "https://github.com/nhubbard/ironbeam"
 [dependencies]
 ironbeam-compression = { version = "0.1.0", path = "../ironbeam-compression" }
 ironbeam-cloud-objects = { version = "0.1.0", path = "../ironbeam-cloud-objects" }
+ironbeam-cloud-service-api = { version = "0.1.0", path = "../ironbeam-cloud-service-api" }
 anyhow = "1"
 regex = "1"
 serde = { version = "1", features = ["derive"] }

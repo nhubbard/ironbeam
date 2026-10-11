@@ -7,9 +7,10 @@ cargo_bin="${IRONBEAM_CARGO:-cargo}"
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-compression ironbeam-coder-postcard ironbeam-cloud-objects ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-metrics ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+packages=(ironbeam-compression ironbeam-coder-postcard ironbeam-cloud-objects ironbeam-cloud-service-api ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-metrics ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
 compression_patch=(--config "patch.crates-io.ironbeam-compression.path=\"$root/crates/ironbeam-compression\"")
 cloud_objects_patch=(--config "patch.crates-io.ironbeam-cloud-objects.path=\"$root/crates/ironbeam-cloud-objects\"")
+cloud_service_api_patch=(--config "patch.crates-io.ironbeam-cloud-service-api.path=\"$root/crates/ironbeam-cloud-service-api\"")
 cloud_patch=(--config "patch.crates-io.ironbeam-cloud.path=\"$root/crates/ironbeam-cloud\"")
 core_patch=(--config "patch.crates-io.ironbeam-core.path=\"$root/crates/ironbeam-core\"")
 direct_patch=(--config "patch.crates-io.ironbeam-direct.path=\"$root/crates/ironbeam-direct\"" --config "patch.crates-io.ironbeam-metrics.path=\"$root/crates/ironbeam-metrics\"")
@@ -94,7 +95,8 @@ for package in "${packages[@]}"; do
   case "$package" in
     ironbeam-compression|ironbeam-cloud-objects|ironbeam-core|ironbeam-metrics) ;;
     ironbeam-coder-postcard) patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
-    ironbeam-cloud) patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}") ;;
+    ironbeam-cloud-service-api) patches=("${cloud_objects_patch[@]}") ;;
+    ironbeam-cloud) patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_service_api_patch[@]}") ;;
     ironbeam-cloud-object-store) patches=("${cloud_objects_patch[@]}") ;;
     ironbeam-direct) patches=("${core_patch[@]}" "${metrics_patch[@]}") ;;
     ironbeam-transforms|ironbeam-transform-regex|ironbeam-transform-approx|ironbeam-testing)
@@ -104,7 +106,7 @@ for package in "${packages[@]}"; do
     ironbeam-io)
       patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io-jsonl|ironbeam-io-protobuf|ironbeam-io-tfrecord|ironbeam-io-csv|ironbeam-io-xml|ironbeam-io-msgpack|ironbeam-io-cbor|ironbeam-io-avro)
-      patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
+      patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_service_api_patch[@]}" "${cloud_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-io-parquet|ironbeam-io-arrow)
       patches=("${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-compat)
@@ -112,4 +114,4 @@ for package in "${packages[@]}"; do
   esac
   "$cargo_bin" package -p "$package" --allow-dirty --offline "${patches[@]}"
 done
-echo "All twenty-six v5 packages verified locally; no crates were published."
+echo "All twenty-seven v5 packages verified locally; no crates were published."

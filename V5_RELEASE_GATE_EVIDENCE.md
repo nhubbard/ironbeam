@@ -42,8 +42,22 @@ features enable the default extras while the root package is still versioned
 extras. No-default facade tests execute a core
 pipeline, a helper chain, and JSONL round trip; a CSV-only dependency check
 has no cloud package. The full local package script passed workspace tests,
-isolated feature checks, documentation, and verification of all 26 packages.
+isolated feature checks, documentation, and verification of all 27 packages.
 Publication remains staged.
+
+</details>
+
+<details>
+<summary>Provider-neutral service API extraction</summary>
+
+The non-object cloud service traits and value types now live in
+`ironbeam-cloud-service-api`, depending only on `ironbeam-cloud-objects`.
+The existing `ironbeam-cloud::traits` path reexports them, so its fake service
+implementations and callers continue to compile. Isolated API coverage is
+61/61 source locations and 2/2 branches; its tests, the compatibility cloud
+tests and doctests, strict lint, and the 27-package local gate pass. The
+legacy helper and fake implementations have not yet been split from the
+compatibility crate.
 
 </details>
 

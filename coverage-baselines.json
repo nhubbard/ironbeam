@@ -241,6 +241,17 @@
       "count": 54
     }
   },
+  "ironbeam-cloud-service-api": {
+    "source": "crates/ironbeam-cloud-service-api/src",
+    "lines": {
+      "covered": 61,
+      "count": 61
+    },
+    "branches": {
+      "covered": 2,
+      "count": 2
+    }
+  },
   "ironbeam-coder-postcard": {
     "source": "crates/ironbeam-coder-postcard/src",
     "lines": {
