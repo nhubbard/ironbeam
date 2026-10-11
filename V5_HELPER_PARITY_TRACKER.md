@@ -54,6 +54,10 @@ v5 can replace the entire v4 package; they are not hidden by helper parity.
   all three outer-join multisets for twenty-four deterministic bounded input
   pairs, including empty sides, duplicate keys, and duplicate values. Both
   sequential and three-worker v5 executions match v4 for every case.
+- The published v4 `with_keys`, constant-key, and flatten suites now live in
+  `ironbeam-compat` (37 tests). A twelve-input differential corpus compares
+  keying, constant keys, and two-source flatten as multisets against v5 Direct
+  with one and three workers, including empty and repeated values.
 - Eighteen bounded inputs now also compare `take`, `first`, exact distinct,
   per-element counts, and global distinct counts. Sequential selection order
   and sequential/three-worker multiset or count results match v4, including

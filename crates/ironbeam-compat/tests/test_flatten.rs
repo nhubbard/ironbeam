@@ -1,8 +1,7 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for the flatten transform.
 
 use anyhow::Result;
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 /// Test basic 2-way flatten with simple integers

@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for `WithKeys` transform (feature 1.4).
 //!
 //! This test suite validates the keying operations including:
@@ -6,7 +5,7 @@
 //! - `with_constant_key()` for global grouping
 //! - `with_keys()` as an alias for Apache Beam familiarity
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

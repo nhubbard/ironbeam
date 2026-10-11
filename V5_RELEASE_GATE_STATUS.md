@@ -605,6 +605,10 @@ staged locally.
    opt-in feature graph, examples, and compatibility paths remain. Continue
    API migration and the focused v4 removal gate in
    `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
+   The published v4 `with_keys` and flatten suites (37 tests) now run from
+   `ironbeam-compat` instead of root legacy test binaries. A twelve-input
+   corpus compares those v4 results with sequential and three-worker v5
+   Direct keying, constant-key assignment, and flatten results.
    The separate Dataflow workspace's WordCount example now uses the v5 graph,
    typed sink, and `run_v5_from_env`; its Direct result and portable protobuf
    preparation pass, and its default dependency tree excludes the v4 root.

@@ -372,10 +372,6 @@ name = "tee"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "test_flatten"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "testing_utilities"
 required-features = ["legacy-v4"]
 
@@ -389,8 +385,4 @@ required-features = ["legacy-v4"]
 
 [[test]]
 name = "wait_on"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "with_keys"
 required-features = ["legacy-v4"]
