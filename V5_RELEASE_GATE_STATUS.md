@@ -220,6 +220,10 @@ staged locally.
    iterable order across the portable side branch is not yet proven to match
    Direct for order-sensitive materializers. Stateful or unbounded side views
    remain outside this proof.
+   Bounded `wait_on` now lowers through a completion side view, with a
+   global-window mapping for a windowed signal. A live Prism job verifies that
+   its sink receives main values and fixed-window metadata only after the
+   signal source finishes; altered signal wiring fails contract validation.
 3. **Remote I/O:** Provider clients can access hosted object storage from the
    bounded `ObjectIO` interface, but the local Prism worker still shares the
    driver's filesystem. Driver-local file paths are not staged to cloud
