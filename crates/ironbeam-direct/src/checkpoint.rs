@@ -40,6 +40,8 @@ pub(crate) struct Identity {
     output_key: String,
     coder_id: String,
     coder_version: Version,
+    #[serde(default)]
+    second_output: Option<(String, String, Version)>,
     binary_build_id: String,
 }
 impl Identity {
@@ -57,6 +59,26 @@ impl Identity {
             output_key,
             coder_id: T::coder_identity(),
             coder_version: T::CODER_VERSION,
+            second_output: None,
+            binary_build_id,
+        }
+    }
+    pub(crate) fn new_pair<T: Element, U: Element>(
+        graph_fingerprint: String,
+        source_digest: String,
+        source_key: String,
+        left_key: String,
+        right_key: String,
+        binary_build_id: String,
+    ) -> Self {
+        Self {
+            graph_fingerprint,
+            source_digest,
+            source_key,
+            output_key: left_key,
+            coder_id: T::coder_identity(),
+            coder_version: T::CODER_VERSION,
+            second_output: Some((right_key, U::coder_identity(), U::CODER_VERSION)),
             binary_build_id,
         }
     }
@@ -82,6 +104,7 @@ enum CheckpointKind {
     #[default]
     Output,
     FoldState,
+    PairOutput,
 }
 
 impl Manifest {
@@ -92,10 +115,10 @@ impl Manifest {
             &self.data_file,
             &self.data_sha256,
         );
-        if self.kind == CheckpointKind::FoldState {
-            fold_progress_sha256(&hash)
-        } else {
-            hash
+        match self.kind {
+            CheckpointKind::Output => hash,
+            CheckpointKind::FoldState => fold_progress_sha256(&hash),
+            CheckpointKind::PairOutput => pair_progress_sha256(&hash),
         }
     }
 }
@@ -204,6 +227,48 @@ impl CheckpointManager {
         }
         self.recover_output(&manifest, &data_path, store)
     }
+    pub(crate) fn recover_pair<T: Element, U: Element>(
+        &self,
+        left: &mut OutputStore<T>,
+        right: &mut OutputStore<U>,
+    ) -> Result<Option<usize>, Error> {
+        let Some((manifest, data_path)) = self.load_manifest(None)? else {
+            return Ok(None);
+        };
+        if manifest.kind != CheckpointKind::PairOutput {
+            return Err(Error::recovery(
+                "checkpoint",
+                "expected pair output checkpoint",
+            ));
+        }
+        let count = visit_frames(&data_path, "checkpoint", |frame| {
+            let (&side, bytes) = frame
+                .split_first()
+                .ok_or_else(|| Error::recovery("checkpoint", "pair frame lacks side tag"))?;
+            match side {
+                0 => left.push(T::decode(bytes)?),
+                1 => right.push(U::decode(bytes)?),
+                _ => Err(Error::recovery(
+                    "checkpoint",
+                    "pair frame has invalid side tag",
+                )),
+            }
+        })?;
+        if count != manifest.output_count {
+            return Err(Error::recovery(
+                "checkpoint",
+                "checkpoint output count mismatch",
+            ));
+        }
+        let recovered = u64::try_from(count).unwrap_or(u64::MAX);
+        self.metrics
+            .recovered_elements
+            .store(recovered, Ordering::Relaxed);
+        self.metrics
+            .output_elements
+            .store(recovered, Ordering::Relaxed);
+        Ok(Some(manifest.source_offset))
+    }
     pub(crate) fn recover_completed<T: Element>(
         &self,
         source_len: usize,
@@ -292,6 +357,41 @@ impl CheckpointManager {
             CheckpointKind::Output,
             source_offset,
             output_count,
+            &data_path,
+            data_hash,
+        )
+    }
+    pub(crate) fn save_pair<T: Element, U: Element>(
+        &self,
+        source_offset: usize,
+        left: &OutputStore<T>,
+        right: &OutputStore<U>,
+    ) -> Result<(), Error> {
+        let mut data_tmp = tempfile::Builder::new()
+            .prefix("checkpoint-data-")
+            .tempfile_in(&self.config.directory)
+            .map_err(|error| io_error("checkpoint", error))?;
+        let mut write_side = |side: u8, bytes: &[u8]| {
+            let mut tagged = Vec::with_capacity(bytes.len().saturating_add(1));
+            tagged.push(side);
+            tagged.extend_from_slice(bytes);
+            write_frame(&mut data_tmp, &tagged, "checkpoint")?;
+            Ok(())
+        };
+        let left_count = left.for_each_encoded(|bytes| write_side(0, bytes))?;
+        let right_count = right.for_each_encoded(|bytes| write_side(1, bytes))?;
+        data_tmp
+            .as_file()
+            .sync_all()
+            .map_err(|error| io_error("checkpoint", error))?;
+        let data_hash = sha256_file(data_tmp.path())?;
+        let (_, data_path) = data_tmp
+            .keep()
+            .map_err(|error| io_error("checkpoint", error))?;
+        self.persist_data(
+            CheckpointKind::PairOutput,
+            source_offset,
+            left_count.saturating_add(right_count),
             &data_path,
             data_hash,
         )
@@ -432,6 +532,18 @@ fn fold_progress_sha256(output_progress_hash: &str) -> String {
     hex
 }
 
+fn pair_progress_sha256(output_progress_hash: &str) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"ironbeam/checkpoint-pair-progress/v1\0");
+    hash.update(output_progress_hash.as_bytes());
+    let digest = hash.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
 fn sha256_file(path: &Path) -> Result<String, Error> {
     let mut file = File::open(path).map_err(|e| io_error("checkpoint", e))?;
     let mut hash = Sha256::new();
@@ -556,6 +668,72 @@ mod tests {
         let error = manager.recover(&mut recovered).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Recovery);
         assert!(error.message.contains("output count mismatch"));
+    }
+
+    #[test]
+    fn pair_recovery_rejects_an_invalid_side_tag_even_with_valid_checksums() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "pair-tag-v1".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new_pair::<i32, String>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "left".into(),
+            "right".into(),
+            "pair-tag-v1".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+        let mut left = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        left.push(7).unwrap();
+        let mut right = OutputStore::<String>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        right.push("seven".into()).unwrap();
+        manager.save_pair(1, &left, &right).unwrap();
+
+        let manifest_path = directory.path().join("latest.json");
+        let mut manifest: Manifest =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        let data_path = directory.path().join(&manifest.data_file);
+        let mut bytes = fs::read(&data_path).unwrap();
+        bytes[8] = 2;
+        fs::write(&data_path, bytes).unwrap();
+        manifest.data_sha256 = sha256_file(&data_path).unwrap();
+        manifest.progress_sha256 = manifest.progress_hash();
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let mut recovered_left = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        let mut recovered_right = OutputStore::<String>::new(1024, None, metrics).unwrap();
+        let error = manager
+            .recover_pair(&mut recovered_left, &mut recovered_right)
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Recovery);
+        assert!(error.message.contains("invalid side tag"));
+
+        let mut bytes = fs::read(&data_path).unwrap();
+        bytes[8] = 0;
+        fs::write(&data_path, bytes).unwrap();
+        manifest.data_sha256 = sha256_file(&data_path).unwrap();
+        manifest.output_count = 3;
+        manifest.progress_sha256 = manifest.progress_hash();
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = manager
+            .recover_pair(&mut recovered_left, &mut recovered_right)
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Recovery);
+        assert!(error.message.contains("output count mismatch"));
+
+        manifest.kind = CheckpointKind::Output;
+        manifest.progress_sha256 = manifest.progress_hash();
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = manager
+            .recover_pair(&mut recovered_left, &mut recovered_right)
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Recovery);
+        assert!(error.message.contains("expected pair output"));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 //! One-job execution of two bounded, linear output branches.
+use crate::checkpoint::{CheckpointManager, Identity};
 use crate::metrics::MetricsState;
 use crate::spill::OutputStore;
 use crate::{JobConfig, JobHandle, cancelled, open_source_safe, read_source_batch};
@@ -359,7 +360,7 @@ pub(crate) fn execute_sinks(
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub(crate) fn execute<T: Element, U: Element>(
     pool: &rayon::ThreadPool,
     registry: &Registry,
@@ -367,6 +368,7 @@ pub(crate) fn execute<T: Element, U: Element>(
     left_key: &str,
     right_key: &str,
     config: &JobConfig,
+    checkpoint_identity: Option<Identity>,
     handle: &JobHandle,
 ) -> Result<(Vec<T>, Vec<U>), Error> {
     let mut left = OutputStore::<T>::new(
@@ -379,7 +381,55 @@ pub(crate) fn execute<T: Element, U: Element>(
         config.spill.as_ref(),
         handle.metrics.clone(),
     )?;
+    let checkpoint = config
+        .checkpoint
+        .as_ref()
+        .zip(checkpoint_identity)
+        .map(|(checkpoint_config, identity)| {
+            CheckpointManager::new(checkpoint_config, identity, handle.metrics.clone())
+        })
+        .transpose()?;
+    let recovered = if let Some(manager) = &checkpoint {
+        manager.recover_pair(&mut left, &mut right)?
+    } else {
+        None
+    };
+    let recovered_offset = recovered.unwrap_or(0);
+    enforce_memory(&mut left, &mut right, config)?;
+    let source_len_hint = registry.source_len_hint(&plan.source_key);
+    if source_len_hint.is_some_and(|length| recovered_offset > length) {
+        return Err(Error::recovery(
+            &plan.source_key,
+            "checkpoint offset exceeds source length",
+        ));
+    }
+    handle.processed.store(
+        handle.metrics.recovered_elements.load(Ordering::Relaxed),
+        Ordering::Relaxed,
+    );
+    if recovered.is_some() && source_len_hint == Some(recovered_offset) {
+        return finish_pair(left, right, left_key, right_key);
+    }
     let mut source = open_source_safe(registry, &plan.source_key)?;
+    let mut source_offset = 0_usize;
+    while source_offset < recovered_offset {
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        let skipped = read_source_batch(
+            &mut source,
+            (recovered_offset - source_offset).min(config.buffer_budget_elements),
+            &plan.source_key,
+        )?;
+        if skipped.is_empty() {
+            return Err(Error::recovery(
+                &plan.source_key,
+                "source ended before checkpoint position",
+            ));
+        }
+        source_offset += skipped.len();
+    }
+    let mut batches = 0_usize;
     loop {
         if config.cancellation.load(Ordering::Acquire) {
             return Err(cancelled());
@@ -389,6 +439,7 @@ pub(crate) fn execute<T: Element, U: Element>(
         if batch.is_empty() {
             break;
         }
+        source_offset = source_offset.saturating_add(batch.len());
         let source_count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
         handle
             .metrics
@@ -432,7 +483,28 @@ pub(crate) fn execute<T: Element, U: Element>(
             .fetch_add(output_count, Ordering::Relaxed)
             .saturating_add(output_count);
         handle.processed.store(total, Ordering::Relaxed);
+        batches += 1;
+        if let Some(manager) = &checkpoint
+            && manager.should_save(batches)
+        {
+            manager.save_pair(source_offset, &left, &right)?;
+        }
     }
+    if let Some(manager) = &checkpoint
+        && batches > 0
+        && !manager.should_save(batches)
+    {
+        manager.save_pair(source_offset, &left, &right)?;
+    }
+    finish_pair(left, right, left_key, right_key)
+}
+
+fn finish_pair<T: Element, U: Element>(
+    left: OutputStore<T>,
+    right: OutputStore<U>,
+    left_key: &str,
+    right_key: &str,
+) -> Result<(Vec<T>, Vec<U>), Error> {
     let left = catch_unwind(AssertUnwindSafe(|| left.into_vec())).unwrap_or_else(|_| {
         Err(Error::execution(
             left_key,

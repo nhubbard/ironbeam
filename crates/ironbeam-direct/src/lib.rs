@@ -455,8 +455,8 @@ impl DirectRunner {
     /// branch receives its own value and time metadata.
     ///
     /// # Errors
-    /// Rejects different builders, fan-in or stateful routes, uncoded split
-    /// values, and checkpointing before opening a source.
+    /// Rejects different builders, fan-in or stateful routes, and uncoded
+    /// split or durable output values before opening a source.
     pub fn run_collect_pair<T: Element, U: Element>(
         &self,
         left: &Output<T>,
@@ -469,14 +469,33 @@ impl DirectRunner {
         let (graph, registry) = left.snapshot()?;
         self.validate(&graph)?;
         validate_config(config)?;
-        if config.checkpoint.is_some() {
+        let plan = multi_output::prepare(&graph, &registry, left.key(), right.key())?;
+        if config.checkpoint.is_some() && (!T::supports_coder() || !U::supports_coder()) {
             return Err(Error::unsupported(
                 "job",
                 "direct",
-                "multi-output-checkpoint",
+                "element-coder-for-durable-output",
             ));
         }
-        let plan = multi_output::prepare(&graph, &registry, left.key(), right.key())?;
+        let checkpoint_identity = config
+            .checkpoint
+            .as_ref()
+            .map(|checkpoint| {
+                Ok(checkpoint::Identity::new_pair::<T, U>(
+                    graph.fingerprint()?,
+                    registry
+                        .source_config_digest(&plan.source_key)
+                        .ok_or_else(|| {
+                            Error::unsupported(&plan.source_key, "direct", "source-config-digest")
+                        })?
+                        .to_owned(),
+                    plan.source_key.clone(),
+                    left.key().to_owned(),
+                    right.key().to_owned(),
+                    checkpoint.binary_build_id.clone(),
+                ))
+            })
+            .transpose()?;
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(config.parallelism)
             .build()
@@ -501,6 +520,7 @@ impl DirectRunner {
             left.key(),
             right.key(),
             config,
+            checkpoint_identity,
             &handle,
         ) {
             Ok((left_values, right_values)) => {

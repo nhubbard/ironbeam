@@ -65,6 +65,216 @@ fn pair_outputs_open_shared_source_once_and_preserve_branch_results() {
 }
 
 #[test]
+fn pair_checkpoint_recovers_both_branches_without_rerunning_accepted_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let opens = Arc::new(AtomicUsize::new(0));
+    let fail_once = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let pipeline = Pipeline::default();
+    let source_opens = Arc::clone(&opens);
+    let source = pipeline
+        .bounded_source_with_semantic::<i32>(
+            "source",
+            "tests/checkpointed-pair-source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "checkpointed-pair-source-v1".into(),
+            Some(4),
+            move || {
+                source_opens.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new([1, 2, 3, 4].into_iter().map(Ok)) as TypedSourceIterator<i32>)
+            },
+        )
+        .unwrap();
+    let left = source
+        .map_named("double", |value| value * 2)
+        .unwrap()
+        .output("numbers")
+        .unwrap();
+    let trigger = Arc::clone(&fail_once);
+    let right = source
+        .map_named("label", move |value| {
+            if value == 3 && trigger.swap(false, Ordering::AcqRel) {
+                panic!("fail after first pair checkpoint");
+            }
+            format!("n={value}")
+        })
+        .unwrap()
+        .output("labels")
+        .unwrap();
+    let config = JobConfig {
+        buffer_budget_elements: 2,
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            interval_batches: 1,
+            binary_build_id: "pair-checkpoint-build-v1".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+
+    assert_eq!(
+        DirectRunner
+            .run_collect_pair(&left, &right, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+    assert_eq!(opens.load(Ordering::SeqCst), 1);
+    assert!(directory.path().join("latest.json").exists());
+
+    let mut changed_build = config.clone();
+    changed_build.checkpoint.as_mut().unwrap().binary_build_id = "different-build".into();
+    assert_eq!(
+        DirectRunner
+            .run_collect_pair(&left, &right, &changed_build)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Incompatible
+    );
+    assert_eq!(opens.load(Ordering::SeqCst), 1);
+
+    let mut resumed_config = config.clone();
+    resumed_config.checkpoint.as_mut().unwrap().interval_batches = 3;
+    let resumed = DirectRunner
+        .run_collect_pair(&left, &right, &resumed_config)
+        .unwrap();
+    assert_eq!(resumed.left, [2, 4, 6, 8]);
+    assert_eq!(resumed.right, ["n=1", "n=2", "n=3", "n=4"]);
+    assert_eq!(resumed.job.metrics().recovered_elements, 4);
+    assert_eq!(resumed.job.metrics().source_elements, 2);
+    assert_eq!(resumed.job.metrics().checkpoints, 1);
+    assert_eq!(opens.load(Ordering::SeqCst), 2);
+
+    let completed = DirectRunner
+        .run_collect_pair(&left, &right, &resumed_config)
+        .unwrap();
+    assert_eq!(completed.left, [2, 4, 6, 8]);
+    assert_eq!(completed.right, ["n=1", "n=2", "n=3", "n=4"]);
+    assert_eq!(completed.job.metrics().recovered_elements, 8);
+    assert_eq!(completed.job.metrics().source_elements, 0);
+    assert_eq!(opens.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn pair_checkpoint_without_manifest_still_opens_empty_source() {
+    let directory = tempfile::tempdir().unwrap();
+    let opens = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let source_opens = Arc::clone(&opens);
+    let source = pipeline
+        .bounded_source_with_semantic::<i32>(
+            "source",
+            "tests/empty-pair-source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "empty-pair-source-v1".into(),
+            Some(0),
+            move || {
+                source_opens.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(std::iter::empty()) as TypedSourceIterator<i32>)
+            },
+        )
+        .unwrap();
+    let left = source.output("left").unwrap();
+    let right = source
+        .map_named("format", |value| value.to_string())
+        .unwrap()
+        .output("right")
+        .unwrap();
+    let result = DirectRunner
+        .run_collect_pair(
+            &left,
+            &right,
+            &JobConfig {
+                checkpoint: Some(CheckpointConfig {
+                    directory: directory.path().to_path_buf(),
+                    binary_build_id: "empty-pair-build-v1".into(),
+                    ..CheckpointConfig::default()
+                }),
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    assert!(result.left.is_empty());
+    assert!(result.right.is_empty());
+    assert_eq!(opens.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn pair_checkpoint_restores_asymmetric_spilled_branches() {
+    let directory = tempfile::tempdir().unwrap();
+    let spill = tempfile::tempdir().unwrap();
+    let opens = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let source_opens = Arc::clone(&opens);
+    let source = pipeline
+        .bounded_source_with_semantic::<i32>(
+            "source",
+            "tests/spilled-pair-source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "spilled-pair-source-v1".into(),
+            Some(3),
+            move || {
+                source_opens.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new([1, 2, 3].into_iter().map(Ok)) as TypedSourceIterator<i32>)
+            },
+        )
+        .unwrap();
+    let left = source
+        .filter_named("only-odd", |value| value % 2 == 1)
+        .unwrap()
+        .output("numbers")
+        .unwrap();
+    let right = source
+        .map_named("long-label", |value| format!("value-{value:020}"))
+        .unwrap()
+        .output("labels")
+        .unwrap();
+    let config = JobConfig {
+        memory_budget_bytes: 48,
+        spill: Some(SpillConfig {
+            directory: spill.path().to_path_buf(),
+            threshold_bytes: 16,
+        }),
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "spilled-pair-build-v1".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+
+    let first = DirectRunner
+        .run_collect_pair(&left, &right, &config)
+        .unwrap();
+    assert_eq!(first.left, [1, 3]);
+    assert_eq!(first.right.len(), 3);
+    assert!(first.job.metrics().spill_files > 0);
+    assert_eq!(opens.load(Ordering::SeqCst), 1);
+
+    let recovered = DirectRunner
+        .run_collect_pair(&left, &right, &config)
+        .unwrap();
+    assert_eq!(recovered.left, first.left);
+    assert_eq!(recovered.right, first.right);
+    assert_eq!(recovered.job.metrics().recovered_elements, 5);
+    assert_eq!(recovered.job.metrics().source_elements, 0);
+    assert_eq!(opens.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn pair_outputs_preserve_time_and_window_metadata_on_both_branches() {
     let pipeline = Pipeline::default();
     let source = pipeline.from_vec("source", vec![1_i32, 2, 3]).unwrap();
@@ -228,6 +438,44 @@ struct Uncoded(i32);
 impl Element for Uncoded {
     const TYPE_ID: &'static str = "tests/uncoded-pair";
     const CODER_ID: &'static str = "tests/uncoded-pair";
+}
+
+#[test]
+fn checkpointed_pair_requires_coders_for_both_output_types() {
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    let coded = source.output("coded").unwrap();
+    let uncoded = source
+        .map_named("uncoded", Uncoded)
+        .unwrap()
+        .output("uncoded-out")
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "uncoded-pair-v1".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let left_error = DirectRunner
+        .run_collect_pair(&uncoded, &coded, &config)
+        .err()
+        .unwrap();
+    let right_error = DirectRunner
+        .run_collect_pair(&coded, &uncoded, &config)
+        .err()
+        .unwrap();
+    for error in [left_error, right_error] {
+        assert_eq!(
+            error.kind,
+            ErrorKind::UnsupportedCapability {
+                capability: "element-coder-for-durable-output".into()
+            }
+        );
+    }
+    assert!(!directory.path().join("latest.json").exists());
 }
 
 struct PanickingCoder(i32);
