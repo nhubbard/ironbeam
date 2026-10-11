@@ -2426,6 +2426,7 @@ impl Registry {
     /// Resume a registered unbounded split from its last committed progress.
     /// The returned reader validates source identity, poll limits, and watermark
     /// order before a runner can consume its events.
+    #[allow(clippy::needless_pass_by_value)] // Keep the public resume contract owned.
     pub fn open_unbounded_source(
         &self,
         key: &str,
@@ -2843,6 +2844,11 @@ impl Pipeline {
             .insert(key.to_owned(), transform);
         Ok(())
     }
+    /// Build a bounded collection from an owned vector.
+    ///
+    /// # Panics
+    /// Panics only if an internal built-in coder violates its infallible contract
+    /// while computing the deferred source identity.
     pub fn from_vec<T: Element + Clone + Sync>(
         &self,
         key: &str,
@@ -4153,7 +4159,7 @@ impl JoinPositions {
         }
     }
 
-    fn as_slice(&self) -> &[usize] {
+    const fn as_slice(&self) -> &[usize] {
         match self {
             Self::One(position) => std::slice::from_ref(position),
             Self::Many(positions) => positions.as_slice(),
