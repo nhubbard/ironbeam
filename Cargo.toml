@@ -13,7 +13,8 @@ description = "A batch processing clone of Apache Beam in Rust."
 repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
-default = ["io-jsonl", "io-csv", "io-parquet", "io-avro", "io-xml", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling", "coders"]
+default = ["legacy-v4", "io-jsonl", "io-csv", "io-parquet", "io-avro", "io-xml", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling", "coders"]
+legacy-v4 = ["dep:ironbeam-cloud", "dep:anyhow", "dep:serde", "dep:serde_json", "dep:rayon", "dep:num_cpus", "dep:ordered-float", "dep:glob", "dep:regex", "dep:paste", "dep:hyperloglogplus", "dep:tempfile"]
 v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "dep:ironbeam-io", "ironbeam-io/cloud", "dep:ironbeam-io-jsonl", "ironbeam-io-jsonl/cloud"]
 v5-regex = ["v5-preview", "dep:ironbeam-transform-regex"]
 v5-approx = ["v5-preview", "dep:ironbeam-transform-approx"]
@@ -50,10 +51,10 @@ io-sql = ["dep:sqlx", "dep:tokio"]
 io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
 
 # Compression codecs (pluggable)
-compression-gzip = ["dep:flate2", "ironbeam-cloud/compression-gzip", "ironbeam-io?/compression-gzip", "ironbeam-io-jsonl?/compression-gzip"]
-compression-zstd = ["dep:zstd", "ironbeam-cloud/compression-zstd", "ironbeam-io?/compression-zstd", "ironbeam-io-jsonl?/compression-zstd"]
-compression-bzip2 = ["dep:bzip2", "ironbeam-cloud/compression-bzip2", "ironbeam-io?/compression-bzip2", "ironbeam-io-jsonl?/compression-bzip2"]
-compression-xz = ["dep:xz2", "ironbeam-cloud/compression-xz", "ironbeam-io?/compression-xz", "ironbeam-io-jsonl?/compression-xz"]
+compression-gzip = ["dep:flate2", "ironbeam-cloud?/compression-gzip", "ironbeam-io?/compression-gzip", "ironbeam-io-jsonl?/compression-gzip"]
+compression-zstd = ["dep:zstd", "ironbeam-cloud?/compression-zstd", "ironbeam-io?/compression-zstd", "ironbeam-io-jsonl?/compression-zstd"]
+compression-bzip2 = ["dep:bzip2", "ironbeam-cloud?/compression-bzip2", "ironbeam-io?/compression-bzip2", "ironbeam-io-jsonl?/compression-bzip2"]
+compression-xz = ["dep:xz2", "ironbeam-cloud?/compression-xz", "ironbeam-io?/compression-xz", "ironbeam-io-jsonl?/compression-xz"]
 
 # Behaviors
 parallel-io = ["ironbeam-io?/parallel-io", "ironbeam-io-jsonl?/parallel-io"]
@@ -68,7 +69,7 @@ spilling = ["dep:postcard"]
 coders = ["dep:postcard"]
 
 [dependencies]
-ironbeam-cloud = { version = "0.1.0", path = "crates/ironbeam-cloud" }
+ironbeam-cloud = { version = "0.1.0", path = "crates/ironbeam-cloud", optional = true }
 ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core", optional = true }
 ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct", optional = true }
 ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", optional = true }
@@ -88,18 +89,18 @@ ironbeam-io-arrow = { version = "0.1.0", path = "crates/ironbeam-io-arrow", opti
 ironbeam-io-sql = { version = "0.1.0", path = "crates/ironbeam-io-sql", optional = true }
 ironbeam-io-mongodb = { version = "0.1.0", path = "crates/ironbeam-io-mongodb", optional = true }
 # Core dependencies
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-rayon = "1"
-num_cpus = "1"
-ordered-float = "5"
-glob = "0.3"
+anyhow = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+rayon = { version = "1", optional = true }
+num_cpus = { version = "1", optional = true }
+ordered-float = { version = "5", optional = true }
+glob = { version = "0.3", optional = true }
 postcard = { version = "1", features = ["alloc"], optional = true }
 sha2 = { version = "0.11", optional = true }
-regex = "1.12.4"
-paste = "1"
-hyperloglogplus = "0.4"
+regex = { version = "1.12.4", optional = true }
+paste = { version = "1", optional = true }
+hyperloglogplus = { version = "0.4", optional = true }
 
 # Optional encoding formats
 apache-avro = { version = "0.22", optional = true }
@@ -134,9 +135,15 @@ bzip2 = { version = "0.6", optional = true }
 xz2 = { version = "0.1", optional = true }
 
 # Testing dependency, used in testing module and in tests
-tempfile = "3"
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1"
+regex = "1.12.4"
+tempfile = "3"
 # MongoDB, Postgres, and MySQL (cross-database `sqlx::Any` dispatch) integration tests
 # require a live server via testcontainers/Docker.
 testcontainers = { version = "0.27", features = ["blocking"] }

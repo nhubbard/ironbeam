@@ -169,12 +169,13 @@ jobs:
 
       # With the I/O features off, the always-present API must fail at runtime.
       - name: Verify disabled-feature runtime stubs
-        run: cargo test -p ironbeam --no-default-features --test feature_gating
+        run: cargo test -p ironbeam --no-default-features --features legacy-v4 --test feature_gating
 
       - name: Test facade default and minimal modes
         run: |
           cargo test -p ironbeam --lib --tests
-          cargo test -p ironbeam --no-default-features --lib --tests
+          cargo test -p ironbeam --no-default-features --features legacy-v4 --lib --tests
+          cargo test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
 
       - name: Compare v4 and v5 direct elementwise results
         run: cargo test -p ironbeam --features v5-preview --test v5_direct_differential

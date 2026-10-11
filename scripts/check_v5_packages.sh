@@ -15,6 +15,10 @@ transforms_patch=(--config "patch.crates-io.ironbeam-transforms.path=\"$root/cra
 regex_patch=(--config "patch.crates-io.ironbeam-transform-regex.path=\"$root/crates/ironbeam-transform-regex\"")
 approx_patch=(--config "patch.crates-io.ironbeam-transform-approx.path=\"$root/crates/ironbeam-transform-approx\"")
 
+if cargo tree -p ironbeam --no-default-features --features v5-preview --edges normal | grep -E 'ironbeam-cloud v|hyperloglogplus v|ordered-float v|num_cpus v'; then
+  echo "V5-only facade unexpectedly depends on the legacy root implementation." >&2
+  exit 1
+fi
 if cargo tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro|prost|crc32c) v'; then
   echo "Default ironbeam-io unexpectedly depends on a heavy opt-in adapter." >&2
   exit 1

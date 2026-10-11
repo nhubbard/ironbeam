@@ -78,8 +78,12 @@ staged locally.
   entrypoints, translator, handler, tests, and wordcount example remain behind
   an explicit `legacy-v4` feature. A package-scoped Dataflow test and a live
   Prism run pass with that feature absent; workspace tests also pass with the
-  compatibility example enabling it. This reduces build coupling but does not
-  remove the v4 root implementation from the main Ironbeam repository.
+  compatibility example enabling it. The root `ironbeam` package now gates
+  its v4 modules and direct legacy dependencies behind `legacy-v4`, while
+  preserving that feature in its current default. A no-default-feature
+  `v5-preview` build has only core, Direct, transforms, and shared I/O as
+  direct dependencies; it excludes the legacy cloud package. The v4 root
+  implementation remains in the repository until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
   measures 234/243 source locations and 46/54 active branch outcomes. The
