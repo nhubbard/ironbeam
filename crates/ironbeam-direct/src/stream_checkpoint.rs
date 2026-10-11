@@ -287,7 +287,26 @@ mod tests {
         let mut invalid = signal();
         invalid.source_key = "other".into();
         assert!(checkpoint.save(&invalid).is_err());
+        invalid = signal();
+        invalid.split_id.clear();
+        assert!(checkpoint.save(&invalid).is_err());
         assert_eq!(checkpoint.load().unwrap(), Some(signal()));
+    }
+
+    #[test]
+    fn stream_checkpoint_requires_a_stable_build_identity() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: temporary.path().into(),
+            interval_batches: 1,
+            recover: true,
+            binary_build_id: String::new(),
+        };
+        assert!(
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                .is_err()
+        );
+        assert!(!temporary.path().join("stream-latest.json").exists());
     }
 
     #[test]

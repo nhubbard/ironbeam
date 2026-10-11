@@ -670,6 +670,8 @@ fn direct_sink_stops_before_reading_another_batch_after_cancellation() {
         };
         let action = Arc::clone(&cancellation);
         let sink = values
+            .map_named("identity-before-cancelling-sink", |value| value)
+            .unwrap()
             .sink_named(
                 "sink",
                 SinkSpec {
@@ -693,6 +695,74 @@ fn direct_sink_stops_before_reading_another_batch_after_cancellation() {
             .unwrap();
         assert_eq!(error.kind, ironbeam_core::ErrorKind::Cancelled);
     }
+}
+
+#[test]
+fn direct_sink_aborts_when_a_later_route_stage_sees_cancellation() {
+    use std::sync::atomic::AtomicBool;
+
+    struct AbortTrackingSink(Arc<AtomicUsize>);
+    impl TypedSink<i32> for AbortTrackingSink {
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            panic!("cancelled route reached the sink")
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            panic!("cancelled route committed")
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let aborts = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .bounded_source(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "cancel-route-source-v1".into(),
+            Some(1),
+            || Ok(Box::new(std::iter::once(Ok(1_i32)))),
+        )
+        .unwrap();
+    let signal = Arc::clone(&cancellation);
+    let sink_aborts = Arc::clone(&aborts);
+    let sink = values
+        .map_named("cancel-route", move |value| {
+            signal.store(true, Ordering::Release);
+            value
+        })
+        .unwrap()
+        .filter_named("must-not-run", |_| panic!("cancelled route continued"))
+        .unwrap()
+        .sink_named(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            move || Ok(Box::new(AbortTrackingSink(Arc::clone(&sink_aborts)))),
+        )
+        .unwrap();
+    let error = DirectRunner
+        .run_sink(
+            &sink,
+            &JobConfig {
+                cancellation,
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ironbeam_core::ErrorKind::Cancelled);
+    assert_eq!(aborts.load(Ordering::SeqCst), 1);
 }
 
 #[test]

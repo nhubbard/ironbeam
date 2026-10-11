@@ -90,6 +90,18 @@ fn keyed_group_uses_envelopes_for_non_vector_sources() {
     let mut groups = output.collect_seq().unwrap();
     groups.sort_by_key(|(key, _)| *key);
     assert_eq!(groups, [(1, vec![10, 30]), (2, vec![20, 40])]);
+    let limited = JobConfig {
+        memory_budget_bytes: 1,
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &limited)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
 }
 
 #[test]
