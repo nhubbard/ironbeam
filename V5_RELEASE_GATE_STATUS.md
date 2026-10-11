@@ -55,7 +55,7 @@ workspace tests and the live Prism suite.
 | --- | --- |
 | Root workspace | Tests and doctests passed after the CoGroupByKey event-time fix. |
 | Local release script | Dependency and feature checks, tests, docs, and verification of 29 packages passed with Mr Boxington after the cloud operation extraction. |
-| Cloud operation coverage | New package: **152/226 source locations** and **25/34 branches**; CI ratchet added. Uncovered utility paths remain in the quality review. |
+| Cloud operation coverage | New package: **161/235 source locations** and **25/34 branches**; CI ratchet added. Uncovered utility paths remain in the quality review. |
 | Local Prism | 18 live tests passed. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch; the full harness suite and warning-free lint pass. |
 | Separate Dataflow workspace | Tests and doctests passed; changed proof package passed warning-free lint. |

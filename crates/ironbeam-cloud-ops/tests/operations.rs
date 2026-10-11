@@ -8,6 +8,11 @@ use ironbeam_cloud_ops::utils::{
     with_timeout,
 };
 use ironbeam_cloud_service_api::{CloudIOError, CloudResult, ErrorKind};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+    mpsc,
+};
 use std::time::Duration;
 
 #[test]
@@ -141,6 +146,54 @@ fn operation_wrappers_preserve_errors_and_timeout_classification() {
     let operations: Vec<Box<dyn FnOnce() -> CloudResult<i32> + Send>> =
         vec![Box::new(|| Ok(1)), Box::new(|| Ok(2))];
     assert_eq!(run_parallel(operations).unwrap(), [1, 2]);
+}
+
+#[test]
+fn parallel_operations_overlap_and_return_input_order() {
+    let (left_sent, left_received) = mpsc::channel();
+    let (right_sent, right_received) = mpsc::channel();
+    let operations: Vec<Box<dyn FnOnce() -> CloudResult<i32> + Send>> = vec![
+        Box::new(move || {
+            left_sent.send(()).unwrap();
+            right_received
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(|error| CloudIOError::new(ErrorKind::Timeout, error.to_string()))?;
+            Ok(1)
+        }),
+        Box::new(move || {
+            right_sent.send(()).unwrap();
+            left_received
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(|error| CloudIOError::new(ErrorKind::Timeout, error.to_string()))?;
+            Ok(2)
+        }),
+    ];
+    assert_eq!(run_parallel(operations).unwrap(), [1, 2]);
+}
+
+#[test]
+fn parallel_operations_join_all_and_classify_panics() {
+    let completed = Arc::new(AtomicUsize::new(0));
+    let later = Arc::clone(&completed);
+    let operations: Vec<Box<dyn FnOnce() -> CloudResult<i32> + Send>> = vec![
+        Box::new(|| Err(CloudIOError::new(ErrorKind::NotFound, "missing"))),
+        Box::new(move || {
+            later.fetch_add(1, Ordering::SeqCst);
+            Ok(2)
+        }),
+    ];
+    assert_eq!(
+        run_parallel(operations).unwrap_err().kind,
+        ErrorKind::NotFound
+    );
+    assert_eq!(completed.load(Ordering::SeqCst), 1);
+
+    let operations: Vec<Box<dyn FnOnce() -> CloudResult<i32> + Send>> =
+        vec![Box::new(|| panic!("broken provider"))];
+    assert_eq!(
+        run_parallel(operations).unwrap_err().kind,
+        ErrorKind::InternalError
+    );
 }
 
 #[test]

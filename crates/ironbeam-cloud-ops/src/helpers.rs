@@ -172,7 +172,8 @@ where
 /// Execute multiple cloud operations in parallel with error handling
 ///
 /// This helper runs multiple independent operations concurrently and collects results.
-/// If any operation fails, all results up to that point are still returned along with the error.
+/// Results retain input order. Every operation is joined before the first error in
+/// input order is returned. A panicking operation becomes an internal error.
 ///
 /// # Example
 /// ```no_run
@@ -196,10 +197,27 @@ where
 pub fn run_parallel<T: Send>(
     operations: Vec<Box<dyn FnOnce() -> CloudResult<T> + Send>>,
 ) -> CloudResult<Vec<T>> {
-    operations
-        .into_iter()
-        .map(|op| op())
-        .collect::<CloudResult<Vec<T>>>()
+    let results = std::thread::scope(|scope| {
+        // Spawn every operation before joining any of them; an iterator chain
+        // would wait for each operation before starting the next.
+        #[allow(clippy::needless_collect)]
+        let handles = operations
+            .into_iter()
+            .map(|operation| scope.spawn(operation))
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle.join().unwrap_or_else(|_| {
+                    Err(ironbeam_cloud_service_api::CloudIOError::new(
+                        ironbeam_cloud_service_api::ErrorKind::InternalError,
+                        "parallel cloud operation panicked",
+                    ))
+                })
+            })
+            .collect::<Vec<_>>()
+    });
+    results.into_iter().collect()
 }
 
 /// Execute a cloud operation with timeout and custom configuration

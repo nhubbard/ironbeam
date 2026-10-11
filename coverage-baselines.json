@@ -255,8 +255,8 @@
   "ironbeam-cloud-ops": {
     "source": "crates/ironbeam-cloud-ops/src",
     "lines": {
-      "covered": 152,
-      "count": 226
+      "covered": 161,
+      "count": 235
     },
     "branches": {
       "covered": 25,

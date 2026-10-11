@@ -77,11 +77,15 @@ inside the new crate, and compatibility tests and doctests still pass.
 validation, and high-level operation helpers. It depends on the service API
 at runtime and uses fakes only for doctests. The old `ironbeam-cloud::helpers`
 and `ironbeam-cloud::utils` paths reexport the same operations; test credential
-constructors stay in the compatibility wrapper. Five behavior tests cover
+constructors stay in the compatibility wrapper. Seven behavior tests cover
 transient and permanent failures, ordered batches, page progression, metadata,
-timeout classification, resources, and connection reuse. Its initial source
-coverage is 152/226 locations and 25/34 branches, now included in CI's
-coverage ratchet. Remaining paths need quality review.
+timeout classification, resources, connection reuse, actual operation overlap,
+join-all failure handling, and panic classification. The old `run_parallel`
+helper was sequential despite its name; it now starts every operation before
+joining, retains input order, and returns the first input-order error only after
+all operations finish. Source coverage is 161/235 locations and 25/34
+branches, now included in CI's coverage ratchet. Remaining paths need quality
+review.
 
 </details>
 
