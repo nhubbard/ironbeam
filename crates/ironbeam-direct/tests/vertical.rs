@@ -186,6 +186,35 @@ fn typed_source_batch_append_respects_exact_memory_and_spill_limits() {
     let (values, job) = DirectRunner.run_collect(&output, &spilled).unwrap();
     assert_eq!(values, [1, 2, 3, 4, 5]);
     assert!(job.metrics().spill_files > 0);
+
+    let tuples = Pipeline::default()
+        .from_vec("tuples", vec![(1_u32, true), (2_u32, false)])
+        .unwrap()
+        .output("tuple-out")
+        .unwrap();
+    let exact_tuple_budget = JobConfig {
+        memory_budget_bytes: 42,
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&tuples, &exact_tuple_budget)
+            .unwrap()
+            .0,
+        [(1, true), (2, false)]
+    );
+    let undersized = JobConfig {
+        memory_budget_bytes: 41,
+        ..exact_tuple_budget
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&tuples, &undersized)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
 }
 
 #[test]

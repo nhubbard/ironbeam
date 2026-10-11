@@ -153,9 +153,13 @@ impl<T: Element> OutputStore<T> {
         }
         let minimum = std::mem::size_of::<T>().max(1);
         let additional = if T::supports_coder() {
-            values.iter().try_fold(0_usize, |total, value| {
-                Ok::<_, Error>(total.saturating_add(value.encoded_len()?.max(minimum)))
-            })?
+            if let Some(fixed) = T::fixed_encoded_len() {
+                values.len().saturating_mul(fixed.max(minimum))
+            } else {
+                values.iter().try_fold(0_usize, |total, value| {
+                    Ok::<_, Error>(total.saturating_add(value.encoded_len()?.max(minimum)))
+                })?
+            }
         } else {
             values.len().saturating_mul(minimum)
         };

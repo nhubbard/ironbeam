@@ -3,6 +3,19 @@ use std::collections::{HashMap, HashSet};
 
 #[test]
 fn encoded_lengths_match_nested_wire_shapes_used_for_output_budgets() {
+    assert_eq!(u32::fixed_encoded_len(), Some(4));
+    assert_eq!(bool::fixed_encoded_len(), Some(1));
+    assert_eq!(<(u32, bool)>::fixed_encoded_len(), Some(21));
+    assert_eq!(
+        <(u32, bool)>::fixed_encoded_len(),
+        Some((7_u32, true).encode().unwrap().len())
+    );
+    assert_eq!(<(u8, u16, u32)>::fixed_encoded_len(), Some(31));
+    assert_eq!(
+        <(u8, u16, u32)>::fixed_encoded_len(),
+        Some((1_u8, 2_u16, 3_u32).encode().unwrap().len())
+    );
+    assert_eq!(<(u32, String)>::fixed_encoded_len(), None);
     let values = vec![
         (7_u32, Some("éclair".to_string()), vec![true, false]),
         (8_u32, None, vec![]),

@@ -59,6 +59,11 @@ pub trait Element: Send + 'static {
     fn encoded_len(&self) -> Result<usize, Error> {
         Ok(self.encode()?.len())
     }
+    /// Exact wire length when every value of this element type has the same size.
+    #[must_use]
+    fn fixed_encoded_len() -> Option<usize> {
+        None
+    }
     fn decode(_bytes: &[u8]) -> Result<Self, Error>
     where
         Self: Sized,
@@ -88,6 +93,9 @@ macro_rules! integer_element {
             }
             fn encoded_len(&self) -> Result<usize, Error> {
                 Ok($size)
+            }
+            fn fixed_encoded_len() -> Option<usize> {
+                Some($size)
             }
             fn decode(bytes: &[u8]) -> Result<Self, Error> {
                 let array: [u8; $size] = bytes
@@ -128,6 +136,9 @@ impl Element for bool {
     }
     fn encoded_len(&self) -> Result<usize, Error> {
         Ok(1)
+    }
+    fn fixed_encoded_len() -> Option<usize> {
+        Some(1)
     }
     fn decode(bytes: &[u8]) -> Result<Self, Error> {
         match bytes {
@@ -381,6 +392,11 @@ impl<A: Element, B: Element> Element for (A, B) {
         let second = checked_encoded_add(8, self.1.encoded_len()?)?;
         checked_encoded_add(first, second)
     }
+    fn fixed_encoded_len() -> Option<usize> {
+        16_usize
+            .checked_add(A::fixed_encoded_len()?)?
+            .checked_add(B::fixed_encoded_len()?)
+    }
     fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
         if !Self::supports_coder() {
             return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
@@ -434,6 +450,11 @@ macro_rules! impl_tuple_element {
                 let mut total = 0;
                 $(total = checked_encoded_add(total, checked_encoded_add(8, self.$index.encoded_len()?)?)?;)+
                 Ok(total)
+            }
+            fn fixed_encoded_len() -> Option<usize> {
+                let mut total = 0_usize;
+                $(total = total.checked_add(8)?.checked_add($ty::fixed_encoded_len()?)?;)+
+                Some(total)
             }
             fn decode(mut bytes: &[u8]) -> Result<Self, Error> {
                 if !Self::supports_coder() {

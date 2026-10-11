@@ -224,6 +224,15 @@ Six alternating runs of the full 100,000-row corpus under macOS
 All five workloads' counts and checksums matched. This is whole-process peak
 memory, not a per-operation allocation profile; the memory gate remains open.
 
+Direct source-only batch collection now uses a fixed wire-length hint for
+built-in scalars and fixed-size tuples, preserving the exact output budget
+without asking each value for its encoded length. The existing exact-budget,
+spill, and coder-panic tests pass. An adjacent six-run alternating release
+sample measured source copy at 0.061 ms for v4 and 0.897 ms for v5 (14.8×),
+with matching output and checksums. The prior v5 median was 0.936 ms, but the
+small difference is within the range of local run variation and is not yet a
+demonstrated performance improvement.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
