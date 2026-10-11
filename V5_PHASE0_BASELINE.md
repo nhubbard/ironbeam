@@ -187,6 +187,11 @@ ratio should be read within this run. An experimental 16 KiB batch of the
 source digest's SHA-256 updates preserved the digest byte contract but did not
 improve repeated v5 timing, so the change was reverted. The source-copy
 performance gate remains open.
+One temporary release probe of that case split Direct's run into about
+0.049 ms for snapshot, 0.001 ms for validation, 0.134 ms for planning and
+pool setup together, and 1.160 ms for execution. Source construction before
+the run accounted for most of the remaining roughly 1.66 ms. That probe was
+removed after measurement; pool startup alone cannot explain the gap.
 
 ## Runner-specific assumptions and Dataflow dependency check
 
