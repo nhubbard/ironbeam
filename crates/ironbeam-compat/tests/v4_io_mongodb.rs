@@ -1,4 +1,4 @@
-//! Integration tests for the MongoDB I/O connector (feature `io-mongodb`), run against a
+//! Integration tests for the MongoDB I/O connector (feature `v4-mongodb`), run against a
 //! real MongoDB server started via Testcontainers.
 //!
 //! The default `mongo:5.0.6` image (pulled by `testcontainers_modules::mongo::Mongo`)
@@ -8,20 +8,20 @@
 //! **Requires a working Docker (or Docker-compatible, e.g., Rancher Desktop/Podman) daemon.**
 //! If unavailable, container startup fails, and these tests report as failed — this is an
 //! accepted limitation for local development without a running daemon, matching the
-//! convention used for the SQL Testcontainers suite (see `tests/io/sql_containers.rs`). CI
+//! convention used for the SQL Testcontainers suite (see `crates/ironbeam-compat/tests/v4_io_sql_containers.rs`). CI
 //! runs these with Docker available as a service.
 //!
 //! Each test starts its own container, so no test shares state with another. MongoDB has no
 //! DDL step: databases and collections are created implicitly on first insert.
 
-#![cfg(all(feature = "io-mongodb", feature = "legacy-v4-service-tests"))]
+#![cfg(all(feature = "v4-mongodb", feature = "v4-service-tests"))]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::io::mongodb::*;
-use ironbeam::testing::*;
-use ironbeam::type_token::VecOps;
-use ironbeam::{from_vec, read_mongodb, read_mongodb_streaming};
+use ironbeam_v4::io::mongodb::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::type_token::VecOps;
+use ironbeam_v4::{from_vec, read_mongodb, read_mongodb_streaming};
 use testcontainers::runners::SyncRunner;
 use testcontainers_modules::mongo::Mongo;
 
@@ -288,7 +288,7 @@ fn mongo_vec_ops_wrong_type() {
 
 // ── Parallel writer (feature `parallel-io`) ──────────────────────────────────────
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_mongodb_par_empty() -> Result<()> {
     let (_node, uri) = start_mongo()?;
@@ -297,7 +297,7 @@ fn write_mongodb_par_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_mongodb_par_basic() -> Result<()> {
     let (_node, uri) = start_mongo()?;
@@ -311,7 +311,7 @@ fn write_mongodb_par_basic() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_mongodb_par_single_shard() -> Result<()> {
     let (_node, uri) = start_mongo()?;
@@ -325,7 +325,7 @@ fn write_mongodb_par_single_shard() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_mongodb_par_over_sharded() -> Result<()> {
     let (_node, uri) = start_mongo()?;
@@ -380,7 +380,7 @@ fn write_mongodb_helper() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_mongodb_par_helper() -> Result<()> {
     let (_node, uri) = start_mongo()?;

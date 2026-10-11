@@ -55,8 +55,7 @@ staged locally.
   results; v5 helper behavior remains covered by its own package tests and
   differential corpus.
 - The 115-case v4 combiner and 54-case testing families now live in
-  `ironbeam-compat` against published 4.1.1. The root combined legacy target
-  retains only I/O suites. Five mock-I/O checks run in the default
+  `ironbeam-compat` against published 4.1.1. Five mock-I/O checks run in the default
   compatibility target; the sixth CSV check runs under an opt-in feature in
   CI. The two combiner tests that used the root test macro carry its unchanged
   definition locally.
@@ -68,8 +67,10 @@ staged locally.
   `scripts/check_v4_format_reference.sh`. Arrow, Avro, CBOR, compression, CSV,
   JSONL, MessagePack, Parquet, Protobuf, TFRecord, and XML passed individually.
   The 21 SQLite SQL tests also run from `ironbeam-compat` under `v4-sql`.
-  The root combined legacy target retains only PostgreSQL, MySQL, and MongoDB
-  service tests.
+  The PostgreSQL, MySQL, and MongoDB service suites now run from
+  `ironbeam-compat` under explicit connector and service-test features. All
+  9 SQL and 30 MongoDB container cases passed locally through Rancher Desktop.
+  The root combined legacy I/O test target has been removed.
 - The v4 dictionary, hash-map, and display-string conversion suites also moved
   to `ironbeam-compat`; their 58 cases pass against published v4. The root no
   longer owns those three legacy test targets, and CI retains the reference
@@ -234,11 +235,10 @@ staged locally.
   documentation, and local package verification for all twenty-five v5 crates.
   No package was published.
 - Root v5 tests no longer compile Testcontainers as an unconditional dev
-  dependency. The legacy MongoDB/Postgres/MySQL suites use the opt-in
-  `legacy-v4-service-tests` feature, which `--all-features` still enables in
-  the live CI jobs. The default dependency tree excludes both service-test
-  libraries; the v5 facade tests pass, and the all-feature legacy MongoDB
-  target compiles and lists its thirty tests.
+  dependency. The legacy MongoDB/Postgres/MySQL suites have since moved into
+  `ironbeam-compat` behind `v4-service-tests`; the root package no longer
+  depends on either service-test library. The manual Docker CI job runs the
+  compatibility targets with their connector features enabled.
 - The `cloud_io_demo` example now runs entirely through v5: it writes JSONL
   through a deferred URI object sink, reads and transforms the rows through a
   URI source, then copies the object between two registered schemes. URI glob

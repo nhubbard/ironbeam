@@ -344,8 +344,8 @@ jobs:
 
       - name: Test MongoDB and SQL containers
         run: |
-          cargo test -p ironbeam --all-features --test lib io::mongodb
-          cargo test -p ironbeam --all-features --test lib io::sql_containers
+          cargo test -p ironbeam-compat --features v4-mongodb,v4-service-tests,v4-parallel-io --test v4_io_mongodb -- --test-threads=1
+          cargo test -p ironbeam-compat --features v4-sql,v4-service-tests,v4-parallel-io --test v4_io_sql_containers -- --test-threads=1
 
   docs:
     name: Documentation

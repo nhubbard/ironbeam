@@ -15,7 +15,6 @@ repository = "https://github.com/nhubbard/ironbeam"
 [features]
 default = ["v5-preview"]
 legacy-v4 = ["dep:ironbeam-cloud", "dep:anyhow", "dep:serde", "dep:serde_json", "dep:rayon", "dep:num_cpus", "dep:ordered-float", "dep:glob", "dep:regex", "dep:paste", "dep:hyperloglogplus", "dep:tempfile"]
-legacy-v4-service-tests = ["legacy-v4", "dep:testcontainers", "dep:testcontainers-modules"]
 v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "ironbeam-transforms/validation-json", "dep:ironbeam-io", "ironbeam-io/cloud", "dep:ironbeam-io-jsonl", "ironbeam-io-jsonl/cloud"]
 v5-regex = ["v5-preview", "dep:ironbeam-transform-regex"]
 v5-approx = ["v5-preview", "dep:ironbeam-transform-approx"]
@@ -143,9 +142,6 @@ xz2 = { version = "0.1", optional = true }
 
 # Testing dependency, used in testing module and in tests
 tempfile = { version = "3", optional = true }
-# Live v4 database suites are kept opt-in while the root v5 facade is tested.
-testcontainers = { version = "0.27", features = ["blocking"], optional = true }
-testcontainers-modules = { version = "0.15", features = ["mongo", "postgres", "mysql"], optional = true }
 
 [dev-dependencies]
 anyhow = "1"
@@ -293,10 +289,6 @@ required-features = ["legacy-v4"]
 
 [[test]]
 name = "group_into_batches"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "lib"
 required-features = ["legacy-v4"]
 
 [[test]]

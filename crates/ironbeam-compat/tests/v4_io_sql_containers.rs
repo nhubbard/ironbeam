@@ -1,7 +1,7 @@
-//! Postgres and MySQL integration tests for the SQL I/O connector (feature `io-sql`), run
+//! Postgres and MySQL integration tests for the SQL I/O connector (feature `v4-sql`), run
 //! against real database servers started via Testcontainers.
 //!
-//! Unlike `tests/io/sql.rs` (SQLite, no external process needed), these tests validate
+//! Unlike `crates/ironbeam-compat/tests/v4_io_sql.rs` (SQLite, no external process needed), these tests validate
 //! the `sqlx::Any` driver's cross-database dispatch against real network databases.
 //!
 //! Both `postgres:11-alpine` and `mysql:8.1` (the default images pulled by
@@ -12,15 +12,15 @@
 //! **Requires a working Docker (or Docker-compatible, e.g., Rancher Desktop/Podman) daemon.**
 //! If unavailable, container startup fails, and these tests report as failed — this is an
 //! accepted limitation for local development without a running daemon, matching the
-//! convention used for the MongoDB Testcontainers suite (see `tests/io/mongodb.rs`). CI runs
+//! convention used for the MongoDB Testcontainers suite (see `crates/ironbeam-compat/tests/v4_io_mongodb.rs`). CI runs
 //! these with Docker available as a service.
 
-#![cfg(all(feature = "io-sql", feature = "legacy-v4-service-tests"))]
+#![cfg(all(feature = "v4-sql", feature = "v4-service-tests"))]
 
 use anyhow::Result;
-use ironbeam::io::sql::*;
-use ironbeam::testing::*;
-use ironbeam::{from_vec, read_sql, read_sql_streaming};
+use ironbeam_v4::io::sql::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{from_vec, read_sql, read_sql_streaming};
 use testcontainers::runners::SyncRunner;
 use testcontainers_modules::{mysql::Mysql, postgres::Postgres};
 
@@ -146,7 +146,7 @@ fn postgres_read_sql_helper_roundtrip() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn postgres_write_par_roundtrip() -> Result<()> {
     let (_node, url) = start_postgres_with_table()?;
@@ -209,7 +209,7 @@ fn mysql_read_sql_helper_roundtrip() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn mysql_write_par_roundtrip() -> Result<()> {
     let (_node, url) = start_mysql_with_table()?;

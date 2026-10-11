@@ -18,10 +18,12 @@ v4-csv = ["ironbeam-v4/io-csv", "dep:csv"]
 v4-gzip = ["ironbeam-v4/compression-gzip", "dep:flate2"]
 v4-jsonl = ["ironbeam-v4/io-jsonl"]
 v4-msgpack = ["ironbeam-v4/io-msgpack"]
+v4-mongodb = ["ironbeam-v4/io-mongodb", "dep:bson"]
 v4-parallel-io = ["ironbeam-v4/parallel-io"]
 v4-parquet = ["ironbeam-v4/io-parquet", "dep:parquet"]
 v4-protobuf = ["ironbeam-v4/io-protobuf"]
 v4-sql = ["ironbeam-v4/io-sql", "dep:sqlx", "dep:tokio"]
+v4-service-tests = ["dep:testcontainers", "dep:testcontainers-modules"]
 v4-tfrecord = ["ironbeam-v4/io-tfrecord"]
 v4-xml = ["ironbeam-v4/io-xml"]
 v4-xz = ["ironbeam-v4/compression-xz"]
@@ -37,11 +39,14 @@ ironbeam-transform-approx = { version = "0.1.0", path = "../ironbeam-transform-a
 anyhow = "1"
 apache-avro = { version = "0.21", optional = true }
 arrow = { version = "59", optional = true }
+bson = { version = "3", optional = true }
 csv = { version = "1", optional = true }
 flate2 = { version = "1", optional = true }
 parquet = { version = "59", optional = true }
 serde_arrow = { version = "0.14", features = ["arrow-59"], optional = true }
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
+testcontainers = { version = "0.27", features = ["blocking"], optional = true }
+testcontainers-modules = { version = "0.15", features = ["mongo", "postgres", "mysql"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 
 [dev-dependencies]
@@ -89,6 +94,10 @@ name = "v4_io_msgpack"
 required-features = ["v4-msgpack"]
 
 [[test]]
+name = "v4_io_mongodb"
+required-features = ["v4-mongodb", "v4-service-tests"]
+
+[[test]]
 name = "v4_io_parquet"
 required-features = ["v4-parquet"]
 
@@ -103,6 +112,10 @@ required-features = ["v4-protobuf"]
 [[test]]
 name = "v4_io_sql"
 required-features = ["v4-sql"]
+
+[[test]]
+name = "v4_io_sql_containers"
+required-features = ["v4-sql", "v4-service-tests"]
 
 [[test]]
 name = "v4_io_tfrecord"

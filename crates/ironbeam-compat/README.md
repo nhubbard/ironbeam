@@ -28,8 +28,9 @@ The v4 file-format reference suites also live here. Run
 `bash scripts/check_v4_format_reference.sh` from the repository root to test
 each format with its own features; the script accepts `IRONBEAM_CARGO` for a
 Cargo wrapper. The 21 SQLite reference tests run with `v4-sql` and need no
-database service. The root legacy I/O target retains only PostgreSQL, MySQL,
-and MongoDB service tests. These published-v4 checks preserve reference behavior while
+database service. PostgreSQL, MySQL, and MongoDB reference tests run with
+`v4-service-tests` and their connector features in the manual Docker CI job.
+These published-v4 checks preserve reference behavior while
 the separate v5 format crates carry their implementation tests.
 
 See [the migration guide](https://github.com/nhubbard/ironbeam/blob/main/V4_TO_V5_MIGRATION.md) for call-site examples and feature mapping.
