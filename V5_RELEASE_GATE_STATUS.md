@@ -15,14 +15,15 @@ staged locally.
   windows. Live local Prism jobs match Direct keyed values and metadata,
   global values and empty identity, and failure on duplicate global and keyed
   order keys. The encounter-order v4 compatibility methods remain Direct-only.
-- Bounded Direct now has `run_sinks` for any number of idempotent sink branches
-  from one source. It executes shared stateless stages once, clones values at
-  nested fan-out through registered coders, and writes each sink in bounded
-  batches. Tests prove three heterogeneous branches, one source open, shared
-  stage counts, fail-closed validation, buffer limits, abort before commit on
-  write failure, and explicit partial-commit reporting on a later commit
-  failure. Fan-in, stateful branches, and checkpointed bounded multi-sink
-  execution remain open.
+- Bounded Direct `run_sinks` accepts idempotent sink branches from multiple
+  sources joined through `Flatten`. It opens each source once, executes shared
+  stateless stages once, clones values at nested fan-out through registered
+  coders, and writes each sink in bounded batches. Tests cover heterogeneous
+  branches, a two-source merge with a shared post-merge stage, a repeated
+  Flatten input, validation, buffer limits, abort before commit on write
+  failure, and partial-commit reporting on a later commit failure. Other
+  fan-in, stateful branches, and checkpointed bounded multi-sink execution
+  remain open.
 - Vector-based `combine_globally_named` now uses the same constant-key Beam
   GroupByKey boundary as mergeable global folds, while the worker invokes the
   registered vector aggregate. The bounded global-window path retains its

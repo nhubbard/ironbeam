@@ -148,6 +148,178 @@ fn several_sinks_share_source_and_each_common_stage_once() {
 }
 
 #[test]
+fn multiple_sources_flatten_once_into_shared_sink_branches() {
+    let left_opens = Arc::new(AtomicUsize::new(0));
+    let right_opens = Arc::new(AtomicUsize::new(0));
+    let after_merge_calls = Arc::new(AtomicUsize::new(0));
+    let numbers = Arc::new(Mutex::new(Vec::new()));
+    let labels = Arc::new(Mutex::new(Vec::new()));
+    let left_only = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: false,
+    };
+    let opened = Arc::clone(&left_opens);
+    let left = pipeline
+        .bounded_source_with_semantic::<i32>(
+            "left-source",
+            "tests/multi-sink-left",
+            progress.clone(),
+            "left-v1".into(),
+            Some(2),
+            move || {
+                opened.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new([1, 2].into_iter().map(Ok)) as TypedSourceIterator<i32>)
+            },
+        )
+        .unwrap()
+        .map_named("left-pre", |value| value + 10)
+        .unwrap();
+    let opened = Arc::clone(&right_opens);
+    let right = pipeline
+        .bounded_source_with_semantic::<i32>(
+            "right-source",
+            "tests/multi-sink-right",
+            progress,
+            "right-v1".into(),
+            Some(2),
+            move || {
+                opened.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new([3, 4].into_iter().map(Ok)) as TypedSourceIterator<i32>)
+            },
+        )
+        .unwrap()
+        .map_named("right-pre", |value| value + 20)
+        .unwrap();
+    let captured = Arc::clone(&left_only);
+    left.sink_named("left-only", spec(), move || {
+        Ok(Box::new(Capture {
+            rows: Arc::clone(&captured),
+            pending: Vec::new(),
+        }))
+    })
+    .unwrap();
+    let calls = Arc::clone(&after_merge_calls);
+    let merged = left
+        .flatten_named("merged", &[right])
+        .unwrap()
+        .map_named("shared-after-merge", move |value| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            value * 2
+        })
+        .unwrap();
+    let captured = Arc::clone(&numbers);
+    merged
+        .sink_named("numbers", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&captured),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    let captured = Arc::clone(&labels);
+    merged
+        .map_named("label", |value| format!("n={value}"))
+        .unwrap()
+        .sink_named("labels", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&captured),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    let job = DirectRunner
+        .run_sinks(
+            &pipeline,
+            &["numbers", "labels", "left-only"],
+            &JobConfig {
+                buffer_budget_elements: 2,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(*numbers.lock().unwrap(), [22, 24, 46, 48]);
+    assert_eq!(*labels.lock().unwrap(), ["n=22", "n=24", "n=46", "n=48"]);
+    assert_eq!(*left_only.lock().unwrap(), [11, 12]);
+    assert_eq!(left_opens.load(Ordering::SeqCst), 1);
+    assert_eq!(right_opens.load(Ordering::SeqCst), 1);
+    assert_eq!(after_merge_calls.load(Ordering::SeqCst), 4);
+    assert_eq!(job.metrics().source_elements, 4);
+    assert_eq!(job.metrics().output_elements, 10);
+}
+
+#[test]
+fn flatten_repeated_input_preserves_edge_multiplicity() {
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();
+    let repeated = source
+        .flatten_named("repeated", std::slice::from_ref(&source))
+        .unwrap();
+    let first = Arc::new(Mutex::new(Vec::new()));
+    let second = Arc::new(Mutex::new(Vec::new()));
+    for (key, rows) in [
+        ("first", Arc::clone(&first)),
+        ("second", Arc::clone(&second)),
+    ] {
+        repeated
+            .sink_named(key, spec(), move || {
+                Ok(Box::new(Capture {
+                    rows: Arc::clone(&rows),
+                    pending: Vec::new(),
+                }))
+            })
+            .unwrap();
+    }
+    DirectRunner
+        .run_sinks(&pipeline, &["first", "second"], &JobConfig::default())
+        .unwrap();
+    for rows in [&first, &second] {
+        let mut actual = rows.lock().unwrap().clone();
+        actual.sort_unstable();
+        assert_eq!(actual, [1, 1, 2, 2]);
+    }
+}
+
+#[test]
+fn non_flatten_fan_in_is_rejected_before_sink_factories_open() {
+    let sink_opens = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 2_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 3_i32)]).unwrap();
+    let joined = left.join_inner_named("join", &right).unwrap();
+    let opened = Arc::clone(&sink_opens);
+    joined
+        .sink_named("joined", spec(), move || {
+            opened.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(Capture {
+                rows: Arc::new(Mutex::new(Vec::new())),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    let opened = Arc::clone(&sink_opens);
+    left.sink_named("left-only", spec(), move || {
+        opened.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(Capture {
+            rows: Arc::new(Mutex::new(Vec::new())),
+            pending: Vec::new(),
+        }))
+    })
+    .unwrap();
+    let error = DirectRunner
+        .run_sinks(&pipeline, &["joined", "left-only"], &JobConfig::default())
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    assert_eq!(sink_opens.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn invalid_multi_sink_plan_fails_before_opening_source_or_sinks() {
     let opens = Arc::new(AtomicUsize::new(0));
     let sink_opens = Arc::new(AtomicUsize::new(0));

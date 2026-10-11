@@ -1,15 +1,17 @@
-//! One bounded source feeding any number of stateless sink branches.
+//! Bounded sources feeding stateless sink branches through optional Flatten nodes.
 use crate::{
     JobConfig, JobHandle, cancelled, ensure_bounded_sink_session, open_source_safe,
     read_source_batch,
 };
-use ironbeam_core::{Envelope, Error, Graph, Operation, Registry, Replay, SinkMode, SinkSession};
+use ironbeam_core::{
+    Boundedness, Envelope, Error, Graph, Operation, Registry, Replay, SinkMode, SinkSession,
+};
 use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
 
 pub(crate) struct Plan {
-    source_key: String,
+    source_keys: Vec<String>,
     children: HashMap<String, Vec<String>>,
 }
 
@@ -21,7 +23,8 @@ pub(crate) fn prepare(graph: &Graph, registry: &Registry, keys: &[&str]) -> Resu
         ));
     }
     let mut unique = HashSet::new();
-    let mut source_key = None;
+    let mut sources = HashSet::new();
+    let mut visited = HashSet::new();
     let mut children: HashMap<String, Vec<String>> = HashMap::new();
     for &key in keys {
         if !unique.insert(key) {
@@ -49,57 +52,74 @@ pub(crate) fn prepare(graph: &Graph, registry: &Registry, keys: &[&str]) -> Resu
         if registry.sink_requires_bundle_finalization(key) {
             return Err(Error::unsupported(key, "direct", "bundle-finalization"));
         }
-        let mut route = Vec::new();
-        let mut current = key;
-        loop {
-            let node = graph
-                .node(current)
-                .ok_or_else(|| Error::graph(current, "route node is absent"))?;
-            if !node.additional_inputs.is_empty() {
-                return Err(Error::unsupported(current, "direct", "multi-sink-fan-in"));
+    }
+    let mut pending = keys.iter().map(|key| (*key).to_owned()).collect::<Vec<_>>();
+    while let Some(current) = pending.pop() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        let node = graph
+            .node(&current)
+            .ok_or_else(|| Error::graph(&current, "route node is absent"))?;
+        if node.boundedness != Boundedness::Bounded {
+            return Err(Error::unsupported(
+                &current,
+                "direct",
+                "multi-sink-unbounded",
+            ));
+        }
+        match &node.operation {
+            Operation::Source { .. } => {
+                sources.insert(current);
+                continue;
             }
-            route.push(current.to_owned());
-            match node.operation {
-                Operation::Source { .. } => break,
-                Operation::Sink { .. } if current == key => {}
-                Operation::Map
-                | Operation::Filter
-                | Operation::FlatMap
-                | Operation::AssignTimestamp
-                | Operation::FixedWindow => {
-                    if !registry.has_transform(current) {
-                        return Err(Error::unsupported(current, "direct", "transform-function"));
-                    }
+            Operation::Sink { .. } if unique.contains(current.as_str()) => {}
+            Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::FixedWindow => {
+                if !registry.has_transform(&current) {
+                    return Err(Error::unsupported(&current, "direct", "transform-function"));
                 }
-                Operation::Reshuffle => {}
-                _ => {
-                    return Err(Error::unsupported(
-                        current,
-                        "direct",
-                        "multi-sink-operation",
-                    ));
-                }
             }
-            current = node
-                .input
-                .as_deref()
-                .ok_or_else(|| Error::graph(current, "route input is absent"))?;
-        }
-        route.reverse();
-        let source = route.first().expect("route has a sink");
-        if source_key
-            .as_ref()
-            .is_some_and(|existing| existing != source)
-        {
-            return Err(Error::unsupported(key, "direct", "multi-sink-source"));
-        }
-        source_key = Some(source.clone());
-        for edge in route.windows(2) {
-            let next = children.entry(edge[0].clone()).or_default();
-            if !next.contains(&edge[1]) {
-                next.push(edge[1].clone());
+            Operation::Reshuffle | Operation::Flatten => {}
+            _ => {
+                return Err(Error::unsupported(
+                    &current,
+                    "direct",
+                    "multi-sink-operation",
+                ));
             }
         }
+        if !matches!(node.operation, Operation::Flatten) && !node.additional_inputs.is_empty() {
+            return Err(Error::unsupported(&current, "direct", "multi-sink-fan-in"));
+        }
+        let parent = node
+            .input
+            .as_deref()
+            .ok_or_else(|| Error::graph(&current, "route input is absent"))?;
+        children
+            .entry(parent.to_owned())
+            .or_default()
+            .push(current.clone());
+        pending.push(parent.to_owned());
+        for edge in &node.additional_inputs {
+            children
+                .entry(edge.key.clone())
+                .or_default()
+                .push(current.clone());
+            pending.push(edge.key.clone());
+        }
+    }
+    let source_keys = graph
+        .nodes
+        .iter()
+        .filter(|node| sources.contains(&node.key))
+        .map(|node| node.key.clone())
+        .collect::<Vec<_>>();
+    if source_keys.is_empty() {
+        return Err(Error::graph("job", "multi-sink job has no source"));
     }
     for (key, branches) in &children {
         if branches.len() > 1 && !registry.has_coder(key) {
@@ -107,7 +127,7 @@ pub(crate) fn prepare(graph: &Graph, registry: &Registry, keys: &[&str]) -> Resu
         }
     }
     Ok(Plan {
-        source_key: source_key.expect("at least two routes"),
+        source_keys,
         children,
     })
 }
@@ -230,44 +250,46 @@ pub(crate) fn execute(
             }
             sessions.insert(key.to_owned(), session);
         }
-        let mut source = open_source_safe(registry, &plan.source_key)?;
-        loop {
-            if config.cancellation.load(Ordering::Acquire) {
-                return Err(cancelled());
+        for source_key in &plan.source_keys {
+            let mut source = open_source_safe(registry, source_key)?;
+            loop {
+                if config.cancellation.load(Ordering::Acquire) {
+                    return Err(cancelled());
+                }
+                let batch =
+                    read_source_batch(&mut source, config.buffer_budget_elements, source_key)?;
+                if batch.is_empty() {
+                    break;
+                }
+                let count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+                handle
+                    .metrics
+                    .source_elements
+                    .fetch_add(count, Ordering::Relaxed);
+                handle
+                    .metrics
+                    .peak_batch_elements
+                    .fetch_max(count, Ordering::Relaxed);
+                handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+                let mut written = 0_u64;
+                for event in batch {
+                    written = written.saturating_add(dispatch(
+                        source_key,
+                        event,
+                        plan,
+                        registry,
+                        config,
+                        handle,
+                        &mut sessions,
+                    )?);
+                }
+                let total = handle
+                    .metrics
+                    .output_elements
+                    .fetch_add(written, Ordering::Relaxed)
+                    .saturating_add(written);
+                handle.processed.store(total, Ordering::Relaxed);
             }
-            let batch =
-                read_source_batch(&mut source, config.buffer_budget_elements, &plan.source_key)?;
-            if batch.is_empty() {
-                break;
-            }
-            let count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
-            handle
-                .metrics
-                .source_elements
-                .fetch_add(count, Ordering::Relaxed);
-            handle
-                .metrics
-                .peak_batch_elements
-                .fetch_max(count, Ordering::Relaxed);
-            handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
-            let mut written = 0_u64;
-            for event in batch {
-                written = written.saturating_add(dispatch(
-                    &plan.source_key,
-                    event,
-                    plan,
-                    registry,
-                    config,
-                    handle,
-                    &mut sessions,
-                )?);
-            }
-            let total = handle
-                .metrics
-                .output_elements
-                .fetch_add(written, Ordering::Relaxed)
-                .saturating_add(written);
-            handle.processed.store(total, Ordering::Relaxed);
         }
         for &key in keys {
             if config.cancellation.load(Ordering::Acquire) {

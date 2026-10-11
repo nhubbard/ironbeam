@@ -183,13 +183,13 @@ the remaining behavior corpus before closing this gate.
    idempotent append sinks after both commits, with a replay test for failure
    after the first commit. `run_collect_pair` now checkpoints two coded linear
    output branches together and recovers accepted batches without re-running
-   their transforms. Bounded `run_sinks` now accepts any number of named,
-   idempotent sink branches from one source, including shared stateless stages
-   and nested fan-out; it runs each shared stage once and copies branch values
-   through registered coders. Sink commits remain sequential, with explicit
-   retry semantics if a later commit fails. Stateful branches, fan-in,
-   multi-source jobs, atomic multi-sink commit, and bounded sink checkpointing
-   remain open.
+   their transforms. Bounded `run_sinks` accepts any number of named,
+   idempotent sink branches from bounded sources, including `Flatten` fan-in,
+   shared stateless stages, and nested fan-out; it opens each source once,
+   runs each shared stage once, and copies branch values through registered
+   coders. Sink commits remain sequential, with explicit retry semantics if a
+   later commit fails. Stateful branches, non-`Flatten` fan-in, atomic
+   multi-sink commit, and bounded sink checkpointing remain open.
 4. **Dataflow contract:** The separate integration builds against the v5 core
    and lowers the full v4 feature corpus. A local Beam Prism `Run` must reach
    `DONE` through a separately launched v5 Fn API worker and verify values for
