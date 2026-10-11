@@ -27,52 +27,47 @@ v5-io-csv = ["v5-preview", "dep:ironbeam-io-csv"]
 v5-io-xml = ["v5-preview", "dep:ironbeam-io-xml"]
 v5-io-msgpack = ["v5-preview", "dep:ironbeam-io-msgpack"]
 v5-io-cbor = ["v5-preview", "dep:ironbeam-io-cbor"]
-v5-io-protobuf = ["v5-preview", "dep:ironbeam-io-protobuf", "dep:prost"]
+v5-io-protobuf = ["v5-preview", "dep:ironbeam-io-protobuf"]
 v5-io-tfrecord = ["v5-preview", "dep:ironbeam-io-tfrecord"]
 v5-io-parquet = ["v5-preview", "dep:ironbeam-io-parquet"]
 v5-io-arrow = ["v5-preview", "dep:ironbeam-io-arrow"]
 
 # IO backends
 io-jsonl = ["v5-preview"]
-io-csv = ["v5-io-csv", "dep:csv"]
-io-parquet = ["v5-io-parquet", "dep:parquet", "dep:arrow", "dep:serde_arrow"]
-io-avro = ["v5-io-avro", "dep:apache-avro"]
-io-xml = ["v5-io-xml", "dep:quick-xml"]
+io-csv = ["v5-io-csv"]
+io-parquet = ["v5-io-parquet"]
+io-avro = ["v5-io-avro"]
+io-xml = ["v5-io-xml"]
 
 # Additional I/O formats (Tier 5).
 #
-# Deliberate exception to the usual "everything on by default" tenant: these
+# Deliberate exception to the usual "everything on by default" tenet: these
 # less-common connectors are intentionally absent from `default`. Each pulls in
 # extra dependencies that would bloat the common build, so users opt in.
-io-msgpack = ["v5-io-msgpack", "dep:rmp-serde"]
-io-cbor = ["v5-io-cbor", "dep:ciborium"]
-io-protobuf = ["v5-io-protobuf", "dep:prost"]
-io-tfrecord = ["v5-io-tfrecord", "dep:crc32c"]
-io-arrow = ["v5-io-arrow", "dep:arrow", "dep:serde_arrow"]
+io-msgpack = ["v5-io-msgpack"]
+io-cbor = ["v5-io-cbor"]
+io-protobuf = ["v5-io-protobuf"]
+io-tfrecord = ["v5-io-tfrecord"]
+io-arrow = ["v5-io-arrow"]
 io-sql = ["v5-io-sql", "dep:sqlx", "dep:tokio"]
 io-mongodb = ["v5-io-mongodb", "dep:mongodb", "dep:bson", "dep:tokio"]
 
 # Compression codecs (pluggable)
-compression-gzip = ["v5-compression", "dep:flate2", "ironbeam-compression/compression-gzip", "ironbeam-cloud?/compression-gzip", "ironbeam-io?/compression-gzip", "ironbeam-io-jsonl?/compression-gzip"]
-compression-zstd = ["v5-compression", "dep:zstd", "ironbeam-compression/compression-zstd", "ironbeam-cloud?/compression-zstd", "ironbeam-io?/compression-zstd", "ironbeam-io-jsonl?/compression-zstd"]
-compression-bzip2 = ["v5-compression", "dep:bzip2", "ironbeam-compression/compression-bzip2", "ironbeam-cloud?/compression-bzip2", "ironbeam-io?/compression-bzip2", "ironbeam-io-jsonl?/compression-bzip2"]
-compression-xz = ["v5-compression", "dep:xz2", "ironbeam-compression/compression-xz", "ironbeam-cloud?/compression-xz", "ironbeam-io?/compression-xz", "ironbeam-io-jsonl?/compression-xz"]
+compression-gzip = ["v5-compression", "ironbeam-compression/compression-gzip", "ironbeam-io?/compression-gzip", "ironbeam-io-jsonl?/compression-gzip"]
+compression-zstd = ["v5-compression", "ironbeam-compression/compression-zstd", "ironbeam-io?/compression-zstd", "ironbeam-io-jsonl?/compression-zstd"]
+compression-bzip2 = ["v5-compression", "ironbeam-compression/compression-bzip2", "ironbeam-io?/compression-bzip2", "ironbeam-io-jsonl?/compression-bzip2"]
+compression-xz = ["v5-compression", "ironbeam-compression/compression-xz", "ironbeam-io?/compression-xz", "ironbeam-io-jsonl?/compression-xz"]
 
 # Behaviors
 parallel-io = ["ironbeam-io?/parallel-io", "ironbeam-io-jsonl?/parallel-io"]
 metrics = ["v5-metrics"]
-checkpointing = ["dep:postcard", "dep:sha2"]
-spilling = ["dep:postcard"]
-
-# Attach a per-PCollection Postcard-backed coder to every node at build time, so
-# backends that ship elements across a wire (e.g., the Dataflow harness) can
-# encode/decode each PCollection without the user registering types by hand.
-# Tightens `Element` to require `serde::{Serialize, DeserializeOwned}`.
-coders = ["dep:postcard"]
+checkpointing = ["v5-preview"]
+spilling = ["v5-preview"]
+# v5 coders are registered by `Element`; retain the old feature name as an alias.
+coders = ["v5-preview"]
 
 [dependencies]
 ironbeam-compression = { version = "0.1.0", path = "crates/ironbeam-compression", optional = true }
-ironbeam-cloud = { version = "0.1.0", path = "crates/ironbeam-cloud", optional = true }
 ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core", optional = true }
 ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct", optional = true }
 ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", optional = true }
@@ -93,36 +88,10 @@ ironbeam-io-parquet = { version = "0.1.0", path = "crates/ironbeam-io-parquet", 
 ironbeam-io-arrow = { version = "0.1.0", path = "crates/ironbeam-io-arrow", optional = true }
 ironbeam-io-sql = { version = "0.1.0", path = "crates/ironbeam-io-sql", optional = true }
 ironbeam-io-mongodb = { version = "0.1.0", path = "crates/ironbeam-io-mongodb", optional = true }
-# Core dependencies
-anyhow = { version = "1", optional = true }
-serde = { version = "1", features = ["derive"], optional = true }
-serde_json = { version = "1", optional = true }
-rayon = { version = "1", optional = true }
-num_cpus = { version = "1", optional = true }
-ordered-float = { version = "5", optional = true }
-glob = { version = "0.3", optional = true }
-postcard = { version = "1", features = ["alloc"], optional = true }
-sha2 = { version = "0.11", optional = true }
-regex = { version = "1.12.4", optional = true }
-paste = { version = "1", optional = true }
-hyperloglogplus = { version = "0.4", optional = true }
-
-# Optional encoding formats
-apache-avro = { version = "0.22", optional = true }
-quick-xml = { version = "0.41", features = ["serialize"], optional = true }
-csv = { version = "1", optional = true }
-rmp-serde = { version = "1", optional = true }
-ciborium = { version = "0.2", optional = true }
-prost = { version = "0.14", optional = true }
-crc32c = { version = "0.6", optional = true }
-arrow = { version = "59", optional = true }
-parquet = { version = "59", optional = true }
-serde_arrow = { version = "0.15", optional = true, features = ["arrow-59"] }
-
-# SQL I/O (Tier 5, opt-in)
+# SQL example dependency (opt-in with the connector)
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
 
-# MongoDB I/O (Tier 5, opt-in)
+# MongoDB example dependencies (opt-in with the connector)
 #
 # `mongodb` defaults to its `bson-2` compatibility feature; `bson-3` is enabled explicitly so
 # `mongodb::bson::Document` resolves to the same `bson` 3.1.0 crate instance as our own `bson`
@@ -133,20 +102,11 @@ bson = { version = "3", optional = true }
 # Async runtime bridge (shared by io-sql and io-mongodb)
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 
-# Compression codecs
-flate2 = { version = "1", optional = true }
-zstd = { version = "0.13", optional = true }
-bzip2 = { version = "0.6", optional = true }
-xz2 = { version = "0.1", optional = true }
-
-# Testing dependency, used in testing module and in tests
-tempfile = { version = "3", optional = true }
-
 [dev-dependencies]
 anyhow = "1"
+prost = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rayon = "1"
 tempfile = "3"
 
 [package.metadata.docs.rs]

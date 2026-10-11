@@ -11,8 +11,11 @@ staged locally.
   `legacy-v4` feature and 101 local v4 source files have been removed. Published
   4.1.1 remains in `ironbeam-compat` for the reference corpus. The root
   all-feature tests, complete workspace suite, and all-feature root example
-  checks pass after this cutover. Root versioning, unused old dependencies,
-  and the remaining API/runtime/portable gates still prevent a 5.0.0 release.
+  checks pass after this cutover. The follow-up manifest cleanup removed the
+  root's duplicate format, codec, and legacy cloud dependencies; its default
+  direct dependencies are now only core, Direct, transforms, shared I/O, and
+  JSONL. The root's version and the remaining API, runtime, and portable gates
+  still prevent a 5.0.0 release.
 
 - Ordinary v5 `GroupByKey` now assigns the earliest input event timestamp in
   each key/window on Direct, independent of arrival order. Beam lowering asks
@@ -144,7 +147,7 @@ staged locally.
   root no longer owns those duplicate test binaries; its facade tests and
   strict compatibility-crate lint pass. The root workspace test suite and
   local `ironbeam-compat` package verification also pass. This preserves the comparison baseline
-  for the eventual root v4 deletion without changing the v5 runtime graph.
+  after the root v4 deletion without changing the v5 runtime graph.
   The TFRecord wire-compatibility tests also moved to `ironbeam-compat` and
   pass against records written by published v4.
   The v4 benchmark driver now lives there as well. All seven 1,000-row
@@ -401,15 +404,11 @@ staged locally.
   Dataflow runtime packages now have v5-only dependencies and protocol tests.
   The old v4 entrypoints, translator, handler, and example have been removed;
   the all-feature Dataflow workspace suite passes. The root `ironbeam` package
-  gates its v4 modules and direct legacy dependencies behind `legacy-v4`, and now
-  defaults to the v5 facade. The default build has only core, Direct,
-  transforms, shared I/O, and JSONL as
-  direct dependencies; it excludes the legacy cloud package. The v4 root
-  integration tests are also gated by `legacy-v4`, allowing the complete
-  root test target set to build in v5-only mode. The crate root and README
-  now show a v5 quick start, with a passing doctest; legacy builds retain
-  their old documentation. Four examples still require `legacy-v4`,
-  including the v4 benchmark corpus. Advanced joins, CoGroupByKey, JSONL
+  now contains only the v5 facade. Its default build has only core, Direct,
+  transforms, shared I/O, and JSONL as direct dependencies; it excludes the
+  legacy cloud package. V4 integration tests, examples, and the benchmark
+  corpus now run in `ironbeam-compat` against published 4.1.1. The crate root
+  and README show a v5 quick start, with a passing doctest. Advanced joins, CoGroupByKey, JSONL
   globbing, pluggable compression, the Direct plan explanation example, and
   the data-quality validation, windowing aggregation, combiners showcase, and
   multi-output, ETL, SQLite, and MongoDB examples now run through v5. The ETL

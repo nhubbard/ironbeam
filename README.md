@@ -48,8 +48,8 @@ Arrow IPC, CBOR, CSV, JSONL, MessagePack, MongoDB, Parquet, Protobuf, SQL,
 TFRecord, and XML also have individual crates. The root facade exposes them
 through `v5-io-*` features; the common default keeps heavyweight connectors
 out of the build. Existing `io-*` format flags also enable their matching v5
-crate for migration; the `v5-io-*` spelling avoids pulling a root v4 format
-dependency into the facade build.
+crate for migration; both spellings now select the same isolated v5 format
+crate.
 
 For example, a program using CSV and native Avro can enable
 `v5-io-csv` and `v5-io-avro`. A program using hosted storage can depend on

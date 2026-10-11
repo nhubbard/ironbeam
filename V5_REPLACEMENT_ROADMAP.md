@@ -115,8 +115,8 @@ the useful scheduling options only when they govern restorable state, rather
 than presenting metadata-only checkpoints as recovery parity.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
 `RegexExt` when `v5-regex` is enabled. Plain `ironbeam-transforms` builds no
-longer compile the regex engine. The v4 root helpers retain their current
-paths until the facade cutover.
+longer compile the regex engine. Published 4.1.1 remains the reference for
+the removed v4 root helper paths.
 Approximate distinct helpers live in `ironbeam-transform-approx`, exposed by
 the root v5 prelude when `v5-approx` is enabled. Plain
 `ironbeam-transforms` builds no longer compile `hyperloglogplus`. The
@@ -235,8 +235,8 @@ the remaining behavior corpus before closing this gate.
    connector can be checked without building unrelated connectors.
 6. **Facade release:** Root `ironbeam` is v5-only, with one prelude and documented
    feature aliases. All repository examples, docs, benchmarks, tests, and the
-   release workflow must use v5. Finish removing unused root dependencies and
-   old CI paths, then run the complete matrix. Keep `ironbeam-compat` as an
+   release workflow must use v5. The unused root dependencies and old CI paths
+   are removed; run the complete matrix after further changes. Keep `ironbeam-compat` as an
    optional leaf against published v4 for the behavior corpus.
 
 Work through these in reviewable commits: extract one connector or capability,
