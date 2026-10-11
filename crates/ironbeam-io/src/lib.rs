@@ -15,6 +15,9 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(feature = "file")]
+pub mod final_result;
+
 fn read_decoded_file(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     #[cfg(any(
         feature = "compression-gzip",
