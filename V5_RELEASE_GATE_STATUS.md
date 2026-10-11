@@ -319,7 +319,8 @@ staged locally.
 5. **Execution proof:** The user chose local Prism proof for now. On
    2026-10-10, the opt-in `ironbeam-prism-proof` test passed against a real
    local Prism JobService. It passed again on 2026-10-11 after the core coder
-   and Direct changes, with the Prism service stopped afterward. That fixture
+   and Direct changes, and after the object source migrated to the URI adapter;
+   the Prism service was stopped afterward. That fixture
    checks completed jobs and captured
    values for its bounded sources and sinks, JSONL, Avro, CSV, protobuf,
    object-backed JSONL, Flatten, grouping, joins, side input, Reshuffle,
