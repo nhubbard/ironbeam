@@ -439,6 +439,13 @@ staged locally.
    Its isolated all-feature coverage is 160/169 source locations and 6/6
    branches, replacing the former 42/43 source baseline from before the
    fragment lifecycle was added.
+   Parquet now stages typed coder frames per bundle and publishes one native
+   Parquet file after `DONE`, decoding in batches of at most 1,024 rows.
+   The live Prism fixture reads a Parquet source and reopens all three
+   finalized output rows. Local tests cover multiple bundles, more than one
+   record batch, empty output, corrupt frames, uncoded types, wrong counts,
+   and idempotent publication. Its isolated all-feature coverage is 310/338
+   source locations and 23/24 branches, above the existing package gate.
    Publication also rejects pending or orphaned staging
    entries even if their row count is zero. Malformed MessagePack and CBOR
    fragments cannot replace an existing result, and failed serialization
@@ -464,7 +471,7 @@ staged locally.
    set for each bundle in a local, identity-bound finalization journal before
    returning `ProcessBundleResponse`. A fresh registry recovers a Protobuf
    fragment using only that record, rejects unknown and missing fragments,
-   and persists a completion marker for duplicate callbacks. The seven-sink
+   and persists a completion marker for duplicate callbacks. The ten-sink
    local Prism job reached `DONE` with journal records and matching completion
    markers. A separate two-process test exits immediately after staging and
    reopens the journal in a fresh process to finalize and publish Protobuf.
