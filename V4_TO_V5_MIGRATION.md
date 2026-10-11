@@ -83,7 +83,7 @@ runner state.
 | SQL/MongoDB shard descriptors and range reads | `sql_sharded_source`, `mongodb_sharded_source` | Supply the known total count, a positive shard size, and a snapshot ID so graph construction stays free of database reads. SQL requires a total `ORDER BY`; MongoDB sorts by `_id`. A short range fails recovery, and the underlying database snapshot must remain unchanged across retries. |
 | `write_sql_par_with`, `write_mongodb_par` | `sql_parallel_sink_with`, `mongodb_parallel_sink` | The v5 sinks append at Direct job commit using independent shard connections or clients. Successful shards are not rolled back when another fails; use application-level deduplication before retrying. |
 | `read_msgpack_streaming`, `read_cbor_streaming`, `read_proto_streaming`, `read_tfrecord_streaming` | Corresponding `*_streaming_source` and `*_sharded_source` functions in `ironbeam-io` | These decode bounded files and validate the source fingerprint before execution. TFRecord CRCs and protobuf framing errors are checked while records are read. Finite range sources can rescan earlier records. Typed `tf.Example` records use `tfrecord_examples_source` and its lazy or sharded forms. |
-| Joins, flatten, combines, side inputs | Corresponding `*_named` graph operations | Keys, finite-input requirements, and backend capabilities are checked at construction/validation. Consult `PHASE4_TRANSFORMS_IO.md`. |
+| Joins, flatten, combines, side inputs | Corresponding `*_named` graph operations | Keys, finite-input requirements, and backend capabilities are checked at construction/validation. Consult the [logical graph contract](V5_LOGICAL_GRAPH_CONTRACT.md). |
 | `.collect_seq()`, `.collect_par(Some(threads), Some(partitions))` | `.collect_seq()`, `.collect_par(parallelism)` on a `PCollection`; explicit `.output(key)?` remains available | Import `DirectCollectExt`. The collection convenience uses a detached Direct terminal and keeps the original graph unchanged. |
 | Immediate `.write_jsonl(path)` and similar methods | `ironbeam_io::jsonl_sink(&input, key, path)?`, then `DirectRunner.run_sink(&sink, &config)` | Sink construction is deferred; `FinalResult` files publish after job success. No immediate row count is returned. |
 | `read_jsonl(&pipeline, path)` and other file readers | `ironbeam_io::jsonl_source(&pipeline, key, path)` | v5 file sources bind path and content digest at graph build time; a changed file fails on execution. |
@@ -132,5 +132,6 @@ alias and directly on the v5 packages. The root facade exports only v5 source
 and does not depend on `ironbeam-compat`. Its core, Direct, transforms, and
 JSONL API remain available with no default features; `cloud` and
 `validation-json` are the two default extras. The package remains versioned
-4.1.1 while the release gates are open. See
-`PHASE5_COMPAT_RELEASE.md` for the staged publish order and checks.
+4.1.1 while the release gates are open. See the
+[release gate status](V5_RELEASE_GATE_STATUS.md) for current checks and the
+staged publication decision.

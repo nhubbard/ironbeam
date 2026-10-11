@@ -14,7 +14,14 @@ The service tier comprises `tests/io/mongodb.rs` and `tests/io/sql_containers.rs
 
 ## Coverage
 
-The full per-file report is in `V5_PHASE0_COVERAGE.md`. Representative module lines/branches: `collection.rs` 97.83% / 87.50%; `pipeline.rs` 100% / 100%; `planner.rs` 93.31% / 86.41%; `runner.rs` 61.82% / 56.82%; `helpers/joins.rs` 93.64% / 100%; `io/jsonl.rs` 87.28% / 75.00%; `io/mongodb.rs` 0% / 0% because its Docker tests were skipped. New core, validation, and lowering code should get branch-focused tests; a global percentage alone could hide an uncovered runner error path. The historical `lcov.info` in the execution plan is not used as a gate.
+The original per-file report is preserved in Git history at `866c517`.
+Representative module lines/branches: `collection.rs` 97.83% / 87.50%;
+`pipeline.rs` 100% / 100%; `planner.rs` 93.31% / 86.41%; `runner.rs`
+61.82% / 56.82%; `helpers/joins.rs` 93.64% / 100%; `io/jsonl.rs` 87.28% /
+75.00%; `io/mongodb.rs` 0% / 0% because its Docker tests were skipped. New
+core, validation, and lowering code should get branch-focused tests; a
+global percentage alone could hide an uncovered runner error path. The
+historical `lcov.info` in the execution plan is not used as a gate.
 
 ## Representative behavior and costs
 
