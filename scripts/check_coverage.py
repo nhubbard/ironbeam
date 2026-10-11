@@ -18,7 +18,7 @@ DIRECT_FILES = {
     "spill.rs", "spill_integration.rs",
 }
 DIRECT_HELPERS = {"collect_sorted.rs", "reshuffle.rs", "tee.rs", "wait_on.rs"}
-V5_PACKAGES = {"ironbeam-core", "ironbeam-direct", "ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
+V5_PACKAGES = {"ironbeam-core", "ironbeam-direct", "ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-transform-approx", "ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
 
 
 def area_for(package: str, relative: Path) -> str:
@@ -26,7 +26,7 @@ def area_for(package: str, relative: Path) -> str:
         return "logical-graph"
     if package == "ironbeam-direct":
         return "direct-runner"
-    if package in {"ironbeam-transforms", "ironbeam-transform-regex"}:
+    if package in {"ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-transform-approx"}:
         return "transforms"
     if package in {"ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow"}:
         return "bounded-io"

@@ -43,8 +43,6 @@ mod sampling;
 pub use sampling::{KeyedSamplingExt, SamplingExt};
 mod statistical;
 pub use statistical::{KeyedStatisticalExt, StatisticalExt, TDigest};
-mod approx_distinct;
-pub use approx_distinct::{ApproxDistinctExt, KeyedApproxDistinctExt};
 mod side_inputs;
 pub use side_inputs::{
     ConstantSideInputExt, DynamicSideInputExt, SideMap, SideMultimap, SideSingleton, SideVec,

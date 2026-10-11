@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-cloud-object-store", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-cloud", "crates/ironbeam-cloud-object-store", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -16,6 +16,7 @@ repository = "https://github.com/nhubbard/ironbeam"
 default = ["io-jsonl", "io-csv", "io-parquet", "io-avro", "io-xml", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling", "coders"]
 v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "dep:ironbeam-io", "ironbeam-io/cloud", "dep:ironbeam-io-jsonl", "ironbeam-io-jsonl/cloud"]
 v5-regex = ["v5-preview", "dep:ironbeam-transform-regex"]
+v5-approx = ["v5-preview", "dep:ironbeam-transform-approx"]
 v5-io-sql = ["v5-preview", "dep:ironbeam-io-sql"]
 v5-io-mongodb = ["v5-preview", "dep:ironbeam-io-mongodb"]
 v5-io-avro = ["v5-preview", "dep:ironbeam-io-avro"]
@@ -72,6 +73,7 @@ ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core", optional = t
 ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct", optional = true }
 ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", optional = true }
 ironbeam-transform-regex = { version = "0.1.0", path = "crates/ironbeam-transform-regex", optional = true }
+ironbeam-transform-approx = { version = "0.1.0", path = "crates/ironbeam-transform-approx", optional = true }
 ironbeam-io = { version = "0.1.0", path = "crates/ironbeam-io", default-features = false, optional = true }
 ironbeam-io-jsonl = { version = "0.1.0", path = "crates/ironbeam-io-jsonl", optional = true }
 ironbeam-io-protobuf = { version = "0.1.0", path = "crates/ironbeam-io-protobuf", optional = true }

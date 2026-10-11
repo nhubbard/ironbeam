@@ -34,6 +34,21 @@ fn facade_prelude_exposes_isolated_regex_helpers() {
     assert_eq!(result, ["7"]);
 }
 
+#[cfg(feature = "v5-approx")]
+#[test]
+fn facade_prelude_exposes_isolated_approximate_distinct_helpers() {
+    let result = Pipeline::default()
+        .from_vec("input", vec![1_u32, 1, 2, 3])
+        .unwrap()
+        .approx_count_distinct_named("estimate")
+        .unwrap()
+        .output("out")
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(result, [3]);
+}
+
 #[test]
 fn facade_exposes_isolated_jsonl_connector() {
     use ironbeam::v5::{DirectRunner, JobConfig, jsonl_sink, jsonl_source};

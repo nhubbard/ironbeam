@@ -196,5 +196,16 @@
       "covered": 0,
       "count": 0
     }
+  },
+  "ironbeam-transform-approx": {
+    "source": "crates/ironbeam-transform-approx/src",
+    "lines": {
+      "covered": 108,
+      "count": 108
+    },
+    "branches": {
+      "covered": 12,
+      "count": 12
+    }
   }
 }

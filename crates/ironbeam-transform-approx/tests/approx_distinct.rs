@@ -1,6 +1,6 @@
 use ironbeam_core::{ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_transforms::{ApproxDistinctExt, KeyedApproxDistinctExt};
+use ironbeam_transform_approx::{ApproxDistinctExt, KeyedApproxDistinctExt};
 
 #[test]
 fn kmv_is_exact_below_k_and_bounded_for_larger_sets() {
@@ -24,6 +24,11 @@ fn kmv_is_exact_below_k_and_bounded_for_larger_sets() {
         .unwrap()
         .output("hll-out")
         .unwrap();
+    let tuned_hll_output = large
+        .approx_count_distinct_with_error_named("large-hll-tuned", 0.01)
+        .unwrap()
+        .output("hll-tuned-out")
+        .unwrap();
     for parallelism in [1, 3] {
         let config = JobConfig {
             parallelism,
@@ -42,6 +47,11 @@ fn kmv_is_exact_below_k_and_bounded_for_larger_sets() {
             (1200..=1270).contains(&hll_estimate),
             "HLL estimate: {hll_estimate}"
         );
+        let tuned_estimate = DirectRunner
+            .run_collect(&tuned_hll_output, &config)
+            .unwrap()
+            .0[0];
+        assert!((1200..=1270).contains(&tuned_estimate));
     }
 }
 
@@ -79,6 +89,18 @@ fn kmv_counts_each_key_and_empty_input() {
     assert_eq!(
         DirectRunner
             .run_collect(&hll_output, &JobConfig::default())
+            .unwrap()
+            .0,
+        [("a".to_string(), 2), ("b".to_string(), 1)]
+    );
+    let default_hll_output = pairs
+        .approx_count_distinct_per_key_named("default-hll-group", "default-hll")
+        .unwrap()
+        .output("default-hll-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&default_hll_output, &JobConfig::default())
             .unwrap()
             .0,
         [("a".to_string(), 2), ("b".to_string(), 1)]

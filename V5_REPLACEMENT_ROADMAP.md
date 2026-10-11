@@ -24,7 +24,7 @@ direction without creating a crate for every source file.
 | Public facade | Root `ironbeam` 4.1.1 defaults to v4 and exposes v5 under `v5-preview` | Make root exports and examples v5, then remove the v4 modules and old feature graph after migration gates pass. This removes the largest build and test coupling. |
 | Logical graph and extension API | `ironbeam-core` owns `Pipeline`, `PCollection`, graph, `Element`, errors, typed source/sink registration | Keep these types together while extensions must construct graph nodes. Extract a runner-neutral `ironbeam-model` only if graph descriptors need an independently versioned serialization contract. An API-only crate that repeats these types would add an abstraction without isolating dependencies. |
 | Local runner | `ironbeam-direct` owns planner, execution, metrics, checkpoint, and spill modules | Finish shared-upstream execution, physical scheduling, state, and recovery here. Extract a state/checkpoint backend only when it can be independently selected and tested by more than one runner. |
-| Convenience transforms | `ironbeam-transforms` owns the common helpers and still pulls HLL for approximate distinct. Regex now lives in `ironbeam-transform-regex`. | Keep ordinary helpers together for now; move approximate-distinct/sketch helpers to a focused extension crate when package-level tests and dependencies are separable. Preserve one prelude for users. |
+| Convenience transforms | `ironbeam-transforms` owns common helpers. Regex lives in `ironbeam-transform-regex`; KMV and HLL approximate distinct helpers live in `ironbeam-transform-approx`. | Keep these opt-in extension dependencies out of common transforms. Preserve one conditional facade prelude for users. |
 | File formats | Avro, Parquet, Arrow IPC, CSV, XML, MessagePack, CBOR, JSONL, Protobuf, and TFRecord have independent crates; `ironbeam-io` now holds the shared file lifecycle helpers | Continue connector parity and move shared file helpers to a small lifecycle crate when a concrete split improves dependency or test isolation. No reexport-only aggregator is needed. |
 | Databases | SQL and MongoDB already have independent crates and live-service tests | Keep them direct extensions of core. Do not pull their dependencies into a default facade build. |
 | Cloud/object storage | `ironbeam-cloud` routes object URIs and includes a local adapter; opt-in `ironbeam-cloud-object-store` supplies S3, GCS, and Azure Blob clients through Apache `object_store`; `ironbeam-io-jsonl::cloud_io` accepts a registered provider handle | Test provider authentication and object operations against local emulators. Add remote runner staging and bundle-safe output commits before claiming cloud execution parity. Keep provider SDK dependencies out of the shared cloud contracts crate. |
@@ -51,6 +51,10 @@ Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
 `RegexExt` when `v5-regex` is enabled. Plain `ironbeam-transforms` builds no
 longer compile the regex engine. The v4 root helpers retain their current
 paths until the facade cutover.
+Approximate distinct helpers live in `ironbeam-transform-approx`, exposed by
+the root v5 prelude when `v5-approx` is enabled. Plain
+`ironbeam-transforms` builds no longer compile `hyperloglogplus`. The
+extracted package has its own KMV/HLL merge tests and coverage gate.
 
 Prefer `cargo test -p <changed-package>` and the directly affected downstream
 packages while iterating. Keep the full workspace, all-feature, service, and

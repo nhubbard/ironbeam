@@ -14,4 +14,5 @@ ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
 ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
 ironbeam-transforms = { version = "0.1.0", path = "../ironbeam-transforms" }
 ironbeam-transform-regex = { version = "0.1.0", path = "../ironbeam-transform-regex" }
+ironbeam-transform-approx = { version = "0.1.0", path = "../ironbeam-transform-approx" }
 anyhow = "1"
