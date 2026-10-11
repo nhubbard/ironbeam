@@ -1,5 +1,7 @@
 //! Bounded graph adapters for provider-neutral object storage JSONL.
-use ironbeam_cloud_objects::{CloudIOError, CloudResult, ErrorKind as CloudErrorKind, ObjectIO};
+use ironbeam_cloud_objects::{
+    CloudIOError, CloudResult, ErrorKind as CloudErrorKind, ObjectIO, ObjectLocation, ObjectStores,
+};
 use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, SourceProgress,
     TypedSink, TypedSourceIterator,
@@ -20,6 +22,19 @@ fn digest(bucket: &str, object: &str, bytes: &[u8]) -> String {
     hash.update([0]);
     hash.update(bytes);
     let mut output = String::from("cloud-jsonl-sha256-v1:");
+    for byte in hash.finalize() {
+        let _ = write!(output, "{byte:02x}");
+    }
+    output
+}
+
+fn configuration_digest(label: &str, parts: &[&str]) -> String {
+    let mut hash = Sha256::new();
+    for part in parts {
+        hash.update(u64::try_from(part.len()).unwrap_or(u64::MAX).to_le_bytes());
+        hash.update(part.as_bytes());
+    }
+    let mut output = format!("{label}:");
     for byte in hash.finalize() {
         let _ = write!(output, "{byte:02x}");
     }
@@ -120,6 +135,21 @@ where
     T: Element + DeserializeOwned,
     O: ObjectIO + ?Sized + 'static,
 {
+    cloud_jsonl_source_with_location(pipeline, key, storage, bucket, object, None)
+}
+
+fn cloud_jsonl_source_with_location<T, O>(
+    pipeline: &Pipeline,
+    key: &str,
+    storage: Arc<O>,
+    bucket: &str,
+    object: &str,
+    location: Option<&str>,
+) -> Result<PCollection<T>, Error>
+where
+    T: Element + DeserializeOwned,
+    O: ObjectIO + ?Sized + 'static,
+{
     let source_key = key.to_owned();
     let bucket = bucket.to_owned();
     let object = object.to_owned();
@@ -127,7 +157,10 @@ where
         .get_object(&bucket, &object)
         .map_err(|e| cloud_error(key, e))?;
     let expected = digest(&bucket, &object, &bytes);
-    let config_digest = expected.clone();
+    let config_digest = location.map_or_else(
+        || expected.clone(),
+        |uri| configuration_digest("cloud-jsonl-uri-source-sha256-v1", &[uri, &expected]),
+    );
     pipeline.bounded_source_with_semantic(
         key,
         "ironbeam/io/cloud-jsonl-source",
@@ -167,6 +200,32 @@ where
     )
 }
 
+/// Read a bounded JSONL object by URI through a registered provider.
+/// The URI scheme and object bytes both participate in the source identity.
+///
+/// # Errors
+/// Returns an invalid URI, missing provider, object read, or graph error.
+pub fn cloud_jsonl_uri_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    stores: &ObjectStores,
+    uri: &str,
+) -> Result<PCollection<T>, Error> {
+    let location = ObjectLocation::parse(uri).map_err(|error| cloud_error(key, error))?;
+    let provider = stores
+        .provider(&location.scheme)
+        .map_err(|error| cloud_error(key, error))?;
+    let identity = location.uri();
+    cloud_jsonl_source_with_location(
+        pipeline,
+        key,
+        provider,
+        &location.bucket,
+        &location.key,
+        Some(&identity),
+    )
+}
+
 /// Expand a provider-neutral cloud object glob into stable bounded JSONL sources.
 #[allow(clippy::needless_pass_by_value)] // Public graph adapters consistently take an owned provider handle.
 pub fn cloud_jsonl_glob_source<T, O>(
@@ -175,6 +234,22 @@ pub fn cloud_jsonl_glob_source<T, O>(
     storage: Arc<O>,
     bucket: &str,
     pattern: &str,
+) -> Result<PCollection<T>, Error>
+where
+    T: Element + DeserializeOwned,
+    O: ObjectIO + ?Sized + 'static,
+{
+    cloud_jsonl_glob_source_with_scheme(pipeline, key, storage, bucket, pattern, None)
+}
+
+#[allow(clippy::needless_pass_by_value)] // Keeps the owned provider handle consistent with the public graph adapter.
+fn cloud_jsonl_glob_source_with_scheme<T, O>(
+    pipeline: &Pipeline,
+    key: &str,
+    storage: Arc<O>,
+    bucket: &str,
+    pattern: &str,
+    scheme: Option<&str>,
 ) -> Result<PCollection<T>, Error>
 where
     T: Element + DeserializeOwned,
@@ -190,12 +265,14 @@ where
             output
         });
         let child_key = format!("{key}/object-{object_hash}");
-        sources.push(cloud_jsonl_source(
+        let identity = scheme.map(|scheme| format!("{scheme}://{bucket}/{object}"));
+        sources.push(cloud_jsonl_source_with_location(
             pipeline,
             &child_key,
             Arc::clone(&storage),
             bucket,
             &object,
+            identity.as_deref(),
         )?);
     }
     let first = sources.remove(0);
@@ -204,6 +281,30 @@ where
     } else {
         first.flatten_named(key, &sources)
     }
+}
+
+/// Expand a JSONL object glob by URI through a registered provider.
+///
+/// # Errors
+/// Returns an invalid URI, missing provider, listing, object read, or graph error.
+pub fn cloud_jsonl_uri_glob_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    stores: &ObjectStores,
+    uri_pattern: &str,
+) -> Result<PCollection<T>, Error> {
+    let location = ObjectLocation::parse(uri_pattern).map_err(|error| cloud_error(key, error))?;
+    let provider = stores
+        .provider(&location.scheme)
+        .map_err(|error| cloud_error(key, error))?;
+    cloud_jsonl_glob_source_with_scheme(
+        pipeline,
+        key,
+        provider,
+        &location.bucket,
+        &location.key,
+        Some(&location.scheme),
+    )
 }
 
 struct CloudJsonlSink<T, O: ?Sized> {
@@ -242,16 +343,36 @@ where
     T: Element + Serialize,
     O: ObjectIO + ?Sized + 'static,
 {
+    let config_digest = configuration_digest(
+        "cloud-jsonl-sink-sha256-v1",
+        &[std::any::type_name::<O>(), bucket, object],
+    );
+    cloud_jsonl_sink_with_config(input, key, storage, bucket, object, config_digest)
+}
+
+fn cloud_jsonl_sink_with_config<T, O>(
+    input: &PCollection<T>,
+    key: &str,
+    storage: Arc<O>,
+    bucket: &str,
+    object: &str,
+    config_digest: String,
+) -> Result<Sink<T>, Error>
+where
+    T: Element + Serialize,
+    O: ObjectIO + ?Sized + 'static,
+{
     let sink_key = key.to_owned();
     let bucket = bucket.to_owned();
     let object = object.to_owned();
-    input.sink_named(
+    input.sink_named_with_config(
         key,
         SinkSpec {
             mode: SinkMode::FinalResult,
             replay: Replay::Idempotent,
             commit: true,
         },
+        config_digest,
         move || {
             Ok(Box::new(CloudJsonlSink::<T, O> {
                 key: sink_key.clone(),
@@ -261,6 +382,34 @@ where
                 values: Vec::new(),
             }))
         },
+    )
+}
+
+/// Write a deferred JSONL result to a URI through a registered provider.
+///
+/// The URI participates in the sink identity. Direct commits once per job;
+/// portable runners need a job-wide commit protocol before accepting this sink.
+///
+/// # Errors
+/// Returns an invalid URI, missing provider, or graph error.
+pub fn cloud_jsonl_uri_sink<T: Element + Serialize>(
+    input: &PCollection<T>,
+    key: &str,
+    stores: &ObjectStores,
+    uri: &str,
+) -> Result<Sink<T>, Error> {
+    let location = ObjectLocation::parse(uri).map_err(|error| cloud_error(key, error))?;
+    let provider = stores
+        .provider(&location.scheme)
+        .map_err(|error| cloud_error(key, error))?;
+    let config_digest = configuration_digest("cloud-jsonl-uri-sink-sha256-v1", &[&location.uri()]);
+    cloud_jsonl_sink_with_config(
+        input,
+        key,
+        provider,
+        &location.bucket,
+        &location.key,
+        config_digest,
     )
 }
 

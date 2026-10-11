@@ -11,7 +11,10 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "cloud")]
 mod cloud_io;
 #[cfg(feature = "cloud")]
-pub use cloud_io::{cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source};
+pub use cloud_io::{
+    cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source, cloud_jsonl_uri_glob_source,
+    cloud_jsonl_uri_sink, cloud_jsonl_uri_source,
+};
 
 fn read_jsonl<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     use std::io::BufRead;

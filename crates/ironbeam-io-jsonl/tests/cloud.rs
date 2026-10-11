@@ -2,7 +2,10 @@
 use ironbeam_cloud_objects::{LocalObjectIO, ObjectIO, ObjectStores};
 use ironbeam_core::{Element, ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io_jsonl::{cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source};
+use ironbeam_io_jsonl::{
+    cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source, cloud_jsonl_uri_glob_source,
+    cloud_jsonl_uri_sink, cloud_jsonl_uri_source,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -309,6 +312,137 @@ fn cloud_jsonl_globs_preserve_sorted_objects_and_stable_keys() {
             Arc::clone(&storage),
             "bucket",
             "missing/*.jsonl"
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn uri_sources_bind_scheme_and_expand_globs() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut objects = ObjectStores::new();
+    objects
+        .register(
+            "file",
+            LocalObjectIO::new(dir.path().join("working")).unwrap(),
+        )
+        .unwrap();
+    objects
+        .register(
+            "archive",
+            LocalObjectIO::new(dir.path().join("archive")).unwrap(),
+        )
+        .unwrap();
+    for scheme in ["file", "archive"] {
+        objects
+            .write(&format!("{scheme}://bucket/data/a.jsonl"), b"1\n2\n")
+            .unwrap();
+    }
+
+    let file_pipeline = Pipeline::default();
+    let file_source = cloud_jsonl_uri_source::<u32>(
+        &file_pipeline,
+        "read",
+        &objects,
+        "file://bucket/data/a.jsonl",
+    )
+    .unwrap();
+    let (_, file_registry) = file_pipeline.snapshot().unwrap();
+    let archive_pipeline = Pipeline::default();
+    cloud_jsonl_uri_source::<u32>(
+        &archive_pipeline,
+        "read",
+        &objects,
+        "archive://bucket/data/a.jsonl",
+    )
+    .unwrap();
+    let (_, archive_registry) = archive_pipeline.snapshot().unwrap();
+    assert_ne!(
+        file_registry.source_config_digest("read"),
+        archive_registry.source_config_digest("read")
+    );
+    let output = file_source.output("out").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        [1, 2]
+    );
+
+    let glob_pipeline = Pipeline::default();
+    let glob = cloud_jsonl_uri_glob_source::<u32>(
+        &glob_pipeline,
+        "glob",
+        &objects,
+        "file://bucket/data/*.jsonl",
+    )
+    .unwrap()
+    .output("glob-out")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&glob, &JobConfig::default())
+            .unwrap()
+            .0,
+        [1, 2]
+    );
+    assert!(
+        cloud_jsonl_uri_source::<u32>(&Pipeline::default(), "bad", &objects, "bad-uri").is_err()
+    );
+}
+
+#[test]
+fn uri_sinks_bind_destination_and_write_through_registered_provider() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut objects = ObjectStores::new();
+    objects
+        .register(
+            "file",
+            LocalObjectIO::new(dir.path().join("working")).unwrap(),
+        )
+        .unwrap();
+    objects
+        .register(
+            "archive",
+            LocalObjectIO::new(dir.path().join("archive")).unwrap(),
+        )
+        .unwrap();
+    let file_pipeline = Pipeline::default();
+    let file_values = file_pipeline.from_vec("values", vec![3_u32]).unwrap();
+    let file_sink = cloud_jsonl_uri_sink(
+        &file_values,
+        "write",
+        &objects,
+        "file://bucket/result.jsonl",
+    )
+    .unwrap();
+    let (_, file_registry) = file_pipeline.snapshot().unwrap();
+    let archive_pipeline = Pipeline::default();
+    let archive_values = archive_pipeline.from_vec("values", vec![3_u32]).unwrap();
+    cloud_jsonl_uri_sink(
+        &archive_values,
+        "write",
+        &objects,
+        "archive://bucket/result.jsonl",
+    )
+    .unwrap();
+    let (_, archive_registry) = archive_pipeline.snapshot().unwrap();
+    assert_ne!(
+        file_registry.sink_config_digest("write"),
+        archive_registry.sink_config_digest("write")
+    );
+    DirectRunner
+        .run_sink(&file_sink, &JobConfig::default())
+        .unwrap();
+    assert_eq!(objects.read("file://bucket/result.jsonl").unwrap(), b"3\n");
+    assert!(!objects.exists("archive://bucket/result.jsonl").unwrap());
+    assert!(
+        cloud_jsonl_uri_sink(
+            &file_values,
+            "missing",
+            &objects,
+            "s3://bucket/result.jsonl"
         )
         .is_err()
     );
