@@ -833,6 +833,49 @@ fn built_in_coders_round_trip_and_source_digest_binds_values() {
 }
 
 #[test]
+fn vector_source_digest_matches_the_existing_coder_byte_contract() {
+    use sha2::{Digest, Sha256};
+    fn check<T: Element + Clone + Sync>(values: Vec<T>) {
+        let mut hash = Sha256::new();
+        hash.update(T::coder_identity().as_bytes());
+        hash.update(T::CODER_VERSION.major.to_le_bytes());
+        hash.update(T::CODER_VERSION.minor.to_le_bytes());
+        for value in &values {
+            let bytes = value.encode().unwrap();
+            hash.update((bytes.len() as u64).to_le_bytes());
+            hash.update(bytes);
+        }
+        let expected = format!(
+            "sha256-v1:{}",
+            hash.finalize()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        let pipeline = Pipeline::default();
+        pipeline.from_vec("source", values).unwrap();
+        let (_, registry) = pipeline.snapshot().unwrap();
+        assert_eq!(registry.source_config_digest("source"), Some(expected.as_str()));
+    }
+    #[derive(Clone)]
+    struct Custom(u32);
+    impl Element for Custom {
+        const TYPE_ID: &'static str = "test/custom-digest";
+        const CODER_ID: &'static str = "test/custom-digest-v1";
+        fn supports_coder() -> bool {
+            true
+        }
+        fn encode(&self) -> Result<Vec<u8>, Error> {
+            Ok(self.0.to_be_bytes().to_vec())
+        }
+    }
+    check(vec![1_u32, 2, 3]);
+    check(vec![false, true]);
+    check(vec!["é".to_string(), "beam".to_string()]);
+    check(vec![Custom(7), Custom(8)]);
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn bounded_source_and_deferred_sink_registry_contract() {
     use std::sync::{Arc, Mutex};

@@ -42,6 +42,11 @@ pub trait Element: Send + 'static {
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"))
     }
+    /// Replace `buffer` with this value's wire bytes, reusing its allocation when possible.
+    fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
+        *buffer = self.encode()?;
+        Ok(())
+    }
     /// Exact encoded byte length. Override when it can be computed without allocating.
     fn encoded_len(&self) -> Result<usize, Error> {
         Ok(self.encode()?.len())
@@ -63,6 +68,11 @@ macro_rules! integer_element {
             }
             fn encode(&self) -> Result<Vec<u8>, Error> {
                 Ok(self.to_le_bytes().to_vec())
+            }
+            fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
+                buffer.clear();
+                buffer.extend_from_slice(&self.to_le_bytes());
+                Ok(())
             }
             fn encoded_len(&self) -> Result<usize, Error> {
                 Ok($size)
@@ -95,6 +105,11 @@ impl Element for bool {
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![u8::from(*self)])
     }
+    fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
+        buffer.clear();
+        buffer.push(u8::from(*self));
+        Ok(())
+    }
     fn encoded_len(&self) -> Result<usize, Error> {
         Ok(1)
     }
@@ -114,6 +129,11 @@ impl Element for String {
     }
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Ok(self.as_bytes().to_vec())
+    }
+    fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
+        buffer.clear();
+        buffer.extend_from_slice(self.as_bytes());
+        Ok(())
     }
     fn encoded_len(&self) -> Result<usize, Error> {
         Ok(self.len())
@@ -2076,8 +2096,9 @@ impl Pipeline {
             hash.update(T::coder_identity().as_bytes());
             hash.update(T::CODER_VERSION.major.to_le_bytes());
             hash.update(T::CODER_VERSION.minor.to_le_bytes());
+            let mut encoded = Vec::new();
             for value in &values {
-                let encoded = value.encode()?;
+                value.encode_reusing(&mut encoded)?;
                 // Supported Rust targets have at most 64-bit `usize`.
                 #[allow(clippy::cast_possible_truncation)]
                 let length = encoded.len() as u64;
