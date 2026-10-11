@@ -311,6 +311,13 @@ staged locally.
    No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.
+6. **Performance and formatting:** The latest paired 100,000-row source-copy
+   sample measured v5 about 10.1× slower than v4. Typed batch append improved
+   adjacent v5 samples, but a fresh paired release corpus and peak-memory
+   measurement are still needed before calling performance acceptable.
+   Workspace-wide `cargo fmt --all --check` currently reports formatting
+   changes in many untouched files. Changed files in this batch were formatted
+   locally; a focused workspace formatting pass remains for the final cutover.
 
 The detailed architecture and exit criteria remain in
 `WORKSPACE_ARCHITECTURE_PLAN.md`, `IRONBEAM_V5_EXECUTION_PLAN.md`, and
