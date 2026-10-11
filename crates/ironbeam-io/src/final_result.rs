@@ -53,11 +53,18 @@ pub struct LocalFinalResult {
 #[derive(Debug, Clone)]
 pub struct AcceptedFragment {
     path: PathBuf,
+    bundle_digest: [u8; 32],
     pub rows: u64,
     pub payload_len: u64,
 }
 
 impl AcceptedFragment {
+    /// Stable SHA-256 identity of the bundle attempt that produced this fragment.
+    #[must_use]
+    pub fn bundle_digest_hex(&self) -> String {
+        hex(&self.bundle_digest)
+    }
+
     /// Open only this fragment's payload bytes after metadata and digest checks.
     pub fn open_payload(&self) -> Result<std::io::Take<File>, Error> {
         let mut file = File::open(&self.path).map_err(io)?;
@@ -206,12 +213,12 @@ impl LocalFinalResult {
                 "fragment scope or format does not match this result",
             ));
         }
-        let bundle_digest = &header[40..72];
+        let bundle_digest: [u8; 32] = header[40..72].try_into().expect("fixed header width");
         let extension = path
             .extension()
             .and_then(|extension| extension.to_str())
             .ok_or_else(|| invalid("fragment has no lifecycle extension"))?;
-        let expected_name = format!("part-{}.{}", hex(bundle_digest), extension);
+        let expected_name = format!("part-{}.{}", hex(&bundle_digest), extension);
         if path.file_name().and_then(|name| name.to_str()) != Some(expected_name.as_str()) {
             return Err(invalid("fragment filename does not match bundle identity"));
         }
@@ -243,6 +250,7 @@ impl LocalFinalResult {
         }
         Ok(AcceptedFragment {
             path: path.to_path_buf(),
+            bundle_digest,
             rows,
             payload_len,
         })
@@ -400,6 +408,16 @@ mod tests {
         assert!(store.publish_concatenated(4, &output).is_err());
         assert!(!output.exists());
         let fragments = store.accepted_fragments().unwrap();
+        assert_eq!(
+            fragments
+                .iter()
+                .map(AcceptedFragment::bundle_digest_hex)
+                .collect::<std::collections::BTreeSet<_>>(),
+            ["bundle-a", "bundle-b"]
+                .into_iter()
+                .map(|id| hex(&Sha256::digest(id.as_bytes())))
+                .collect()
+        );
         let mut expected = Vec::new();
         for fragment in &fragments {
             fragment.copy_payload(&mut expected).unwrap();
