@@ -1,9 +1,9 @@
 # Ironbeam 4 to 5 migration guide
 
-The target on this branch is a v5-only `ironbeam` facade and multi-crate
+The root source on this branch is a v5-only `ironbeam` facade in a multi-crate
 workspace. The [replacement roadmap](V5_REPLACEMENT_ROADMAP.md) records the
-extraction order and the gates before removing the checked-in v4 runtime.
-The package and feature descriptions below reflect the current migration state.
+extraction history and the remaining 5.0.0 release gates. The package and
+feature descriptions below reflect the current migration state.
 
 Ironbeam 5 is now the root `ironbeam` default on this branch and remains available as `ironbeam::v5`. The root package version is still 4.1.1 while the release gates remain open. Core, Direct, transforms, each file format, SQL, MongoDB, and cloud objects have separate packages. The root facade exposes optional connectors through `v5-io-*` features; old `io-*` names also enable the matching v5 connector. This guide describes the implemented v5 surface, not a published 5.0.0 release.
 
@@ -90,7 +90,17 @@ runner state.
 | `write_avro_with_schema(path, schema)` | `avro_sink(&input, key, path, schema)` | v5 writes native Avro records; `avro_source` reads native containers. `avro_json_*` handles earlier v5 preview wrappers. |
 | v4 custom `DynOp` and local `NodeId` | Registered v5 semantic operation and stable graph key | Compiled v4 closures and node IDs cannot be imported into a v5 graph. |
 
-The full v4 public method inventory is in `V5_PHASE0_API_INVENTORY.md`; current implementation status and physical execution gaps are in `V5_HELPER_PARITY_TRACKER.md`. In particular, v4 `read_*_streaming` describes lazy **bounded** file reads, not an unbounded event stream. Provider-neutral cloud contracts, helpers, and compressed JSONL object readers/writers live in `ironbeam-cloud`; `cloud_jsonl_source` and `cloud_jsonl_sink` attach a provider-neutral object store to a bounded Direct graph. SQL, MongoDB, TFRecord, and Arrow IPC have opt-in bounded Direct adapters. Keep unsupported remote or unbounded connector workloads on v4 until runner support exists.
+The full v4 public method inventory is in `V5_PHASE0_API_INVENTORY.md`;
+current implementation status and physical execution gaps are in
+`V5_HELPER_PARITY_TRACKER.md`. In particular, v4 `read_*_streaming` describes
+lazy **bounded** file reads, not an unbounded event stream. Provider-neutral
+cloud contracts and helpers live in `ironbeam-cloud-objects`, with optional
+provider clients in `ironbeam-cloud-object-store`; `cloud_jsonl_source` and
+`cloud_jsonl_sink` attach an object store to a bounded Direct graph. SQL,
+MongoDB, TFRecord, and Arrow IPC have opt-in bounded Direct adapters.
+Unsupported remote or unbounded connector graphs fail capability validation
+before source or sink side effects. Published v4 remains a separate reference
+package, not a fallback inside this facade.
 
 ## Materialized data handoff
 
@@ -117,4 +127,8 @@ Sequential elementwise output is compared in order in the migration tests. Group
 
 ## Release boundary
 
-`ironbeam-compat` depends on published Ironbeam 4.1.1 under the `ironbeam-v4` alias and directly on the v5 packages. The root facade still exposes v5 as a preview module and must not depend on `ironbeam-compat`. See `PHASE5_COMPAT_RELEASE.md` for the staged publish order and checks.
+`ironbeam-compat` depends on published Ironbeam 4.1.1 under the `ironbeam-v4`
+alias and directly on the v5 packages. The root facade exports only v5 source
+and does not depend on `ironbeam-compat`; its default `v5-preview` feature is
+a transitional feature name while the package remains versioned 4.1.1. See
+`PHASE5_COMPAT_RELEASE.md` for the staged publish order and checks.
