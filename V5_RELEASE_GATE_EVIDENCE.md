@@ -10,7 +10,24 @@ audit, not a release declaration. The v5 packages remain at `0.1.0`, the root
 facade defaults to v5 but is still versioned `4.1.1`, and publication is
 staged locally.
 
+## Find evidence by topic
+
+| Topic | Section |
+| --- | --- |
+| Workspace cutover, runner contract, and shared behavior | [Foundation and parity](#foundation-and-parity) |
+| Published v4 behavior used as a reference | [V4 reference corpus](#v4-reference-corpus) |
+| Aggregates, production unbounded sources, and finalized output | [Streaming and aggregation](#streaming-and-aggregation) |
+| Direct execution, coverage, isolated I/O, and optional extensions | [Direct and package quality](#direct-and-package-quality) |
+| Local Prism proof and separate Dataflow workspace | [Portable worker and Prism](#portable-worker-and-prism) |
+| Provider-neutral storage and compression | [Storage and compression](#storage-and-compression) |
+| Unclosed release work | [Open replacement gates](#open-replacement-gates) |
+
+The sections below preserve historical measurements and intermediate results.
+For the current decision and checklist, use the [status page](V5_RELEASE_GATE_STATUS.md).
+
 ## Verified in this checkout
+
+### Foundation and parity
 
 - The root source tree now contains only the v5 facade and its docs; the
   `legacy-v4` feature and 101 local v4 source files have been removed. Published
@@ -72,6 +89,8 @@ staged locally.
   corpus and strict graph/worker/proof lint pass. This shuffle materializes
   each global window in the worker, and portable order-sensitive vector
   aggregate parity remains unproven.
+### V4 reference corpus
+
 - Another 90 v4 behavior cases for mean, count-per-element, keys/values, and
   key/value swap now run in `ironbeam-compat` against published Ironbeam 4.1.1.
   The four suites pass there, and their root legacy test targets are removed.
@@ -158,6 +177,8 @@ staged locally.
   The v4 benchmark driver now lives there as well. All seven 1,000-row
   workload outputs match the v5 driver in row count and checksum against
   published v4; these single debug runs do not close the latency gate.
+### Streaming and aggregation
+
 - Mergeable global `CombineFn` folds now lower through a constant-key Beam
   GroupByKey into the typed v5 worker. A bounded global-window fold merges an
   Impulse seed with real inputs so empty input produces the combiner identity;
@@ -249,6 +270,8 @@ staged locally.
   Prism process worker during a bundle makes this local Prism version fail the
   job rather than restart the worker; runner-managed process recovery is not
   claimed. Other SDF graph shapes remain open.
+### Direct and package quality
+
 - Direct bounded linear sinks now write one source batch at a time instead of
   collecting the entire result before opening the sink. Typed sinks can opt in
   to `write_with_metadata` to receive event time, window, and assigned interval;
@@ -363,6 +386,8 @@ staged locally.
   branches, above the existing CI ratios. Shared lifecycle I/O measures 265/276
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
+### Portable worker and Prism
+
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
   separately launched v5 worker for twenty-three bounded sources, including a keyed
   input shared by GroupByKey and an ordinary branch, native Flatten and
@@ -519,6 +544,8 @@ staged locally.
   calls leave the user's graph unchanged. Named `Output` terminals remain for
   portable and durable jobs. The root package
   version is still 4.1.1, until the replacement gates close.
+### Storage and compression
+
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
   measures 234/243 source locations and 46/54 active branch outcomes. The
