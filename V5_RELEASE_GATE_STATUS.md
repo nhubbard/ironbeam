@@ -394,8 +394,8 @@ staged locally.
    the core gates at 2,857/2,972 source locations (96.13%) and 435/492
    branches (88.41%), and passes the transforms gates at 1,163/1,189
    source locations (97.81%) and 108/116 branches (93.10%). Direct source
-   coverage passes at 3,304/3,550 (93.07%), but its branch coverage is
-   705/802 (87.91%), below the unchanged 90% CI floor. A downstream flat-map
+   coverage passes at 3,344/3,595 (93.02%), but its branch coverage is
+   707/804 (87.94%), below the unchanged 90% CI floor. A downstream flat-map
    failure also resumes from the finished group state without reopening its
    source, and a parallel grouped sink keeps its filtered rows and metrics.
    Added tests cover malformed
@@ -840,7 +840,10 @@ and pre-commit boundaries; all leave staged data and the checkpoint untouched.
 If `begin_bundle` fails or panics, Direct aborts the opened session. A paired
 test verifies both the previously opened first sink and the failing second
 sink are aborted before any checkpoint is written. The checkpoint identity
-binds both sink digests and coders. The full Direct suite, strict lint, fresh
+binds both sink digests and coders. If the opened sink reports that it requires
+bundle finalization, or its finalization probe panics, Direct now aborts that
+session before returning the typed error; a unit test checks both cases. The
+full Direct suite, strict lint, fresh
 combined coverage corpus, and local gate for all twenty-five v5 packages pass
 after the bundle-begin cleanup; no packages were published.
 Direct still rejects stateful or multi-source streaming routes, non-idempotent
