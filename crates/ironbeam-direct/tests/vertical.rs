@@ -228,6 +228,55 @@ fn typed_source_batch_append_respects_exact_memory_and_spill_limits() {
 }
 
 #[test]
+fn typed_transform_batch_append_preserves_budget_spill_and_filter_metrics() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", (0_i32..10).collect())
+        .unwrap()
+        .map_named("double", |value| value * 2)
+        .unwrap()
+        .filter_named("positive-multiples-of-four", |value| {
+            *value > 0 && value % 4 == 0
+        })
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let exact = JobConfig {
+        buffer_budget_elements: 3,
+        memory_budget_bytes: 16,
+        ..JobConfig::default()
+    };
+    let (values, job) = DirectRunner.run_collect(&output, &exact).unwrap();
+    assert_eq!(values, [4, 8, 12, 16]);
+    assert_eq!(job.metrics().filtered_elements, 6);
+    assert_eq!(job.metrics().output_elements, 4);
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig { memory_budget_bytes: 15, ..exact.clone() })
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let (spilled, job) = DirectRunner.run_collect(
+        &output,
+        &JobConfig {
+            memory_budget_bytes: 8,
+            spill: Some(SpillConfig {
+                directory: directory.path().to_path_buf(),
+                threshold_bytes: 8,
+            }),
+            ..exact
+        },
+    ).unwrap();
+    assert_eq!(spilled, values);
+    assert_eq!(job.metrics().filtered_elements, 6);
+    assert!(job.metrics().spill_files > 0);
+}
+
+#[test]
 fn vector_source_clone_panic_reports_the_source_node() {
     struct PanickingClone;
     impl Clone for PanickingClone {

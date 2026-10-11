@@ -595,6 +595,16 @@ staged locally.
    when no checkpoint is active. A paired local sample moved map/filter from
    0.708 to 0.611 ms with identical output; source copy and GroupByKey were
    flat. The wider transform performance gap remains open.
+   Typed Direct map/filter routes now append each completed batch through the
+   same checked output-store path as source-only routes. A 22-pair alternating
+   release sample at 100,000 rows moved the map/filter median from 0.620 to
+   0.489 ms with identical rows and checksum; source copy stayed near 0.10 ms.
+   Against a rebuilt, case-selected v4 benchmark, paired medians were v4
+   0.137 ms and v5 0.490 ms for map/filter (3.59×), 0.056 and 0.102 ms for
+   source copy (1.83×), and 0.616 and 4.608 ms for GroupByKey (7.49×).
+   Direct tests, the root v5 facade tests, strict Direct lint, and exact
+   transformed-output budget/spill regression tests pass. The grouping gap
+   remains the larger performance gate.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.

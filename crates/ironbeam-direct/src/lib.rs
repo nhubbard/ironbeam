@@ -1057,6 +1057,7 @@ fn execute<T: Element>(
                             store.extend_batch(batch)?;
                             return Ok(());
                         }
+                        let mut produced = Vec::with_capacity(batch.len());
                         for value in batch {
                             let mut current = Some(value);
                             for (key, transform) in route.operations.iter().zip(&typed_transforms) {
@@ -1076,11 +1077,12 @@ fn execute<T: Element>(
                                 }
                             }
                             if let Some(value) = current {
-                                panic_node = output_key;
-                                store.push(value)?;
-                                output_count += 1;
+                                produced.push(value);
                             }
                         }
+                        output_count = u64::try_from(produced.len()).unwrap_or(u64::MAX);
+                        panic_node = output_key;
+                        store.extend_batch(produced)?;
                         Ok(())
                     }))
                 });
