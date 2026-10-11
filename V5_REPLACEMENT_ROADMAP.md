@@ -18,6 +18,8 @@ there against the published package as well, removing another 90 root-owned
 legacy test cases while retaining their behavior evidence.
 The v4 `to_dict`, `to_hashmap`, and `to_display_string` suites add 58 more
 reference cases in the same leaf crate.
+The 49 basic-helper cases also run there against published v4, with the root
+test module removed and CI retaining the leaf target.
 
 This is a replacement gate, not a claim that the current workspace has already
 reached it. `V5_HELPER_PARITY_TRACKER.md` closes *bounded Direct helper* parity.

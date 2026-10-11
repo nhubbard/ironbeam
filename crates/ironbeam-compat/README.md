@@ -10,5 +10,7 @@ eventually remove its checked-in v4 implementation without losing parity
 evidence.
 The `v4_benchmark_corpus` example measures published v4 with the same workload
 names as the root v5 benchmark example.
+The basic-helper reference suite retains 49 v4 cases for global and keyed
+summaries, collection materializers, and top/bottom selection.
 
 See [the migration guide](https://github.com/nhubbard/ironbeam/blob/main/V4_TO_V5_MIGRATION.md) for call-site examples and feature mapping.

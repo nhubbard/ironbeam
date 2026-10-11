@@ -1,5 +1,4 @@
 // Helper module tests
-mod basic;
 mod batching;
 mod cloud;
 mod distinct;

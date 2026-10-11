@@ -44,6 +44,10 @@ staged locally.
   key/value swap now run in `ironbeam-compat` against published Ironbeam 4.1.1.
   The four suites pass there, and their root legacy test targets are removed.
   The local package script and CI explicitly retain this reference corpus.
+- The 49-case v4 basic-helper suite now runs from `ironbeam-compat` against
+  published 4.1.1. Its duplicate root test module was removed, and CI lists
+  the compatibility target explicitly. It retains global and keyed summaries,
+  collection materializers, and top/bottom selection reference behavior.
 - The v4 dictionary, hash-map, and display-string conversion suites also moved
   to `ironbeam-compat`; their 58 cases pass against published v4. The root no
   longer owns those three legacy test targets, and CI retains the reference
