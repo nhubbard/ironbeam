@@ -198,7 +198,11 @@ staged locally.
    Beam state-backed iterables through the Fn State client. Prefix, token,
    and fetched suffix assembly have focused tests, and a mock runner drives
    the actual Fn Data and Fn State RPCs into a typed grouped result. A Prism-emitted
-   state-backed group still needs a live proof. Bounded millisecond-aligned fixed windows lower
+   state-backed group still needs a live proof. A local Prism job now also
+   groups 512 distinct 4 KiB values and verifies the count, total payload
+   length, and full-byte SHA-256 after shuffle. The tested Prism build encodes
+   GBK iterables inline, so this verifies large inline payloads rather than
+   state-backed fetching. Bounded millisecond-aligned fixed windows lower
    to native Beam
    `WindowInto`; the worker carries interval metadata across Fn API boundaries.
    One live Prism job verifies assigned intervals and keyed counts in each
