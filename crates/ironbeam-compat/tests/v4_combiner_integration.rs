@@ -4,7 +4,7 @@
 //! in combination with other transforms.
 
 use anyhow::Result;
-use ironbeam::*;
+use ironbeam_v4::*;
 
 #[test]
 fn test_count_then_filter() -> Result<()> {

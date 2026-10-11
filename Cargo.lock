@@ -2232,6 +2232,7 @@ dependencies = [
  "anyhow",
  "arrow",
  "crc32c",
+ "csv",
  "glob",
  "hyperloglogplus",
  "num_cpus",

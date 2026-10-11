@@ -187,6 +187,7 @@ jobs:
         run: |
           cargo test -p ironbeam-compat --tests
           cargo test -p ironbeam-compat --features v4-parquet --test v4_helper_parquet
+          cargo test -p ironbeam-compat --features v4-csv --test v4_testing_mock_io
 
   test:
     name: Facade Tests with Coverage

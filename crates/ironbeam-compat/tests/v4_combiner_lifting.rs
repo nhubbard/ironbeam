@@ -1,6 +1,6 @@
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::{Count, from_vec};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{Count, from_vec};
 
 #[test]
 fn gbk_then_combine_lifted_equals_classic_combine() -> Result<()> {

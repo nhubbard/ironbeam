@@ -23,6 +23,9 @@ test module removed and CI retaining the leaf target.
 The remaining 225 helper cases now run in the compatibility crate too, so the
 root `tests/helpers` tree has been removed. Parquet's 15 cases use the opt-in
 `v4-parquet` feature to keep the default compatibility dependency graph small.
+The v4 combiner and testing reference suites have also moved into the leaf
+crate. The root combined legacy target now contains only I/O suites; the CSV
+mock test uses the separate `v4-csv` feature.
 
 This is a replacement gate, not a claim that the current workspace has already
 reached it. `V5_HELPER_PARITY_TRACKER.md` closes *bounded Direct helper* parity.

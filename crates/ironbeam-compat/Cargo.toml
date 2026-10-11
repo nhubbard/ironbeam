@@ -10,6 +10,7 @@ readme = "README.md"
 
 [features]
 default = []
+v4-csv = ["ironbeam-v4/io-csv"]
 v4-parquet = ["ironbeam-v4/io-parquet"]
 
 [dependencies]

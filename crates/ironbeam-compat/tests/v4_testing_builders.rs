@@ -1,4 +1,4 @@
-use ironbeam::testing::*;
+use ironbeam_v4::testing::*;
 
 #[test]
 fn test_data_builder_basic() {

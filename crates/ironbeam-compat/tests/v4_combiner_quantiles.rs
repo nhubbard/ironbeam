@@ -1,7 +1,11 @@
+#[macro_use]
+#[path = "common/macros.rs"]
+mod macros;
+
 use anyhow::Result;
-use ironbeam::combiners::{ApproxMedian, ApproxQuantiles, TDigest};
-use ironbeam::from_vec;
-use ironbeam::testing::*;
+use ironbeam_v4::combiners::{ApproxMedian, ApproxQuantiles, TDigest};
+use ironbeam_v4::from_vec;
+use ironbeam_v4::testing::*;
 
 #[test]
 fn test_tdigest_basic() {

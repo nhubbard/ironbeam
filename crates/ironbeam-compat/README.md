@@ -17,5 +17,9 @@ distinct, joins, regex, timestamp reification, reshuffle, side input,
 statistics, value operations, windowed combine, and windowing. Parquet's
 15 cases run with `cargo test -p ironbeam-compat --features v4-parquet --test
 v4_helper_parquet`, keeping its heavy dependency out of the default build.
+The v4 combiner and testing suites live here as separate reference targets.
+The mock I/O target runs its JSONL and temporary-path checks by default; its
+CSV check uses `cargo test -p ironbeam-compat --features v4-csv --test
+v4_testing_mock_io`.
 
 See [the migration guide](https://github.com/nhubbard/ironbeam/blob/main/V4_TO_V5_MIGRATION.md) for call-site examples and feature mapping.

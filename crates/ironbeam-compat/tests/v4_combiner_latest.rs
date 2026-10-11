@@ -8,9 +8,9 @@
 //! - Integration with liftable combiner API
 
 use anyhow::Result;
-use ironbeam::combiners::Latest;
-use ironbeam::window::Timestamped;
-use ironbeam::*;
+use ironbeam_v4::combiners::Latest;
+use ironbeam_v4::window::Timestamped;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 #[test]

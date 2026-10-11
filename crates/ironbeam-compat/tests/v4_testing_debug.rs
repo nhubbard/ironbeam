@@ -1,7 +1,7 @@
 //! Tests for debug utilities in testing module.
 
-use ironbeam::testing::PCollectionDebugExt;
-use ironbeam::*;
+use ironbeam_v4::testing::PCollectionDebugExt;
+use ironbeam_v4::*;
 
 #[test]
 fn test_debug_inspect() {

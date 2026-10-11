@@ -1,6 +1,4 @@
-#![cfg(any(feature = "io-csv", feature = "io-jsonl", feature = "io-parquet"))]
-
-use ironbeam::testing::*;
+use ironbeam_v4::testing::*;
 
 #[test]
 fn test_temp_file_path() {
@@ -29,7 +27,6 @@ fn test_temp_dir_file_path() {
     assert!(file_path.ends_with("test.txt"));
 }
 
-#[cfg(feature = "io-jsonl")]
 #[test]
 fn test_mock_jsonl_file() {
     use serde::{Deserialize, Serialize};
@@ -57,7 +54,7 @@ fn test_mock_jsonl_file() {
     assert_eq!(read_data, data);
 }
 
-#[cfg(feature = "io-csv")]
+#[cfg(feature = "v4-csv")]
 #[test]
 fn test_mock_csv_file() {
     use serde::{Deserialize, Serialize};

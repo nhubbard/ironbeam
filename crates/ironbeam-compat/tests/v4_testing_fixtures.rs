@@ -1,6 +1,6 @@
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::testing::*;
+use ironbeam_v4::testing::*;
 
 #[test]
 fn test_sample_log_entries() {

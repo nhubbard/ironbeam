@@ -1,7 +1,11 @@
+#[macro_use]
+#[path = "common/macros.rs"]
+mod macros;
+
 use anyhow::Result;
-use ironbeam::combiners::{AverageF64, DistinctCount, Sum};
-use ironbeam::testing::*;
-use ironbeam::*;
+use ironbeam_v4::combiners::{AverageF64, DistinctCount, Sum};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::*;
 
 #[test]
 fn combine_globally_sum_basic() -> Result<()> {

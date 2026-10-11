@@ -8,8 +8,8 @@
 //! - Integration with liftable combiner API
 
 use anyhow::Result;
-use ironbeam::combiners::ToSet;
-use ironbeam::*;
+use ironbeam_v4::combiners::ToSet;
+use ironbeam_v4::*;
 use std::collections::HashSet;
 
 #[test]

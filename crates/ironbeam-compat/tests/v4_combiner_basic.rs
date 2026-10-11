@@ -1,6 +1,6 @@
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::{AverageF64, BottomK, DistinctCount, Max, Min, Sum, TopK, from_vec};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{AverageF64, BottomK, DistinctCount, Max, Min, Sum, TopK, from_vec};
 use std::collections::HashMap;
 
 #[test]

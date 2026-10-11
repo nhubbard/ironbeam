@@ -1,6 +1,6 @@
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::*;
 
 #[test]
 fn reservoir_global_vec_and_flatten() -> Result<()> {

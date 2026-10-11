@@ -54,6 +54,12 @@ staged locally.
   opt-in feature, preserving default build isolation. These are v4 reference
   results; v5 helper behavior remains covered by its own package tests and
   differential corpus.
+- The 115-case v4 combiner and 54-case testing families now live in
+  `ironbeam-compat` against published 4.1.1. The root combined legacy target
+  retains only I/O suites. Five mock-I/O checks run in the default
+  compatibility target; the sixth CSV check runs under an opt-in feature in
+  CI. The two combiner tests that used the root test macro carry its unchanged
+  definition locally.
 - The v4 dictionary, hash-map, and display-string conversion suites also moved
   to `ironbeam-compat`; their 58 cases pass against published v4. The root no
   longer owns those three legacy test targets, and CI retains the reference

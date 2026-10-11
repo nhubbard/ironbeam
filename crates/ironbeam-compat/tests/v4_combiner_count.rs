@@ -8,8 +8,8 @@
 //! - Integration with liftable combiner API
 
 use anyhow::Result;
-use ironbeam::combiners::Count;
-use ironbeam::*;
+use ironbeam_v4::combiners::Count;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
