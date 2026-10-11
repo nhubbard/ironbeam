@@ -62,7 +62,7 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
-          cargo clippy -p ironbeam-compression -p ironbeam-coder-postcard -p ironbeam-cloud-objects -p ironbeam-cloud-service-api -p ironbeam-cloud -p ironbeam-cloud-object-store -p ironbeam-core -p ironbeam-direct -p ironbeam-metrics -p ironbeam-testing -p ironbeam-transforms -p ironbeam-transform-regex -p ironbeam-transform-approx -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
+          cargo clippy -p ironbeam-compression -p ironbeam-coder-postcard -p ironbeam-cloud-objects -p ironbeam-cloud-service-api -p ironbeam-cloud-fakes -p ironbeam-cloud -p ironbeam-cloud-object-store -p ironbeam-core -p ironbeam-direct -p ironbeam-metrics -p ironbeam-testing -p ironbeam-transforms -p ironbeam-transform-regex -p ironbeam-transform-approx -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings

@@ -42,7 +42,7 @@ features enable the default extras while the root package is still versioned
 extras. No-default facade tests execute a core
 pipeline, a helper chain, and JSONL round trip; a CSV-only dependency check
 has no cloud package. The full local package script passed workspace tests,
-isolated feature checks, documentation, and verification of all 27 packages.
+isolated feature checks, documentation, and verification of all 28 packages.
 Publication remains staged.
 
 </details>
@@ -55,9 +55,18 @@ The non-object cloud service traits and value types now live in
 The existing `ironbeam-cloud::traits` path reexports them, so its fake service
 implementations and callers continue to compile. Isolated API coverage is
 61/61 source locations and 2/2 branches; its tests, the compatibility cloud
-tests and doctests, strict lint, and the 27-package local gate pass. The
-legacy helper and fake implementations have not yet been split from the
-compatibility crate.
+tests and doctests, strict lint, and the local package gate pass. The
+operation helpers remain in the compatibility crate.
+
+</details>
+
+<details>
+<summary>Provider-neutral in-memory service implementations</summary>
+
+The in-memory fake services now live in `ironbeam-cloud-fakes`, depending on
+the service API crate. `ironbeam-cloud::fake` and root reexports preserve the
+existing paths. Credential, warehouse, and object storage behavior tests pass
+inside the new crate, and compatibility tests and doctests still pass.
 
 </details>
 

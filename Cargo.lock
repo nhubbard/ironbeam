@@ -2270,6 +2270,7 @@ dependencies = [
  "bzip2",
  "flate2",
  "futures-executor",
+ "ironbeam-cloud-fakes",
  "ironbeam-cloud-objects",
  "ironbeam-cloud-service-api",
  "ironbeam-compression",
@@ -2279,6 +2280,13 @@ dependencies = [
  "tempfile",
  "xz2",
  "zstd",
+]
+
+[[package]]
+name = "ironbeam-cloud-fakes"
+version = "0.1.0"
+dependencies = [
+ "ironbeam-cloud-service-api",
 ]
 
 [[package]]
