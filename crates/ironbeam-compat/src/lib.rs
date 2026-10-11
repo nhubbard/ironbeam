@@ -18,11 +18,10 @@ pub mod prelude {
     pub use ironbeam_transform_approx::{ApproxDistinctExt, KeyedApproxDistinctExt};
     pub use ironbeam_transform_regex::RegexExt;
     pub use ironbeam_transforms::{
-        CollectionExt, ConstantSideInputExt, DeadLetterExt, DynamicSideInputExt,
-        ElementwiseExt, KeyedCollectionExt, KeyedExt, KeyedSamplingExt,
-        KeyedSelectionExt, KeyedStatisticalExt, KeyedValidationExt, KeyedWindowedExt,
-        LogElementsExt, PredicateExt, SamplingExt, SelectionExt, StatisticalExt, TeeExt,
-        TryProcessExt, ValidationExt, WindowedExt,
+        CollectionExt, ConstantSideInputExt, DeadLetterExt, DynamicSideInputExt, ElementwiseExt,
+        KeyedCollectionExt, KeyedExt, KeyedSamplingExt, KeyedSelectionExt, KeyedStatisticalExt,
+        KeyedValidationExt, KeyedWindowedExt, LogElementsExt, PredicateExt, SamplingExt,
+        SelectionExt, StatisticalExt, TeeExt, TryProcessExt, ValidationExt, WindowedExt,
     };
 }
 

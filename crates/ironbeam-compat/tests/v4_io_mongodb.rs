@@ -18,12 +18,12 @@
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
+use ironbeam_compat::service_testcontainers_modules::mongo::Mongo;
 use ironbeam_v4::io::mongodb::*;
 use ironbeam_v4::testing::*;
 use ironbeam_v4::type_token::VecOps;
 use ironbeam_v4::{from_vec, read_mongodb, read_mongodb_streaming};
 use testcontainers::runners::SyncRunner;
-use ironbeam_compat::service_testcontainers_modules::mongo::Mongo;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Doc {

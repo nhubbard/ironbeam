@@ -717,7 +717,10 @@ fn feed_linear_fold(
     fold: &mut dyn FoldSession,
 ) -> Result<(), Error> {
     let mut source_count = 0_usize;
-    let FoldFeedPolicy { key: fold_key, enforce_source_budget } = policy;
+    let FoldFeedPolicy {
+        key: fold_key,
+        enforce_source_budget,
+    } = policy;
     if let [timestamp_key, reify_key] = stages
         && registry.is_keyed_timestamp_reification(reify_key)
         && let Some(timestamp_fn) = registry.typed_timestamp_transform(timestamp_key)

@@ -26,7 +26,9 @@ fn facade_cloud_module_routes_provider_neutral_objects() {
     stores
         .register("local", LocalObjectIO::new(directory.path()).unwrap())
         .unwrap();
-    stores.write("local://bucket/rows.jsonl", b"{\"id\":1}\n").unwrap();
+    stores
+        .write("local://bucket/rows.jsonl", b"{\"id\":1}\n")
+        .unwrap();
     assert_eq!(
         stores.read("local://bucket/rows.jsonl").unwrap(),
         b"{\"id\":1}\n"
@@ -67,7 +69,9 @@ fn facade_prelude_exposes_isolated_approximate_distinct_helpers() {
 fn facade_exposes_isolated_jsonl_connector() {
     use ironbeam::v5::{DirectRunner, JobConfig, jsonl_sink, jsonl_source};
     #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct Row { value: i32 }
+    struct Row {
+        value: i32,
+    }
     impl ironbeam::v5::Element for Row {
         const TYPE_ID: &'static str = "facade/jsonl-row";
         const CODER_ID: &'static str = "facade/jsonl-row";
@@ -75,10 +79,23 @@ fn facade_exposes_isolated_jsonl_connector() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("values.jsonl");
     let pipeline = Pipeline::default();
-    let input = pipeline.from_vec("input", vec![Row { value: 1 }, Row { value: 2 }]).unwrap();
-    DirectRunner.run_sink(&jsonl_sink(&input, "write", &path).unwrap(), &JobConfig::default()).unwrap();
-    let output = jsonl_source::<Row>(&Pipeline::default(), "read", &path).unwrap().output("out").unwrap();
-    assert_eq!(output.collect_seq().unwrap(), vec![Row { value: 1 }, Row { value: 2 }]);
+    let input = pipeline
+        .from_vec("input", vec![Row { value: 1 }, Row { value: 2 }])
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &jsonl_sink(&input, "write", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let output = jsonl_source::<Row>(&Pipeline::default(), "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        output.collect_seq().unwrap(),
+        vec![Row { value: 1 }, Row { value: 2 }]
+    );
 }
 
 #[cfg(feature = "v5-io-protobuf")]
@@ -122,9 +139,19 @@ fn facade_exposes_isolated_tfrecord_connector() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("values.tfrecord");
     let values = vec![b"first".to_vec(), b"second".to_vec()];
-    let input = Pipeline::default().from_vec("input", values.clone()).unwrap();
-    DirectRunner.run_sink(&tfrecord_sink(&input, "write", &path).unwrap(), &JobConfig::default()).unwrap();
-    let output = tfrecord_source(&Pipeline::default(), "read", &path).unwrap().output("out").unwrap();
+    let input = Pipeline::default()
+        .from_vec("input", values.clone())
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &tfrecord_sink(&input, "write", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let output = tfrecord_source(&Pipeline::default(), "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
     assert_eq!(output.collect_seq().unwrap(), values);
 }
 
@@ -164,7 +191,9 @@ fn facade_exposes_isolated_csv_connector() {
 fn facade_exposes_isolated_xml_connector() {
     use ironbeam::v5::{DirectRunner, JobConfig, xml_sink, xml_source};
     #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct Row { value: i32 }
+    struct Row {
+        value: i32,
+    }
     impl ironbeam::v5::Element for Row {
         const TYPE_ID: &'static str = "facade/xml-row";
         const CODER_ID: &'static str = "facade/xml-row";
@@ -172,10 +201,23 @@ fn facade_exposes_isolated_xml_connector() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("values.xml");
     let pipeline = Pipeline::default();
-    let input = pipeline.from_vec("input", vec![Row { value: 1 }, Row { value: 2 }]).unwrap();
-    DirectRunner.run_sink(&xml_sink(&input, "write", &path).unwrap(), &JobConfig::default()).unwrap();
-    let output = xml_source::<Row>(&Pipeline::default(), "read", &path).unwrap().output("out").unwrap();
-    assert_eq!(output.collect_seq().unwrap(), vec![Row { value: 1 }, Row { value: 2 }]);
+    let input = pipeline
+        .from_vec("input", vec![Row { value: 1 }, Row { value: 2 }])
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &xml_sink(&input, "write", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let output = xml_source::<Row>(&Pipeline::default(), "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        output.collect_seq().unwrap(),
+        vec![Row { value: 1 }, Row { value: 2 }]
+    );
 }
 
 #[cfg(feature = "v5-io-msgpack")]
@@ -183,7 +225,9 @@ fn facade_exposes_isolated_xml_connector() {
 fn facade_exposes_isolated_msgpack_connector() {
     use ironbeam::v5::{DirectRunner, JobConfig, msgpack_sink, msgpack_source};
     #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct Row { value: i32 }
+    struct Row {
+        value: i32,
+    }
     impl ironbeam::v5::Element for Row {
         const TYPE_ID: &'static str = "facade/msgpack-row";
         const CODER_ID: &'static str = "facade/msgpack-row";
@@ -191,10 +235,23 @@ fn facade_exposes_isolated_msgpack_connector() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("values.msgpack");
     let pipeline = Pipeline::default();
-    let input = pipeline.from_vec("input", vec![Row { value: 1 }, Row { value: 2 }]).unwrap();
-    DirectRunner.run_sink(&msgpack_sink(&input, "write", &path).unwrap(), &JobConfig::default()).unwrap();
-    let output = msgpack_source::<Row>(&Pipeline::default(), "read", &path).unwrap().output("out").unwrap();
-    assert_eq!(output.collect_seq().unwrap(), vec![Row { value: 1 }, Row { value: 2 }]);
+    let input = pipeline
+        .from_vec("input", vec![Row { value: 1 }, Row { value: 2 }])
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &msgpack_sink(&input, "write", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let output = msgpack_source::<Row>(&Pipeline::default(), "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        output.collect_seq().unwrap(),
+        vec![Row { value: 1 }, Row { value: 2 }]
+    );
 }
 
 #[cfg(feature = "v5-io-cbor")]
@@ -202,7 +259,9 @@ fn facade_exposes_isolated_msgpack_connector() {
 fn facade_exposes_isolated_cbor_connector() {
     use ironbeam::v5::{DirectRunner, JobConfig, cbor_sink, cbor_source};
     #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct Row { value: i32 }
+    struct Row {
+        value: i32,
+    }
     impl ironbeam::v5::Element for Row {
         const TYPE_ID: &'static str = "facade/cbor-row";
         const CODER_ID: &'static str = "facade/cbor-row";
@@ -210,10 +269,23 @@ fn facade_exposes_isolated_cbor_connector() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("values.cbor");
     let pipeline = Pipeline::default();
-    let input = pipeline.from_vec("input", vec![Row { value: 1 }, Row { value: 2 }]).unwrap();
-    DirectRunner.run_sink(&cbor_sink(&input, "write", &path).unwrap(), &JobConfig::default()).unwrap();
-    let output = cbor_source::<Row>(&Pipeline::default(), "read", &path).unwrap().output("out").unwrap();
-    assert_eq!(output.collect_seq().unwrap(), vec![Row { value: 1 }, Row { value: 2 }]);
+    let input = pipeline
+        .from_vec("input", vec![Row { value: 1 }, Row { value: 2 }])
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &cbor_sink(&input, "write", &path).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let output = cbor_source::<Row>(&Pipeline::default(), "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
+        output.collect_seq().unwrap(),
+        vec![Row { value: 1 }, Row { value: 2 }]
+    );
 }
 
 #[cfg(feature = "v5-io-avro")]

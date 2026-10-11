@@ -25,7 +25,8 @@ pub use stream::StreamJob;
 
 use ironbeam_core::{
     Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection,
-    Pipeline, Registry, Replay, RetryClass, Sink, SinkMode, SinkSession, SourceIterator, TypedSourceIterator,
+    Pipeline, Registry, Replay, RetryClass, Sink, SinkMode, SinkSession, SourceIterator,
+    TypedSourceIterator,
 };
 use metrics::MetricsState;
 use rayon::prelude::*;
@@ -733,7 +734,9 @@ impl DirectRunner {
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
         {
-            handle.metrics_collector.clone_from(&config.metrics_collector);
+            handle
+                .metrics_collector
+                .clone_from(&config.metrics_collector);
         }
         if config.cancellation.load(Ordering::Acquire) {
             handle.cancel();

@@ -1,7 +1,9 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-
 #![cfg_attr(feature = "v5-preview", doc = include_str!("v5_docs.md"))]
-#![cfg_attr(not(feature = "v5-preview"), doc = "Enable `v5-preview` to build the Ironbeam 5 facade.")]
+#![cfg_attr(
+    not(feature = "v5-preview"),
+    doc = "Enable `v5-preview` to build the Ironbeam 5 facade."
+)]
 
 /// Ironbeam 5 graph, transforms, I/O, and Direct runner.
 #[cfg(feature = "v5-preview")]
@@ -28,48 +30,48 @@ pub mod v5 {
         #[cfg(feature = "v5-regex")]
         pub use ironbeam_transform_regex::RegexExt;
         pub use ironbeam_transforms::{
-            CollectionExt, ConstantSideInputExt, DeadLetterExt,
-            DynamicSideInputExt, ElementwiseExt, KeyedCollectionExt,
-            KeyedExt, KeyedSamplingExt, KeyedSelectionExt, KeyedStatisticalExt, KeyedValidationExt,
-            KeyedWindowedExt, LogElementsExt, PredicateExt, SamplingExt, SelectionExt,
-            StatisticalExt, TeeExt, TryProcessExt, ValidationExt, WindowedExt,
+            CollectionExt, ConstantSideInputExt, DeadLetterExt, DynamicSideInputExt,
+            ElementwiseExt, KeyedCollectionExt, KeyedExt, KeyedSamplingExt, KeyedSelectionExt,
+            KeyedStatisticalExt, KeyedValidationExt, KeyedWindowedExt, LogElementsExt,
+            PredicateExt, SamplingExt, SelectionExt, StatisticalExt, TeeExt, TryProcessExt,
+            ValidationExt, WindowedExt,
         };
     }
-    pub use ironbeam_core::*;
     #[cfg(feature = "v5-compression")]
     pub use ironbeam_compression::*;
+    pub use ironbeam_core::*;
     pub use ironbeam_direct::{
         CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobMetrics,
         JobStatus, PairResult, Partition3, Partition4, PlanSummary, SpillConfig,
     };
     pub use ironbeam_io::*;
-    pub use ironbeam_io_jsonl::*;
-    #[cfg(feature = "v5-approx")]
-    pub use ironbeam_transform_approx::*;
-    #[cfg(feature = "v5-regex")]
-    pub use ironbeam_transform_regex::*;
-    #[cfg(feature = "v5-io-protobuf")]
-    pub use ironbeam_io_protobuf::*;
-    #[cfg(feature = "v5-io-tfrecord")]
-    pub use ironbeam_io_tfrecord::*;
     #[cfg(feature = "v5-io-arrow")]
     pub use ironbeam_io_arrow::*;
     #[cfg(feature = "v5-io-avro")]
     pub use ironbeam_io_avro::*;
-    #[cfg(feature = "v5-io-csv")]
-    pub use ironbeam_io_csv::*;
-    #[cfg(feature = "v5-io-mongodb")]
-    pub use ironbeam_io_mongodb::*;
-    #[cfg(feature = "v5-io-parquet")]
-    pub use ironbeam_io_parquet::*;
-    #[cfg(feature = "v5-io-sql")]
-    pub use ironbeam_io_sql::*;
-    #[cfg(feature = "v5-io-xml")]
-    pub use ironbeam_io_xml::*;
-    #[cfg(feature = "v5-io-msgpack")]
-    pub use ironbeam_io_msgpack::*;
     #[cfg(feature = "v5-io-cbor")]
     pub use ironbeam_io_cbor::*;
+    #[cfg(feature = "v5-io-csv")]
+    pub use ironbeam_io_csv::*;
+    pub use ironbeam_io_jsonl::*;
+    #[cfg(feature = "v5-io-mongodb")]
+    pub use ironbeam_io_mongodb::*;
+    #[cfg(feature = "v5-io-msgpack")]
+    pub use ironbeam_io_msgpack::*;
+    #[cfg(feature = "v5-io-parquet")]
+    pub use ironbeam_io_parquet::*;
+    #[cfg(feature = "v5-io-protobuf")]
+    pub use ironbeam_io_protobuf::*;
+    #[cfg(feature = "v5-io-sql")]
+    pub use ironbeam_io_sql::*;
+    #[cfg(feature = "v5-io-tfrecord")]
+    pub use ironbeam_io_tfrecord::*;
+    #[cfg(feature = "v5-io-xml")]
+    pub use ironbeam_io_xml::*;
+    #[cfg(feature = "v5-approx")]
+    pub use ironbeam_transform_approx::*;
+    #[cfg(feature = "v5-regex")]
+    pub use ironbeam_transform_regex::*;
     pub use ironbeam_transforms::*;
 }
 

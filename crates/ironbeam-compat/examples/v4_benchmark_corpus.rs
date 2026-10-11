@@ -74,7 +74,12 @@ fn main() {
         let latest = from_vec(
             &p,
             (0..count)
-                .map(|n| (n % 100, ironbeam_v4::window::Timestamped::new(u64::from(n), n)))
+                .map(|n| {
+                    (
+                        n % 100,
+                        ironbeam_v4::window::Timestamped::new(u64::from(n), n),
+                    )
+                })
                 .collect(),
         )
         .latest_per_key()

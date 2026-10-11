@@ -49,7 +49,9 @@ be resolved before the version changes to 5.0.0.
   the complete test, lint, documentation, and package gates.
 - [ ] Set acceptable performance regression limits and rerun paired v4/v5
   latency and memory benchmarks.
-- [ ] Complete workspace formatting and set the intended release versions.
+- [x] Format both the root and separate Dataflow workspaces; rerun their test
+  suites and the 15-test live Prism proof.
+- [ ] Set the intended release versions after the remaining gates pass.
 
 The release remains local. Publishing the packages is a separate decision.
 
@@ -77,6 +79,7 @@ shuffle does not preserve encounter order. See the
 | Separate Dataflow workspace | Tests and doctests passed with the new coder; warning-free lint passed for the changed proof package. |
 | Direct coverage | 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%), above the 91%/90% CI floors. |
 | Postcard coder coverage | 13/13 source locations passed the new isolated gate; LLVM reports no instrumented branches. |
+| Workspace formatting | `cargo fmt --all --check` passes in both workspaces; both workspace test suites, root all-feature examples, and all 15 live Prism tests passed afterward. |
 
 These results describe the last complete gate run; in-flight changes require
 a fresh run before they count as release evidence.

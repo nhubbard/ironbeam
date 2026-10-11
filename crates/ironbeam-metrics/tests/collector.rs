@@ -82,9 +82,11 @@ fn collector_reports_registered_metrics_and_saves_json() {
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(saved["fresh"]["value"], json!(2));
     assert_eq!(saved["load"]["description"], json!("machine load"));
-    assert!(collector
-        .save_to_file(dir.path().join("missing/metrics.json").to_str().unwrap())
-        .is_err());
+    assert!(
+        collector
+            .save_to_file(dir.path().join("missing/metrics.json").to_str().unwrap())
+            .is_err()
+    );
 
     let mut histogram = HistogramMetric::new("samples").with_description("sample values");
     histogram.record(3.0);

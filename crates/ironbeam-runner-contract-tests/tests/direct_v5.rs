@@ -1,8 +1,8 @@
 use ironbeam_core::Pipeline;
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_runner_contract_tests::{
-    BackendUnderTest, ContractCase, FixtureCapabilities, Unsupported,
-    assert_bounded_case, validate_fixture,
+    BackendUnderTest, ContractCase, FixtureCapabilities, Unsupported, assert_bounded_case,
+    validate_fixture,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -13,7 +13,12 @@ struct DirectV5 {
 
 impl BackendUnderTest for DirectV5 {
     fn validate(&self, case: ContractCase) -> Result<(), Unsupported> {
-        validate_fixture(case, FixtureCapabilities { unbounded_source: true })
+        validate_fixture(
+            case,
+            FixtureCapabilities {
+                unbounded_source: true,
+            },
+        )
     }
 
     fn run_bounded(&self) -> Vec<i32> {
@@ -51,6 +56,9 @@ fn direct_v5_matches_the_published_v4_bounded_contract() {
 #[test]
 fn direct_v5_declares_the_unbounded_source_capability() {
     let backend = DirectV5::default();
-    assert_eq!(backend.validate(ContractCase::UnboundedWindowedSink), Ok(()));
+    assert_eq!(
+        backend.validate(ContractCase::UnboundedWindowedSink),
+        Ok(())
+    );
     assert_eq!(backend.starts(), 0);
 }

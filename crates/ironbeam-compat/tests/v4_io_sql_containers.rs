@@ -18,11 +18,11 @@
 #![cfg(all(feature = "v4-sql", feature = "v4-service-tests"))]
 
 use anyhow::Result;
+use ironbeam_compat::service_testcontainers_modules::{mysql::Mysql, postgres::Postgres};
 use ironbeam_v4::io::sql::*;
 use ironbeam_v4::testing::*;
 use ironbeam_v4::{from_vec, read_sql, read_sql_streaming};
 use testcontainers::runners::SyncRunner;
-use ironbeam_compat::service_testcontainers_modules::{mysql::Mysql, postgres::Postgres};
 
 #[derive(Clone, Debug, PartialEq, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 struct Row {

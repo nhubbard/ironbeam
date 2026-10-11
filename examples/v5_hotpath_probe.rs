@@ -25,18 +25,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let source_ready = Instant::now();
         let output = match case {
             "source" => input.output("result")?,
-            "map" => input.map_named("triple", |n| n.wrapping_mul(3))?.output("result")?,
-            "filter" => input.filter_named("even", |n| n % 2 == 0)?.output("result")?,
+            "map" => input
+                .map_named("triple", |n| n.wrapping_mul(3))?
+                .output("result")?,
+            "filter" => input
+                .filter_named("even", |n| n % 2 == 0)?
+                .output("result")?,
             _ => input
                 .map_named("triple", |n| n.wrapping_mul(3))?
                 .filter_named("even", |n| n % 2 == 0)?
                 .output("result")?,
         };
         let graph_ready = Instant::now();
-        let values = output.collect_with(&JobConfig {
-            buffer_budget_elements: batch_size,
-            ..JobConfig::default()
-        })?.0;
+        let values = output
+            .collect_with(&JobConfig {
+                buffer_budget_elements: batch_size,
+                ..JobConfig::default()
+            })?
+            .0;
         let run_ready = Instant::now();
         let checksum = values.iter().map(|&value| u64::from(value)).sum::<u64>();
         println!(

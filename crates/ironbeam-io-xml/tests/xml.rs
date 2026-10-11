@@ -85,7 +85,9 @@ fn empty_xml_and_non_utf8_input_are_explicit() {
     let empty = dir.path().join("empty.xml");
     std::fs::write(&empty, b"<records/>").unwrap();
     let output = xml_source::<Row>(&Pipeline::default(), "empty", &empty)
-        .unwrap().output("empty-out").unwrap();
+        .unwrap()
+        .output("empty-out")
+        .unwrap();
     assert_eq!(
         DirectRunner
             .run_collect(&output, &JobConfig::default())
@@ -97,8 +99,17 @@ fn empty_xml_and_non_utf8_input_are_explicit() {
     let bad = dir.path().join("non-utf8.xml");
     std::fs::write(&bad, [0xff]).unwrap();
     let output = xml_source::<Row>(&Pipeline::default(), "bad", &bad)
-        .unwrap().output("bad-out").unwrap();
-    assert_eq!(DirectRunner.run_collect(&output, &JobConfig::default()).err().unwrap().kind, ErrorKind::Io);
+        .unwrap()
+        .output("bad-out")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
 }
 
 #[test]
@@ -120,7 +131,14 @@ fn failed_xml_serialization_preserves_previous_result() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("input", vec![Fails]).unwrap();
     let sink = xml_sink(&input, "write", &path).unwrap();
-    assert_eq!(DirectRunner.run_sink(&sink, &JobConfig::default()).err().unwrap().kind, ErrorKind::Io);
+    assert_eq!(
+        DirectRunner
+            .run_sink(&sink, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
     assert_eq!(std::fs::read(&path).unwrap(), b"previous result");
 }
 

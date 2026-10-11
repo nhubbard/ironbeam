@@ -1,10 +1,13 @@
 //! Decode `TFRecord` bytes written by published Ironbeam 4 with the v5 adapter.
 
-use ironbeam_v4::io::tfrecord::write_tfrecord_vec;
-use ironbeam_v4::io::tfrecord_proto as v4_proto;
 use ironbeam_core::{Element, ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io_tfrecord::{tfrecord_examples_sharded_source, tfrecord_examples_source, tfrecord_examples_streaming_source, Example};
+use ironbeam_io_tfrecord::{
+    Example, tfrecord_examples_sharded_source, tfrecord_examples_source,
+    tfrecord_examples_streaming_source,
+};
+use ironbeam_v4::io::tfrecord::write_tfrecord_vec;
+use ironbeam_v4::io::tfrecord_proto as v4_proto;
 use prost::Message;
 
 #[test]

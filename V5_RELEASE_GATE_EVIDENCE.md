@@ -282,6 +282,13 @@ For the current decision and checklist, use the [status page](V5_RELEASE_GATE_ST
   claimed. Other SDF graph shapes remain open.
 ### Direct and package quality
 
+- The root and separate Dataflow checkouts now pass `cargo fmt --all --check`
+  on the local nightly toolchain. Root CI now checks formatting. After the
+  mechanical change, both workspace test suites, all root all-feature
+  examples, and all 15 local Prism tests pass. This closes the formatting
+  subgate while leaving the broader performance and release-quality gates
+  open.
+
 - Direct bounded linear sinks now write one source batch at a time instead of
   collecting the entire result before opening the sink. Typed sinks can opt in
   to `write_with_metadata` to receive event time, window, and assigned interval;

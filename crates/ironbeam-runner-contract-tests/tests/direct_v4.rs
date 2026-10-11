@@ -1,8 +1,8 @@
-use ironbeam_v4::{Pipeline, from_vec};
 use ironbeam_runner_contract_tests::{
     BackendUnderTest, ContractCase, FixtureCapabilities, Unsupported,
     assert_batch_rejects_unbounded, assert_bounded_case, validate_fixture,
 };
+use ironbeam_v4::{Pipeline, from_vec};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Default)]

@@ -28,8 +28,11 @@ jobs:
 
       - name: Install Rust nightly
         run: |
-          rustup toolchain install nightly --component clippy --no-self-update
+          rustup toolchain install nightly --component clippy --component rustfmt --no-self-update
           rustup default nightly
+
+      - name: Check workspace formatting
+        run: cargo fmt --all --check
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
