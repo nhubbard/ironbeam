@@ -431,6 +431,14 @@ staged locally.
    67/68 and 2/2 threshold from before bundle finalization existed.
    Portable CSV publication currently targets an uncompressed file; the
    existing Direct CSV sink retains its optional compressed output.
+   XML now stages complete item elements per bundle. The live Prism fixture
+   reads XML input, publishes a single validated XML document after `DONE`,
+   and reopens all three output rows. Local tests cover escaped text,
+   multiple fragments, empty output, malformed elements, row-count mismatch,
+   and idempotent publication. Portable XML publication is uncompressed.
+   Its isolated all-feature coverage is 160/169 source locations and 6/6
+   branches, replacing the former 42/43 source baseline from before the
+   fragment lifecycle was added.
    Publication also rejects pending or orphaned staging
    entries even if their row count is zero. Malformed MessagePack and CBOR
    fragments cannot replace an existing result, and failed serialization
