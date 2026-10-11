@@ -329,6 +329,17 @@ with a single update of a short stack frame. Source-construction medians were
 0.519 ms and 0.597 ms respectively, so the trial was reverted. The digest
 bytes and source identity contract remain unchanged.
 
+On 2026-10-11, a second digest trial buffered length-prefixed element bytes
+in 64 KiB blocks before SHA-256 updates. A digest test covered multiple
+blocks and a value larger than a block. Twenty alternating release runs of
+the original and trial binaries, discarding the first two runs of each,
+measured source copy at 0.658/0.721 ms and map/filter at 1.201/1.274 ms;
+GroupByKey was 4.602/4.622 ms. Output counts and checksums matched.
+The trial regressed both source copy and map/filter, so it was reverted.
+A separate local microbenchmark also found per-value BLAKE3 updates slower
+than the existing hardware-accelerated SHA-256 path on this arm64 host.
+No source digest algorithm or version changed.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
