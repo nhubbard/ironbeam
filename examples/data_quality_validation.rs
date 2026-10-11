@@ -8,11 +8,12 @@
 //! - Integrate validation into a production ETL pipeline
 
 use anyhow::Result;
-use ironbeam::validation::validators::{in_range, is_email, max_length, min_length, not_empty};
-use ironbeam::validation::{
-    ErrorCollector, Validate, ValidationMode, ValidationResult, combine_validations,
+use ironbeam::v5::{
+    Element, ErrorCollector, Pipeline, Validate, ValidationMode, ValidationResult,
+    combine_validations,
+    prelude::*,
+    validators::{in_range, is_email, max_length, min_length, not_empty},
 };
-use ironbeam::{Pipeline, Sum, from_vec};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -24,6 +25,11 @@ struct Transaction {
     currency: String,
     email: String,
     timestamp: u64,
+}
+
+impl Element for Transaction {
+    const TYPE_ID: &'static str = "examples/validation-transaction";
+    const CODER_ID: &'static str = "examples/validation-transaction-local";
 }
 
 impl Validate for Transaction {
@@ -65,8 +71,8 @@ fn main() -> Result<()> {
 fn skip_invalid_example() -> Result<()> {
     let p = Pipeline::default();
 
-    let transactions = from_vec(
-        &p,
+    let transactions = p.from_vec(
+        "skip-input",
         vec![
             Transaction {
                 id: "tx001".into(),
@@ -109,10 +115,14 @@ fn skip_invalid_example() -> Result<()> {
                 timestamp: 1_234_567_894,
             },
         ],
-    );
+    )?;
 
-    let valid = transactions.validate_skip_invalid();
+    let valid = transactions.validate_skip_invalid_named("skip-invalid")?;
     let results = valid.collect_seq()?;
+    assert_eq!(
+        results.iter().map(|tx| tx.id.as_str()).collect::<Vec<_>>(),
+        ["tx001", "tx005"]
+    );
 
     println!("  Input records: 5");
     println!("  Valid records: {}", results.len());
@@ -128,8 +138,8 @@ fn skip_invalid_example() -> Result<()> {
 fn log_and_continue_example() -> Result<()> {
     let p = Pipeline::default();
 
-    let transactions = from_vec(
-        &p,
+    let transactions = p.from_vec(
+        "log-input",
         vec![
             Transaction {
                 id: "tx001".into(),
@@ -156,14 +166,19 @@ fn log_and_continue_example() -> Result<()> {
                 timestamp: 1_234_567_892,
             },
         ],
-    );
+    )?;
 
     let collector = Arc::new(Mutex::new(ErrorCollector::new()));
-    let valid = transactions
-        .validate_with_mode(ValidationMode::LogAndContinue, Some(Arc::clone(&collector)));
+    let valid = transactions.validate_with_mode_named(
+        "log-invalid",
+        ValidationMode::LogAndContinue,
+        Some(Arc::clone(&collector)),
+    )?;
     let results = valid.collect_seq()?;
 
     let errors = collector.lock().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(errors.error_count(), 2);
     println!("  Input records: 3");
     println!("  Valid records: {}", results.len());
     println!("  Validation errors: {}\n", errors.error_count());
@@ -192,8 +207,8 @@ fn production_etl_example() -> Result<()> {
     let p = Pipeline::default();
 
     // Simulate reading from a data source with mixed quality data
-    let raw_transactions = from_vec(
-        &p,
+    let raw_transactions = p.from_vec(
+        "etl-input",
         vec![
             Transaction {
                 id: "tx001".into(),
@@ -220,24 +235,28 @@ fn production_etl_example() -> Result<()> {
                 timestamp: 1_234_567_892,
             },
         ],
-    );
+    )?;
 
     // Set up an error collector
     let validation_errors = Arc::new(Mutex::new(ErrorCollector::new()));
 
     // Validate and filter bad records
-    let clean_transactions = raw_transactions.validate_with_mode(
+    let clean_transactions = raw_transactions.validate_with_mode_named(
+        "etl-validation",
         ValidationMode::LogAndContinue,
         Some(Arc::clone(&validation_errors)),
-    );
+    )?;
 
     // Continue with ETL transformations
     let by_currency = clean_transactions
-        .key_by(|tx: &Transaction| tx.currency.clone())
-        .map_values(|tx: &Transaction| tx.amount)
-        .combine_values(Sum::<f64>::default());
+        .key_by_named("key-by-currency", |tx: &Transaction| tx.currency.clone())?
+        .map_values_named("transaction-amount", |tx: Transaction| tx.amount)?
+        .sum_per_key_named("currency-total")?;
 
     let results = by_currency.collect_seq()?;
+    let totals: std::collections::HashMap<_, _> = results.iter().cloned().collect();
+    assert_eq!(totals.get("USD"), Some(&100.50));
+    assert_eq!(totals.get("EUR"), Some(&75.25));
 
     println!("  Total by Currency:");
     for (currency, total) in results {
@@ -262,8 +281,8 @@ fn validate_keyed_example() -> Result<()> {
     let p = Pipeline::default();
 
     // Customer transactions keyed by customer ID
-    let customer_transactions = from_vec(
-        &p,
+    let customer_transactions = p.from_vec(
+        "keyed-input",
         vec![
             (
                 1u32,
@@ -299,17 +318,19 @@ fn validate_keyed_example() -> Result<()> {
                 },
             ),
         ],
-    );
+    )?;
 
     // Validate only the values (transactions) while keeping keys (customer IDs)
-    let valid_transactions = customer_transactions.validate_values_skip_invalid();
+    let valid_transactions =
+        customer_transactions.validate_values_skip_invalid_named("keyed-validation")?;
 
     // Group by customer and sum amounts
     let customer_totals = valid_transactions
-        .map_values(|tx: &Transaction| tx.amount)
-        .combine_values(Sum::<f64>::default());
+        .map_values_named("keyed-amount", |tx: Transaction| tx.amount)?
+        .sum_per_key_named("customer-total")?;
 
     let results = customer_totals.collect_seq()?;
+    assert_eq!(results, vec![(1, 150.50)]);
 
     println!("  Customer Totals (after validation):");
     for (customer_id, total) in results {
