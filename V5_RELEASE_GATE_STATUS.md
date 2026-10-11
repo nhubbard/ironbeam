@@ -64,6 +64,13 @@ staged locally.
   no longer directly depends on those connector crates.
   The JSONL append sink uses a shared filesystem and may duplicate records on
   replay. This is a local runner proof of this bounded slice.
+- The separate Dataflow checkout now defaults its graph translator, Fn API
+  harness, and Dataflow runtime packages to v5-only dependencies. The old v4
+  entrypoints, translator, handler, tests, and wordcount example remain behind
+  an explicit `legacy-v4` feature. A package-scoped Dataflow test and a live
+  Prism run pass with that feature absent; workspace tests also pass with the
+  compatibility example enabling it. This reduces build coupling but does not
+  remove the v4 root implementation from the main Ironbeam repository.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
   measures 234/243 source locations and 46/54 active branch outcomes. The
