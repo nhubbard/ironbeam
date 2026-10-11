@@ -16,6 +16,9 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
+mod ordered_f64;
+pub use ordered_f64::OrdF64;
+
 pub const GRAPH_VERSION: Version = Version { major: 3, minor: 0 };
 pub const CODER_VERSION: Version = Version { major: 1, minor: 0 };
 pub const CHECKPOINT_VERSION: Version = Version { major: 1, minor: 0 };
