@@ -1545,6 +1545,7 @@ pub struct Registry {
     coders: BTreeMap<String, CoderRegistration>,
     group_coders: BTreeMap<String, GroupCoderRegistration>,
     cogroup_coders: BTreeMap<String, CoGroupCoderRegistration>,
+    join_coders: BTreeMap<String, JoinCoderRegistration>,
 }
 #[derive(Clone, Copy)]
 struct CoderRegistration {
@@ -1566,6 +1567,12 @@ struct CoGroupCoderRegistration {
     split_inputs: Vec<GroupInputSplitter>,
     assemble_output: GroupOutputAssembler,
 }
+#[derive(Clone, Copy)]
+struct JoinCoderRegistration {
+    split_inputs: [GroupInputSplitter; 2],
+    assemble_inputs: [JoinInputAssembler; 2],
+}
+type JoinInputAssembler = fn(&[u8], &[u8]) -> Result<Payload, Error>;
 impl GroupCoderRegistration {
     fn for_elements<K: Element, V: Element>() -> Self {
         Self {
@@ -1601,6 +1608,53 @@ impl CoderRegistration {
     }
 }
 impl Registry {
+    #[must_use]
+    pub fn has_join_coder(&self, key: &str) -> bool {
+        self.join_coders.contains_key(key)
+    }
+
+    /// Preserve each input event timestamp inside the tagged shuffle value.
+    pub fn split_join_input(
+        &self, key: &str, input_index: usize, bytes: &[u8], timestamp_ns: i64,
+    ) -> Result<(Vec<u8>, Vec<u8>), Error> {
+        let coder = self.join_coders.get(key).ok_or_else(||
+            Error::incompatible(format!("no join coder registered for node {key}")))?;
+        let splitter = coder.split_inputs.get(input_index).ok_or_else(||
+            Error::incompatible(format!("join input index {input_index} is out of range")))?;
+        let (encoded_key, encoded_value) = splitter(bytes)?;
+        let mut tagged = Vec::with_capacity(9 + encoded_value.len());
+        tagged.push(input_index as u8);
+        tagged.extend_from_slice(&timestamp_ns.to_be_bytes());
+        tagged.extend_from_slice(&encoded_value);
+        Ok((encoded_key, tagged))
+    }
+
+    /// Reuse the Direct join aggregate for each Beam grouped key.
+    pub fn execute_join_group(
+        &self, key: &str, encoded_key: &[u8], tagged_values: &[Vec<u8>],
+        window: Window, assigned_window: Option<WindowInterval>,
+    ) -> Result<Vec<(Vec<u8>, i64)>, Error> {
+        let coder = self.join_coders.get(key).ok_or_else(||
+            Error::incompatible(format!("no join coder registered for node {key}")))?;
+        let mut inputs = [Vec::new(), Vec::new()];
+        for tagged in tagged_values {
+            let (&tag, payload) = tagged.split_first().ok_or_else(||
+                Error::incompatible("join tagged value is empty"))?;
+            let assembler = coder.assemble_inputs.get(usize::from(tag)).ok_or_else(||
+                Error::incompatible("join input tag is out of range"))?;
+            let timestamp_bytes = payload.get(..8).ok_or_else(||
+                Error::incompatible("join tagged value lacks timestamp"))?;
+            let timestamp_ns = i64::from_be_bytes(timestamp_bytes.try_into().expect("eight bytes"));
+            inputs[usize::from(tag)].push(Envelope {
+                value: assembler(encoded_key, &payload[8..])?,
+                timestamp_ns, window: window.clone(), assigned_window,
+            });
+        }
+        self.apply_aggregate(key, inputs.into_iter().collect())?.into_iter()
+            .map(|event| Ok((self.encode_element(key, event.value.as_ref())?, event.timestamp_ns)))
+            .collect()
+    }
+
     /// Whether a multi-input co-group has typed tagged-union coders.
     #[must_use]
     pub fn has_cogroup_coder(&self, key: &str) -> bool {
@@ -3605,7 +3659,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             }
             Ok(output)
         });
-        self.next_aggregate(
+        let collection = self.next_aggregate(
             key,
             operation,
             vec![InputEdge {
@@ -3623,7 +3677,27 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             },
             aggregate,
             None,
-        )
+        )?;
+        let registration = JoinCoderRegistration {
+            split_inputs: [
+                |bytes| {
+                    let (row_key, value) = <(K, V)>::decode(bytes)?;
+                    Ok((row_key.encode()?, value.encode()?))
+                },
+                |bytes| {
+                    let (row_key, value) = <(K, W)>::decode(bytes)?;
+                    Ok((row_key.encode()?, value.encode()?))
+                },
+            ],
+            assemble_inputs: [
+                |encoded_key, encoded_value| Ok(Box::new((K::decode(encoded_key)?, V::decode(encoded_value)?))),
+                |encoded_key, encoded_value| Ok(Box::new((K::decode(encoded_key)?, W::decode(encoded_value)?))),
+            ],
+        };
+        collection.pipeline.inner.lock()
+            .map_err(|_| Error::graph(key, "builder lock poisoned"))?
+            .registry.join_coders.insert(key.to_owned(), registration);
+        Ok(collection)
     }
 }
 

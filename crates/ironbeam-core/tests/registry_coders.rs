@@ -1,4 +1,4 @@
-use ironbeam_core::{Element, Error, Pipeline};
+use ironbeam_core::{Element, Error, Pipeline, Window};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct UserRow(u32);
@@ -104,4 +104,32 @@ fn cogroup_registry_handles_three_inputs_and_empty_value_groups() {
         &[first_value, second_value]).unwrap();
     assert_eq!(<(String, (Vec<i32>, Vec<UserRow>, Vec<bool>))>::decode(&output).unwrap(),
         ("a".to_owned(), (vec![4], vec![UserRow(9)], Vec::new())));
+}
+
+#[test]
+fn portable_join_reuses_direct_matching_and_input_timestamps() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![("a".to_owned(), 1_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![("a".to_owned(), true)]).unwrap();
+    left.join_full_named("join", &right).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.has_join_coder("join"));
+    let (key, left_one) = registry.split_join_input("join", 0,
+        &("a".to_owned(), 1_i32).encode().unwrap(), 11).unwrap();
+    let (_, left_two) = registry.split_join_input("join", 0,
+        &("a".to_owned(), 2_i32).encode().unwrap(), 12).unwrap();
+    let (_, right_one) = registry.split_join_input("join", 1,
+        &("a".to_owned(), true).encode().unwrap(), 21).unwrap();
+    let rows = registry.execute_join_group("join", &key,
+        &[left_one, left_two, right_one], Window::Global, None).unwrap();
+    let mut decoded = rows.into_iter().map(|(bytes, timestamp)|
+        (<(String, (Option<i32>, Option<bool>))>::decode(&bytes).unwrap(), timestamp))
+        .collect::<Vec<_>>();
+    decoded.sort_by_key(|((_, (left, _)), _)| *left);
+    assert_eq!(decoded, vec![
+        (("a".to_owned(), (Some(1), Some(true))), 21),
+        (("a".to_owned(), (Some(2), Some(true))), 21),
+    ]);
+    assert!(registry.execute_join_group("join", &key, &[vec![2]], Window::Global, None).is_err());
+    assert!(registry.split_join_input("join", 2, &[], 0).is_err());
 }
