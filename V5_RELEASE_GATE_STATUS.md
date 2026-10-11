@@ -451,10 +451,11 @@ staged locally.
    tests cover multiple bundles, batch rollover, empty output, corrupt frames,
    uncoded types, wrong counts, and idempotent publication. A separate local
    Prism fixture reads native Arrow input, crosses Reshuffle, publishes after
-   `DONE`, and reopens all three rows. That fixture also has an ordinary capture
-   terminal: when the finalized sink was the only terminal, Prism reported
-   `DONE` with zero Impulse elements and no committed sink count. Final-only
-   portable job execution remains a release gate until that graph shape runs.
+   `DONE`, and reopens all three rows with the finalized sink as its only
+   terminal. The initial lowering gave that terminal an unused Beam output;
+   Prism reported `DONE` with zero Impulse elements. The Dataflow integration
+   now lowers sinks without Beam outputs, and both the isolated final-only
+   Arrow job and the larger multi-source Prism job pass with that contract.
    Arrow's isolated all-feature coverage is 409/452 source locations and
    26/30 branches, above the existing package gate; its strict lint and
    offline package verification pass.
