@@ -7,6 +7,14 @@ staged locally.
 
 ## Verified in this checkout
 
+- Explicit-order keyed and global folds now use the same grouped and sorted
+  logic on Direct and portable execution. They reject duplicate order keys
+  within a key/window and give the result the first ordered value's event
+  time; an empty global input emits the fold identity at time zero. Direct
+  tests cover both variants, duplicate errors, values, event time, and
+  windows. Live local Prism jobs match Direct keyed values and metadata,
+  global values and empty identity, and failure on duplicate global order
+  keys. The encounter-order v4 compatibility methods remain Direct-only.
 - Bounded Direct now has `run_sinks` for any number of idempotent sink branches
   from one source. It executes shared stateless stages once, clones values at
   nested fan-out through registered coders, and writes each sink in bounded

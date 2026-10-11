@@ -145,12 +145,20 @@ today; unbounded and portable execution parity remains open.
 Ordered folds require an explicit user order key for identical Direct and
 portable behavior. The existing encounter-order fold methods retain their
 Direct compatibility behavior; Beam grouping does not preserve that encounter
-order. Add order-key variants for global and keyed folds, sort within each
-key/window before invoking the fold, and reject duplicate order keys in a
+order. The order-key variants for global and keyed folds sort within each
+key/window before invoking the fold and reject duplicate order keys in a
 key/window on both runners rather than depending on arrival order. Include
 matching metadata and error behavior in the cross-runner corpus before
 claiming parity. The order-key extractor is part of the rebuilt worker
 registry and must match the driver binary build identity.
+The keyed `fold_values_ordered_by_named` variant now uses a reified order key,
+Beam GroupByKey, and a sorted fold on both runners. The global
+`fold_globally_ordered_by_named` variant uses the same constant-key Beam
+grouping as other global combines, including an empty-input seed. Live Prism
+jobs match Direct keyed values, event times, and windows; global values and
+empty identity; and rejection of duplicate global order keys. Add a portable
+duplicate keyed order-key proof and the remaining behavior corpus before
+closing this gate.
 
 ## Gates before deleting `src/` v4 runtime modules
 

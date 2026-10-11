@@ -1598,6 +1598,8 @@ enum Transform {
     Multi(MultiTransform),
 }
 type Aggregate = Arc<dyn Fn(Vec<Vec<Envelope>>) -> Result<Vec<Envelope>, Error> + Send + Sync>;
+type OrderedGlobalGroups<Q, T> =
+    BTreeMap<Option<i64>, (BTreeMap<Q, (T, i64)>, Option<WindowInterval>)>;
 pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     fn create(&self) -> A;
     fn add_input(&self, accumulator: &mut A, value: V);
@@ -2189,7 +2191,11 @@ impl GroupCoderRegistration {
                 T::decode(value)?;
                 Ok(value.to_vec())
             },
-            assemble_output: |_, _| Err(Error::incompatible("global fold has no grouped output coder")),
+            assemble_output: |_, _| {
+                Err(Error::incompatible(
+                    "global fold has no grouped output coder",
+                ))
+            },
         }
     }
     fn for_elements<K: Element, V: Element>() -> Self {
@@ -2849,7 +2855,10 @@ impl Pipeline {
         }
         inner.registry.folds.insert(node.key.clone(), factory);
         if let Some(group_coder) = group_coder {
-            inner.registry.group_coders.insert(node.key.clone(), group_coder);
+            inner
+                .registry
+                .group_coders
+                .insert(node.key.clone(), group_coder);
         }
         inner.graph.nodes.push(node);
         drop(inner);
@@ -3931,6 +3940,89 @@ impl<T: Element> PCollection<T> {
         });
         self.next_fold(key, Operation::FoldOrderedGlobal, factory, None)
     }
+    /// Fold each window in an explicit order on Direct and portable runners.
+    /// Order keys must be unique within a window. An empty global input emits
+    /// `fold.finish(fold.create())` at timestamp zero.
+    pub fn fold_globally_ordered_by_named<Q, C, A, O>(
+        &self,
+        key: &str,
+        order_key: impl Fn(&T) -> Q + Send + Sync + 'static,
+        fold: C,
+    ) -> Result<PCollection<O>, Error>
+    where
+        Q: Ord + Send + 'static,
+        C: OrderedFoldFn<T, A, O>,
+        A: Send + 'static,
+        O: Element,
+    {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let node_key = key.to_owned();
+        let output_window = parent.time.window.clone();
+        let aggregate: Aggregate = Arc::new(move |mut inputs| {
+            let events = inputs.pop().ok_or_else(|| {
+                Error::execution(&node_key, "runner", "ordered global fold input missing")
+            })?;
+            let mut groups: OrderedGlobalGroups<Q, T> = BTreeMap::new();
+            for event in events {
+                let value = *event.value.downcast::<T>().map_err(|_| {
+                    Error::execution(
+                        &node_key,
+                        "runner",
+                        "ordered global fold input type mismatch",
+                    )
+                })?;
+                let scope = event.assigned_window.map(|interval| interval.start_ns);
+                let entry = groups
+                    .entry(scope)
+                    .or_insert_with(|| (BTreeMap::new(), event.assigned_window));
+                if entry
+                    .0
+                    .insert(order_key(&value), (value, event.timestamp_ns))
+                    .is_some()
+                {
+                    return Err(Error::execution(
+                        &node_key,
+                        "runner",
+                        "duplicate ordered fold key in key/window",
+                    ));
+                }
+            }
+            if groups.is_empty() && output_window == Window::Global {
+                groups.insert(None, (BTreeMap::new(), None));
+            }
+            let mut result = Vec::with_capacity(groups.len());
+            for (ordered, assigned_window) in groups.into_values() {
+                let timestamp_ns = ordered
+                    .first_key_value()
+                    .map_or(0, |(_, (_, timestamp))| *timestamp);
+                let mut accumulator = fold.create();
+                for (_, (value, _)) in ordered {
+                    fold.add_input(&mut accumulator, value);
+                }
+                result.push(Envelope {
+                    value: Box::new(fold.finish(accumulator)),
+                    timestamp_ns,
+                    window: output_window.clone(),
+                    assigned_window,
+                });
+            }
+            Ok(result)
+        });
+        self.next_aggregate(
+            key,
+            Operation::GlobalCombine,
+            Vec::new(),
+            parent.boundedness,
+            aggregate,
+            Some(GroupCoderRegistration::for_global::<T>()),
+        )
+    }
     pub fn latest_globally_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
@@ -4827,6 +4919,96 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             })
         });
         self.next_fold(key, Operation::FoldOrderedPerKey, factory, None)
+    }
+    /// Fold each key/window in an explicit order on Direct and portable runners.
+    /// The order key must be unique within its key/window. The result timestamp
+    /// is the timestamp of the first value in that order.
+    pub fn fold_values_ordered_by_named<Q, C, A, O>(
+        &self,
+        key: &str,
+        order_key: impl Fn(&V) -> Q + Send + Sync + 'static,
+        fold: C,
+    ) -> Result<PCollection<(K, O)>, Error>
+    where
+        Q: Element + Ord,
+        C: OrderedFoldFn<V, A, O>,
+        A: Send + 'static,
+        O: Element,
+    {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let reify_key = format!("{key}/order");
+        let order_transform = Transform::Single(Arc::new(move |event| {
+            let Envelope {
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let (group_key, value) = *value.downcast::<(K, V)>().map_err(|_| {
+                Error::execution(&reify_key, "runner", "ordered fold input type mismatch")
+            })?;
+            let order = order_key(&value);
+            Ok(Some(Envelope {
+                value: Box::new((group_key, (order, (timestamp_ns, value)))),
+                timestamp_ns,
+                window,
+                assigned_window,
+            }))
+        }));
+        let keyed = self.next::<(K, (Q, (i64, V)))>(
+            &format!("{key}/order"),
+            Operation::Map,
+            Some(order_transform),
+            None,
+        )?;
+        let grouped = keyed.group_by_key_named(&format!("{key}/group"))?;
+        let node_key = key.to_owned();
+        let select = Transform::Single(Arc::new(move |event| {
+            let Envelope {
+                value,
+                window,
+                assigned_window,
+                ..
+            } = event;
+            let (group_key, values) =
+                *value.downcast::<(K, Vec<(Q, (i64, V))>)>().map_err(|_| {
+                    Error::execution(&node_key, "runner", "ordered fold group type mismatch")
+                })?;
+            let mut ordered = BTreeMap::new();
+            for (order, row) in values {
+                if ordered.insert(order, row).is_some() {
+                    return Err(Error::execution(
+                        &node_key,
+                        "runner",
+                        "duplicate ordered fold key in key/window",
+                    ));
+                }
+            }
+            let timestamp_ns = ordered
+                .first_key_value()
+                .ok_or_else(|| {
+                    Error::execution(&node_key, "runner", "ordered fold group is empty")
+                })?
+                .1
+                .0;
+            let mut accumulator = fold.create();
+            for (_, (_, value)) in ordered {
+                fold.add_input(&mut accumulator, value);
+            }
+            Ok(Some(Envelope {
+                value: Box::new((group_key, fold.finish(accumulator))),
+                timestamp_ns,
+                window,
+                assigned_window,
+            }))
+        }));
+        grouped.next(key, Operation::Map, Some(select), None)
     }
     pub fn map_values_batches_named<O: Element>(
         &self,
