@@ -509,6 +509,11 @@ staged locally.
    Multi-bundle retry and worker-restart recovery remain unproved. A local
    two-source Flatten experiment reached `DONE`, but Prism coalesced its Avro
    output into one final sink bundle, so it did not close the multi-bundle gate.
+   A later production SDF fixture closed the successful multi-bundle slice:
+   its residual restriction produced at least two finalized framed fragments
+   in a live Prism job. The driver published all three original values only
+   after `DONE` with committed row-count validation. A runner retry or
+   abandoned attempt and no-partial-publish proof on failure remain open.
    The worker now passes a stable bundle attempt ID to each sink before writes;
    the Prism probe uses it for deterministic fragment names and rejects a
    conflicting replay. This prepares durable manifest and publication work.
@@ -545,7 +550,13 @@ staged locally.
    The v5 worker now tracks progress across multiple sinks in one bundle:
    when a later finalizer fails, retry resumes at that sink without replaying
    earlier successes. A two-bundle registry test also verifies isolated and
-   duplicate callbacks; this is not a live Prism multi-bundle proof.
+   duplicate callbacks; the live Prism proof above covers successful
+   multi-bundle completion.
+   The larger opt-in Prism graph fixture currently remains `RUNNING` past its
+   ten-second test limit on a fresh local Prism service. The same stall occurs
+   with the committed Dataflow fixture before the multi-bundle addition, so
+   the new production proof is independently green but the full portable
+   fixture is not a current passing release gate.
    No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.
