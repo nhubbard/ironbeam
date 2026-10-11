@@ -32,6 +32,31 @@ fn collection_coders_reject_truncated_and_trailing_bytes() {
 }
 
 #[test]
+fn collection_coders_reject_missing_headers_and_incomplete_tuple_parts() {
+    assert_eq!(
+        HashSet::<i32>::decode(&[0; 7]).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    assert_eq!(
+        HashMap::<i32, i32>::decode(&[0; 7]).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+
+    let mut tuple = (1_i32, 2_i32, 3_i32).encode().unwrap();
+    tuple.push(0);
+    assert_eq!(
+        <(i32, i32, i32)>::decode(&tuple).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    assert_eq!(
+        <(i32, i32, i32)>::decode(&tuple[..tuple.len() - 5])
+            .unwrap_err()
+            .kind,
+        ErrorKind::Incompatible
+    );
+}
+
+#[test]
 fn float_coders_preserve_special_bit_patterns() {
     for value in [
         0.0_f64,
@@ -65,6 +90,13 @@ fn result_coder_preserves_success_and_failure() {
         failed
     );
     assert!(Result::<i32, String>::decode(&[2, 0]).is_err());
+    assert!(Result::<i32, String>::decode(&[]).is_err());
+    let mut trailing = ok.encode().unwrap();
+    trailing.push(0);
+    assert_eq!(
+        Result::<i32, String>::decode(&trailing).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -72,9 +104,15 @@ struct Colliding(i32);
 impl Element for Colliding {
     const TYPE_ID: &'static str = "test/colliding";
     const CODER_ID: &'static str = "test/colliding-v1";
-    fn supports_coder() -> bool { true }
-    fn encode(&self) -> Result<Vec<u8>, Error> { Ok(vec![0]) }
-    fn decode(_: &[u8]) -> Result<Self, Error> { Ok(Self(0)) }
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        Ok(vec![0])
+    }
+    fn decode(_: &[u8]) -> Result<Self, Error> {
+        Ok(Self(0))
+    }
 }
 
 #[test]
@@ -92,14 +130,20 @@ fn collection_coders_reject_duplicate_wire_members() {
     set_bytes[..8].copy_from_slice(&2_u64.to_le_bytes());
     let member = set_bytes[8..].to_vec();
     set_bytes.extend_from_slice(&member);
-    assert_eq!(HashSet::<i32>::decode(&set_bytes).unwrap_err().kind, ErrorKind::Incompatible);
+    assert_eq!(
+        HashSet::<i32>::decode(&set_bytes).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
 
     let one_map: HashMap<i32, i32> = [(7, 9)].into();
     let mut map_bytes = one_map.encode().unwrap();
     map_bytes[..8].copy_from_slice(&2_u64.to_le_bytes());
     let entry = map_bytes[8..].to_vec();
     map_bytes.extend_from_slice(&entry);
-    assert_eq!(HashMap::<i32, i32>::decode(&map_bytes).unwrap_err().kind, ErrorKind::Incompatible);
+    assert_eq!(
+        HashMap::<i32, i32>::decode(&map_bytes).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
 }
 
 #[test]
@@ -110,7 +154,10 @@ fn nested_container_coders_reject_unsupported_element_types() {
         const TYPE_ID: &'static str = "test/opaque-collection";
         const CODER_ID: &'static str = "test/opaque-collection";
     }
-    assert!(matches!(Vec::<Opaque>::decode(&[]).err().unwrap().kind, ErrorKind::UnsupportedCapability { .. }));
+    assert!(matches!(
+        Vec::<Opaque>::decode(&[]).err().unwrap().kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
     assert!(Vec::<Opaque>::new().encode().is_err());
     assert!(Option::<Opaque>::decode(&[]).is_err());
     assert!(Some(Opaque).encode().is_err());

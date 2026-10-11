@@ -80,18 +80,19 @@ staged locally.
 ## Open replacement gates
 
 1. **Core coverage quality:** The old package-only CI baseline recorded 972/974
-   source locations and 210/222 branches before core grew. It was red after
-   expansion and omitted paths exercised through Direct and transforms tests.
-   The three-package corpus covers the same core paths as the full workspace
-   corpus. After adversarial coder tests, it measures 1,794/1,868 source
-   locations (96.04%) and 324/376 branches (86.17%). CI now gates this
-   three-package corpus at the measured baseline. A new measurement after
-   the typed keyed fan-out boundary and its tests is 2,121/2,656 source
-   locations (79.86%) and 326/378 branches (86.24%). The source-location CI
-   threshold of 96.04% currently fails. Its denominator changes substantially
-   with generic and macro instantiation, so this gate needs a reviewed
-   measurement method as well as additional behavior coverage. The branch
-   threshold still passes.
+   source locations and 210/222 branches before core grew. It omitted paths
+   exercised through Direct and transforms tests, so CI now gates the
+   three-package corpus. An earlier local report combined stale instrumented
+   generic and macro instances, yielding 2,121/2,656 source locations and a
+   false threshold failure. Repeating the exact CI corpus with an isolated
+   coverage target measured 1,841/1,917 source locations and 326/378 branches.
+   Tests for malformed set/map headers, tuple parts, and result bytes then
+   raised the clean corpus to 1,846/1,917 (96.30%) and 327/378 (86.51%),
+   above both existing CI thresholds. Coverage runs must start from a clean
+   instrumented target; the denominator is sensitive to cached generic
+   instances. Remaining uncovered paths include impossible-length guards and
+   failure branches for graph and runner contracts. Continue targeted coverage
+   work rather than treating this ratio as complete unit test coverage.
    The common transforms package now has a reviewed isolated baseline of
    1,092/1,120 source locations (97.50%) and 82/90 active branch outcomes
    (91.11%). The old 89/89, zero-branch baseline predates the expanded helper
