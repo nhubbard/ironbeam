@@ -84,7 +84,9 @@ staged locally.
   `v5-preview` build has only core, Direct, transforms, and shared I/O as
   direct dependencies; it excludes the legacy cloud package. The v4 root
   integration tests are also gated by `legacy-v4`, allowing the complete
-  root test target set to build in v5-only mode. The v4 implementation remains
+  root test target set to build in v5-only mode. The crate root now shows a
+  v5-only quick start in that build, with a passing doctest; legacy builds
+  retain their existing documentation. The v4 implementation remains
   in the repository until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
