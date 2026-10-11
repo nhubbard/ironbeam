@@ -7,15 +7,13 @@ fn encoded_lengths_match_nested_wire_shapes_used_for_output_budgets() {
         (7_u32, Some("éclair".to_string()), vec![true, false]),
         (8_u32, None, vec![]),
     ];
-    assert_eq!(values.encoded_len().unwrap(), values.encode().unwrap().len());
     assert_eq!(
-        (1_u32, (2_u64, "text".to_string()))
-            .encoded_len()
-            .unwrap(),
-        (1_u32, (2_u64, "text".to_string()))
-            .encode()
-            .unwrap()
-            .len()
+        values.encoded_len().unwrap(),
+        values.encode().unwrap().len()
+    );
+    assert_eq!(
+        (1_u32, (2_u64, "text".to_string())).encoded_len().unwrap(),
+        (1_u32, (2_u64, "text".to_string())).encode().unwrap().len()
     );
 }
 
@@ -41,7 +39,10 @@ fn higher_arity_tuple_append_and_reuse_preserve_wire_bytes() {
     value.encode_reusing(&mut buffer).unwrap();
     assert_eq!(buffer, expected);
     assert_eq!(buffer.len(), value.encoded_len().unwrap());
-    assert_eq!(<(u32, String, Option<i64>, Vec<bool>)>::decode(&buffer).unwrap(), value);
+    assert_eq!(
+        <(u32, String, Option<i64>, Vec<bool>)>::decode(&buffer).unwrap(),
+        value
+    );
 }
 
 #[test]
@@ -76,14 +77,19 @@ fn vector_and_option_append_and_reuse_preserve_wire_bytes() {
 
 #[test]
 fn composite_coders_encode_custom_elements_once() {
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     #[derive(Clone)]
     struct Counted(Arc<AtomicUsize>);
     impl Element for Counted {
         const TYPE_ID: &'static str = "test/counting-element";
         const CODER_ID: &'static str = "test/counting-element-v1";
-        fn supports_coder() -> bool { true }
+        fn supports_coder() -> bool {
+            true
+        }
         fn encode(&self) -> Result<Vec<u8>, Error> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(vec![7])
@@ -257,7 +263,18 @@ fn nested_container_coders_reject_unsupported_element_types() {
         ErrorKind::UnsupportedCapability { .. }
     ));
     assert!(Vec::<Opaque>::new().encode().is_err());
+    let mut bytes = Vec::new();
+    assert!(Vec::<Opaque>::new().encode_into(&mut bytes).is_err());
+    assert!(Vec::<Opaque>::new().encoded_len().is_err());
     assert!(Option::<Opaque>::decode(&[]).is_err());
     assert!(Some(Opaque).encode().is_err());
+    assert!(Option::<Opaque>::None.encode_into(&mut bytes).is_err());
+    assert!(Option::<Opaque>::None.encoded_len().is_err());
+    assert!((Opaque, 1_u8).encode_into(&mut bytes).is_err());
+    assert!((Opaque, 1_u8).encoded_len().is_err());
+    assert!((Opaque, 1_u8, 2_u8).encode().is_err());
+    assert!((Opaque, 1_u8, 2_u8).encode_into(&mut bytes).is_err());
+    assert!((Opaque, 1_u8, 2_u8).encoded_len().is_err());
+    assert!(<(Opaque, u8, u8)>::decode(&[]).is_err());
     assert!(HashSet::<Opaque>::decode(&[]).is_err());
 }
