@@ -3861,7 +3861,7 @@ impl<T: Element> PCollection<T> {
             Vec::new(),
             parent.boundedness,
             aggregate,
-            None,
+            Some(GroupCoderRegistration::for_global::<T>()),
         )
     }
     pub fn combine_globally_lifted_named<C, A, O>(

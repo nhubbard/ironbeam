@@ -7,6 +7,15 @@ staged locally.
 
 ## Verified in this checkout
 
+- Vector-based `combine_globally_named` now uses the same constant-key Beam
+  GroupByKey boundary as mergeable global folds, while the worker invokes the
+  registered vector aggregate. The bounded global-window path retains its
+  Impulse seed, so an empty input calls the aggregate with an empty vector.
+  Focused graph and worker tests pass; a live Prism job reached `DONE` and
+  wrote 5 for `[2, 3]` and 0 for empty input. The full six-test local Prism
+  corpus and strict graph/worker/proof lint pass. This shuffle materializes
+  each global window in the worker, and portable order-sensitive vector
+  aggregate parity remains unproven.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The
@@ -44,7 +53,8 @@ staged locally.
   Direct initially mistook the new group coder for a GroupByKey node and
   applied its materialized-source budget to streaming folds; the Direct
   planner now checks the graph operation, and its full all-feature suite
-  passes. Portable global combines and ordered folds remain open.
+  passes. Vector-based global combines now have a bounded Prism proof;
+  ordered folds and order-sensitive vector aggregate parity remain open.
 - Sequential typed vector map/filter collection now runs inline when the job
   requests one worker, avoiding a thread-pool setup for each short job. The
   Direct all-feature suite and ordinary `-D warnings` lint pass. In local
