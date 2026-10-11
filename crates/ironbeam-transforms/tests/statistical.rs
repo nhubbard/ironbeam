@@ -32,6 +32,47 @@ fn digest_handles_empty_non_finite_and_merge() {
 }
 
 #[test]
+fn quantiles_are_monotone_for_unsorted_small_groups() {
+    for values in [
+        vec![49.99, 79.99, 39.99],
+        vec![599.99, 1299.99, 799.99, 449.99],
+    ] {
+        let mut digest = TDigest::new(100.0);
+        for value in &values {
+            digest.add(*value);
+        }
+        let result = digest.quantiles(&[0.0, 0.25, 0.5, 0.75, 0.95, 1.0]);
+        assert_eq!(
+            result.first().copied(),
+            Some(values.iter().copied().fold(f64::INFINITY, f64::min))
+        );
+        assert_eq!(
+            result.last().copied(),
+            Some(values.iter().copied().fold(f64::NEG_INFINITY, f64::max))
+        );
+        assert!(
+            result.windows(2).all(|pair| pair[0] <= pair[1]),
+            "{result:?}"
+        );
+        digest.compress();
+        let compressed = digest.quantiles(&[0.0, 0.25, 0.5, 0.75, 0.95, 1.0]);
+        assert!(
+            compressed.windows(2).all(|pair| pair[0] <= pair[1]),
+            "{compressed:?}"
+        );
+    }
+}
+
+#[test]
+fn merged_single_centroid_keeps_both_range_endpoints() {
+    let mut digest = TDigest::new(100.0);
+    digest.add_weighted(1.0, 0.1);
+    digest.add_weighted(3.0, 0.1);
+    digest.compress();
+    assert_eq!(digest.quantiles(&[0.0, 0.5, 1.0]), [1.0, 2.0, 3.0]);
+}
+
+#[test]
 fn graph_quantiles_match_v4_boundaries_in_sequential_and_parallel_runs() {
     let pipeline = Pipeline::default();
     let input = pipeline

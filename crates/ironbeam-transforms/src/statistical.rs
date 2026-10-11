@@ -1,4 +1,4 @@
-//! Approximate quantiles using the v4 t-digest calculation.
+//! Approximate quantiles using a t-digest with monotone interpolation.
 use ironbeam_core::{CombineFn, Element, Error, PCollection};
 use std::hash::Hash;
 
@@ -8,7 +8,7 @@ struct Centroid {
     weight: f64,
 }
 
-/// V4-compatible t-digest. Non-finite observations are ignored.
+/// V4-compatible centroid construction. Non-finite observations are ignored.
 #[derive(Clone, Debug)]
 pub struct TDigest {
     compression: f64,
@@ -111,36 +111,53 @@ impl TDigest {
             return f64::NAN;
         }
         let q = q.clamp(0.0, 1.0);
-        if q.abs() <= f64::EPSILON || self.centroids.len() == 1 {
+        if q.abs() <= f64::EPSILON {
             return self.min;
         }
         if (q - 1.0).abs() <= f64::EPSILON {
             return self.max;
         }
+        if self.centroids.len() == 1 {
+            return q.mul_add(self.max - self.min, self.min);
+        }
+        // Centroid midpoints are ordered in both rank and value. Interpolating
+        // between adjacent midpoints cannot reverse the percentile sequence.
+        let ordered = if self
+            .centroids
+            .windows(2)
+            .all(|pair| pair[0].mean.total_cmp(&pair[1].mean).is_le())
+        {
+            None
+        } else {
+            let mut centroids = self.centroids.clone();
+            centroids.sort_by(|left, right| left.mean.total_cmp(&right.mean));
+            Some(centroids)
+        };
+        let centroids = ordered.as_deref().unwrap_or(&self.centroids);
         let target = q * self.total_weight;
         let mut cumulative = 0.0;
-        for (index, centroid) in self.centroids.iter().enumerate() {
-            let next = cumulative + centroid.weight;
-            if next >= target {
-                if (next - cumulative).abs() < f64::EPSILON {
+        let mut previous_rank = 0.0;
+        let mut previous_value = self.min;
+        for centroid in centroids {
+            let rank = cumulative + centroid.weight / 2.0;
+            if target <= rank {
+                let span = rank - previous_rank;
+                if span <= f64::EPSILON {
                     return centroid.mean;
                 }
-                let fraction = (target - cumulative) / centroid.weight;
-                let left = if index == 0 {
-                    self.min
-                } else {
-                    self.centroids[index - 1].mean
-                };
-                let right = if index + 1 == self.centroids.len() {
-                    self.max
-                } else {
-                    self.centroids[index + 1].mean
-                };
-                return fraction.mul_add(right - left, left);
+                let fraction = ((target - previous_rank) / span).clamp(0.0, 1.0);
+                return fraction.mul_add(centroid.mean - previous_value, previous_value);
             }
-            cumulative = next;
+            previous_rank = rank;
+            previous_value = centroid.mean;
+            cumulative += centroid.weight;
         }
-        self.max
+        let span = self.total_weight - previous_rank;
+        if span <= f64::EPSILON {
+            return self.max;
+        }
+        let fraction = ((target - previous_rank) / span).clamp(0.0, 1.0);
+        fraction.mul_add(self.max - previous_value, previous_value)
     }
 
     #[must_use]
