@@ -14,7 +14,7 @@
 //! Each test starts its own container, so no test shares state with another. MongoDB has no
 //! DDL step: databases and collections are created implicitly on first insert.
 
-#![cfg(feature = "io-mongodb")]
+#![cfg(all(feature = "io-mongodb", feature = "legacy-v4-service-tests"))]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;

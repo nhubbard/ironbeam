@@ -24,6 +24,12 @@ staged locally.
   workspace tests, selected feature variants, all-feature
   documentation, and local package verification for all twenty-five v5 crates.
   No package was published.
+- Root v5 tests no longer compile Testcontainers as an unconditional dev
+  dependency. The legacy MongoDB/Postgres/MySQL suites use the opt-in
+  `legacy-v4-service-tests` feature, which `--all-features` still enables in
+  the live CI jobs. The default dependency tree excludes both service-test
+  libraries; the v5 facade tests pass, and the all-feature legacy MongoDB
+  target compiles and lists its thirty tests.
 - `ironbeam-transform-regex` owns the v5 regex helpers and measures 45/45
   source locations in its isolated tests. The ordinary
   `ironbeam-transforms` dependency tree no longer includes `regex`. The

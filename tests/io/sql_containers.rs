@@ -15,7 +15,7 @@
 //! convention used for the MongoDB Testcontainers suite (see `tests/io/mongodb.rs`). CI runs
 //! these with Docker available as a service.
 
-#![cfg(feature = "io-sql")]
+#![cfg(all(feature = "io-sql", feature = "legacy-v4-service-tests"))]
 
 use anyhow::Result;
 use ironbeam::io::sql::*;
