@@ -386,6 +386,8 @@ staged locally.
    worker fixtures use the v5 DoFn wire contract; the planner rejects the
    old v4 URN. The all-feature Dataflow workspace tests and strict graphx
    and harness lint pass, and its lockfile no longer contains `ironbeam` v4.
+   The full multi-source, format, grouping, and finalized-sink Prism fixture
+   reached `DONE` again through a separate v5 worker after this cutover.
    The root package's own v4 modules and compatibility feature are still a
    release blocker before changing the root package to 5.0.0.
    `ironbeam-cloud` still contains legacy traits, fake services, readers,
