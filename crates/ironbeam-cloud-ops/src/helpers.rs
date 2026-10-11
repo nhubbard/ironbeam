@@ -130,7 +130,8 @@ use crate::utils::{
     PaginationConfig, RetryConfig, batch_in_chunks, paginate, retry_with_backoff, with_timeout,
 };
 use ironbeam_cloud_service_api::CloudResult;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 // ============================================================================
@@ -174,6 +175,7 @@ where
 /// This helper runs multiple independent operations concurrently and collects results.
 /// Results retain input order. Every operation is joined before the first error in
 /// input order is returned. A panicking operation becomes an internal error.
+/// Concurrency is bounded by the available CPU count (at least two, at most 32).
 ///
 /// # Example
 /// ```no_run
@@ -197,27 +199,76 @@ where
 pub fn run_parallel<T: Send>(
     operations: Vec<Box<dyn FnOnce() -> CloudResult<T> + Send>>,
 ) -> CloudResult<Vec<T>> {
-    let results = std::thread::scope(|scope| {
-        // Spawn every operation before joining any of them; an iterator chain
-        // would wait for each operation before starting the next.
-        #[allow(clippy::needless_collect)]
-        let handles = operations
-            .into_iter()
-            .map(|operation| scope.spawn(operation))
-            .collect::<Vec<_>>();
-        handles
-            .into_iter()
-            .map(|handle| {
-                handle.join().unwrap_or_else(|_| {
-                    Err(ironbeam_cloud_service_api::CloudIOError::new(
-                        ironbeam_cloud_service_api::ErrorKind::InternalError,
-                        "parallel cloud operation panicked",
-                    ))
-                })
-            })
-            .collect::<Vec<_>>()
+    let limit = std::thread::available_parallelism().map_or(2, |count| count.get().clamp(2, 32));
+    run_parallel_with_limit(operations, limit)
+}
+
+/// Execute independent operations with a caller-selected maximum concurrency.
+///
+/// Results and failures retain input order. All started operations finish before
+/// this function returns, including when an earlier operation fails.
+///
+/// # Errors
+///
+/// Returns `InvalidInput` for a zero limit, or the first input-order operation
+/// error. A panic inside an operation becomes `InternalError`.
+///
+/// # Panics
+///
+/// Panics only if the internal queue or result channel invariant is broken.
+pub fn run_parallel_with_limit<T: Send>(
+    operations: Vec<Box<dyn FnOnce() -> CloudResult<T> + Send>>,
+    max_concurrency: usize,
+) -> CloudResult<Vec<T>> {
+    use ironbeam_cloud_service_api::{CloudIOError, ErrorKind};
+
+    if max_concurrency == 0 {
+        return Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            "parallel cloud concurrency must be positive",
+        ));
+    }
+    let count = operations.len();
+    let queue = Mutex::new(operations.into_iter().enumerate().collect::<VecDeque<_>>());
+    let (sender, receiver) = mpsc::channel();
+    std::thread::scope(|scope| {
+        for _ in 0..count.min(max_concurrency) {
+            let sender = sender.clone();
+            let queue = &queue;
+            scope.spawn(move || {
+                loop {
+                    let next = queue
+                        .lock()
+                        .expect("operation queue lock poisoned")
+                        .pop_front();
+                    let Some((index, operation)) = next else {
+                        break;
+                    };
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation))
+                        .unwrap_or_else(|_| {
+                            Err(CloudIOError::new(
+                                ErrorKind::InternalError,
+                                "parallel cloud operation panicked",
+                            ))
+                        });
+                    sender
+                        .send((index, result))
+                        .expect("parallel result receiver dropped");
+                }
+            });
+        }
     });
-    results.into_iter().collect()
+    drop(sender);
+    let mut ordered = std::iter::repeat_with(|| None)
+        .take(count)
+        .collect::<Vec<Option<CloudResult<T>>>>();
+    for (index, result) in receiver {
+        ordered[index] = Some(result);
+    }
+    ordered
+        .into_iter()
+        .map(|result| result.expect("every parallel operation reports one result"))
+        .collect()
 }
 
 /// Execute a cloud operation with timeout and custom configuration

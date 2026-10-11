@@ -58,7 +58,7 @@ below is complete.
 | --- | --- |
 | Root workspace | Tests and doctests passed after the CoGroupByKey event-time fix. |
 | Local release script | Dependency and feature checks, tests, docs, and verification of 28 packages passed with Mr Boxington after legacy cloud retirement. |
-| Cloud operation coverage | New package: **165/240 source locations** and **30/38 branches**; CI ratchet added. Uncovered utility paths remain in the quality review. |
+| Cloud operation coverage | **186/261 source locations** and **34/42 branches** after bounding parallel helper concurrency; both CI ratchets pass. Uncovered utility paths remain in the quality review. |
 | JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** after eager cloud helper migration. |
 | Local Prism | 18 live tests passed. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch; the full harness suite and warning-free lint pass. |

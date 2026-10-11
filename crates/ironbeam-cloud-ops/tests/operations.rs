@@ -1,6 +1,7 @@
 use ironbeam_cloud_ops::helpers::{
     BatchConfig, CloudIOExecutor, OperationBuilder, OperationContext, run_batch_operation,
-    run_cloud_io_batch, run_cloud_io_paginated, run_parallel, run_with_context,
+    run_cloud_io_batch, run_cloud_io_paginated, run_parallel, run_parallel_with_limit,
+    run_with_context,
 };
 use ironbeam_cloud_ops::utils::{
     ConnectionPool, PaginationConfig, RetryConfig, batch_in_chunks, block_on_async, paginate,
@@ -242,6 +243,62 @@ fn parallel_operations_join_all_and_classify_panics() {
         run_parallel(operations).unwrap_err().kind,
         ErrorKind::InternalError
     );
+}
+
+#[test]
+fn parallel_operations_respect_limit_and_complete_after_failures() {
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let completed = Arc::new(AtomicUsize::new(0));
+    let operations = (0_usize..12)
+        .map(|index| {
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            let completed = Arc::clone(&completed);
+            Box::new(move || {
+                let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(current, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(10));
+                active.fetch_sub(1, Ordering::SeqCst);
+                completed.fetch_add(1, Ordering::SeqCst);
+                if index == 0 {
+                    Err(CloudIOError::new(ErrorKind::NotFound, "first failure"))
+                } else {
+                    Ok(index)
+                }
+            }) as Box<dyn FnOnce() -> CloudResult<usize> + Send>
+        })
+        .collect();
+    let error = run_parallel_with_limit(operations, 3).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::NotFound);
+    assert_eq!(completed.load(Ordering::SeqCst), 12);
+    assert!(peak.load(Ordering::SeqCst) <= 3);
+    assert_eq!(
+        run_parallel_with_limit::<usize>(Vec::new(), 2).unwrap(),
+        Vec::<usize>::new()
+    );
+    let ordered = (0_usize..8)
+        .map(|index| Box::new(move || Ok(index)) as Box<dyn FnOnce() -> CloudResult<usize> + Send>)
+        .collect();
+    assert_eq!(
+        run_parallel_with_limit(ordered, 2).unwrap(),
+        (0..8).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn parallel_operations_reject_zero_limit_without_running() {
+    let called = Arc::new(AtomicUsize::new(0));
+    let operation_called = Arc::clone(&called);
+    let operations: Vec<Box<dyn FnOnce() -> CloudResult<()> + Send>> = vec![Box::new(move || {
+        operation_called.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    })];
+    assert_eq!(
+        run_parallel_with_limit(operations, 0).unwrap_err().kind,
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(called.load(Ordering::SeqCst), 0);
 }
 
 #[test]
