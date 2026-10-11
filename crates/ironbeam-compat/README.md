@@ -20,6 +20,8 @@ v4_helper_parquet`, keeping its heavy dependency out of the default build.
 The v4 combiner and testing suites live here as separate reference targets.
 The v4 core collection, node identity, custom extension, and utility suites
 also run against published 4.1.1 here; they contain 38 reference cases.
+The batching, enhanced filtering, sampling, tee, and wait-on suites add 114
+published-v4 cases without requiring optional format or service features.
 The mock I/O target runs its JSONL and temporary-path checks by default; its
 CSV check uses `cargo test -p ironbeam-compat --features v4-csv --test
 v4_testing_mock_io`.

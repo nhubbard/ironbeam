@@ -78,6 +78,10 @@ staged locally.
 - The v4 core collection, node identity, custom extension, and utility suites
   now run in `ironbeam-compat` against published 4.1.1. Their 38 cases pass,
   and the five duplicate root test targets are removed.
+- Seven more v4 batching, enhanced-filtering, sampling, tee, and wait-on
+  suites now run in `ironbeam-compat` against published 4.1.1. Their 114 cases
+  pass without optional format or service features; the duplicate root
+  targets are removed.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The

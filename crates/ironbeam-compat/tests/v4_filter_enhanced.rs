@@ -1,10 +1,9 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for enhanced filter operations.
 //!
 //! This test suite validates the convenience filter methods added in feature 1.3,
 //! including comparison operators and the `filter_by` method for struct fields.
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 /// Test basic equality filtering

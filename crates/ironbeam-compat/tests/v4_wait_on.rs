@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.12: `PCollection::wait_on`.
 //!
 //! Validates that `wait_on(&signal)` is a strict passthrough on its element
@@ -9,7 +8,7 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

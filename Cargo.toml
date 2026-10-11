@@ -244,14 +244,6 @@ name = "approx_count_distinct"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "batch_elements"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "batch_map_values"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "bloom_filter"
 required-features = ["legacy-v4"]
 
@@ -273,14 +265,6 @@ required-features = ["legacy-v4"]
 
 [[test]]
 name = "feature_gating"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "filter_enhanced"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "group_into_batches"
 required-features = ["legacy-v4"]
 
 [[test]]
@@ -328,10 +312,6 @@ name = "runner"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "sample"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "serde_coders"
 required-features = ["legacy-v4"]
 
@@ -344,17 +324,9 @@ name = "spill_integration"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "tee"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "testing_utilities"
 required-features = ["legacy-v4"]
 
 [[test]]
 name = "validation"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "wait_on"
 required-features = ["legacy-v4"]

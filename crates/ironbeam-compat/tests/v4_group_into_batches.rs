@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.6: `group_into_batches`.
 //!
 //! Validates that per-key values are chunked into fixed-size `Vec` batches:
@@ -10,7 +9,7 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

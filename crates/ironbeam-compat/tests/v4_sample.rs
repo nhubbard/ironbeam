@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.14: Beam-style fixed-size sample.
 //!
 //! Covers:
@@ -12,7 +11,7 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use std::collections::HashSet;
 
 // ── sample_globally ──────────────────────────────────────────────────────────

@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.9: `tee` / `tee_n`.
 //!
 //! Validates fan-out semantics: each branch independently observes the same
@@ -7,7 +6,7 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::*;
+use ironbeam_v4::*;
 
 // ── tee() — two-way split ────────────────────────────────────────────────────
 

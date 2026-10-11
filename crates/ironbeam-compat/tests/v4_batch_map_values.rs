@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Tests for `PCollection::map_values_batches` (backed by `BatchMapValuesOp`).
 //!
 //! Covers:
@@ -7,7 +6,7 @@
 //! - Planner reorder optimization (triggers `cost_hint` on `BatchMapValuesOp`).
 //! - Contract enforcement: wrong output length panics at runtime.
 
-use ironbeam::*;
+use ironbeam_v4::*;
 
 /// Basic: square every value; single-key, `batch_size` covers all elements.
 #[test]
