@@ -12,7 +12,7 @@ pub mod v5 {
     pub mod prelude {
         pub use ironbeam_direct::{
             DirectCollectExt, DirectFallibleExt, DirectFlatPartitionExt, DirectKeySortedExt,
-            DirectKeyedCollectExt, DirectPartitionExt, DirectSortedExt,
+            DirectKeyedCollectExt, DirectPartitionByExt, DirectPartitionExt, DirectSortedExt,
         };
         #[cfg(feature = "v5-approx")]
         pub use ironbeam_transform_approx::{ApproxDistinctExt, KeyedApproxDistinctExt};
@@ -31,7 +31,7 @@ pub mod v5 {
     pub use ironbeam_compression::*;
     pub use ironbeam_direct::{
         CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobMetrics,
-        JobStatus, PlanSummary, SpillConfig,
+        JobStatus, Partition3, Partition4, PlanSummary, SpillConfig,
     };
     pub use ironbeam_io::*;
     pub use ironbeam_io_jsonl::*;

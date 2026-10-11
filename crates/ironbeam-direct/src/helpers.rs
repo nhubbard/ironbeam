@@ -4,6 +4,7 @@ use ironbeam_core::{Element, Error, PCollection};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub trait DirectSortedExt<T: Element + Ord> {
     fn collect_sorted_named(&self, key: &str, config: &JobConfig) -> Result<Vec<T>, Error>;
@@ -74,6 +75,89 @@ pub trait DirectPartitionExt<T: Element, E: Element> {
         config: &JobConfig,
     ) -> Result<(Vec<T>, Vec<E>), Error>;
 }
+
+/// One of three typed buckets produced after a bounded Direct collection.
+pub enum Partition3<A, B, C> {
+    First(A),
+    Second(B),
+    Third(C),
+}
+
+/// One of four typed buckets produced after a bounded Direct collection.
+pub enum Partition4<A, B, C, D> {
+    First(A),
+    Second(B),
+    Third(C),
+    Fourth(D),
+}
+
+pub type Partitioned3<A, B, C> = (Vec<A>, Vec<B>, Vec<C>);
+pub type Partitioned4<A, B, C, D> = (Vec<A>, Vec<B>, Vec<C>, Vec<D>);
+
+/// Collects one classified output once, then separates its values locally.
+///
+/// The returned buckets can hold different types. This terminal does not
+/// execute downstream graph branches on each bucket.
+pub trait DirectPartitionByExt<T: Element> {
+    fn collect_partitioned3_named<A, B, C>(
+        &self,
+        key: &str,
+        config: &JobConfig,
+        classify: impl Fn(T) -> Partition3<A, B, C>,
+    ) -> Result<Partitioned3<A, B, C>, Error>;
+
+    fn collect_partitioned4_named<A, B, C, D>(
+        &self,
+        key: &str,
+        config: &JobConfig,
+        classify: impl Fn(T) -> Partition4<A, B, C, D>,
+    ) -> Result<Partitioned4<A, B, C, D>, Error>;
+}
+
+impl<T: Element> DirectPartitionByExt<T> for PCollection<T> {
+    fn collect_partitioned3_named<A, B, C>(
+        &self,
+        key: &str,
+        config: &JobConfig,
+        classify: impl Fn(T) -> Partition3<A, B, C>,
+    ) -> Result<Partitioned3<A, B, C>, Error> {
+        let values = DirectRunner.run_collect(&self.output(key)?, config)?.0;
+        let (mut first, mut second, mut third) = (Vec::new(), Vec::new(), Vec::new());
+        for value in values {
+            let bucket = catch_unwind(AssertUnwindSafe(|| classify(value)))
+                .map_err(|_| Error::execution(key, "direct", "partition classifier panicked"))?;
+            match bucket {
+                Partition3::First(value) => first.push(value),
+                Partition3::Second(value) => second.push(value),
+                Partition3::Third(value) => third.push(value),
+            }
+        }
+        Ok((first, second, third))
+    }
+
+    fn collect_partitioned4_named<A, B, C, D>(
+        &self,
+        key: &str,
+        config: &JobConfig,
+        classify: impl Fn(T) -> Partition4<A, B, C, D>,
+    ) -> Result<Partitioned4<A, B, C, D>, Error> {
+        let values = DirectRunner.run_collect(&self.output(key)?, config)?.0;
+        let (mut first, mut second, mut third, mut fourth) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for value in values {
+            let bucket = catch_unwind(AssertUnwindSafe(|| classify(value)))
+                .map_err(|_| Error::execution(key, "direct", "partition classifier panicked"))?;
+            match bucket {
+                Partition4::First(value) => first.push(value),
+                Partition4::Second(value) => second.push(value),
+                Partition4::Third(value) => third.push(value),
+                Partition4::Fourth(value) => fourth.push(value),
+            }
+        }
+        Ok((first, second, third, fourth))
+    }
+}
+
 impl<T: Element, E: Element> DirectPartitionExt<T, E> for PCollection<Result<T, E>> {
     fn collect_partitioned_named(
         &self,

@@ -10,7 +10,8 @@ mod spill;
 pub use checkpoint::CheckpointConfig;
 pub use helpers::{
     DirectFallibleExt, DirectFlatPartitionExt, DirectKeySortedExt, DirectKeyedCollectExt,
-    DirectPartitionExt, DirectSortedExt,
+    DirectPartitionByExt, DirectPartitionExt, DirectSortedExt, Partition3, Partition4, Partitioned3,
+    Partitioned4,
 };
 pub use metrics::JobMetrics;
 pub use planner::PlanSummary;
