@@ -1,4 +1,4 @@
-use ironbeam_core::{Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
+use ironbeam_core::{Element, Envelope, ErrorKind, Operation, Pipeline, Replay, SinkMode, Window};
 use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_io_protobuf::*;
 use std::fs;
@@ -13,6 +13,74 @@ struct ProtoRow {
 impl Element for ProtoRow {
     const TYPE_ID: &'static str = "tests/proto-row";
     const CODER_ID: &'static str = "tests/proto-row-protobuf";
+}
+
+#[test]
+fn finalized_protobuf_bundles_publish_one_valid_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let staging = dir.path().join("staging");
+    let target = dir.path().join("final.pb");
+    let rows = [
+        ProtoRow {
+            id: 1,
+            name: "Ada".into(),
+        },
+        ProtoRow {
+            id: 2,
+            name: "Lin".into(),
+        },
+    ];
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", rows.to_vec()).unwrap();
+    let sink = protobuf_fragment_sink(&input, "final", &staging, "job", "graph").unwrap();
+    let (_, registry) = sink.snapshot().unwrap();
+    assert!(registry.sink_requires_bundle_finalization("final"));
+    let store = protobuf_fragment_store(&staging, "job", "graph", "final").unwrap();
+    for (index, row) in rows.into_iter().enumerate() {
+        let mut session = registry.open_sink("final").unwrap();
+        session.begin_bundle(&format!("bundle-{index}")).unwrap();
+        session
+            .write(Envelope {
+                value: Box::new(row),
+                timestamp_ns: 0,
+                window: Window::Global,
+                assigned_window: None,
+            })
+            .unwrap();
+        session.commit().unwrap();
+        assert!(publish_protobuf_fragments::<ProtoRow>(&store, 2, &target).is_err());
+        session.finalize_bundle().unwrap();
+    }
+    assert_eq!(store.accepted_fragments().unwrap().len(), 2);
+    let result = publish_protobuf_fragments::<ProtoRow>(&store, 2, &target).unwrap();
+    assert_eq!(result.rows, 2);
+    assert_eq!(
+        publish_protobuf_fragments::<ProtoRow>(&store, 2, &target).unwrap(),
+        result
+    );
+    let output = protobuf_source::<ProtoRow>(&Pipeline::default(), "verify", &target)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let mut actual = output.collect_seq().unwrap();
+    actual.sort_by_key(|row| row.id);
+    assert_eq!(
+        actual,
+        vec![
+            ProtoRow {
+                id: 1,
+                name: "Ada".into()
+            },
+            ProtoRow {
+                id: 2,
+                name: "Lin".into()
+            },
+        ]
+    );
+    assert!(publish_protobuf_fragments::<ProtoRow>(&store, 3, &target).is_err());
+    assert!(
+        publish_protobuf_fragments::<ProtoRow>(&store, 2, dir.path().join("bad.pb.gz")).is_err()
+    );
 }
 
 #[test]
@@ -37,7 +105,9 @@ fn append_sink_preserves_delimited_records_and_reports_destination_errors() {
             if spec.mode == SinkMode::Append && spec.replay == Replay::AtLeastOnce && spec.commit
     ));
     DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
-    let second = Pipeline::default().from_vec("second", vec![new.clone()]).unwrap();
+    let second = Pipeline::default()
+        .from_vec("second", vec![new.clone()])
+        .unwrap();
     DirectRunner
         .run_sink(
             &protobuf_append_sink(&second, "append-new", &path).unwrap(),

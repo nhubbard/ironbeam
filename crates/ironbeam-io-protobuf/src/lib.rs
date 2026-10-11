@@ -5,8 +5,12 @@ use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, TypedSink,
     TypedSourceIterator,
 };
+use ironbeam_io::final_result::{AcceptedFragment, LocalFinalResult, PublishedResult};
 #[cfg(feature = "parallel-io")]
 use ironbeam_io::framed_parallel_sink;
+use ironbeam_io::sequence_final::{
+    publish_sequence_fragments, sequence_fragment_sink, sequence_fragment_store,
+};
 use ironbeam_io::{
     count_lazy_records, file_glob_source, file_sharded_source, io, lazy_source,
     open_encoded_output, open_lazy_seek, read_lazy_range, sink, source,
@@ -134,6 +138,72 @@ pub fn protobuf_sink<T: Element + prost::Message>(
     sink(input, key, path, write_protobuf::<T>)
 }
 
+/// Scope for finalized length-delimited Protobuf records.
+#[derive(Clone)]
+pub struct ProtobufFragmentStore {
+    local: LocalFinalResult,
+}
+
+impl ProtobufFragmentStore {
+    pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
+        self.local.accepted_fragments()
+    }
+}
+
+pub fn protobuf_fragment_store(
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+    key: &str,
+) -> Result<ProtobufFragmentStore, Error> {
+    Ok(ProtobufFragmentStore {
+        local: sequence_fragment_store(staging, job, graph, key, "protobuf")?,
+    })
+}
+
+fn write_protobuf_record<T: prost::Message>(
+    value: &T,
+    output: &mut dyn std::io::Write,
+) -> Result<(), Error> {
+    output
+        .write_all(&value.encode_length_delimited_to_vec())
+        .map_err(|error| io("protobuf-fragment", error))
+}
+
+pub fn protobuf_fragment_sink<T: Element + prost::Message>(
+    input: &PCollection<T>,
+    key: &str,
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+) -> Result<Sink<T>, Error> {
+    sequence_fragment_sink(
+        input,
+        key,
+        staging,
+        job,
+        graph,
+        "protobuf",
+        write_protobuf_record::<T>,
+    )
+}
+
+/// Publish one validated Protobuf file after the runner reports DONE.
+pub fn publish_protobuf_fragments<T: Element + prost::Message + Default>(
+    store: &ProtobufFragmentStore,
+    expected_rows: u64,
+    target: impl AsRef<Path>,
+) -> Result<PublishedResult, Error> {
+    publish_sequence_fragments(&store.local, expected_rows, target, |path| {
+        let mut rows = 0_u64;
+        for row in read_protobuf_lazy::<T>(path.to_path_buf())? {
+            row?;
+            rows += 1;
+        }
+        Ok(rows)
+    })
+}
+
 struct ProtobufAppendSink<T> {
     path: PathBuf,
     key: String,
@@ -259,4 +329,31 @@ pub fn protobuf_sharded_source<T: Element + prost::Message + Default>(
         count_protobuf_records::<T>,
         read_protobuf_range::<T>,
     )
+}
+
+#[cfg(test)]
+mod fragment_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_delimited_record_cannot_replace_existing_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("result.pb");
+        std::fs::write(&target, b"previous result").unwrap();
+        let store =
+            protobuf_fragment_store(dir.path().join("stage"), "job", "graph", "sink").unwrap();
+        store.local.stage("bundle", 1, &[0xff]).unwrap();
+        store.local.accept("bundle").unwrap();
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct Row {
+            #[prost(int32, tag = "1")]
+            value: i32,
+        }
+        impl Element for Row {
+            const TYPE_ID: &'static str = "protobuf-test/row";
+            const CODER_ID: &'static str = "protobuf-test/row-v1";
+        }
+        assert!(publish_protobuf_fragments::<Row>(&store, 1, &target).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"previous result");
+    }
 }
