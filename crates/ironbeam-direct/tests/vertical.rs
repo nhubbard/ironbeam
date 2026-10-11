@@ -253,6 +253,33 @@ fn vector_source_clone_panic_reports_the_source_node() {
 }
 
 #[test]
+fn transformed_vector_source_clone_panic_reports_the_source_node() {
+    struct PanickingClone;
+    impl Clone for PanickingClone {
+        fn clone(&self) -> Self {
+            panic!("expected source clone panic")
+        }
+    }
+    impl Element for PanickingClone {
+        const TYPE_ID: &'static str = "test/panicking-transformed-source-clone";
+        const CODER_ID: &'static str = "test/panicking-transformed-source-clone";
+    }
+    let output = Pipeline::default()
+        .from_vec("source", vec![PanickingClone])
+        .unwrap()
+        .filter_named("filter", |_| true)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("source"));
+}
+
+#[test]
 fn vector_source_honors_cancellation_between_batches() {
     struct CancelOnClone(Arc<AtomicBool>);
     impl Clone for CancelOnClone {

@@ -983,16 +983,29 @@ fn execute<T: Element>(
             continue;
         }
         let mut source_offset = recovered_offset;
-        if (config.parallelism == 1 || route.operations.is_empty())
+        let vector_batches = checkpoint
+            .is_none()
+            .then(|| registry.vec_source_batches::<T>(&route.source_key))
+            .flatten();
+        let typed_eligible = (config.parallelism == 1 || route.operations.is_empty())
+            && typed_transforms.is_some();
+        let mut source = if typed_eligible && vector_batches.is_none() {
+            open_typed_source_safe::<T>(registry, &route.source_key)?
+        } else {
+            None
+        };
+        if typed_eligible
             && let Some(typed_transforms) = typed_transforms
-            && let Some(mut source) = open_typed_source_safe::<T>(registry, &route.source_key)?
+            && (vector_batches.is_some() || source.is_some())
         {
-            for _ in 0..source_offset {
-                if read_typed_source_batch(&mut source, 1, &route.source_key)?.is_empty() {
-                    return Err(Error::recovery(
-                        &route.source_key,
-                        "source ended before checkpoint position",
-                    ));
+            if let Some(source) = source.as_mut() {
+                for _ in 0..source_offset {
+                    if read_typed_source_batch(source, 1, &route.source_key)?.is_empty() {
+                        return Err(Error::recovery(
+                            &route.source_key,
+                            "source ended before checkpoint position",
+                        ));
+                    }
                 }
             }
             let mut batches = 0_usize;
@@ -1000,11 +1013,27 @@ fn execute<T: Element>(
                 if config.cancellation.load(Ordering::Acquire) {
                     return Err(cancelled());
                 }
-                let batch = read_typed_source_batch(
-                    &mut source,
-                    plan.summary.batch_limit,
-                    &route.source_key,
-                )?;
+                let batch = if let Some((source_len, read_batch)) = vector_batches {
+                    if source_offset >= source_len {
+                        Vec::new()
+                    } else {
+                        let len = (source_len - source_offset).min(plan.summary.batch_limit);
+                        catch_unwind(AssertUnwindSafe(|| read_batch(source_offset, len)))
+                            .unwrap_or_else(|_| {
+                                Err(Error::execution(
+                                    &route.source_key,
+                                    "direct",
+                                    "source value clone panicked",
+                                ))
+                            })?
+                    }
+                } else {
+                    read_typed_source_batch(
+                        source.as_mut().expect("typed source is available"),
+                        plan.summary.batch_limit,
+                        &route.source_key,
+                    )?
+                };
                 if batch.is_empty() {
                     break;
                 }

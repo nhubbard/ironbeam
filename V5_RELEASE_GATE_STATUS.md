@@ -570,6 +570,10 @@ staged locally.
    GroupByKey 7.7×. Core and Direct tests, strict lint, Dataflow graph
    translation tests, and unchanged coverage gates pass. This narrows the
    source-copy cost but does not close the broader performance gate.
+   Sequential typed transform routes now read bounded vector batches directly
+   when no checkpoint is active. A paired local sample moved map/filter from
+   0.708 to 0.611 ms with identical output; source copy and GroupByKey were
+   flat. The wider transform performance gap remains open.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.

@@ -357,6 +357,16 @@ GroupByKey (7.7×), 10.987/15.206 ms for inner join (1.4×), and
 release thresholds. The source-copy gap narrowed substantially; the
 remaining transform, grouping, and I/O costs still need work.
 
+A bounded-vector batch reader now feeds sequential typed transform routes when
+checkpointing is disabled. It keeps the same batch limit, source attribution
+for clone panics, cancellation checks, and source/output counters; checkpointed
+routes still use the iterator to skip recovered input. In twenty-four
+alternating release runs per binary at 100,000 rows, discarding the first two
+of each, map/filter moved from 0.708 to 0.611 ms (about 14% faster).
+Source copy was 0.105/0.106 ms and GroupByKey 4.582/4.581 ms. All three cases
+retained identical output counts and checksums. This is a local sample; the
+remaining transform overhead versus v4 is still substantial.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
