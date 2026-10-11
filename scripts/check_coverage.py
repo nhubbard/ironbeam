@@ -18,12 +18,14 @@ DIRECT_FILES = {
     "spill.rs", "spill_integration.rs",
 }
 DIRECT_HELPERS = {"collect_sorted.rs", "reshuffle.rs", "tee.rs", "wait_on.rs"}
-V5_PACKAGES = {"ironbeam-compression", "ironbeam-cloud-objects", "ironbeam-core", "ironbeam-direct", "ironbeam-metrics", "ironbeam-testing", "ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-transform-approx", "ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
+V5_PACKAGES = {"ironbeam-compression", "ironbeam-coder-postcard", "ironbeam-cloud-objects", "ironbeam-core", "ironbeam-direct", "ironbeam-metrics", "ironbeam-testing", "ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-transform-approx", "ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
 
 
 def area_for(package: str, relative: Path) -> str:
     if package == "ironbeam-compression":
         return "compression"
+    if package == "ironbeam-coder-postcard":
+        return "element-coder"
     if package == "ironbeam-cloud-objects":
         return "cloud-objects"
     if package == "ironbeam-core":

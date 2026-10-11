@@ -2192,6 +2192,7 @@ version = "4.1.1"
 dependencies = [
  "anyhow",
  "bson 3.1.0",
+ "ironbeam-coder-postcard",
  "ironbeam-compression",
  "ironbeam-core",
  "ironbeam-direct",
@@ -2294,6 +2295,16 @@ name = "ironbeam-cloud-objects"
 version = "0.1.0"
 dependencies = [
  "tempfile",
+]
+
+[[package]]
+name = "ironbeam-coder-postcard"
+version = "0.1.0"
+dependencies = [
+ "ironbeam-core",
+ "ironbeam-direct",
+ "postcard",
+ "serde",
 ]
 
 [[package]]

@@ -6,6 +6,8 @@
 /// Ironbeam 5 graph, transforms, I/O, and Direct runner.
 #[cfg(feature = "v5-preview")]
 pub mod v5 {
+    #[cfg(feature = "coders")]
+    pub use ironbeam_coder_postcard::impl_postcard_element;
     #[cfg(feature = "v5-metrics")]
     pub mod metrics {
         pub use ironbeam_metrics::*;

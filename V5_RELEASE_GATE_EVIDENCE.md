@@ -29,6 +29,16 @@ For the current decision and checklist, use the [status page](V5_RELEASE_GATE_ST
 
 ### Foundation and parity
 
+- An opt-in `ironbeam-coder-postcard` crate now implements v5 `Element` for
+  Serde user records through `impl_postcard_element!`, with explicit type and
+  versioned coder identity. The root `coders` feature reexports the macro.
+  Tests cover round-trip, malformed decode, encode failure, explicit coder ID,
+  and Direct execution. Its isolated coverage gate measures 13/13 source
+  locations, with no instrumented branches. The 26-package local gate passes.
+  In the separate Dataflow checkout, the production unbounded Avro row now
+  uses this coder; all 15 local Prism tests and the Dataflow workspace suite
+  pass. This proves the user record crosses the real v5 worker boundary.
+
 - The root source tree now contains only the v5 facade and its docs; the
   `legacy-v4` feature and 101 local v4 source files have been removed. Published
   4.1.1 remains in `ironbeam-compat` for the reference corpus. The root

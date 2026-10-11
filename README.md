@@ -37,6 +37,7 @@ The same v5 API remains available under `ironbeam::v5::*` during migration.
 | Package | Responsibility |
 | --- | --- |
 | `ironbeam-core` | Logical graph, `PCollection`, typed elements and coders, errors, source and sink contracts |
+| `ironbeam-coder-postcard` | Opt-in Postcard coding for Serde user records with stable type and coder IDs |
 | `ironbeam-direct` | Local execution, planning, metrics, checkpointing, and spill behavior |
 | `ironbeam-transforms` | Common convenience transforms and keyed helpers |
 | `ironbeam-io` | Shared file lifecycle and bounded source/sink infrastructure |
@@ -50,6 +51,11 @@ through `v5-io-*` features; the common default keeps heavyweight connectors
 out of the build. Existing `io-*` format flags also enable their matching v5
 crate for migration; both spellings now select the same isolated v5 format
 crate.
+
+Enable the root `coders` feature, or depend on `ironbeam-coder-postcard`
+directly, to use `impl_postcard_element!(Row, "my-app/row/v1")` for a Serde
+record. Increment the ID when its wire representation changes; the same type
+and coder must be present in portable workers.
 
 For example, a program using CSV and native Avro can enable
 `v5-io-csv` and `v5-io-avro`. A program using hosted storage can depend on

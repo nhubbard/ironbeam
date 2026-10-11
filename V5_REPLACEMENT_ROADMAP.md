@@ -146,7 +146,7 @@ edit for every changed public path in `V5_PHASE0_API_INVENTORY.md`.
 | Construction errors | Many transforms return a collection directly | Node construction returns `Result` | Intentional break needed for graph validation. Document `?` at each stage. |
 | Helper location | Most v4 helpers are inherent methods | Many v5 helpers are extension traits | Root prelude should make the usual method calls available with one import. |
 | Execution | `collect_seq()`/`collect_par(...)` on collections; many immediate writers | Direct collection traits now work on collections through a detached output; explicit output terminals and deferred sinks remain | Keep stable named terminals for portable jobs and durable identity while preserving the familiar bounded Direct call shape. |
-| Time and coders | v4 timestamp wrapper and feature-dependent Serde bound | Envelope event time in signed nanoseconds; explicit element/coder identity | Intentional semantic and type break; document conversion and reject incompatible state. |
+| Time and coders | v4 timestamp wrapper and feature-dependent Serde bound | Envelope event time in signed nanoseconds; explicit element/coder identity; opt-in `ironbeam-coder-postcard` macro for Serde user records | Intentional semantic and type break; document conversion and reject incompatible state. |
 | Feature flags | Broad v4 defaults and `io-*` flags | Small core/Direct and separately gated extensions | Root v5 facade must map old feature names or provide precise replacements before deleting v4 paths. |
 
 No percentage of source compatibility is asserted. The migration guide gives

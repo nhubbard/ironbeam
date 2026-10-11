@@ -12,9 +12,9 @@ extension.
 
 | Area | Status | Current proof |
 | --- | --- | --- |
-| Workspace cutover | **Mostly complete** | The root's local v4 source and `legacy-v4` feature are gone. All 25 local v5 packages passed package verification. |
+| Workspace cutover | **Mostly complete** | The root's local v4 source and `legacy-v4` feature are gone. All 26 local v5 packages passed package verification. |
 | Bounded Direct behavior | **In progress** | The v4 reference corpus and v5 Direct helper tests pass. Public API and edge-case parity still need a complete audit. |
-| Portable behavior | **In progress** | The 15-test live local Prism suite passes, including the shared two-source Flatten → GroupByKey case. More shared success and failure cases are needed. |
+| Portable behavior | **In progress** | The 15-test live local Prism suite passes, including two-source Flatten → GroupByKey and a Serde record using the new Postcard coder. More shared success and failure cases are needed. |
 | Streaming and recovery | **In progress** | Direct cursor checkpoints and portable production-source fixtures work. Worker restart and runner-wide output commit proofs remain. |
 | Quality and release | **In progress** | Coverage floors and the local package gate pass. The final clean matrix, benchmarks, formatting, and version change remain. |
 
@@ -72,10 +72,11 @@ shuffle does not preserve encounter order. See the
 | Check | Result |
 | --- | --- |
 | Root workspace tests and doctests | Passed after the GroupByKey checkpoint-version correction. |
-| Local release script | Passed dependency checks, workspace tests, feature matrix, documentation, and verification of 25 packages on 2026-10-11 using Mr Boxington. No crate was published. |
-| Local Prism suite | All 15 live tests passed, including two-source Flatten → GroupByKey parity. |
-| Separate Dataflow workspace | Tests, doctests, and strict lint for changed packages passed after keyed coder propagation (`46ceb2c`). |
+| Local release script | Passed dependency checks, workspace tests, feature matrix, documentation, and verification of 26 packages on 2026-10-11 using Mr Boxington. No crate was published. |
+| Local Prism suite | All 15 live tests passed, including two-source Flatten → GroupByKey parity and a Postcard-coded production row. |
+| Separate Dataflow workspace | Tests and doctests passed with the new coder; warning-free lint passed for the changed proof package. |
 | Direct coverage | 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%), above the 91%/90% CI floors. |
+| Postcard coder coverage | 13/13 source locations passed the new isolated gate; LLVM reports no instrumented branches. |
 
 These results describe the last complete gate run; in-flight changes require
 a fresh run before they count as release evidence.
