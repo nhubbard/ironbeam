@@ -795,6 +795,22 @@ pub struct ProgressSignal {
     pub completed: bool,
 }
 
+/// A deterministic, finite script for testing an unbounded source. Time is in
+/// nanoseconds, like the rest of the logical graph.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TestStreamEvent<T> {
+    Elements(Vec<(T, i64)>),
+    AdvanceWatermark(i64),
+    AdvanceProcessingTime(i64),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum EncodedTestStreamEvent {
+    Elements(Vec<(Vec<u8>, i64)>),
+    AdvanceWatermark(i64),
+    AdvanceProcessingTime(i64),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SinkMode {
     Append,
@@ -1748,7 +1764,11 @@ pub trait SinkSession: Send {
     /// Recover a committed attempt after worker state was lost. Implementations
     /// must verify durable state for this exact ID and fail if it is missing.
     fn recover_bundle_finalization(&mut self, _instruction_id: &str) -> Result<(), Error> {
-        Err(Error::unsupported("sink", "runner", "bundle-finalization-recovery"))
+        Err(Error::unsupported(
+            "sink",
+            "runner",
+            "bundle-finalization-recovery",
+        ))
     }
 }
 pub trait TypedSink<T: Element>: Send {
@@ -1770,7 +1790,11 @@ pub trait TypedSink<T: Element>: Send {
         Err(Error::unsupported("sink", "runner", "bundle-finalization"))
     }
     fn recover_bundle_finalization(&mut self, _instruction_id: &str) -> Result<(), Error> {
-        Err(Error::unsupported("sink", "runner", "bundle-finalization-recovery"))
+        Err(Error::unsupported(
+            "sink",
+            "runner",
+            "bundle-finalization-recovery",
+        ))
     }
 }
 type SinkFactory = Arc<dyn Fn() -> Result<Box<dyn SinkSession>, Error> + Send + Sync>;
@@ -1828,6 +1852,7 @@ struct SourceRegistration {
     vec_envelope_batch_factory: Option<VecEnvelopeBatchFactory>,
     len_hint: Option<usize>,
     config_digest: Option<SourceConfigDigest>,
+    test_stream: Option<Vec<EncodedTestStreamEvent>>,
 }
 
 #[derive(Clone)]
@@ -2232,7 +2257,10 @@ impl Registry {
         key: &str,
     ) -> Option<(usize, VecEnvelopeBatchReader<'_>)> {
         let source = self.sources.get(key)?;
-        Some((source.len_hint?, source.vec_envelope_batch_factory.as_ref()?.as_ref()))
+        Some((
+            source.len_hint?,
+            source.vec_envelope_batch_factory.as_ref()?.as_ref(),
+        ))
     }
     #[must_use]
     pub fn source_len_hint(&self, key: &str) -> Option<usize> {
@@ -2246,6 +2274,11 @@ impl Registry {
                 .as_ref()
                 .map(SourceConfigDigest::as_str)
         })
+    }
+    /// Return a portable test stream script without opening a source.
+    #[must_use]
+    pub fn test_stream(&self, key: &str) -> Option<&[EncodedTestStreamEvent]> {
+        self.sources.get(key)?.test_stream.as_deref()
     }
     pub fn apply(&self, key: &str, input: Envelope) -> Result<Option<Envelope>, Error> {
         match self
@@ -2335,7 +2368,9 @@ impl Registry {
     }
     #[must_use]
     pub fn sink_requires_bundle_finalization(&self, key: &str) -> bool {
-        self.sinks.get(key).is_some_and(|sink| sink.bundle_finalization)
+        self.sinks
+            .get(key)
+            .is_some_and(|sink| sink.bundle_finalization)
     }
     pub fn open_sink(&self, key: &str) -> Result<Box<dyn SinkSession>, Error> {
         let sink = self
@@ -2620,6 +2655,7 @@ impl Pipeline {
                 vec_envelope_batch_factory: Some(vec_envelope_batch_factory),
                 len_hint: Some(len_hint),
                 config_digest,
+                test_stream: None,
             }),
             0,
         )
@@ -2690,6 +2726,7 @@ impl Pipeline {
                 vec_envelope_batch_factory: None,
                 len_hint,
                 config_digest: Some(SourceConfigDigest::Ready(config_digest)),
+                test_stream: None,
             }),
             0,
         )
@@ -2707,6 +2744,76 @@ impl Pipeline {
             progress,
             None,
             initial_timestamp_ns,
+        )
+    }
+    /// Register a deterministic unbounded fixture with event-time and
+    /// processing-time controls for portable runner conformance tests.
+    pub fn test_stream_source<T: Element>(
+        &self,
+        key: &str,
+        events: Vec<TestStreamEvent<T>>,
+    ) -> Result<PCollection<T>, Error> {
+        if !T::supports_coder() || events.is_empty() {
+            return Err(Error::graph(key, "test stream needs a coder and events"));
+        }
+        let mut encoded = Vec::with_capacity(events.len());
+        let mut watermark = i64::MIN;
+        for event in events {
+            encoded.push(match event {
+                TestStreamEvent::Elements(values) => EncodedTestStreamEvent::Elements(
+                    values
+                        .into_iter()
+                        .map(|(value, timestamp)| value.encode().map(|bytes| (bytes, timestamp)))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                TestStreamEvent::AdvanceWatermark(next) => {
+                    if next <= watermark {
+                        return Err(Error::graph(key, "test stream watermark must advance"));
+                    }
+                    watermark = next;
+                    EncodedTestStreamEvent::AdvanceWatermark(next)
+                }
+                TestStreamEvent::AdvanceProcessingTime(duration) => {
+                    if duration <= 0 {
+                        return Err(Error::graph(
+                            key,
+                            "test stream processing time must advance",
+                        ));
+                    }
+                    EncodedTestStreamEvent::AdvanceProcessingTime(duration)
+                }
+            });
+        }
+        let bytes =
+            serde_json::to_vec(&encoded).map_err(|error| Error::incompatible(error.to_string()))?;
+        let mut digest = String::from("sha256-v1:");
+        for byte in Sha256::digest(bytes) {
+            write!(digest, "{byte:02x}").map_err(|error| Error::incompatible(error.to_string()))?;
+        }
+        self.source_node::<T>(
+            key,
+            "ironbeam/test-stream",
+            Boundedness::Unbounded,
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::Idempotent,
+                reports_event_time: true,
+            },
+            Some(SourceRegistration {
+                factory: Arc::new(|| {
+                    Err(Error::incompatible(
+                        "test stream requires a portable runner",
+                    ))
+                }),
+                typed_factory: None,
+                vec_batch_factory: None,
+                erased_vec_batch_factory: None,
+                vec_envelope_batch_factory: None,
+                len_hint: None,
+                config_digest: Some(SourceConfigDigest::Ready(digest)),
+                test_stream: Some(encoded),
+            }),
+            0,
         )
     }
     fn source_node<T: Element>(
@@ -3252,7 +3359,10 @@ impl<T: Element> PCollection<T> {
         open: impl Fn() -> Result<Box<dyn TypedSink<T>>, Error> + Send + Sync + 'static,
     ) -> Result<Sink<T>, Error> {
         if config_digest.is_empty() || !spec.commit {
-            return Err(Error::graph(key, "finalized sink needs a digest and commit"));
+            return Err(Error::graph(
+                key,
+                "finalized sink needs a digest and commit",
+            ));
         }
         self.sink_named_inner(key, spec, Some(config_digest), true, open)
     }
@@ -4638,24 +4748,42 @@ mod internal_tests {
     fn bundle_recovery_is_explicit_and_typed_adapter_forwards_the_exact_id() {
         struct RecoveringSink;
         impl TypedSink<i32> for RecoveringSink {
-            fn write(&mut self, _: i32) -> Result<(), Error> { Ok(()) }
-            fn commit(&mut self) -> Result<(), Error> { Ok(()) }
-            fn abort(&mut self) -> Result<(), Error> { Ok(()) }
+            fn write(&mut self, _: i32) -> Result<(), Error> {
+                Ok(())
+            }
+            fn commit(&mut self) -> Result<(), Error> {
+                Ok(())
+            }
+            fn abort(&mut self) -> Result<(), Error> {
+                Ok(())
+            }
             fn recover_bundle_finalization(&mut self, instruction_id: &str) -> Result<(), Error> {
-                if instruction_id == "bundle-7" { Ok(()) }
-                else { Err(Error::incompatible("wrong bundle ID")) }
+                if instruction_id == "bundle-7" {
+                    Ok(())
+                } else {
+                    Err(Error::incompatible("wrong bundle ID"))
+                }
             }
         }
         struct OrdinarySession;
         impl SinkSession for OrdinarySession {
-            fn write(&mut self, _: Envelope) -> Result<(), Error> { Ok(()) }
-            fn commit(&mut self) -> Result<(), Error> { Ok(()) }
-            fn abort(&mut self) -> Result<(), Error> { Ok(()) }
+            fn write(&mut self, _: Envelope) -> Result<(), Error> {
+                Ok(())
+            }
+            fn commit(&mut self) -> Result<(), Error> {
+                Ok(())
+            }
+            fn abort(&mut self) -> Result<(), Error> {
+                Ok(())
+            }
         }
 
         let mut direct = OrdinarySession;
         assert!(direct.recover_bundle_finalization("bundle-7").is_err());
-        let mut typed = SinkAdapter { key: "sink".into(), inner: Box::new(RecoveringSink) };
+        let mut typed = SinkAdapter {
+            key: "sink".into(),
+            inner: Box::new(RecoveringSink),
+        };
         assert!(typed.recover_bundle_finalization("bundle-7").is_ok());
         assert!(typed.recover_bundle_finalization("other").is_err());
     }

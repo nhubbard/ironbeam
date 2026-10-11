@@ -159,14 +159,24 @@ fn offset_windows_and_interval_coder_handle_signed_time() {
         WindowInterval::decode(&[0]).unwrap_err().kind,
         ErrorKind::Incompatible
     );
-    let invalid_interval = WindowInterval { start_ns: 3, end_ns: 3 };
+    let invalid_interval = WindowInterval {
+        start_ns: 3,
+        end_ns: 3,
+    };
     assert_eq!(
-        WindowInterval::decode(&invalid_interval.encode().unwrap()).unwrap_err().kind,
+        WindowInterval::decode(&invalid_interval.encode().unwrap())
+            .unwrap_err()
+            .kind,
         ErrorKind::Incompatible
     );
     assert_eq!(
-        Window::FixedOffset { size_ns: 0, offset_ns: 3 }
-            .assign(0).unwrap_err().kind,
+        Window::FixedOffset {
+            size_ns: 0,
+            offset_ns: 3
+        }
+        .assign(0)
+        .unwrap_err()
+        .kind,
         ErrorKind::Graph
     );
     assert!(
@@ -909,7 +919,10 @@ fn vector_source_digest_matches_the_existing_coder_byte_contract() {
         let pipeline = Pipeline::default();
         pipeline.from_vec("source", values).unwrap();
         let (_, registry) = pipeline.snapshot().unwrap();
-        assert_eq!(registry.source_config_digest("source"), Some(expected.as_str()));
+        assert_eq!(
+            registry.source_config_digest("source"),
+            Some(expected.as_str())
+        );
     }
     #[derive(Clone)]
     struct Custom(u32);
@@ -1080,19 +1093,32 @@ fn bounded_source_and_deferred_sink_registry_contract() {
 
 #[test]
 fn sink_session_exposes_bundle_finalization_through_typed_adapter() {
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     struct Finalizable(Arc<AtomicUsize>);
     impl TypedSink<i32> for Finalizable {
         fn begin_bundle(&mut self, instruction_id: &str) -> Result<(), Error> {
-            if instruction_id != "bundle-7" { return Err(Error::incompatible("wrong bundle ID")); }
+            if instruction_id != "bundle-7" {
+                return Err(Error::incompatible("wrong bundle ID"));
+            }
             self.0.fetch_add(10, Ordering::SeqCst);
             Ok(())
         }
-        fn write(&mut self, _: i32) -> Result<(), Error> { Ok(()) }
-        fn commit(&mut self) -> Result<(), Error> { Ok(()) }
-        fn abort(&mut self) -> Result<(), Error> { Ok(()) }
-        fn requires_bundle_finalization(&self) -> bool { true }
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn requires_bundle_finalization(&self) -> bool {
+            true
+        }
         fn finalize_bundle(&mut self) -> Result<(), Error> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -1102,12 +1128,18 @@ fn sink_session_exposes_bundle_finalization_through_typed_adapter() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("input", vec![1_i32]).unwrap();
     let action = Arc::clone(&completed);
-    input.sink_named_with_config_and_finalization(
-        "sink",
-        SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
-        "test-finalizable".into(),
-        move || Ok(Box::new(Finalizable(Arc::clone(&action)))),
-    ).unwrap();
+    input
+        .sink_named_with_config_and_finalization(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            "test-finalizable".into(),
+            move || Ok(Box::new(Finalizable(Arc::clone(&action)))),
+        )
+        .unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
     assert!(registry.sink_requires_bundle_finalization("sink"));
     let mut session = registry.open_sink("sink").unwrap();
@@ -1122,15 +1154,27 @@ fn sink_session_exposes_bundle_finalization_through_typed_adapter() {
 fn unregistered_sink_finalization_fails_closed() {
     struct Ordinary;
     impl TypedSink<i32> for Ordinary {
-        fn write(&mut self, _: i32) -> Result<(), Error> { Ok(()) }
-        fn commit(&mut self) -> Result<(), Error> { Ok(()) }
-        fn abort(&mut self) -> Result<(), Error> { Ok(()) }
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
     }
     struct Untyped;
     impl SinkSession for Untyped {
-        fn write(&mut self, _: Envelope) -> Result<(), Error> { Ok(()) }
-        fn commit(&mut self) -> Result<(), Error> { Ok(()) }
-        fn abort(&mut self) -> Result<(), Error> { Ok(()) }
+        fn write(&mut self, _: Envelope) -> Result<(), Error> {
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
     }
     let mut untyped = Untyped;
     assert!(!untyped.requires_bundle_finalization());
@@ -1138,17 +1182,40 @@ fn unregistered_sink_finalization_fails_closed() {
     assert!(untyped.recover_bundle_finalization("bundle-7").is_err());
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("input", vec![1_i32]).unwrap();
-    let spec = SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true };
-    assert!(input.sink_named_with_config("empty", spec.clone(), String::new(),
-        || Ok(Box::new(Ordinary))).is_err());
-    assert!(input.sink_named_with_config_and_finalization("bad", spec.clone(), String::new(),
-        || Ok(Box::new(Ordinary))).is_err());
+    let spec = SinkSpec {
+        mode: SinkMode::Append,
+        replay: Replay::AtLeastOnce,
+        commit: true,
+    };
+    assert!(
+        input
+            .sink_named_with_config("empty", spec.clone(), String::new(), || Ok(Box::new(
+                Ordinary
+            )))
+            .is_err()
+    );
+    assert!(
+        input
+            .sink_named_with_config_and_finalization("bad", spec.clone(), String::new(), || Ok(
+                Box::new(Ordinary)
+            ))
+            .is_err()
+    );
     let mut uncommitted = spec.clone();
     uncommitted.commit = false;
-    assert!(input.sink_named_with_config_and_finalization("no-commit", uncommitted, "digest".into(),
-        || Ok(Box::new(Ordinary))).is_err());
-    input.sink_named_with_config("ordinary", spec, "digest".into(),
-        || Ok(Box::new(Ordinary))).unwrap();
+    assert!(
+        input
+            .sink_named_with_config_and_finalization(
+                "no-commit",
+                uncommitted,
+                "digest".into(),
+                || Ok(Box::new(Ordinary))
+            )
+            .is_err()
+    );
+    input
+        .sink_named_with_config("ordinary", spec, "digest".into(), || Ok(Box::new(Ordinary)))
+        .unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
     assert!(!registry.sink_requires_bundle_finalization("ordinary"));
     let mut session = registry.open_sink("ordinary").unwrap();
@@ -1275,9 +1342,21 @@ fn grouped_tuple_coder_exposes_beam_key_and_value_halves() {
             .unwrap(),
         first
     );
-    assert!(registry.assemble_group_input("group", b"\xff", &first_value).is_err());
-    assert!(registry.assemble_group_input("group", &first_key, b"\xff").is_err());
-    assert!(registry.assemble_group_input("latest", &first_key, &first_value).is_err());
+    assert!(
+        registry
+            .assemble_group_input("group", b"\xff", &first_value)
+            .is_err()
+    );
+    assert!(
+        registry
+            .assemble_group_input("group", &first_key, b"\xff")
+            .is_err()
+    );
+    assert!(
+        registry
+            .assemble_group_input("latest", &first_key, &first_value)
+            .is_err()
+    );
     let grouped = registry
         .assemble_group_output("group", &first_key, &[first_value, second_value])
         .unwrap();
@@ -1803,6 +1882,52 @@ fn graph_rejects_each_identity_and_version_component() {
             .unwrap_err()
             .message
             .contains("fixed-window")
+    );
+}
+
+#[test]
+fn test_stream_registers_replayable_unbounded_events() {
+    let pipeline = Pipeline::default();
+    let stream = pipeline
+        .test_stream_source(
+            "events",
+            vec![
+                TestStreamEvent::Elements(vec![(7_i32, 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceProcessingTime(1_000_000),
+            ],
+        )
+        .unwrap();
+    stream.output("result").unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node("events").unwrap().boundedness,
+        Boundedness::Unbounded
+    );
+    assert!(
+        registry
+            .source_config_digest("events")
+            .unwrap()
+            .starts_with("sha256-v1:")
+    );
+    assert_eq!(
+        registry.test_stream("events").unwrap(),
+        &[
+            EncodedTestStreamEvent::Elements(vec![(7_i32.encode().unwrap(), 1_000_000)]),
+            EncodedTestStreamEvent::AdvanceWatermark(2_000_000),
+            EncodedTestStreamEvent::AdvanceProcessingTime(1_000_000),
+        ]
+    );
+    assert!(
+        pipeline
+            .test_stream_source::<i32>(
+                "bad",
+                vec![
+                    TestStreamEvent::AdvanceWatermark(2),
+                    TestStreamEvent::AdvanceWatermark(2),
+                ]
+            )
+            .is_err()
     );
 }
 
