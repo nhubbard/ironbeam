@@ -48,12 +48,13 @@ pub(crate) fn execute<T: Element>(
         return Ok(values);
     }
     let events = if let Some((manager, source_len)) = &checkpoint
-        && let Some((group_key, source_key)) = checkpointed_group_route(graph, output_key)
+        && let Some((group_key, source_key, stages)) = checkpointed_group_route(graph, output_key)
     {
         eval_checkpointed_group(
             registry,
-            group_key,
-            source_key,
+            &group_key,
+            &source_key,
+            &stages,
             *source_len,
             pending_state.take(),
             manager,
@@ -93,7 +94,10 @@ pub(crate) fn execute<T: Element>(
     Ok(values)
 }
 
-fn checkpointed_group_route<'a>(graph: &'a Graph, output_key: &str) -> Option<(&'a str, &'a str)> {
+fn checkpointed_group_route(
+    graph: &Graph,
+    output_key: &str,
+) -> Option<(String, String, Vec<String>)> {
     let output = graph.node(output_key)?;
     if !matches!(output.operation, Operation::Output) {
         return None;
@@ -102,11 +106,8 @@ fn checkpointed_group_route<'a>(graph: &'a Graph, output_key: &str) -> Option<(&
     if !matches!(group.operation, Operation::GroupByKey) || !group.additional_inputs.is_empty() {
         return None;
     }
-    let source = graph.node(group.input.as_deref()?)?;
-    if !matches!(source.operation, Operation::Source { .. }) {
-        return None;
-    }
-    Some((&group.key, &source.key))
+    let (source_key, stages) = linear_fold_route(graph, group.input.as_deref()?)?;
+    Some((group.key.clone(), source_key, stages))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -114,6 +115,7 @@ fn eval_checkpointed_group(
     registry: &Registry,
     group_key: &str,
     source_key: &str,
+    stages: &[String],
     source_len: usize,
     pending_state: Option<(usize, Vec<u8>)>,
     manager: &CheckpointManager,
@@ -132,13 +134,28 @@ fn eval_checkpointed_group(
         registry
             .erased_vec_source_batches(source_key)
             .ok_or_else(|| Error::unsupported(source_key, "direct", "fold-checkpoint-source"))?;
-    if registered_len != source_len || !fold.accepts_vec_batch(batch_type) {
+    if registered_len != source_len || stages.is_empty() && !fold.accepts_vec_batch(batch_type) {
         return Err(Error::unsupported(
             group_key,
             "direct",
             "fold-checkpoint-batch",
         ));
     }
+    let envelope_batches = if stages.is_empty() {
+        None
+    } else {
+        let (envelope_len, reader) = registry
+            .vec_source_envelope_batches(source_key)
+            .ok_or_else(|| Error::unsupported(source_key, "direct", "fold-checkpoint-source"))?;
+        if envelope_len != source_len {
+            return Err(Error::unsupported(
+                group_key,
+                "direct",
+                "fold-checkpoint-batch",
+            ));
+        }
+        Some(reader)
+    };
     let mut offset = 0_usize;
     if let Some((saved_offset, state)) = pending_state {
         if saved_offset > source_len {
@@ -164,14 +181,36 @@ fn eval_checkpointed_group(
             return Err(cancelled());
         }
         let batch_len = (source_len - offset).min(config.buffer_budget_elements);
-        let batch = catch_unwind(AssertUnwindSafe(|| read_batch(offset, batch_len)))
-            .unwrap_or_else(|_| {
-                Err(Error::execution(
-                    source_key,
-                    "direct",
-                    "source value clone panicked",
-                ))
-            })?;
+        let typed_batch = if envelope_batches.is_none() {
+            Some(
+                catch_unwind(AssertUnwindSafe(|| read_batch(offset, batch_len))).unwrap_or_else(
+                    |_| {
+                        Err(Error::execution(
+                            source_key,
+                            "direct",
+                            "source value clone panicked",
+                        ))
+                    },
+                )?,
+            )
+        } else {
+            None
+        };
+        let envelope_batch = if let Some(reader) = envelope_batches {
+            Some(
+                catch_unwind(AssertUnwindSafe(|| reader(offset, batch_len))).unwrap_or_else(
+                    |_| {
+                        Err(Error::execution(
+                            source_key,
+                            "direct",
+                            "source value clone panicked",
+                        ))
+                    },
+                )?,
+            )
+        } else {
+            None
+        };
         if config.cancellation.load(Ordering::Acquire) {
             return Err(cancelled());
         }
@@ -191,8 +230,22 @@ fn eval_checkpointed_group(
             .peak_batch_elements
             .fetch_max(count, Ordering::Relaxed);
         metrics.batches.fetch_add(1, Ordering::Relaxed);
-        catch_unwind(AssertUnwindSafe(|| fold.add_vec_batch(batch)))
-            .unwrap_or_else(|_| Err(Error::execution(group_key, "direct", "user fold panicked")))?;
+        if let Some(batch) = typed_batch {
+            catch_unwind(AssertUnwindSafe(|| fold.add_vec_batch(batch))).unwrap_or_else(|_| {
+                Err(Error::execution(group_key, "direct", "user fold panicked"))
+            })?;
+        }
+        if let Some(batch) = envelope_batch {
+            feed_fold_events(
+                registry,
+                batch,
+                stages,
+                config,
+                metrics,
+                group_key,
+                fold.as_mut(),
+            )?;
+        }
         offset += batch_len;
         batches += 1;
         if manager.should_save(batches) {
@@ -467,37 +520,43 @@ fn feed_linear_fold(
             .peak_batch_elements
             .fetch_max(count, Ordering::Relaxed);
         metrics.batches.fetch_add(1, Ordering::Relaxed);
-        for event in batch {
-            if stages.is_empty() {
-                catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
-                    Err(Error::execution(fold_key, "direct", "user fold panicked"))
-                })?;
-                continue;
-            }
-            let mut events = vec![event];
-            for key in stages {
-                let mut next = Vec::new();
-                for event in events {
-                    let produced =
-                        catch_unwind(AssertUnwindSafe(|| registry.apply_many(key, event)))
-                            .unwrap_or_else(|_| {
-                                Err(Error::execution(key, "direct", "user transform panicked"))
-                            })?;
-                    if produced.is_empty() {
-                        metrics.filtered_elements.fetch_add(1, Ordering::Relaxed);
-                    }
-                    next.extend(produced);
-                }
-                events = next;
-            }
+        feed_fold_events(registry, batch, stages, config, metrics, fold_key, fold)?;
+    }
+    Ok(())
+}
+
+fn feed_fold_events(
+    registry: &Registry,
+    batch: Vec<Envelope>,
+    stages: &[String],
+    config: &JobConfig,
+    metrics: &MetricsState,
+    fold_key: &str,
+    fold: &mut dyn FoldSession,
+) -> Result<(), Error> {
+    for event in batch {
+        let mut events = vec![event];
+        for key in stages {
+            let mut next = Vec::new();
             for event in events {
-                if config.cancellation.load(Ordering::Acquire) {
-                    return Err(cancelled());
-                }
-                catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
-                    Err(Error::execution(fold_key, "direct", "user fold panicked"))
+                let produced = catch_unwind(AssertUnwindSafe(|| registry.apply_many(key, event)))
+                    .unwrap_or_else(|_| {
+                    Err(Error::execution(key, "direct", "user transform panicked"))
                 })?;
+                if produced.is_empty() {
+                    metrics.filtered_elements.fetch_add(1, Ordering::Relaxed);
+                }
+                next.extend(produced);
             }
+            events = next;
+        }
+        for event in events {
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
+                Err(Error::execution(fold_key, "direct", "user fold panicked"))
+            })?;
         }
     }
     Ok(())
@@ -539,7 +598,7 @@ mod checkpoint_tests {
         let (graph, _) = direct.snapshot().unwrap();
         assert_eq!(
             checkpointed_group_route(&graph, "out"),
-            Some(("group", "source"))
+            Some(("group".into(), "source".into(), Vec::new()))
         );
         assert!(checkpointed_group_route(&graph, "source").is_none());
         assert!(checkpointed_group_route(&graph, plain.key()).is_none());
@@ -569,6 +628,19 @@ mod checkpoint_tests {
         let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
         let mapped = source.map_named("map", |pair| pair).unwrap();
         let output = mapped
+            .group_by_key_named("group")
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let (graph, _) = output.snapshot().unwrap();
+        assert_eq!(
+            checkpointed_group_route(&graph, "out"),
+            Some(("group".into(), "source".into(), vec!["map".into()]))
+        );
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
+        let shuffled = source.reshuffle_named("shuffle").unwrap();
+        let output = shuffled
             .group_by_key_named("group")
             .unwrap()
             .output("out")
@@ -659,5 +731,88 @@ mod checkpoint_tests {
                 .kind,
             ErrorKind::Recovery
         );
+    }
+
+    #[test]
+    fn staged_group_attributes_source_clone_panics_to_the_source() {
+        struct PanicClone(i32);
+        impl Clone for PanicClone {
+            fn clone(&self) -> Self {
+                panic!("source clone failed");
+            }
+        }
+        impl Element for PanicClone {
+            const TYPE_ID: &'static str = "test/staged-group-panic-clone";
+            const CODER_ID: &'static str = "test/staged-group-panic-clone-i32";
+            fn supports_coder() -> bool {
+                true
+            }
+            fn encode(&self) -> Result<Vec<u8>, Error> {
+                Ok(self.0.to_le_bytes().to_vec())
+            }
+            fn decode(bytes: &[u8]) -> Result<Self, Error> {
+                Ok(Self(i32::decode(bytes)?))
+            }
+        }
+        let pipeline = Pipeline::default();
+        let output = pipeline
+            .from_vec("source", vec![(1_i32, PanicClone(2))])
+            .unwrap()
+            .map_named("map", |pair| pair)
+            .unwrap()
+            .group_by_key_named("group")
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let error = DirectRunner
+            .run_collect(
+                &output,
+                &JobConfig {
+                    checkpoint: Some(CheckpointConfig {
+                        directory: directory.path().to_path_buf(),
+                        binary_build_id: "clone-panic-test".into(),
+                        ..CheckpointConfig::default()
+                    }),
+                    ..JobConfig::default()
+                },
+            )
+            .err()
+            .unwrap();
+        assert!(matches!(error.kind, ErrorKind::Execution));
+        assert_eq!(error.node.as_deref(), Some("source"));
+    }
+
+    #[test]
+    fn staged_group_attributes_transform_panics_to_the_transform() {
+        let pipeline = Pipeline::default();
+        let output = pipeline
+            .from_vec("source", vec![(1_i32, 2_i32)])
+            .unwrap()
+            .map_named("panic-map", |_: (i32, i32)| -> (i32, i32) {
+                panic!("map failed");
+            })
+            .unwrap()
+            .group_by_key_named("group")
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let error = DirectRunner
+            .run_collect(
+                &output,
+                &JobConfig {
+                    checkpoint: Some(CheckpointConfig {
+                        directory: directory.path().to_path_buf(),
+                        binary_build_id: "map-panic-test".into(),
+                        ..CheckpointConfig::default()
+                    }),
+                    ..JobConfig::default()
+                },
+            )
+            .err()
+            .unwrap();
+        assert!(matches!(error.kind, ErrorKind::Execution));
+        assert_eq!(error.node.as_deref(), Some("panic-map"));
     }
 }

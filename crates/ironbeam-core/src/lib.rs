@@ -1510,11 +1510,16 @@ type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync
 type TypedSourceFactory<T> = Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
 type TypedVecBatchFactory<T> = Arc<dyn Fn(usize, usize) -> Result<Vec<T>, Error> + Send + Sync>;
 type ErasedVecBatchFactory = Arc<dyn Fn(usize, usize) -> Result<Payload, Error> + Send + Sync>;
+type VecEnvelopeBatchFactory =
+    Arc<dyn Fn(usize, usize) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 /// A typed bounded-slice reader retained by an in-memory vector source.
 pub type VecBatchReader<'a, T> = &'a (dyn Fn(usize, usize) -> Result<Vec<T>, Error> + Send + Sync);
 /// A bounded vector slice whose type is checked by a fold before execution.
 pub type ErasedVecBatchReader<'a> =
     &'a (dyn Fn(usize, usize) -> Result<Payload, Error> + Send + Sync);
+/// Read an in-memory vector slice as envelopes for a checkpointed transform path.
+pub type VecEnvelopeBatchReader<'a> =
+    &'a (dyn Fn(usize, usize) -> Result<Vec<Envelope>, Error> + Send + Sync);
 type SingleTransform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync>;
 type MultiTransform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 type TypedMap<T, U> = Arc<dyn Fn(T) -> U + Send + Sync>;
@@ -1820,6 +1825,7 @@ struct SourceRegistration {
     typed_factory: Option<Arc<dyn Any + Send + Sync>>,
     vec_batch_factory: Option<Arc<dyn Any + Send + Sync>>,
     erased_vec_batch_factory: Option<(TypeId, ErasedVecBatchFactory)>,
+    vec_envelope_batch_factory: Option<VecEnvelopeBatchFactory>,
     len_hint: Option<usize>,
     config_digest: Option<SourceConfigDigest>,
 }
@@ -2219,6 +2225,15 @@ impl Registry {
         let (batch_type, batch) = source.erased_vec_batch_factory.as_ref()?;
         Some((source.len_hint?, *batch_type, batch.as_ref()))
     }
+    /// Return envelopes for a bounded vector slice without cloning earlier rows.
+    #[must_use]
+    pub fn vec_source_envelope_batches(
+        &self,
+        key: &str,
+    ) -> Option<(usize, VecEnvelopeBatchReader<'_>)> {
+        let source = self.sources.get(key)?;
+        Some((source.len_hint?, source.vec_envelope_batch_factory.as_ref()?.as_ref()))
+    }
     #[must_use]
     pub fn source_len_hint(&self, key: &str) -> Option<usize> {
         self.sources.get(key).and_then(|source| source.len_hint)
@@ -2556,6 +2571,20 @@ impl Pipeline {
         let erased_vec_batch_factory: ErasedVecBatchFactory = Arc::new(move |start, len| {
             erased_batch(start, len).map(|values| Box::new(values) as Payload)
         });
+        let envelope_batch = Arc::clone(&vec_batch_factory);
+        let vec_envelope_batch_factory: VecEnvelopeBatchFactory = Arc::new(move |start, len| {
+            envelope_batch(start, len).map(|values| {
+                values
+                    .into_iter()
+                    .map(|value| Envelope {
+                        value: Box::new(value),
+                        timestamp_ns: 0,
+                        window: Window::Global,
+                        assigned_window: None,
+                    })
+                    .collect()
+            })
+        });
         let typed_factory: TypedSourceFactory<T> = Arc::new(move || {
             let values = Arc::clone(&values);
             Ok(Box::new(
@@ -2588,6 +2617,7 @@ impl Pipeline {
                 typed_factory: Some(Arc::new(typed_factory)),
                 vec_batch_factory: Some(Arc::new(vec_batch_factory)),
                 erased_vec_batch_factory: Some((TypeId::of::<Vec<T>>(), erased_vec_batch_factory)),
+                vec_envelope_batch_factory: Some(vec_envelope_batch_factory),
                 len_hint: Some(len_hint),
                 config_digest,
             }),
@@ -2657,6 +2687,7 @@ impl Pipeline {
                 typed_factory: Some(Arc::new(typed_factory)),
                 vec_batch_factory: None,
                 erased_vec_batch_factory: None,
+                vec_envelope_batch_factory: None,
                 len_hint,
                 config_digest: Some(SourceConfigDigest::Ready(config_digest)),
             }),

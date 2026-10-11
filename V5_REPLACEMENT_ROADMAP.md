@@ -73,11 +73,12 @@ the separate CSV and JSONL connectors with checked temporary round trips.
 The v4 checkpoint examples remain legacy-gated because v5 does not yet
 implement their barrier, time, and node-based policies. V5 Direct recovers the
 completed output of a coded aggregate from one bounded built-in vector source.
-For the exact vector source → GroupByKey → output route, it also restores
-versioned fold state from the last committed batch and reads only the remaining
-source rows. Other in-progress folds, custom or unbounded sources, and the v4
-checkpoint policies remain replacement work. The local manifest schema is 1.2
-and rejects older v5 draft checkpoints.
+For a bounded vector source followed by linear map, filter, flat-map,
+timestamp, or fixed-window stages and then GroupByKey → output, it also restores
+versioned fold state from the last committed source batch and reads only the
+remaining source rows. Other in-progress folds, multi-input routes, custom or
+unbounded sources, and the v4 checkpoint policies remain replacement work. The
+local manifest schema is 1.2 and rejects older v5 draft checkpoints.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
 `RegexExt` when `v5-regex` is enabled. Plain `ironbeam-transforms` builds no
 longer compile the regex engine. The v4 root helpers retain their current

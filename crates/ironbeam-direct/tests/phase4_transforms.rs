@@ -1400,6 +1400,188 @@ fn grouped_fold_resumes_from_last_committed_batch_after_cancellation() {
 }
 
 #[test]
+fn grouped_fold_resumes_through_map_and_filter_without_replaying_committed_rows() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let visits = Arc::new(AtomicUsize::new(0));
+    let map_cancellation = Arc::clone(&cancellation);
+    let map_visits = Arc::clone(&visits);
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", (1..=4).map(|value| (1_i32, value)).collect())
+        .unwrap()
+        .map_named("double", move |(key, value)| {
+            if map_visits.fetch_add(1, Ordering::Relaxed) == 1 {
+                map_cancellation.store(true, Ordering::Release);
+            }
+            (key, value * 2)
+        })
+        .unwrap()
+        .filter_named("keep", |pair| pair.1 != 6)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        buffer_budget_elements: 1,
+        cancellation: Arc::clone(&cancellation),
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            interval_batches: 1,
+            binary_build_id: "staged-group-resume-test".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Cancelled
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.path().join("latest.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["kind"], "fold_state");
+    assert_eq!(manifest["source_offset"], 1);
+    cancellation.store(false, Ordering::Release);
+    let (groups, resumed) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(groups, vec![(1, vec![2, 4, 8])]);
+    assert_eq!(resumed.metrics().source_elements, 3);
+    assert_eq!(visits.load(Ordering::Relaxed), 5);
+    let (again, completed) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(again, groups);
+    assert_eq!(completed.metrics().source_elements, 0);
+    assert_eq!(visits.load(Ordering::Relaxed), 5);
+}
+
+#[test]
+fn grouped_fold_restores_fixed_window_state_after_restart() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let visits = Arc::new(AtomicUsize::new(0));
+    let map_cancellation = Arc::clone(&cancellation);
+    let map_visits = Arc::clone(&visits);
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", vec![(1_i32, 1_i32), (1, 2), (1, 11), (1, 12)])
+        .unwrap()
+        .map_named("mark", move |pair| {
+            if map_visits.fetch_add(1, Ordering::Relaxed) == 2 {
+                map_cancellation.store(true, Ordering::Release);
+            }
+            pair
+        })
+        .unwrap()
+        .assign_timestamps_named("time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .fixed_windows("window", 10)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        buffer_budget_elements: 1,
+        cancellation: Arc::clone(&cancellation),
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            interval_batches: 1,
+            binary_build_id: "windowed-group-resume-test".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Cancelled
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.path().join("latest.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["source_offset"], 2);
+    cancellation.store(false, Ordering::Release);
+    let (groups, resumed) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(groups, vec![(1, vec![1, 2]), (1, vec![11, 12])]);
+    assert_eq!(resumed.metrics().source_elements, 2);
+    assert_eq!(visits.load(Ordering::Relaxed), 5);
+}
+
+#[test]
+fn grouped_fold_restores_flat_map_outputs_after_restart() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let visits = Arc::new(AtomicUsize::new(0));
+    let map_cancellation = Arc::clone(&cancellation);
+    let map_visits = Arc::clone(&visits);
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", vec![(1_i32, 1_i32), (1, 2)])
+        .unwrap()
+        .flat_map_named("duplicate", move |(key, value)| {
+            if map_visits.fetch_add(1, Ordering::Relaxed) == 1 {
+                map_cancellation.store(true, Ordering::Release);
+            }
+            vec![(key, value), (key, value * 10)]
+        })
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        buffer_budget_elements: 1,
+        cancellation: Arc::clone(&cancellation),
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            interval_batches: 1,
+            binary_build_id: "flat-map-group-resume-test".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &config)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Cancelled
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.path().join("latest.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["source_offset"], 1);
+    cancellation.store(false, Ordering::Release);
+    let (groups, resumed) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(groups, vec![(1, vec![1, 10, 2, 20])]);
+    assert_eq!(resumed.metrics().source_elements, 1);
+    assert_eq!(visits.load(Ordering::Relaxed), 3);
+}
+
+#[test]
 fn bounded_side_input_is_explicit_and_executes() {
     let pipeline = Pipeline::default();
     let main = pipeline.from_vec("main", vec![1_i32, 2, 3]).unwrap();

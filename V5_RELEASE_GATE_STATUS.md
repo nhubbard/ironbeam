@@ -678,6 +678,21 @@ staged locally.
    disk space before tests started. After clearing generated build artifacts,
    the full all-feature workspace test and doctest suite passed with Mr
    Boxington enabled. This closes the workspace test gate for this change.
+   The GroupByKey restart path now also accepts linear map, filter, flat-map,
+   timestamp, and fixed-window stages after a built-in vector source. Its
+   vector-slice envelope reader starts at the saved source offset, while the
+   original typed-batch path remains for a direct vector → GroupByKey route.
+   A cancelled map/filter fixture resumes without revisiting committed rows;
+   a flat-map fixture preserves both outputs from committed source rows, and a
+   fixed-window fixture restores one window and completes another. Saved
+   state on a reshuffle route still fails closed. Source clone and transform
+   panics retain their respective node attribution. Fresh coverage passes at
+   core 2,509/2,607 lines and 370/420 branches, and Direct 2,259/2,407 lines
+   and 450/492 branches. Multi-input, custom, and unbounded sources remain
+   outside this mid-run checkpoint contract.
+   The full all-feature workspace tests and doctests, strict core/Direct lint,
+   separate Dataflow graph/worker tests, and both live local Prism fixtures
+   pass after this change.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.
