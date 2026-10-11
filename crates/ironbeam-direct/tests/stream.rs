@@ -673,6 +673,266 @@ fn failed_commit_does_not_advance_stream_checkpoint() {
 }
 
 #[test]
+fn stream_cancellation_inside_a_bundle_aborts_without_checkpointing() {
+    for (cancel_in_transform, batch_len) in [(true, 2), (false, 2), (false, 1)] {
+        let temporary = tempfile::tempdir().unwrap();
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let committed = Arc::new(Mutex::new(Vec::new()));
+        let pipeline = Pipeline::default();
+        let source = pipeline
+            .unbounded_source_with_factory(
+                "events",
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                "cancel-bundle-source-v1".into(),
+                0,
+                move |_| {
+                    let mut elements = vec![Timestamped {
+                        value: 1,
+                        timestamp_ns: 100,
+                    }];
+                    if batch_len == 2 {
+                        elements.push(Timestamped {
+                            value: 2,
+                            timestamp_ns: 200,
+                        });
+                    }
+                    Ok(Box::new(Script {
+                        polls: vec![UnboundedPoll::Ready(UnboundedBatch {
+                            elements,
+                            progress: signal(1, true),
+                        })]
+                        .into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                },
+            )
+            .unwrap();
+        let token = Arc::clone(&cancellation);
+        let transformed = if cancel_in_transform {
+            source
+                .map_named("maybe-cancel", move |value| {
+                    token.store(true, Ordering::SeqCst);
+                    value
+                })
+                .unwrap()
+                .map_named("after-cancel", |value| value + 10)
+                .unwrap()
+        } else {
+            source
+        };
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let values = Arc::clone(&committed);
+        let sink_token = (!cancel_in_transform).then(|| Arc::clone(&cancellation));
+        let sink = transformed
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "cancel-bundle-sink-v1".into(),
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&values),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: sink_token.clone(),
+                    }))
+                },
+            )
+            .unwrap();
+        let job_config = JobConfig {
+            cancellation,
+            ..config(temporary.path())
+        };
+        let error = DirectRunner
+            .start_stream_sink(&sink, &job_config)
+            .unwrap()
+            .wait()
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, ErrorKind::Cancelled);
+        assert!(committed.lock().unwrap().is_empty());
+        assert!(!temporary.path().join("stream-latest.json").exists());
+    }
+}
+
+#[test]
+fn failed_stream_bundle_begin_aborts_its_open_sink() {
+    struct FailingBeginSink {
+        aborts: Arc<AtomicUsize>,
+        panic_on_begin: bool,
+    }
+    impl TypedSink<i32> for FailingBeginSink {
+        fn begin_bundle(&mut self, _: &str) -> Result<(), Error> {
+            if self.panic_on_begin {
+                panic!("injected begin panic");
+            }
+            Err(Error::execution("sink", "test", "injected begin failure"))
+        }
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            panic!("begin failure reached write")
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            panic!("begin failure reached commit")
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.aborts.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    struct PairedLeftSink {
+        committed: Arc<Mutex<Vec<i32>>>,
+        staged: Vec<i32>,
+        aborts: Arc<AtomicUsize>,
+    }
+    impl TypedSink<i32> for PairedLeftSink {
+        fn write(&mut self, value: i32) -> Result<(), Error> {
+            self.staged.push(value);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            self.committed.lock().unwrap().extend(self.staged.drain(..));
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            self.aborts.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    for panic_on_begin in [false, true] {
+        let temporary = tempfile::tempdir().unwrap();
+        let aborts = Arc::new(AtomicUsize::new(0));
+        let pipeline = Pipeline::default();
+        let source = pipeline
+            .unbounded_source_with_factory(
+                "events",
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                "begin-failure-source-v1".into(),
+                0,
+                |_| {
+                    Ok(Box::new(Script {
+                        polls: vec![batch(1, 1, true)].into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                },
+            )
+            .unwrap();
+        let sink_aborts = Arc::clone(&aborts);
+        let sink = source
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "begin-failure-sink-v1".into(),
+                move || {
+                    Ok(Box::new(FailingBeginSink {
+                        aborts: Arc::clone(&sink_aborts),
+                        panic_on_begin,
+                    }))
+                },
+            )
+            .unwrap();
+        let error = DirectRunner
+            .start_stream_sink(&sink, &config(temporary.path()))
+            .unwrap()
+            .wait()
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert_eq!(error.node.as_deref(), Some("sink"));
+        assert_eq!(aborts.load(Ordering::SeqCst), 1);
+        assert!(!temporary.path().join("stream-latest.json").exists());
+    }
+
+    let temporary = tempfile::tempdir().unwrap();
+    let right_aborts = Arc::new(AtomicUsize::new(0));
+    let left_aborts = Arc::new(AtomicUsize::new(0));
+    let left_values = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "pair-begin-failure-source-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![batch(1, 1, true)].into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let values = Arc::clone(&left_values);
+    let aborts = Arc::clone(&left_aborts);
+    let left = source
+        .sink_named_with_config(
+            "left",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "pair-begin-left-v1".into(),
+            move || {
+                Ok(Box::new(PairedLeftSink {
+                    committed: Arc::clone(&values),
+                    staged: Vec::new(),
+                    aborts: Arc::clone(&aborts),
+                }))
+            },
+        )
+        .unwrap();
+    let aborts = Arc::clone(&right_aborts);
+    let right = source
+        .sink_named_with_config(
+            "right",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "pair-begin-right-v1".into(),
+            move || {
+                Ok(Box::new(FailingBeginSink {
+                    aborts: Arc::clone(&aborts),
+                    panic_on_begin: false,
+                }))
+            },
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config(temporary.path()))
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(left_aborts.load(Ordering::SeqCst), 1);
+    assert_eq!(right_aborts.load(Ordering::SeqCst), 1);
+    assert!(left_values.lock().unwrap().is_empty());
+    assert!(!temporary.path().join("stream-latest.json").exists());
+}
+
+#[test]
 fn one_job_commits_multiple_batches_and_tracks_progress() {
     let temporary = tempfile::tempdir().unwrap();
     let committed = Arc::new(Mutex::new(Vec::new()));

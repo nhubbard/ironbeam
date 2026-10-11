@@ -396,6 +396,27 @@ fn open_sink(registry: &Registry, key: &str) -> Result<Box<dyn SinkSession>, Err
     Ok(session)
 }
 
+fn begin_sink_bundle(
+    registry: &Registry,
+    key: &str,
+    instruction_id: &str,
+) -> Result<Box<dyn SinkSession>, Error> {
+    let mut session = open_sink(registry, key)?;
+    let started = catch_unwind(AssertUnwindSafe(|| session.begin_bundle(instruction_id)))
+        .unwrap_or_else(|_| {
+            Err(Error::execution(
+                key,
+                "direct",
+                "sink bundle begin panicked",
+            ))
+        });
+    if let Err(error) = started {
+        let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+        return Err(error);
+    }
+    Ok(session)
+}
+
 fn bundle_id(graph_fingerprint: &str, sink_keys: &[&str], progress: &ProgressSignal) -> String {
     let mut hasher = Sha256::new();
     for bytes in std::iter::once(graph_fingerprint.as_bytes())
@@ -518,16 +539,7 @@ fn run_stream(
                         return Err(cancelled());
                     }
                     if session.is_none() {
-                        let mut opened = open_sink(registry, sink_key)?;
-                        catch_unwind(AssertUnwindSafe(|| opened.begin_bundle(&instruction_id)))
-                            .unwrap_or_else(|_| {
-                                Err(Error::execution(
-                                    sink_key,
-                                    "direct",
-                                    "sink bundle begin panicked",
-                                ))
-                            })?;
-                        session = Some(opened);
+                        session = Some(begin_sink_bundle(registry, sink_key, &instruction_id)?);
                     }
                     catch_unwind(AssertUnwindSafe(|| {
                         session.as_mut().expect("opened sink").write(event)
@@ -590,17 +602,7 @@ fn write_stream_branch(
             return Err(cancelled());
         }
         if session.is_none() {
-            let mut opened = open_sink(registry, key)?;
-            catch_unwind(AssertUnwindSafe(|| opened.begin_bundle(instruction_id))).unwrap_or_else(
-                |_| {
-                    Err(Error::execution(
-                        key,
-                        "direct",
-                        "sink bundle begin panicked",
-                    ))
-                },
-            )?;
-            *session = Some(opened);
+            *session = Some(begin_sink_bundle(registry, key, instruction_id)?);
         }
         catch_unwind(AssertUnwindSafe(|| {
             session.as_mut().expect("opened sink").write(event)
