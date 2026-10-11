@@ -75,7 +75,7 @@ pub(crate) fn execute<T: Element>(
     let sink_key = &plan.summary.output_key;
     if plan.materialized {
         let mut written = 0_u64;
-        if materialized::try_drain_group_sink(
+        if materialized::try_drain_fold_sink(
             graph,
             registry,
             sink_key,

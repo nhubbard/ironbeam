@@ -1722,6 +1722,26 @@ impl<T: Element, A: Send + 'static, O: Element, C: FoldLogic<T, A, O>> FoldSessi
             )
             .collect())
     }
+    fn finish_into(
+        mut self: Box<Self>,
+        emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if self.entries.is_empty() && self.window == Window::Global {
+            self.entries
+                .insert(None, (self.combiner.create(), 0, Window::Global, None));
+        }
+        for (accumulator, timestamp_ns, window, assigned_window) in
+            std::mem::take(&mut self.entries).into_values()
+        {
+            emit(Envelope {
+                value: Box::new(self.combiner.finish(accumulator)),
+                timestamp_ns,
+                window,
+                assigned_window,
+            })?;
+        }
+        Ok(())
+    }
 }
 
 struct KeyedFoldState<K, V, A, O, C> {
@@ -1781,6 +1801,22 @@ impl<
                 },
             )
             .collect())
+    }
+    fn finish_into(
+        mut self: Box<Self>,
+        emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        for (key, (accumulator, timestamp_ns, window, assigned_window)) in
+            std::mem::take(&mut self.rows)
+        {
+            emit(Envelope {
+                value: Box::new((key, self.combiner.finish(accumulator))),
+                timestamp_ns,
+                window,
+                assigned_window,
+            })?;
+        }
+        Ok(())
     }
 }
 pub trait SinkSession: Send {

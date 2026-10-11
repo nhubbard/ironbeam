@@ -417,10 +417,10 @@ pub(crate) fn eval(
     }
 }
 
-/// Drain a directly connected GroupByKey fold into a sink without assembling
-/// all completed groups into a second output vector. Other graph shapes use
-/// the general materialized evaluator.
-pub(crate) fn try_drain_group_sink(
+/// Drain a directly connected fold into a sink without assembling its
+/// completed results into a second output vector. Other graph shapes use the
+/// general materialized evaluator.
+pub(crate) fn try_drain_fold_sink(
     graph: &Graph,
     registry: &Registry,
     sink_key: &str,
@@ -428,29 +428,35 @@ pub(crate) fn try_drain_group_sink(
     metrics: &MetricsState,
     emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
 ) -> Result<bool, Error> {
-    let Some(group_key) = graph.node(sink_key).and_then(|node| node.input.as_deref()) else {
+    let Some(fold_key) = graph.node(sink_key).and_then(|node| node.input.as_deref()) else {
         return Ok(false);
     };
-    let Some(group) = graph.node(group_key) else {
+    let Some(fold_node) = graph.node(fold_key) else {
         return Ok(false);
     };
-    if !matches!(group.operation, Operation::GroupByKey)
-        || !group.additional_inputs.is_empty()
-        || !registry.has_fold(group_key)
+    if !matches!(
+        fold_node.operation,
+        Operation::GroupByKey
+            | Operation::FoldGlobal
+            | Operation::FoldPerKey
+            | Operation::FoldOrderedGlobal
+            | Operation::FoldOrderedPerKey
+    ) || !fold_node.additional_inputs.is_empty()
+        || !registry.has_fold(fold_key)
     {
         return Ok(false);
     }
-    let Some((source_key, stages)) = group
+    let Some((source_key, stages)) = fold_node
         .input
         .as_deref()
         .and_then(|input| linear_fold_route(graph, input))
     else {
         return Ok(false);
     };
-    let mut fold = catch_unwind(AssertUnwindSafe(|| registry.open_fold(group_key)))
-        .unwrap_or_else(|_| {
+    let mut fold =
+        catch_unwind(AssertUnwindSafe(|| registry.open_fold(fold_key))).unwrap_or_else(|_| {
             Err(Error::execution(
-                group_key,
+                fold_key,
                 "direct",
                 "fold factory panicked",
             ))
@@ -461,11 +467,11 @@ pub(crate) fn try_drain_group_sink(
         &stages,
         config,
         metrics,
-        group_key,
+        fold_key,
         fold.as_mut(),
     )?;
     catch_unwind(AssertUnwindSafe(|| fold.finish_into(emit)))
-        .unwrap_or_else(|_| Err(Error::execution(group_key, "direct", "user fold panicked")))?;
+        .unwrap_or_else(|_| Err(Error::execution(fold_key, "direct", "user fold panicked")))?;
     Ok(true)
 }
 

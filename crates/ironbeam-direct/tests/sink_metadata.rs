@@ -371,6 +371,81 @@ fn grouped_sink_drain_preserves_window_metadata() {
 }
 
 #[test]
+fn lifted_global_and_keyed_sinks_drain_fold_results() {
+    use ironbeam_core::{CombineFn, Element};
+
+    struct Sum;
+    impl CombineFn<i32, i64, i64> for Sum {
+        fn create(&self) -> i64 {
+            0
+        }
+        fn add_input(&self, accumulator: &mut i64, value: i32) {
+            *accumulator += i64::from(value);
+        }
+        fn merge(&self, accumulator: &mut i64, other: i64) {
+            *accumulator += other;
+        }
+        fn finish(&self, accumulator: i64) -> i64 {
+            accumulator
+        }
+    }
+    struct CollectSink<T: Element>(Arc<Mutex<Vec<T>>>);
+    impl<T: Element> TypedSink<T> for CollectSink<T> {
+        fn write(&mut self, value: T) -> Result<(), Error> {
+            self.0.lock().unwrap().push(value);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+    let sink_spec = SinkSpec {
+        mode: SinkMode::Append,
+        replay: Replay::AtLeastOnce,
+        commit: true,
+    };
+    let pipeline = Pipeline::default();
+    let global_rows = Arc::new(Mutex::new(Vec::new()));
+    let global = pipeline
+        .from_vec::<i32>("empty", vec![])
+        .unwrap()
+        .combine_globally_lifted_named("global", Sum)
+        .unwrap()
+        .sink_named("global-sink", sink_spec.clone(), {
+            let rows = Arc::clone(&global_rows);
+            move || Ok(Box::new(CollectSink(Arc::clone(&rows))))
+        })
+        .unwrap();
+    DirectRunner
+        .run_sink(&global, &JobConfig::default())
+        .unwrap();
+    assert_eq!(*global_rows.lock().unwrap(), vec![0_i64]);
+
+    let keyed_rows = Arc::new(Mutex::new(Vec::new()));
+    let keyed = pipeline
+        .from_vec("keyed-source", vec![(1_i32, 2_i32), (2, 3), (1, 4)])
+        .unwrap()
+        .map_named("double", |(key, value)| (key, value * 2))
+        .unwrap()
+        .combine_values_lifted_named("keyed", Sum)
+        .unwrap()
+        .sink_named("keyed-sink", sink_spec, {
+            let rows = Arc::clone(&keyed_rows);
+            move || Ok(Box::new(CollectSink(Arc::clone(&rows))))
+        })
+        .unwrap();
+    let job = DirectRunner
+        .run_sink(&keyed, &JobConfig::default())
+        .unwrap();
+    assert_eq!(*keyed_rows.lock().unwrap(), vec![(1, 12_i64), (2, 6)]);
+    assert_eq!(job.metrics().source_elements, 3);
+    assert_eq!(job.metrics().output_elements, 2);
+}
+
+#[test]
 fn direct_sink_counts_filtered_rows_on_both_execution_modes() {
     for parallelism in [1, 3] {
         let pipeline = Pipeline::default();

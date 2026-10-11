@@ -29,11 +29,12 @@ staged locally.
   vector sources now use typed batches before writing each sink batch; the
   sink test confirms the first batch is written before the next transform runs.
   Parallel or metadata-changing routes retain the envelope path. Full Direct
-  tests and strict lint pass for this addition. A directly connected GroupByKey
-  fold can now drain completed groups into its sink one at a time, avoiding a
-  second whole-result vector. Tests cover grouped values, sink write failure
-  and abort, and fixed-window metadata; core and Direct suites and strict lint
-  pass. Fold state still retains groups, and other materialized sink routes
+  tests and strict lint pass for this addition. Directly connected GroupByKey,
+  global combine, and keyed combine folds can now drain completed results into
+  their sinks one at a time, avoiding a second whole-result vector. Tests cover
+  grouped values, sink write failure and abort, fixed-window metadata, empty
+  global input, and keyed sums; core and Direct suites and strict lint pass.
+  Fold state still retains groups, and other materialized sink routes
   still evaluate their full bounded graph before writing, so streaming and
   memory limits remain an open Direct gate. An alternating 16-run release sample of the
   100,000-row JSONL round trip measured 10.52 ms median after this change
