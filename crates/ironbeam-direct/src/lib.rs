@@ -393,7 +393,19 @@ impl DirectRunner {
             && registry
                 .vec_source_batches::<T>(&plan.routes[0].source_key)
                 .is_some();
-        let pool = (!inline_vec_copy)
+        let inline_typed_route = !plan.materialized
+            && config.parallelism == 1
+            && config.checkpoint.is_none()
+            && plan.routes.len() == 1
+            && !plan.routes[0].operations.is_empty()
+            && registry
+                .vec_source_batches::<T>(&plan.routes[0].source_key)
+                .is_some()
+            && plan.routes[0]
+                .operations
+                .iter()
+                .all(|key| registry.typed_value_transform::<T>(key).is_some());
+        let pool = (!(inline_vec_copy || inline_typed_route))
             .then(|| {
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(config.parallelism)
@@ -1117,7 +1129,7 @@ fn execute<T: Element>(
                 let mut output_count = 0_u64;
                 let mut filtered_count = 0_u64;
                 let mut panic_node = route.source_key.as_str();
-                let result = pool.expect("transform route owns a pool").install(|| {
+                let perform = || {
                     catch_unwind(AssertUnwindSafe(|| -> Result<(), Error> {
                         if route.operations.is_empty() {
                             output_count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
@@ -1150,7 +1162,11 @@ fn execute<T: Element>(
                         store.extend_batch(produced)?;
                         Ok(())
                     }))
-                });
+                };
+                let result = match pool {
+                    Some(pool) => pool.install(perform),
+                    None => perform(),
+                };
                 match result {
                     Ok(result) => result?,
                     Err(_) => {

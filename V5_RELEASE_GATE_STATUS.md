@@ -7,6 +7,15 @@ staged locally.
 
 ## Verified in this checkout
 
+- Sequential typed vector map/filter collection now runs inline when the job
+  requests one worker, avoiding a thread-pool setup for each short job. The
+  Direct all-feature suite and ordinary `-D warnings` lint pass. In local
+  100,000-row map/filter samples on this machine, the v5 median moved from
+  0.519 ms (20 runs) to 0.416 ms (30 runs); v4 measured 0.107 ms in the latter
+  sample. Output remained 50,000 rows with checksum 7,499,850,000. These are
+  small unpaired samples, and the performance gate remains open. The current
+  1.101.0 nightly pedantic/nursery lint run exposed existing Direct warnings
+  outside this path; that CI-strength lint gate is still open.
 - The separate Dataflow worker now validates connected branches and
   fixed-window assignment after a production unbounded SDF source. A live
   local Prism `Run` reached `DONE` across two residual bundles; three idempotent
