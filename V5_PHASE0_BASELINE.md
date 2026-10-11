@@ -22,6 +22,19 @@ The full per-file report is in `V5_PHASE0_COVERAGE.md`. Representative module li
 
 `examples/v4_benchmark_corpus.rs` prints stable workload names, row counts, elapsed nanoseconds, output counts, and checksums. On this host, a **debug** run with 10,000 rows gave map/filter 1.46 ms (5,000 rows; checksum 74,985,000), group-by-key 3.09 ms (100 groups; total 10,000 values), inner join 28.69 ms (10,000 rows; checksum 100,000,000), and JSONL write/read round trip 6.11 ms (10,000 rows; checksum 49,995,000). Earlier runs of the first three cases were faster, so these are characterization samples, not release thresholds. `examples/v5_benchmark_corpus.rs` now runs the same four workloads through the v5 facade for direct comparison. `/usr/bin/time -l` could not report peak RSS in the sandbox (`sysctl kern.clockrate: Operation not permitted`), so memory measurement remains an explicit gap.
 
+An aligned **release** build on 2026-10-10 timed each workload from input
+construction through the completed terminal at 100,000 rows. One v4/v5 sample
+in milliseconds was: map/filter 0.54/27.02, GroupByKey 1.89/18.64, inner join
+19.66/52.93, and JSONL round trip 6.78/24.97. Output counts and checksums
+matched in every case. These are single local runs, not statistically stable
+benchmarks, but the gap is large enough to keep throughput and allocation
+profiling open as a replacement gate. The v5 source computes a coder-backed
+content digest for stable identity, while v4's vector source does not; that
+is one concrete cost. A separate temporary 100,000-element `u32` source
+construction probe measured 4.13 ms for v5 and 0.06 ms for v4 on one run.
+This explains only part of the map/filter gap; the runner path still needs
+profiling. Both examples now include input construction in the timed region.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

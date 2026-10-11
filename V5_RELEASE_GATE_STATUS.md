@@ -89,8 +89,9 @@ staged locally.
   their old documentation. Fifteen v4 examples require `legacy-v4`; advanced
   joins and CoGroupByKey examples now run the v5 API by default.
   Both v4 and v5 benchmark examples produce matching counts and checksums
-  for four workloads at 1,000 rows, though timings are not yet a release
-  performance comparison. The v4 implementation remains in the repository,
+  for four workloads at 1,000 rows. A single aligned 100,000-row release
+  sample found substantial v5 latency regressions in all four cases; see
+  `V5_PHASE0_BASELINE.md`. The v4 implementation remains in the repository,
   and the root package version is still 4.1.1, until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus

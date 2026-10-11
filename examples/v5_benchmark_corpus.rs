@@ -32,9 +32,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups.len(), groups.iter().map(|(_, values)| values.len()).sum::<usize>());
 
     let p = Pipeline::default();
+    let start = Instant::now();
     let left = p.from_vec("join-left", (0..count).map(|n| (n, n)).collect())?;
     let right = p.from_vec("join-right", (0..count).map(|n| (n, n.wrapping_add(1))).collect())?;
-    let start = Instant::now();
     let joined = left.join_inner_named("join", &right)?
         .output("join-result")?
         .collect_seq()?;
@@ -44,8 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let temp = tempfile::tempdir()?;
     let path = temp.path().join("rows.jsonl");
     let p = Pipeline::default();
-    let input = p.from_vec("jsonl-input", (0..count).collect())?;
     let start = Instant::now();
+    let input = p.from_vec("jsonl-input", (0..count).collect())?;
     DirectRunner.run_sink(&jsonl_sink(&input, "jsonl-write", &path)?, &JobConfig::default())?;
     let read = jsonl_source::<u32>(&Pipeline::default(), "jsonl-read", &path)?
         .output("jsonl-result")?

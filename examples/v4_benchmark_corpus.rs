@@ -40,9 +40,9 @@ fn main() {
     );
 
     let p = Pipeline::default();
+    let start = Instant::now();
     let left = from_vec(&p, (0..count).map(|n| (n, n)).collect());
     let right = from_vec(&p, (0..count).map(|n| (n, n.wrapping_add(1))).collect());
-    let start = Instant::now();
     let joined = left.join_inner(&right).collect_seq().unwrap();
     println!(
         "join_inner,{count},{},{},{}",
