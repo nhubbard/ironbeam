@@ -1,11 +1,10 @@
-#![cfg(feature = "legacy-v4")]
 //! Tests for spill integration with the runner.
 
-#![cfg(feature = "spilling")]
+#![cfg(feature = "v4-spilling")]
 
 use anyhow::Result;
-use ironbeam::spill::SpillConfig;
-use ironbeam::spill_integration::{
+use ironbeam_v4::spill::SpillConfig;
+use ironbeam_v4::spill_integration::{
     SpillingExecutor, current_memory_usage, init_spilling, reset_memory_tracker,
 };
 use serde::{Deserialize, Serialize};
@@ -97,7 +96,7 @@ fn test_current_memory_usage_tracking() {
 
     // Create a spillable partition which will be tracked by the memory tracker
     let data: Vec<TestData> = (0..1000).map(|i| TestData { value: i }).collect();
-    let _partition = ironbeam::spill::SpillablePartition::new(data);
+    let _partition = ironbeam_v4::spill::SpillablePartition::new(data);
 
     // Memory usage should increase after creating a tracked partition
     let after = current_memory_usage();

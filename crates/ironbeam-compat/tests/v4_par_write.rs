@@ -1,9 +1,8 @@
-#![cfg(feature = "legacy-v4")]
-#![cfg(all(feature = "io-jsonl", feature = "parallel-io"))]
+#![cfg(all(feature = "v4-jsonl", feature = "v4-parallel-io"))]
 
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::{from_vec, read_jsonl_vec};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{from_vec, read_jsonl_vec};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]

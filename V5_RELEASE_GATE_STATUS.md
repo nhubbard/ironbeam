@@ -96,6 +96,10 @@ staged locally.
   default compatibility cases. The metrics and coder suites contribute 45
   opt-in cases under `v4-metrics,v4-coders`; all passed against published
   4.1.1, and their duplicate root targets are removed.
+- The v4 checkpoint, parallel JSONL writing, spill, and spill-integration
+  suites now contribute 48 opt-in compatibility cases. They pass against
+  published 4.1.1 with checkpoint, JSONL, parallel I/O, spill, and zstd
+  features enabled; the duplicate root targets are removed.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The

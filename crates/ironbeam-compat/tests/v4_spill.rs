@@ -1,12 +1,11 @@
-#![cfg(feature = "legacy-v4")]
 //! Tests for automatic memory spilling functionality.
 
-#![cfg(feature = "spilling")]
+#![cfg(feature = "v4-spilling")]
 
 use anyhow::Result;
-use ironbeam::spill::{MemoryTracker, SpillConfig, SpillManager, SpillablePartition};
-use ironbeam::spill_integration::{init_spilling, reset_memory_tracker};
-use ironbeam::*;
+use ironbeam_v4::spill::{MemoryTracker, SpillConfig, SpillManager, SpillablePartition};
+use ironbeam_v4::spill_integration::{init_spilling, reset_memory_tracker};
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -472,7 +471,7 @@ fn test_spilling_with_key_value_operations() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "compression-zstd")]
+#[cfg(feature = "v4-zstd")]
 #[test]
 fn test_spilling_with_compression() -> Result<()> {
     let _guard = TEST_LOCK.lock().unwrap();

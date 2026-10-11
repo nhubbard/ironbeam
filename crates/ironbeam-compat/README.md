@@ -30,6 +30,8 @@ Pipeline and runner references add 54 default cases. Enabling
 `v4-metrics,v4-checkpointing` runs 67 cases, including the optional branches.
 Approximate-distinct and Bloom filter references add 26 default cases;
 the metrics and coder references add 45 opt-in cases under `v4-metrics,v4-coders`.
+Checkpoint, parallel JSONL writing, spill, and spill-integration references
+add 48 opt-in cases under their corresponding features.
 The mock I/O target runs its JSONL and temporary-path checks by default; its
 CSV check uses `cargo test -p ironbeam-compat --features v4-csv --test
 v4_testing_mock_io`.

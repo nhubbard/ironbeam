@@ -2337,6 +2337,7 @@ dependencies = [
  "ironbeam-transform-regex",
  "ironbeam-transforms",
  "parquet",
+ "postcard",
  "prost",
  "serde",
  "serde_arrow 0.14.2",

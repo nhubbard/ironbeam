@@ -16,7 +16,7 @@ v4-bzip2 = ["ironbeam-v4/compression-bzip2"]
 v4-cbor = ["ironbeam-v4/io-cbor"]
 v4-coders = ["ironbeam-v4/coders"]
 v4-csv = ["ironbeam-v4/io-csv", "dep:csv"]
-v4-checkpointing = ["ironbeam-v4/checkpointing"]
+v4-checkpointing = ["ironbeam-v4/checkpointing", "dep:postcard"]
 v4-gzip = ["ironbeam-v4/compression-gzip", "dep:flate2"]
 v4-jsonl = ["ironbeam-v4/io-jsonl"]
 v4-metrics = ["ironbeam-v4/metrics"]
@@ -27,6 +27,7 @@ v4-parquet = ["ironbeam-v4/io-parquet", "dep:parquet"]
 v4-protobuf = ["ironbeam-v4/io-protobuf"]
 v4-sql = ["ironbeam-v4/io-sql", "dep:sqlx", "dep:tokio"]
 v4-service-tests = ["dep:testcontainers", "dep:testcontainers-modules"]
+v4-spilling = ["ironbeam-v4/spilling"]
 v4-tfrecord = ["ironbeam-v4/io-tfrecord"]
 v4-xml = ["ironbeam-v4/io-xml"]
 v4-xz = ["ironbeam-v4/compression-xz"]
@@ -46,6 +47,7 @@ bson = { version = "3", optional = true }
 csv = { version = "1", optional = true }
 flate2 = { version = "1", optional = true }
 parquet = { version = "59", optional = true }
+postcard = { version = "1", features = ["alloc"], optional = true }
 serde_arrow = { version = "0.14", features = ["arrow-59"], optional = true }
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
 testcontainers = { version = "0.27", features = ["blocking"], optional = true }
@@ -63,6 +65,22 @@ tempfile = "3"
 [[test]]
 name = "v4_helper_parquet"
 required-features = ["v4-parquet"]
+
+[[test]]
+name = "v4_checkpoint"
+required-features = ["v4-checkpointing"]
+
+[[test]]
+name = "v4_par_write"
+required-features = ["v4-jsonl", "v4-parallel-io"]
+
+[[test]]
+name = "v4_spill"
+required-features = ["v4-spilling"]
+
+[[test]]
+name = "v4_spill_integration"
+required-features = ["v4-spilling"]
 
 [[test]]
 name = "v4_io_arrow_ipc"

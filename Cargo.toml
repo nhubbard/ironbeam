@@ -240,25 +240,9 @@ required-features = ["v5-preview"]
 # Skip v4 integration test binaries in the v5-default build.
 
 [[test]]
-name = "checkpoint"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "feature_gating"
 required-features = ["legacy-v4"]
 
 [[test]]
 name = "mega_integration"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "par_write"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "spill"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "spill_integration"
 required-features = ["legacy-v4"]

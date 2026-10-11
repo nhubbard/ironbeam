@@ -1,9 +1,8 @@
-#![cfg(feature = "legacy-v4")]
 //! Tests for the checkpoint module.
 
-#[cfg(feature = "checkpointing")]
+#[cfg(feature = "v4-checkpointing")]
 mod checkpoint_tests {
-    use ironbeam::checkpoint::{
+    use ironbeam_v4::checkpoint::{
         CheckpointConfig, CheckpointManager, CheckpointMetadata, CheckpointPolicy, CheckpointState,
         compute_checksum, current_timestamp_ms,
     };
@@ -385,7 +384,7 @@ mod checkpoint_tests {
     }
 }
 
-#[cfg(not(feature = "checkpointing"))]
+#[cfg(not(feature = "v4-checkpointing"))]
 #[test]
 fn checkpoint_tests_skipped() {
     // This ensures the test file compiles even without the checkpointing feature
