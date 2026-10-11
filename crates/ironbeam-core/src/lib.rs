@@ -1544,6 +1544,7 @@ pub struct Registry {
     sinks: BTreeMap<String, SinkRegistration>,
     coders: BTreeMap<String, CoderRegistration>,
     group_coders: BTreeMap<String, GroupCoderRegistration>,
+    cogroup_coders: BTreeMap<String, CoGroupCoderRegistration>,
 }
 #[derive(Clone, Copy)]
 struct CoderRegistration {
@@ -1560,6 +1561,11 @@ struct GroupCoderRegistration {
 type GroupInputSplitter = fn(&[u8]) -> Result<(Vec<u8>, Vec<u8>), Error>;
 type GroupInputAssembler = fn(&[u8], &[u8]) -> Result<Vec<u8>, Error>;
 type GroupOutputAssembler = fn(&[u8], &[Vec<u8>]) -> Result<Vec<u8>, Error>;
+#[derive(Clone)]
+struct CoGroupCoderRegistration {
+    split_inputs: Vec<GroupInputSplitter>,
+    assemble_output: GroupOutputAssembler,
+}
 impl GroupCoderRegistration {
     fn for_elements<K: Element, V: Element>() -> Self {
         Self {
@@ -1595,6 +1601,32 @@ impl CoderRegistration {
     }
 }
 impl Registry {
+    /// Whether a multi-input co-group has typed tagged-union coders.
+    #[must_use]
+    pub fn has_cogroup_coder(&self, key: &str) -> bool {
+        self.cogroup_coders.contains_key(key)
+    }
+
+    /// Encode an input pair as a common key and a tagged value for Beam GBK.
+    pub fn split_cogroup_input(
+        &self, key: &str, input_index: usize, bytes: &[u8],
+    ) -> Result<(Vec<u8>, Vec<u8>), Error> {
+        let coder = self.cogroup_coders.get(key).ok_or_else(||
+            Error::incompatible(format!("no co-group coder registered for node {key}")))?;
+        let splitter = coder.split_inputs.get(input_index).ok_or_else(||
+            Error::incompatible(format!("co-group input index {input_index} is out of range")))?;
+        splitter(bytes)
+    }
+
+    /// Reassemble a Beam GBK of tagged values into the typed co-group result.
+    pub fn assemble_cogroup_output(
+        &self, key: &str, encoded_key: &[u8], encoded_values: &[Vec<u8>],
+    ) -> Result<Vec<u8>, Error> {
+        let coder = self.cogroup_coders.get(key).ok_or_else(||
+            Error::incompatible(format!("no co-group coder registered for node {key}")))?;
+        (coder.assemble_output)(encoded_key, encoded_values)
+    }
+
     /// Whether this node is a true keyed grouping with a registered tuple
     /// coder. Other aggregate operations may also use `GroupByKey` locally.
     #[must_use]
@@ -3033,7 +3065,7 @@ macro_rules! define_cogroup {
                     value: Box::new((key, values)), timestamp_ns, window, assigned_window
                 }).collect())
             });
-            $first.next_aggregate(
+            let collection = $first.next_aggregate(
                 key,
                 Operation::CoGroupByKey,
                 vec![$(InputEdge {
@@ -3047,7 +3079,43 @@ macro_rules! define_cogroup {
                 if unbounded { Boundedness::Unbounded } else { Boundedness::Bounded },
                 aggregate,
                 None,
-            )
+            )?;
+            let split_inputs: Vec<GroupInputSplitter> = vec![
+                |bytes| {
+                    let (row_key, value) = <(K, $first_ty)>::decode(bytes)?;
+                    let mut tagged = vec![0];
+                    tagged.extend(value.encode()?);
+                    Ok((row_key.encode()?, tagged))
+                },
+                $(|bytes| {
+                    let (row_key, value) = <(K, $other_ty)>::decode(bytes)?;
+                    let mut tagged = vec![$position];
+                    tagged.extend(value.encode()?);
+                    Ok((row_key.encode()?, tagged))
+                }),+
+            ];
+            let registration = CoGroupCoderRegistration {
+                split_inputs,
+                assemble_output: |encoded_key, encoded_values| {
+                    let mut grouped = (Vec::<$first_ty>::new(), $(Vec::<$other_ty>::new()),+);
+                    for tagged in encoded_values {
+                        let (&tag, payload) = tagged.split_first().ok_or_else(||
+                            Error::incompatible("co-group tagged value is empty"))?;
+                        match tag {
+                            0 => grouped.0.push(<$first_ty>::decode(payload)?),
+                            $($position => grouped.$position.push(<$other_ty>::decode(payload)?),)+
+                            _ => return Err(Error::incompatible("co-group input tag is out of range")),
+                        }
+                    }
+                    (K::decode(encoded_key)?, grouped).encode()
+                },
+            };
+            {
+                let mut inner = collection.pipeline.inner.lock()
+                    .map_err(|_| Error::graph(key, "builder lock poisoned"))?;
+                inner.registry.cogroup_coders.insert(key.to_owned(), registration);
+            }
+            Ok(collection)
         }
     };
 }

@@ -129,10 +129,14 @@ staged locally.
    joins, side inputs, unbounded sources, update sinks, and
    whole-job final-result sinks. Core now registers typed split/reassembly
    coders for actual `group_by_key_named` nodes, distinct from
-   `latest_per_key_named`, which uses the same local operation marker. The
-   worker decodes fixed and chunked inline iterables but still rejects Beam
-   state-backed iterables, which require the Fn State API. Grouping across
-   Bounded millisecond-aligned fixed windows now lower to native Beam
+   `latest_per_key_named`, which uses the same local operation marker.
+   `cogroup_by_key_2_named` through `cogroup_by_key_10_named` now register
+   typed tagged-value coder contracts for their inputs. Tests cover
+   heterogeneous values, empty groups, and invalid tags. Portable co-group
+   lowering and execution remain open. The worker decodes fixed and chunked
+   inline iterables but still rejects Beam state-backed iterables, which
+   require the Fn State API. Bounded millisecond-aligned fixed windows lower
+   to native Beam
    `WindowInto`; the worker carries interval metadata across Fn API boundaries.
    One live Prism job verifies assigned intervals and keyed counts in each
    fixed window. The same job verifies native Reshuffle with values and

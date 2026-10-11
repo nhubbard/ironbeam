@@ -58,3 +58,50 @@ fn uncoded_types_remain_local_only() {
     assert!(!registry.has_coder("source"));
     assert!(registry.encode_element("source", &LocalOnly).is_err());
 }
+
+#[test]
+fn cogroup_registry_tags_heterogeneous_inputs_and_reassembles_typed_values() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![("a".to_owned(), 1_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![("a".to_owned(), UserRow(7))]).unwrap();
+    ironbeam_core::cogroup_by_key_2_named("cogroup", &left, &right).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.has_cogroup_coder("cogroup"));
+    let left_bytes = ("a".to_owned(), 1_i32).encode().unwrap();
+    let right_bytes = ("a".to_owned(), UserRow(7)).encode().unwrap();
+    let (key, left_tagged) = registry.split_cogroup_input("cogroup", 0, &left_bytes).unwrap();
+    let (right_key, right_tagged) = registry.split_cogroup_input("cogroup", 1, &right_bytes).unwrap();
+    assert_eq!(key, right_key);
+    assert_eq!(left_tagged[0], 0);
+    assert_eq!(right_tagged[0], 1);
+    let output = registry.assemble_cogroup_output("cogroup", &key,
+        &[right_tagged.clone(), left_tagged.clone(), left_tagged]).unwrap();
+    assert_eq!(<(String, (Vec<i32>, Vec<UserRow>))>::decode(&output).unwrap(),
+        ("a".to_owned(), (vec![1, 1], vec![UserRow(7)])));
+    assert!(registry.split_cogroup_input("cogroup", 2, &left_bytes).is_err());
+    assert!(registry.split_cogroup_input("missing", 0, &left_bytes).is_err());
+    assert!(registry.assemble_cogroup_output("cogroup", &key, &[Vec::new()]).is_err());
+    assert!(registry.assemble_cogroup_output("cogroup", &key, &[vec![2]]).is_err());
+    assert!(registry.assemble_cogroup_output("cogroup", &key, &[vec![1, 0]]).is_err());
+}
+
+#[test]
+fn cogroup_registry_handles_three_inputs_and_empty_value_groups() {
+    let pipeline = Pipeline::default();
+    let first = pipeline.from_vec("first", vec![("a".to_owned(), 4_i32)]).unwrap();
+    let second = pipeline.from_vec("second", vec![("a".to_owned(), UserRow(9))]).unwrap();
+    let third = pipeline.from_vec("third", vec![("b".to_owned(), true)]).unwrap();
+    ironbeam_core::cogroup_by_key_3_named("three", &first, &second, &third).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let (key, first_value) = registry.split_cogroup_input("three", 0,
+        &("a".to_owned(), 4_i32).encode().unwrap()).unwrap();
+    let (_, second_value) = registry.split_cogroup_input("three", 1,
+        &("a".to_owned(), UserRow(9)).encode().unwrap()).unwrap();
+    let (_, third_value) = registry.split_cogroup_input("three", 2,
+        &("b".to_owned(), true).encode().unwrap()).unwrap();
+    assert_eq!(third_value[0], 2);
+    let output = registry.assemble_cogroup_output("three", &key,
+        &[first_value, second_value]).unwrap();
+    assert_eq!(<(String, (Vec<i32>, Vec<UserRow>, Vec<bool>))>::decode(&output).unwrap(),
+        ("a".to_owned(), (vec![4], vec![UserRow(9)], Vec::new())));
+}
