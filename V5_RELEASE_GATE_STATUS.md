@@ -48,11 +48,12 @@ staged locally.
   locations and 25/26 branches through the extracted format packages.
   These measured baselines still leave uncovered error paths for release review.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
-  separately launched v5 worker for seven bounded sources, including a keyed
+  separately launched v5 worker for nineteen bounded sources, including a keyed
   input shared by GroupByKey and an ordinary branch, native Flatten and
   GroupByKey, event-time assignment, native fixed-window assignment with
-  offset, per-window GroupByKey, native Reshuffle in global and fixed windows,
-  and thirteen terminal
+  offset, per-window GroupByKey, two-, three-, and ten-input CoGroupByKey,
+  fixed-window CoGroupByKey, native Reshuffle in global and fixed windows,
+  and seventeen terminal
   append sinks. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
@@ -130,10 +131,14 @@ staged locally.
    whole-job final-result sinks. Core now registers typed split/reassembly
    coders for actual `group_by_key_named` nodes, distinct from
    `latest_per_key_named`, which uses the same local operation marker.
-   `cogroup_by_key_2_named` through `cogroup_by_key_10_named` now register
+   `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
    typed tagged-value coder contracts for their inputs. Tests cover
-   heterogeneous values, empty groups, and invalid tags. Portable co-group
-   lowering and execution remain open. The worker decodes fixed and chunked
+   heterogeneous values, empty groups, and invalid tags. The translator now
+   expands co-group nodes into tagged ParDos, native Flatten, and native
+   GroupByKey. A live Prism job verifies two and three heterogeneous inputs,
+   ten same-typed inputs, shared branches, and fixed-window groups. Intermediate arities use
+   the same generated path but lack individual live fixtures. The worker
+   decodes fixed and chunked
    inline iterables but still rejects Beam state-backed iterables, which
    require the Fn State API. Bounded millisecond-aligned fixed windows lower
    to native Beam
