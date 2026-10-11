@@ -1,6 +1,6 @@
-use ironbeam::io::cloud::ObjectIO;
-use ironbeam::io::cloud::fake::FakeObjectIO;
-use ironbeam::io::cloud::readers::*;
+use ironbeam_v4::io::cloud::ObjectIO;
+use ironbeam_v4::io::cloud::fake::FakeObjectIO;
+use ironbeam_v4::io::cloud::readers::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,7 +107,7 @@ fn test_expand_cloud_glob_required() {
 }
 
 #[test]
-#[cfg(feature = "compression-gzip")]
+#[cfg(feature = "v4-gzip")]
 fn test_write_compressed_gzip() {
     let storage = FakeObjectIO::new();
 
@@ -144,7 +144,7 @@ fn test_write_compressed_gzip() {
 }
 
 #[test]
-#[cfg(feature = "compression-zstd")]
+#[cfg(feature = "v4-zstd")]
 fn test_write_compressed_zstd() {
     let storage = FakeObjectIO::new();
 
@@ -173,7 +173,7 @@ fn test_compression_feature_error() {
     // Only meaningful when gzip is disabled: writing a `.gz` object must
     // surface a runtime "not enabled" error. With gzip on, there is nothing
     // to assert, so the bindings live inside the cfg block to stay used.
-    #[cfg(not(feature = "compression-gzip"))]
+    #[cfg(not(feature = "v4-gzip"))]
     {
         let storage = FakeObjectIO::new();
         let records = [TestRecord {

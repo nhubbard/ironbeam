@@ -26,6 +26,9 @@ root `tests/helpers` tree has been removed. Parquet's 15 cases use the opt-in
 The v4 combiner and testing reference suites have also moved into the leaf
 crate. The root combined legacy target now contains only I/O suites; the CSV
 mock test uses the separate `v4-csv` feature.
+The cloud-I/O reference family has moved too, with gzip/zstd reader branches
+behind opt-in compatibility features. Only format-specific I/O suites remain
+in the root combined legacy test target.
 
 This is a replacement gate, not a claim that the current workspace has already
 reached it. `V5_HELPER_PARITY_TRACKER.md` closes *bounded Direct helper* parity.

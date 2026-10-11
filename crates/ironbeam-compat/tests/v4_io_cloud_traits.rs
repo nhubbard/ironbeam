@@ -1,6 +1,10 @@
 //! Tests for cloud IO traits and error handling.
 
-use ironbeam::io::cloud::traits::*;
+#[macro_use]
+#[path = "common/macros.rs"]
+mod macros;
+
+use ironbeam_v4::io::cloud::traits::*;
 use std::collections::HashMap;
 
 #[test]

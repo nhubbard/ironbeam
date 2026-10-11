@@ -6,7 +6,7 @@
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::io::cloud::*;
+use ironbeam_v4::io::cloud::*;
 use std::collections::HashMap;
 
 // ============================================================================

@@ -60,6 +60,11 @@ staged locally.
   compatibility target; the sixth CSV check runs under an opt-in feature in
   CI. The two combiner tests that used the root test macro carry its unchanged
   definition locally.
+- The v4 cloud-I/O suites now run in `ironbeam-compat` against published
+  4.1.1: 80 default cases cover fake providers, cloud traits, utilities, and
+  readers. The gzip/zstd reader branches run in a separate opt-in target and
+  are retained in CI. The root combined legacy target now contains only
+  format-specific I/O suites and their shared assertion macro.
 - The v4 dictionary, hash-map, and display-string conversion suites also moved
   to `ironbeam-compat`; their 58 cases pass against published v4. The root no
   longer owns those three legacy test targets, and CI retains the reference

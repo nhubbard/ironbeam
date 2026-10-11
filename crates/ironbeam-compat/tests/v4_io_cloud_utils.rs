@@ -1,5 +1,5 @@
-use ironbeam::io::cloud::traits::{CloudIOError, ErrorKind};
-use ironbeam::io::cloud::utils::*;
+use ironbeam_v4::io::cloud::traits::{CloudIOError, ErrorKind};
+use ironbeam_v4::io::cloud::utils::*;
 
 #[test]
 fn test_retry_with_backoff() {

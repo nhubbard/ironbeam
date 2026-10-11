@@ -2233,6 +2233,7 @@ dependencies = [
  "arrow",
  "crc32c",
  "csv",
+ "flate2",
  "glob",
  "hyperloglogplus",
  "num_cpus",
@@ -2246,6 +2247,7 @@ dependencies = [
  "serde_arrow 0.14.2",
  "serde_json",
  "tempfile",
+ "zstd",
 ]
 
 [[package]]
@@ -2297,6 +2299,7 @@ dependencies = [
  "ironbeam-transforms",
  "prost",
  "serde",
+ "serde_json",
  "tempfile",
 ]
 

@@ -21,5 +21,8 @@ The v4 combiner and testing suites live here as separate reference targets.
 The mock I/O target runs its JSONL and temporary-path checks by default; its
 CSV check uses `cargo test -p ironbeam-compat --features v4-csv --test
 v4_testing_mock_io`.
+The v4 cloud-I/O suites cover its provider traits, fake services, utilities,
+and readers. Compressed reader checks use `v4-gzip,v4-zstd` in a separate CI
+target, leaving codec dependencies out of default compatibility builds.
 
 See [the migration guide](https://github.com/nhubbard/ironbeam/blob/main/V4_TO_V5_MIGRATION.md) for call-site examples and feature mapping.
