@@ -45,6 +45,61 @@ fn higher_arity_tuple_append_and_reuse_preserve_wire_bytes() {
 }
 
 #[test]
+fn vector_and_option_append_and_reuse_preserve_wire_bytes() {
+    let values = vec![Some("Ada".to_string()), None, Some("Lin".to_string())];
+    let mut old_wire = u64::try_from(values.len()).unwrap().to_le_bytes().to_vec();
+    for value in &values {
+        let part = value.as_ref().map_or_else(
+            || vec![0],
+            |name| [vec![1], name.as_bytes().to_vec()].concat(),
+        );
+        old_wire.extend_from_slice(&u64::try_from(part.len()).unwrap().to_le_bytes());
+        old_wire.extend_from_slice(&part);
+    }
+    let encoded = values.encode().unwrap();
+    assert_eq!(encoded, old_wire);
+    let mut buffer = b"prefix".to_vec();
+    values.encode_into(&mut buffer).unwrap();
+    assert_eq!(&buffer[6..], encoded);
+    values.encode_reusing(&mut buffer).unwrap();
+    assert_eq!(buffer, encoded);
+    assert_eq!(Vec::<Option<String>>::decode(&buffer).unwrap(), values);
+    for value in [Some("Ada".to_string()), None] {
+        let expected = value.encode().unwrap();
+        value.encode_into(&mut buffer).unwrap();
+        assert_eq!(&buffer[encoded.len()..], expected);
+        value.encode_reusing(&mut buffer).unwrap();
+        assert_eq!(buffer, expected);
+        buffer = encoded.clone();
+    }
+}
+
+#[test]
+fn composite_coders_encode_custom_elements_once() {
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+
+    #[derive(Clone)]
+    struct Counted(Arc<AtomicUsize>);
+    impl Element for Counted {
+        const TYPE_ID: &'static str = "test/counting-element";
+        const CODER_ID: &'static str = "test/counting-element-v1";
+        fn supports_coder() -> bool { true }
+        fn encode(&self) -> Result<Vec<u8>, Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![7])
+        }
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let element = Counted(Arc::clone(&calls));
+    vec![element.clone()].encode().unwrap();
+    assert_eq!(calls.swap(0, Ordering::SeqCst), 1);
+    Some(element.clone()).encode().unwrap();
+    assert_eq!(calls.swap(0, Ordering::SeqCst), 1);
+    (element, true, false).encode().unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn set_and_map_coders_ignore_hash_iteration_order() {
     let a: HashSet<i32> = [3, 1, 2].into_iter().collect();
     let b: HashSet<i32> = [2, 3, 1].into_iter().collect();

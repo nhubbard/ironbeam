@@ -169,6 +169,16 @@ fn encode_part(bytes: &[u8], output: &mut Vec<u8>) {
     output.extend_from_slice(&length.to_le_bytes());
     output.extend_from_slice(bytes);
 }
+fn encode_part_into<T: Element>(value: &T, output: &mut Vec<u8>) -> Result<(), Error> {
+    let prefix = output.len();
+    output.extend_from_slice(&[0; 8]);
+    let start = output.len();
+    value.encode_into(output)?;
+    let length = u64::try_from(output.len() - start)
+        .map_err(|_| Error::resource("coder", "encoded length overflow"))?;
+    output[prefix..start].copy_from_slice(&length.to_le_bytes());
+    Ok(())
+}
 fn checked_encoded_add(total: usize, part: usize) -> Result<usize, Error> {
     total
         .checked_add(part)
@@ -223,11 +233,22 @@ impl<T: Element> Element for Vec<T> {
             return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
         }
         let mut output = Vec::new();
+        self.encode_into(&mut output)?;
+        Ok(output)
+    }
+    fn encode_into(&self, output: &mut Vec<u8>) -> Result<(), Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
         output.extend_from_slice(&(self.len() as u64).to_le_bytes());
         for value in self {
-            encode_part(&value.encode()?, &mut output);
+            encode_part_into(value, output)?;
         }
-        Ok(output)
+        Ok(())
+    }
+    fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
+        buffer.clear();
+        self.encode_into(buffer)
     }
     fn encoded_len(&self) -> Result<usize, Error> {
         if !Self::supports_coder() {
@@ -274,14 +295,26 @@ impl<T: Element> Element for Option<T> {
         if !Self::supports_coder() {
             return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
         }
+        let mut output = Vec::with_capacity(1);
+        self.encode_into(&mut output)?;
+        Ok(output)
+    }
+    fn encode_into(&self, output: &mut Vec<u8>) -> Result<(), Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
         match self {
-            None => Ok(vec![0]),
+            None => output.push(0),
             Some(value) => {
-                let mut bytes = vec![1];
-                bytes.extend(value.encode()?);
-                Ok(bytes)
+                output.push(1);
+                value.encode_into(output)?;
             }
         }
+        Ok(())
+    }
+    fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
+        buffer.clear();
+        self.encode_into(buffer)
     }
     fn encoded_len(&self) -> Result<usize, Error> {
         if !Self::supports_coder() {
@@ -379,7 +412,7 @@ macro_rules! impl_tuple_element {
                 if !Self::supports_coder() {
                     return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
                 }
-                let mut bytes = Vec::with_capacity(self.encoded_len()?);
+                let mut bytes = Vec::new();
                 self.encode_into(&mut bytes)?;
                 Ok(bytes)
             }
@@ -387,10 +420,7 @@ macro_rules! impl_tuple_element {
                 if !Self::supports_coder() {
                     return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
                 }
-                $(
-                    output.extend_from_slice(&(self.$index.encoded_len()? as u64).to_le_bytes());
-                    self.$index.encode_into(output)?;
-                )+
+                $(encode_part_into(&self.$index, output)?;)+
                 Ok(())
             }
             fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
