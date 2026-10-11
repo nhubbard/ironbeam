@@ -645,6 +645,7 @@ fn execute<T: Element>(
                 u64::try_from(batch_len).unwrap_or(u64::MAX),
                 Ordering::Relaxed,
             );
+            let mut output_count = 0_u64;
             if let Some(transforms) = &single_transforms {
                 let apply_single = |event| {
                     let mut current = Some(event);
@@ -678,7 +679,8 @@ fn execute<T: Element>(
                     pool.install(|| -> Result<(), Error> {
                         for event in batch {
                             if let Some(event) = apply_single(event)? {
-                                push_output(event, &mut store, output_key, handle)?;
+                                push_output(event, &mut store, output_key)?;
+                                output_count += 1;
                             }
                         }
                         Ok(())
@@ -688,7 +690,8 @@ fn execute<T: Element>(
                         pool.install(|| batch.into_par_iter().map(apply_single).collect());
                     for result in results {
                         if let Some(event) = result? {
-                            push_output(event, &mut store, output_key, handle)?;
+                            push_output(event, &mut store, output_key)?;
+                            output_count += 1;
                         }
                     }
                 }
@@ -734,10 +737,17 @@ fn execute<T: Element>(
                 });
                 for result in results {
                     for event in result? {
-                        push_output(event, &mut store, output_key, handle)?;
+                        push_output(event, &mut store, output_key)?;
+                        output_count += 1;
                     }
                 }
             }
+            let total = handle
+                .metrics
+                .output_elements
+                .fetch_add(output_count, Ordering::Relaxed)
+                + output_count;
+            handle.processed.store(total, Ordering::Relaxed);
             source_offset = source_offset
                 .checked_add(batch_len)
                 .ok_or_else(|| Error::resource("job", "source offset overflow"))?;
@@ -762,19 +772,12 @@ fn push_output<T: Element>(
     event: Envelope,
     store: &mut OutputStore<T>,
     output_key: &str,
-    handle: &JobHandle,
 ) -> Result<(), Error> {
     let value = event
         .value
         .downcast::<T>()
         .map_err(|_| Error::execution(output_key, "direct", "output type mismatch"))?;
     store.push(*value)?;
-    let total = handle
-        .metrics
-        .output_elements
-        .fetch_add(1, Ordering::Relaxed)
-        + 1;
-    handle.processed.store(total, Ordering::Relaxed);
     Ok(())
 }
 fn cancelled() -> Error {
