@@ -88,8 +88,8 @@ staged locally.
   with values in two fixed windows that is globally materialized to match
   Direct's side-view behavior,
   native Reshuffle in global and fixed windows,
-  and twenty-five terminal
-  append sinks. One sink commits a pending fragment and accepts it only after
+  and twenty-six terminal
+  sinks. Two sinks commit pending fragments and accept them only after
   Prism's `FinalizeBundle` callback; the live proof verifies all three rows and
   leaves no pending fragments. The translator requires an immediate Reshuffle
   before a finalized sink, since a fused stage reached `DONE` without delivering
@@ -365,8 +365,16 @@ staged locally.
    callback. After `DONE`, the Prism driver verifies committed row accounting,
    validates the assembled framed records before visibility, atomically
    publishes one file, and confirms an idempotent retry. This is a live
-   single-bundle local proof; multi-bundle retry, worker-restart recovery,
-   and schema-bearing whole-job publication remain unproved.
+   single-bundle local proof. A real TFRecord fragment sink now spools each
+   bundle to disk, stages it through shared I/O, and publishes after `DONE`;
+   the publisher checks every frame and CRC, and the v5 reader reopens the
+   original three rows. Publication also rejects pending or orphaned staging
+   entries even if their row count is zero. The combined I/O coverage corpus
+   measured shared
+   I/O at 635/653 source locations and 76/78 branches, and TFRecord at
+   398/422 source locations and 35/38 branches; both pass unchanged gates.
+   Multi-bundle retry, worker-restart recovery, and
+   schema-bearing whole-job publication remain unproved.
    The worker now passes a stable bundle attempt ID to each sink before writes;
    the Prism probe uses it for deterministic fragment names and rejects a
    conflicting replay. This prepares durable manifest and publication work.

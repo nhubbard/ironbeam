@@ -2481,6 +2481,7 @@ dependencies = [
  "ironbeam-io",
  "prost",
  "serde",
+ "serde_json",
  "tempfile",
 ]
 

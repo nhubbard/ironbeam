@@ -100,6 +100,6 @@ for package in "${packages[@]}"; do
     ironbeam-compat)
       patches=("${core_patch[@]}" "${direct_patch[@]}" "${transforms_patch[@]}" "${regex_patch[@]}" "${approx_patch[@]}") ;;
   esac
-  cargo package -p "$package" --allow-dirty "${patches[@]}"
+  cargo package -p "$package" --allow-dirty --offline "${patches[@]}"
 done
 echo "All twenty-five v5 packages verified locally; no crates were published."
