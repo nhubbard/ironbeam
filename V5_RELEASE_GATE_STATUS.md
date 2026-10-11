@@ -7,6 +7,15 @@ staged locally.
 
 ## Verified in this checkout
 
+- Ordinary v5 `GroupByKey` now assigns the earliest input event timestamp in
+  each key/window on Direct, independent of arrival order. Beam lowering asks
+  Prism for the same earliest-input output time (`ironbeam-dataflow` `2d1cc47`). An out-of-order fixed-window
+  Direct/Prism job matches values, timestamp, and window end; the production
+  unbounded Prism fixture now checks an exact grouped timestamp where it
+  previously allowed two outcomes. The live 14-test Prism suite and full
+  core/Direct suites pass. Group fold checkpoint state has a new version so
+  old first-arrival time snapshots fail closed.
+
 - The runner contract package now executes its bounded map/filter/flat-map fixture on
   the real v5 Direct runner as well as published v4 Direct. The obsolete fake
   Dataflow lowering preview was removed. The separate Dataflow workspace now
@@ -987,7 +996,7 @@ staged locally.
    1,946/2,064 source locations and 399/436 branches, core 2,430/2,525 and
    354/402.
    Core now exposes an optional fold-state snapshot/restore contract.
-   GroupByKey serializes its in-progress keyed values and first-element time
+   GroupByKey serializes its in-progress keyed values and earliest-input time
    metadata with an independently versioned, coder-bound state format, and restores its
    group indexes before accepting more input. Tests cover resumed values and
    windows, malformed coder bytes, duplicate groups, incompatible versions or coders,

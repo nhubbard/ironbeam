@@ -5,6 +5,32 @@ use ironbeam_core::{
 use ironbeam_direct::{CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig};
 
 #[test]
+fn group_timestamp_is_earliest_input_even_when_it_arrives_later() {
+    let pipeline = Pipeline::default();
+    let grouped = pipeline
+        .from_vec("events", vec![
+            (5_000_000_i64, (1_i32, 5_i32)),
+            (2_000_000, (1, 2)),
+            (7_000_000, (1, 7)),
+        ])
+        .unwrap()
+        .timestamps_from_pairs_named("event-time")
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .reify_timestamps_named("group-time")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    assert_eq!(
+        DirectRunner.run_collect(&grouped, &JobConfig::default()).unwrap().0,
+        [(2_000_000, (1, vec![5, 2, 7]))]
+    );
+}
+
+#[test]
 fn keyed_group_streams_source_batches_and_preserves_resource_limit() {
     let pipeline = Pipeline::default();
     let input = pipeline

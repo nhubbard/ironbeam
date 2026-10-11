@@ -4377,7 +4377,7 @@ struct GroupFoldCheckpointRow {
     assigned_window: Option<WindowInterval>,
 }
 
-const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 1, minor: 0 };
+const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 2, minor: 0 };
 
 impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
     fn add_row(
@@ -4392,12 +4392,14 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
             let scope = (group_key.clone(), interval);
             if let Some(&index) = self.window_indices.get(&scope) {
                 self.groups[index].1.push(value);
+                self.groups[index].2 = self.groups[index].2.min(timestamp_ns);
                 return;
             }
             self.window_indices.insert(scope, self.groups.len());
         } else {
             if let Some(&index) = self.global_indices.get(&group_key) {
                 self.groups[index].1.push(value);
+                self.groups[index].2 = self.groups[index].2.min(timestamp_ns);
                 return;
             }
             self.global_indices
