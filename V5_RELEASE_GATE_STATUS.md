@@ -16,7 +16,7 @@ The [replacement roadmap](V5_REPLACEMENT_ROADMAP.md) and
 | --- | --- | --- | --- |
 | V5-only root and modular packages | **Mostly done** | The root's 101 local v4 source files and `legacy-v4` feature are gone. Default root dependencies are core, Direct, transforms, shared I/O, and JSONL. The 25 local v5 packages verify without publication. | Decide the remaining legacy `ironbeam-cloud` package's ownership, remove any obsolete v4 behavior, and set the intended release versions after the other gates pass. |
 | Bounded API and helper parity | **Partly done** | The v4 reference corpus runs against published 4.1.1 in `ironbeam-compat`; bounded Direct helper parity is tracked in [V5_HELPER_PARITY_TRACKER.md](V5_HELPER_PARITY_TRACKER.md). | Audit every public root path and behavior promised for 5.0.0, then finish the migration examples. The helper tracker does not cover streaming, portable execution, or durability. |
-| Direct and portable behavior | **Open** | Shared fixtures compare elementwise pipelines, grouped event time, explicit-order folds, and tie-key selection on Direct and local Prism. The broader Prism corpus exercises joins, CoGroupByKey, side inputs, windows, and many I/O formats. | Run the same success and failure graphs through both runners for every advertised operation. A new Flatten → GroupByKey fixture has exposed a portable wire mismatch and is under investigation. |
+| Direct and portable behavior | **Open** | Shared fixtures compare elementwise pipelines, two-source Flatten → GroupByKey, grouped event time, explicit-order folds, and tie-key selection on Direct and local Prism. The broader Prism corpus exercises joins, CoGroupByKey, side inputs, windows, and many I/O formats. | Run the same success and failure graphs through both runners for every advertised operation, including remaining multi-input and failure cases. |
 | Unbounded execution | **Open** | Direct runs one registered unbounded source through a linear route to idempotent sinks with cursor checkpointing. Local Prism runs both a TestStream fixture and a production polling source through the v5 worker. | Prove worker recovery after an accepted batch, split-response roots, and the remaining portable and Direct graph shapes. |
 | Recovery and output commits | **Open** | Direct restores several coded bounded aggregate and linear group routes. Portable sinks stage and validate fragments before local final publication for JSONL, CSV, XML, Avro, Parquet, Arrow, Protobuf, TFRecord, MessagePack, and CBOR. | Finish the runner-wide commit contract, abandoned-attempt and restart proofs, and the remaining v4 checkpoint-policy replacement decisions. |
 | Coverage and package quality | **Passing floors; review open** | Fresh measured Direct coverage is 2,860/3,132 locations (91.32%) and 560/618 branches (90.61%), above its 91%/90% CI floors. The full local package gate passed for all 25 crates. | Review uncovered contract and failure paths after the remaining features land; rerun clean coverage, strict lint, docs, package checks, and the full test matrix. |
@@ -47,16 +47,16 @@ and the detailed parity evidence for each fixture.
 - The local release script passed its dependency checks, workspace tests,
   feature matrix, docs, and verification of all 25 packages on 2026-10-11.
   It used Mr Boxington and published no crates.
-- Earlier complete local Prism suites passed. The new two-source parity
-  fixture currently passes Direct and exposes a Prism boundary mismatch;
-  that fixture is **not** counted as a passing portable proof.
+- The complete local Prism suite now passes all 15 tests, including the new
+  two-source Flatten → GroupByKey parity fixture. The Dataflow workspace
+  test and doctest suite and strict lint for the changed packages also pass
+  after the keyed coder propagation fix (`ironbeam-dataflow` `46ceb2c`).
 
 ## Next closure sequence
 
-1. Resolve the two-source Flatten → GroupByKey wire mismatch and add it to
-   the shared Direct/Prism contract corpus.
-2. Extend the shared corpus to remaining advertised operations and failures,
-   then close the worker restart and output-commit proofs.
+1. Extend the shared Direct/Prism corpus to remaining advertised operations
+   and failures, especially additional multi-input and output cases.
+2. Close the worker restart and runner-wide output-commit proofs.
 3. Finish the public API, checkpoint-policy, cloud-package, and performance
    audits; run clean coverage and formatting checks.
 4. Set release versions and repeat the complete local gate. Keep publication
