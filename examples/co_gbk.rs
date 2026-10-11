@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     pairs.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(pairs.len(), 3);
     assert_eq!(pairs[0].1.1, vec![100, 200]);
-    assert!(pairs[2].1.1.is_empty());
+    assert_eq!(pairs[2].1.1, Vec::<u32>::new());
     for (user, (names, amounts)) in &pairs {
         println!("{user}: {names:?}, orders {amounts:?}");
     }

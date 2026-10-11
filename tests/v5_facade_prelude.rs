@@ -220,9 +220,6 @@ fn facade_exposes_isolated_cbor_connector() {
 #[test]
 fn facade_exposes_native_avro_without_v4_bridge() {
     use ironbeam::v5::{DirectRunner, JobConfig, avro_sink, avro_source};
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("values.avro");
-    let schema = r#"{"type":"record","name":"Value","fields":[{"name":"value","type":"int"}]}"#;
     #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
     struct Value {
         value: i32,
@@ -231,6 +228,9 @@ fn facade_exposes_native_avro_without_v4_bridge() {
         const TYPE_ID: &'static str = "facade/value";
         const CODER_ID: &'static str = "facade/value";
     }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("values.avro");
+    let schema = r#"{"type":"record","name":"Value","fields":[{"name":"value","type":"int"}]}"#;
     let pipeline = Pipeline::default();
     let input = pipeline
         .from_vec("input", vec![Value { value: 3 }])
@@ -251,8 +251,6 @@ fn facade_exposes_native_avro_without_v4_bridge() {
 #[test]
 fn facade_exposes_parquet_without_v4_bridge() {
     use ironbeam::v5::{DirectRunner, JobConfig, parquet_sink, parquet_source};
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("values.parquet");
     #[derive(Clone, serde::Serialize, serde::Deserialize, PartialEq, Debug)]
     struct Value {
         value: i32,
@@ -261,6 +259,8 @@ fn facade_exposes_parquet_without_v4_bridge() {
         const TYPE_ID: &'static str = "facade/parquet-value";
         const CODER_ID: &'static str = "facade/parquet-value";
     }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("values.parquet");
     let pipeline = Pipeline::default();
     let input = pipeline
         .from_vec("input", vec![Value { value: 3 }])

@@ -73,6 +73,10 @@ pub trait ElementCoder: Send + Sync {
 
     /// Reassemble Beam's post-shuffle `kv<lp<K>, iter<lp<V>>>` into one
     /// grouped element that a downstream ironbeam transform can consume.
+    ///
+    /// # Errors
+    /// The default implementation always errors; a KV-aware coder can fail
+    /// on invalid grouped bytes.
     fn decode_kv_iter_bytes(&self, _key: &[u8], _values: &[&[u8]]) -> Result<Vec<u8>> {
         Err(anyhow!(
             "coder for {} cannot decode grouped KV bytes",

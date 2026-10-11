@@ -11,6 +11,10 @@ pub mod v5 {
     pub mod metrics {
         pub use ironbeam_metrics::*;
     }
+    #[cfg(feature = "v5-testing")]
+    pub mod testing {
+        pub use ironbeam_testing::*;
+    }
     /// Imports for v5 convenience transforms and Direct execution terminals.
     /// This prelude depends only on v5 packages; migration bridges are optional.
     pub mod prelude {

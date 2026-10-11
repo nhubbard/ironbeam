@@ -7,7 +7,7 @@ use ironbeam::v5::{OrdF64, Pipeline, prelude::*};
 
 const WINDOW_NS: i64 = 10_000_000_000;
 
-#[allow(clippy::cast_precision_loss)]
+#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
 fn main() -> Result<()> {
     println!("⏰ Windowing and Aggregations Example\n");
     let sensor_data = [

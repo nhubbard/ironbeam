@@ -5,12 +5,16 @@
 #![allow(clippy::too_many_lines)]
 
 use anyhow::Result;
-use ironbeam::v5::{Pipeline, prelude::*};
-use ironbeam_testing::{
-    KVTestDataBuilder, PCollectionDebugExt, TestDataBuilder, TestPipeline, assert_all, assert_any,
-    assert_collection_size, assert_collections_equal, assert_contains, assert_grouped_kv_equal,
-    assert_kv_collections_equal, product_metadata, sample_log_entries, sequential_data,
-    skewed_key_value_data, time_series_data, user_product_interactions, word_count_data,
+use ironbeam::v5::{
+    JobConfig, Pipeline,
+    prelude::*,
+    testing::{
+        KVTestDataBuilder, PCollectionDebugExt, TestDataBuilder, TestPipeline, assert_all,
+        assert_any, assert_collection_size, assert_collections_equal, assert_contains,
+        assert_grouped_kv_equal, assert_kv_collections_equal, product_metadata, sample_log_entries,
+        sequential_data, skewed_key_value_data, time_series_data, user_product_interactions,
+        word_count_data,
+    },
 };
 
 fn main() -> Result<()> {
@@ -117,7 +121,7 @@ fn debug_utilities() -> Result<()> {
         .map_named("debug-double", |value| value * 2)?
         .debug_inspect_named("inspect-map", "after map")?
         .filter_named("debug-filter", |value| *value > 5)?
-        .collect_debug_count_named("debug-result", "after filter", &Default::default())?;
+        .collect_debug_count_named("debug-result", "after filter", &JobConfig::default())?;
     assert_collections_equal(&values, &[6, 8, 10]);
 
     p.from_vec("sample-input", (1..=100).collect::<Vec<i32>>())?
@@ -234,7 +238,7 @@ fn joins() -> Result<()> {
     let joined = interactions
         .join_inner_named("fixture-join", &products)?
         .collect_seq()?;
-    assert!(!joined.is_empty());
+    assert_ne!(joined.len(), 0);
     println!("  ✓ Inner, left, and fixture joins passed\n");
     Ok(())
 }
