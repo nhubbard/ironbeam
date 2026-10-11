@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.10: `log_elements` / `log_elements_with`.
 //!
 //! Validates that the debug-tap helpers behave as a strict passthrough — the
@@ -13,7 +12,7 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

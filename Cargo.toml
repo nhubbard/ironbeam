@@ -256,19 +256,11 @@ name = "co_gbk"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "dead_letter"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "explain"
 required-features = ["legacy-v4"]
 
 [[test]]
 name = "feature_gating"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "log_elements"
 required-features = ["legacy-v4"]
 
 [[test]]
@@ -281,14 +273,6 @@ required-features = ["legacy-v4"]
 
 [[test]]
 name = "metrics"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "multi_output"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "named_operations"
 required-features = ["legacy-v4"]
 
 [[test]]
@@ -321,12 +305,4 @@ required-features = ["legacy-v4"]
 
 [[test]]
 name = "spill_integration"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "testing_utilities"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "validation"
 required-features = ["legacy-v4"]

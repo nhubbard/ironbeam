@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.15: dead-letter / error-routing
 //! pattern.
 //!
@@ -14,7 +13,7 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use std::fmt;
 
 // ── DeadLetter struct ────────────────────────────────────────────────────────

@@ -1,9 +1,8 @@
-#![cfg(feature = "legacy-v4")]
 //! Integration tests demonstrating the testing utilities.
 
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::*;
 
 #[test]
 fn test_basic_pipeline_with_assertions() -> Result<()> {

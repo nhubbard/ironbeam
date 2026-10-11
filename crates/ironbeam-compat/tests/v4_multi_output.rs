@@ -1,11 +1,10 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for multi-output (side outputs) pattern using enums and partition! macro.
 
 #![allow(clippy::match_wildcard_for_single_variants)]
 #![allow(clippy::option_if_let_else)]
 
 use anyhow::Result;
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 // Test fixtures and helper types

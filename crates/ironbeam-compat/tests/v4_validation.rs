@@ -1,9 +1,8 @@
-#![cfg(feature = "legacy-v4")]
 //! Tests for validation functionality.
 
-use ironbeam::testing::*;
-use ironbeam::validation::*;
-use ironbeam::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::validation::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

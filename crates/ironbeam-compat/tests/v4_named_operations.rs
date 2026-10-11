@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.11: named operations.
 //!
 //! Exercises:
@@ -15,7 +14,7 @@
 //!   show the joined names of their contributing origins, and unnamed
 //!   pipelines produce identical explain output to before the feature.
 
-use ironbeam::*;
+use ironbeam_v4::*;
 use std::collections::HashMap;
 
 // ── Pipeline-level direct API ────────────────────────────────────────────────
