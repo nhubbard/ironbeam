@@ -7,6 +7,13 @@ staged locally.
 
 ## Verified in this checkout
 
+- The root source tree now contains only the v5 facade and its docs; the
+  `legacy-v4` feature and 101 local v4 source files have been removed. Published
+  4.1.1 remains in `ironbeam-compat` for the reference corpus. The root
+  all-feature tests, complete workspace suite, and all-feature root example
+  checks pass after this cutover. Root versioning, unused old dependencies,
+  and the remaining API/runtime/portable gates still prevent a 5.0.0 release.
+
 - Ordinary v5 `GroupByKey` now assigns the earliest input event timestamp in
   each key/window on Direct, independent of arrival order. Beam lowering asks
   Prism for the same earliest-input output time (`ironbeam-dataflow` `2d1cc47`). An out-of-order fixed-window
@@ -691,10 +698,11 @@ staged locally.
    workers, and root file sinks use whole-job final-result commit semantics
    that are unsafe across independent Fn API bundles. Remote worker staging,
    a runner-wide output commit protocol, and live provider tests remain.
-4. **Root replacement:** The root package now defaults to v5, but the v4 modules,
-   opt-in feature graph, examples, and compatibility paths remain. Continue
-   API migration and the focused v4 removal gate in
-   `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
+4. **Root replacement:** The root package is now v5-only; its local v4 modules
+   and `legacy-v4` feature are removed. Published 4.1.1 remains the reference
+   through `ironbeam-compat`. The root package is still versioned `4.1.1`, and
+   its public API, runtime, and portable feature gates must pass before setting
+   version `5.0.0`.
    The published v4 `with_keys` and flatten suites (37 tests) now run from
    `ironbeam-compat` instead of root legacy test binaries. A twelve-input
    corpus compares those v4 results with sequential and three-worker v5
@@ -712,8 +720,8 @@ staged locally.
    and harness lint pass, and its lockfile no longer contains `ironbeam` v4.
    The full multi-source, format, grouping, and finalized-sink Prism fixture
    reached `DONE` again through a separate v5 worker after this cutover.
-   The root package's own v4 modules and compatibility feature are still a
-   release blocker before changing the root package to 5.0.0.
+   The root package's own v4 modules and compatibility feature have since been
+   removed; the remaining behavior and API replacement gates are still open.
    `ironbeam-cloud` still contains legacy traits, fake services, readers,
    and helpers. Its compression and object APIs now reexport separate crates;
    v5 JSONL and shared I/O no longer depend on it. Remove

@@ -86,7 +86,9 @@ fn grouped_fold_rejects_corrupt_duplicate_and_incompatible_state() {
         ErrorKind::Recovery
     );
     let mut version: serde_json::Value = serde_json::from_slice(&saved).unwrap();
-    version["version"]["major"] = 2.into();
+    // Version 1 used first-arrival group time; it must not be restored under
+    // the earliest-input timestamp contract introduced in version 2.
+    version["version"]["major"] = 1.into();
     assert_eq!(
         registry
             .open_fold("group")

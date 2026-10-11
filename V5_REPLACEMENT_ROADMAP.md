@@ -2,15 +2,15 @@
 
 The target for `codex/ironbeam-v5-runner-core` is a v5-only, multi-crate
 workspace. The root `ironbeam` package remains the familiar entry point, but
-its implementation and default dependency graph must be v5. The checked-in v4
-implementation under `src/` is temporary migration scaffolding. The published
-v4 package may remain a dependency of `ironbeam-compat` for bounded migration
+its implementation and default dependency graph are now v5. The local v4
+implementation under `src/` has been removed. The published
+v4 package remains a dependency of `ironbeam-compat` for bounded migration
 tests; no v5 runtime package may depend on it.
 
 The bounded v4 behavior baseline, v4/v5 Direct differential tests, and
 TFRecord wire-compatibility test now live in `ironbeam-compat` and run against
 published Ironbeam 4.1.1. Their reference results remain available after the
-temporary root v4 implementation is deleted.
+root v4 implementation was deleted.
 The v4 benchmark driver is also in that leaf crate; it retains the seven
 workload names used by the v5 benchmark example.
 The v4 mean, count-per-element, keys/values, and key/value-swap suites now run
@@ -44,10 +44,10 @@ direction without creating a crate for every source file.
 
 | Boundary | Current state | Next change and reason |
 | --- | --- | --- |
-| Public facade | Root `ironbeam` 4.1.1 now defaults to v5 and also exposes it under `v5`; v4 modules remain gated by `legacy-v4`, while v4 reference tests and checkpoint-policy examples run against published 4.1.1 from `ironbeam-compat` | Finish checkpoint scheduling and the other replacement gates, then delete the v4 modules and feature flags. This removes the remaining build coupling. |
+| Public facade | Root `ironbeam` is v5-only and also exposes its API under `v5`; v4 reference tests and checkpoint-policy examples run against published 4.1.1 from `ironbeam-compat` | Finish the public API and runtime replacement gates before setting the root release version to 5.0.0. |
 | Logical graph and extension API | `ironbeam-core` owns `Pipeline`, `PCollection`, graph, `Element`, errors, typed source/sink registration | Keep these types together while extensions must construct graph nodes. Extract a runner-neutral `ironbeam-model` only if graph descriptors need an independently versioned serialization contract. An API-only crate that repeats these types would add an abstraction without isolating dependencies. |
 | Local runner | `ironbeam-direct` owns planner, execution, metrics, checkpoint, and spill modules | Finish shared-upstream execution, physical scheduling, state, and recovery here. Extract a state/checkpoint backend only when it can be independently selected and tested by more than one runner. |
-| Custom metrics and reports | Built-in job counters stay in `ironbeam-direct`; optional `ironbeam-metrics` owns v4-shaped counters, gauges, histograms, custom metric registration, and JSON reporting | Attach the shared collector to `JobConfig` for a Direct run instead of storing it on a reusable `Pipeline`. Keep the `metrics` feature alias while the root v4 module remains gated. |
+| Custom metrics and reports | Built-in job counters stay in `ironbeam-direct`; optional `ironbeam-metrics` owns v4-shaped counters, gauges, histograms, custom metric registration, and JSON reporting | Attach the shared collector to `JobConfig` for a Direct run instead of storing it on a reusable `Pipeline`. Keep the `metrics` feature alias for source compatibility. |
 | Convenience transforms | `ironbeam-transforms` owns common helpers. Regex lives in `ironbeam-transform-regex`; KMV and HLL approximate distinct helpers live in `ironbeam-transform-approx`. | Keep these opt-in extension dependencies out of common transforms. Preserve one conditional facade prelude for users. |
 | File formats | Avro, Parquet, Arrow IPC, CSV, XML, MessagePack, CBOR, JSONL, Protobuf, and TFRecord have independent crates; `ironbeam-io` holds shared file lifecycle helpers; `ironbeam-compression` owns the codec boundary | Continue connector parity and move shared file helpers to a small lifecycle crate when a concrete split improves dependency or test isolation. No reexport-only aggregator is needed. |
 | Databases | SQL and MongoDB already have independent crates and live-service tests | Keep them direct extensions of core. Do not pull their dependencies into a default facade build. |
@@ -68,7 +68,7 @@ MessagePack is similarly isolated as `ironbeam-io-msgpack` under the
 `v5-io-msgpack` facade feature and old alias. CBOR is isolated as
 `ironbeam-io-cbor` under `v5-io-cbor` and its old alias. JSONL and its
 object-storage adapters moved to `ironbeam-io-jsonl`, which the root v5
-facade includes by default. Legacy paths still require `legacy-v4`.
+facade includes by default. Published v4 remains the reference for old paths.
 The `glob_patterns` example now runs the v5 JSONL glob source and deferred
 sink, including the same six partitioned records, three filtered errors, and
 three batch files. The `compressed_io` example uses the isolated
@@ -83,7 +83,7 @@ The `mongodb_pipeline` example uses its separate v5 extension and passed a
 read-transform-write check against a temporary local MongoDB container.
 The `cloud_io_demo` example now uses v5's provider-neutral URI router, two
 local object providers, URI-level deferred JSONL sink and source adapters,
-and a cross-provider prefix copy. It runs without `legacy-v4` or hosted
+and a cross-provider prefix copy. It runs without hosted
 provider SDKs. URI-based JSONL sources bind the scheme and content digest to
 graph identity, and sinks bind the destination URI. The sink still has
 whole-job final-result semantics and remains unsupported by the portable
@@ -186,7 +186,7 @@ jobs match Direct keyed values, event times, and windows; global values and
 empty identity; and rejection of duplicate global and keyed order keys. Add
 the remaining behavior corpus before closing this gate.
 
-## Gates before deleting `src/` v4 runtime modules
+## Remaining gates after the v5-only root cutover
 
 1. **Public API ledger:** Every v4 public type, helper, source, sink, feature,
    and example has a v5 owner and a migration outcome: equivalent or an
@@ -233,11 +233,11 @@ the remaining behavior corpus before closing this gate.
    and default feature builds, and relevant all-feature checks. Root defaults
    exclude heavyweight format/database/remote dependencies. A change to one
    connector can be checked without building unrelated connectors.
-6. **Facade cutover:** Root `ironbeam` is v5-only, with one prelude and documented
+6. **Facade release:** Root `ironbeam` is v5-only, with one prelude and documented
    feature aliases. All repository examples, docs, benchmarks, tests, and the
-   release workflow use v5. Remove the local v4 modules, old root dependencies,
-   and v4-specific CI jobs in a focused commit, then run the complete matrix.
-   Keep `ironbeam-compat` as an optional leaf against published v4 if useful.
+   release workflow must use v5. Finish removing unused root dependencies and
+   old CI paths, then run the complete matrix. Keep `ironbeam-compat` as an
+   optional leaf against published v4 for the behavior corpus.
 
 Work through these in reviewable commits: extract one connector or capability,
 move its tests and facade export, verify its isolated dependency tree, then

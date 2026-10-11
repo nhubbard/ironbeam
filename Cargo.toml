@@ -14,7 +14,6 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = ["v5-preview"]
-legacy-v4 = ["dep:ironbeam-cloud", "dep:anyhow", "dep:serde", "dep:serde_json", "dep:rayon", "dep:num_cpus", "dep:ordered-float", "dep:glob", "dep:regex", "dep:paste", "dep:hyperloglogplus", "dep:tempfile"]
 v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "ironbeam-transforms/validation-json", "dep:ironbeam-io", "ironbeam-io/cloud", "dep:ironbeam-io-jsonl", "ironbeam-io-jsonl/cloud"]
 v5-regex = ["v5-preview", "dep:ironbeam-transform-regex"]
 v5-approx = ["v5-preview", "dep:ironbeam-transform-approx"]
@@ -226,5 +225,3 @@ required-features = ["v5-testing"]
 [[example]]
 name = "windowing_aggregations"
 required-features = ["v5-preview"]
-
-# Skip v4 integration test binaries in the v5-default build.

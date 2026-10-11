@@ -1,8 +1,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-#![cfg_attr(feature = "legacy-v4", doc = include_str!("legacy_docs.md"))]
-#![cfg_attr(all(not(feature = "legacy-v4"), feature = "v5-preview"), doc = include_str!("v5_docs.md"))]
-#![cfg_attr(all(not(feature = "legacy-v4"), not(feature = "v5-preview")), doc = "Enable `v5-preview` to build the isolated Ironbeam 5 facade.")]
+#![cfg_attr(feature = "v5-preview", doc = include_str!("v5_docs.md"))]
+#![cfg_attr(not(feature = "v5-preview"), doc = "Enable `v5-preview` to build the Ironbeam 5 facade.")]
 
 /// Ironbeam 5 graph, transforms, I/O, and Direct runner.
 #[cfg(feature = "v5-preview")]
@@ -72,8 +71,5 @@ pub mod v5 {
     pub use ironbeam_transforms::*;
 }
 
-#[cfg(all(feature = "v5-preview", not(feature = "legacy-v4")))]
+#[cfg(feature = "v5-preview")]
 pub use v5::*;
-
-#[cfg(feature = "legacy-v4")]
-include!("legacy_exports.rs");

@@ -50,7 +50,7 @@ fi
 "$cargo_bin" test --workspace
 "$cargo_bin" run --example cloud_io_demo --no-default-features --features v5-preview
 "$cargo_bin" test -p ironbeam-compat --test v4_baseline --test differential --test mean --test count_per_element --test keys_values --test kv_swap --test to_dict --test to_hashmap --test to_display_string
-"$cargo_bin" test -p ironbeam --features legacy-v4,v5-preview --test v5_facade_preview --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --features v5-preview --test v5_facade_preview --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-approx --test v5_facade_prelude

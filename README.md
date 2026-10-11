@@ -65,16 +65,16 @@ lowers v5 graphs to Beam protobuf and runs a bounded feature corpus through a
 separately launched v5 worker with local Prism. Its release gaps and the root
 cutover gates are tracked in [V5_RELEASE_GATE_STATUS.md](V5_RELEASE_GATE_STATUS.md).
 
-The old root implementation is still available on this branch with
-`--features legacy-v4`, but is no longer the default. The
+The root implementation is v5-only. The published 4.1.1 package remains the
+reference for the separate `ironbeam-compat` test corpus, and the
 [v4 README](V4_README.md) describes its old API. See the
 [migration guide](V4_TO_V5_MIGRATION.md) for concrete API changes and the
-[replacement roadmap](V5_REPLACEMENT_ROADMAP.md) for the remaining deletion
+[replacement roadmap](V5_REPLACEMENT_ROADMAP.md) for the remaining parity
 and release gates. Publication is staged until those gates pass.
 
 Run the comparable local benchmark examples with:
 
 ```sh
 cargo run --example v5_benchmark_corpus -- 1000
-cargo run --features legacy-v4,io-jsonl --example v4_benchmark_corpus -- 1000
+cargo run -p ironbeam-compat --example v4_benchmark_corpus -- 1000
 ```

@@ -102,16 +102,16 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 
 | v4 feature | v5 status |
 | --- | --- |
-| `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | JSONL is in the default v5 facade. CSV, Parquet, Avro, and XML each have an isolated crate and a `v5-io-*` feature. The old `io-*` flags also enable those v5 crates; with `legacy-v4` they additionally retain the v4 API. |
+| `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | JSONL is in the default v5 facade. CSV, Parquet, Avro, and XML each have an isolated crate and a `v5-io-*` feature. The old `io-*` flags remain aliases for the v5 crates; the v4 API is available from published Ironbeam 4.1.1. |
 | `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | Each format has a separate v5 crate and `v5-io-*` feature. The old feature names alias to those crates. `tfrecord_examples_source` requires both TFRecord and Protobuf. |
 | `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC, SQL, and MongoDB each have a separate v5 crate and `v5-io-*` feature. Old names alias to the v5 crates. SQL and MongoDB sinks are deferred append operations with application-managed replay. |
 | provider-neutral cloud utilities | `ironbeam-cloud-objects` supplies URI routing and local objects; `ironbeam-cloud-object-store` opts into S3, GCS, and Azure Blob clients. The old `ironbeam-cloud` service helpers remain available only through the legacy package and are not a v5 runtime dependency. |
-| `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | `ironbeam-compression` owns codec streams. Enabling one of these flags exposes its pluggable codec API under `ironbeam::v5`; `v5-compression` exposes the codec registry without a built-in codec. Shared I/O and JSONL activate matching codecs without pulling in legacy cloud helpers when `legacy-v4` is off. |
+| `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | `ironbeam-compression` owns codec streams. Enabling one of these flags exposes its pluggable codec API under `ironbeam::v5`; `v5-compression` exposes the codec registry without a built-in codec. Shared I/O and JSONL activate matching codecs without legacy cloud helpers. |
 | `parallel-io` | `ironbeam-io` parallel sinks and per-format `parallel-io` features on Avro, Parquet, and Arrow IPC | Pass an explicit positive shard count; v5 writes ordered fragments and assembles them before final atomic publish. XML, Avro, Parquet, and Arrow fragments are complete containers that are read and rewritten into the final container. Direct job parallelism still controls execution separately. |
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |
 | `checkpointing`, `spilling` | v5 Direct `JobConfig` has optional `CheckpointConfig` and `SpillConfig`; no feature flag. v4 checkpoint files are not v5 state. |
 | `coders` | v5 `Element` declares type/coder identity and version; built-in coders are implemented, custom coder support must be supplied explicitly. No global Serde bound is added by a feature. |
-| `default` | The root now defaults to the v5 core, Direct runner, common transforms, shared I/O, and JSONL. Other formats remain opt-in. Use `legacy-v4` explicitly for the old root API until it is removed. |
+| `default` | The v5-only root defaults to core, Direct runner, common transforms, shared I/O, and JSONL. Other formats remain opt-in. Use published Ironbeam 4.1.1 or `ironbeam-compat` to compare old behavior. |
 
 Sequential elementwise output is compared in order in the migration tests. Grouped, joined, sampled, and parallel results should be compared as multisets unless the operation documents an order. V5 validates boundedness and backend capabilities before opening sources or sinks. V5 graph, coder, and checkpoint versions are independent; unsupported versions fail explicitly rather than being interpreted as v4 state.
 
