@@ -356,6 +356,13 @@ staged locally.
    object-backed JSONL, Flatten, grouping, joins, side input, Reshuffle,
    event-time assignment, and fixed windows. Its object-backed fixture uses
    a shared local filesystem, so it does not prove remote staging.
+   The v5 worker now serves compact Fn API monitoring metadata, and a live
+   Prism run returns committed element counts for sources and intermediate
+   collections. Prism did not report the finalized sink's runner-managed input
+   count, so this is not yet a completeness check for whole-job publication.
+   A transient Prism run also exposed an empty source-rooted bundle; the worker
+   now closes its runner outputs without opening the user source for that case,
+   with a focused Fn Data regression test and a subsequent live passing run.
    This callback proof does not yet assemble accepted fragments into one
    whole-job result or recover a pending finalizer after worker restart.
    No real Dataflow cloud job has reached `DONE` with the
