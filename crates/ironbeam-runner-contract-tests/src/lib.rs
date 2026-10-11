@@ -9,7 +9,7 @@ use std::fmt;
 /// A small graph shared by all backend adapters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContractCase {
-    /// Bounded `[1, 2, 3, 4] -> map(double) -> filter(even) -> output`.
+    /// Bounded values double, retain multiples of four, then emit each value and its successor.
     BoundedMapFilter,
     /// Unbounded source -> timestamp-preserving map -> fixed window -> append sink.
     UnboundedWindowedSink,
@@ -110,7 +110,7 @@ pub fn assert_bounded_case(backend: &impl BackendUnderTest) {
     let mut output = backend.run_bounded();
     assert!(backend.starts() > before, "backend did not start a job");
     output.sort_unstable();
-    assert_eq!(output, [2, 4, 6, 8]);
+    assert_eq!(output, [4, 5, 8, 9]);
 }
 
 /// A batch-only backend must reject the unbounded fixture before side effects.

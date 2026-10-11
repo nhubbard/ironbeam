@@ -23,7 +23,9 @@ impl BackendUnderTest for DirectV5 {
             .unwrap()
             .map_named("double/v1", |value| value * 2)
             .unwrap()
-            .filter_named("even/v1", |value| value % 2 == 0)
+            .filter_named("divisible-by-four/v1", |value| value % 4 == 0)
+            .unwrap()
+            .flat_map_named("duplicate-plus-one/v1", |value| vec![value, value + 1])
             .unwrap()
             .output("result")
             .unwrap();

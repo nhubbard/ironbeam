@@ -7,11 +7,11 @@ staged locally.
 
 ## Verified in this checkout
 
-- The runner contract package now executes its bounded map/filter fixture on
+- The runner contract package now executes its bounded map/filter/flat-map fixture on
   the real v5 Direct runner as well as published v4 Direct. The obsolete fake
   Dataflow lowering preview was removed. The separate Dataflow workspace now
-  runs the same four-value map/filter graph on Direct and a separately launched
-  worker through live Prism (`f309cfe`); both produce `[2, 4, 6, 8]` and the
+  runs the same graph on Direct and a separately launched
+  worker through live Prism (`f309cfe`, `184a929`); both produce `[4, 5, 8, 9]` and the
   Prism job reaches `DONE`. The full 13-test local Prism suite passes. This
   small shared-value case does not close the broader cross-runner parity gate.
 

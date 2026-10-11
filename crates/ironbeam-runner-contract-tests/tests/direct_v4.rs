@@ -20,7 +20,8 @@ impl BackendUnderTest for DirectV4 {
         let pipeline = Pipeline::default();
         from_vec(&pipeline, vec![1, 2, 3, 4])
             .map(|n| n * 2)
-            .filter(|n| n % 2 == 0)
+            .filter(|n| n % 4 == 0)
+            .flat_map(|n| vec![*n, *n + 1])
             .collect_seq()
             .unwrap()
     }
