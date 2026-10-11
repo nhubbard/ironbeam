@@ -10,6 +10,16 @@ use std::path::PathBuf;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const STREAM_CHECKPOINT_VERSION: u32 = 1;
 
+pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut result = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        result.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        result.push(char::from(DIGITS[usize::from(byte & 0x0f)]));
+    }
+    result
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct StreamIdentity {
     graph_fingerprint: String,
@@ -199,11 +209,9 @@ impl StreamCheckpoint {
                 "stream source or split identity mismatch",
             ));
         }
-        if progress
-            .checkpoint_position
-            .as_ref()
-            .is_some_and(|cursor| cursor.len() > MAX_MANIFEST_BYTES as usize)
-        {
+        if progress.checkpoint_position.as_ref().is_some_and(|cursor| {
+            u64::try_from(cursor.len()).unwrap_or(u64::MAX) > MAX_MANIFEST_BYTES
+        }) {
             return Err(Error::resource(
                 "checkpoint",
                 "stream source cursor exceeds size limit",
@@ -226,10 +234,7 @@ fn checksum(
 ) -> Result<String, Error> {
     let bytes = serde_json::to_vec(&(version, identity, progress))
         .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
-    Ok(Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    Ok(hex_bytes(&Sha256::digest(bytes)))
 }
 
 #[cfg(test)]
@@ -377,13 +382,13 @@ mod tests {
         changed["version"] = serde_json::json!(2);
         fs::write(&checkpoint.path, serde_json::to_vec(&changed).unwrap()).unwrap();
         assert!(checkpoint.load().is_err());
-        let mut changed = original.clone();
+        let mut changed = original;
         changed["progress"]["event_time_ns"] = serde_json::json!(20);
         fs::write(&checkpoint.path, serde_json::to_vec(&changed).unwrap()).unwrap();
         assert!(checkpoint.load().is_err());
         fs::write(
             &checkpoint.path,
-            vec![b' '; MAX_MANIFEST_BYTES as usize + 1],
+            vec![b' '; usize::try_from(MAX_MANIFEST_BYTES).unwrap() + 1],
         )
         .unwrap();
         assert!(checkpoint.load().is_err());
@@ -396,7 +401,8 @@ mod tests {
         let mut invalid = signal();
         invalid.checkpoint_position = None;
         assert!(checkpoint.save(&invalid).is_err());
-        invalid.checkpoint_position = Some(vec![0; MAX_MANIFEST_BYTES as usize + 1]);
+        invalid.checkpoint_position =
+            Some(vec![0; usize::try_from(MAX_MANIFEST_BYTES).unwrap() + 1]);
         assert!(checkpoint.save(&invalid).is_err());
         checkpoint.save(&signal()).unwrap();
         let no_recover = StreamCheckpoint::new::<i32>(
@@ -439,7 +445,7 @@ mod tests {
         );
         let checkpoint = checkpoint(temporary.path(), "sink");
         let mut oversized = signal();
-        oversized.split_id = "x".repeat(MAX_MANIFEST_BYTES as usize);
+        oversized.split_id = "x".repeat(usize::try_from(MAX_MANIFEST_BYTES).unwrap());
         assert!(checkpoint.save(&oversized).is_err());
         assert!(!checkpoint.path.exists());
     }

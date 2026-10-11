@@ -96,9 +96,10 @@ fn pair_checkpoint_recovers_both_branches_without_rerunning_accepted_rows() {
     let trigger = Arc::clone(&fail_once);
     let right = source
         .map_named("label", move |value| {
-            if value == 3 && trigger.swap(false, Ordering::AcqRel) {
-                panic!("fail after first pair checkpoint");
-            }
+            assert!(
+                value != 3 || !trigger.swap(false, Ordering::AcqRel),
+                "fail after first pair checkpoint"
+            );
             format!("n={value}")
         })
         .unwrap()
@@ -138,7 +139,7 @@ fn pair_checkpoint_recovers_both_branches_without_rerunning_accepted_rows() {
     );
     assert_eq!(opens.load(Ordering::SeqCst), 1);
 
-    let mut resumed_config = config.clone();
+    let mut resumed_config = config;
     resumed_config.checkpoint.as_mut().unwrap().interval_batches = 3;
     let resumed = DirectRunner
         .run_collect_pair(&left, &right, &resumed_config)
@@ -203,8 +204,8 @@ fn pair_checkpoint_without_manifest_still_opens_empty_source() {
             },
         )
         .unwrap();
-    assert!(result.left.is_empty());
-    assert!(result.right.is_empty());
+    assert_eq!(result.left, Vec::<i32>::new());
+    assert_eq!(result.right, Vec::<String>::new());
     assert_eq!(opens.load(Ordering::SeqCst), 1);
 }
 

@@ -471,7 +471,10 @@ fn grouped_sink_writes_before_transforming_the_next_completed_group() {
         .group_by_key_named("group")
         .unwrap()
         .map_named("inspect-writes", move |(key, values)| {
-            assert_eq!(inspected.load(Ordering::SeqCst), (key - 1) as usize);
+            assert_eq!(
+                inspected.load(Ordering::SeqCst),
+                usize::try_from(key - 1).unwrap()
+            );
             (key, u32::try_from(values.len()).unwrap())
         })
         .unwrap()
@@ -636,6 +639,19 @@ fn wait_sink_streams_main_batches_after_signal_completion() {
 
 #[test]
 fn direct_sink_counts_filtered_rows_on_both_execution_modes() {
+    struct ValueSink(Arc<Mutex<Vec<i32>>>);
+    impl TypedSink<i32> for ValueSink {
+        fn write(&mut self, value: i32) -> Result<(), Error> {
+            self.0.lock().unwrap().push(value);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
     for parallelism in [1, 3] {
         let pipeline = Pipeline::default();
         let filtered = pipeline
@@ -646,19 +662,6 @@ fn direct_sink_counts_filtered_rows_on_both_execution_modes() {
             .map_named("after-filter", |value| value + 10)
             .unwrap();
         let captured = Arc::new(Mutex::new(Vec::new()));
-        struct ValueSink(Arc<Mutex<Vec<i32>>>);
-        impl TypedSink<i32> for ValueSink {
-            fn write(&mut self, value: i32) -> Result<(), Error> {
-                self.0.lock().unwrap().push(value);
-                Ok(())
-            }
-            fn commit(&mut self) -> Result<(), Error> {
-                Ok(())
-            }
-            fn abort(&mut self) -> Result<(), Error> {
-                Ok(())
-            }
-        }
         let action = Arc::clone(&captured);
         let sink = filtered
             .sink_named(

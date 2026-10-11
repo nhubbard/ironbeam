@@ -24,13 +24,19 @@ impl PlanSummary {
             self.source_key,
             self.output_key,
             self.graph_fingerprint,
-            if self.materialized { "materialized" } else { "streaming" },
+            if self.materialized {
+                "materialized"
+            } else {
+                "streaming"
+            },
             self.operation_count,
             self.fused_stages,
             self.routes,
             self.batch_limit,
-            self.source_len_hint.map_or_else(|| "unknown".to_owned(), |value| value.to_string()),
-            self.estimated_partitions.map_or_else(|| "unknown".to_owned(), |value| value.to_string()),
+            self.source_len_hint
+                .map_or_else(|| "unknown".to_owned(), |value| value.to_string()),
+            self.estimated_partitions
+                .map_or_else(|| "unknown".to_owned(), |value| value.to_string()),
         )
     }
 }
@@ -157,7 +163,7 @@ pub(crate) fn lower(
         .collect::<std::collections::BTreeSet<_>>()
         .len();
     let summary = PlanSummary {
-        source_key: source_key.clone(),
+        source_key,
         output_key: output_key.into(),
         operation_count,
         fused_stages: routes

@@ -764,6 +764,7 @@ fn stream_cancellation_inside_a_bundle_aborts_without_checkpointing() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Covers both panic and ordinary begin failures with abort counts.
 fn failed_stream_bundle_begin_aborts_its_open_sink() {
     struct FailingBeginSink {
         aborts: Arc<AtomicUsize>,
@@ -771,9 +772,7 @@ fn failed_stream_bundle_begin_aborts_its_open_sink() {
     }
     impl TypedSink<i32> for FailingBeginSink {
         fn begin_bundle(&mut self, _: &str) -> Result<(), Error> {
-            if self.panic_on_begin {
-                panic!("injected begin panic");
-            }
+            assert!(!self.panic_on_begin, "injected begin panic");
             Err(Error::execution("sink", "test", "injected begin failure"))
         }
         fn write(&mut self, _: i32) -> Result<(), Error> {
@@ -1106,6 +1105,7 @@ fn stream_attributes_user_panics_and_rejects_finalization() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Multiple invalid configurations share one no-open fixture.
 fn stream_validates_config_and_sink_before_opening_source() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let opens = Arc::new(Mutex::new(Vec::new()));
@@ -1311,7 +1311,7 @@ fn progress_only_poll_and_filtered_batch_keep_watermark_and_cursor() {
     let job = DirectRunner
         .start_stream_sink(&sink, &config(temporary.path()))
         .unwrap();
-    assert!(job.wait().unwrap().status() == JobStatus::Succeeded);
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
     assert!(committed.lock().unwrap().is_empty());
     let manifest: serde_json::Value = serde_json::from_slice(
         &std::fs::read(temporary.path().join("stream-latest.json")).unwrap(),

@@ -227,9 +227,9 @@ impl DirectRunner {
     /// # Errors
     /// Returns a typed graph or unsupported-capability error.
     pub fn validate(&self, graph: &Graph) -> Result<(), Error> {
-        self.validate_with_unbounded(graph, false)
+        Self::validate_with_unbounded(graph, false)
     }
-    fn validate_with_unbounded(&self, graph: &Graph, unbounded_source: bool) -> Result<(), Error> {
+    fn validate_with_unbounded(graph: &Graph, unbounded_source: bool) -> Result<(), Error> {
         graph.validate_for(
             "direct",
             &Capabilities {
@@ -313,10 +313,14 @@ impl DirectRunner {
         )?
         .summary)
     }
-    /// Runs one bounded output with a job-owned thread pool.
+    /// Runs one bounded output, using a job-owned pool when parallel work needs it.
     ///
     /// # Errors
     /// Returns validation, cancellation, or execution errors.
+    ///
+    /// # Panics
+    /// Panics only if a validated plan violates the runner's internal pool
+    /// ownership invariant.
     #[allow(clippy::too_many_lines)]
     pub fn run_collect<T: Element>(
         &self,
@@ -557,6 +561,7 @@ impl DirectRunner {
     /// source and common transforms run once. Commits are sequential; if the
     /// second commit fails, the first may already be visible and a retry must
     /// be safe for both sinks.
+    #[allow(clippy::too_many_lines)] // Both sink lifecycles share one ordered commit path.
     pub fn run_sink_pair<T: Element, U: Element>(
         &self,
         left: &Sink<T>,

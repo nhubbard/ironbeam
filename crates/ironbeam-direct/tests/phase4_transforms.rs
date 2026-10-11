@@ -145,6 +145,17 @@ fn external_source_flat_map_can_drop_rows_before_grouping() {
 
 #[test]
 fn keyed_vector_batch_attributes_clone_and_fold_panics() {
+    #[derive(Clone, Eq, PartialEq)]
+    struct PanickingHash;
+    impl Hash for PanickingHash {
+        fn hash<H: Hasher>(&self, _: &mut H) {
+            panic!("group hash failed")
+        }
+    }
+    impl Element for PanickingHash {
+        const TYPE_ID: &'static str = "test/group-panic-hash";
+        const CODER_ID: &'static str = "test/group-panic-hash";
+    }
     use ironbeam_core::Element;
     use std::hash::{Hash, Hasher};
 
@@ -172,17 +183,6 @@ fn keyed_vector_batch_attributes_clone_and_fold_panics() {
     assert_eq!(clone_error.kind, ErrorKind::Execution);
     assert_eq!(clone_error.node.as_deref(), Some("source"));
 
-    #[derive(Clone, Eq, PartialEq)]
-    struct PanickingHash;
-    impl Hash for PanickingHash {
-        fn hash<H: Hasher>(&self, _: &mut H) {
-            panic!("group hash failed")
-        }
-    }
-    impl Element for PanickingHash {
-        const TYPE_ID: &'static str = "test/group-panic-hash";
-        const CODER_ID: &'static str = "test/group-panic-hash";
-    }
     let fold_output = Pipeline::default()
         .from_vec("source", vec![(PanickingHash, 1_i32)])
         .unwrap()
@@ -811,9 +811,10 @@ fn latest_per_key_recovers_a_saved_group_and_finishes_downstream_stages() {
         .unwrap()
         .assign_timestamps_named("time", move |(_, value)| {
             calls.fetch_add(1, Ordering::SeqCst);
-            if *value == 3 && fail.swap(false, Ordering::SeqCst) {
-                panic!("fail after the first saved group batch");
-            }
+            assert!(
+                *value != 3 || !fail.swap(false, Ordering::SeqCst),
+                "fail after the first saved group batch"
+            );
             i64::from(*value) * 1_000_000
         })
         .unwrap()
@@ -1593,6 +1594,7 @@ fn grouped_checkpoint_respects_batch_interval() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Recovery fixture checks both runs and the durable cursor.
 fn grouped_fold_resumes_from_last_committed_batch_after_cancellation() {
     use ironbeam_core::Element;
     use std::sync::{

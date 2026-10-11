@@ -845,7 +845,7 @@ mod tests {
         let disabled = CheckpointManager::new(
             &CheckpointConfig {
                 recover: false,
-                ..config.clone()
+                ..config
             },
             manager.identity.clone(),
             Arc::clone(&metrics),
@@ -1029,7 +1029,7 @@ mod tests {
             CheckpointManager::new(&config, identity, Arc::new(MetricsState::default())).unwrap();
         fs::write(
             directory.path().join("latest.json"),
-            vec![b' '; MAX_MANIFEST_BYTES as usize + 1],
+            vec![b' '; usize::try_from(MAX_MANIFEST_BYTES).unwrap() + 1],
         )
         .unwrap();
         assert_eq!(

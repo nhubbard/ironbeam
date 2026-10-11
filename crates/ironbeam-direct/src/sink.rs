@@ -63,6 +63,7 @@ fn apply_route(
     Ok(events)
 }
 
+#[allow(clippy::too_many_lines)] // Sink lifecycle must abort on every failure path.
 pub(crate) fn execute<T: Element>(
     pool: &ThreadPool,
     graph: &Graph,

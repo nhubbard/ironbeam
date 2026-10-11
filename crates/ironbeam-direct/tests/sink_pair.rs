@@ -8,7 +8,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-fn spec(replay: Replay) -> SinkSpec {
+const fn spec(replay: Replay) -> SinkSpec {
     SinkSpec {
         mode: SinkMode::Append,
         replay,
@@ -130,6 +130,7 @@ impl<T: Element> TypedSink<T> for Capture<T> {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // The fixture checks both branches and shared-source accounting.
 fn two_sinks_share_source_and_transforms_and_keep_branch_metadata() {
     let opens = Arc::new(AtomicUsize::new(0));
     let common_calls = Arc::new(AtomicUsize::new(0));

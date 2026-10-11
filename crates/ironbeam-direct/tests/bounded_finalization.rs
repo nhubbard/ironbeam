@@ -50,14 +50,12 @@ impl TypedSink<i32> for UndeclaredFinalizingSink {
     }
 
     fn requires_bundle_finalization(&self) -> bool {
-        if self.panic_probe {
-            panic!("injected finalization probe panic");
-        }
+        assert!(!self.panic_probe, "injected finalization probe panic");
         self.finalizing
     }
 }
 
-fn idempotent_sink_spec() -> SinkSpec {
+const fn idempotent_sink_spec() -> SinkSpec {
     SinkSpec {
         mode: SinkMode::Append,
         replay: Replay::Idempotent,

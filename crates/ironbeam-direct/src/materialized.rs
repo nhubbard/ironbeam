@@ -164,6 +164,7 @@ fn apply_checkpointed_downstream(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // Recovery validation and fold replay share one state machine.
 fn eval_checkpointed_group(
     registry: &Registry,
     group_key: &str,
@@ -209,8 +210,7 @@ fn eval_checkpointed_group(
         }
         Some(reader)
     };
-    let mut offset = 0_usize;
-    if let Some((saved_offset, state)) = pending_state {
+    let mut offset = if let Some((saved_offset, state)) = pending_state {
         if saved_offset > source_len {
             return Err(Error::recovery(
                 group_key,
@@ -226,8 +226,10 @@ fn eval_checkpointed_group(
                 ))
             },
         )?;
-        offset = saved_offset;
-    }
+        saved_offset
+    } else {
+        0_usize
+    };
     let mut batches = 0_usize;
     while offset < source_len {
         if config.cancellation.load(Ordering::Acquire) {
@@ -692,6 +694,7 @@ fn linear_fold_route(graph: &Graph, from: &str) -> Option<(String, Vec<String>)>
     }
 }
 
+#[allow(clippy::too_many_lines)] // One traversal preserves source and transform error attribution.
 fn feed_linear_fold(
     registry: &Registry,
     source_key: &str,

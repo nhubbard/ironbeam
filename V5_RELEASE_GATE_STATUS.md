@@ -14,8 +14,11 @@ staged locally.
   0.519 ms (20 runs) to 0.416 ms (30 runs); v4 measured 0.107 ms in the latter
   sample. Output remained 50,000 rows with checksum 7,499,850,000. These are
   small unpaired samples, and the performance gate remains open. The current
-  1.101.0 nightly pedantic/nursery lint run exposed existing Direct warnings
-  outside this path; that CI-strength lint gate is still open.
+  1.101.0 nightly pedantic/nursery Direct lint gate and all-feature Direct
+  suite pass after a focused cleanup of existing lint findings. The combined
+  core/Direct/transforms coverage gate also passes: core 2,857/2,972 source
+  locations and 435/492 branches, Direct 3,605/3,853 and 775/858, and
+  transforms 1,163/1,189 and 108/116.
 - The separate Dataflow worker now validates connected branches and
   fixed-window assignment after a production unbounded SDF source. A live
   local Prism `Run` reached `DONE` across two residual bundles; three idempotent

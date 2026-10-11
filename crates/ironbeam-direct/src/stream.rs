@@ -2,7 +2,7 @@
 
 use crate::multi_output::{self, PairPlan};
 use crate::planner::{self, PhysicalPlan};
-use crate::stream_checkpoint::StreamCheckpoint;
+use crate::stream_checkpoint::{StreamCheckpoint, hex_bytes};
 use crate::{DirectRunner, JobConfig, JobHandle, JobStatus, cancelled, validate_config};
 use ironbeam_core::{
     Element, Error, ErrorKind, Operation, ProgressSignal, Registry, Replay, Sink, SinkMode,
@@ -25,7 +25,7 @@ pub struct StreamJob {
 
 impl StreamJob {
     #[must_use]
-    pub fn handle(&self) -> &JobHandle {
+    pub const fn handle(&self) -> &JobHandle {
         &self.handle
     }
 
@@ -64,13 +64,14 @@ impl DirectRunner {
     /// Start one unbounded source feeding a linear transform route and an
     /// idempotent append sink. Validation and checkpoint recovery finish before
     /// the worker can open either endpoint.
+    #[allow(clippy::too_many_lines)] // Worker setup validates recovery before opening endpoints.
     pub fn start_stream_sink<T: Element>(
         &self,
         sink: &Sink<T>,
         config: &JobConfig,
     ) -> Result<StreamJob, Error> {
         let (graph, registry) = sink.snapshot()?;
-        self.validate_with_unbounded(&graph, true)?;
+        Self::validate_with_unbounded(&graph, true)?;
         validate_config(config)?;
         let sink_key = sink.key().to_owned();
         let sink_node = graph
@@ -192,7 +193,7 @@ impl DirectRunner {
                         &worker_config,
                         &worker_handle,
                         &worker_progress,
-                        checkpoint,
+                        checkpoint.as_ref(),
                         recovered,
                     )
                 }))
@@ -217,6 +218,7 @@ impl DirectRunner {
     /// Start two idempotent append-sink branches from one resumable source.
     /// Both sinks commit before a batch cursor is checkpointed. A retry can
     /// replay a committed first sink if the second commit failed.
+    #[allow(clippy::too_many_lines)] // Both sink branches share validation and worker startup.
     pub fn start_stream_sink_pair<T: Element, U: Element>(
         &self,
         left: &Sink<T>,
@@ -230,7 +232,7 @@ impl DirectRunner {
             ));
         }
         let (graph, registry) = left.snapshot()?;
-        self.validate_with_unbounded(&graph, true)?;
+        Self::validate_with_unbounded(&graph, true)?;
         validate_config(config)?;
         if config.spill.is_some() {
             return Err(Error::unsupported("job", "direct", "stream-spill"));
@@ -344,7 +346,7 @@ impl DirectRunner {
                         &worker_config,
                         &worker_handle,
                         &worker_progress,
-                        checkpoint,
+                        checkpoint.as_ref(),
                         recovered,
                     )
                 }))
@@ -383,18 +385,16 @@ fn merge_progress(previous: Option<&ProgressSignal>, mut next: ProgressSignal) -
 fn open_sink(registry: &Registry, key: &str) -> Result<Box<dyn SinkSession>, Error> {
     let mut session = catch_unwind(AssertUnwindSafe(|| registry.open_sink(key)))
         .unwrap_or_else(|_| Err(Error::execution(key, "direct", "sink factory panicked")))?;
-    let requires_finalization =
-        match catch_unwind(AssertUnwindSafe(|| session.requires_bundle_finalization())) {
-            Ok(requires_finalization) => requires_finalization,
-            Err(_) => {
-                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
-                return Err(Error::execution(
-                    key,
-                    "direct",
-                    "sink finalization probe panicked",
-                ));
-            }
-        };
+    let Ok(requires_finalization) =
+        catch_unwind(AssertUnwindSafe(|| session.requires_bundle_finalization()))
+    else {
+        let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+        return Err(Error::execution(
+            key,
+            "direct",
+            "sink finalization probe panicked",
+        ));
+    };
     if requires_finalization {
         let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
         return Err(Error::unsupported(
@@ -440,14 +440,11 @@ fn bundle_id(graph_fingerprint: &str, sink_keys: &[&str], progress: &ProgressSig
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(bytes);
     }
-    hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    hex_bytes(&hasher.finalize())
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // Poll, sink commit, and cursor save form one replay state machine.
 fn run_stream(
     registry: &Registry,
     plan: &PhysicalPlan,
@@ -455,7 +452,7 @@ fn run_stream(
     config: &JobConfig,
     handle: &JobHandle,
     shared_progress: &Arc<Mutex<Option<ProgressSignal>>>,
-    checkpoint: Option<StreamCheckpoint>,
+    checkpoint: Option<&StreamCheckpoint>,
     mut progress: Option<ProgressSignal>,
 ) -> Result<(), Error> {
     let route = &plan.routes[0];
@@ -635,6 +632,7 @@ fn commit_stream_branch(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // Paired commit and replay need one ordered lifecycle.
 fn run_stream_pair(
     registry: &Registry,
     plan: &PairPlan,
@@ -644,7 +642,7 @@ fn run_stream_pair(
     config: &JobConfig,
     handle: &JobHandle,
     shared_progress: &Arc<Mutex<Option<ProgressSignal>>>,
-    checkpoint: Option<StreamCheckpoint>,
+    checkpoint: Option<&StreamCheckpoint>,
     mut progress: Option<ProgressSignal>,
 ) -> Result<(), Error> {
     let mut source = catch_unwind(AssertUnwindSafe(|| {
@@ -792,9 +790,7 @@ mod sink_open_tests {
             Ok(())
         }
         fn requires_bundle_finalization(&self) -> bool {
-            if self.panic_on_probe {
-                panic!("injected finalization probe panic");
-            }
+            assert!(!self.panic_on_probe, "injected finalization probe panic");
             true
         }
     }
