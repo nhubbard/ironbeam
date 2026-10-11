@@ -7,8 +7,12 @@ license = "MIT"
 description = "Direct execution for the Ironbeam 5 logical graph"
 repository = "https://github.com/nhubbard/ironbeam"
 
+[features]
+metrics = ["dep:ironbeam-metrics"]
+
 [dependencies]
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
+ironbeam-metrics = { version = "0.1.0", path = "../ironbeam-metrics", optional = true }
 rayon = "1"
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }

@@ -2194,6 +2194,7 @@ dependencies = [
  "ironbeam-io-sql",
  "ironbeam-io-tfrecord",
  "ironbeam-io-xml",
+ "ironbeam-metrics",
  "ironbeam-testing",
  "ironbeam-transform-approx",
  "ironbeam-transform-regex",
@@ -2315,6 +2316,7 @@ name = "ironbeam-direct"
 version = "0.1.0"
 dependencies = [
  "ironbeam-core",
+ "ironbeam-metrics",
  "rayon",
  "serde",
  "serde_json",
@@ -2492,6 +2494,15 @@ dependencies = [
  "ironbeam-io",
  "quick-xml",
  "serde",
+ "tempfile",
+]
+
+[[package]]
+name = "ironbeam-metrics"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
  "tempfile",
 ]
 

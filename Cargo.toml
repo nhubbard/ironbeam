@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-compression", "crates/ironbeam-cloud-objects", "crates/ironbeam-cloud", "crates/ironbeam-cloud-object-store", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-metrics", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-compression", "crates/ironbeam-cloud-objects", "crates/ironbeam-cloud", "crates/ironbeam-cloud-object-store", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -19,6 +19,7 @@ v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transfor
 v5-regex = ["v5-preview", "dep:ironbeam-transform-regex"]
 v5-approx = ["v5-preview", "dep:ironbeam-transform-approx"]
 v5-testing = ["v5-preview", "dep:ironbeam-testing"]
+v5-metrics = ["v5-preview", "dep:ironbeam-metrics", "ironbeam-direct/metrics"]
 v5-compression = ["v5-preview", "dep:ironbeam-compression"]
 v5-io-sql = ["v5-preview", "dep:ironbeam-io-sql"]
 v5-io-mongodb = ["v5-preview", "dep:ironbeam-io-mongodb"]
@@ -60,7 +61,7 @@ compression-xz = ["v5-compression", "dep:xz2", "ironbeam-compression/compression
 
 # Behaviors
 parallel-io = ["ironbeam-io?/parallel-io", "ironbeam-io-jsonl?/parallel-io"]
-metrics = []
+metrics = ["v5-metrics"]
 checkpointing = ["dep:postcard", "dep:sha2"]
 spilling = ["dep:postcard"]
 
@@ -79,6 +80,7 @@ ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms", 
 ironbeam-transform-regex = { version = "0.1.0", path = "crates/ironbeam-transform-regex", optional = true }
 ironbeam-transform-approx = { version = "0.1.0", path = "crates/ironbeam-transform-approx", optional = true }
 ironbeam-testing = { version = "0.1.0", path = "crates/ironbeam-testing", optional = true }
+ironbeam-metrics = { version = "0.1.0", path = "crates/ironbeam-metrics", optional = true }
 ironbeam-io = { version = "0.1.0", path = "crates/ironbeam-io", default-features = false, optional = true }
 ironbeam-io-jsonl = { version = "0.1.0", path = "crates/ironbeam-io-jsonl", optional = true }
 ironbeam-io-protobuf = { version = "0.1.0", path = "crates/ironbeam-io-protobuf", optional = true }
@@ -218,7 +220,7 @@ required-features = ["v5-preview"]
 
 [[example]]
 name = "metrics_example"
-required-features = ["legacy-v4"]
+required-features = ["v5-metrics"]
 
 [[example]]
 name = "mongodb_pipeline"

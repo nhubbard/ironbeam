@@ -1,0 +1,15 @@
+[package]
+name = "ironbeam-metrics"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Optional custom metrics and reporting for Ironbeam 5 jobs"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[dependencies]
+anyhow = "1"
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

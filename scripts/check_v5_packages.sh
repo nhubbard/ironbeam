@@ -5,12 +5,13 @@ set -euo pipefail
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-compression ironbeam-cloud-objects ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+packages=(ironbeam-compression ironbeam-cloud-objects ironbeam-cloud ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-metrics ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
 compression_patch=(--config "patch.crates-io.ironbeam-compression.path=\"$root/crates/ironbeam-compression\"")
 cloud_objects_patch=(--config "patch.crates-io.ironbeam-cloud-objects.path=\"$root/crates/ironbeam-cloud-objects\"")
 cloud_patch=(--config "patch.crates-io.ironbeam-cloud.path=\"$root/crates/ironbeam-cloud\"")
 core_patch=(--config "patch.crates-io.ironbeam-core.path=\"$root/crates/ironbeam-core\"")
-direct_patch=(--config "patch.crates-io.ironbeam-direct.path=\"$root/crates/ironbeam-direct\"")
+direct_patch=(--config "patch.crates-io.ironbeam-direct.path=\"$root/crates/ironbeam-direct\"" --config "patch.crates-io.ironbeam-metrics.path=\"$root/crates/ironbeam-metrics\"")
+metrics_patch=(--config "patch.crates-io.ironbeam-metrics.path=\"$root/crates/ironbeam-metrics\"")
 transforms_patch=(--config "patch.crates-io.ironbeam-transforms.path=\"$root/crates/ironbeam-transforms\"")
 regex_patch=(--config "patch.crates-io.ironbeam-transform-regex.path=\"$root/crates/ironbeam-transform-regex\"")
 approx_patch=(--config "patch.crates-io.ironbeam-transform-approx.path=\"$root/crates/ironbeam-transform-approx\"")
@@ -55,6 +56,8 @@ cargo test -p ironbeam-compression --all-features
 cargo test -p ironbeam-cloud-object-store --all-features
 cargo test -p ironbeam-transform-regex --all-features
 cargo test -p ironbeam-transform-approx --all-features
+cargo test -p ironbeam-metrics
+cargo test -p ironbeam-direct --features metrics --test custom_metrics
 cargo test -p ironbeam-io-jsonl --all-features
 cargo test -p ironbeam-io-protobuf --all-features
 cargo test -p ironbeam-io-tfrecord --all-features
@@ -71,10 +74,10 @@ cargo doc --workspace --all-features --no-deps
 for package in "${packages[@]}"; do
   patches=()
   case "$package" in
-    ironbeam-compression|ironbeam-cloud-objects|ironbeam-core) ;;
+    ironbeam-compression|ironbeam-cloud-objects|ironbeam-core|ironbeam-metrics) ;;
     ironbeam-cloud) patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}") ;;
     ironbeam-cloud-object-store) patches=("${cloud_objects_patch[@]}") ;;
-    ironbeam-direct) patches=("${core_patch[@]}") ;;
+    ironbeam-direct) patches=("${core_patch[@]}" "${metrics_patch[@]}") ;;
     ironbeam-transforms|ironbeam-transform-regex|ironbeam-transform-approx|ironbeam-testing)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io-sql|ironbeam-io-mongodb)
@@ -90,4 +93,4 @@ for package in "${packages[@]}"; do
   esac
   cargo package -p "$package" --allow-dirty "${patches[@]}"
 done
-echo "All twenty-four v5 packages verified locally; no crates were published."
+echo "All twenty-five v5 packages verified locally; no crates were published."

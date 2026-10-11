@@ -38,6 +38,8 @@ pub struct JobConfig {
     pub cancellation: Arc<AtomicBool>,
     pub spill: Option<SpillConfig>,
     pub checkpoint: Option<CheckpointConfig>,
+    #[cfg(feature = "metrics")]
+    pub metrics_collector: Option<ironbeam_metrics::MetricsCollector>,
 }
 impl Default for JobConfig {
     fn default() -> Self {
@@ -48,6 +50,8 @@ impl Default for JobConfig {
             cancellation: Arc::new(AtomicBool::new(false)),
             spill: None,
             checkpoint: None,
+            #[cfg(feature = "metrics")]
+            metrics_collector: None,
         }
     }
 }
@@ -69,6 +73,8 @@ pub struct JobHandle {
     cancellation: Arc<AtomicBool>,
     processed: Arc<AtomicU64>,
     metrics: Arc<MetricsState>,
+    #[cfg(feature = "metrics")]
+    metrics_collector: Option<ironbeam_metrics::MetricsCollector>,
 }
 impl JobHandle {
     #[must_use]
@@ -82,6 +88,8 @@ impl JobHandle {
             cancellation,
             processed: Arc::new(AtomicU64::new(0)),
             metrics: Arc::new(MetricsState::default()),
+            #[cfg(feature = "metrics")]
+            metrics_collector: None,
         }
     }
     #[must_use]
@@ -102,21 +110,45 @@ impl JobHandle {
     pub fn metrics(&self) -> JobMetrics {
         self.metrics.snapshot()
     }
+    #[cfg(feature = "metrics")]
+    pub fn custom_metrics(&self) -> Option<&ironbeam_metrics::MetricsCollector> {
+        self.metrics_collector.as_ref()
+    }
     pub fn cancel(&self) {
         self.cancellation.store(true, Ordering::Release);
         let mut status = self
             .status
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if !matches!(*status, JobStatus::Succeeded | JobStatus::Failed) {
+        if !matches!(*status, JobStatus::Succeeded | JobStatus::Failed | JobStatus::Cancelled) {
             *status = JobStatus::Cancelled;
+            drop(status);
+            #[cfg(feature = "metrics")]
+            if let Some(collector) = &self.metrics_collector {
+                collector.record_end();
+            }
         }
     }
     fn set_status(&self, status: JobStatus) {
-        *self
+        let mut current = self
             .status
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = status;
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *current == status {
+            return;
+        }
+        *current = status;
+        drop(current);
+        #[cfg(feature = "metrics")]
+        if let Some(collector) = &self.metrics_collector {
+            match status {
+                JobStatus::Running => collector.record_start(),
+                JobStatus::Succeeded | JobStatus::Failed | JobStatus::Cancelled => {
+                    collector.record_end();
+                }
+                JobStatus::Submitted | JobStatus::Draining => {}
+            }
+        }
     }
 }
 
@@ -324,7 +356,12 @@ impl DirectRunner {
             .num_threads(config.parallelism)
             .build()
             .map_err(|e| Error::execution("job", "direct", e.to_string()))?;
-        let handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+        #[allow(unused_mut)]
+        let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+        #[cfg(feature = "metrics")]
+        {
+            handle.metrics_collector = config.metrics_collector.clone();
+        }
         if config.cancellation.load(Ordering::Acquire) {
             handle.cancel();
             return Err(cancelled());
@@ -395,7 +432,12 @@ impl DirectRunner {
             .num_threads(config.parallelism)
             .build()
             .map_err(|e| Error::execution("job", "direct", e.to_string()))?;
-        let handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+        #[allow(unused_mut)]
+        let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+        #[cfg(feature = "metrics")]
+        {
+            handle.metrics_collector = config.metrics_collector.clone();
+        }
         if config.cancellation.load(Ordering::Acquire) {
             handle.cancel();
             return Err(cancelled());
