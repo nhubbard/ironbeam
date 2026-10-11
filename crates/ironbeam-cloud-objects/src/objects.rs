@@ -7,6 +7,7 @@
 use crate::{CloudIOError, CloudResult, ErrorKind, ObjectIO, ObjectMetadata};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -126,6 +127,15 @@ impl ObjectStores {
         store.put_object(&loc.bucket, &loc.key, bytes)
     }
 
+    /// Atomically create one immutable object by URI.
+    /// # Errors
+    /// Returns `AlreadyExists` when the key is present, or a provider error
+    /// if conditional creation is unsupported or fails.
+    pub fn create(&self, uri: &str, bytes: &[u8]) -> CloudResult<()> {
+        let (loc, store) = self.resolve(uri)?;
+        store.put_object_if_absent(&loc.bucket, &loc.key, bytes)
+    }
+
     /// Delete one object.
     /// # Errors
     /// Returns a parse, provider, or object deletion error.
@@ -221,6 +231,9 @@ impl ObjectStores {
 impl<T: ObjectIO + ?Sized> ObjectIO for Arc<T> {
     fn put_object(&self, bucket: &str, key: &str, data: &[u8]) -> CloudResult<()> {
         (**self).put_object(bucket, key, data)
+    }
+    fn put_object_if_absent(&self, bucket: &str, key: &str, data: &[u8]) -> CloudResult<()> {
+        (**self).put_object_if_absent(bucket, key, data)
     }
     fn get_object(&self, bucket: &str, key: &str) -> CloudResult<Vec<u8>> {
         (**self).get_object(bucket, key)
@@ -342,6 +355,26 @@ impl ObjectIO for LocalObjectIO {
         let path = self.path(bucket, key)?;
         self.checked_parent(&path)?;
         fs::write(path, data).map_err(fs_error)
+    }
+
+    fn put_object_if_absent(&self, bucket: &str, key: &str, data: &[u8]) -> CloudResult<()> {
+        let path = self.path(bucket, key)?;
+        self.checked_parent(&path)?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| invalid("object has no parent"))?;
+        let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(fs_error)?;
+        temp.write_all(data).map_err(fs_error)?;
+        temp.as_file().sync_all().map_err(fs_error)?;
+        match temp.persist_noclobber(&path) {
+            Ok(_) => fs::File::open(parent)
+                .and_then(|dir| dir.sync_all())
+                .map_err(fs_error),
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Err(
+                CloudIOError::new(ErrorKind::AlreadyExists, "object already exists"),
+            ),
+            Err(error) => Err(fs_error(error.error)),
+        }
     }
 
     fn get_object(&self, bucket: &str, key: &str) -> CloudResult<Vec<u8>> {

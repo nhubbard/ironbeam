@@ -80,6 +80,17 @@ pub trait ObjectIO: Send + Sync {
     /// Returns an error if the bucket doesn't exist, permissions are not enough, or the upload fails
     fn put_object(&self, bucket: &str, key: &str, data: &[u8]) -> CloudResult<()>;
 
+    /// Atomically create an immutable object, failing with `AlreadyExists`
+    /// if the key is present. Providers must not expose partial bytes, and
+    /// successful writes must be durable before returning. The default fails
+    /// closed for providers that have not implemented this contract.
+    fn put_object_if_absent(&self, _bucket: &str, _key: &str, _data: &[u8]) -> CloudResult<()> {
+        Err(CloudIOError::new(
+            ErrorKind::InvalidInput,
+            "provider does not support atomic conditional object creation",
+        ))
+    }
+
     /// Download data from object storage
     ///
     /// # Errors

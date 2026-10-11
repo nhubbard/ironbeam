@@ -9,7 +9,7 @@ use futures_util::TryStreamExt;
 use ironbeam_cloud_objects::{
     CloudIOError, CloudResult, ErrorKind, ObjectIO, ObjectMetadata, ObjectStores,
 };
-use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt, path::Path};
+use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt, PutMode, path::Path};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex, mpsc};
@@ -189,6 +189,19 @@ impl ObjectIO for RemoteObjectIO {
             .map_err(|error| CloudIOError::new(ErrorKind::InvalidInput, error.to_string()))?;
         let bytes = data.to_vec();
         self.run(async move { store.put(&path, bytes.into()).await.map(|_| ()) })
+    }
+
+    fn put_object_if_absent(&self, bucket: &str, key: &str, data: &[u8]) -> CloudResult<()> {
+        let store = self.store(bucket)?;
+        let path = Path::parse(key)
+            .map_err(|error| CloudIOError::new(ErrorKind::InvalidInput, error.to_string()))?;
+        let bytes = data.to_vec();
+        self.run(async move {
+            store
+                .put_opts(&path, bytes.into(), PutMode::Create.into())
+                .await
+                .map(|_| ())
+        })
     }
 
     fn get_object(&self, bucket: &str, key: &str) -> CloudResult<Vec<u8>> {

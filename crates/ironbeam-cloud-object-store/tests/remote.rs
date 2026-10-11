@@ -20,6 +20,20 @@ fn routes_and_caches_bucket_clients_with_real_object_store_operations() {
 
     objects.write("remote://one/data/a.jsonl", b"a").unwrap();
     objects.write("remote://one/data/ab.jsonl", b"ab").unwrap();
+    objects
+        .create("remote://one/data/immutable", b"first")
+        .unwrap();
+    assert_eq!(
+        objects
+            .create("remote://one/data/immutable", b"second")
+            .unwrap_err()
+            .kind,
+        ErrorKind::AlreadyExists,
+    );
+    assert_eq!(
+        objects.read("remote://one/data/immutable").unwrap(),
+        b"first"
+    );
     assert_eq!(objects.read("remote://one/data/a.jsonl").unwrap(), b"a");
     assert_eq!(objects.list("remote://one/data/a").unwrap().len(), 2);
     objects

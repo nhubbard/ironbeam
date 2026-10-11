@@ -7,5 +7,5 @@ license = "MIT"
 description = "Provider-neutral URI object storage contract for Ironbeam"
 repository = "https://github.com/nhubbard/ironbeam"
 
-[dev-dependencies]
+[dependencies]
 tempfile = "3"

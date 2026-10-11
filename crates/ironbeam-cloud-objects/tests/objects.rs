@@ -1,5 +1,6 @@
 use ironbeam_cloud_objects::{
-    CloudIOError, ErrorKind, LocalObjectIO, ObjectIO, ObjectLocation, ObjectStores,
+    CloudIOError, CloudResult, ErrorKind, LocalObjectIO, ObjectIO, ObjectLocation, ObjectMetadata,
+    ObjectStores,
 };
 use std::sync::Arc;
 
@@ -24,6 +25,99 @@ fn arc_provider_delegates_every_object_operation() {
     assert_eq!(provider.get_object("target", "copied").unwrap(), b"a");
     provider.delete_object("target", "copied").unwrap();
     assert!(!provider.object_exists("target", "copied").unwrap());
+    provider
+        .put_object_if_absent("target", "copied", b"immutable")
+        .unwrap();
+    assert_eq!(
+        provider.get_object("target", "copied").unwrap(),
+        b"immutable"
+    );
+}
+
+#[test]
+fn conditional_create_is_atomic_and_never_replaces_existing_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let provider = Arc::new(LocalObjectIO::new(dir.path()).unwrap());
+    let mut stores = ObjectStores::new();
+    stores.register("file", Arc::clone(&provider)).unwrap();
+    stores
+        .create("file://bucket/jobs/record", b"first")
+        .unwrap();
+    assert_eq!(
+        stores
+            .create("file://bucket/jobs/record", b"second")
+            .unwrap_err()
+            .kind,
+        ErrorKind::AlreadyExists,
+    );
+    assert_eq!(stores.read("file://bucket/jobs/record").unwrap(), b"first");
+
+    let barrier = Arc::new(std::sync::Barrier::new(3));
+    let threads = [b"left".as_slice(), b"right".as_slice()].map(|bytes| {
+        let provider = Arc::clone(&provider);
+        let barrier = Arc::clone(&barrier);
+        std::thread::spawn(move || {
+            barrier.wait();
+            provider.put_object_if_absent("bucket", "jobs/race", bytes)
+        })
+    });
+    barrier.wait();
+    let results = threads.map(|thread| thread.join().unwrap());
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| {
+                result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.kind == ErrorKind::AlreadyExists)
+            })
+            .count(),
+        1
+    );
+    assert!(matches!(
+        provider
+            .get_object("bucket", "jobs/race")
+            .unwrap()
+            .as_slice(),
+        b"left" | b"right"
+    ));
+}
+
+#[test]
+fn provider_without_conditional_create_fails_closed() {
+    struct LegacyProvider;
+    impl ObjectIO for LegacyProvider {
+        fn put_object(&self, _: &str, _: &str, _: &[u8]) -> CloudResult<()> {
+            Ok(())
+        }
+        fn get_object(&self, _: &str, _: &str) -> CloudResult<Vec<u8>> {
+            Ok(Vec::new())
+        }
+        fn delete_object(&self, _: &str, _: &str) -> CloudResult<()> {
+            Ok(())
+        }
+        fn list_objects(&self, _: &str, _: Option<&str>) -> CloudResult<Vec<ObjectMetadata>> {
+            Ok(Vec::new())
+        }
+        fn object_exists(&self, _: &str, _: &str) -> CloudResult<bool> {
+            Ok(false)
+        }
+        fn get_metadata(&self, _: &str, _: &str) -> CloudResult<ObjectMetadata> {
+            unreachable!()
+        }
+        fn copy_object(&self, _: &str, _: &str, _: &str, _: &str) -> CloudResult<()> {
+            Ok(())
+        }
+    }
+    assert_eq!(
+        LegacyProvider
+            .put_object_if_absent("bucket", "key", b"data")
+            .unwrap_err()
+            .kind,
+        ErrorKind::InvalidInput,
+    );
 }
 
 #[test]
@@ -206,5 +300,6 @@ fn local_store_rejects_symlink_escape() {
             .kind,
         ErrorKind::InvalidInput
     );
+    assert!(stores.list("file://bucket/").unwrap().is_empty());
     assert!(!outside.path().join("object").exists());
 }

@@ -37,6 +37,12 @@ staged locally.
   The URI sink binds its destination to the graph configuration. Its v5-only
   build and strict lint pass. The remaining legacy fake cloud-service
   families are still an API migration gap.
+  Provider-neutral object access now offers atomic create-if-absent for
+  immutable manifests. The local backend and the opt-in hosted adapter use
+  the same contract; local and in-memory hosted-adapter tests verify that
+  conflicting writes cannot replace the first object. The isolated cloud
+  object coverage gate measures 260/269 source locations and 49/56 branches,
+  above its unchanged CI baseline.
 - `ironbeam-transform-regex` owns the v5 regex helpers and measures 45/45
   source locations in its isolated tests. The ordinary
   `ironbeam-transforms` dependency tree no longer includes `regex`. The
@@ -405,8 +411,10 @@ staged locally.
    local Prism job reached `DONE` with journal records and matching completion
    markers. A separate two-process test exits immediately after staging and
    reopens the journal in a fresh process to finalize and publish Protobuf.
-   This is a local filesystem proof; an actual worker kill/restart during a
-   live Prism job and a remote journal implementation remain open.
+   The worker also has an object-backed journal using the provider-neutral
+   object API; a local object-provider test verifies exact multi-sink recovery.
+   An actual worker kill/restart during a live Prism job and a hosted object
+   storage proof remain open.
    A transient Prism run also exposed an empty source-rooted bundle; the worker
    now closes its runner outputs without opening the user source for that case,
    with a focused Fn Data regression test and a subsequent live passing run.
