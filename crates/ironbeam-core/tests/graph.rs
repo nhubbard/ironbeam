@@ -113,6 +113,16 @@ fn offset_windows_and_interval_coder_handle_signed_time() {
         WindowInterval::decode(&[0]).unwrap_err().kind,
         ErrorKind::Incompatible
     );
+    let invalid_interval = WindowInterval { start_ns: 3, end_ns: 3 };
+    assert_eq!(
+        WindowInterval::decode(&invalid_interval.encode().unwrap()).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+    assert_eq!(
+        Window::FixedOffset { size_ns: 0, offset_ns: 3 }
+            .assign(0).unwrap_err().kind,
+        ErrorKind::Graph
+    );
     assert!(
         Window::FixedOffset {
             size_ns: 10,

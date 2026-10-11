@@ -1,4 +1,62 @@
-use ironbeam_core::{Element, Envelope, Error, Pipeline, Window};
+use ironbeam_core::{Element, Envelope, Error, ErrorKind, Pipeline, Window};
+
+fn scalar_event(value: i32) -> Envelope {
+    Envelope {
+        value: Box::new(value),
+        timestamp_ns: 0,
+        window: Window::Global,
+        assigned_window: None,
+    }
+}
+
+#[test]
+fn registry_rejects_missing_portable_coder_contracts() {
+    let pipeline = Pipeline::default();
+    pipeline.from_vec("source", vec![1_i32]).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    macro_rules! incompatible {
+        ($result:expr) => {
+            assert_eq!($result.err().unwrap().kind, ErrorKind::Incompatible)
+        };
+    }
+    incompatible!(registry.encode_element("missing", &1_i32));
+    incompatible!(registry.decode_element("missing", &[]));
+    incompatible!(registry.materialize_side_input("missing", Vec::new()));
+    incompatible!(registry.apply_side_input("missing", scalar_event(1), &()));
+    incompatible!(registry.split_group_input("missing", &[]));
+    incompatible!(registry.assemble_group_input("missing", &[], &[]));
+    incompatible!(registry.assemble_group_output("missing", &[], &[]));
+    incompatible!(registry.split_join_input("missing", 0, &[], 0));
+    incompatible!(registry.execute_join_group("missing", &[], &[], Window::Global, None));
+    incompatible!(registry.split_cogroup_input("missing", 0, &[]));
+    incompatible!(registry.assemble_cogroup_output("missing", &[], &[]));
+    assert_eq!(registry.open_fold("missing").err().unwrap().kind,
+        ErrorKind::Execution);
+}
+
+#[test]
+fn registry_distinguishes_single_and_multi_result_dispatch() {
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    source.map_named("one", |value| value + 1).unwrap();
+    source.filter_named("even", |value| value % 2 == 0).unwrap();
+    source.flat_map_named("many", |value| (0..value).collect()).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.has_single_transform("one"));
+    assert!(registry.single_transform("one").is_some());
+    assert!(!registry.has_single_transform("many"));
+    assert!(registry.single_transform("many").is_none());
+    assert_eq!(registry.apply_many("one", scalar_event(1)).unwrap().len(), 1);
+    assert!(registry.apply_many("even", scalar_event(1)).unwrap().is_empty());
+    assert_eq!(registry.apply_many("even", scalar_event(2)).unwrap().len(), 1);
+    assert!(registry.apply("many", scalar_event(0)).unwrap().is_none());
+    let one = registry.apply("many", scalar_event(1)).unwrap().unwrap();
+    assert_eq!(*one.value.downcast::<i32>().unwrap(), 0);
+    assert_eq!(registry.apply("many", scalar_event(2)).err().unwrap().kind,
+        ErrorKind::Execution);
+    assert_eq!(registry.apply_many("missing", scalar_event(1)).err().unwrap().kind,
+        ErrorKind::Execution);
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct UserRow(u32);
