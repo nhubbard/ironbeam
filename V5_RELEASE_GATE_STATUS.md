@@ -67,7 +67,9 @@ staged locally.
   `ironbeam-compat`, each with an isolated feature set through
   `scripts/check_v4_format_reference.sh`. Arrow, Avro, CBOR, compression, CSV,
   JSONL, MessagePack, Parquet, Protobuf, TFRecord, and XML passed individually.
-  The root combined legacy target retains only SQL and MongoDB service tests.
+  The 21 SQLite SQL tests also run from `ironbeam-compat` under `v4-sql`.
+  The root combined legacy target retains only PostgreSQL, MySQL, and MongoDB
+  service tests.
 - The v4 dictionary, hash-map, and display-string conversion suites also moved
   to `ironbeam-compat`; their 58 cases pass against published v4. The root no
   longer owns those three legacy test targets, and CI retains the reference

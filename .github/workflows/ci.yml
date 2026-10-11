@@ -193,6 +193,11 @@ jobs:
       - name: Check published v4 file-format references independently
         run: bash scripts/check_v4_format_reference.sh
 
+      - name: Check published v4 SQLite reference
+        run: |
+          cargo test -p ironbeam-compat --features v4-sql --test v4_io_sql
+          cargo test -p ironbeam-compat --features v4-sql,v4-parallel-io --test v4_io_sql
+
   test:
     name: Facade Tests with Coverage
     runs-on: ubuntu-latest

@@ -21,6 +21,7 @@ v4-msgpack = ["ironbeam-v4/io-msgpack"]
 v4-parallel-io = ["ironbeam-v4/parallel-io"]
 v4-parquet = ["ironbeam-v4/io-parquet", "dep:parquet"]
 v4-protobuf = ["ironbeam-v4/io-protobuf"]
+v4-sql = ["ironbeam-v4/io-sql", "dep:sqlx", "dep:tokio"]
 v4-tfrecord = ["ironbeam-v4/io-tfrecord"]
 v4-xml = ["ironbeam-v4/io-xml"]
 v4-xz = ["ironbeam-v4/compression-xz"]
@@ -40,6 +41,8 @@ csv = { version = "1", optional = true }
 flate2 = { version = "1", optional = true }
 parquet = { version = "59", optional = true }
 serde_arrow = { version = "0.14", features = ["arrow-59"], optional = true }
+sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 
 [dev-dependencies]
 ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false, features = ["io-jsonl", "io-tfrecord", "io-protobuf"] }
@@ -96,6 +99,10 @@ required-features = ["v4-parquet"]
 [[test]]
 name = "v4_io_protobuf"
 required-features = ["v4-protobuf"]
+
+[[test]]
+name = "v4_io_sql"
+required-features = ["v4-sql"]
 
 [[test]]
 name = "v4_io_tfrecord"

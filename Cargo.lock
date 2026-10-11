@@ -2275,7 +2275,9 @@ dependencies = [
  "serde",
  "serde_arrow 0.14.2",
  "serde_json",
+ "sqlx",
  "tempfile",
+ "tokio",
  "xz2",
  "zstd",
 ]
@@ -2336,7 +2338,9 @@ dependencies = [
  "serde",
  "serde_arrow 0.14.2",
  "serde_json",
+ "sqlx",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

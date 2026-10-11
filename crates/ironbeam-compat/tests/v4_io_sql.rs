@@ -1,20 +1,20 @@
-//! Tests for the SQL database I/O connector (feature `io-sql`).
+//! Tests for the SQL database I/O connector (feature `v4-sql`).
 //!
 //! All tests use a real SQLite database file in a temp directory (via `?mode=rwc` to
 //! auto-create it) rather than `sqlite::memory:` — each low-level function in
-//! `crate::io::sql` opens and drops its own connection pool per call, and a bare
+//! `Ironbeam 4 SQL I/O` opens and drops its own connection pool per call, and a bare
 //! in-memory SQLite database only lives as long as a single connection stays open, so a
 //! file-backed database is the simplest way to let multiple independent calls observe
 //! the same data. No Docker or external process is required.
 
-#![cfg(feature = "io-sql")]
+#![cfg(feature = "v4-sql")]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::io::sql::*;
-use ironbeam::testing::*;
-use ironbeam::type_token::VecOps;
-use ironbeam::{from_vec, read_sql, read_sql_streaming};
+use ironbeam_v4::io::sql::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::type_token::VecOps;
+use ironbeam_v4::{from_vec, read_sql, read_sql_streaming};
 
 #[derive(Clone, Debug, PartialEq, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 struct Row {
@@ -275,7 +275,7 @@ fn sql_vec_ops_wrong_type() {
 
 // ── Parallel writer (feature `parallel-io`) ──────────────────────────────────────
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_sql_par_empty() -> Result<()> {
     let n = write_sql_par_with(
@@ -289,7 +289,7 @@ fn write_sql_par_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_sql_par_basic() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -312,7 +312,7 @@ fn write_sql_par_basic() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_sql_par_single_shard() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -335,7 +335,7 @@ fn write_sql_par_single_shard() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_sql_par_more_shards_than_rows() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -405,7 +405,7 @@ fn write_sql_with_helper() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_sql_par_with_helper() -> Result<()> {
     let tmp = tempfile::tempdir()?;
