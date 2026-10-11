@@ -405,6 +405,15 @@ work: map/filter and JSONL latency, and join memory, especially duplicate
 keys. No acceptable regression limits have been set, so this measurement
 does not close the performance gate.
 
+The Direct materialized path now preallocates its source envelope vector only
+when the source is a registered vector with a known length, capped by the
+configured memory budget. A targeted rerun with the same paired settings
+measured v5 peak memory at 46.00 MiB for inner join and 29.91 MiB for
+duplicate-key join, versus 47.53 and 31.66 MiB before the change. The v4
+peaks remained 21.50 and 5.53 MiB. Output counts and checksums matched;
+Direct tests, formatting, and strict lint passed. This modest gain leaves
+the join memory gate open.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

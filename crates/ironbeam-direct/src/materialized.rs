@@ -337,7 +337,12 @@ pub(crate) fn eval(
         .ok_or_else(|| Error::graph(key, "physical node missing"))?;
     if matches!(node.operation, Operation::Source { .. }) {
         let mut source = open_source_safe(registry, key)?;
-        let mut output = Vec::new();
+        let initial_capacity = registry
+            .vec_source_envelope_batches(key)
+            .map_or(0, |(len, _)| {
+                len.min(config.memory_budget_bytes / std::mem::size_of::<Envelope>())
+            });
+        let mut output = Vec::with_capacity(initial_capacity);
         loop {
             if config.cancellation.load(Ordering::Acquire) {
                 return Err(cancelled());
