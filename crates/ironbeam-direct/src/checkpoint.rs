@@ -496,6 +496,32 @@ mod tests {
     }
 
     #[test]
+    fn recovery_reports_directory_replaced_after_manager_setup() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path().join("checkpoint");
+        let config = CheckpointConfig {
+            directory: directory.clone(),
+            binary_build_id: "directory-race-v1".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "directory-race-v1".into(),
+        );
+        let manager =
+            CheckpointManager::new(&config, identity, Arc::new(MetricsState::default())).unwrap();
+        fs::remove_dir(&directory).unwrap();
+        fs::write(&directory, b"former checkpoint directory").unwrap();
+        assert_eq!(
+            manager.recover_fold_state(1024).err().unwrap().kind,
+            ErrorKind::Io
+        );
+    }
+
+    #[test]
     fn recovery_rejects_manifest_count_that_disagrees_with_valid_data() {
         let directory = tempfile::tempdir().unwrap();
         let config = CheckpointConfig {

@@ -445,6 +445,19 @@ mod tests {
     }
 
     #[test]
+    fn recovery_reports_directory_replaced_after_checkpoint_setup() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path().join("checkpoint");
+        let checkpoint = checkpoint(&directory, "sink");
+        fs::remove_dir(&directory).unwrap();
+        fs::write(&directory, b"former checkpoint directory").unwrap();
+        assert_eq!(
+            checkpoint.load().err().unwrap().kind,
+            ironbeam_core::ErrorKind::Io
+        );
+    }
+
+    #[test]
     fn valid_checksum_cannot_override_progress_identity() {
         let temporary = tempfile::tempdir().unwrap();
         let checkpoint = checkpoint(temporary.path(), "sink");

@@ -703,7 +703,7 @@ fn direct_sink_stops_before_reading_another_batch_after_cancellation() {
             Ok(())
         }
     }
-    for vector_source in [true, false] {
+    for (vector_source, with_map) in [(true, false), (true, true), (false, true)] {
         let cancellation = Arc::new(AtomicBool::new(false));
         let pipeline = Pipeline::default();
         let values = if vector_source {
@@ -723,10 +723,15 @@ fn direct_sink_stops_before_reading_another_batch_after_cancellation() {
                 )
                 .unwrap()
         };
+        let values = if with_map {
+            values
+                .map_named("identity-before-cancelling-sink", |value| value)
+                .unwrap()
+        } else {
+            values
+        };
         let action = Arc::clone(&cancellation);
         let sink = values
-            .map_named("identity-before-cancelling-sink", |value| value)
-            .unwrap()
             .sink_named(
                 "sink",
                 SinkSpec {

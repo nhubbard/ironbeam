@@ -105,6 +105,45 @@ fn keyed_group_uses_envelopes_for_non_vector_sources() {
 }
 
 #[test]
+fn external_source_flat_map_can_drop_rows_before_grouping() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .bounded_source(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "flat-map-group-source-v1".into(),
+            Some(3),
+            || {
+                Ok(Box::new(
+                    [(1_i32, 10_i32), (0, 99), (1, 20)].into_iter().map(Ok),
+                ))
+            },
+        )
+        .unwrap()
+        .flat_map_named(
+            "drop-zero",
+            |row| {
+                if row.0 == 0 { Vec::new() } else { vec![row] }
+            },
+        )
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (rows, job) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(rows, [(1, vec![10, 20])]);
+    assert_eq!(job.metrics().source_elements, 3);
+    assert_eq!(job.metrics().filtered_elements, 1);
+}
+
+#[test]
 fn keyed_vector_batch_attributes_clone_and_fold_panics() {
     use ironbeam_core::Element;
     use std::hash::{Hash, Hasher};
