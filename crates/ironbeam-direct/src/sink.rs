@@ -81,9 +81,11 @@ pub(crate) fn execute<T: Element>(
             sink_key,
             config,
             &handle.metrics,
-            &mut |event| {
-                write_event(session, sink_key, event, config)?;
-                written = written.saturating_add(1);
+            &mut |event, downstream| {
+                for event in apply_route(event, downstream, registry, config, handle)? {
+                    write_event(session, sink_key, event, config)?;
+                    written = written.saturating_add(1);
+                }
                 Ok(())
             },
         )? {

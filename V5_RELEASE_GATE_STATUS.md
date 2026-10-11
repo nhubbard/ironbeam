@@ -31,7 +31,10 @@ staged locally.
   Parallel or metadata-changing routes retain the envelope path. Full Direct
   tests and strict lint pass for this addition. Directly connected GroupByKey,
   global combine, and keyed combine folds can now drain completed results into
-  their sinks one at a time, avoiding a second whole-result vector. Tests cover
+  their sinks one at a time, avoiding a second whole-result vector. Sequential
+  fold routes can also stream through downstream map, filter, flat-map, and
+  time/window stages; a test proves one group is written before the next is
+  transformed and checks filtered-row metrics. Tests cover
   grouped values, sink write failure and abort, fixed-window metadata, empty
   global input, and keyed sums; core and Direct suites and strict lint pass.
   Fold state still retains groups, and other materialized sink routes

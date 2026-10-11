@@ -446,6 +446,64 @@ fn lifted_global_and_keyed_sinks_drain_fold_results() {
 }
 
 #[test]
+fn grouped_sink_writes_before_transforming_the_next_completed_group() {
+    struct CountingSink(Arc<AtomicUsize>, Arc<Mutex<Vec<(i32, u32)>>>);
+    impl TypedSink<(i32, u32)> for CountingSink {
+        fn write(&mut self, row: (i32, u32)) -> Result<(), Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            self.1.lock().unwrap().push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+    let writes = Arc::new(AtomicUsize::new(0));
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let inspected = Arc::clone(&writes);
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .from_vec("source", vec![(1_i32, 7_i32), (2, 8), (3, 9)])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .map_named("inspect-writes", move |(key, values)| {
+            assert_eq!(inspected.load(Ordering::SeqCst), (key - 1) as usize);
+            (key, u32::try_from(values.len()).unwrap())
+        })
+        .unwrap()
+        .filter_named("skip-third", |(key, _)| *key != 3)
+        .unwrap()
+        .sink_named(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            {
+                let writes = Arc::clone(&writes);
+                let rows = Arc::clone(&rows);
+                move || {
+                    Ok(Box::new(CountingSink(
+                        Arc::clone(&writes),
+                        Arc::clone(&rows),
+                    )))
+                }
+            },
+        )
+        .unwrap();
+    let job = DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    assert_eq!(*rows.lock().unwrap(), vec![(1, 1), (2, 1)]);
+    assert_eq!(job.metrics().source_elements, 3);
+    assert_eq!(job.metrics().filtered_elements, 1);
+    assert_eq!(job.metrics().output_elements, 2);
+}
+
+#[test]
 fn direct_sink_counts_filtered_rows_on_both_execution_modes() {
     for parallelism in [1, 3] {
         let pipeline = Pipeline::default();

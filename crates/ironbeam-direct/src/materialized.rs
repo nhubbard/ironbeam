@@ -417,20 +417,46 @@ pub(crate) fn eval(
     }
 }
 
-/// Drain a directly connected fold into a sink without assembling its
-/// completed results into a second output vector. Other graph shapes use the
-/// general materialized evaluator.
+type DownstreamEmitter<'a> = dyn FnMut(Envelope, &[String]) -> Result<(), Error> + 'a;
+/// Drain a linear fold and downstream stateless stages into a sink without
+/// assembling all completed results into a second output vector. Other graph
+/// shapes use the general materialized evaluator.
 pub(crate) fn try_drain_fold_sink(
     graph: &Graph,
     registry: &Registry,
     sink_key: &str,
     config: &JobConfig,
     metrics: &MetricsState,
-    emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
+    emit: &mut DownstreamEmitter<'_>,
 ) -> Result<bool, Error> {
-    let Some(fold_key) = graph.node(sink_key).and_then(|node| node.input.as_deref()) else {
+    let Some(mut fold_key) = graph.node(sink_key).and_then(|node| node.input.as_deref()) else {
         return Ok(false);
     };
+    let mut downstream = Vec::new();
+    loop {
+        let Some(node) = graph.node(fold_key) else {
+            return Ok(false);
+        };
+        if !matches!(
+            node.operation,
+            Operation::Map
+                | Operation::Filter
+                | Operation::FlatMap
+                | Operation::AssignTimestamp
+                | Operation::FixedWindow
+        ) {
+            break;
+        }
+        if config.parallelism != 1 || !node.additional_inputs.is_empty() {
+            return Ok(false);
+        }
+        downstream.push(fold_key.to_owned());
+        let Some(input) = node.input.as_deref() else {
+            return Ok(false);
+        };
+        fold_key = input;
+    }
+    downstream.reverse();
     let Some(fold_node) = graph.node(fold_key) else {
         return Ok(false);
     };
@@ -470,8 +496,10 @@ pub(crate) fn try_drain_fold_sink(
         fold_key,
         fold.as_mut(),
     )?;
-    catch_unwind(AssertUnwindSafe(|| fold.finish_into(emit)))
-        .unwrap_or_else(|_| Err(Error::execution(fold_key, "direct", "user fold panicked")))?;
+    catch_unwind(AssertUnwindSafe(|| {
+        fold.finish_into(&mut |event| emit(event, &downstream))
+    }))
+    .unwrap_or_else(|_| Err(Error::execution(fold_key, "direct", "user fold panicked")))?;
     Ok(true)
 }
 
