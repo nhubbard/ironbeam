@@ -1,8 +1,8 @@
-//! Test-only fixtures for backend adapters during the v5 migration.
+//! Test-only fixtures for comparing backend behavior during the v5 migration.
 //!
 //! This package does not define Ironbeam's production graph or `Runner` API.
 //! Backends implement [`BackendUnderTest`] here to exercise the same cases while
-//! the core and runner interfaces evolve in Phase 2.
+//! the core and runner interfaces evolve.
 
 use std::fmt;
 

@@ -153,6 +153,18 @@ No percentage of source compatibility is asserted. The migration guide gives
 the actual edits. Bounded result parity is stronger than source compatibility
 today; unbounded and portable execution parity remains open.
 
+For every operation that two v5 runners both advertise, the release contract
+targets the same element values, keyed/window grouping, event timestamps,
+window intervals, typed error category, and committed output. A supplied
+order or tie key also makes ordering and tie selection part of that contract.
+The runner may choose its bundle size, parallel schedule, and retry timing,
+but those choices must not alter those observations. A runner that lacks an
+operation rejects it during graph validation before opening a source or sink.
+Contract tests should exercise the same graph and input fixture on Direct and
+the local Prism worker, including failing cases. The published v4 package
+remains a separate compatibility reference. This shared-behavior target does
+not claim that every operation is already implemented on every runner.
+
 Ordered folds require an explicit user order key for identical Direct and
 portable behavior. The existing encounter-order fold methods retain their
 Direct compatibility behavior; Beam grouping does not preserve that encounter

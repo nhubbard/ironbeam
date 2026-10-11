@@ -7,6 +7,12 @@ staged locally.
 
 ## Verified in this checkout
 
+- The runner contract package now executes its bounded map/filter fixture on
+  the real v5 Direct runner as well as published v4 Direct. The obsolete fake
+  Dataflow lowering preview was removed; portable behavior is assessed by the
+  separate worker and live Prism proofs. This small shared-value case does not
+  close the broader cross-runner parity gate.
+
 - Explicit tie-key global and keyed `latest` variants now select the greatest
   tie key at the maximum event time within each window, rejecting repeated
   time/tie pairs. Direct tests cover values, time/window metadata, duplicate
