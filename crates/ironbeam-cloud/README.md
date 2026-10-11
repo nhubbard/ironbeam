@@ -13,7 +13,9 @@ objects.register("file", LocalObjectIO::new("./object-data")?)?;
 objects.write("file://results/run-1/output.jsonl", b"{\"id\":1}\n")?;
 let bytes = objects.read("file://results/run-1/output.jsonl")?;
 let files = objects.list("file://results/run-1/")?;
+let copied = objects.copy_prefix("file://results/run-1/", "file://archive/run-1/")?;
 assert_eq!(files.len(), 1);
+assert_eq!(copied, 1);
 assert_eq!(bytes, b"{\"id\":1}\n");
 # Ok::<(), ironbeam_cloud::CloudIOError>(())
 ```
@@ -23,9 +25,11 @@ schemes. The optional `ironbeam-cloud-object-store` package supplies S3, GCS,
 and Azure Blob adapters backed by Apache `object_store`. `provider("scheme")`
 returns a clonable `ObjectIO` handle for the existing JSONL cloud source and
 sink helpers. The registry owns no credentials; each provider handles its own
-authentication and retries. Cross-provider
-`copy` streams the whole source object through the caller, so it is intended
-for bounded objects only.
+authentication and retries. `copy_prefix` replaces the source key prefix with
+the destination key prefix and works across registered providers. It lists
+first and then copies each object; a failure can leave an incomplete destination
+prefix. Cross-provider copies buffer a whole source object in the caller, so
+this API is intended for bounded objects.
 
 The local adapter maps `file://bucket/key` to `root/bucket/key`. It checks
 relative paths and existing symlinks to keep operations inside its root. It

@@ -30,6 +30,41 @@ fn routes_objects_across_schemes() {
 }
 
 #[test]
+fn copies_prefixes_across_providers_and_preserves_relative_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut stores = ObjectStores::new();
+    stores.register("mem", FakeObjectIO::new()).unwrap();
+    stores
+        .register("file", LocalObjectIO::new(dir.path()).unwrap())
+        .unwrap();
+    stores.write("mem://source/jobs/a", b"a").unwrap();
+    stores.write("mem://source/jobs/nested/b", b"b").unwrap();
+    stores.write("mem://source/jobs-other/c", b"c").unwrap();
+    assert_eq!(
+        stores
+            .copy_prefix("mem://source/jobs/", "file://archive/run/")
+            .unwrap(),
+        2
+    );
+    assert_eq!(stores.read("file://archive/run/a").unwrap(), b"a");
+    assert_eq!(stores.read("file://archive/run/nested/b").unwrap(), b"b");
+    assert!(!stores.exists("file://archive/run/-other/c").unwrap());
+    assert_eq!(
+        stores
+            .copy_prefix("mem://source/none/", "file://archive/empty/")
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        stores
+            .copy_prefix("mem://source/jobs/", "mem://source/jobs/backup/")
+            .unwrap(),
+        2
+    );
+    assert_eq!(stores.read("mem://source/jobs/backup/a").unwrap(), b"a");
+}
+
+#[test]
 fn rejects_unknown_provider_bad_uri_and_path_escape() {
     let dir = tempfile::tempdir().unwrap();
     let mut stores = ObjectStores::new();

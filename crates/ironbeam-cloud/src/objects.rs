@@ -181,6 +181,41 @@ impl ObjectStores {
             dst_store.put_object(&dst.bucket, &dst.key, &bytes)
         }
     }
+
+    /// Copy every object under one URI prefix to another URI prefix.
+    ///
+    /// The source key prefix is replaced literally by the destination key
+    /// prefix. For example, copying `s3://bucket/jobs/` to
+    /// `gs://archive/run/` maps `jobs/input/a` to `run/input/a`.
+    /// Returns the number of copied objects. Listing is completed before any
+    /// copy begins, so a destination inside the source prefix cannot make the
+    /// operation loop. Existing destination objects may be replaced.
+    ///
+    /// # Errors
+    /// Returns a parse, provider, listing, read, or write error. A failure
+    /// after some copies leaves those destination objects in place.
+    pub fn copy_prefix(&self, source_prefix: &str, destination_prefix: &str) -> CloudResult<usize> {
+        let source = ObjectLocation::parse(source_prefix)?;
+        let destination = ObjectLocation::parse(destination_prefix)?;
+        let mut listed = self.list(source_prefix)?;
+        listed.sort_by(|left, right| left.0.key.cmp(&right.0.key));
+        let mut copied = 0;
+        for (object, _) in listed {
+            let suffix = object.key.strip_prefix(&source.key).ok_or_else(|| {
+                CloudIOError::new(
+                    ErrorKind::InternalError,
+                    "listed object escaped source prefix",
+                )
+            })?;
+            let target = ObjectLocation {
+                key: format!("{}{suffix}", destination.key),
+                ..destination.clone()
+            };
+            self.copy(&object.uri(), &target.uri())?;
+            copied += 1;
+        }
+        Ok(copied)
+    }
 }
 
 impl<T: ObjectIO + ?Sized> ObjectIO for Arc<T> {

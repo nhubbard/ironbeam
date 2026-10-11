@@ -59,7 +59,9 @@ staged locally.
   and Azure Blob clients from environment credentials. Its
   `object_stores_from_env()` constructor registers all enabled providers in
   one URI router, with bucket clients still initialized on first use. Default
-  and all-provider tests and strict lint pass; the common adapter's operations
+  and all-provider tests and strict lint pass. `ObjectStores::copy_prefix`
+  copies relative keys across URI schemes using a fixed listing snapshot;
+  local and in-memory cross-provider tests pass. The common adapter's operations
   pass against Apache `object_store`'s in-memory backend. Hosted
   storage authentication and live service behavior remain unverified.
 
