@@ -561,6 +561,15 @@ staged locally.
    inner join, and 2.8× for JSONL, with matching results. A short-frame
    SHA-256 update trial slowed source construction and was reverted; its
    paired timings are recorded in `V5_PHASE0_BASELINE.md`.
+   Built-in vector source digests are now computed only when checkpointing or
+   portable lowering requests source identity. The digest bytes are unchanged;
+   custom coder failures remain eager. A paired local release sample moved
+   source copy from 0.605 to 0.104 ms and map/filter from 1.217 to 0.728 ms
+   at 100,000 rows, with matching output. A separate paired v4/v5 sample
+   measured a 1.8× source-copy gap, while map/filter was still 6.4× and
+   GroupByKey 7.7×. Core and Direct tests, strict lint, Dataflow graph
+   translation tests, and unchanged coverage gates pass. This narrows the
+   source-copy cost but does not close the broader performance gate.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.
