@@ -456,9 +456,15 @@ staged locally.
    Prism reported `DONE` with zero Impulse elements. The Dataflow integration
    now lowers sinks without Beam outputs, and both the isolated final-only
    Arrow job and the larger multi-source Prism job pass with that contract.
-   Arrow's isolated all-feature coverage is 409/452 source locations and
-   26/30 branches, above the existing package gate; its strict lint and
+   Arrow's isolated all-feature coverage is 560/618 source locations and
+   39/44 branches, above the existing package gate; its strict lint and
    offline package verification pass.
+   Native Arrow record-batch output now stages one coded batch per element,
+   verifies every batch's schema and committed count, and publishes one Arrow
+   IPC file after `DONE`. Unit tests cover multiple bundle fragments, schema
+   disagreement, corrupt frames, empty output, and idempotent publication.
+   The separate Prism job now also reads the input as record batches and
+   reopens the finalized batch file with its three original rows.
    Publication also rejects pending or orphaned staging
    entries even if their row count is zero. Malformed MessagePack and CBOR
    fragments cannot replace an existing result, and failed serialization
