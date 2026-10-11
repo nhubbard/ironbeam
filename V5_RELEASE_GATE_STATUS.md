@@ -394,8 +394,11 @@ staged locally.
    the core gates at 2,857/2,972 source locations (96.13%) and 435/492
    branches (88.41%), and passes the transforms gates at 1,163/1,189
    source locations (97.81%) and 108/116 branches (93.10%). Direct source
-   coverage passes at 3,344/3,595 (93.02%), but its branch coverage is
-   707/804 (87.94%), below the unchanged 90% CI floor. A downstream flat-map
+   coverage passes at 3,402/3,636 (93.56%) and 724/804 branches (90.05%)
+   against the unchanged 91% line and 90% branch floors. The exact CI corpus
+   passed again after cleaning the instrumented target, and the full workspace
+   tests, strict Direct lint, and local gate for all twenty-five v5 packages
+   passed with these additions. A downstream flat-map
    failure also resumes from the finished group state without reopening its
    source, and a parallel grouped sink keeps its filtered rows and metrics.
    Added tests cover malformed
@@ -404,7 +407,11 @@ staged locally.
    and combined branch buffer limits, accumulated fan-out budgets, filtered
    sink and wait-on stages, non-vector grouped-source memory limits, and
    stream checkpoint identity rejection, and sink abort when a later route
-   stage observes cancellation. The Direct branch coverage gate remains open.
+   stage observes cancellation. New tests also cover mid-transform cancellation
+   on typed, envelope, and materialized routes, wait-on signal cancellation,
+   generic output memory limits, checkpoint directory races, and pair terminal
+   validation. The numeric Direct coverage gate now passes; uncovered paths
+   still need quality review before declaring complete unit test coverage.
    `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
    typed tagged-value coder contracts for their inputs. Tests cover
    heterogeneous values, empty groups, and invalid tags. The translator now
