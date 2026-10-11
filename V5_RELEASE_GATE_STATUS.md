@@ -61,8 +61,8 @@ workspace tests and the live Prism suite.
 | Postcard coder | 13/13 source locations covered; LLVM reports no instrumented branches. |
 | Formatting | Both workspaces pass `cargo fmt --all --check`. |
 
-The current paired benchmark matches output counts and checksums in all seven
-cases. It is a measurement, **not a performance gate pass**:
+The last full paired benchmark matched output counts and checksums in all
+seven cases. It is a measurement, **not a performance gate pass**:
 
 | 100,000-row workload | V5/v4 median latency | Peak memory, v4 → v5 |
 | --- | ---: | ---: |
@@ -70,9 +70,10 @@ cases. It is a measurement, **not a performance gate pass**:
 | JSONL round trip | 2.63× | 4.33 → 5.05 MiB |
 | Duplicate-key join | 2.18× | 5.53 → 31.66 MiB |
 
-The [full seven-case measurement](V5_PHASE0_BASELINE.md) and repeatable
-comparison command are in the baseline record. A fresh clean run is needed
-after in-flight changes before these results count as release evidence.
+After a small Direct allocation change, a targeted duplicate-key rerun peaked
+at **29.91 MiB** in v5. The [full seven-case measurement](V5_PHASE0_BASELINE.md)
+and repeatable comparison command are in the baseline record. A fresh full
+run is needed before performance can be judged against release limits.
 
 ## Contract decisions
 

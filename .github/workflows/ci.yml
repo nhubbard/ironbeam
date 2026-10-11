@@ -115,7 +115,7 @@ jobs:
       - name: Check facade build modes independently
         run: |
           cargo build -p ironbeam --no-default-features
-          cargo build -p ironbeam --no-default-features --features v5-preview
+          cargo build -p ironbeam --no-default-features
           cargo build -p ironbeam --no-default-features --features v5-io-csv
           cargo build -p ironbeam --no-default-features --features v5-regex
           cargo build -p ironbeam --no-default-features --features v5-approx
@@ -126,7 +126,7 @@ jobs:
           cargo build -p ironbeam --no-default-features --features v5-io-protobuf
           cargo build -p ironbeam --no-default-features --features v5-io-tfrecord
           cargo build -p ironbeam
-          cargo build -p ironbeam --features v5-preview
+          cargo build -p ironbeam
           cargo build -p ironbeam --all-features
           cargo build -p ironbeam-runner-contract-tests
           cargo build -p ironbeam-core
@@ -183,7 +183,7 @@ jobs:
       - name: Test facade default and minimal modes
         run: |
           cargo test -p ironbeam --lib --tests
-          cargo test -p ironbeam --no-default-features --features v5-preview --lib --tests
+          cargo test -p ironbeam --no-default-features --lib --tests
 
       - name: Compare v4 and v5 behavior against published v4
         run: |

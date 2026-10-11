@@ -52,7 +52,7 @@ if "$cargo_bin" tree -p ironbeam-io-jsonl --all-features --edges normal | grep -
 fi
 
 "$cargo_bin" test --workspace
-"$cargo_bin" run --example cloud_io_demo --no-default-features --features v5-preview
+"$cargo_bin" run --example cloud_io_demo --no-default-features --features cloud
 "$cargo_bin" test -p ironbeam-compat --test v4_baseline --test differential --test mean --test count_per_element --test keys_values --test kv_swap --test to_dict --test to_hashmap --test to_display_string
 "$cargo_bin" test -p ironbeam --test v5_facade_core --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam --no-default-features --test v5_facade_core --test v5_facade_prelude

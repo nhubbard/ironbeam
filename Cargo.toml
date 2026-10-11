@@ -13,8 +13,9 @@ description = "A batch processing clone of Apache Beam in Rust."
 repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
-default = ["v5-preview"]
-v5-preview = ["ironbeam-transforms/validation-json", "ironbeam-io/cloud", "ironbeam-io-jsonl/cloud"]
+default = ["cloud", "validation-json"]
+cloud = ["ironbeam-io/cloud", "ironbeam-io-jsonl/cloud"]
+validation-json = ["ironbeam-transforms/validation-json"]
 v5-regex = ["dep:ironbeam-transform-regex"]
 v5-approx = ["dep:ironbeam-transform-approx"]
 v5-testing = ["dep:ironbeam-testing"]
@@ -120,28 +121,8 @@ unused_imports = "allow"
 large_futures = "allow"
 
 [[example]]
-name = "v5_benchmark_corpus"
-required-features = ["v5-preview"]
-
-[[example]]
-name = "v5_checkpoint_recovery"
-required-features = ["v5-preview"]
-
-[[example]]
-name = "advanced_joins"
-required-features = ["v5-preview"]
-
-[[example]]
 name = "cloud_io_demo"
-required-features = ["v5-preview"]
-
-[[example]]
-name = "co_gbk"
-required-features = ["v5-preview"]
-
-[[example]]
-name = "combiners_showcase"
-required-features = ["v5-preview"]
+required-features = ["cloud"]
 
 [[example]]
 name = "compressed_io"
@@ -149,19 +130,11 @@ required-features = ["compression-gzip"]
 
 [[example]]
 name = "data_quality_validation"
-required-features = ["v5-preview"]
+required-features = ["validation-json"]
 
 [[example]]
 name = "etl_pipeline"
 required-features = ["io-csv"]
-
-[[example]]
-name = "explain_pipeline"
-required-features = ["v5-preview"]
-
-[[example]]
-name = "glob_patterns"
-required-features = ["v5-preview"]
 
 [[example]]
 name = "metrics_example"
@@ -172,17 +145,9 @@ name = "mongodb_pipeline"
 required-features = ["io-mongodb"]
 
 [[example]]
-name = "multi_output"
-required-features = ["v5-preview"]
-
-[[example]]
 name = "sql_pipeline"
 required-features = ["io-sql"]
 
 [[example]]
 name = "testing_pipeline"
 required-features = ["v5-testing"]
-
-[[example]]
-name = "windowing_aggregations"
-required-features = ["v5-preview"]

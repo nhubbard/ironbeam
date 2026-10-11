@@ -36,10 +36,10 @@ superseded.
 <summary>V5 root facade without default features</summary>
 
 The root facade now exports core, Direct, common transforms, shared I/O, and
-JSONL without requiring the transitional `v5-preview` feature. That feature
-only adds the default cloud and JSON validation extras while the root package
-is still versioned 4.1.1. Optional format and transform flags no longer
-implicitly enable those extras. No-default facade tests execute a core
+JSONL without a preview feature. Separate `cloud` and `validation-json`
+features enable the default extras while the root package is still versioned
+4.1.1. Optional format and transform flags do not implicitly enable those
+extras. No-default facade tests execute a core
 pipeline, a helper chain, and JSONL round trip; a CSV-only dependency check
 has no cloud package. The full local package script passed workspace tests,
 isolated feature checks, documentation, and verification of all 26 packages.
