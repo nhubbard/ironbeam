@@ -9,9 +9,11 @@ staged locally.
 
 - The separate Dataflow worker now validates connected branches and
   fixed-window assignment after a production unbounded SDF source. A live
-  local Prism `Run` reached `DONE` across two residual bundles; two idempotent
-  sinks verified four values, event timestamps, and assigned intervals. A
-  Fn API test verifies both branches with one source open per bundle across a
+  local Prism `Run` reached `DONE` across two residual bundles; three idempotent
+  sinks verified six elementwise values, event timestamps, assigned intervals,
+  and two grouped results, including a native GroupByKey that combined two
+  production rows in one window. A Fn API test verifies both branches with
+  one source open per bundle across a
   rebuilt graph. Other SDF graph shapes and process restart remain open.
 - Direct bounded linear sinks now write one source batch at a time instead of
   collecting the entire result before opening the sink. Typed sinks can opt in
