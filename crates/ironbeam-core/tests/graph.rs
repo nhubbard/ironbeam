@@ -882,7 +882,20 @@ fn vector_source_digest_matches_the_existing_coder_byte_contract() {
     check(vec![1_u32, 2, 3]);
     check(vec![false, true]);
     check(vec!["é".to_string(), "beam".to_string()]);
+    check(vec![(1_u32, 2_u32), (3, 4)]);
     check(vec![Custom(7), Custom(8)]);
+
+    let mut expected = Vec::new();
+    expected.extend_from_slice(&4_u64.to_le_bytes());
+    expected.extend_from_slice(&7_u32.to_le_bytes());
+    expected.extend_from_slice(&4_u64.to_le_bytes());
+    expected.extend_from_slice(&9_u32.to_le_bytes());
+    let mut reused = vec![255];
+    (7_u32, 9_u32).encode_reusing(&mut reused).unwrap();
+    assert_eq!(reused, expected);
+    let mut appended = vec![255];
+    (7_u32, 9_u32).encode_into(&mut appended).unwrap();
+    assert_eq!(&appended[1..], expected);
 }
 
 #[test]

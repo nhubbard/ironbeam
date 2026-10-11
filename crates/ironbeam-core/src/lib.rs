@@ -45,6 +45,11 @@ pub trait Element: Send + 'static {
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"))
     }
+    /// Append wire bytes without replacing the caller's existing buffer.
+    fn encode_into(&self, output: &mut Vec<u8>) -> Result<(), Error> {
+        output.extend_from_slice(&self.encode()?);
+        Ok(())
+    }
     /// Replace `buffer` with this value's wire bytes, reusing its allocation when possible.
     fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
         *buffer = self.encode()?;
@@ -71,6 +76,10 @@ macro_rules! integer_element {
             }
             fn encode(&self) -> Result<Vec<u8>, Error> {
                 Ok(self.to_le_bytes().to_vec())
+            }
+            fn encode_into(&self, output: &mut Vec<u8>) -> Result<(), Error> {
+                output.extend_from_slice(&self.to_le_bytes());
+                Ok(())
             }
             fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
                 buffer.clear();
@@ -108,6 +117,10 @@ impl Element for bool {
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Ok(vec![u8::from(*self)])
     }
+    fn encode_into(&self, output: &mut Vec<u8>) -> Result<(), Error> {
+        output.push(u8::from(*self));
+        Ok(())
+    }
     fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
         buffer.clear();
         buffer.push(u8::from(*self));
@@ -132,6 +145,10 @@ impl Element for String {
     }
     fn encode(&self) -> Result<Vec<u8>, Error> {
         Ok(self.as_bytes().to_vec())
+    }
+    fn encode_into(&self, output: &mut Vec<u8>) -> Result<(), Error> {
+        output.extend_from_slice(self.as_bytes());
+        Ok(())
     }
     fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
         buffer.clear();
@@ -306,10 +323,22 @@ impl<A: Element, B: Element> Element for (A, B) {
         if !Self::supports_coder() {
             return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
         }
-        let mut output = Vec::new();
-        encode_part(&self.0.encode()?, &mut output);
-        encode_part(&self.1.encode()?, &mut output);
+        let mut output = Vec::with_capacity(self.encoded_len()?);
+        self.encode_into(&mut output)?;
         Ok(output)
+    }
+    fn encode_into(&self, output: &mut Vec<u8>) -> Result<(), Error> {
+        if !Self::supports_coder() {
+            return Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"));
+        }
+        output.extend_from_slice(&(self.0.encoded_len()? as u64).to_le_bytes());
+        self.0.encode_into(output)?;
+        output.extend_from_slice(&(self.1.encoded_len()? as u64).to_le_bytes());
+        self.1.encode_into(output)
+    }
+    fn encode_reusing(&self, buffer: &mut Vec<u8>) -> Result<(), Error> {
+        buffer.clear();
+        self.encode_into(buffer)
     }
     fn encoded_len(&self) -> Result<usize, Error> {
         if !Self::supports_coder() {
