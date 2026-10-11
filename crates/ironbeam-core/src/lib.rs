@@ -1659,6 +1659,16 @@ pub trait FoldSession: Send {
         Err(Error::unsupported("fold", "direct", "typed-vector-batch"))
     }
     fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error>;
+    /// Drain completed output without requiring a second whole-result vector.
+    fn finish_into(
+        self: Box<Self>,
+        emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        for event in self.finish()? {
+            emit(event)?;
+        }
+        Ok(())
+    }
 }
 type FoldFactory = Arc<dyn Fn() -> Box<dyn FoldSession> + Send + Sync>;
 type FoldEntry<A> = (A, i64, Window, Option<WindowInterval>);
@@ -4264,6 +4274,21 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 },
             )
             .collect())
+    }
+
+    fn finish_into(
+        self: Box<Self>,
+        emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        for (key, values, timestamp_ns, window, assigned_window) in self.groups {
+            emit(Envelope {
+                value: Box::new((key, values)),
+                timestamp_ns,
+                window,
+                assigned_window,
+            })?;
+        }
+        Ok(())
     }
 }
 pub type Joined<K, V, W> = (K, (V, W));

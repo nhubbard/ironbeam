@@ -216,6 +216,161 @@ fn typed_vector_sink_writes_each_batch_before_transforming_the_next() {
 }
 
 #[test]
+fn grouped_sink_drains_completed_groups_and_aborts_on_write_failure() {
+    type GroupRows = Arc<Mutex<Vec<(i32, Vec<i32>)>>>;
+    struct GroupSink {
+        rows: GroupRows,
+        aborts: Arc<AtomicUsize>,
+        fail_first: bool,
+    }
+    impl TypedSink<(i32, Vec<i32>)> for GroupSink {
+        fn write(&mut self, row: (i32, Vec<i32>)) -> Result<(), Error> {
+            if self.fail_first {
+                return Err(Error::resource("group-sink", "injected write failure"));
+            }
+            self.rows.lock().unwrap().push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.aborts.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    for fail_first in [false, true] {
+        let rows = Arc::new(Mutex::new(Vec::new()));
+        let aborts = Arc::new(AtomicUsize::new(0));
+        let pipeline = Pipeline::default();
+        let grouped = pipeline
+            .from_vec("source", vec![(1_i32, 2_i32), (2, 3), (1, 4), (2, 5)])
+            .unwrap()
+            .map_named("double", |(key, value)| (key, value * 2))
+            .unwrap()
+            .group_by_key_named("group")
+            .unwrap();
+        let sink = grouped
+            .sink_named(
+                "group-sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::AtLeastOnce,
+                    commit: true,
+                },
+                {
+                    let rows = Arc::clone(&rows);
+                    let aborts = Arc::clone(&aborts);
+                    move || {
+                        Ok(Box::new(GroupSink {
+                            rows: Arc::clone(&rows),
+                            aborts: Arc::clone(&aborts),
+                            fail_first,
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        let result = DirectRunner.run_sink(&sink, &JobConfig::default());
+        if fail_first {
+            assert_eq!(
+                result.err().unwrap().kind,
+                ironbeam_core::ErrorKind::Resource
+            );
+            assert!(rows.lock().unwrap().is_empty());
+            assert_eq!(aborts.load(Ordering::SeqCst), 1);
+        } else {
+            let job = result.unwrap();
+            assert_eq!(
+                *rows.lock().unwrap(),
+                vec![(1, vec![4, 8]), (2, vec![6, 10])]
+            );
+            assert_eq!(job.metrics().source_elements, 4);
+            assert_eq!(job.metrics().output_elements, 2);
+            assert_eq!(aborts.load(Ordering::SeqCst), 0);
+        }
+    }
+}
+
+#[test]
+fn grouped_sink_drain_preserves_window_metadata() {
+    type WindowedGroupRows = Arc<Mutex<Vec<((i32, Vec<i32>), ElementMetadata)>>>;
+    struct WindowedGroupSink(WindowedGroupRows);
+    impl TypedSink<(i32, Vec<i32>)> for WindowedGroupSink {
+        fn write(&mut self, _: (i32, Vec<i32>)) -> Result<(), Error> {
+            Err(Error::incompatible("group metadata hook was skipped"))
+        }
+        fn write_with_metadata(
+            &mut self,
+            row: (i32, Vec<i32>),
+            metadata: ElementMetadata,
+        ) -> Result<(), Error> {
+            self.0.lock().unwrap().push((row, metadata));
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let grouped = pipeline
+        .from_vec("source", vec![(2_i64, (1_i32, 7_i32)), (12, (1, 9))])
+        .unwrap()
+        .timestamps_from_pairs_named("event-time")
+        .unwrap()
+        .fixed_windows("windows", 10)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let sink = grouped
+        .sink_named(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            {
+                let rows = Arc::clone(&rows);
+                move || Ok(Box::new(WindowedGroupSink(Arc::clone(&rows))))
+            },
+        )
+        .unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    assert_eq!(
+        *rows.lock().unwrap(),
+        vec![
+            (
+                (1, vec![7]),
+                ElementMetadata {
+                    timestamp_ns: 2,
+                    window: Window::Fixed { size_ns: 10 },
+                    assigned_window: Some(WindowInterval {
+                        start_ns: 0,
+                        end_ns: 10,
+                    }),
+                },
+            ),
+            (
+                (1, vec![9]),
+                ElementMetadata {
+                    timestamp_ns: 12,
+                    window: Window::Fixed { size_ns: 10 },
+                    assigned_window: Some(WindowInterval {
+                        start_ns: 10,
+                        end_ns: 20,
+                    }),
+                },
+            ),
+        ]
+    );
+}
+
+#[test]
 fn direct_sink_counts_filtered_rows_on_both_execution_modes() {
     for parallelism in [1, 3] {
         let pipeline = Pipeline::default();

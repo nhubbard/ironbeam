@@ -75,6 +75,21 @@ pub(crate) fn execute<T: Element>(
     let sink_key = &plan.summary.output_key;
     if plan.materialized {
         let mut written = 0_u64;
+        if materialized::try_drain_group_sink(
+            graph,
+            registry,
+            sink_key,
+            config,
+            &handle.metrics,
+            &mut |event| {
+                write_event(session, sink_key, event, config)?;
+                written = written.saturating_add(1);
+                Ok(())
+            },
+        )? {
+            record_written(handle, written);
+            return Ok(());
+        }
         for event in materialized::eval(pool, graph, registry, sink_key, config, &handle.metrics)? {
             write_event(session, sink_key, event, config)?;
             written = written.saturating_add(1);

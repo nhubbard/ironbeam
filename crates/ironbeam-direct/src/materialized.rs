@@ -417,6 +417,58 @@ pub(crate) fn eval(
     }
 }
 
+/// Drain a directly connected GroupByKey fold into a sink without assembling
+/// all completed groups into a second output vector. Other graph shapes use
+/// the general materialized evaluator.
+pub(crate) fn try_drain_group_sink(
+    graph: &Graph,
+    registry: &Registry,
+    sink_key: &str,
+    config: &JobConfig,
+    metrics: &MetricsState,
+    emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
+) -> Result<bool, Error> {
+    let Some(group_key) = graph.node(sink_key).and_then(|node| node.input.as_deref()) else {
+        return Ok(false);
+    };
+    let Some(group) = graph.node(group_key) else {
+        return Ok(false);
+    };
+    if !matches!(group.operation, Operation::GroupByKey)
+        || !group.additional_inputs.is_empty()
+        || !registry.has_fold(group_key)
+    {
+        return Ok(false);
+    }
+    let Some((source_key, stages)) = group
+        .input
+        .as_deref()
+        .and_then(|input| linear_fold_route(graph, input))
+    else {
+        return Ok(false);
+    };
+    let mut fold = catch_unwind(AssertUnwindSafe(|| registry.open_fold(group_key)))
+        .unwrap_or_else(|_| {
+            Err(Error::execution(
+                group_key,
+                "direct",
+                "fold factory panicked",
+            ))
+        })?;
+    feed_linear_fold(
+        registry,
+        &source_key,
+        &stages,
+        config,
+        metrics,
+        group_key,
+        fold.as_mut(),
+    )?;
+    catch_unwind(AssertUnwindSafe(|| fold.finish_into(emit)))
+        .unwrap_or_else(|_| Err(Error::execution(group_key, "direct", "user fold panicked")))?;
+    Ok(true)
+}
+
 fn linear_fold_route(graph: &Graph, from: &str) -> Option<(String, Vec<String>)> {
     let mut key = from;
     let mut stages = Vec::new();
