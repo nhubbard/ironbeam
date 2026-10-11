@@ -647,6 +647,88 @@ fn latest_per_key_restores_selected_time_within_fixed_window() {
 }
 
 #[test]
+fn latest_per_key_uses_typed_timestamp_batches_and_attributes_failures() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec(
+            "source",
+            vec![(1_i32, 2_i32), (2, 1), (1, 5), (1, 5), (2, 4)],
+        )
+        .unwrap()
+        .assign_timestamps_named("time", |(_, value)| i64::from(*value) * 1_000_000)
+        .unwrap()
+        .latest_per_key_named("latest")
+        .unwrap()
+        .reify_timestamps_named("result-time")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (rows, job) = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                buffer_budget_elements: 2,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(rows, vec![(5_000_000, (1, 5)), (4_000_000, (2, 4))]);
+    assert_eq!(job.metrics().source_elements, 5);
+    assert_eq!(job.metrics().batches, 3);
+
+    let failing = Pipeline::default();
+    let output = failing
+        .from_vec("source", vec![(1_i32, 2_i32), (1, 5)])
+        .unwrap()
+        .assign_timestamps_named("time", |(_, value)| {
+            assert_ne!(*value, 5, "intentional timestamp failure");
+            i64::from(*value)
+        })
+        .unwrap()
+        .latest_per_key_named("latest")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("time"));
+    assert_eq!(error.message, "user transform panicked");
+
+    let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cancel_during_time = std::sync::Arc::clone(&cancellation);
+    let cancelled_pipeline = Pipeline::default();
+    let output = cancelled_pipeline
+        .from_vec("source", vec![(1_i32, 2_i32), (1, 5)])
+        .unwrap()
+        .assign_timestamps_named("time", move |(_, value)| {
+            if *value == 5 {
+                cancel_during_time.store(true, std::sync::atomic::Ordering::Release);
+            }
+            i64::from(*value)
+        })
+        .unwrap()
+        .latest_per_key_named("latest")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                cancellation,
+                buffer_budget_elements: 2,
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Cancelled);
+}
+
+#[test]
 fn windowed_combine_helpers_emit_explicit_offset_intervals() {
     let pipeline = Pipeline::default();
     let input = pipeline

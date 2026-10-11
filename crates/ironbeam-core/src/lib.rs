@@ -1571,10 +1571,12 @@ type SingleTransform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> +
 type MultiTransform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 type TypedMap<T, U> = Arc<dyn Fn(T) -> U + Send + Sync>;
 type TypedFilter<T> = Arc<dyn Fn(&T) -> bool + Send + Sync>;
+type TypedTimestamp<T> = Arc<dyn Fn(&T) -> i64 + Send + Sync>;
 #[derive(Clone)]
 enum TypedTransformRegistration {
     Map(Arc<dyn Any + Send + Sync>),
     Filter(Arc<dyn Any + Send + Sync>),
+    Timestamp(Arc<dyn Any + Send + Sync>),
 }
 
 /// A same-type value operation for a Direct route with no envelope metadata changes.
@@ -1657,6 +1659,23 @@ pub trait FoldSession: Send {
     /// Feed a checked built-in vector batch without per-element envelopes.
     fn add_vec_batch(&mut self, _values: Payload) -> Result<(), Error> {
         Err(Error::unsupported("fold", "direct", "typed-vector-batch"))
+    }
+    /// Whether this fold can consume a typed vector batch after timestamp
+    /// assignment and private keyed timestamp capture.
+    fn accepts_timed_vec_batch(&self, _batch_type: TypeId) -> bool {
+        false
+    }
+    fn add_timed_vec_batch(
+        &mut self,
+        _values: Payload,
+        _timestamp_fn: &(dyn Any + Send + Sync),
+        _timestamp_key: &str,
+    ) -> Result<(), Error> {
+        Err(Error::unsupported(
+            "fold",
+            "direct",
+            "typed-timestamp-batch",
+        ))
     }
     fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error>;
     /// Drain completed output without requiring a second whole-result vector.
@@ -2113,6 +2132,7 @@ pub struct Registry {
     sources: BTreeMap<String, SourceRegistration>,
     transforms: BTreeMap<String, Transform>,
     typed_transforms: BTreeMap<String, TypedTransformRegistration>,
+    keyed_timestamp_reifications: BTreeSet<String>,
     aggregates: BTreeMap<String, Aggregate>,
     folds: BTreeMap<String, FoldFactory>,
     sinks: BTreeMap<String, SinkRegistration>,
@@ -2584,7 +2604,19 @@ impl Registry {
             TypedTransformRegistration::Filter(predicate) => predicate
                 .downcast_ref::<TypedFilter<T>>()
                 .map(|predicate| TypedValueTransform::Filter(predicate.as_ref())),
+            TypedTransformRegistration::Timestamp(_) => None,
         }
+    }
+    #[must_use]
+    pub fn typed_timestamp_transform(&self, key: &str) -> Option<&(dyn Any + Send + Sync)> {
+        match self.typed_transforms.get(key)? {
+            TypedTransformRegistration::Timestamp(timestamp) => Some(timestamp.as_ref()),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub fn is_keyed_timestamp_reification(&self, key: &str) -> bool {
+        self.keyed_timestamp_reifications.contains(key)
     }
     pub fn apply_aggregate(
         &self,
@@ -3545,14 +3577,21 @@ impl<T: Element> PCollection<T> {
             return Err(Error::graph(key, "assign timestamps before windowing"));
         }
         let key_owned = key.to_owned();
+        let timestamp: TypedTimestamp<T> = Arc::new(f);
+        let envelope_timestamp = Arc::clone(&timestamp);
         let transform = Transform::Single(Arc::new(move |mut event| {
             let value = event.value.downcast_ref::<T>().ok_or_else(|| {
                 Error::execution(&key_owned, "direct", "timestamp input type mismatch")
             })?;
-            event.timestamp_ns = f(value);
+            event.timestamp_ns = envelope_timestamp(value);
             Ok(Some(event))
         }));
-        self.next(key, Operation::AssignTimestamp, Some(transform), None)
+        let output = self.next(key, Operation::AssignTimestamp, Some(transform), None)?;
+        self.pipeline.add_typed_transform(
+            key,
+            TypedTransformRegistration::Timestamp(Arc::new(timestamp)),
+        )?;
+        Ok(output)
     }
     /// Expose each element's event timestamp as `(nanoseconds, value)` while
     /// retaining the timestamp and window in the output envelope.
@@ -4341,6 +4380,28 @@ struct LatestPerKeyFoldState<K, V> {
 
 const LATEST_GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 2, minor: 0 };
 
+impl<K: Element + Eq + Hash + Clone, V: Element> LatestPerKeyFoldState<K, V> {
+    fn add_row(
+        &mut self,
+        group_key: K,
+        candidate: (i64, V),
+        timestamp_ns: i64,
+        window: Window,
+        assigned_window: Option<WindowInterval>,
+    ) {
+        let scope = (group_key.clone(), assigned_window);
+        if let Some(&index) = self.indices.get(&scope) {
+            if candidate.0 > self.groups[index].1.0 {
+                self.groups[index].1 = candidate;
+            }
+        } else {
+            self.indices.insert(scope, self.groups.len());
+            self.groups
+                .push((group_key, candidate, timestamp_ns, window, assigned_window));
+        }
+    }
+}
+
 impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFoldState<K, V> {
     fn add(&mut self, event: Envelope) -> Result<(), Error> {
         let Envelope {
@@ -4352,15 +4413,40 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFol
         let (group_key, candidate) = *value.downcast::<(K, (i64, V))>().map_err(|_| {
             Error::execution(&self.key, "direct", "latest group input type mismatch")
         })?;
-        let scope = (group_key.clone(), assigned_window);
-        if let Some(&index) = self.indices.get(&scope) {
-            if candidate.0 > self.groups[index].1.0 {
-                self.groups[index].1 = candidate;
-            }
-        } else {
-            self.indices.insert(scope, self.groups.len());
-            self.groups
-                .push((group_key, candidate, timestamp_ns, window, assigned_window));
+        self.add_row(group_key, candidate, timestamp_ns, window, assigned_window);
+        Ok(())
+    }
+
+    fn accepts_timed_vec_batch(&self, batch_type: TypeId) -> bool {
+        batch_type == TypeId::of::<Vec<(K, V)>>()
+    }
+
+    fn add_timed_vec_batch(
+        &mut self,
+        values: Payload,
+        timestamp_fn: &(dyn Any + Send + Sync),
+        timestamp_key: &str,
+    ) -> Result<(), Error> {
+        let values = values.downcast::<Vec<(K, V)>>().map_err(|_| {
+            Error::execution(&self.key, "direct", "latest vector batch type mismatch")
+        })?;
+        let timestamp = timestamp_fn
+            .downcast_ref::<TypedTimestamp<(K, V)>>()
+            .ok_or_else(|| Error::execution(timestamp_key, "direct", "timestamp type mismatch"))?;
+        for row in *values {
+            let timestamp_ns =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| timestamp(&row)))
+                    .map_err(|_| {
+                        Error::execution(timestamp_key, "direct", "user transform panicked")
+                    })?;
+            let (key, value) = row;
+            self.add_row(
+                key,
+                (timestamp_ns, value),
+                timestamp_ns,
+                Window::Global,
+                None,
+            );
         }
         Ok(())
     }
@@ -4909,7 +4995,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 assigned_window,
             }))
         }));
-        self.next(key, Operation::Map, Some(transform), None)
+        let output = self.next(key, Operation::Map, Some(transform), None)?;
+        self.pipeline
+            .inner
+            .lock()
+            .map_err(|_| Error::graph(key, "builder lock poisoned"))?
+            .registry
+            .keyed_timestamp_reifications
+            .insert(key.to_owned());
+        Ok(output)
     }
     pub fn group_by_key_named(&self, key: &str) -> Result<PCollection<(K, Vec<V>)>, Error> {
         let parent = self.parent()?;
