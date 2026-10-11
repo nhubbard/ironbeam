@@ -44,6 +44,11 @@ staged locally.
   published Avro file reopens with all three IDs and labels. Repeated
   publication returns the same receipt. The updated four-test live Prism
   corpus and strict proof-package lint pass.
+- The same production source now sends a user-defined Protobuf payload into
+  native TFRecord fragments across at least two finalized bundles. The
+  accepted row total matches Prism's committed metric, publication validates
+  TFRecord framing and CRCs, and the v5 reader reopens all three payloads.
+  The updated four-test Prism corpus and strict proof-package lint pass.
 - The separate Dataflow worker now validates connected branches and
   fixed-window assignment after a production unbounded SDF source. A live
   local Prism `Run` reached `DONE` across two residual bundles; three idempotent
