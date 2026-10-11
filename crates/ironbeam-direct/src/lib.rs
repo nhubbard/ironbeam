@@ -720,45 +720,80 @@ fn execute<T: Element>(
             );
             let mut output_count = 0_u64;
             if let Some(transforms) = &single_transforms {
-                let apply_single = |event| {
-                    let mut current = Some(event);
-                    for (key, transform) in route.operations.iter().zip(transforms) {
-                        let Some(event) = current else {
-                            break;
-                        };
-                        if config.cancellation.load(Ordering::Acquire) {
-                            return Err(cancelled());
-                        }
-                        current = match catch_unwind(AssertUnwindSafe(|| transform(event))) {
-                            Ok(result) => result?,
-                            Err(_) => {
-                                return Err(Error::execution(
-                                    key,
-                                    "direct",
-                                    "user transform panicked",
-                                ));
+                if config.parallelism == 1 {
+                    let mut panic_node = route.source_key.as_str();
+                    let result = pool.install(|| {
+                        catch_unwind(AssertUnwindSafe(|| -> Result<(), Error> {
+                            for event in batch {
+                                let mut current = Some(event);
+                                for (key, transform) in route.operations.iter().zip(transforms) {
+                                    let Some(event) = current else {
+                                        break;
+                                    };
+                                    if config.cancellation.load(Ordering::Acquire) {
+                                        return Err(cancelled());
+                                    }
+                                    panic_node = key;
+                                    current = transform(event)?;
+                                    if current.is_none() {
+                                        handle
+                                            .metrics
+                                            .filtered_elements
+                                            .fetch_add(1, Ordering::Relaxed);
+                                    }
+                                }
+                                if let Some(event) = current {
+                                    panic_node = output_key;
+                                    push_output(event, &mut store, output_key)?;
+                                    output_count += 1;
+                                }
                             }
-                        };
-                        if current.is_none() {
-                            handle
-                                .metrics
-                                .filtered_elements
-                                .fetch_add(1, Ordering::Relaxed);
+                            Ok(())
+                        }))
+                    });
+                    match result {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            return Err(Error::execution(
+                                panic_node,
+                                "direct",
+                                if panic_node == output_key {
+                                    "output collection panicked"
+                                } else {
+                                    "user transform panicked"
+                                },
+                            ));
                         }
                     }
-                    Ok(current)
-                };
-                if config.parallelism == 1 {
-                    pool.install(|| -> Result<(), Error> {
-                        for event in batch {
-                            if let Some(event) = apply_single(event)? {
-                                push_output(event, &mut store, output_key)?;
-                                output_count += 1;
+                } else {
+                    let apply_single = |event| {
+                        let mut current = Some(event);
+                        for (key, transform) in route.operations.iter().zip(transforms) {
+                            let Some(event) = current else {
+                                break;
+                            };
+                            if config.cancellation.load(Ordering::Acquire) {
+                                return Err(cancelled());
+                            }
+                            current = match catch_unwind(AssertUnwindSafe(|| transform(event))) {
+                                Ok(result) => result?,
+                                Err(_) => {
+                                    return Err(Error::execution(
+                                        key,
+                                        "direct",
+                                        "user transform panicked",
+                                    ));
+                                }
+                            };
+                            if current.is_none() {
+                                handle
+                                    .metrics
+                                    .filtered_elements
+                                    .fetch_add(1, Ordering::Relaxed);
                             }
                         }
-                        Ok(())
-                    })?;
-                } else {
+                        Ok(current)
+                    };
                     let results: Vec<Result<Option<Envelope>, Error>> =
                         pool.install(|| batch.into_par_iter().map(apply_single).collect());
                     for result in results {

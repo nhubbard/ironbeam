@@ -114,7 +114,11 @@ staged locally.
   source-only route now opens typed values without creating and downcasting an
   envelope for each row. Four warmed 100,000-row samples moved from
   2.48–2.62 ms before this change to 0.922–0.928 ms afterward; map/filter
-  still uses the envelope route and its performance gate remains open. The
+  still uses the envelope route. Moving sequential Direct panic isolation to
+  each source batch, while retaining the failing transform key, brought a
+  warmed 100,000-row map/filter sample from about 4.0 ms to 3.2 ms with
+  matching output counts and checksums. The v4 map/filter implementation is
+  still substantially faster, so the performance gate remains open. The
   v5 Direct
   collection trait now accepts `PCollection` as well as `Output`; it builds
   an isolated terminal snapshot, so repeated v4-shaped `collect_seq` and `collect_par`

@@ -56,6 +56,41 @@ fn physical_plan_fuses_operations_and_batches_preserve_order() {
 }
 
 #[test]
+fn batched_sequential_transform_panic_reports_the_failing_node() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", (0..8).collect::<Vec<i32>>())
+        .unwrap()
+        .map_named("first", |value| value + 1)
+        .unwrap()
+        .filter_named("second", |value| {
+            if *value == 6 {
+                panic!("intentional transform failure");
+            }
+            *value % 2 == 0
+        })
+        .unwrap()
+        .output("result")
+        .unwrap();
+    for parallelism in [1, 2] {
+        let error = DirectRunner
+            .run_collect(
+                &output,
+                &JobConfig {
+                    parallelism,
+                    buffer_budget_elements: 3,
+                    ..JobConfig::default()
+                },
+            )
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert_eq!(error.node.as_deref(), Some("second"));
+        assert_eq!(error.message, "user transform panicked");
+    }
+}
+
+#[test]
 fn explain_does_not_open_a_source() {
     let opened = Arc::new(AtomicUsize::new(0));
     let pipeline = Pipeline::default();
