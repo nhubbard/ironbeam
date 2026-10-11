@@ -151,6 +151,10 @@ key/window on both runners rather than depending on arrival order. Include
 matching metadata and error behavior in the cross-runner corpus before
 claiming parity. The order-key extractor is part of the rebuilt worker
 registry and must match the driver binary build identity.
+Explicit tie-key variants now provide deterministic global and keyed `latest`
+selection across Direct and portable execution, including event-time/window
+metadata and duplicate tie-key errors. The older first-arrival tie methods
+retain Direct compatibility behavior.
 The keyed `fold_values_ordered_by_named` variant now uses a reified order key,
 Beam GroupByKey, and a sorted fold on both runners. The global
 `fold_globally_ordered_by_named` variant uses the same constant-key Beam

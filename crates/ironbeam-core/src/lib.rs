@@ -1600,6 +1600,7 @@ enum Transform {
 type Aggregate = Arc<dyn Fn(Vec<Vec<Envelope>>) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 type OrderedGlobalGroups<Q, T> =
     BTreeMap<Option<i64>, (BTreeMap<Q, (T, i64)>, Option<WindowInterval>)>;
+type LatestTieGlobalGroups<Q> = BTreeMap<Option<i64>, (BTreeSet<(i64, Q)>, Envelope)>;
 pub trait CombineFn<V, A, O>: Send + Sync + 'static {
     fn create(&self) -> A;
     fn add_input(&self, accumulator: &mut A, value: V);
@@ -4068,6 +4069,70 @@ impl<T: Element> PCollection<T> {
             None,
         )
     }
+    /// Select the latest event in each window with a deterministic tie key.
+    /// Equal event times choose the greatest tie key; duplicate pairs fail.
+    pub fn latest_globally_by_named<Q: Ord + Send + 'static>(
+        &self,
+        key: &str,
+        tie_key: impl Fn(&T) -> Q + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let node_key = key.to_owned();
+        let aggregate: Aggregate = Arc::new(move |mut inputs| {
+            let events = inputs
+                .pop()
+                .ok_or_else(|| Error::execution(&node_key, "runner", "latest tie input missing"))?;
+            let mut groups: LatestTieGlobalGroups<Q> = BTreeMap::new();
+            for event in events {
+                let value = event.value.downcast_ref::<T>().ok_or_else(|| {
+                    Error::execution(&node_key, "runner", "latest tie input type mismatch")
+                })?;
+                let scope = event.assigned_window.map(|interval| interval.start_ns);
+                let order = (event.timestamp_ns, tie_key(value));
+                match groups.entry(scope) {
+                    std::collections::btree_map::Entry::Vacant(slot) => {
+                        slot.insert((BTreeSet::from([order]), event));
+                    }
+                    std::collections::btree_map::Entry::Occupied(mut slot) => {
+                        let (seen, latest) = slot.get_mut();
+                        let is_later = seen.last().is_none_or(|current| order.cmp(current).is_gt());
+                        if !seen.insert(order) {
+                            return Err(Error::execution(
+                                &node_key,
+                                "runner",
+                                "duplicate latest tie key in key/window/event time",
+                            ));
+                        }
+                        if is_later {
+                            *latest = event;
+                        }
+                    }
+                }
+            }
+            if groups.is_empty() {
+                return Err(Error::execution(
+                    &node_key,
+                    "runner",
+                    "latest on empty input",
+                ));
+            }
+            Ok(groups.into_values().map(|(_, latest)| latest).collect())
+        });
+        self.next_aggregate(
+            key,
+            Operation::GlobalCombine,
+            Vec::new(),
+            parent.boundedness,
+            aggregate,
+            Some(GroupCoderRegistration::for_global::<T>()),
+        )
+    }
     pub fn combine_per_window_named<U: Element>(
         &self,
         key: &str,
@@ -5190,6 +5255,87 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             Ok(Some(Envelope {
                 value: Box::new((group_key, latest_value)),
                 timestamp_ns: latest_timestamp,
+                window,
+                assigned_window,
+            }))
+        }));
+        grouped.next(key, Operation::Map, Some(select), None)
+    }
+    /// Select the latest event per key/window with a deterministic tie key.
+    /// Equal event times choose the greatest tie key. A repeated event time
+    /// and tie key in one key/window is an error on every runner.
+    pub fn latest_per_key_by_named<Q: Element + Ord>(
+        &self,
+        key: &str,
+        tie_key: impl Fn(&V) -> Q + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded global aggregation requires a finite window",
+            ));
+        }
+        let reify_key = format!("{key}/tie");
+        let transform = Transform::Single(Arc::new(move |event| {
+            let Envelope {
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let (group_key, value) = *value.downcast::<(K, V)>().map_err(|_| {
+                Error::execution(&reify_key, "runner", "latest tie input type mismatch")
+            })?;
+            let tie = tie_key(&value);
+            Ok(Some(Envelope {
+                value: Box::new((group_key, (timestamp_ns, (tie, value)))),
+                timestamp_ns,
+                window,
+                assigned_window,
+            }))
+        }));
+        let reified = self.next::<(K, (i64, (Q, V)))>(
+            &format!("{key}/tie"),
+            Operation::Map,
+            Some(transform),
+            None,
+        )?;
+        let grouped = reified.group_by_key_named(&format!("{key}/group"))?;
+        let select_key = key.to_owned();
+        let select = Transform::Single(Arc::new(move |event| {
+            let Envelope {
+                value,
+                window,
+                assigned_window,
+                ..
+            } = event;
+            let (group_key, values) =
+                *value.downcast::<(K, Vec<(i64, (Q, V))>)>().map_err(|_| {
+                    Error::execution(&select_key, "runner", "latest tie group type mismatch")
+                })?;
+            let mut seen = BTreeSet::new();
+            let mut latest = None;
+            for (timestamp, (tie, value)) in values {
+                let order = (timestamp, tie);
+                let is_later = seen.last().is_none_or(|current| order.cmp(current).is_gt());
+                if !seen.insert(order) {
+                    return Err(Error::execution(
+                        &select_key,
+                        "runner",
+                        "duplicate latest tie key in key/window/event time",
+                    ));
+                }
+                if is_later {
+                    latest = Some((timestamp, value));
+                }
+            }
+            let (timestamp_ns, latest) = latest.ok_or_else(|| {
+                Error::execution(&select_key, "runner", "latest tie group is empty")
+            })?;
+            Ok(Some(Envelope {
+                value: Box::new((group_key, latest)),
+                timestamp_ns,
                 window,
                 assigned_window,
             }))
