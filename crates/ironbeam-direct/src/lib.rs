@@ -325,7 +325,13 @@ impl DirectRunner {
             output.key(),
             config.buffer_budget_elements,
         )?;
-        if plan.materialized && config.checkpoint.is_some() {
+        if plan.materialized
+            && config.checkpoint.is_some()
+            && (plan.summary.routes != 1
+                || registry
+                    .erased_vec_source_batches(&plan.summary.source_key)
+                    .is_none())
+        {
             return Err(Error::unsupported(
                 output.key(),
                 "direct",
@@ -335,7 +341,7 @@ impl DirectRunner {
         if plan.materialized {
             ensure_aggregates(&graph, &registry, output.key())?;
         }
-        if config.checkpoint.is_some() && plan.routes.len() != 1 {
+        if config.checkpoint.is_some() && plan.summary.routes != 1 {
             return Err(Error::unsupported(
                 output.key(),
                 "direct",
@@ -408,6 +414,7 @@ impl DirectRunner {
                 &registry,
                 output.key(),
                 config,
+                checkpoint_identity.zip(plan.summary.source_len_hint),
                 &handle,
             )
         } else {

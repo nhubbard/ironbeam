@@ -639,6 +639,16 @@ staged locally.
    The current core and worker also passed the live local Prism multi-source
    execution fixture to `DONE`, and the root workspace all-feature test suite
    completed successfully after these changes.
+   Direct can now checkpoint the completed output of a one-source bounded
+   aggregate when the source is a built-in vector and the output has a coder.
+   A second run recovers global-combine and GroupByKey results without opening
+   the source; grouped output also recovers through the spill path. A changed
+   source identity, partial source offset, and custom source fail closed.
+   Checkpoints are written only after the aggregate finishes, so mid-aggregate
+   restart and v4 barrier/time/node policies remain open. Full Direct tests,
+   strict lint, Dataflow graph/worker tests, and clean coverage pass: Direct
+   1,946/2,064 source locations and 399/436 branches, core 2,430/2,525 and
+   354/402.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.

@@ -156,6 +156,22 @@ impl CheckpointManager {
             .store(u64::try_from(count).unwrap_or(u64::MAX), Ordering::Relaxed);
         Ok(manifest.source_offset)
     }
+    pub(crate) fn recover_completed<T: Element>(
+        &self,
+        source_len: usize,
+        store: &mut OutputStore<T>,
+    ) -> Result<bool, Error> {
+        if !self.config.recover || !self.manifest_path().exists() {
+            return Ok(false);
+        }
+        if self.recover(store)? != source_len {
+            return Err(Error::recovery(
+                "checkpoint",
+                "completed aggregate checkpoint source length mismatch",
+            ));
+        }
+        Ok(true)
+    }
     pub(crate) const fn should_save(&self, batches: usize) -> bool {
         batches.is_multiple_of(self.config.interval_batches)
     }
@@ -445,5 +461,47 @@ mod tests {
         assert!(previous_data.exists());
         manager.save(3, &store).unwrap();
         assert!(!previous_data.exists());
+    }
+
+    #[test]
+    fn completed_recovery_rejects_a_partial_source_offset() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: dir.path().to_path_buf(),
+            binary_build_id: "partial-test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "partial-test".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+        let mut store = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        assert!(!manager.recover_completed(2, &mut store).unwrap());
+        store.push(7).unwrap();
+        manager.save(1, &store).unwrap();
+        let disabled = CheckpointManager::new(
+            &CheckpointConfig {
+                recover: false,
+                ..config.clone()
+            },
+            manager.identity.clone(),
+            Arc::clone(&metrics),
+        )
+        .unwrap();
+        let mut skipped = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        assert!(!disabled.recover_completed(2, &mut skipped).unwrap());
+        let mut recovered = OutputStore::<i32>::new(1024, None, metrics).unwrap();
+        assert_eq!(
+            manager
+                .recover_completed(2, &mut recovered)
+                .unwrap_err()
+                .kind,
+            ErrorKind::Recovery
+        );
     }
 }

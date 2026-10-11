@@ -1,4 +1,5 @@
 //! Direct physical path for bounded grouping, joins, and global combines.
+use crate::checkpoint::{CheckpointManager, Identity};
 use crate::metrics::MetricsState;
 use crate::spill::OutputStore;
 use crate::{JobConfig, JobHandle, cancelled, open_source_safe, read_source_batch};
@@ -13,14 +14,34 @@ pub(crate) fn execute<T: Element>(
     registry: &Registry,
     output_key: &str,
     config: &JobConfig,
+    completed_checkpoint: Option<(Identity, usize)>,
     handle: &JobHandle,
 ) -> Result<Vec<T>, Error> {
-    let events = eval(pool, graph, registry, output_key, config, &handle.metrics)?;
     let mut store = OutputStore::<T>::new(
         config.memory_budget_bytes,
         config.spill.as_ref(),
         handle.metrics.clone(),
     )?;
+    let checkpoint = config
+        .checkpoint
+        .as_ref()
+        .zip(completed_checkpoint)
+        .map(|(checkpoint_config, (identity, source_len))| {
+            CheckpointManager::new(checkpoint_config, identity, handle.metrics.clone())
+                .map(|manager| (manager, source_len))
+        })
+        .transpose()?;
+    if let Some((manager, source_len)) = &checkpoint
+        && manager.recover_completed(*source_len, &mut store)?
+    {
+        let values = store.into_vec()?;
+        handle.processed.store(
+            u64::try_from(values.len()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
+        return Ok(values);
+    }
+    let events = eval(pool, graph, registry, output_key, config, &handle.metrics)?;
     let output_count = u64::try_from(events.len()).unwrap_or(u64::MAX);
     for event in events {
         if config.cancellation.load(Ordering::Acquire) {
@@ -31,6 +52,9 @@ pub(crate) fn execute<T: Element>(
             .downcast::<T>()
             .map_err(|_| Error::execution(output_key, "direct", "output type mismatch"))?;
         store.push(*value)?;
+    }
+    if let Some((manager, source_len)) = &checkpoint {
+        manager.save(*source_len, &store)?;
     }
     let values = store.into_vec()?;
     let count = handle

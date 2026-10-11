@@ -1106,7 +1106,7 @@ fn lifted_combine_stops_when_cancelled_during_accumulation() {
 }
 
 #[test]
-fn aggregate_checkpoint_and_marker_are_rejected_before_source() {
+fn completed_aggregate_checkpoint_recovers_without_reopening_source() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();
     let output = input
@@ -1123,14 +1123,31 @@ fn aggregate_checkpoint_and_marker_are_rejected_before_source() {
         }),
         ..JobConfig::default()
     };
-    assert!(matches!(
+    let (values, first) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(values, [3]);
+    assert_eq!(first.metrics().checkpoints, 1);
+    assert_eq!(first.metrics().source_elements, 2);
+    let (values, recovered) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(values, [3]);
+    assert_eq!(recovered.metrics().source_elements, 0);
+    assert_eq!(recovered.metrics().recovered_elements, 1);
+    assert_eq!(recovered.processed(), 1);
+    let changed = Pipeline::default();
+    let changed_output = changed
+        .from_vec("source", vec![1_i32, 3])
+        .unwrap()
+        .combine_globally_named("sum", |v| v.into_iter().sum::<i32>())
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(
         DirectRunner
-            .run_collect(&output, &config)
+            .run_collect(&changed_output, &config)
             .err()
             .unwrap()
             .kind,
-        ErrorKind::UnsupportedCapability { .. }
-    ));
+        ErrorKind::Incompatible
+    );
     let marker = input
         .global_combine_marker("marker")
         .unwrap()
@@ -1144,6 +1161,96 @@ fn aggregate_checkpoint_and_marker_are_rejected_before_source() {
             .kind,
         ErrorKind::UnsupportedCapability { .. }
     ));
+}
+
+#[test]
+fn aggregate_checkpoint_rejects_non_vector_source_before_opening() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let opens = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&opens);
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .bounded_source(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "aggregate-source-v1".into(),
+            Some(2),
+            move || {
+                counted.fetch_add(1, Ordering::Relaxed);
+                Ok(Box::new([1_i32, 2].into_iter().map(Ok)))
+            },
+        )
+        .unwrap()
+        .combine_globally_named("sum", |v| v.into_iter().sum::<i32>())
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let error = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                checkpoint: Some(CheckpointConfig {
+                    directory: dir.path().to_path_buf(),
+                    binary_build_id: "non-vector".into(),
+                    ..CheckpointConfig::default()
+                }),
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    assert_eq!(opens.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn completed_group_checkpoint_recovers_spilled_output() {
+    use ironbeam_direct::SpillConfig;
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec(
+            "source",
+            (0..100_u32).map(|value| (value % 10, value)).collect(),
+        )
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        memory_budget_bytes: 16 * 1024,
+        spill: Some(SpillConfig {
+            directory: dir.path().join("spill"),
+            threshold_bytes: 64,
+        }),
+        checkpoint: Some(CheckpointConfig {
+            directory: dir.path().join("checkpoint"),
+            binary_build_id: "group-spill".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let (mut first, job) = DirectRunner.run_collect(&output, &config).unwrap();
+    first.sort_by_key(|(key, _)| *key);
+    assert_eq!(job.metrics().checkpoints, 1);
+    assert!(job.metrics().spill_files > 0);
+    let (mut second, recovered) = DirectRunner.run_collect(&output, &config).unwrap();
+    second.sort_by_key(|(key, _)| *key);
+    assert_eq!(second, first);
+    assert_eq!(recovered.metrics().source_elements, 0);
+    assert_eq!(recovered.metrics().recovered_elements, 10);
 }
 
 #[test]

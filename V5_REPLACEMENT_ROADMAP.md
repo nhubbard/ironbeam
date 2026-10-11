@@ -71,7 +71,10 @@ legacy cloud package; this example does not claim those families are complete.
 The `etl_pipeline` example now uses v5 grouping, global TopK, bot counts, and
 the separate CSV and JSONL connectors with checked temporary round trips.
 The v4 checkpoint examples remain legacy-gated because v5 does not yet
-implement their barrier, time, and node-based policies.
+implement their barrier, time, and node-based policies. V5 Direct now
+checkpoints completed coded aggregates from one bounded built-in vector source
+and recovers their final output without replaying that source; it cannot resume
+an in-progress fold or apply the v4 policies.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
 `RegexExt` when `v5-regex` is enabled. Plain `ironbeam-transforms` builds no
 longer compile the regex engine. The v4 root helpers retain their current
