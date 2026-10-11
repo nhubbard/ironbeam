@@ -86,8 +86,8 @@ staged locally.
   integration tests are also gated by `legacy-v4`, allowing the complete
   root test target set to build in v5-only mode. The crate root and README
   now show a v5 quick start, with a passing doctest; legacy builds retain
-  their old documentation. Sixteen v4 examples require `legacy-v4`; the
-  advanced joins example now runs the v5 API by default.
+  their old documentation. Fifteen v4 examples require `legacy-v4`; advanced
+  joins and CoGroupByKey examples now run the v5 API by default.
   Both v4 and v5 benchmark examples produce matching counts and checksums
   for four workloads at 1,000 rows, though timings are not yet a release
   performance comparison. The v4 implementation remains in the repository,

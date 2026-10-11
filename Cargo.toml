@@ -186,7 +186,7 @@ required-features = ["legacy-v4"]
 
 [[example]]
 name = "co_gbk"
-required-features = ["legacy-v4"]
+required-features = ["v5-preview"]
 
 [[example]]
 name = "combiners_showcase"
