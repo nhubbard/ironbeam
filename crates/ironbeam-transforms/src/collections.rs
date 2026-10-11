@@ -3,7 +3,7 @@ use ironbeam_core::{CombineFn, Element, Error, OrderedFoldFn, PCollection};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
-pub(crate) struct CollectVec;
+pub struct CollectVec;
 impl<T: Element> OrderedFoldFn<T, Vec<T>, Vec<T>> for CollectVec {
     fn create(&self) -> Vec<T> {
         Vec::new()

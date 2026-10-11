@@ -65,11 +65,11 @@ fn predicate_helpers_keep_empty_input_empty() {
         .unwrap()
         .output("out")
         .unwrap();
-    assert!(
+    assert_eq!(
         DirectRunner
             .run_collect(&output, &JobConfig::default())
             .unwrap()
-            .0
-            .is_empty()
+            .0,
+        Vec::<i32>::new()
     );
 }

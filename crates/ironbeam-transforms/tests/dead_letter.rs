@@ -39,7 +39,7 @@ fn map_and_flat_map_route_errors_with_original_values() {
         let bad = DirectRunner.run_collect(&errors, &config).unwrap().0;
         assert_eq!(bad.len(), 1);
         assert_eq!(bad[0].element, "bad");
-        assert!(!bad[0].error.is_empty());
+        assert_ne!(bad[0].error, "");
         assert_eq!(
             DirectRunner.run_collect(&flat_good, &config).unwrap().0,
             [1, 2]

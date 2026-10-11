@@ -107,7 +107,7 @@ impl<T: Element> ConstantSideInputExt<T> for PCollection<T> {
         key: &str,
         side: &SideVec<S>,
         f: impl Fn(&T, &[S]) -> bool + Send + Sync + 'static,
-    ) -> Result<PCollection<T>, Error> {
+    ) -> Result<Self, Error> {
         let side = Arc::clone(&side.0);
         self.filter_named(key, move |value| f(value, &side))
     }
@@ -125,7 +125,7 @@ impl<T: Element> ConstantSideInputExt<T> for PCollection<T> {
         key: &str,
         side: &SideMap<K, V>,
         f: impl Fn(&T, &HashMap<K, V>) -> bool + Send + Sync + 'static,
-    ) -> Result<PCollection<T>, Error> {
+    ) -> Result<Self, Error> {
         let side = Arc::clone(&side.0);
         self.filter_named(key, move |value| f(value, &side))
     }
@@ -143,7 +143,7 @@ impl<T: Element> ConstantSideInputExt<T> for PCollection<T> {
         key: &str,
         side: &SideSingleton<S>,
         f: impl Fn(&T, &S) -> bool + Send + Sync + 'static,
-    ) -> Result<PCollection<T>, Error> {
+    ) -> Result<Self, Error> {
         let side = Arc::clone(&side.0);
         self.filter_named(key, move |value| f(value, &side))
     }
@@ -165,7 +165,7 @@ impl<T: Element> ConstantSideInputExt<T> for PCollection<T> {
         key: &str,
         side: &SideMultimap<K, V>,
         f: impl Fn(&T, &HashMap<K, Vec<V>>) -> bool + Send + Sync + 'static,
-    ) -> Result<PCollection<T>, Error> {
+    ) -> Result<Self, Error> {
         let side = Arc::clone(&side.0);
         self.filter_named(key, move |value| f(value, &side))
     }
@@ -275,7 +275,7 @@ impl<T: Element> DynamicSideInputExt<T> for PCollection<T> {
         key: &str,
         side: &PCollection<S>,
         f: impl Fn(&T, &S) -> bool + Send + Sync + 'static,
-    ) -> Result<PCollection<T>, Error> {
+    ) -> Result<Self, Error> {
         self.map_with_dynamic_singleton_named(
             &format!("{key}/evaluate"),
             side,
@@ -288,7 +288,7 @@ impl<T: Element> DynamicSideInputExt<T> for PCollection<T> {
         key: &str,
         side: &PCollection<(K, V)>,
         f: impl Fn(&T, &HashMap<K, V>) -> bool + Send + Sync + 'static,
-    ) -> Result<PCollection<T>, Error> {
+    ) -> Result<Self, Error> {
         self.map_with_dynamic_map_named(&format!("{key}/evaluate"), side, move |value, side| {
             f(&value, side).then_some(value)
         })?
@@ -299,7 +299,7 @@ impl<T: Element> DynamicSideInputExt<T> for PCollection<T> {
         key: &str,
         side: &PCollection<(K, V)>,
         f: impl Fn(&T, &HashMap<K, Vec<V>>) -> bool + Send + Sync + 'static,
-    ) -> Result<PCollection<T>, Error> {
+    ) -> Result<Self, Error> {
         self.map_with_dynamic_multimap_named(
             &format!("{key}/evaluate"),
             side,

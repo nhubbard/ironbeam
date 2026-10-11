@@ -141,7 +141,7 @@ impl<T: Element> DeadLetterExt<T> for PCollection<T> {
         f: impl Fn(&T) -> Result<Vec<O>, E> + Send + Sync + 'static,
     ) -> Result<(PCollection<O>, PCollection<DeadLetter<T>>), Error> {
         let classified = self.classify_flat_map_catching_named(classify_key, f)?;
-        let good = classified.flat_map_named(good_key, |item| item.unwrap_or_default())?;
+        let good = classified.flat_map_named(good_key, Result::unwrap_or_default)?;
         let errors =
             classified.flat_map_named(error_key, |item| item.err().into_iter().collect())?;
         Ok((good, errors))

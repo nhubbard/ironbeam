@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::Add;
 
-pub(crate) struct Count;
+pub struct Count;
 impl<T: Element> CombineFn<T, u64, u64> for Count {
     fn create(&self) -> u64 {
         0
@@ -22,7 +22,7 @@ impl<T: Element> CombineFn<T, u64, u64> for Count {
     }
 }
 
-pub(crate) struct Sum;
+pub struct Sum;
 impl<T: Element + Default + Add<Output = T>> CombineFn<T, T, T> for Sum {
     fn create(&self) -> T {
         T::default()
@@ -38,7 +38,7 @@ impl<T: Element + Default + Add<Output = T>> CombineFn<T, T, T> for Sum {
     }
 }
 
-pub(crate) struct Minimum;
+pub struct Minimum;
 impl<T: Element + Ord> CombineFn<T, Option<T>, Vec<T>> for Minimum {
     fn create(&self) -> Option<T> {
         None
@@ -58,7 +58,7 @@ impl<T: Element + Ord> CombineFn<T, Option<T>, Vec<T>> for Minimum {
     }
 }
 
-pub(crate) struct Maximum;
+pub struct Maximum;
 impl<T: Element + Ord> CombineFn<T, Option<T>, Vec<T>> for Maximum {
     fn create(&self) -> Option<T> {
         None
@@ -78,7 +78,7 @@ impl<T: Element + Ord> CombineFn<T, Option<T>, Vec<T>> for Maximum {
     }
 }
 
-pub(crate) struct Average;
+pub struct Average;
 impl<T: Element + Into<f64>> CombineFn<T, (f64, usize), f64> for Average {
     fn create(&self) -> (f64, usize) {
         (0.0, 0)
@@ -103,7 +103,7 @@ impl<T: Element + Into<f64>> CombineFn<T, (f64, usize), f64> for Average {
     }
 }
 
-pub(crate) struct Mean<O>(pub PhantomData<fn() -> O>);
+pub struct Mean<O>(pub PhantomData<fn() -> O>);
 impl<T: Element + Into<O>, O: MeanOutput> CombineFn<T, (O, usize), O> for Mean<O> {
     fn create(&self) -> (O, usize) {
         (O::default(), 0)
@@ -125,7 +125,7 @@ impl<T: Element + Into<O>, O: MeanOutput> CombineFn<T, (O, usize), O> for Mean<O
     }
 }
 
-pub(crate) struct DistinctCount;
+pub struct DistinctCount;
 impl<T: Element + Eq + Hash> CombineFn<T, HashSet<T>, u64> for DistinctCount {
     fn create(&self) -> HashSet<T> {
         HashSet::new()
@@ -141,7 +141,7 @@ impl<T: Element + Eq + Hash> CombineFn<T, HashSet<T>, u64> for DistinctCount {
     }
 }
 
-pub(crate) struct Take(pub usize);
+pub struct Take(pub usize);
 impl<T: Element> OrderedFoldFn<T, Vec<T>, Vec<T>> for Take {
     fn create(&self) -> Vec<T> {
         Vec::new()
@@ -156,7 +156,7 @@ impl<T: Element> OrderedFoldFn<T, Vec<T>, Vec<T>> for Take {
     }
 }
 
-pub(crate) struct Distinct;
+pub struct Distinct;
 impl<T: Element + Eq + Hash + Clone> OrderedFoldFn<T, (HashSet<T>, Vec<T>), Vec<T>> for Distinct {
     fn create(&self) -> (HashSet<T>, Vec<T>) {
         (HashSet::new(), Vec::new())
@@ -171,7 +171,7 @@ impl<T: Element + Eq + Hash + Clone> OrderedFoldFn<T, (HashSet<T>, Vec<T>), Vec<
     }
 }
 
-pub(crate) struct DistinctBy<F>(pub F);
+pub struct DistinctBy<F>(pub F);
 impl<T: Element, K: Eq + Hash + Send + 'static, F: Fn(&T) -> K + Send + Sync + 'static>
     OrderedFoldFn<T, (HashSet<K>, Vec<T>), Vec<T>> for DistinctBy<F>
 {

@@ -1,4 +1,4 @@
-//! Seeded priority reservoir sampling with v4's SplitMix64 priority sequence.
+//! Seeded priority reservoir sampling with v4's `SplitMix64` priority sequence.
 use ironbeam_core::{Element, Error, OrderedFoldFn, PCollection};
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;

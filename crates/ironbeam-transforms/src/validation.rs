@@ -72,6 +72,7 @@ pub struct ErrorCollector {
     errors: Vec<RecordError>,
 }
 impl ErrorCollector {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -79,7 +80,7 @@ impl ErrorCollector {
         self.errors.push(RecordError { record_id, errors });
     }
     #[must_use]
-    pub fn error_count(&self) -> usize {
+    pub const fn error_count(&self) -> usize {
         self.errors.len()
     }
     #[must_use]
@@ -108,7 +109,7 @@ impl ErrorCollector {
 fn accepted(
     value: &impl Validate,
     mode: ValidationMode,
-    collector: &Option<Arc<Mutex<ErrorCollector>>>,
+    collector: Option<&Arc<Mutex<ErrorCollector>>>,
     ordinal: usize,
 ) -> bool {
     match value.validate() {
@@ -158,7 +159,7 @@ impl<T: Element + Validate> ValidationExt<T> for PCollection<T> {
             accepted(
                 value,
                 mode,
-                &collector,
+                collector.as_ref(),
                 ordinal.fetch_add(1, Ordering::Relaxed),
             )
         })
@@ -192,7 +193,7 @@ impl<K: Element, V: Element + Validate> KeyedValidationExt<K, V> for PCollection
             accepted(
                 value,
                 mode,
-                &collector,
+                collector.as_ref(),
                 ordinal.fetch_add(1, Ordering::Relaxed),
             )
         })

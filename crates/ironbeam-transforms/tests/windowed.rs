@@ -3,6 +3,7 @@ use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_transforms::{KeyedWindowedExt, WindowedExt};
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn windowed_numeric_helpers_match_v4_shapes() {
     let pipeline = Pipeline::default();
     let input = pipeline
