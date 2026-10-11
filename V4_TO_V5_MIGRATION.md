@@ -5,7 +5,7 @@ workspace. The [replacement roadmap](V5_REPLACEMENT_ROADMAP.md) records the
 extraction order and the gates before removing the checked-in v4 runtime.
 The package and feature descriptions below reflect the current migration state.
 
-Ironbeam 5 is currently exposed as `ironbeam::v5` behind `v5-preview`, and as the `ironbeam-core`, `ironbeam-direct`, `ironbeam-transforms`, `ironbeam-io`, `ironbeam-io-avro`, `ironbeam-io-parquet`, `ironbeam-io-arrow`, `ironbeam-io-sql`, and `ironbeam-io-mongodb` packages. The root `ironbeam` package is still version 4.1.1. Avro, Parquet, Arrow IPC, SQL, and MongoDB have independent extension packages; the root facade exposes them through matching `v5-io-*` features. `ironbeam-io` retains the other file formats and shared file lifecycle helpers. This guide describes the implemented v5 surface; it does not imply that the root package has been released as version 5.
+Ironbeam 5 is now the root `ironbeam` default on this branch and remains available as `ironbeam::v5`. The root package version is still 4.1.1 while the release gates remain open. Core, Direct, transforms, each file format, SQL, MongoDB, and cloud objects have separate packages. The root facade exposes optional connectors through `v5-io-*` features; old `io-*` names also enable the matching v5 connector. This guide describes the implemented v5 surface, not a published 5.0.0 release.
 
 ## A bounded pipeline
 
@@ -92,16 +92,16 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 
 | v4 feature | v5 status |
 | --- | --- |
-| `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | JSONL, CSV, and XML remain `ironbeam-io` features. V5 Avro and Parquet use `ironbeam-io-avro` and `ironbeam-io-parquet` or the facade features `v5-io-avro` and `v5-io-parquet`; root `io-avro` and `io-parquet` still select only v4 implementations during migration. |
-| `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | v5 bounded source/sink adapters, lazy and sharded readers, parallel sinks, and external compression are available under corresponding `ironbeam-io` features. `tfrecord_examples_source` (plus lazy and sharded variants) decodes wire-compatible TensorFlow `tf.Example` records when both TFRecord and Protobuf are enabled. |
-| `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC has bounded row and batch adapters in `ironbeam-io-arrow` or the `v5-io-arrow` facade feature. SQL and MongoDB live in `ironbeam-io-sql` and `ironbeam-io-mongodb`; use those packages directly or enable the separate root facade features `v5-io-sql` and `v5-io-mongodb`. The v4 features still select v4 adapters. Both v5 database sinks are deferred append operations with no replay guarantee. |
-| provider-neutral cloud utilities | `ironbeam-cloud` or `ironbeam_io::cloud` with the `cloud` feature | The v4 `ironbeam::io::cloud` and `ironbeam::helpers::cloud` paths reexport the same implementation, including compressed JSONL object readers/writers. |
-| `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | Shared `ironbeam-cloud` codec features and matching opt-in `ironbeam-io` features. Cloud JSONL object readers/writers and v5 JSONL/CSV file adapters use them; remaining file-format combinations are tracked separately. |
+| `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | JSONL is in the default v5 facade. CSV, Parquet, Avro, and XML each have an isolated crate and a `v5-io-*` feature. The old `io-*` flags also enable those v5 crates; with `legacy-v4` they additionally retain the v4 API. |
+| `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | Each format has a separate v5 crate and `v5-io-*` feature. The old feature names alias to those crates. `tfrecord_examples_source` requires both TFRecord and Protobuf. |
+| `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC, SQL, and MongoDB each have a separate v5 crate and `v5-io-*` feature. Old names alias to the v5 crates. SQL and MongoDB sinks are deferred append operations with application-managed replay. |
+| provider-neutral cloud utilities | `ironbeam-cloud-objects` supplies URI routing and local objects; `ironbeam-cloud-object-store` opts into S3, GCS, and Azure Blob clients. The old `ironbeam-cloud` service helpers remain available only through the legacy package and are not a v5 runtime dependency. |
+| `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | `ironbeam-compression` owns codec streams. Shared I/O and JSONL activate the matching codec feature without pulling in legacy cloud helpers when `legacy-v4` is off. |
 | `parallel-io` | `ironbeam-io` parallel sinks and per-format `parallel-io` features on Avro, Parquet, and Arrow IPC | Pass an explicit positive shard count; v5 writes ordered fragments and assembles them before final atomic publish. XML, Avro, Parquet, and Arrow fragments are complete containers that are read and rewritten into the final container. Direct job parallelism still controls execution separately. |
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |
 | `checkpointing`, `spilling` | v5 Direct `JobConfig` has optional `CheckpointConfig` and `SpillConfig`; no feature flag. v4 checkpoint files are not v5 state. |
 | `coders` | v5 `Element` declares type/coder identity and version; built-in coders are implemented, custom coder support must be supplied explicitly. No global Serde bound is added by a feature. |
-| `default` | v4 keeps its existing broad defaults; v5 packages have their own defaults. `ironbeam-core` and `ironbeam-direct` are minimal, while `ironbeam-io` defaults to JSONL and CSV. XML requires an explicit feature; Avro and Parquet require their separate packages or facade features. |
+| `default` | The root now defaults to the v5 core, Direct runner, common transforms, shared I/O, and JSONL. Other formats remain opt-in. Use `legacy-v4` explicitly for the old root API until it is removed. |
 
 Sequential elementwise output is compared in order in the migration tests. Grouped, joined, sampled, and parallel results should be compared as multisets unless the operation documents an order. V5 validates boundedness and backend capabilities before opening sources or sinks. V5 graph, coder, and checkpoint versions are independent; unsupported versions fail explicitly rather than being interpreted as v4 state.
 

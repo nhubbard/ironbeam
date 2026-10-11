@@ -2,7 +2,7 @@
 
 Measured on `codex/ironbeam-v5-runner-core` on 2026-10-10. This is a working
 audit, not a release declaration. The v5 packages remain at `0.1.0`, the root
-facade still defaults to the v4 implementation at `4.1.1`, and publication is
+facade defaults to v5 but is still versioned `4.1.1`, and publication is
 staged locally.
 
 ## Verified in this checkout
@@ -79,15 +79,18 @@ staged locally.
   an explicit `legacy-v4` feature. A package-scoped Dataflow test and a live
   Prism run pass with that feature absent; workspace tests also pass with the
   compatibility example enabling it. The root `ironbeam` package now gates
-  its v4 modules and direct legacy dependencies behind `legacy-v4`, while
-  preserving that feature in its current default. A no-default-feature
-  `v5-preview` build has only core, Direct, transforms, and shared I/O as
+  its v4 modules and direct legacy dependencies behind `legacy-v4`, and now
+  defaults to the v5 facade. The default build has only core, Direct,
+  transforms, shared I/O, and JSONL as
   direct dependencies; it excludes the legacy cloud package. The v4 root
   integration tests are also gated by `legacy-v4`, allowing the complete
-  root test target set to build in v5-only mode. The crate root now shows a
-  v5-only quick start in that build, with a passing doctest; legacy builds
-  retain their existing documentation. The v4 implementation remains
-  in the repository until the replacement gates close.
+  root test target set to build in v5-only mode. The crate root and README
+  now show a v5 quick start, with a passing doctest; legacy builds retain
+  their old documentation. Seventeen v4 examples require `legacy-v4`.
+  Both v4 and v5 benchmark examples produce matching counts and checksums
+  for four workloads at 1,000 rows, though timings are not yet a release
+  performance comparison. The v4 implementation remains in the repository,
+  and the root package version is still 4.1.1, until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
   measures 234/243 source locations and 46/54 active branch outcomes. The
@@ -186,9 +189,9 @@ staged locally.
    workers, and root file sinks use whole-job final-result commit semantics
    that are unsafe across independent Fn API bundles. Remote worker staging,
    a runner-wide output commit protocol, and live provider tests remain.
-4. **Root replacement:** The root package is still v4-first; the v4 modules,
-   feature graph, examples, and compatibility paths remain. Continue format
-   extraction, API migration, and the focused v4 removal gate in
+4. **Root replacement:** The root package now defaults to v5, but the v4 modules,
+   opt-in feature graph, examples, and compatibility paths remain. Continue
+   API migration and the focused v4 removal gate in
    `V5_REPLACEMENT_ROADMAP.md` before setting version `5.0.0`.
    `ironbeam-cloud` still contains legacy traits, fake services, readers,
    and helpers. Its compression and object APIs now reexport separate crates;

@@ -21,7 +21,7 @@ direction without creating a crate for every source file.
 
 | Boundary | Current state | Next change and reason |
 | --- | --- | --- |
-| Public facade | Root `ironbeam` 4.1.1 defaults to v4 and exposes v5 under `v5-preview` | Make root exports and examples v5, then remove the v4 modules and old feature graph after migration gates pass. This removes the largest build and test coupling. |
+| Public facade | Root `ironbeam` 4.1.1 now defaults to v5 and also exposes it under `v5`; v4 modules, tests, and examples are explicitly gated by `legacy-v4` | Migrate or retire the remaining v4 examples and feature flags, then delete the v4 modules after the replacement gates pass. This removes the remaining build and test coupling. |
 | Logical graph and extension API | `ironbeam-core` owns `Pipeline`, `PCollection`, graph, `Element`, errors, typed source/sink registration | Keep these types together while extensions must construct graph nodes. Extract a runner-neutral `ironbeam-model` only if graph descriptors need an independently versioned serialization contract. An API-only crate that repeats these types would add an abstraction without isolating dependencies. |
 | Local runner | `ironbeam-direct` owns planner, execution, metrics, checkpoint, and spill modules | Finish shared-upstream execution, physical scheduling, state, and recovery here. Extract a state/checkpoint backend only when it can be independently selected and tested by more than one runner. |
 | Convenience transforms | `ironbeam-transforms` owns common helpers. Regex lives in `ironbeam-transform-regex`; KMV and HLL approximate distinct helpers live in `ironbeam-transform-approx`. | Keep these opt-in extension dependencies out of common transforms. Preserve one conditional facade prelude for users. |
@@ -32,21 +32,19 @@ direction without creating a crate for every source file.
 | Testing and compatibility | `ironbeam-testing` and `ironbeam-compat` are already leaf crates | Keep package-scoped fixtures and differential tests. Compatibility must remain optional and must never be a dependency of core, Direct, or the root v5 facade. |
 
 CSV's v5 public path is now `ironbeam_io_csv::{csv_source, csv_sink, ...}` or
-`ironbeam::v5::*` with `v5-io-csv`. The root `io-csv` flag still belongs to the
-v4 facade until cutover. `ironbeam-io` keeps the common file lifecycle only;
+the root facade with `v5-io-csv` or its old `io-csv` alias. `ironbeam-io` keeps the common file lifecycle only;
 its CSV codec dependency and implementation moved into `ironbeam-io-csv`.
 Package coverage baselines were measured again after the default shared-I/O
 feature set became file lifecycle plus parallel I/O. Shared-I/O coverage now
 runs its own tests and the format packages that exercise that lifecycle; each
 extracted format has its own source and branch gate. XML's v5 public path is
 `ironbeam_io_xml::*` or `ironbeam::v5::*` with
-`v5-io-xml`. The root `io-xml` flag still belongs to v4 until facade cutover.
+`v5-io-xml` or the `io-xml` alias.
 MessagePack is similarly isolated as `ironbeam-io-msgpack` under the
-`v5-io-msgpack` facade feature; the v4 `io-msgpack` flag remains separate.
-CBOR is isolated as `ironbeam-io-cbor` under `v5-io-cbor`; `io-cbor` remains
-the v4 feature until cutover. JSONL and its object-storage adapters moved to
-`ironbeam-io-jsonl`, which the `v5-preview` facade includes by default. The
-v4 `io-jsonl` flag remains separate.
+`v5-io-msgpack` facade feature and old alias. CBOR is isolated as
+`ironbeam-io-cbor` under `v5-io-cbor` and its old alias. JSONL and its
+object-storage adapters moved to `ironbeam-io-jsonl`, which the root v5
+facade includes by default. Legacy paths still require `legacy-v4`.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
 `RegexExt` when `v5-regex` is enabled. Plain `ironbeam-transforms` builds no
 longer compile the regex engine. The v4 root helpers retain their current
