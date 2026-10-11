@@ -380,7 +380,7 @@ staged locally.
    entries even if their row count is zero. Malformed MessagePack and CBOR
    fragments cannot replace an existing result, and failed serialization
    leaves no accepted fragment. The combined I/O coverage corpus measured
-   shared I/O at 852/880 source locations and 100/104 branches, MessagePack
+   shared I/O at 873/901 source locations and 102/106 branches, MessagePack
    at 112/116 and 8/8, CBOR at 100/104 and 7/8, Protobuf at 172/183 and
    18/20, and TFRecord at 398/422 and 35/38; all pass unchanged gates.
    Avro's gate is rebased to its expanded native fragment module at 367/387
@@ -393,6 +393,12 @@ staged locally.
    The worker now passes a stable bundle attempt ID to each sink before writes;
    the Prism probe uses it for deterministic fragment names and rejects a
    conflicting replay. This prepares durable manifest and publication work.
+   Shared local fragment acceptance can now resume after a process stops
+   between creating the accepted hard link and removing the pending name:
+   a reopened scope verifies both complete files are byte-identical before
+   removing the pending name. Conflicting bytes still fail closed. This fixes
+   the fragment-store crash window, while the worker's in-memory callback
+   registry still needs durable recovery for a restarted worker.
    A transient Prism run also exposed an empty source-rooted bundle; the worker
    now closes its runner outputs without opening the user source for that case,
    with a focused Fn Data regression test and a subsequent live passing run.

@@ -159,13 +159,20 @@ impl LocalFinalResult {
     }
 
     /// Accept one committed attempt after the runner's bundle callback.
+    /// A retry completes an interrupted hard-link-and-unlink only when both
+    /// names still contain the same validated fragment.
     pub fn accept(&self, bundle_id: &str) -> Result<(), Error> {
         let pending = self.path(bundle_id, "pending")?;
         let accepted = self.path(bundle_id, "accepted")?;
         if accepted.exists() {
             self.read_fragment(&accepted, Some(bundle_id))?;
             if pending.exists() {
-                return Err(invalid("accepted fragment conflicts with pending attempt"));
+                self.read_fragment(&pending, Some(bundle_id))?;
+                if !files_equal(&accepted, &pending)? {
+                    return Err(invalid("accepted fragment conflicts with pending attempt"));
+                }
+                fs::remove_file(&pending).map_err(io)?;
+                sync_directory(&self.staging)?;
             }
             return Ok(());
         }
@@ -499,14 +506,36 @@ mod tests {
     }
 
     #[test]
-    fn accepted_and_pending_same_attempt_fail_closed() {
+    fn interrupted_acceptance_resumes_only_matching_attempt() {
         let temp = tempfile::tempdir().unwrap();
-        let store = LocalFinalResult::new(temp.path(), "job", "graph", "sink").unwrap();
+        let store =
+            LocalFinalResult::new(temp.path().join("stage"), "job", "graph", "sink").unwrap();
         store.stage("bundle", 1, b"row").unwrap();
         let pending = store.path("bundle", "pending").unwrap();
         let accepted = store.path("bundle", "accepted").unwrap();
         fs::hard_link(&pending, &accepted).unwrap();
-        assert!(store.accept("bundle").is_err());
+        let reopened = LocalFinalResult::new(&store.staging, "job", "graph", "sink").unwrap();
+        reopened.accept("bundle").unwrap();
+        assert!(!pending.exists());
+        assert_eq!(reopened.accepted_fragments().unwrap().len(), 1);
+        assert_eq!(
+            reopened
+                .publish_concatenated(1, temp.path().join("result.bin"))
+                .unwrap()
+                .rows,
+            1
+        );
+        reopened.accept("bundle").unwrap();
+
+        let other =
+            LocalFinalResult::new(temp.path().join("other"), "job", "graph", "sink").unwrap();
+        other.stage("bundle", 1, b"different").unwrap();
+        let different = other.path("bundle", "pending").unwrap();
+        fs::copy(&different, &pending).unwrap();
+        assert!(reopened.accept("bundle").is_err());
+        assert!(pending.exists());
+        assert!(accepted.exists());
+        fs::remove_file(&pending).unwrap();
         let directory = store.path("directory-bundle", "pending").unwrap();
         fs::create_dir(&directory).unwrap();
         assert!(store.abandon("directory-bundle").is_err());
