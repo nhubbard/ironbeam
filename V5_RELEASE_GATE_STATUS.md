@@ -99,7 +99,9 @@ staged locally.
   implementation remains in the repository. A dedicated single-result
   transform path then reduced the 100,000-row v5 map/filter median from
   24.572 ms to 14.058 ms, preserving filter metrics and flat-map behavior;
-  this is still about 31 times the v4 median of 0.456 ms. The root package
+  streaming the single-worker results within the dedicated pool reduced the
+  median further to 13.332 ms. This is still about 29 times the v4 median
+  of 0.456 ms. The root package
   version is still 4.1.1, until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus

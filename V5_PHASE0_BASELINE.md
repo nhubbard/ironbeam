@@ -61,6 +61,12 @@ The map/filter median improved substantially from 24.572 ms while the other
 cases did not. Against the measured v4 map/filter median of 0.456 ms, the
 remaining gap is still about 31× and remains a release blocker.
 
+Processing the default single-worker route directly inside its job-owned
+thread pool avoids another intermediate result batch. Five more release runs
+measured medians (ms) of map/filter 13.332, GroupByKey 20.640, inner join
+40.000, and JSONL 19.102. Map/filter improved modestly and remains about
+29× the v4 median. The dedicated-pool and full workspace tests pass.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
