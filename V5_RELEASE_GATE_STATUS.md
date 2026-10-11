@@ -446,6 +446,18 @@ staged locally.
    record batch, empty output, corrupt frames, uncoded types, wrong counts,
    and idempotent publication. Its isolated all-feature coverage is 310/338
    source locations and 23/24 branches, above the existing package gate.
+   Arrow IPC row output now uses the same accepted-bundle lifecycle and
+   publishes one native file in batches of at most 1,024 decoded rows. Local
+   tests cover multiple bundles, batch rollover, empty output, corrupt frames,
+   uncoded types, wrong counts, and idempotent publication. A separate local
+   Prism fixture reads native Arrow input, crosses Reshuffle, publishes after
+   `DONE`, and reopens all three rows. That fixture also has an ordinary capture
+   terminal: when the finalized sink was the only terminal, Prism reported
+   `DONE` with zero Impulse elements and no committed sink count. Final-only
+   portable job execution remains a release gate until that graph shape runs.
+   Arrow's isolated all-feature coverage is 409/452 source locations and
+   26/30 branches, above the existing package gate; its strict lint and
+   offline package verification pass.
    Publication also rejects pending or orphaned staging
    entries even if their row count is zero. Malformed MessagePack and CBOR
    fragments cannot replace an existing result, and failed serialization

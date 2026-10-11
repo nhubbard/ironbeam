@@ -3,8 +3,10 @@
 use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SourceProgress, TypedSourceIterator,
 };
+use ironbeam_io::final_result::{AcceptedFragment, LocalFinalResult, PublishedResult};
 #[cfg(feature = "parallel-io")]
 use ironbeam_io::parallel_container_writer;
+use ironbeam_io::sequence_final::{sequence_fragment_sink, sequence_fragment_store};
 use ironbeam_io::{
     count_lazy_records, file_glob_source, file_hash, file_sharded_source, io, lazy_source,
     read_lazy_range, sink, source,
@@ -12,6 +14,7 @@ use ironbeam_io::{
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
     fs,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -204,6 +207,173 @@ pub fn arrow_ipc_sink<T: Element + Serialize + DeserializeOwned>(
     path: impl AsRef<Path>,
 ) -> Result<Sink<T>, Error> {
     sink(input, key, path, write_arrow_ipc::<T>)
+}
+
+fn row_fragment_format<T: Element>() -> String {
+    let type_id = T::type_identity();
+    let coder = T::coder_identity();
+    format!(
+        "arrow-ipc-coded-rows-v1:{}:{type_id}:{}:{coder}:{}:{}",
+        type_id.len(),
+        coder.len(),
+        T::CODER_VERSION.major,
+        T::CODER_VERSION.minor
+    )
+}
+
+/// Reopen a graph and coder-bound staging scope for finalized Arrow IPC rows.
+pub struct ArrowIpcRowFragmentStore<T: Element> {
+    local: LocalFinalResult,
+    marker: std::marker::PhantomData<T>,
+}
+
+impl<T: Element> ArrowIpcRowFragmentStore<T> {
+    pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
+        self.local.accepted_fragments()
+    }
+}
+
+pub fn arrow_ipc_row_fragment_store<T: Element>(
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+    key: &str,
+) -> Result<ArrowIpcRowFragmentStore<T>, Error> {
+    if !T::supports_coder() {
+        return Err(Error::unsupported(
+            key,
+            "arrow-ipc-fragment",
+            "element-coder",
+        ));
+    }
+    Ok(ArrowIpcRowFragmentStore {
+        local: sequence_fragment_store(staging, job, graph, key, &row_fragment_format::<T>())?,
+        marker: std::marker::PhantomData,
+    })
+}
+
+fn encode_fragment_row<T: Element>(value: &T, output: &mut dyn Write) -> Result<(), Error> {
+    let bytes = value.encode()?;
+    let length = u64::try_from(bytes.len())
+        .map_err(|_| Error::resource("arrow-ipc-fragment", "encoded row length overflow"))?;
+    output
+        .write_all(&length.to_le_bytes())
+        .and_then(|()| output.write_all(&bytes))
+        .map_err(|error| io("arrow-ipc-fragment", error))
+}
+
+/// Stage coded rows per bundle for native Arrow IPC publication after `DONE`.
+pub fn arrow_ipc_row_fragment_sink<T: Element + Serialize + DeserializeOwned>(
+    input: &PCollection<T>,
+    key: &str,
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+) -> Result<Sink<T>, Error> {
+    if !T::supports_coder() {
+        return Err(Error::unsupported(
+            key,
+            "arrow-ipc-fragment",
+            "element-coder",
+        ));
+    }
+    sequence_fragment_sink(
+        input,
+        key,
+        staging,
+        job,
+        graph,
+        &row_fragment_format::<T>(),
+        encode_fragment_row::<T>,
+    )
+}
+
+/// Validate coded rows and atomically publish one native Arrow IPC file.
+pub fn publish_arrow_ipc_row_fragments<T: Element + Serialize + DeserializeOwned>(
+    store: &ArrowIpcRowFragmentStore<T>,
+    expected_rows: u64,
+    target: impl AsRef<Path>,
+) -> Result<PublishedResult, Error> {
+    use arrow::datatypes::{FieldRef, Schema};
+    use arrow::ipc::writer::FileWriter;
+    use serde_arrow::schema::{SchemaLike, TracingOptions};
+
+    let fields = Vec::<FieldRef>::from_type::<T>(TracingOptions::default())
+        .map_err(|error| io("arrow-ipc-fragment", error))?;
+    let schema = std::sync::Arc::new(Schema::new(fields.clone()));
+    store
+        .local
+        .publish_merged(expected_rows, target, |parts, _, output| {
+            let mut writer = FileWriter::try_new(output, &schema)
+                .map_err(|error| io("arrow-ipc-fragment", error))?;
+            let mut batch_rows = Vec::<T>::with_capacity(1_024);
+            let mut rows = 0_u64;
+            for part in parts {
+                let mut payload = part.open_payload()?;
+                let mut remaining = part.payload_len;
+                let mut part_rows = 0_u64;
+                while remaining > 0 {
+                    if remaining < 8 {
+                        return Err(Error::incompatible(
+                            "truncated Arrow IPC row fragment frame",
+                        ));
+                    }
+                    let mut prefix = [0_u8; 8];
+                    payload
+                        .read_exact(&mut prefix)
+                        .map_err(|error| io("arrow-ipc-fragment", error))?;
+                    remaining -= 8;
+                    let length = u64::from_le_bytes(prefix);
+                    if length > remaining {
+                        return Err(Error::incompatible(
+                            "Arrow IPC row fragment exceeds payload",
+                        ));
+                    }
+                    let length = usize::try_from(length)
+                        .map_err(|_| Error::resource("arrow-ipc-fragment", "row exceeds usize"))?;
+                    let mut bytes = Vec::new();
+                    bytes.try_reserve_exact(length).map_err(|error| {
+                        Error::resource("arrow-ipc-fragment", error.to_string())
+                    })?;
+                    bytes.resize(length, 0);
+                    payload
+                        .read_exact(&mut bytes)
+                        .map_err(|error| io("arrow-ipc-fragment", error))?;
+                    remaining -= length as u64;
+                    batch_rows.push(T::decode(&bytes)?);
+                    part_rows = part_rows.checked_add(1).ok_or_else(|| {
+                        Error::incompatible("Arrow IPC fragment row count overflow")
+                    })?;
+                    if batch_rows.len() == 1_024 {
+                        let batch = serde_arrow::to_record_batch(&fields, &batch_rows)
+                            .map_err(|error| io("arrow-ipc-fragment", error))?;
+                        writer
+                            .write(&batch)
+                            .map_err(|error| io("arrow-ipc-fragment", error))?;
+                        batch_rows.clear();
+                    }
+                }
+                if part_rows != part.rows {
+                    return Err(Error::incompatible(
+                        "Arrow IPC fragment decoded row count disagrees",
+                    ));
+                }
+                rows = rows
+                    .checked_add(part_rows)
+                    .ok_or_else(|| Error::incompatible("Arrow IPC result row count overflow"))?;
+            }
+            if !batch_rows.is_empty() {
+                let batch = serde_arrow::to_record_batch(&fields, &batch_rows)
+                    .map_err(|error| io("arrow-ipc-fragment", error))?;
+                writer
+                    .write(&batch)
+                    .map_err(|error| io("arrow-ipc-fragment", error))?;
+            }
+            writer
+                .finish()
+                .map_err(|error| io("arrow-ipc-fragment", error))?;
+            Ok(rows)
+        })
 }
 
 #[cfg(feature = "parallel-io")]
@@ -444,4 +614,210 @@ pub fn arrow_ipc_batches_sharded_source(
         count_arrow_batches,
         read_arrow_batches_range,
     )
+}
+
+#[cfg(test)]
+mod row_fragment_tests {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Row {
+        id: i32,
+        label: String,
+    }
+    impl Element for Row {
+        const TYPE_ID: &'static str = "tests/arrow-fragment-row";
+        const CODER_ID: &'static str = "tests/arrow-fragment-json";
+        fn supports_coder() -> bool {
+            true
+        }
+        fn encode(&self) -> Result<Vec<u8>, Error> {
+            serde_json::to_vec(self).map_err(|error| Error::incompatible(error.to_string()))
+        }
+        fn decode(bytes: &[u8]) -> Result<Self, Error> {
+            serde_json::from_slice(bytes).map_err(|error| Error::incompatible(error.to_string()))
+        }
+    }
+
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    struct Uncoded(i32);
+    impl Element for Uncoded {
+        const TYPE_ID: &'static str = "tests/arrow-fragment-uncoded";
+        const CODER_ID: &'static str = "tests/arrow-fragment-uncoded";
+    }
+
+    #[test]
+    fn merges_bundles_into_native_arrow_file_and_reopens_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            arrow_ipc_row_fragment_store::<Row>(dir.path().join("stage"), "job", "graph", "sink")
+                .unwrap();
+        let target = dir.path().join("rows.arrow");
+        for (bundle, row) in [
+            (
+                "a",
+                Row {
+                    id: 1,
+                    label: "Ada".into(),
+                },
+            ),
+            (
+                "b",
+                Row {
+                    id: 2,
+                    label: "Lin".into(),
+                },
+            ),
+        ] {
+            let mut frame = Vec::new();
+            encode_fragment_row(&row, &mut frame).unwrap();
+            store.local.stage(bundle, 1, &frame).unwrap();
+            store.local.accept(bundle).unwrap();
+        }
+        assert_eq!(store.accepted_fragments().unwrap().len(), 2);
+        let result = publish_arrow_ipc_row_fragments(&store, 2, &target).unwrap();
+        assert_eq!(result.rows, 2);
+        assert_eq!(result.fragments, 2);
+        assert_eq!(
+            publish_arrow_ipc_row_fragments(&store, 2, &target).unwrap(),
+            result
+        );
+        let mut actual = read_arrow_ipc::<Row>(&fs::read(&target).unwrap()).unwrap();
+        actual.sort_by_key(|row| row.id);
+        assert_eq!(
+            actual,
+            [
+                Row {
+                    id: 1,
+                    label: "Ada".into()
+                },
+                Row {
+                    id: 2,
+                    label: "Lin".into()
+                },
+            ]
+        );
+        assert!(publish_arrow_ipc_row_fragments(&store, 3, &target).is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_rows_and_wrong_counts_without_publication() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("bad.arrow");
+        let store =
+            arrow_ipc_row_fragment_store::<Row>(dir.path().join("bad"), "job", "graph", "sink")
+                .unwrap();
+        store.local.stage("short", 1, b"abc").unwrap();
+        store.local.accept("short").unwrap();
+        assert!(publish_arrow_ipc_row_fragments(&store, 1, &target).is_err());
+        assert!(!target.exists());
+        let store =
+            arrow_ipc_row_fragment_store::<Row>(dir.path().join("wrong"), "job", "graph", "sink")
+                .unwrap();
+        let mut frame = Vec::new();
+        encode_fragment_row(
+            &Row {
+                id: 1,
+                label: "Ada".into(),
+            },
+            &mut frame,
+        )
+        .unwrap();
+        store.local.stage("wrong", 2, &frame).unwrap();
+        store.local.accept("wrong").unwrap();
+        assert!(publish_arrow_ipc_row_fragments(&store, 2, &target).is_err());
+        assert!(!target.exists());
+        let store =
+            arrow_ipc_row_fragment_store::<Row>(dir.path().join("length"), "job", "graph", "sink")
+                .unwrap();
+        store
+            .local
+            .stage("length", 1, &100_u64.to_le_bytes())
+            .unwrap();
+        store.local.accept("length").unwrap();
+        assert!(publish_arrow_ipc_row_fragments(&store, 1, &target).is_err());
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn writes_multiple_batches_and_empty_file_and_rejects_uncoded_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let store =
+            arrow_ipc_row_fragment_store::<Row>(dir.path().join("many"), "job", "graph", "sink")
+                .unwrap();
+        let mut frames = Vec::new();
+        for id in 0..1_030 {
+            encode_fragment_row(
+                &Row {
+                    id,
+                    label: format!("row-{id}"),
+                },
+                &mut frames,
+            )
+            .unwrap();
+        }
+        store.local.stage("many", 1_030, &frames).unwrap();
+        store.local.accept("many").unwrap();
+        let target = dir.path().join("many.arrow");
+        assert_eq!(
+            publish_arrow_ipc_row_fragments(&store, 1_030, &target)
+                .unwrap()
+                .rows,
+            1_030
+        );
+        assert_eq!(
+            read_arrow_ipc::<Row>(&fs::read(&target).unwrap())
+                .unwrap()
+                .len(),
+            1_030
+        );
+        let empty =
+            arrow_ipc_row_fragment_store::<Row>(dir.path().join("empty"), "job", "graph", "sink")
+                .unwrap();
+        let empty_target = dir.path().join("empty.arrow");
+        assert_eq!(
+            publish_arrow_ipc_row_fragments(&empty, 0, &empty_target)
+                .unwrap()
+                .rows,
+            0
+        );
+        assert!(
+            read_arrow_ipc::<Row>(&fs::read(empty_target).unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        let pipeline = Pipeline::default();
+        let coded = pipeline
+            .from_vec(
+                "coded",
+                vec![Row {
+                    id: 1,
+                    label: "ok".into(),
+                }],
+            )
+            .unwrap();
+        arrow_ipc_row_fragment_sink(
+            &coded,
+            "coded-sink",
+            dir.path().join("stage"),
+            "job",
+            "graph",
+        )
+        .unwrap();
+        assert!(arrow_ipc_row_fragment_store::<Row>("relative", "job", "graph", "sink").is_err());
+        let input = pipeline.from_vec("uncoded", vec![Uncoded(1)]).unwrap();
+        assert!(
+            arrow_ipc_row_fragment_sink(&input, "sink", dir.path().join("stage"), "job", "graph",)
+                .is_err()
+        );
+        assert!(
+            arrow_ipc_row_fragment_store::<Uncoded>(
+                dir.path().join("stage"),
+                "job",
+                "graph",
+                "sink",
+            )
+            .is_err()
+        );
+    }
 }
