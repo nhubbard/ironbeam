@@ -8,5 +8,7 @@ The `v4_baseline`, `differential`, and TFRecord wire tests use published Ironbea
 as their reference. They live in this leaf crate so the root package can
 eventually remove its checked-in v4 implementation without losing parity
 evidence.
+The `v4_benchmark_corpus` example measures published v4 with the same workload
+names as the root v5 benchmark example.
 
 See [the migration guide](https://github.com/nhubbard/ironbeam/blob/main/V4_TO_V5_MIGRATION.md) for call-site examples and feature mapping.

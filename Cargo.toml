@@ -164,10 +164,6 @@ unused_imports = "allow"
 large_futures = "allow"
 
 [[example]]
-name = "v4_benchmark_corpus"
-required-features = ["legacy-v4"]
-
-[[example]]
 name = "v5_benchmark_corpus"
 required-features = ["v5-preview"]
 

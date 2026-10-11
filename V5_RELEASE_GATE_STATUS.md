@@ -16,6 +16,9 @@ staged locally.
   for the eventual root v4 deletion without changing the v5 runtime graph.
   The TFRecord wire-compatibility tests also moved to `ironbeam-compat` and
   pass against records written by published v4.
+  The v4 benchmark driver now lives there as well. All seven 1,000-row
+  workload outputs match the v5 driver in row count and checksum against
+  published v4; these single debug runs do not close the latency gate.
 - Mergeable global `CombineFn` folds now lower through a constant-key Beam
   GroupByKey into the typed v5 worker. A bounded global-window fold merges an
   Impulse seed with real inputs so empty input produces the combiner identity;

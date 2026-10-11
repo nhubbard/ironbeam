@@ -1,6 +1,6 @@
-//! Run with `cargo run --release --features legacy-v4 --example v4_benchmark_corpus -- 100000`.
+//! Run with `cargo run -p ironbeam-compat --release --example v4_benchmark_corpus -- 100000`.
 //! Emits CSV timings. Measure peak RSS externally with `/usr/bin/time -l` on macOS.
-use ironbeam::{Pipeline, from_vec};
+use ironbeam_v4::{Pipeline, from_vec};
 use std::time::Instant;
 
 fn main() {
@@ -22,12 +22,6 @@ fn main() {
             | "jsonl_roundtrip"
     )));
     let selected = |name: &str| case.as_deref().is_none_or(|chosen| chosen == name);
-    #[cfg(not(feature = "io-jsonl"))]
-    assert_ne!(
-        case.as_deref(),
-        Some("jsonl_roundtrip"),
-        "enable io-jsonl for that case"
-    );
     println!("case,rows,elapsed_ns,output_rows,checksum");
 
     if selected("source_copy") {
@@ -79,7 +73,7 @@ fn main() {
         let latest = from_vec(
             &p,
             (0..count)
-                .map(|n| (n % 100, ironbeam::window::Timestamped::new(u64::from(n), n)))
+                .map(|n| (n % 100, ironbeam_v4::window::Timestamped::new(u64::from(n), n)))
                 .collect(),
         )
         .latest_per_key()
@@ -130,7 +124,6 @@ fn main() {
         );
     }
 
-    #[cfg(feature = "io-jsonl")]
     if selected("jsonl_roundtrip") {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("rows.jsonl");
@@ -140,7 +133,7 @@ fn main() {
             .write_jsonl(&path)
             .unwrap();
         let p = Pipeline::default();
-        let read = ironbeam::read_jsonl::<u32>(&p, &path)
+        let read = ironbeam_v4::read_jsonl::<u32>(&p, &path)
             .unwrap()
             .collect_seq()
             .unwrap();
