@@ -14,6 +14,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let p = Pipeline::default();
     let start = Instant::now();
+    let copied = p.from_vec("copy-input", (0..count).collect())?
+        .output("copy-result")?
+        .collect_seq()?;
+    println!("source_copy,{count},{},{},{}", start.elapsed().as_nanos(),
+        copied.len(), copied.iter().map(|&n| u64::from(n)).sum::<u64>());
+
+    let p = Pipeline::default();
+    let start = Instant::now();
     let input = p.from_vec("map-input", (0..count).collect())?;
     let source_ready = Instant::now();
     let output = input

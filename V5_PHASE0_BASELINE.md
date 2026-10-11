@@ -90,6 +90,20 @@ corpus runs measured medians (ms) of map/filter 4.786, GroupByKey 11.286,
 inner join 32.388, and JSONL 15.093. The map/filter gap against the earlier
 v4 median of 0.456 ms remains roughly 10.5×.
 
+The paired corpus now includes `source_copy`: construct 100,000 integers and
+collect them without a transform. Four warmed release runs in the same build
+had v4 source-copy times of 0.054–0.064 ms and v5 times of 2.48–2.62 ms.
+The matching map/filter times were 0.115–0.131 ms for v4 and 4.03–4.13 ms
+for v5. Counts and checksums matched at both 1,000 and 100,000 rows. These
+local samples show that source construction and collection account for much
+of the gap before map/filter dispatch. The v5 vector source computes a
+reproducible content digest and clones elements for repeatable reads, whereas
+the v4 source has different ownership behavior; the test compares user-visible
+workloads, not identical internal contracts. Batch-level output counter
+updates also reduced the earlier five-run v5 map/filter median from 5.07 to
+4.79 ms before `source_copy` was inserted; those measurements used a different
+warmup sequence and should not be mixed with the paired times above.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

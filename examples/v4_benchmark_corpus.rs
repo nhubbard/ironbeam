@@ -14,6 +14,16 @@ fn main() {
 
     let p = Pipeline::default();
     let start = Instant::now();
+    let copied = from_vec(&p, (0..count).collect()).collect_seq().unwrap();
+    println!(
+        "source_copy,{count},{},{},{}",
+        start.elapsed().as_nanos(),
+        copied.len(),
+        copied.iter().map(|&n| u64::from(n)).sum::<u64>()
+    );
+
+    let p = Pipeline::default();
+    let start = Instant::now();
     let mapped = from_vec(&p, (0..count).collect())
         .map(|n| n.wrapping_mul(3))
         .filter(|n| n % 2 == 0)
