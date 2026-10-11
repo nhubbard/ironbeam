@@ -170,7 +170,7 @@ required-features = ["v5-preview"]
 
 [[example]]
 name = "advanced_joins"
-required-features = ["legacy-v4"]
+required-features = ["v5-preview"]
 
 [[example]]
 name = "checkpoint_recovery_demo"
