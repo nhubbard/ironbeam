@@ -360,6 +360,61 @@ fn stream_pair_rejects_duplicate_foreign_and_spilled_sinks_before_source_open() 
 }
 
 #[test]
+fn stream_pair_rejects_non_idempotent_or_uncommitted_sink_before_source_open() {
+    let pipeline = Pipeline::default();
+    let opens = Arc::new(AtomicUsize::new(0));
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "source-config".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |_| {
+                    opens.fetch_add(1, Ordering::SeqCst);
+                    Ok(Box::new(Script {
+                        polls: VecDeque::new(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                }
+            },
+        )
+        .unwrap();
+    let make_sink = |key, replay, commit| {
+        source
+            .sink_named_with_config(
+                key,
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay,
+                    commit,
+                },
+                format!("{key}-config"),
+                || Ok(Box::new(FaultWriter(Fault::SinkWrite))),
+            )
+            .unwrap()
+    };
+    let good = make_sink("good", Replay::Idempotent, true);
+    let not_idempotent = make_sink("not-idempotent", Replay::AtLeastOnce, true);
+    let not_committed = make_sink("not-committed", Replay::Idempotent, false);
+    for other in [&not_idempotent, &not_committed] {
+        assert!(matches!(
+            DirectRunner
+                .start_stream_sink_pair(&good, other, &JobConfig::default())
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::UnsupportedCapability { .. }
+        ));
+    }
+    assert_eq!(opens.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn stream_pair_rejects_repeated_data_cursor_before_second_commit() {
     let pipeline = Pipeline::default();
     let source = pipeline

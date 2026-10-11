@@ -675,6 +675,18 @@ fn latest_per_key_uses_typed_timestamp_batches_and_attributes_failures() {
     assert_eq!(rows, vec![(5_000_000, (1, 5)), (4_000_000, (2, 4))]);
     assert_eq!(job.metrics().source_elements, 5);
     assert_eq!(job.metrics().batches, 3);
+    let resource_error = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                memory_budget_bytes: 1,
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(resource_error.kind, ErrorKind::Resource);
+    assert_eq!(resource_error.node.as_deref(), Some("source"));
 
     let failing = Pipeline::default();
     let output = failing

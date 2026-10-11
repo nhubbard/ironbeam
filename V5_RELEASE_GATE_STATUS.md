@@ -388,11 +388,12 @@ staged locally.
    cancellation before output publication. The current coverage corpus passes
    the core gates at 2,857/2,972 source locations (96.13%) and 435/492
    branches (88.41%), and passes the transforms gates. Direct source coverage
-   passes at 3,238/3,503 (92.44%), but its branch coverage is 685/794
-   (86.27%), below the unchanged 90% CI floor. Added tests cover malformed
+   passes at 3,240/3,503 (92.49%), but its branch coverage is 688/794
+   (86.65%), below the unchanged 90% CI floor. Added tests cover malformed
    latest registry input, fold checkpoint corruption, duplicate stream sinks,
-   repeated stream cursors, and combined branch buffer limits. The Direct
-   branch coverage gate remains open.
+   repeated stream cursors, non-idempotent or uncommitted stream sinks, source
+   and combined branch buffer limits. The Direct branch coverage gate remains
+   open.
    `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
    typed tagged-value coder contracts for their inputs. Tests cover
    heterogeneous values, empty groups, and invalid tags. The translator now
