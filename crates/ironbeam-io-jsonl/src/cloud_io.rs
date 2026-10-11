@@ -4,7 +4,6 @@ use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, SourceProgress,
     TypedSink, TypedSourceIterator,
 };
-use regex::Regex;
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::io::BufRead;
@@ -45,27 +44,43 @@ fn write_cloud_jsonl_vec<T: Serialize, O: ObjectIO + ?Sized>(
     Ok(values.len())
 }
 
-fn glob_to_regex(pattern: &str) -> String {
-    let mut regex = String::from("^");
+fn glob_matches(pattern: &str, key: &str) -> bool {
+    // Preserve the v4 glob alphabet: * stays within a path component, while
+    // ** crosses separators. A question mark consumes one non-newline scalar.
+    let key = key.chars().collect::<Vec<_>>();
+    let mut current = vec![false; key.len() + 1];
+    current[0] = true;
     let mut chars = pattern.chars().peekable();
     while let Some(ch) = chars.next() {
+        let mut next = vec![false; key.len() + 1];
         match ch {
             '*' if chars.peek() == Some(&'*') => {
                 chars.next();
-                regex.push_str(".*");
+                next[0] = current[0];
+                for index in 1..=key.len() {
+                    next[index] = current[index] || (key[index - 1] != '\n' && next[index - 1]);
+                }
             }
-            '*' => regex.push_str("[^/]*"),
-            '?' => regex.push('.'),
-            '.' => regex.push_str(r"\."),
-            '+' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' | '\\' => {
-                regex.push('\\');
-                regex.push(ch);
+            '*' => {
+                next[0] = current[0];
+                for index in 1..=key.len() {
+                    next[index] = current[index] || (key[index - 1] != '/' && next[index - 1]);
+                }
             }
-            _ => regex.push(ch),
+            '?' => {
+                for index in 1..=key.len() {
+                    next[index] = current[index - 1] && key[index - 1] != '\n';
+                }
+            }
+            literal => {
+                for index in 1..=key.len() {
+                    next[index] = current[index - 1] && key[index - 1] == literal;
+                }
+            }
         }
+        current = next;
     }
-    regex.push('$');
-    regex
+    current[key.len()]
 }
 
 fn expand_cloud_glob_required<O: ObjectIO + ?Sized>(
@@ -73,8 +88,6 @@ fn expand_cloud_glob_required<O: ObjectIO + ?Sized>(
     bucket: &str,
     pattern: &str,
 ) -> CloudResult<Vec<String>> {
-    let regex = Regex::new(&glob_to_regex(pattern))
-        .map_err(|error| CloudIOError::new(CloudErrorKind::InvalidInput, error.to_string()))?;
     let prefix = pattern.find(['*', '?']).map_or_else(
         || Some(pattern),
         |position| (position > 0).then(|| &pattern[..position]),
@@ -82,7 +95,7 @@ fn expand_cloud_glob_required<O: ObjectIO + ?Sized>(
     let mut keys = storage
         .list_objects(bucket, prefix)?
         .into_iter()
-        .filter_map(|object| regex.is_match(&object.key).then_some(object.key))
+        .filter_map(|object| glob_matches(pattern, &object.key).then_some(object.key))
         .collect::<Vec<_>>();
     keys.sort();
     if keys.is_empty() {
@@ -249,4 +262,32 @@ where
             }))
         },
     )
+}
+
+#[cfg(test)]
+mod glob_tests {
+    use super::glob_matches;
+
+    #[test]
+    fn wildcard_rules_match_the_existing_cloud_glob_alphabet() {
+        let cases = [
+            ("data/*.jsonl", "data/a.jsonl", true),
+            ("data/*.jsonl", "data/nested/a.jsonl", false),
+            ("data/**/*.jsonl", "data/nested/a.jsonl", true),
+            ("data/**/*.jsonl", "data/a.jsonl", false),
+            ("data/?.jsonl", "data/é.jsonl", true),
+            ("data/?.jsonl", "data/ab.jsonl", false),
+            ("data/a[1]+(x).jsonl", "data/a[1]+(x).jsonl", true),
+            ("data/a[1]+(x).jsonl", "data/a11x.jsonl", false),
+            ("***", "a/b", true),
+            ("**", "a\nb", false),
+            ("?", "\n", false),
+            ("*", "\n", true),
+            ("", "", true),
+            ("", "a", false),
+        ];
+        for (pattern, key, expected) in cases {
+            assert_eq!(glob_matches(pattern, key), expected, "{pattern:?} {key:?}");
+        }
+    }
 }

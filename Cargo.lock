@@ -2398,7 +2398,6 @@ dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
- "regex",
  "serde",
  "serde_json",
  "sha2 0.11.0",

@@ -20,7 +20,7 @@ staged locally.
   or immediately before commit. The typed source-only route now appends bounded
   output batches in one budget check when spill is disabled; exact-budget,
   spill, and panic-attribution tests pass.
-- `bash scripts/check_v5_packages.sh` passed after the checkpoint schema fix:
+- `bash scripts/check_v5_packages.sh` passed after the JSONL glob dependency cleanup:
   workspace tests, selected feature variants, all-feature
   documentation, and local package verification for all twenty-five v5 crates.
   No package was published.
@@ -55,10 +55,14 @@ staged locally.
   measure 60/63 source locations and 5/6 branches. The full package gate
   passes. Shared I/O's default tree has no `ciborium` dependency.
 - `ironbeam-io-jsonl` owns file and object adapters. Its all-feature tests
-  now measure 261/279 source locations and 20/22 active branch outcomes,
+  now measure 285/302 source locations and 32/34 active branch outcomes,
   including append failure cleanup, four compressed object formats, and
   cloud glob behavior; both exceed its existing CI coverage ratios. Its
   all-feature dependency tree has no legacy `ironbeam-cloud` dependency.
+  Cloud globs now use a focused wildcard matcher that preserves the existing
+  `*`, `**`, `?`, literal, Unicode, and newline rules without pulling the
+  regex engine into default v5 root tests. The package gate checks that both
+  regex and Testcontainers stay out of the v5-only root dependency tree.
   Protobuf is now in
   `ironbeam-io-protobuf` with 93/100 source locations and 16/18 branches
   measured under all features. TFRecord now has its own crate with 164/179
