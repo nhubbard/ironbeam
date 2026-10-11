@@ -385,7 +385,10 @@ pub(crate) fn eval(
                 &stages,
                 config,
                 metrics,
-                key,
+                FoldFeedPolicy {
+                    key,
+                    enforce_source_budget: matches!(node.operation, Operation::GroupByKey),
+                },
                 fold.as_mut(),
             )?;
         } else {
@@ -548,7 +551,10 @@ pub(crate) fn try_drain_fold_sink(
         &stages,
         config,
         metrics,
-        fold_key,
+        FoldFeedPolicy {
+            key: fold_key,
+            enforce_source_budget: matches!(fold_node.operation, Operation::GroupByKey),
+        },
         fold.as_mut(),
     )?;
     catch_unwind(AssertUnwindSafe(|| {
@@ -694,6 +700,11 @@ fn linear_fold_route(graph: &Graph, from: &str) -> Option<(String, Vec<String>)>
     }
 }
 
+struct FoldFeedPolicy<'a> {
+    key: &'a str,
+    enforce_source_budget: bool,
+}
+
 #[allow(clippy::too_many_lines)] // One traversal preserves source and transform error attribution.
 fn feed_linear_fold(
     registry: &Registry,
@@ -701,11 +712,11 @@ fn feed_linear_fold(
     stages: &[String],
     config: &JobConfig,
     metrics: &MetricsState,
-    fold_key: &str,
+    policy: FoldFeedPolicy<'_>,
     fold: &mut dyn FoldSession,
 ) -> Result<(), Error> {
     let mut source_count = 0_usize;
-    let enforce_source_budget = registry.has_group_coder(fold_key);
+    let FoldFeedPolicy { key: fold_key, enforce_source_budget } = policy;
     if let [timestamp_key, reify_key] = stages
         && registry.is_keyed_timestamp_reification(reify_key)
         && let Some(timestamp_fn) = registry.typed_timestamp_transform(timestamp_key)

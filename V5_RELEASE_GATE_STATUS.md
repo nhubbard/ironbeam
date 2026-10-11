@@ -7,6 +7,22 @@ staged locally.
 
 ## Verified in this checkout
 
+- Keyed mergeable `CombineFn` folds now lower through native Beam GroupByKey
+  into the v5 worker. A fold-specific tag branch keeps the parent collection's
+  coder intact when an ordinary GroupByKey also consumes it. Core registers typed key/value split coders with the
+  fold node; the worker shuffles each value with its event timestamp and
+  applies the registered fold once per grouped key. A production unbounded,
+  fixed-window Prism job reaches `DONE` with sums for two keys/windows,
+  expected fold event times and intervals, and two committed sink inputs. The
+  same parent feeds an ordinary GroupByKey branch in that job; it reaches
+  `DONE` with the same sums and window intervals. The runner may choose either
+  input event time for the grouped output in the second window. The
+  full four-test live Prism corpus, all-feature Dataflow workspace suite,
+  focused malformed-boundary/contract tests, and strict package lint pass.
+  Direct initially mistook the new group coder for a GroupByKey node and
+  applied its materialized-source budget to streaming folds; the Direct
+  planner now checks the graph operation, and its full all-feature suite
+  passes. Portable global combines and ordered folds remain open.
 - Sequential typed vector map/filter collection now runs inline when the job
   requests one worker, avoiding a thread-pool setup for each short job. The
   Direct all-feature suite and ordinary `-D warnings` lint pass. In local

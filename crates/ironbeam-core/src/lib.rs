@@ -2802,7 +2802,12 @@ impl Pipeline {
         drop(inner);
         Ok(())
     }
-    fn add_fold<T: Element>(&self, mut node: Node, factory: FoldFactory) -> Result<(), Error> {
+    fn add_fold<T: Element>(
+        &self,
+        mut node: Node,
+        factory: FoldFactory,
+        group_coder: Option<GroupCoderRegistration>,
+    ) -> Result<(), Error> {
         let mut inner = self
             .inner
             .lock()
@@ -2827,6 +2832,9 @@ impl Pipeline {
                 .insert(node.key.clone(), CoderRegistration::for_element::<T>());
         }
         inner.registry.folds.insert(node.key.clone(), factory);
+        if let Some(group_coder) = group_coder {
+            inner.registry.group_coders.insert(node.key.clone(), group_coder);
+        }
         inner.graph.nodes.push(node);
         drop(inner);
         Ok(())
@@ -3298,6 +3306,7 @@ impl<T: Element> PCollection<T> {
         key: &str,
         operation: Operation,
         factory: FoldFactory,
+        group_coder: Option<GroupCoderRegistration>,
     ) -> Result<PCollection<U>, Error> {
         let parent = self.parent()?;
         let (semantic_id, semantic_version) = Pipeline::semantic_identity(&operation);
@@ -3320,7 +3329,7 @@ impl<T: Element> PCollection<T> {
             time: parent.time,
             local_id: 0,
         };
-        self.pipeline.add_fold::<U>(node, factory)?;
+        self.pipeline.add_fold::<U>(node, factory, group_coder)?;
         Ok(PCollection {
             pipeline: self.pipeline.clone(),
             key: key.into(),
@@ -3868,7 +3877,7 @@ impl<T: Element> PCollection<T> {
                 marker: PhantomData,
             })
         });
-        self.next_fold(key, Operation::FoldGlobal, factory)
+        self.next_fold(key, Operation::FoldGlobal, factory, None)
     }
     pub fn fold_globally_ordered_named<C, A, O>(
         &self,
@@ -3899,7 +3908,7 @@ impl<T: Element> PCollection<T> {
                 marker: PhantomData,
             })
         });
-        self.next_fold(key, Operation::FoldOrderedGlobal, factory)
+        self.next_fold(key, Operation::FoldOrderedGlobal, factory, None)
     }
     pub fn latest_globally_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
@@ -4761,7 +4770,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 marker: PhantomData,
             })
         });
-        self.next_fold(key, Operation::FoldPerKey, factory)
+        self.next_fold(
+            key,
+            Operation::FoldPerKey,
+            factory,
+            Some(GroupCoderRegistration::for_elements::<K, V>()),
+        )
     }
     pub fn fold_values_ordered_named<C, A, O>(
         &self,
@@ -4791,7 +4805,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 marker: PhantomData,
             })
         });
-        self.next_fold(key, Operation::FoldOrderedPerKey, factory)
+        self.next_fold(key, Operation::FoldOrderedPerKey, factory, None)
     }
     pub fn map_values_batches_named<O: Element>(
         &self,
