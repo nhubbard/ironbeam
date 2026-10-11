@@ -1,8 +1,8 @@
-#![cfg(feature = "io-csv")]
+#![cfg(feature = "v4-csv")]
 
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::{from_vec, read_csv, read_csv_streaming, read_csv_vec, write_csv_vec};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{from_vec, read_csv, read_csv_streaming, read_csv_vec, write_csv_vec};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -80,7 +80,7 @@ fn read_csv_helper_function() -> Result<()> {
 }
 
 #[test]
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 fn write_csv_par_helper_function() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let file = tmp.path().join("par_helper_test.csv");

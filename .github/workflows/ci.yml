@@ -190,6 +190,9 @@ jobs:
           cargo test -p ironbeam-compat --features v4-csv --test v4_testing_mock_io
           cargo test -p ironbeam-compat --features v4-gzip,v4-zstd --test v4_io_cloud_readers
 
+      - name: Check published v4 file-format references independently
+        run: bash scripts/check_v4_format_reference.sh
+
   test:
     name: Facade Tests with Coverage
     runs-on: ubuntu-latest

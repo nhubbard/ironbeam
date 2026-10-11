@@ -8,17 +8,21 @@
 //! - Compression support
 //! - Error handling
 
-#![cfg(feature = "io-avro")]
+#![cfg(feature = "v4-avro")]
 #![allow(clippy::assert_is_empty)]
+
+#[macro_use]
+#[path = "common/macros.rs"]
+mod macros;
 
 use anyhow::{Result, anyhow};
 use apache_avro::Schema;
-use ironbeam::io::avro::{
+use ironbeam_v4::io::avro::{
     AvroVecOps, build_avro_shards, build_avro_shards_with_schema,
     build_avro_shards_with_schema_obj, read_avro_range, read_avro_vec_with_schema,
     read_avro_vec_with_schema_obj, write_avro_par, write_avro_vec_with_schema,
 };
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
@@ -57,7 +61,7 @@ const SIMPLE_RECORD_SCHEMA: &str = r#"{
   ]
 }"#;
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_write_avro_vec() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -96,7 +100,7 @@ fn test_read_write_avro_vec() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_write_avro_empty() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -116,7 +120,7 @@ fn test_read_write_avro_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_write_avro_simple() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -152,7 +156,7 @@ fn test_read_write_avro_simple() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_write_avro_pipeline() -> Result<()> {
     let p = Pipeline::default();
@@ -185,7 +189,7 @@ fn test_read_write_avro_pipeline() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_write_avro_pipeline_transform() -> Result<()> {
     let p = Pipeline::default();
@@ -224,10 +228,10 @@ fn test_read_write_avro_pipeline_transform() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_write_avro_parallel() -> Result<()> {
-    #[cfg(feature = "parallel-io")]
+    #[cfg(feature = "v4-parallel-io")]
     {
         let p = Pipeline::default();
 
@@ -263,7 +267,7 @@ fn test_read_write_avro_parallel() -> Result<()> {
         assert_eq!(read_data[2], data[2]);
     }
 
-    #[cfg(not(feature = "parallel-io"))]
+    #[cfg(not(feature = "v4-parallel-io"))]
     {
         // Skip test if parallel-io is not enabled
     }
@@ -271,7 +275,7 @@ fn test_read_write_avro_parallel() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_streaming() -> Result<()> {
     let p = Pipeline::default();
@@ -313,7 +317,7 @@ fn test_read_avro_streaming() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_read_avro_streaming_large() -> Result<()> {
@@ -343,7 +347,7 @@ fn test_read_avro_streaming_large() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_streaming_empty() -> Result<()> {
     let p = Pipeline::default();
@@ -364,7 +368,7 @@ fn test_read_avro_streaming_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_streaming_pipeline() -> Result<()> {
     let p = Pipeline::default();
@@ -407,7 +411,7 @@ fn test_read_avro_streaming_pipeline() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_read_avro_streaming_large_pipeline() -> Result<()> {
@@ -440,7 +444,7 @@ fn test_read_avro_streaming_large_pipeline() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_streaming_keyed() -> Result<()> {
     let p = Pipeline::default();
@@ -493,7 +497,7 @@ fn test_read_avro_streaming_keyed() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_build_avro_shards() -> Result<()> {
@@ -524,7 +528,7 @@ fn test_build_avro_shards() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_build_avro_shards_empty() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -542,7 +546,7 @@ fn test_build_avro_shards_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_read_avro_range() -> Result<()> {
@@ -582,7 +586,7 @@ fn test_read_avro_range() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_range_empty() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -601,7 +605,7 @@ fn test_read_avro_range_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 #[allow(clippy::or_fun_call)]
@@ -644,7 +648,7 @@ fn test_avro_vec_ops() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::or_fun_call)]
 fn test_avro_vec_ops_empty() -> Result<()> {
@@ -678,7 +682,7 @@ fn test_avro_vec_ops_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 #[allow(clippy::or_fun_call)]
@@ -714,7 +718,7 @@ fn test_avro_vec_ops_partial_split() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_avro_roundtrip() -> Result<()> {
     let p = Pipeline::default();
@@ -764,7 +768,7 @@ fn test_avro_roundtrip() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::items_after_statements)]
 #[allow(clippy::cast_possible_truncation)]
@@ -847,7 +851,7 @@ fn test_avro_complex_pipeline() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_avro_error_handling() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -865,7 +869,7 @@ fn test_avro_error_handling() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_avro_large_dataset() -> Result<()> {
@@ -908,7 +912,7 @@ fn test_avro_large_dataset() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_avro_streaming_large_dataset() -> Result<()> {
@@ -949,7 +953,7 @@ fn test_avro_streaming_large_dataset() -> Result<()> {
 
 // ── Schema-variant functions (previously uncovered) ───────────────────────────
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_vec_with_schema() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -974,7 +978,7 @@ fn test_read_avro_vec_with_schema() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_vec_with_schema_obj() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -1000,7 +1004,7 @@ fn test_read_avro_vec_with_schema_obj() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_write_avro_vec_with_schema_obj() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -1025,7 +1029,7 @@ fn test_write_avro_vec_with_schema_obj() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_write_avro_vec_with_schema_obj_nested_dir() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -1045,7 +1049,7 @@ fn test_write_avro_vec_with_schema_obj_nested_dir() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "io-avro", feature = "parallel-io"))]
+#[cfg(all(feature = "v4-avro", feature = "v4-parallel-io"))]
 #[test]
 fn test_write_avro_par_io_layer() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -1077,7 +1081,7 @@ fn test_write_avro_par_io_layer() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "io-avro", feature = "parallel-io"))]
+#[cfg(all(feature = "v4-avro", feature = "v4-parallel-io"))]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_write_avro_par_io_layer_large() -> Result<()> {
@@ -1101,7 +1105,7 @@ fn test_write_avro_par_io_layer_large() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "io-avro", feature = "parallel-io"))]
+#[cfg(all(feature = "v4-avro", feature = "v4-parallel-io"))]
 #[test]
 fn test_write_avro_par_io_layer_empty() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -1117,7 +1121,7 @@ fn test_write_avro_par_io_layer_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_build_avro_shards_with_schema() -> Result<()> {
@@ -1141,7 +1145,7 @@ fn test_build_avro_shards_with_schema() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_build_avro_shards_with_schema_empty() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -1154,7 +1158,7 @@ fn test_build_avro_shards_with_schema_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_build_avro_shards_with_schema_obj() -> Result<()> {
@@ -1177,7 +1181,7 @@ fn test_build_avro_shards_with_schema_obj() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_build_avro_shards_with_schema_obj_empty() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -1193,7 +1197,7 @@ fn test_build_avro_shards_with_schema_obj_empty() -> Result<()> {
 
 // ── Partial-coverage gaps ─────────────────────────────────────────────────────
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_write_avro_vec_nested_dir() -> Result<()> {
     // Exercises the parent-directory creation branch in write_avro_vec
@@ -1212,7 +1216,7 @@ fn test_write_avro_vec_nested_dir() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_read_avro_range_hits_end_break() -> Result<()> {
@@ -1240,7 +1244,7 @@ fn test_read_avro_range_hits_end_break() -> Result<()> {
 
 // ── Glob support in read_avro (helper layer) ─────────────────────────────────
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_glob_multiple_files() -> Result<()> {
     // Verifies that read_avro with a glob pattern reads all matching files and
@@ -1308,7 +1312,7 @@ fn test_read_avro_glob_multiple_files() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_glob_single_match() -> Result<()> {
     // A glob that matches exactly one file should behave like a direct path read.
@@ -1343,7 +1347,7 @@ fn test_read_avro_glob_single_match() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_glob_no_match_is_error() -> Result<()> {
     // A glob that matches no files should return an error.
@@ -1356,7 +1360,7 @@ fn test_read_avro_glob_no_match_is_error() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-avro")]
+#[cfg(feature = "v4-avro")]
 #[test]
 fn test_read_avro_glob_concatenation_order() -> Result<()> {
     // Files are concatenated in sorted lexicographic order; the test relies on

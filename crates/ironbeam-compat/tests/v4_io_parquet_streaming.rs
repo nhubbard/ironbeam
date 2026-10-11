@@ -1,8 +1,8 @@
-#![cfg(feature = "io-parquet")]
+#![cfg(feature = "v4-parquet")]
 
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::{Count, from_vec, read_parquet_streaming};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{Count, from_vec, read_parquet_streaming};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]

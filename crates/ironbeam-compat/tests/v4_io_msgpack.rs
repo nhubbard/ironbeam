@@ -1,13 +1,13 @@
 //! Tests for the `MessagePack` I/O connector (feature `io-msgpack`).
 
-#![cfg(feature = "io-msgpack")]
+#![cfg(feature = "v4-msgpack")]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::{Result, anyhow};
-use ironbeam::io::msgpack::*;
-use ironbeam::testing::*;
-use ironbeam::type_token::VecOps;
-use ironbeam::{Count, from_vec, read_msgpack, read_msgpack_streaming};
+use ironbeam_v4::io::msgpack::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::type_token::VecOps;
+use ironbeam_v4::{Count, from_vec, read_msgpack, read_msgpack_streaming};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -97,7 +97,7 @@ fn read_vec_corrupt_propagates_error() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "compression-gzip")]
+#[cfg(feature = "v4-gzip")]
 #[test]
 fn write_read_vec_gzip_roundtrip() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -192,7 +192,7 @@ fn read_glob_propagates_file_read_error() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_mkdir_failure_when_parent_is_file() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -209,7 +209,7 @@ fn write_par_mkdir_failure_when_parent_is_file() -> Result<()> {
 
 // ── Parallel writer ────────────────────────────────────────────────────────────
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -224,7 +224,7 @@ fn write_par_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_single_shard() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -239,7 +239,7 @@ fn write_par_single_shard() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_multiple_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -254,7 +254,7 @@ fn write_par_multiple_shards() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_auto_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -459,7 +459,7 @@ fn pipeline_roundtrip_transform() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn pipeline_write_par() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -577,7 +577,7 @@ fn streaming_empty_file() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn streaming_parallel_collect() -> Result<()> {
     let tmp = tempfile::tempdir()?;

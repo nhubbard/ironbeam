@@ -1,12 +1,12 @@
 #[cfg(any(
-    feature = "compression-gzip",
-    feature = "compression-zstd",
-    feature = "compression-bzip2",
-    feature = "compression-xz"
+    feature = "v4-gzip",
+    feature = "v4-zstd",
+    feature = "v4-bzip2",
+    feature = "v4-xz"
 ))]
 mod compression_tests {
     use anyhow::Result;
-    use ironbeam::io::compression::{
+    use ironbeam_v4::io::compression::{
         CompressionCodec, auto_detect_reader, auto_detect_writer, register_codec,
     };
     use serde::{Deserialize, Serialize};
@@ -68,7 +68,7 @@ mod compression_tests {
         Ok(result)
     }
 
-    #[cfg(feature = "compression-gzip")]
+    #[cfg(feature = "v4-gzip")]
     #[test]
     fn test_gzip_roundtrip() -> Result<()> {
         let temp = NamedTempFile::new()?;
@@ -90,7 +90,7 @@ mod compression_tests {
         Ok(())
     }
 
-    #[cfg(feature = "compression-zstd")]
+    #[cfg(feature = "v4-zstd")]
     #[test]
     fn test_zstd_roundtrip() -> Result<()> {
         let temp = NamedTempFile::new()?;
@@ -107,7 +107,7 @@ mod compression_tests {
         Ok(())
     }
 
-    #[cfg(feature = "compression-bzip2")]
+    #[cfg(feature = "v4-bzip2")]
     #[test]
     fn test_bzip2_roundtrip() -> Result<()> {
         let temp = NamedTempFile::new()?;
@@ -124,7 +124,7 @@ mod compression_tests {
         Ok(())
     }
 
-    #[cfg(feature = "compression-xz")]
+    #[cfg(feature = "v4-xz")]
     #[test]
     fn test_xz_roundtrip() -> Result<()> {
         let temp = NamedTempFile::new()?;
@@ -201,7 +201,7 @@ mod compression_tests {
         Ok(())
     }
 
-    #[cfg(feature = "compression-gzip")]
+    #[cfg(feature = "v4-gzip")]
     #[test]
     #[allow(clippy::items_after_statements)]
     fn test_magic_byte_detection() -> Result<()> {
@@ -231,7 +231,7 @@ mod compression_tests {
     }
 
     #[test]
-    #[cfg(feature = "compression-gzip")]
+    #[cfg(feature = "v4-gzip")]
     fn test_detect_from_magic_insufficient_bytes() {
         use std::io::BufRead;
         // Test with fewer bytes than gzip magic bytes
@@ -249,7 +249,7 @@ mod compression_tests {
     // Unit tests from src/io/compression.rs
 
     #[test]
-    #[cfg(feature = "compression-gzip")]
+    #[cfg(feature = "v4-gzip")]
     fn test_gzip_codec_name() {
         // Test that we can access the gzip codec name
         // (Indirect test since GzipCodec is not directly accessible)
@@ -260,7 +260,7 @@ mod compression_tests {
     }
 
     #[test]
-    #[cfg(feature = "compression-zstd")]
+    #[cfg(feature = "v4-zstd")]
     fn test_zstd_codec_name() {
         // Test that we can access the zstd codec name
         let temp = NamedTempFile::new().unwrap();
@@ -270,7 +270,7 @@ mod compression_tests {
     }
 
     #[test]
-    #[cfg(feature = "compression-bzip2")]
+    #[cfg(feature = "v4-bzip2")]
     fn test_bzip2_codec_name() {
         // Test that we can access the bzip2 codec name
         let temp = NamedTempFile::new().unwrap();
@@ -280,7 +280,7 @@ mod compression_tests {
     }
 
     #[test]
-    #[cfg(feature = "compression-xz")]
+    #[cfg(feature = "v4-xz")]
     fn test_xz_codec_name() {
         // Test that we can access the xz codec name
         let temp = NamedTempFile::new().unwrap();
@@ -306,7 +306,7 @@ mod compression_tests {
     }
 
     #[test]
-    #[cfg(feature = "compression-gzip")]
+    #[cfg(feature = "v4-gzip")]
     fn test_auto_detect_reader_error_on_bad_compression() {
         use std::io::Cursor;
         // Create invalid gzip data
@@ -323,7 +323,7 @@ mod compression_tests {
     }
 
     #[test]
-    #[cfg(feature = "compression-gzip")]
+    #[cfg(feature = "v4-gzip")]
     fn test_auto_detect_writer_with_gzip() {
         let buffer = Vec::new();
         let result = auto_detect_writer(buffer, "test.gz");
@@ -339,10 +339,10 @@ mod compression_tests {
 }
 
 #[cfg(not(any(
-    feature = "compression-gzip",
-    feature = "compression-zstd",
-    feature = "compression-bzip2",
-    feature = "compression-xz"
+    feature = "v4-gzip",
+    feature = "v4-zstd",
+    feature = "v4-bzip2",
+    feature = "v4-xz"
 )))]
 #[test]
 fn compression_tests_skipped() {

@@ -24,5 +24,11 @@ v4_testing_mock_io`.
 The v4 cloud-I/O suites cover its provider traits, fake services, utilities,
 and readers. Compressed reader checks use `v4-gzip,v4-zstd` in a separate CI
 target, leaving codec dependencies out of default compatibility builds.
+The v4 file-format reference suites also live here. Run
+`bash scripts/check_v4_format_reference.sh` from the repository root to test
+each format with its own features; the script accepts `IRONBEAM_CARGO` for a
+Cargo wrapper. The root legacy I/O target retains only SQL and MongoDB
+service tests. These published-v4 checks preserve reference behavior while
+the separate v5 format crates carry their implementation tests.
 
 See [the migration guide](https://github.com/nhubbard/ironbeam/blob/main/V4_TO_V5_MIGRATION.md) for call-site examples and feature mapping.

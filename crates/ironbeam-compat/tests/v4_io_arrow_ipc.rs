@@ -1,19 +1,19 @@
 //! Tests for the Arrow IPC I/O connector (feature `io-arrow`).
 
-#![cfg(feature = "io-arrow")]
+#![cfg(feature = "v4-arrow")]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
 use arrow::datatypes::FieldRef;
 use arrow::record_batch::RecordBatch;
-use ironbeam::io::arrow_ipc::{
-    ArrowBatch, ArrowBatchVecOps, ArrowRowVecOps, ArrowShards, build_arrow_shards,
-    read_arrow_ipc_range, read_arrow_ipc_rows_range, read_arrow_ipc_rows_vec, read_arrow_ipc_vec,
+use ironbeam_v4::io::arrow_ipc::{
+    ArrowBatch, ArrowBatchVecOps, ArrowRowVecOps, build_arrow_shards, read_arrow_ipc_range,
+    read_arrow_ipc_rows_range, read_arrow_ipc_rows_vec, read_arrow_ipc_vec,
     write_arrow_ipc_rows_vec, write_arrow_ipc_vec,
 };
-use ironbeam::testing::*;
-use ironbeam::type_token::VecOps;
-use ironbeam::{from_vec, read_arrow_ipc, read_arrow_ipc_batches, read_arrow_ipc_streaming};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::type_token::VecOps;
+use ironbeam_v4::{from_vec, read_arrow_ipc, read_arrow_ipc_batches, read_arrow_ipc_streaming};
 use serde::{Deserialize, Serialize};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use serde_arrow::to_record_batch;
@@ -492,10 +492,10 @@ fn read_arrow_ipc_streaming_empty() -> Result<()> {
 
 // ── Parallel writing ──────────────────────────────────────────────────────────
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 mod par {
     use super::*;
-    use ironbeam::io::arrow_ipc::{write_arrow_ipc_par, write_arrow_ipc_rows_par};
+    use ironbeam_v4::io::arrow_ipc::{write_arrow_ipc_par, write_arrow_ipc_rows_par};
 
     #[test]
     fn write_ipc_par_empty() -> Result<()> {

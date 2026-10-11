@@ -1,8 +1,8 @@
-#![cfg(feature = "io-jsonl")]
+#![cfg(feature = "v4-jsonl")]
 
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::{Count, read_jsonl_streaming};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{Count, read_jsonl_streaming};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

@@ -1,13 +1,13 @@
 //! Tests for the `TFRecord` I/O connector (feature `io-tfrecord`).
 
-#![cfg(feature = "io-tfrecord")]
+#![cfg(feature = "v4-tfrecord")]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::io::tfrecord::*;
-use ironbeam::testing::*;
-use ironbeam::type_token::VecOps;
-use ironbeam::{Count, from_vec, read_tfrecord, read_tfrecord_streaming};
+use ironbeam_v4::io::tfrecord::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::type_token::VecOps;
+use ironbeam_v4::{Count, from_vec, read_tfrecord, read_tfrecord_streaming};
 use std::fs;
 use std::io::Write;
 
@@ -97,7 +97,7 @@ fn clean_eof_at_record_boundary() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "compression-gzip")]
+#[cfg(feature = "v4-gzip")]
 #[test]
 fn write_read_vec_gzip_roundtrip() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -263,7 +263,7 @@ fn read_glob_propagates_file_read_error() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_mkdir_failure_when_parent_is_file() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -280,7 +280,7 @@ fn write_par_mkdir_failure_when_parent_is_file() -> Result<()> {
 
 // ── Parallel writer ────────────────────────────────────────────────────────────
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -295,7 +295,7 @@ fn write_par_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_single_shard() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -310,7 +310,7 @@ fn write_par_single_shard() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_multiple_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -325,7 +325,7 @@ fn write_par_multiple_shards() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_auto_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -517,7 +517,7 @@ fn pipeline_roundtrip_transform() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn pipeline_write_par() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -605,7 +605,7 @@ fn streaming_empty_file() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn streaming_parallel_collect() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -625,10 +625,10 @@ fn streaming_parallel_collect() -> Result<()> {
 
 // ── tf.Example roundtrip ──────────────────────────────────────────────────────
 
-#[cfg(all(feature = "io-tfrecord", feature = "io-protobuf"))]
+#[cfg(all(feature = "v4-tfrecord", feature = "v4-protobuf"))]
 #[test]
 fn read_tfrecord_examples_roundtrip() -> Result<()> {
-    use ironbeam::io::tfrecord_proto::{BytesList, Example, Feature, Features, feature};
+    use ironbeam_v4::io::tfrecord_proto::{BytesList, Example, Feature, Features, feature};
     use prost::Message;
     use std::collections::BTreeMap;
 
@@ -654,18 +654,18 @@ fn read_tfrecord_examples_roundtrip() -> Result<()> {
     let raw: Vec<Vec<u8>> = vec![ex1.encode_to_vec(), ex2.encode_to_vec()];
     write_tfrecord_vec(&path, &raw)?;
 
-    let decoded = ironbeam::io::tfrecord::read_tfrecord_examples_vec(&path)?;
+    let decoded = ironbeam_v4::io::tfrecord::read_tfrecord_examples_vec(&path)?;
     assert_eq!(decoded.len(), 2);
     assert_eq!(decoded[0], ex1);
     assert_eq!(decoded[1], ex2);
     Ok(())
 }
 
-#[cfg(all(feature = "io-tfrecord", feature = "io-protobuf"))]
+#[cfg(all(feature = "v4-tfrecord", feature = "v4-protobuf"))]
 #[test]
 fn read_tfrecord_examples_helper_roundtrip() -> Result<()> {
-    use ironbeam::io::tfrecord_proto::{BytesList, Example, Feature, Features, feature};
-    use ironbeam::read_tfrecord_examples;
+    use ironbeam_v4::io::tfrecord_proto::{BytesList, Example, Feature, Features, feature};
+    use ironbeam_v4::read_tfrecord_examples;
     use prost::Message;
     use std::collections::BTreeMap;
 

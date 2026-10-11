@@ -10,9 +10,15 @@
 
 #![allow(clippy::assert_is_empty)]
 
+#[macro_use]
+#[path = "common/macros.rs"]
+mod macros;
+
 use anyhow::Result;
-use ironbeam::io::xml::{XmlVecOps, build_xml_shards, read_xml_range, read_xml_vec, write_xml_vec};
-use ironbeam::*;
+use ironbeam_v4::io::xml::{
+    XmlVecOps, build_xml_shards, read_xml_range, read_xml_vec, write_xml_vec,
+};
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
@@ -33,7 +39,7 @@ struct SimpleRecord {
 
 // ── Vector I/O ────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_write_xml_vec() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -69,7 +75,7 @@ fn test_read_write_xml_vec() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_write_xml_empty() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -85,7 +91,7 @@ fn test_read_write_xml_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_write_xml_simple_record() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -118,7 +124,7 @@ fn test_read_write_xml_simple_record() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_write_xml_creates_nested_dirs() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -139,7 +145,7 @@ fn test_write_xml_creates_nested_dirs() -> Result<()> {
 
 // ── Pipeline integration ───────────────────────────────────────────────────────
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_xml_pipeline_write() -> Result<()> {
     let p = Pipeline::default();
@@ -171,7 +177,7 @@ fn test_xml_pipeline_write() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_xml_pipeline_transform_write() -> Result<()> {
     let p = Pipeline::default();
@@ -209,7 +215,7 @@ fn test_xml_pipeline_transform_write() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_xml_roundtrip_read_transform_write() -> Result<()> {
     let p = Pipeline::default();
@@ -252,12 +258,12 @@ fn test_xml_roundtrip_read_transform_write() -> Result<()> {
 
 // ── Parallel write ─────────────────────────────────────────────────────────────
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_xml_parallel_write() -> Result<()> {
-    #[cfg(feature = "parallel-io")]
+    #[cfg(feature = "v4-parallel-io")]
     {
-        use ironbeam::io::xml::write_xml_par;
+        use ironbeam_v4::io::xml::write_xml_par;
 
         let temp_dir = TempDir::new()?;
         let path = temp_dir.path().join("par.xml");
@@ -292,11 +298,11 @@ fn test_xml_parallel_write() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "io-xml", feature = "parallel-io"))]
+#[cfg(all(feature = "v4-xml", feature = "v4-parallel-io"))]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_xml_parallel_write_large() -> Result<()> {
-    use ironbeam::io::xml::write_xml_par;
+    use ironbeam_v4::io::xml::write_xml_par;
 
     let temp_dir = TempDir::new()?;
     let path = temp_dir.path().join("par_large.xml");
@@ -319,10 +325,10 @@ fn test_xml_parallel_write_large() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "io-xml", feature = "parallel-io"))]
+#[cfg(all(feature = "v4-xml", feature = "v4-parallel-io"))]
 #[test]
 fn test_xml_parallel_write_empty() -> Result<()> {
-    use ironbeam::io::xml::write_xml_par;
+    use ironbeam_v4::io::xml::write_xml_par;
 
     let temp_dir = TempDir::new()?;
     let path = temp_dir.path().join("par_empty.xml");
@@ -337,7 +343,7 @@ fn test_xml_parallel_write_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "io-xml", feature = "parallel-io"))]
+#[cfg(all(feature = "v4-xml", feature = "v4-parallel-io"))]
 #[test]
 fn test_xml_pipeline_write_par() -> Result<()> {
     let p = Pipeline::default();
@@ -370,10 +376,10 @@ fn test_xml_pipeline_write_par() -> Result<()> {
 }
 
 /// Sequential and parallel writers must produce files that read identically.
-#[cfg(all(feature = "io-xml", feature = "parallel-io"))]
+#[cfg(all(feature = "v4-xml", feature = "v4-parallel-io"))]
 #[test]
 fn test_xml_par_matches_seq() -> Result<()> {
-    use ironbeam::io::xml::write_xml_par;
+    use ironbeam_v4::io::xml::write_xml_par;
 
     let temp_dir = TempDir::new()?;
     let seq_path = temp_dir.path().join("seq.xml");
@@ -399,7 +405,7 @@ fn test_xml_par_matches_seq() -> Result<()> {
 
 // ── Streaming ─────────────────────────────────────────────────────────────────
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_streaming() -> Result<()> {
     let p = Pipeline::default();
@@ -435,7 +441,7 @@ fn test_read_xml_streaming() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 #[allow(clippy::cast_sign_loss)]
 fn test_read_xml_streaming_large() -> Result<()> {
@@ -461,7 +467,7 @@ fn test_read_xml_streaming_large() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_streaming_empty() -> Result<()> {
     let p = Pipeline::default();
@@ -477,7 +483,7 @@ fn test_read_xml_streaming_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_streaming_pipeline_transform() -> Result<()> {
     let p = Pipeline::default();
@@ -520,7 +526,7 @@ fn test_read_xml_streaming_pipeline_transform() -> Result<()> {
 
 // ── Shards / VecOps ───────────────────────────────────────────────────────────
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_build_xml_shards() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -543,7 +549,7 @@ fn test_build_xml_shards() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_build_xml_shards_empty() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -558,7 +564,7 @@ fn test_build_xml_shards_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_xml_vec_ops_len() -> Result<()> {
     use anyhow::anyhow;
@@ -582,7 +588,7 @@ fn test_xml_vec_ops_len() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_xml_vec_ops_split() -> Result<()> {
     use anyhow::anyhow;
@@ -609,7 +615,7 @@ fn test_xml_vec_ops_split() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_range() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -634,7 +640,7 @@ fn test_read_xml_range() -> Result<()> {
 
 // ── Glob support ──────────────────────────────────────────────────────────────
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_glob_multiple_files() -> Result<()> {
     let p = Pipeline::default();
@@ -697,7 +703,7 @@ fn test_read_xml_glob_multiple_files() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_glob_single_match() -> Result<()> {
     let p = Pipeline::default();
@@ -731,7 +737,7 @@ fn test_read_xml_glob_single_match() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_glob_no_match_is_error() -> Result<()> {
     let p = Pipeline::default();
@@ -744,7 +750,7 @@ fn test_read_xml_glob_no_match_is_error() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_glob_concatenation_order() -> Result<()> {
     let p = Pipeline::default();
@@ -787,7 +793,7 @@ fn test_read_xml_glob_concatenation_order() -> Result<()> {
 
 // ── Compression ───────────────────────────────────────────────────────────────
 
-#[cfg(all(feature = "io-xml", feature = "compression-gzip"))]
+#[cfg(all(feature = "v4-xml", feature = "v4-gzip"))]
 #[test]
 fn test_xml_gzip_roundtrip() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -813,7 +819,7 @@ fn test_xml_gzip_roundtrip() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "io-xml", feature = "compression-zstd"))]
+#[cfg(all(feature = "v4-xml", feature = "v4-zstd"))]
 #[test]
 fn test_xml_zstd_roundtrip() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -841,7 +847,7 @@ fn test_xml_zstd_roundtrip() -> Result<()> {
 
 // ── Error handling ────────────────────────────────────────────────────────────
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_missing_file_is_error() {
     let result = read_xml_vec::<SimpleRecord>("/nonexistent/path/to/file.xml");
@@ -850,7 +856,7 @@ fn test_read_xml_missing_file_is_error() {
     assert!(msg.contains("nonexistent") || msg.contains("No such file") || msg.contains("open"));
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_malformed_is_error() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -867,7 +873,7 @@ fn test_read_xml_malformed_is_error() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-xml")]
+#[cfg(feature = "v4-xml")]
 #[test]
 fn test_read_xml_single_record() -> Result<()> {
     let temp_dir = TempDir::new()?;

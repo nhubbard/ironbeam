@@ -1,19 +1,4 @@
-// IO module tests
-mod arrow_ipc;
-mod avro;
-mod cbor;
-mod compression;
-mod csv;
-mod csv_streaming;
-mod glob;
-mod jsonl;
-mod jsonl_streaming;
+// Service-backed legacy I/O tests. File-format references live in ironbeam-compat.
 mod mongodb;
-mod msgpack;
-mod parquet;
-mod parquet_streaming;
-mod protobuf;
 mod sql;
 mod sql_containers;
-mod tfrecord;
-mod xml;

@@ -1,9 +1,9 @@
-#![cfg(feature = "io-jsonl")]
+#![cfg(feature = "v4-jsonl")]
 
 use anyhow::Result;
-use ironbeam::io::jsonl::*;
-use ironbeam::testing::*;
-use ironbeam::{Count, from_vec, read_jsonl};
+use ironbeam_v4::io::jsonl::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{Count, from_vec, read_jsonl};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -18,7 +18,7 @@ struct Line {
     line: String,
 }
 
-#[cfg(feature = "io-jsonl")]
+#[cfg(feature = "v4-jsonl")]
 #[test]
 fn jsonl_roundtrip_stateless() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -66,7 +66,7 @@ fn jsonl_roundtrip_stateless() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-jsonl")]
+#[cfg(feature = "v4-jsonl")]
 #[test]
 fn jsonl_wordcount_end_to_end() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -156,7 +156,7 @@ fn write_jsonl_vec_creates_parent_dirs() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_jsonl_par_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -169,7 +169,7 @@ fn write_jsonl_par_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_jsonl_par_single_shard() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -193,7 +193,7 @@ fn write_jsonl_par_single_shard() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_jsonl_par_multiple_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -214,7 +214,7 @@ fn write_jsonl_par_multiple_shards() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_jsonl_par_auto_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;

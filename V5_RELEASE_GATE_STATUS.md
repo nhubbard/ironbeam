@@ -63,8 +63,11 @@ staged locally.
 - The v4 cloud-I/O suites now run in `ironbeam-compat` against published
   4.1.1: 80 default cases cover fake providers, cloud traits, utilities, and
   readers. The gzip/zstd reader branches run in a separate opt-in target and
-  are retained in CI. The root combined legacy target now contains only
-  format-specific I/O suites and their shared assertion macro.
+  are retained in CI. The format-specific v4 reference suites now also run in
+  `ironbeam-compat`, each with an isolated feature set through
+  `scripts/check_v4_format_reference.sh`. Arrow, Avro, CBOR, compression, CSV,
+  JSONL, MessagePack, Parquet, Protobuf, TFRecord, and XML passed individually.
+  The root combined legacy target retains only SQL and MongoDB service tests.
 - The v4 dictionary, hash-map, and display-string conversion suites also moved
   to `ironbeam-compat`; their 58 cases pass against published v4. The root no
   longer owns those three legacy test targets, and CI retains the reference

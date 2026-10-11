@@ -1,19 +1,26 @@
 //! Integration tests for glob pattern support in file readers.
 
+#[cfg(any(feature = "v4-jsonl", feature = "v4-csv", feature = "v4-parquet"))]
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::*;
+#[cfg(any(feature = "v4-jsonl", feature = "v4-csv", feature = "v4-parquet"))]
+use ironbeam_v4::testing::*;
+#[cfg(any(feature = "v4-jsonl", feature = "v4-csv", feature = "v4-parquet"))]
+use ironbeam_v4::*;
+#[cfg(any(feature = "v4-jsonl", feature = "v4-csv", feature = "v4-parquet"))]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "v4-jsonl")]
 use std::fs::create_dir_all;
+#[cfg(any(feature = "v4-jsonl", feature = "v4-csv", feature = "v4-parquet"))]
 use tempfile::TempDir;
 
+#[cfg(any(feature = "v4-jsonl", feature = "v4-csv", feature = "v4-parquet"))]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct Record {
     id: u32,
     name: String,
 }
 
-#[cfg(feature = "io-jsonl")]
+#[cfg(feature = "v4-jsonl")]
 #[test]
 fn test_jsonl_glob_pattern() -> Result<()> {
     let dir = TempDir::new()?;
@@ -64,7 +71,7 @@ fn test_jsonl_glob_pattern() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-jsonl")]
+#[cfg(feature = "v4-jsonl")]
 #[test]
 fn test_jsonl_single_file() -> Result<()> {
     let dir = TempDir::new()?;
@@ -96,7 +103,7 @@ fn test_jsonl_single_file() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-jsonl")]
+#[cfg(feature = "v4-jsonl")]
 #[test]
 fn test_jsonl_no_matches() {
     let dir = TempDir::new().unwrap();
@@ -110,7 +117,7 @@ fn test_jsonl_no_matches() {
     assert!(err.to_string().contains("no files found"));
 }
 
-#[cfg(feature = "io-csv")]
+#[cfg(feature = "v4-csv")]
 #[test]
 fn test_csv_glob_pattern() -> Result<()> {
     let dir = TempDir::new()?;
@@ -161,7 +168,7 @@ fn test_csv_glob_pattern() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-csv")]
+#[cfg(feature = "v4-csv")]
 #[test]
 fn test_csv_single_file() -> Result<()> {
     let dir = TempDir::new()?;
@@ -193,7 +200,7 @@ fn test_csv_single_file() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-parquet")]
+#[cfg(feature = "v4-parquet")]
 #[test]
 fn test_parquet_glob_pattern() -> Result<()> {
     let dir = TempDir::new()?;
@@ -244,7 +251,7 @@ fn test_parquet_glob_pattern() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-parquet")]
+#[cfg(feature = "v4-parquet")]
 #[test]
 fn test_parquet_single_file() -> Result<()> {
     let dir = TempDir::new()?;
@@ -276,7 +283,7 @@ fn test_parquet_single_file() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-jsonl")]
+#[cfg(feature = "v4-jsonl")]
 #[test]
 fn test_jsonl_date_partitions() -> Result<()> {
     let dir = TempDir::new()?;
@@ -318,7 +325,7 @@ fn test_jsonl_date_partitions() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "io-csv")]
+#[cfg(feature = "v4-csv")]
 #[test]
 fn test_csv_deterministic_order() -> Result<()> {
     let dir = TempDir::new()?;
@@ -368,7 +375,7 @@ fn test_csv_deterministic_order() -> Result<()> {
 // Unit tests from src/io/glob.rs
 mod glob_unit_tests {
     use anyhow::Result;
-    use ironbeam::io::glob::{expand_glob, expand_glob_required};
+    use ironbeam_v4::io::glob::{expand_glob, expand_glob_required};
     use std::fs::{File, create_dir_all};
     use tempfile::TempDir;
 

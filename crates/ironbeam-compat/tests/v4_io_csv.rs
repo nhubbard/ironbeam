@@ -1,7 +1,7 @@
-#![cfg(feature = "io-csv")]
+#![cfg(feature = "v4-csv")]
 
 use anyhow::Result;
-use ironbeam::io::csv::*;
+use ironbeam_v4::io::csv::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
@@ -87,7 +87,7 @@ fn write_csv_vec_creates_parent_dirs() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_csv_par_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -102,7 +102,7 @@ fn write_csv_par_empty() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_csv_par_single_shard() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -126,7 +126,7 @@ fn write_csv_par_single_shard() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_csv_par_multiple_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -158,7 +158,7 @@ fn write_csv_par_multiple_shards() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_csv_par_no_headers() -> Result<()> {
     let tmp = tempfile::tempdir()?;
@@ -182,7 +182,7 @@ fn write_csv_par_no_headers() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_csv_par_auto_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;

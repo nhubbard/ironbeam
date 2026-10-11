@@ -212,7 +212,11 @@ the remaining behavior corpus before closing this gate.
    inputs, windows, and unbounded fixtures where v4 supports them. A Prism
    `Prepare` response alone is protocol acceptance, not execution parity.
    Unsupported operations fail validation before side effects. Runner support
-   is recorded independently from Direct support.
+   is recorded independently from Direct support. The intended stable v5
+   contract is equivalent values, errors, ordering where an order key is
+   supplied, and time metadata on every supported runner. Direct's existing
+   encounter-order compatibility methods remain a documented exception until
+   they can be expressed by a portable order key.
 5. **Package isolation:** Every extracted package passes tests, docs, minimal
    and default feature builds, and relevant all-feature checks. Root defaults
    exclude heavyweight format/database/remote dependencies. A change to one

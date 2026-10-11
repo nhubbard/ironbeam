@@ -1,11 +1,11 @@
-#![cfg(feature = "io-parquet")]
+#![cfg(feature = "v4-parquet")]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::from_vec;
-use ironbeam::helpers::parquet::read_parquet;
-use ironbeam::io::parquet::*;
-use ironbeam::testing::*;
+use ironbeam_v4::from_vec;
+use ironbeam_v4::helpers::parquet::read_parquet;
+use ironbeam_v4::io::parquet::*;
+use ironbeam_v4::testing::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -257,10 +257,10 @@ fn read_parquet_glob_no_match() {
 
 // ── write_parquet_par ─────────────────────────────────────────────────────────
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 mod par {
     use super::*;
-    use ironbeam::helpers::parquet::read_parquet;
+    use ironbeam_v4::helpers::parquet::read_parquet;
 
     #[test]
     fn write_parquet_par_empty() -> Result<()> {

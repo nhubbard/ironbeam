@@ -1,25 +1,35 @@
-//! Tests for the CBOR I/O connector (feature `io-cbor`).
+//! Tests for the Protocol Buffers I/O connector (feature `io-protobuf`).
 
-#![cfg(feature = "io-cbor")]
+#![cfg(feature = "v4-protobuf")]
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::{Result, anyhow};
-use ironbeam::io::cbor::*;
-use ironbeam::testing::*;
-use ironbeam::type_token::VecOps;
-use ironbeam::{Count, from_vec, read_cbor, read_cbor_streaming};
+use ironbeam_v4::io::protobuf::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::type_token::VecOps;
+use ironbeam_v4::{Count, from_vec, read_proto, read_proto_streaming};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+/// Minimal prost-derived test record.
+///
+/// Also derives serde so it satisfies `Element` when the `coders` feature is on
+/// (which requires `Serialize + DeserializeOwned`). prost automatically implements
+/// `Default`, so it must not be in the derive list.
+#[derive(Clone, PartialEq, prost::Message, Serialize, Deserialize)]
 struct Rec {
-    id: u32,
-    word: String,
+    #[prost(uint32, tag = "1")]
+    pub id: u32,
+    #[prost(string, tag = "2")]
+    pub word: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+/// Minimal prost record used for streaming word-count tests.
+#[derive(Clone, PartialEq, prost::Message, Serialize, Deserialize)]
 struct Line {
-    line: String,
+    #[prost(string, tag = "1")]
+    pub line: String,
 }
 
 fn sample(n: u32) -> Vec<Rec> {
@@ -36,13 +46,13 @@ fn sample(n: u32) -> Vec<Rec> {
 #[test]
 fn write_then_read_vec_roundtrip() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("out.cbor");
+    let path = tmp.path().join("out.proto");
     let data = sample(5);
 
-    let n = write_cbor_vec(&path, &data)?;
+    let n = write_proto_vec(&path, &data)?;
     assert_eq!(n, 5);
 
-    let back: Vec<Rec> = read_cbor_vec(&path)?;
+    let back: Vec<Rec> = read_proto_vec(&path)?;
     assert_eq!(back, data);
     Ok(())
 }
@@ -50,13 +60,13 @@ fn write_then_read_vec_roundtrip() -> Result<()> {
 #[test]
 fn write_vec_empty_roundtrip() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("empty.cbor");
+    let path = tmp.path().join("empty.proto");
 
-    let n = write_cbor_vec(&path, &Vec::<Rec>::new())?;
+    let n = write_proto_vec(&path, &Vec::<Rec>::new())?;
     assert_eq!(n, 0);
     assert!(path.exists());
 
-    let back: Vec<Rec> = read_cbor_vec(&path)?;
+    let back: Vec<Rec> = read_proto_vec(&path)?;
     assert!(back.is_empty());
     Ok(())
 }
@@ -64,15 +74,15 @@ fn write_vec_empty_roundtrip() -> Result<()> {
 #[test]
 fn write_vec_creates_parent_dirs() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("sub").join("dir").join("out.cbor");
-    write_cbor_vec(&path, &sample(2))?;
+    let path = tmp.path().join("sub").join("dir").join("out.proto");
+    write_proto_vec(&path, &sample(2))?;
     assert!(path.exists());
     Ok(())
 }
 
 #[test]
 fn read_vec_file_not_found() {
-    let result: Result<Vec<Rec>> = read_cbor_vec("definitely_missing.cbor");
+    let result: Result<Vec<Rec>> = read_proto_vec("definitely_missing.proto");
     assert!(result.is_err());
     let msg = format!("{:?}", result.err().unwrap());
     assert!(
@@ -84,50 +94,43 @@ fn read_vec_file_not_found() {
 #[test]
 fn read_vec_corrupt_propagates_error() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("corrupt.cbor");
+    let path = tmp.path().join("corrupt.proto");
 
-    // Write valid records, then append 0xFF (CBOR BREAK code at top level),
-    // which is never a valid standalone CBOR item and must surface as a decode
-    // error (not a clean EOF).
-    write_cbor_vec(&path, &sample(2))?;
-    let mut bytes = fs::read(&path)?;
-    bytes.push(0xff);
-    fs::write(&path, &bytes)?;
+    // Write valid records then append a rogue varint (claims 20 bytes of payload
+    // follow, but none are present). read_proto_vec will hit UnexpectedEof while
+    // trying to read the claimed payload bytes.
+    write_proto_vec(&path, &sample(3))?;
+    let mut f = fs::OpenOptions::new().append(true).open(&path)?;
+    f.write_all(&[0x14])?; // varint 20, no payload
 
-    let result: Result<Vec<Rec>> = read_cbor_vec(&path);
+    let result: Result<Vec<Rec>> = read_proto_vec(&path);
     assert!(result.is_err(), "corrupt data must not silently succeed");
-    let msg = format!("{:?}", result.err().unwrap());
-    assert!(msg.contains("CBOR record #3"), "{msg}");
     Ok(())
 }
 
-/// Explicit round-trip that exercises the clean-EOF path: after reading all N
-/// records, the next `from_reader` call must return a clean EOF and break the
-/// loop (not an error), so we get exactly N records back.
+/// Verifies the clean-EOF path: after N records the read loop terminates cleanly.
 #[test]
 fn clean_eof_at_record_boundary() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("eof.cbor");
+    let path = tmp.path().join("eof.proto");
     let data = sample(10);
-    write_cbor_vec(&path, &data)?;
+    write_proto_vec(&path, &data)?;
 
-    // If clean-EOF detection is broken, read_cbor_vec would either panic,
-    // return an error, or loop forever.
-    let back: Vec<Rec> = read_cbor_vec(&path)?;
+    let back: Vec<Rec> = read_proto_vec(&path)?;
     assert_eq!(back.len(), 10);
     assert_eq!(back, data);
     Ok(())
 }
 
-#[cfg(feature = "compression-gzip")]
+#[cfg(feature = "v4-gzip")]
 #[test]
 fn write_read_vec_gzip_roundtrip() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("out.cbor.gz");
+    let path = tmp.path().join("out.proto.gz");
     let data = sample(20);
 
-    write_cbor_vec(&path, &data)?;
-    let back: Vec<Rec> = read_cbor_vec(&path)?;
+    write_proto_vec(&path, &data)?;
+    let back: Vec<Rec> = read_proto_vec(&path)?;
     assert_eq!(back, data);
     Ok(())
 }
@@ -139,9 +142,9 @@ fn write_vec_mkdir_failure_when_parent_is_file() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let blocker = tmp.path().join("blocker");
     fs::write(&blocker, b"x")?;
-    let path = blocker.join("child.cbor");
+    let path = blocker.join("child.proto");
 
-    let result = write_cbor_vec(&path, &sample(1));
+    let result = write_proto_vec(&path, &sample(1));
     assert!(result.is_err());
     let msg = format!("{:?}", result.err().unwrap());
     assert!(msg.contains("mkdir -p"), "{msg}");
@@ -154,7 +157,7 @@ fn write_vec_create_failure_when_path_is_dir() -> Result<()> {
     let dir = tmp.path().join("a_directory");
     fs::create_dir(&dir)?;
 
-    let result = write_cbor_vec(&dir, &sample(1));
+    let result = write_proto_vec(&dir, &sample(1));
     assert!(result.is_err());
     let msg = format!("{:?}", result.err().unwrap());
     assert!(msg.contains("create"), "{msg}");
@@ -163,7 +166,7 @@ fn write_vec_create_failure_when_path_is_dir() -> Result<()> {
 
 #[test]
 fn build_shards_file_not_found() {
-    let result = build_cbor_shards("missing_shards.cbor", 4);
+    let result = build_proto_shards("missing_shards.proto", 4);
     assert!(result.is_err());
     let msg = format!("{:?}", result.err().unwrap());
     assert!(
@@ -174,12 +177,12 @@ fn build_shards_file_not_found() {
 
 #[test]
 fn read_range_file_not_found() {
-    let shards = CborShards {
-        path: "missing_range.cbor".into(),
+    let shards = ProtoShards {
+        path: "missing_range.proto".into(),
         ranges: vec![(0, 1)],
         total_records: 1,
     };
-    let result: Result<Vec<Rec>> = read_cbor_range(&shards, 0, 1);
+    let result: Result<Vec<Rec>> = read_proto_range(&shards, 0, 1);
     assert!(result.is_err());
     let msg = format!("{:?}", result.err().unwrap());
     assert!(
@@ -192,30 +195,34 @@ fn read_range_file_not_found() {
 fn read_glob_propagates_file_read_error() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let dir = tmp.path();
-    write_cbor_vec(dir.join("a.cbor"), &sample(1))?;
-    let bad = dir.join("b.cbor");
-    write_cbor_vec(&bad, &sample(1))?;
-    let mut bytes = fs::read(&bad)?;
-    bytes.push(0xff);
-    fs::write(&bad, &bytes)?;
+    write_proto_vec(dir.join("a.proto"), &sample(1))?;
+
+    // Write a second file then append a rogue varint with no payload.
+    let bad = dir.join("b.proto");
+    write_proto_vec(&bad, &sample(1))?;
+    {
+        use std::io::Write;
+        let mut f = fs::OpenOptions::new().append(true).open(&bad)?;
+        f.write_all(&[0x14])?; // varint 20, no payload
+    }
 
     let p = TestPipeline::new();
-    let result = read_cbor::<Rec>(&p, dir.join("*.cbor"));
+    let result = read_proto::<Rec>(&p, dir.join("*.proto"));
     assert!(result.is_err());
     let msg = format!("{:?}", result.err().unwrap());
-    assert!(msg.contains("reading") && msg.contains("b.cbor"), "{msg}");
+    assert!(msg.contains("reading") && msg.contains("b.proto"), "{msg}");
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_mkdir_failure_when_parent_is_file() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let blocker = tmp.path().join("blocker_par");
     fs::write(&blocker, b"x")?;
-    let path = blocker.join("child.cbor");
+    let path = blocker.join("child.proto");
 
-    let result = write_cbor_par(&path, &sample(2), Some(2));
+    let result = write_proto_par(&path, &sample(2), Some(2));
     assert!(result.is_err());
     let msg = format!("{:?}", result.err().unwrap());
     assert!(msg.contains("mkdir -p"), "{msg}");
@@ -224,62 +231,62 @@ fn write_par_mkdir_failure_when_parent_is_file() -> Result<()> {
 
 // ── Parallel writer ───────────────────────────────────────────────────────────
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("empty_par.cbor");
+    let path = tmp.path().join("empty_par.proto");
 
-    let n = write_cbor_par(&path, &Vec::<Rec>::new(), None)?;
+    let n = write_proto_par(&path, &Vec::<Rec>::new(), None)?;
     assert_eq!(n, 0);
     assert!(path.exists());
 
-    let back: Vec<Rec> = read_cbor_vec(&path)?;
+    let back: Vec<Rec> = read_proto_vec(&path)?;
     assert!(back.is_empty());
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_single_shard() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("single_par.cbor");
+    let path = tmp.path().join("single_par.proto");
     let data = sample(3);
 
-    let n = write_cbor_par(&path, &data, Some(1))?;
+    let n = write_proto_par(&path, &data, Some(1))?;
     assert_eq!(n, 3);
 
-    let back: Vec<Rec> = read_cbor_vec(&path)?;
+    let back: Vec<Rec> = read_proto_vec(&path)?;
     assert_eq!(back, data);
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_multiple_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("multi_par.cbor");
+    let path = tmp.path().join("multi_par.proto");
     let data = sample(50);
 
-    let n = write_cbor_par(&path, &data, Some(4))?;
+    let n = write_proto_par(&path, &data, Some(4))?;
     assert_eq!(n, 50);
 
-    let back: Vec<Rec> = read_cbor_vec(&path)?;
+    let back: Vec<Rec> = read_proto_vec(&path)?;
     assert_eq!(back, data);
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn write_par_auto_shards() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("auto_par.cbor");
+    let path = tmp.path().join("auto_par.proto");
     let data = sample(100);
 
-    let n = write_cbor_par(&path, &data, None)?;
+    let n = write_proto_par(&path, &data, None)?;
     assert_eq!(n, 100);
 
-    let back: Vec<Rec> = read_cbor_vec(&path)?;
+    let back: Vec<Rec> = read_proto_vec(&path)?;
     assert_eq!(back, data);
     Ok(())
 }
@@ -289,10 +296,10 @@ fn write_par_auto_shards() -> Result<()> {
 #[test]
 fn build_shards_non_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("shards.cbor");
-    write_cbor_vec(&path, &sample(10))?;
+    let path = tmp.path().join("shards.proto");
+    write_proto_vec(&path, &sample(10))?;
 
-    let shards = build_cbor_shards(&path, 4)?;
+    let shards = build_proto_shards(&path, 4)?;
     assert_eq!(shards.total_records, 10);
     assert_eq!(shards.ranges, vec![(0, 4), (4, 8), (8, 10)]);
     Ok(())
@@ -301,10 +308,10 @@ fn build_shards_non_empty() -> Result<()> {
 #[test]
 fn build_shards_zero_per_shard_clamps_to_one() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("clamp.cbor");
-    write_cbor_vec(&path, &sample(3))?;
+    let path = tmp.path().join("clamp.proto");
+    write_proto_vec(&path, &sample(3))?;
 
-    let shards = build_cbor_shards(&path, 0)?;
+    let shards = build_proto_shards(&path, 0)?;
     assert_eq!(shards.total_records, 3);
     assert_eq!(shards.ranges, vec![(0, 1), (1, 2), (2, 3)]);
     Ok(())
@@ -313,11 +320,10 @@ fn build_shards_zero_per_shard_clamps_to_one() -> Result<()> {
 #[test]
 fn build_shards_empty_file() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("empty.cbor");
-    // Write a truly empty CBOR file (zero records, not just an empty Vec payload)
-    write_cbor_vec::<Rec>(&path, &[])?;
+    let path = tmp.path().join("empty.proto");
+    write_proto_vec::<Rec>(&path, &[])?;
 
-    let shards = build_cbor_shards(&path, 10)?;
+    let shards = build_proto_shards(&path, 10)?;
     assert_eq!(shards.total_records, 0);
     assert!(shards.ranges.is_empty());
     Ok(())
@@ -326,38 +332,39 @@ fn build_shards_empty_file() -> Result<()> {
 #[test]
 fn build_shards_corrupt_propagates_error() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("corrupt_count.cbor");
-    write_cbor_vec(&path, &sample(2))?;
-    let mut bytes = fs::read(&path)?;
-    bytes.push(0xff);
-    fs::write(&path, &bytes)?;
+    let path = tmp.path().join("corrupt_count.proto");
+    write_proto_vec(&path, &sample(2))?;
 
-    let result = build_cbor_shards(&path, 4);
+    // Append a rogue varint (value 20) after the two valid records, but provide
+    // no payload bytes. proto_count_records will read the varint successfully
+    // then call read_exact(20 bytes) and hit UnexpectedEof — an error.
+    let mut f = fs::OpenOptions::new().append(true).open(&path)?;
+    f.write_all(&[0x14])?; // varint 20
+
+    let result = build_proto_shards(&path, 4);
     assert!(result.is_err());
-    let msg = format!("{:?}", result.err().unwrap());
-    assert!(msg.contains("count CBOR record #3"), "{msg}");
     Ok(())
 }
 
 #[test]
 fn read_range_full_and_subranges() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("range.cbor");
+    let path = tmp.path().join("range.proto");
     let data = sample(6);
-    write_cbor_vec(&path, &data)?;
+    write_proto_vec(&path, &data)?;
 
-    let shards = build_cbor_shards(&path, 2)?;
+    let shards = build_proto_shards(&path, 2)?;
 
     // Full range.
-    let all: Vec<Rec> = read_cbor_range(&shards, 0, shards.total_records)?;
+    let all: Vec<Rec> = read_proto_range(&shards, 0, shards.total_records)?;
     assert_eq!(all, data);
 
-    // Interior subrange (start > 0, end < total).
-    let mid: Vec<Rec> = read_cbor_range(&shards, 2, 4)?;
+    // Interior subrange.
+    let mid: Vec<Rec> = read_proto_range(&shards, 2, 4)?;
     assert_eq!(mid, data[2..4].to_vec());
 
-    // Empty range: end == 0 returns immediately without decoding.
-    let none: Vec<Rec> = read_cbor_range(&shards, 0, 0)?;
+    // Empty range.
+    let none: Vec<Rec> = read_proto_range(&shards, 0, 0)?;
     assert!(none.is_empty());
     Ok(())
 }
@@ -365,21 +372,21 @@ fn read_range_full_and_subranges() -> Result<()> {
 #[test]
 fn read_range_corrupt_propagates_error() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("range_corrupt.cbor");
-    write_cbor_vec(&path, &sample(2))?;
-    let mut bytes = fs::read(&path)?;
-    bytes.push(0xff);
-    fs::write(&path, &bytes)?;
+    let path = tmp.path().join("range_corrupt.proto");
+    write_proto_vec(&path, &sample(2))?;
 
-    let shards = CborShards {
+    // Append a rogue varint claiming 20 bytes of payload, but provide none.
+    // The range reader will read it as a third record and hit UnexpectedEof.
+    let mut f = fs::OpenOptions::new().append(true).open(&path)?;
+    f.write_all(&[0x14])?; // varint 20
+
+    let shards = ProtoShards {
         path,
         ranges: vec![(0, 3)],
         total_records: 3,
     };
-    let result: Result<Vec<Rec>> = read_cbor_range(&shards, 0, 3);
+    let result: Result<Vec<Rec>> = read_proto_range(&shards, 0, 3);
     assert!(result.is_err());
-    let msg = format!("{:?}", result.err().unwrap());
-    assert!(msg.contains("CBOR record #3"), "{msg}");
     Ok(())
 }
 
@@ -389,11 +396,11 @@ fn read_range_corrupt_propagates_error() -> Result<()> {
 #[allow(clippy::or_fun_call)]
 fn vec_ops_len_split_clone() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("vecops.cbor");
-    write_cbor_vec(&path, &sample(100))?;
+    let path = tmp.path().join("vecops.proto");
+    write_proto_vec(&path, &sample(100))?;
 
-    let shards = build_cbor_shards(&path, 25)?;
-    let vec_ops = CborVecOps::<Rec>::new();
+    let shards = build_proto_shards(&path, 25)?;
+    let vec_ops = ProtoVecOps::<Rec>::new();
 
     let len = vec_ops.len(&shards).ok_or(anyhow!("len failed"))?;
     assert_eq!(len, 100);
@@ -413,11 +420,11 @@ fn vec_ops_len_split_clone() -> Result<()> {
 #[allow(clippy::or_fun_call)]
 fn vec_ops_empty() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("vecops_empty.cbor");
-    write_cbor_vec::<Rec>(&path, &[])?;
+    let path = tmp.path().join("vecops_empty.proto");
+    write_proto_vec::<Rec>(&path, &[])?;
 
-    let shards = build_cbor_shards(&path, 25)?;
-    let vec_ops = CborVecOps::<Rec>::new();
+    let shards = build_proto_shards(&path, 25)?;
+    let vec_ops = ProtoVecOps::<Rec>::new();
 
     assert_eq!(vec_ops.len(&shards).ok_or(anyhow!("len"))?, 0);
     assert_eq!(vec_ops.split(&shards, 4).ok_or(anyhow!("split"))?.len(), 0);
@@ -431,7 +438,7 @@ fn vec_ops_empty() -> Result<()> {
 #[test]
 fn pipeline_roundtrip_transform() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("pipeline.cbor");
+    let path = tmp.path().join("pipeline.proto");
 
     let p = TestPipeline::new();
     let input = from_vec(
@@ -447,44 +454,44 @@ fn pipeline_roundtrip_transform() -> Result<()> {
             },
         ],
     );
-    let upper = input.map(|r: &Rec| Rec {
-        id: r.id,
-        word: r.word.to_uppercase(),
+    let doubled = input.map(|r: &Rec| Rec {
+        id: r.id * 10,
+        word: r.word.repeat(2),
     });
-    let n = upper.write_cbor(&path)?;
+    let n = doubled.write_proto(&path)?;
     assert_eq!(n, 2);
 
     let p2 = TestPipeline::new();
-    let back = read_cbor::<Rec>(&p2, &path)?;
+    let back = read_proto::<Rec>(&p2, &path)?;
     let v = back.collect_seq()?;
     assert_eq!(
         v,
         vec![
             Rec {
-                id: 1,
-                word: "HI".into()
+                id: 10,
+                word: "hihi".into()
             },
             Rec {
-                id: 2,
-                word: "THERE".into()
+                id: 20,
+                word: "therethere".into()
             },
         ]
     );
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn pipeline_write_par() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("pipeline_par.cbor");
+    let path = tmp.path().join("pipeline_par.proto");
 
     let p = TestPipeline::new();
     let input = from_vec(&p, sample(30));
-    let n = input.write_cbor_par(&path, Some(4))?;
+    let n = input.write_proto_par(&path, Some(4))?;
     assert_eq!(n, 30);
 
-    let back: Vec<Rec> = read_cbor_vec(&path)?;
+    let back: Vec<Rec> = read_proto_vec(&path)?;
     assert_eq!(back, sample(30));
     Ok(())
 }
@@ -493,24 +500,24 @@ fn pipeline_write_par() -> Result<()> {
 fn read_glob_concatenates_sorted() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let dir = tmp.path();
-    write_cbor_vec(
-        dir.join("a.cbor"),
+    write_proto_vec(
+        dir.join("a.proto"),
         &[Rec {
             id: 1,
             word: "a".into(),
         }],
     )?;
-    write_cbor_vec(
-        dir.join("b.cbor"),
+    write_proto_vec(
+        dir.join("b.proto"),
         &[Rec {
             id: 2,
             word: "b".into(),
         }],
     )?;
 
-    let pattern = dir.join("*.cbor");
+    let pattern = dir.join("*.proto");
     let p = TestPipeline::new();
-    let pc = read_cbor::<Rec>(&p, &pattern)?;
+    let pc = read_proto::<Rec>(&p, &pattern)?;
     let v = pc.collect_seq()?;
     assert_eq!(
         v,
@@ -531,9 +538,9 @@ fn read_glob_concatenates_sorted() -> Result<()> {
 #[test]
 fn read_glob_no_match_errors() {
     let tmp = tempfile::tempdir().unwrap();
-    let pattern = tmp.path().join("*.cbor");
+    let pattern = tmp.path().join("*.proto");
     let p = TestPipeline::new();
-    let result = read_cbor::<Rec>(&p, &pattern);
+    let result = read_proto::<Rec>(&p, &pattern);
     assert!(result.is_err());
     let msg = format!("{:?}", result.err().unwrap());
     assert!(msg.contains("no files found matching pattern"), "{msg}");
@@ -542,8 +549,8 @@ fn read_glob_no_match_errors() {
 #[test]
 fn streaming_pipeline_wordcount() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("stream.cbor");
-    write_cbor_vec(
+    let path = tmp.path().join("stream.proto");
+    write_proto_vec(
         &path,
         &[
             Line {
@@ -556,7 +563,7 @@ fn streaming_pipeline_wordcount() -> Result<()> {
     )?;
 
     let p = TestPipeline::new();
-    let input = read_cbor_streaming::<Line>(&p, &path, 1)?;
+    let input = read_proto_streaming::<Line>(&p, &path, 1)?;
     let words = input.flat_map(|l: &Line| {
         l.line
             .split_whitespace()
@@ -581,25 +588,25 @@ fn streaming_pipeline_wordcount() -> Result<()> {
 #[test]
 fn streaming_empty_file() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("stream_empty.cbor");
-    write_cbor_vec::<Rec>(&path, &[])?;
+    let path = tmp.path().join("stream_empty.proto");
+    write_proto_vec::<Rec>(&path, &[])?;
 
     let p = TestPipeline::new();
-    let stream = read_cbor_streaming::<Rec>(&p, &path, 10)?;
+    let stream = read_proto_streaming::<Rec>(&p, &path, 10)?;
     let out = stream.collect_seq()?;
     assert!(out.is_empty());
     Ok(())
 }
 
-#[cfg(feature = "parallel-io")]
+#[cfg(feature = "v4-parallel-io")]
 #[test]
 fn streaming_parallel_collect() -> Result<()> {
     let tmp = tempfile::tempdir()?;
-    let path = tmp.path().join("stream_par.cbor");
-    write_cbor_vec(&path, &sample(200))?;
+    let path = tmp.path().join("stream_par.proto");
+    write_proto_vec(&path, &sample(200))?;
 
     let p = TestPipeline::new();
-    let stream = read_cbor_streaming::<Rec>(&p, &path, 16)?;
+    let stream = read_proto_streaming::<Rec>(&p, &path, 16)?;
     let mut out = stream.collect_par(None, None)?;
     out.sort_by_key(|r| r.id);
     assert_eq!(out, sample(200));
