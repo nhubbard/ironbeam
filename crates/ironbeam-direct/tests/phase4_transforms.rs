@@ -1294,6 +1294,84 @@ fn sink_commit_failures_abort_and_cancelled_job_does_not_open_sink() {
 }
 
 #[test]
+fn cancellation_while_writing_sink_aborts_before_commit() {
+    use ironbeam_core::{Error, Replay, SinkMode, SinkSpec, TypedSink};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+    struct CancelOnWrite {
+        cancelled: Arc<AtomicBool>,
+        writes: Arc<AtomicUsize>,
+        aborts: Arc<AtomicUsize>,
+        commits: Arc<AtomicUsize>,
+    }
+    impl TypedSink<i32> for CancelOnWrite {
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            self.writes.fetch_add(1, Ordering::SeqCst);
+            self.cancelled.store(true, Ordering::Release);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            self.commits.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.aborts.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    for rows in [1, 2] {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let writes = Arc::new(AtomicUsize::new(0));
+        let aborts = Arc::new(AtomicUsize::new(0));
+        let commits = Arc::new(AtomicUsize::new(0));
+        let pipeline = Pipeline::default();
+        let input = pipeline
+            .from_vec("source", (0..rows).collect::<Vec<i32>>())
+            .unwrap();
+        let sink = input
+            .sink_named(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::FinalResult,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                {
+                    let cancelled = Arc::clone(&cancelled);
+                    let writes = Arc::clone(&writes);
+                    let aborts = Arc::clone(&aborts);
+                    let commits = Arc::clone(&commits);
+                    move || {
+                        Ok(Box::new(CancelOnWrite {
+                            cancelled: Arc::clone(&cancelled),
+                            writes: Arc::clone(&writes),
+                            aborts: Arc::clone(&aborts),
+                            commits: Arc::clone(&commits),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        let error = DirectRunner
+            .run_sink(
+                &sink,
+                &JobConfig {
+                    cancellation: cancelled,
+                    ..JobConfig::default()
+                },
+            )
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, ErrorKind::Cancelled);
+        assert_eq!(writes.load(Ordering::SeqCst), 1);
+        assert_eq!(aborts.load(Ordering::SeqCst), 1);
+        assert_eq!(commits.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[test]
 fn sink_panics_and_missing_commit_contract_are_typed_errors() {
     use ironbeam_core::{Error, Replay, SinkMode, SinkSpec, TypedSink};
     struct PanickingSink(bool);

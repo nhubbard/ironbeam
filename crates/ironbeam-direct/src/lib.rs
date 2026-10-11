@@ -460,6 +460,10 @@ impl DirectRunner {
                     ))
                 })?;
             for value in values {
+                if config.cancellation.load(Ordering::Acquire) {
+                    let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                    return Err(cancelled());
+                }
                 let event = Envelope {
                     value: Box::new(value),
                     timestamp_ns: 0,
@@ -478,6 +482,10 @@ impl DirectRunner {
                     let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
                     return Err(error);
                 }
+            }
+            if config.cancellation.load(Ordering::Acquire) {
+                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                return Err(cancelled());
             }
             let committed =
                 catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(|_| {
