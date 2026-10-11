@@ -115,6 +115,28 @@ between runs and do not establish a transform-path improvement. The Direct
 tests cover typed custom source values, batch metrics, source-only checkpoint
 recovery, and factory/iterator panic conversion.
 
+On 2026-10-10, after the typed same-type Direct path landed, five warmed
+100,000-row release runs of each corpus executable produced these medians.
+The v4 executable used `legacy-v4,io-jsonl`; v5 used its default feature set.
+Each time includes source construction through the terminal, and output counts
+and checksums matched. These are local characterization samples, not stable
+release thresholds:
+
+| Workload | v4 ms | v5 ms | v5/v4 |
+| --- | ---: | ---: | ---: |
+| Source copy | 0.059 | 1.191 | 20.1× |
+| Map/filter | 0.112 | 1.227 | 11.0× |
+| GroupByKey | 0.682 | 12.384 | 18.1× |
+| Inner join | 11.960 | 33.240 | 2.8× |
+| JSONL round trip | 4.093 | 11.429 | 2.8× |
+
+The earlier 0.63 ms v5 map/filter figure measured the execution segment
+alone. The paired table measures the whole user-visible operation. A trial
+that batched vector-source SHA-256 updates kept the versioned digest identical
+but raised the warmed source-copy median to about 1.32 ms and map/filter to
+about 1.34 ms, so it was reverted. The performance replacement gate remains
+open, especially for vector-source identity and grouping.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
