@@ -46,6 +46,7 @@ if cargo tree -p ironbeam-io-jsonl --all-features --edges normal | grep -E 'iron
 fi
 
 cargo test --workspace
+cargo run --example cloud_io_demo --no-default-features --features v5-preview
 cargo test -p ironbeam --features legacy-v4,v5-preview --test v5_behavior_corpus --test v5_direct_differential --test v5_facade_preview --test v5_facade_prelude --test v5_tfrecord_examples
 cargo test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude

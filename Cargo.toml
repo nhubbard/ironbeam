@@ -187,7 +187,7 @@ required-features = ["legacy-v4"]
 
 [[example]]
 name = "cloud_io_demo"
-required-features = ["legacy-v4"]
+required-features = ["v5-preview"]
 
 [[example]]
 name = "co_gbk"

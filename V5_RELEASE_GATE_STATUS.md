@@ -30,6 +30,13 @@ staged locally.
   the live CI jobs. The default dependency tree excludes both service-test
   libraries; the v5 facade tests pass, and the all-feature legacy MongoDB
   target compiles and lists its thirty tests.
+- The `cloud_io_demo` example now runs entirely through v5: it writes JSONL
+  through a deferred URI object sink, reads and transforms the rows through a
+  URI source, then copies the object between two registered schemes. URI glob
+  sources also work; their child sources bind scheme and content identity.
+  The URI sink binds its destination to the graph configuration. Its v5-only
+  build and strict lint pass. The remaining legacy fake cloud-service
+  families are still an API migration gap.
 - `ironbeam-transform-regex` owns the v5 regex helpers and measures 45/45
   source locations in its isolated tests. The ordinary
   `ironbeam-transforms` dependency tree no longer includes `regex`. The
@@ -55,7 +62,7 @@ staged locally.
   measure 60/63 source locations and 5/6 branches. The full package gate
   passes. Shared I/O's default tree has no `ciborium` dependency.
 - `ironbeam-io-jsonl` owns file and object adapters. Its all-feature tests
-  now measure 285/302 source locations and 32/34 active branch outcomes,
+  now measure 342/361 source locations and 32/34 active branch outcomes,
   including append failure cleanup, four compressed object formats, and
   cloud glob behavior; both exceed its existing CI coverage ratios. Its
   all-feature dependency tree has no legacy `ironbeam-cloud` dependency.

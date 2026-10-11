@@ -58,6 +58,16 @@ The `sql_pipeline` example now uses the isolated v5 SQL extension and checks
 its deferred read-transform-write path against a temporary SQLite database.
 The `mongodb_pipeline` example uses its separate v5 extension and passed a
 read-transform-write check against a temporary local MongoDB container.
+The `cloud_io_demo` example now uses v5's provider-neutral URI router, two
+local object providers, URI-level deferred JSONL sink and source adapters,
+and a cross-provider prefix copy. It runs without `legacy-v4` or hosted
+provider SDKs. URI-based JSONL sources bind the scheme and content digest to
+graph identity, and sinks bind the destination URI. The sink still has
+whole-job final-result semantics and remains unsupported by the portable
+worker until it has a runner-wide commit protocol. The old fake cache, queue,
+search, graph, compute, and inference
+families still need a v5 ownership and parity decision before deleting the
+legacy cloud package; this example does not claim those families are complete.
 The `etl_pipeline` example now uses v5 grouping, global TopK, bot counts, and
 the separate CSV and JSONL connectors with checked temporary round trips.
 The v4 checkpoint examples remain legacy-gated because v5 does not yet
