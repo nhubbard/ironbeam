@@ -367,6 +367,44 @@ Source copy was 0.105/0.106 ms and GroupByKey 4.582/4.581 ms. All three cases
 retained identical output counts and checksums. This is a local sample; the
 remaining transform overhead versus v4 is still substantial.
 
+The paired corpus now has a repeatable driver in
+`scripts/compare_v4_v5_benchmarks.py`. It alternates rebuilt release
+executables, checks output row counts and checksums on every run, discards two
+warmup pairs, and reports medians from eight pairs per case. An optional macOS
+`/usr/bin/time -l` path measures each process's peak resident memory; optional
+ratio arguments can enforce release limits once those limits are agreed.
+A current 100,000-row run on 2026-10-11 measured:
+
+```sh
+cargo build --release --example v5_benchmark_corpus
+cargo build --release -p ironbeam-compat --example v4_benchmark_corpus
+python3 -B scripts/compare_v4_v5_benchmarks.py \
+  --v4 target/release/examples/v4_benchmark_corpus \
+  --v5 target/release/examples/v5_benchmark_corpus \
+  --rows 100000 --warmups 2 --samples 8 --rss
+```
+
+Use the configured Mr Boxington Cargo wrapper for the two builds. The `--rss`
+option uses macOS `/usr/bin/time -l`; omit it on other hosts. The driver
+also accepts `--max-latency-ratio` and `--max-rss-ratio` for a future release
+threshold.
+
+| Case | v4 ms | v5 ms | v5/v4 | v4 peak MiB | v5 peak MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Source copy | 0.060 | 0.115 | 1.91× | 3.41 | 3.87 |
+| Map/filter | 0.105 | 0.328 | 3.12× | 3.83 | 3.55 |
+| GroupByKey | 0.578 | 1.103 | 1.91× | 5.23 | 4.52 |
+| Latest per key | 0.660 | 1.166 | 1.77× | 7.31 | 3.89 |
+| Inner join | 11.109 | 12.651 | 1.14× | 21.50 | 47.53 |
+| Duplicate-key join | 2.741 | 5.968 | 2.18× | 5.53 | 31.66 |
+| JSONL round trip | 4.105 | 10.798 | 2.63× | 4.33 | 5.05 |
+
+The process peaks include runtime setup and are not an allocation profile.
+Host load can move absolute times; the paired comparisons identify the next
+work: map/filter and JSONL latency, and join memory, especially duplicate
+keys. No acceptable regression limits have been set, so this measurement
+does not close the performance gate.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

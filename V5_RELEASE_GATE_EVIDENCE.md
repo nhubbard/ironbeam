@@ -545,6 +545,20 @@ claimed. Other SDF graph shapes remain open.
 ### Direct and package quality
 
 <details>
+<summary>Repeatable v4/v5 performance comparison</summary>
+
+The paired benchmark driver alternates rebuilt release executables, checks
+each run's output count and checksum, discards warmup pairs, and reports median
+latency and process peak memory. A 100,000-row sample on 2026-10-11 matched
+outputs for all seven cases. The largest latency gaps were map/filter (3.12×)
+and JSONL round trip (2.63×); duplicate-key join used 31.66 MiB peak in v5
+versus 5.53 MiB in v4. The full table and invocation are in the
+[Phase 0 baseline](V5_PHASE0_BASELINE.md). These measurements identify
+remaining work. Acceptable regression limits have not yet been set.
+
+</details>
+
+<details>
 <summary>Formatting gate</summary>
 
 The root and separate Dataflow checkouts now pass `cargo fmt --all --check`
