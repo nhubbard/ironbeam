@@ -1,8 +1,8 @@
-#![cfg(feature = "legacy-v4")]
 #[macro_use]
+#[path = "common/macros.rs"]
 mod macros;
 
-use ironbeam::utils::OrdF64;
+use ironbeam_v4::utils::OrdF64;
 
 #[test]
 fn test_ordf64_from_f64() {

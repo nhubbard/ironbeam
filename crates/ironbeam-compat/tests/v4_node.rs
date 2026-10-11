@@ -1,6 +1,5 @@
-#![cfg(feature = "legacy-v4")]
-use ironbeam::Partition;
-use ironbeam::node::DynOp;
+use ironbeam_v4::Partition;
+use ironbeam_v4::node::DynOp;
 use std::sync::Arc;
 
 /// Test implementation of `DynOp` for testing trait defaults

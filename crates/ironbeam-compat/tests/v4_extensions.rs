@@ -1,10 +1,9 @@
-#![cfg(feature = "legacy-v4")]
 use anyhow::Result;
-use ironbeam::extensions::CompositeTransform;
-use ironbeam::node::DynOp;
-use ironbeam::testing::*;
-use ironbeam::type_token::{Partition, VecOps};
-use ironbeam::*;
+use ironbeam_v4::extensions::CompositeTransform;
+use ironbeam_v4::node::DynOp;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::type_token::{Partition, VecOps};
+use ironbeam_v4::*;
 use std::any::Any;
 use std::sync::Arc;
 

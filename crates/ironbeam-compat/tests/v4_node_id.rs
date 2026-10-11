@@ -1,5 +1,4 @@
-#![cfg(feature = "legacy-v4")]
-use ironbeam::NodeId;
+use ironbeam_v4::NodeId;
 use std::collections::{HashMap, HashSet};
 
 #[test]

@@ -1,8 +1,7 @@
-#![cfg(feature = "legacy-v4")]
 use anyhow::Result;
-use ironbeam::collection::Count;
-use ironbeam::from_vec;
-use ironbeam::testing::*;
+use ironbeam_v4::collection::Count;
+use ironbeam_v4::from_vec;
+use ironbeam_v4::testing::*;
 use std::collections::HashMap;
 
 #[test]

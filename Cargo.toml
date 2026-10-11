@@ -264,19 +264,11 @@ name = "co_gbk"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "core"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "dead_letter"
 required-features = ["legacy-v4"]
 
 [[test]]
 name = "explain"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "extensions"
 required-features = ["legacy-v4"]
 
 [[test]]
@@ -313,14 +305,6 @@ required-features = ["legacy-v4"]
 
 [[test]]
 name = "named_operations"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "node"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "node_id"
 required-features = ["legacy-v4"]
 
 [[test]]
@@ -365,10 +349,6 @@ required-features = ["legacy-v4"]
 
 [[test]]
 name = "testing_utilities"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "utils"
 required-features = ["legacy-v4"]
 
 [[test]]

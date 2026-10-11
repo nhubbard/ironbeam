@@ -75,6 +75,9 @@ staged locally.
   to `ironbeam-compat`; their 58 cases pass against published v4. The root no
   longer owns those three legacy test targets, and CI retains the reference
   suites explicitly.
+- The v4 core collection, node identity, custom extension, and utility suites
+  now run in `ironbeam-compat` against published 4.1.1. Their 38 cases pass,
+  and the five duplicate root test targets are removed.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The
