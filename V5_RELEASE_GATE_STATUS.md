@@ -379,7 +379,9 @@ staged locally.
    source locations and 27/28 branches. The untested lines are primarily
    filesystem and integer-overflow errors; malformed datum, wrong schema,
    wrong count, pending fragments, and repeated publication are exercised.
-   Multi-bundle retry and worker-restart recovery remain unproved.
+   Multi-bundle retry and worker-restart recovery remain unproved. A local
+   two-source Flatten experiment reached `DONE`, but Prism coalesced its Avro
+   output into one final sink bundle, so it did not close the multi-bundle gate.
    The worker now passes a stable bundle attempt ID to each sink before writes;
    the Prism probe uses it for deterministic fragment names and rejects a
    conflicting replay. This prepares durable manifest and publication work.
