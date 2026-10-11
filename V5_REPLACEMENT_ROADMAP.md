@@ -77,7 +77,7 @@ edit for every changed public path in `V5_PHASE0_API_INVENTORY.md`.
 | Node identity | Implicit IDs; names often added afterward | Stable unique keys at construction | Intentional API break. Keep keys visible in examples and migration errors; do not silently invent recovery identities. |
 | Construction errors | Many transforms return a collection directly | Node construction returns `Result` | Intentional break needed for graph validation. Document `?` at each stage. |
 | Helper location | Most v4 helpers are inherent methods | Many v5 helpers are extension traits | Root prelude should make the usual method calls available with one import. |
-| Execution | `collect_seq()`/`collect_par(...)` on collections; many immediate writers | Explicit output terminal and deferred sinks | Preserve convenient Direct terminal methods through traits, while retaining explicit job ownership and side-effect timing. |
+| Execution | `collect_seq()`/`collect_par(...)` on collections; many immediate writers | Direct collection traits now work on collections through a detached output; explicit output terminals and deferred sinks remain | Keep stable named terminals for portable jobs and durable identity while preserving the familiar bounded Direct call shape. |
 | Time and coders | v4 timestamp wrapper and feature-dependent Serde bound | Envelope event time in signed nanoseconds; explicit element/coder identity | Intentional semantic and type break; document conversion and reject incompatible state. |
 | Feature flags | Broad v4 defaults and `io-*` flags | Small core/Direct and separately gated extensions | Root v5 facade must map old feature names or provide precise replacements before deleting v4 paths. |
 

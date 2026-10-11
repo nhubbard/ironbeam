@@ -11,19 +11,17 @@ use ironbeam::v5::{Pipeline, prelude::*};
 let pipeline = Pipeline::default();
 let values = pipeline.from_vec("numbers", vec![1_i32, 2, 3, 4])?
     .map_named("double", |value| value * 2)?
-    .filter_named("large", |value| *value > 4)?
-    .output("result")?;
+    .filter_named("large", |value| *value > 4)?;
 assert_eq!(values.collect_seq()?, vec![6, 8]);
 # Ok(())
 # }
 ```
 
-Every source, transform, and terminal has a stable unique key. Construction
-returns `Result`, and execution starts at an explicit terminal. Enable
+Every graph node has a stable unique key. Construction returns `Result`;
+Direct collection creates a private terminal when called on a collection.
+Use an explicit `.output("result")?` for a named portable or durable terminal. Enable
 `v5-io-*` features only for the formats an application needs. The
 `V4_TO_V5_MIGRATION.md` guide maps familiar v4 calls to their v5 equivalents.
 
-This branch still enables the old root exports by default through
-`legacy-v4`. A v5-only facade build uses `--no-default-features --features
-v5-preview`; the final 5.0.0 cutover will make v5 the root default and remove
-the legacy implementation.
+This branch defaults to the v5 root facade. The old root exports require
+`legacy-v4`; the final 5.0.0 cutover will remove that implementation.

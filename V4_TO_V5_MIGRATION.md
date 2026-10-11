@@ -26,11 +26,19 @@ let pipeline = Pipeline::default();
 let result = pipeline.from_vec("numbers", vec![1_i32, 2, 3, 4])?
     .map_named("double", |n| n * 2)?
     .filter_named("divisible-by-four", |n| n % 4 == 0)?
-    .output("result")?
     .collect_seq()?;
 ```
 
-Every v5 node needs a stable, unique key. Transform construction returns `Result`; `output` creates an explicit terminal. Use the same key and semantic closure version when restarting a job from a checkpoint. `collect_par` on the v5 output takes a concrete parallelism value, whereas v4 accepts optional threads and partitions. Direct execution settings belong to `JobConfig`, not global runner state.
+Every v5 graph node needs a stable, unique key. Transform construction returns
+`Result`. The Direct `collect_seq` and `collect_par` traits accept a
+`PCollection` directly, creating a terminal on a private graph snapshot;
+repeating either call does not add nodes to the source pipeline. Use
+`.output("result")?` when the terminal must be named explicitly, especially
+for portable lowering or durable job identity. Use the same keys and semantic
+closure versions when restarting from a checkpoint. `collect_par` takes a
+concrete parallelism value, whereas v4 accepts optional threads and
+partitions. Direct execution settings belong to `JobConfig`, not global
+runner state.
 
 ## Public API mapping
 
@@ -74,7 +82,7 @@ Every v5 node needs a stable, unique key. Transform construction returns `Result
 | `write_sql_par_with`, `write_mongodb_par` | `sql_parallel_sink_with`, `mongodb_parallel_sink` | The v5 sinks append at Direct job commit using independent shard connections or clients. Successful shards are not rolled back when another fails; use application-level deduplication before retrying. |
 | `read_msgpack_streaming`, `read_cbor_streaming`, `read_proto_streaming`, `read_tfrecord_streaming` | Corresponding `*_streaming_source` and `*_sharded_source` functions in `ironbeam-io` | These decode bounded files and validate the source fingerprint before execution. TFRecord CRCs and protobuf framing errors are checked while records are read. Finite range sources can rescan earlier records. Typed `tf.Example` records use `tfrecord_examples_source` and its lazy or sharded forms. |
 | Joins, flatten, combines, side inputs | Corresponding `*_named` graph operations | Keys, finite-input requirements, and backend capabilities are checked at construction/validation. Consult `PHASE4_TRANSFORMS_IO.md`. |
-| `.collect_seq()`, `.collect_par(Some(threads), Some(partitions))` | `.output(key)?.collect_seq()`, `.output(key)?.collect_par(parallelism)` | Import `DirectCollectExt`; collection happens through an explicit output and `DirectRunner`. |
+| `.collect_seq()`, `.collect_par(Some(threads), Some(partitions))` | `.collect_seq()`, `.collect_par(parallelism)` on a `PCollection`; explicit `.output(key)?` remains available | Import `DirectCollectExt`. The collection convenience uses a detached Direct terminal and keeps the original graph unchanged. |
 | Immediate `.write_jsonl(path)` and similar methods | `ironbeam_io::jsonl_sink(&input, key, path)?`, then `DirectRunner.run_sink(&sink, &config)` | Sink construction is deferred; `FinalResult` files publish after job success. No immediate row count is returned. |
 | `read_jsonl(&pipeline, path)` and other file readers | `ironbeam_io::jsonl_source(&pipeline, key, path)` | v5 file sources bind path and content digest at graph build time; a changed file fails on execution. |
 | `write_avro_with_schema(path, schema)` | `avro_sink(&input, key, path, schema)` | v5 writes native Avro records; `avro_source` reads native containers. `avro_json_*` handles earlier v5 preview wrappers. |

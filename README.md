@@ -20,15 +20,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = pipeline.from_vec("numbers", vec![1_i32, 2, 3, 4])?
         .map_named("double", |value| value * 2)?
         .filter_named("large", |value| *value > 4)?
-        .output("result")?
         .collect_seq()?;
     assert_eq!(result, vec![6, 8]);
     Ok(())
 }
 ```
 
-Sources, transforms, and terminals take stable unique keys. Building a graph
-returns `Result`; running an explicit terminal starts execution. Import
+Graph nodes take stable unique keys. Building a graph returns `Result`;
+Direct collection on a `PCollection` creates a private terminal. Use an
+explicit `.output("result")?` for a named portable or durable terminal. Import
 `ironbeam::prelude::*` for helper methods and Direct collection terminals.
 The same v5 API remains available under `ironbeam::v5::*` during migration.
 

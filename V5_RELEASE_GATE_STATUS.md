@@ -104,7 +104,11 @@ staged locally.
   reduced the five-run median to 5.565 ms. This is still about 12 times the
   measured v4 median of 0.456 ms. Reserving source batches from the iterator
   size hint subsequently brought the warmed five-run map/filter median to
-  4.786 ms, still roughly 10.5 times the v4 median. The root package
+  4.786 ms, still roughly 10.5 times the v4 median. The v5 Direct collection
+  trait now accepts `PCollection` as well as `Output`; it builds an isolated
+  terminal snapshot, so repeated v4-shaped `collect_seq` and `collect_par`
+  calls leave the user's graph unchanged. Named `Output` terminals remain for
+  portable and durable jobs. The root package
   version is still 4.1.1, until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
