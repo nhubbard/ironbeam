@@ -674,10 +674,10 @@ staged locally.
    370/420 branches; Direct 2,186/2,331 lines and 441/482 branches.
    Affected core/Direct tests and strict lint, the root default-feature facade
    tests, Dataflow graph/worker tests, and both live local Prism execution
-   fixtures pass. The full all-feature workspace test build exhausted local
-   disk space before tests started; generated root-crate artifacts were cleaned
-   afterward. Its all-feature gate needs a fresh run with sufficient build
-   space before release.
+   fixtures pass. The first full all-feature workspace build exhausted local
+   disk space before tests started. After clearing generated build artifacts,
+   the full all-feature workspace test and doctest suite passed with Mr
+   Boxington enabled. This closes the workspace test gate for this change.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.
