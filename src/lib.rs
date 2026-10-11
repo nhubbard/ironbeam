@@ -7,6 +7,10 @@
 /// Ironbeam 5 graph, transforms, I/O, and Direct runner.
 #[cfg(feature = "v5-preview")]
 pub mod v5 {
+    #[cfg(feature = "v5-metrics")]
+    pub mod metrics {
+        pub use ironbeam_metrics::*;
+    }
     /// Imports for v5 convenience transforms and Direct execution terminals.
     /// This prelude depends only on v5 packages; migration bridges are optional.
     pub mod prelude {

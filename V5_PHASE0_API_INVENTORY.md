@@ -78,7 +78,7 @@ Source: `src/collection.rs` and `src/helpers/*.rs` at `main` `d64c26a` (same cod
 | `io-msgpack, io-cbor, io-protobuf, io-tfrecord, io-arrow, io-sql, io-mongodb` | optional ironbeam-io formats/adapters; keep database clients out of core |
 | `compression-gzip, compression-zstd, compression-bzip2, compression-xz` | ironbeam-io codec features |
 | `parallel-io` | I/O scheduling or direct runner option; inspect current empty flag before carrying forward |
-| `metrics` | direct runner telemetry feature |
+| `metrics` | aliases `v5-metrics`: optional `ironbeam-metrics` custom reporting plus Direct job telemetry; attach the collector to `JobConfig` instead of the pipeline |
 | `checkpointing, spilling` | direct runner local persistence features; distinct from portable checkpoint/state schema |
 | `coders` | core coder metadata plus concrete Postcard codec; v4 tightens every `Element` to Serde |
 

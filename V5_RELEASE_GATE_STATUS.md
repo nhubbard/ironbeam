@@ -86,13 +86,20 @@ staged locally.
   integration tests are also gated by `legacy-v4`, allowing the complete
   root test target set to build in v5-only mode. The crate root and README
   now show a v5 quick start, with a passing doctest; legacy builds retain
-  their old documentation. Eight examples still require `legacy-v4`,
+  their old documentation. Seven examples still require `legacy-v4`,
   including the v4 benchmark corpus. Advanced joins, CoGroupByKey, JSONL
   globbing, pluggable compression, the Direct plan explanation example, and
   the data-quality validation, windowing aggregation, combiners showcase, and
   multi-output examples now run through v5; the seven-part testing example
   uses the separate `ironbeam-testing` crate through an opt-in `v5-testing`
-  feature. Compression remains opt-in under
+  feature. The metrics example now uses optional `ironbeam-metrics` for custom
+  counters, gauges, histograms, and JSON reports. Direct job configuration
+  attaches that collector while `JobHandle` keeps the built-in execution
+  counters. The `metrics` feature aliases `v5-metrics`; neither the optional
+  crate nor its JSON dependency enters the default root dependency graph.
+  Its isolated test corpus measures 215/216 source locations and 15/16
+  active branch outcomes, and local Cargo packaging passes without publishing.
+  Compression remains opt-in under
   `compression-gzip`. The multi-output example collects one classified bounded
   output per job and separates typed buckets locally. A counting-source test
   verifies one source open per partition job. Direct still lacks general
