@@ -414,6 +414,13 @@ staged locally.
    validation; both publish and reopen the same three rows after `DONE` in
    local Prism. Protobuf uses that lifecycle too, validating every
    length-delimited record before publication and reopening the same rows.
+   JSONL now uses the same finalized fragment lifecycle: each record is
+   validated as JSON with a complete newline before publication. The live
+   local Prism job publishes and reopens all three rows after `DONE`, and
+   retrying publication is idempotent. Local tests reject malformed and
+   truncated fragments without replacing an existing result. Its isolated
+   coverage is 380/403 source locations and 36/38 branches, above the
+   unchanged package baseline.
    Publication also rejects pending or orphaned staging
    entries even if their row count is zero. Malformed MessagePack and CBOR
    fragments cannot replace an existing result, and failed serialization
@@ -439,7 +446,7 @@ staged locally.
    set for each bundle in a local, identity-bound finalization journal before
    returning `ProcessBundleResponse`. A fresh registry recovers a Protobuf
    fragment using only that record, rejects unknown and missing fragments,
-   and persists a completion marker for duplicate callbacks. The six-sink
+   and persists a completion marker for duplicate callbacks. The seven-sink
    local Prism job reached `DONE` with journal records and matching completion
    markers. A separate two-process test exits immediately after staging and
    reopens the journal in a fresh process to finalize and publish Protobuf.

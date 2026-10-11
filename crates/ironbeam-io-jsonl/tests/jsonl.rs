@@ -1,5 +1,7 @@
-use ironbeam_core::{Boundedness, Capabilities, Element, ErrorKind, Operation, Pipeline, SinkMode};
-use ironbeam_direct::{DirectRunner, JobConfig};
+use ironbeam_core::{
+    Boundedness, Capabilities, Element, Envelope, ErrorKind, Operation, Pipeline, SinkMode, Window,
+};
+use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_io_jsonl::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -24,6 +26,72 @@ fn rows() -> Vec<Row> {
             name: "Lin".into(),
         },
     ]
+}
+
+#[test]
+fn finalized_jsonl_bundles_publish_one_valid_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let staging = dir.path().join("staging");
+    let target = dir.path().join("result.jsonl");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", rows()).unwrap();
+    let sink = jsonl_fragment_sink(&input, "final", &staging, "job", "graph").unwrap();
+    let (_, registry) = sink.snapshot().unwrap();
+    assert!(registry.sink_requires_bundle_finalization("final"));
+    let store = jsonl_fragment_store(&staging, "job", "graph", "final").unwrap();
+    for (index, row) in rows().into_iter().enumerate() {
+        let mut session = registry.open_sink("final").unwrap();
+        session.begin_bundle(&format!("bundle-{index}")).unwrap();
+        session
+            .write(Envelope {
+                value: Box::new(row),
+                timestamp_ns: 0,
+                window: Window::Global,
+                assigned_window: None,
+            })
+            .unwrap();
+        session.commit().unwrap();
+        assert!(publish_jsonl_fragments::<Row>(&store, 2, &target).is_err());
+        session.finalize_bundle().unwrap();
+    }
+    assert_eq!(store.accepted_fragments().unwrap().len(), 2);
+    let result = publish_jsonl_fragments::<Row>(&store, 2, &target).unwrap();
+    assert_eq!(result.rows, 2);
+    assert_eq!(
+        publish_jsonl_fragments::<Row>(&store, 2, &target).unwrap(),
+        result
+    );
+    let output = jsonl_source::<Row>(&Pipeline::default(), "verify", &target)
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let mut actual = output.collect_seq().unwrap();
+    actual.sort_by_key(|row| row.id);
+    assert_eq!(actual, rows());
+    assert!(publish_jsonl_fragments::<Row>(&store, 3, &target).is_err());
+    assert!(publish_jsonl_fragments::<Row>(&store, 2, dir.path().join("bad.jsonl.gz")).is_err());
+}
+
+#[test]
+fn malformed_jsonl_fragment_cannot_replace_an_existing_result() {
+    for malformed in [
+        b"{broken}\n".as_slice(),
+        b"{\"id\":1,\"name\":\"Ada\"}".as_slice(),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let staging = dir.path().join("staging");
+        let target = dir.path().join("result.jsonl");
+        fs::write(&target, b"previous result").unwrap();
+        let raw = ironbeam_io::sequence_final::sequence_fragment_store(
+            &staging, "job", "graph", "final", "jsonl",
+        )
+        .unwrap();
+        raw.stage("bundle", 1, malformed).unwrap();
+        raw.accept("bundle").unwrap();
+        let store = jsonl_fragment_store(&staging, "job", "graph", "final").unwrap();
+        assert!(publish_jsonl_fragments::<Row>(&store, 1, &target).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"previous result");
+    }
 }
 
 #[test]

@@ -5,6 +5,10 @@ use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, TypedSink,
     TypedSourceIterator,
 };
+use ironbeam_io::final_result::{AcceptedFragment, LocalFinalResult, PublishedResult};
+use ironbeam_io::sequence_final::{
+    publish_sequence_fragments, sequence_fragment_sink, sequence_fragment_store,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use std::path::{Path, PathBuf};
 
@@ -135,6 +139,97 @@ pub fn jsonl_sink<T: Element + Serialize>(
     path: impl AsRef<Path>,
 ) -> Result<Sink<T>, Error> {
     ironbeam_io::sink(input, key, path, write_jsonl::<T>)
+}
+
+/// A local, graph-bound staging scope for finalized JSONL bundles.
+#[derive(Clone)]
+pub struct JsonlFragmentStore {
+    local: LocalFinalResult,
+}
+
+impl JsonlFragmentStore {
+    pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
+        self.local.accepted_fragments()
+    }
+}
+
+pub fn jsonl_fragment_store(
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+    key: &str,
+) -> Result<JsonlFragmentStore, Error> {
+    Ok(JsonlFragmentStore {
+        local: sequence_fragment_store(staging, job, graph, key, "jsonl")?,
+    })
+}
+
+fn write_jsonl_record<T: Serialize>(
+    value: &T,
+    output: &mut dyn std::io::Write,
+) -> Result<(), Error> {
+    serde_json::to_writer(&mut *output, value)
+        .map_err(|error| ironbeam_io::io("jsonl-fragment", error))?;
+    output
+        .write_all(b"\n")
+        .map_err(|error| ironbeam_io::io("jsonl-fragment", error))
+}
+
+/// Stage complete JSONL records per bundle and accept them after FinalizeBundle.
+/// The staging path must be shared with the job coordinator.
+pub fn jsonl_fragment_sink<T: Element + Serialize>(
+    input: &PCollection<T>,
+    key: &str,
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+) -> Result<Sink<T>, Error> {
+    sequence_fragment_sink(
+        input,
+        key,
+        staging,
+        job,
+        graph,
+        "jsonl",
+        write_jsonl_record::<T>,
+    )
+}
+
+/// Validate every record and atomically publish one JSONL file after job completion.
+pub fn publish_jsonl_fragments<T: DeserializeOwned>(
+    store: &JsonlFragmentStore,
+    expected_rows: u64,
+    target: impl AsRef<Path>,
+) -> Result<PublishedResult, Error> {
+    use std::io::BufRead;
+    publish_sequence_fragments(&store.local, expected_rows, target, |path| {
+        let file =
+            std::fs::File::open(path).map_err(|error| ironbeam_io::io("jsonl-fragment", error))?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut line = String::new();
+        let mut rows = 0_u64;
+        loop {
+            line.clear();
+            if reader
+                .read_line(&mut line)
+                .map_err(|error| ironbeam_io::io("jsonl-fragment", error))?
+                == 0
+            {
+                break;
+            }
+            if !line.ends_with('\n') {
+                return Err(Error::incompatible(
+                    "JSONL fragment has an incomplete final line",
+                ));
+            }
+            let _: T = serde_json::from_str(&line)
+                .map_err(|error| ironbeam_io::io("jsonl-fragment", error))?;
+            rows = rows
+                .checked_add(1)
+                .ok_or_else(|| Error::incompatible("JSONL fragment row count overflow"))?;
+        }
+        Ok(rows)
+    })
 }
 
 struct JsonlAppendSink<T> {
