@@ -1,5 +1,6 @@
 use ironbeam_core::{
-    Capabilities, ErrorKind, Pipeline, cogroup_by_key_3_named, cogroup_by_key_10_named,
+    Capabilities, ErrorKind, Pipeline, Replay, SourceProgress, cogroup_by_key_3_named,
+    cogroup_by_key_10_named,
 };
 use ironbeam_direct::{CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig};
 
@@ -19,6 +20,14 @@ fn keyed_group_streams_source_batches_and_preserves_resource_limit() {
         .unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
     assert!(registry.has_fold("group"));
+    let (len, batch_type, _) = registry.erased_vec_source_batches("group-source").unwrap();
+    assert_eq!(len, 100);
+    assert!(
+        registry
+            .open_fold("group")
+            .unwrap()
+            .accepts_vec_batch(batch_type)
+    );
 
     let config = JobConfig {
         buffer_budget_elements: 3,
@@ -48,6 +57,39 @@ fn keyed_group_streams_source_batches_and_preserves_resource_limit() {
             .kind,
         ErrorKind::Resource
     );
+}
+
+#[test]
+fn keyed_group_uses_envelopes_for_non_vector_sources() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .bounded_source(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "group-source-v1".into(),
+            Some(4),
+            || {
+                Ok(Box::new(
+                    [(1_i32, 10_i32), (2, 20), (1, 30), (2, 40)]
+                        .into_iter()
+                        .map(Ok),
+                ))
+            },
+        )
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.erased_vec_source_batches("source").is_none());
+    let mut groups = output.collect_seq().unwrap();
+    groups.sort_by_key(|(key, _)| *key);
+    assert_eq!(groups, [(1, vec![10, 30]), (2, vec![20, 40])]);
 }
 
 #[test]

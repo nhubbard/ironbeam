@@ -226,9 +226,52 @@ fn feed_linear_fold(
     fold_key: &str,
     fold: &mut dyn FoldSession,
 ) -> Result<(), Error> {
-    let mut source = open_source_safe(registry, source_key)?;
     let mut source_count = 0_usize;
     let enforce_source_budget = registry.has_group_coder(fold_key);
+    if stages.is_empty()
+        && let Some((source_len, batch_type, read_batch)) =
+            registry.erased_vec_source_batches(source_key)
+        && fold.accepts_vec_batch(batch_type)
+    {
+        let mut offset = 0_usize;
+        while offset < source_len {
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            let batch_len = (source_len - offset).min(config.buffer_budget_elements);
+            let batch = catch_unwind(AssertUnwindSafe(|| read_batch(offset, batch_len)))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        source_key,
+                        "direct",
+                        "source value clone panicked",
+                    ))
+                })?;
+            if enforce_source_budget {
+                source_count = source_count.saturating_add(batch_len);
+                if source_count.saturating_mul(std::mem::size_of::<Envelope>())
+                    > config.memory_budget_bytes
+                {
+                    return Err(Error::resource(
+                        source_key,
+                        "materialized source exceeds job memory budget",
+                    ));
+                }
+            }
+            let count = u64::try_from(batch_len).unwrap_or(u64::MAX);
+            metrics.source_elements.fetch_add(count, Ordering::Relaxed);
+            metrics
+                .peak_batch_elements
+                .fetch_max(count, Ordering::Relaxed);
+            metrics.batches.fetch_add(1, Ordering::Relaxed);
+            catch_unwind(AssertUnwindSafe(|| fold.add_vec_batch(batch))).unwrap_or_else(|_| {
+                Err(Error::execution(fold_key, "direct", "user fold panicked"))
+            })?;
+            offset += batch_len;
+        }
+        return Ok(());
+    }
+    let mut source = open_source_safe(registry, source_key)?;
     loop {
         if config.cancellation.load(Ordering::Acquire) {
             return Err(cancelled());

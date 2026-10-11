@@ -1509,8 +1509,12 @@ pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Se
 type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
 type TypedSourceFactory<T> = Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
 type TypedVecBatchFactory<T> = Arc<dyn Fn(usize, usize) -> Result<Vec<T>, Error> + Send + Sync>;
+type ErasedVecBatchFactory = Arc<dyn Fn(usize, usize) -> Result<Payload, Error> + Send + Sync>;
 /// A typed bounded-slice reader retained by an in-memory vector source.
 pub type VecBatchReader<'a, T> = &'a (dyn Fn(usize, usize) -> Result<Vec<T>, Error> + Send + Sync);
+/// A bounded vector slice whose type is checked by a fold before execution.
+pub type ErasedVecBatchReader<'a> =
+    &'a (dyn Fn(usize, usize) -> Result<Payload, Error> + Send + Sync);
 type SingleTransform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync>;
 type MultiTransform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 type TypedMap<T, U> = Arc<dyn Fn(T) -> U + Send + Sync>;
@@ -1582,6 +1586,14 @@ impl<V, A, O, C: OrderedFoldFn<V, A, O>> FoldLogic<V, A, O> for OrderedAdapter<C
 }
 pub trait FoldSession: Send {
     fn add(&mut self, event: Envelope) -> Result<(), Error>;
+    /// Whether a built-in vector source can feed a whole globally windowed batch.
+    fn accepts_vec_batch(&self, _batch_type: TypeId) -> bool {
+        false
+    }
+    /// Feed a checked built-in vector batch without per-element envelopes.
+    fn add_vec_batch(&mut self, _values: Payload) -> Result<(), Error> {
+        Err(Error::unsupported("fold", "direct", "typed-vector-batch"))
+    }
     fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error>;
 }
 type FoldFactory = Arc<dyn Fn() -> Box<dyn FoldSession> + Send + Sync>;
@@ -1795,6 +1807,7 @@ struct SourceRegistration {
     factory: SourceFactory,
     typed_factory: Option<Arc<dyn Any + Send + Sync>>,
     vec_batch_factory: Option<Arc<dyn Any + Send + Sync>>,
+    erased_vec_batch_factory: Option<(TypeId, ErasedVecBatchFactory)>,
     len_hint: Option<usize>,
     config_digest: Option<SourceConfigDigest>,
 }
@@ -1830,6 +1843,7 @@ fn infallible_builtin_coder<T: Element>() -> bool {
         TypeId::of::<f64>(),
         TypeId::of::<bool>(),
         TypeId::of::<String>(),
+        TypeId::of::<(u32, u32)>(),
     ]
     .contains(&type_id)
 }
@@ -2183,6 +2197,16 @@ impl Registry {
             .downcast_ref::<TypedVecBatchFactory<T>>()?;
         Some((source.len_hint?, batch.as_ref()))
     }
+    /// Return type-erased vector batches for folds that accept the exact source type.
+    #[must_use]
+    pub fn erased_vec_source_batches(
+        &self,
+        key: &str,
+    ) -> Option<(usize, TypeId, ErasedVecBatchReader<'_>)> {
+        let source = self.sources.get(key)?;
+        let (batch_type, batch) = source.erased_vec_batch_factory.as_ref()?;
+        Some((source.len_hint?, *batch_type, batch.as_ref()))
+    }
     #[must_use]
     pub fn source_len_hint(&self, key: &str) -> Option<usize> {
         self.sources.get(key).and_then(|source| source.len_hint)
@@ -2516,6 +2540,10 @@ impl Pipeline {
             })?;
             Ok(slice.to_vec())
         });
+        let erased_batch = Arc::clone(&vec_batch_factory);
+        let erased_vec_batch_factory: ErasedVecBatchFactory = Arc::new(move |start, len| {
+            erased_batch(start, len).map(|values| Box::new(values) as Payload)
+        });
         let typed_factory: TypedSourceFactory<T> = Arc::new(move || {
             let values = Arc::clone(&values);
             Ok(Box::new(
@@ -2547,6 +2575,7 @@ impl Pipeline {
                 factory,
                 typed_factory: Some(Arc::new(typed_factory)),
                 vec_batch_factory: Some(Arc::new(vec_batch_factory)),
+                erased_vec_batch_factory: Some((TypeId::of::<Vec<T>>(), erased_vec_batch_factory)),
                 len_hint: Some(len_hint),
                 config_digest,
             }),
@@ -2615,6 +2644,7 @@ impl Pipeline {
                 factory,
                 typed_factory: Some(Arc::new(typed_factory)),
                 vec_batch_factory: None,
+                erased_vec_batch_factory: None,
                 len_hint,
                 config_digest: Some(SourceConfigDigest::Ready(config_digest)),
             }),
@@ -3652,17 +3682,15 @@ struct GroupByKeyFoldState<K, V> {
     groups: GroupBuffer<K, V>,
 }
 
-impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldState<K, V> {
-    fn add(&mut self, event: Envelope) -> Result<(), Error> {
-        let Envelope {
-            value,
-            timestamp_ns,
-            window,
-            assigned_window,
-        } = event;
-        let (group_key, value) = *value
-            .downcast::<(K, V)>()
-            .map_err(|_| Error::execution(&self.key, "direct", "group input type mismatch"))?;
+impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
+    fn add_row(
+        &mut self,
+        group_key: K,
+        value: V,
+        timestamp_ns: i64,
+        window: Window,
+        assigned_window: Option<WindowInterval>,
+    ) {
         let scope = (group_key.clone(), assigned_window);
         if let Some(&index) = self.indices.get(&scope) {
             self.groups[index].1.push(value);
@@ -3675,6 +3703,35 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 window,
                 assigned_window,
             ));
+        }
+    }
+}
+
+impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldState<K, V> {
+    fn add(&mut self, event: Envelope) -> Result<(), Error> {
+        let Envelope {
+            value,
+            timestamp_ns,
+            window,
+            assigned_window,
+        } = event;
+        let (group_key, value) = *value
+            .downcast::<(K, V)>()
+            .map_err(|_| Error::execution(&self.key, "direct", "group input type mismatch"))?;
+        self.add_row(group_key, value, timestamp_ns, window, assigned_window);
+        Ok(())
+    }
+
+    fn accepts_vec_batch(&self, batch_type: TypeId) -> bool {
+        batch_type == TypeId::of::<Vec<(K, V)>>()
+    }
+
+    fn add_vec_batch(&mut self, values: Payload) -> Result<(), Error> {
+        let values = values.downcast::<Vec<(K, V)>>().map_err(|_| {
+            Error::execution(&self.key, "direct", "group vector batch type mismatch")
+        })?;
+        for (key, value) in *values {
+            self.add_row(key, value, 0, Window::Global, None);
         }
         Ok(())
     }

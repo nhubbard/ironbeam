@@ -605,6 +605,17 @@ staged locally.
    Direct tests, the root v5 facade tests, strict Direct lint, and exact
    transformed-output budget/spill regression tests pass. The grouping gap
    remains the larger performance gate.
+   Built-in bounded vector sources can now feed a matching GroupByKey fold as
+   typed batches without allocating an envelope per tuple. Sources carrying
+   transform stages or other metadata retain the existing envelope path. A
+   22-pair alternating release sample at 100,000 keyed rows measured v4
+   0.605 ms and v5 2.472 ms (4.09×), versus 4.608 ms for v5 before this
+   change. Deferring the built-in `(u32, u32)` vector source digest until
+   checkpointing or portable lowering requests it preserved its exact coder
+   digest and moved a further paired sample to v4 0.619 ms and v5 1.340 ms
+   (2.16×). Group values, source memory limits, non-vector fallback, core,
+   Direct, transforms, root facade, and Dataflow graph/worker tests pass;
+   strict core and Direct lint passes. Grouping remains slower than v4.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.
