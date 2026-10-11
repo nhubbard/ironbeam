@@ -96,8 +96,11 @@ staged locally.
   remains open. Reusing the vector-source digest buffer reduced a 100,000-row
   scalar source probe from 4.13 ms to roughly 1.2 ms without changing its
   versioned digest; Direct execution remains the larger gap. The v4
-  implementation remains in the repository,
-  and the root package version is still 4.1.1, until the replacement gates close.
+  implementation remains in the repository. A dedicated single-result
+  transform path then reduced the 100,000-row v5 map/filter median from
+  24.572 ms to 14.058 ms, preserving filter metrics and flat-map behavior;
+  this is still about 31 times the v4 median of 0.456 ms. The root package
+  version is still 4.1.1, until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
   measures 234/243 source locations and 46/54 active branch outcomes. The

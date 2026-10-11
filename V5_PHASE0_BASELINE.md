@@ -53,6 +53,14 @@ five-run v5 medians (ms) then measured map/filter 24.572, GroupByKey 18.138,
 inner join 38.262, and JSONL 20.872. Source construction improved, but most
 of the map/filter gap remains in Direct execution and requires profiling.
 
+Direct now dispatches built-in zero-or-one-result transforms without a
+per-row output vector; flat-map keeps its multi-result path. Five repeated
+100,000-row release runs after that change measured v5 medians (ms) of
+map/filter 14.058, GroupByKey 20.418, inner join 40.020, and JSONL 20.054.
+The map/filter median improved substantially from 24.572 ms while the other
+cases did not. Against the measured v4 map/filter median of 0.456 ms, the
+remaining gap is still about 31× and remains a release blocker.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
