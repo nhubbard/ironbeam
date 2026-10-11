@@ -159,7 +159,11 @@ staged locally.
    window-combiner helpers. Remaining uncovered locations include allocation
    overflow guards that cannot be reached with ordinary 64-bit buffers, plus
    statistical and side-input edges. The new extension packages have separate
-   passing coverage gates. Core coverage remains the release blocker here.
+   passing coverage gates. A fresh rerun after registry dispatch and time
+   metadata tests measured core at 2,049/2,127 source locations (96.33%) and
+   332/384 branches (86.46%), passing both current CI ratios. This remains
+   a coverage quality review gate rather than a claim of complete unit tests;
+   untested validation and capability branches still need review.
 2. **Portable feature corpus:** The v5 translator now supports bounded,
    global-window `group_by_key_named` through native Beam KV/iterable coders
    and a live Prism shuffle proof. Its keyed input can also feed an ordinary

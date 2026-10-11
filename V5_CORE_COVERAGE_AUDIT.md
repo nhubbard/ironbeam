@@ -2,14 +2,20 @@
 
 ## 2026-10-10 release-gate remeasurement
 
-The current nightly toolchain and the expanded core report **1388/2745
-source locations (50.56%)** and **245/282 branches (86.88%)** from
-`cargo llvm-cov -p ironbeam-core --branch --json`. The checked-in CI baseline
-of 972/974 lines and 210/222 branches predates the later core graph and helper
-growth. The coverage check currently fails; it must be repaired with meaningful
-tests and a new reviewed baseline before 5.0.0. The new per-node coder registry
-has focused tests for user-defined and local-only element types, but those tests
-do not close the broader core coverage gap.
+The current CI corpus is `cargo llvm-cov -p ironbeam-core -p ironbeam-direct
+-p ironbeam-transforms --branch --json` with an isolated, clean target. It
+counts source locations once across generic instantiations. Before the latest
+registry and time metadata tests it measured 2,032/2,127 locations (95.53%)
+and 329/384 branch outcomes (85.68%), below the checked-in baseline ratios.
+Tests now cover missing portable coder registrations, single versus multi
+transform dispatch, zero sized offset windows, and nonincreasing window
+intervals. A clean rerun measured **2,049/2,127 locations (96.33%)** and
+**332/384 branches (86.46%)**, above the current 96.04% and 86.17% CI
+thresholds. The raw LLVM report contains 2,822/3,025 covered lines and
+310/406 branches because generic instantiations are counted separately there.
+This passes the configured gate, but is not complete unit coverage: untested
+branches remain in graph validation, impossible-length guards, and some
+backend capability combinations.
 
 The coder registry now captures each `Element` implementation at graph
 construction and gives remote workers type-erased encode/decode access by node
