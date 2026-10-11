@@ -1,6 +1,7 @@
 //! Durable local fragments for a portable whole-job result.
 //! The driver calls `publish_concatenated` only after the runner reports DONE.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -48,6 +49,7 @@ fn sync_directory(path: &Path) -> Result<(), Error> {
 pub struct LocalFinalResult {
     staging: PathBuf,
     scope: [u8; 32],
+    expected_attempts: Option<BTreeSet<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,7 +105,33 @@ impl LocalFinalResult {
         Ok(Self {
             staging: staging.as_ref().to_path_buf(),
             scope: scope_digest(job, graph, sink),
+            expected_attempts: None,
         })
+    }
+
+    /// Bind publication to the runner's completed bundle attempt IDs.
+    /// Every accepted fragment must match exactly one ID in this manifest.
+    ///
+    /// # Errors
+    ///
+    /// Rejects empty or duplicate attempt IDs before any output is published.
+    pub fn require_bundle_attempts<I, S>(&self, bundle_ids: I) -> Result<Self, Error>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut expected = BTreeSet::new();
+        for id in bundle_ids {
+            let id = id.as_ref();
+            if id.is_empty() || !expected.insert(hex(&Sha256::digest(id.as_bytes()))) {
+                return Err(invalid(
+                    "final-result manifest has an empty or duplicate attempt",
+                ));
+            }
+        }
+        let mut bound = self.clone();
+        bound.expected_attempts = Some(expected);
+        Ok(bound)
     }
 
     fn path(&self, bundle_id: &str, extension: &str) -> Result<PathBuf, Error> {
@@ -285,10 +313,22 @@ impl LocalFinalResult {
                 .is_some_and(|extension| extension == "accepted")
         });
         paths.sort();
-        paths
+        let fragments: Vec<_> = paths
             .into_iter()
             .map(|path| self.read_fragment(&path, None))
-            .collect()
+            .collect::<Result<_, _>>()?;
+        if require_complete && let Some(expected) = &self.expected_attempts {
+            let actual = fragments
+                .iter()
+                .map(AcceptedFragment::bundle_digest_hex)
+                .collect::<BTreeSet<_>>();
+            if &actual != expected {
+                return Err(invalid(
+                    "accepted fragment attempts differ from runner manifest",
+                ));
+            }
+        }
+        Ok(fragments)
     }
 
     /// Assemble accepted bytes after job success and exact committed-row accounting.
@@ -613,6 +653,42 @@ mod tests {
         assert!(store.publish_concatenated(1, &output).is_err());
         fs::remove_file(orphan).unwrap();
         assert_eq!(store.publish_concatenated(1, &output).unwrap().rows, 1);
+    }
+
+    #[test]
+    fn runner_manifest_rejects_missing_extra_and_duplicate_attempts() {
+        let temp = tempfile::tempdir().unwrap();
+        let store =
+            LocalFinalResult::new(temp.path().join("stage"), "job", "graph", "sink").unwrap();
+        let output = temp.path().join("result.bin");
+        store.stage("bundle-a", 1, b"a").unwrap();
+        store.accept("bundle-a").unwrap();
+        assert!(store.require_bundle_attempts(["", "bundle-a"]).is_err());
+        assert!(
+            store
+                .require_bundle_attempts(["bundle-a", "bundle-a"])
+                .is_err()
+        );
+        assert!(
+            store
+                .require_bundle_attempts(["bundle-b"])
+                .unwrap()
+                .publish_concatenated(1, &output)
+                .is_err()
+        );
+        assert!(
+            store
+                .require_bundle_attempts(["bundle-a", "bundle-b"])
+                .unwrap()
+                .publish_concatenated(1, &output)
+                .is_err()
+        );
+        assert!(!output.exists());
+        let bound = store.require_bundle_attempts(["bundle-a"]).unwrap();
+        assert_eq!(bound.publish_concatenated(1, &output).unwrap().rows, 1);
+        store.stage("bundle-b", 0, b"").unwrap();
+        store.accept("bundle-b").unwrap();
+        assert!(bound.publish_concatenated(1, &output).is_err());
     }
 
     #[test]

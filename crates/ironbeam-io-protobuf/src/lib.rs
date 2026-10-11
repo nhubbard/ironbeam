@@ -145,6 +145,20 @@ pub struct ProtobufFragmentStore {
 }
 
 impl ProtobufFragmentStore {
+    /// Require the publisher to match the runner's completed bundle attempts.
+    ///
+    /// # Errors
+    ///
+    /// Rejects empty or duplicate attempt IDs.
+    pub fn require_bundle_attempts<I, S>(mut self, bundle_ids: I) -> Result<Self, Error>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.local = self.local.require_bundle_attempts(bundle_ids)?;
+        Ok(self)
+    }
+
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
@@ -334,6 +348,7 @@ pub fn protobuf_sharded_source<T: Element + prost::Message + Default>(
 #[cfg(test)]
 mod fragment_tests {
     use super::*;
+    use prost::Message as _;
 
     #[test]
     fn malformed_delimited_record_cannot_replace_existing_result() {
@@ -355,5 +370,44 @@ mod fragment_tests {
         store.local.accept("bundle").unwrap();
         assert!(publish_protobuf_fragments::<Row>(&store, 1, &target).is_err());
         assert_eq!(std::fs::read(&target).unwrap(), b"previous result");
+    }
+
+    #[test]
+    fn protobuf_publisher_requires_the_completed_attempt_manifest() {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct Row {
+            #[prost(int32, tag = "1")]
+            value: i32,
+        }
+        impl Element for Row {
+            const TYPE_ID: &'static str = "protobuf-test/manifest-row";
+            const CODER_ID: &'static str = "protobuf-test/manifest-row-v1";
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("result.pb");
+        let store =
+            protobuf_fragment_store(dir.path().join("stage"), "job", "graph", "sink").unwrap();
+        store
+            .local
+            .stage(
+                "accepted-bundle",
+                1,
+                &Row { value: 7 }.encode_length_delimited_to_vec(),
+            )
+            .unwrap();
+        store.local.accept("accepted-bundle").unwrap();
+        let wrong = store
+            .clone()
+            .require_bundle_attempts(["other-bundle"])
+            .unwrap();
+        assert!(publish_protobuf_fragments::<Row>(&wrong, 1, &target).is_err());
+        assert!(!target.exists());
+        let correct = store.require_bundle_attempts(["accepted-bundle"]).unwrap();
+        assert_eq!(
+            publish_protobuf_fragments::<Row>(&correct, 1, &target)
+                .unwrap()
+                .rows,
+            1
+        );
     }
 }

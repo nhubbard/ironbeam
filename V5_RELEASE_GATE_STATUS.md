@@ -60,7 +60,7 @@ below is complete.
 | Local release script | Dependency and feature checks, tests, docs, and verification of 28 packages passed with Mr Boxington after legacy cloud retirement. |
 | Cloud operation coverage | **186/261 source locations** and **34/42 branches** after bounding parallel helper concurrency; both CI ratchets pass. Uncovered utility paths remain in the quality review. |
 | JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** after eager cloud helper migration. |
-| Local Prism | 18 live tests passed. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. The multi-source final-result job now validates its journal records and matches completed bundle identities to accepted fragments before publication. |
+| Local Prism | 18 live tests passed. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. The multi-source final-result job binds all ten finalized format publishers to completed journal bundle identities and rejects any missing or extra accepted attempt. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch; the full harness suite and warning-free lint pass. |
 | Separate Dataflow workspace | Tests and doctests passed; changed proof package passed warning-free lint. |
 | Clean coverage | Core **96.13% locations / 88.64% branches**; Direct **93.46% / 90.19%**; transforms **97.81% / 93.10%**. Existing floors pass. |

@@ -153,6 +153,20 @@ pub struct CsvFragmentStore {
 }
 
 impl CsvFragmentStore {
+    /// Require the publisher to match the runner's completed bundle attempts.
+    ///
+    /// # Errors
+    ///
+    /// Rejects empty or duplicate attempt IDs.
+    pub fn require_bundle_attempts<I, S>(mut self, bundle_ids: I) -> Result<Self, Error>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.local = self.local.require_bundle_attempts(bundle_ids)?;
+        Ok(self)
+    }
+
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
