@@ -24,7 +24,7 @@ pub use stream::StreamJob;
 
 use ironbeam_core::{
     Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection,
-    Registry, Replay, RetryClass, Sink, SinkMode, SourceIterator, TypedSourceIterator,
+    Registry, Replay, RetryClass, Sink, SinkMode, SinkSession, SourceIterator, TypedSourceIterator,
 };
 use metrics::MetricsState;
 use rayon::prelude::*;
@@ -557,6 +557,9 @@ impl DirectRunner {
             if !registry.has_sink(key) {
                 return Err(Error::unsupported(key, "direct", "sink-factory"));
             }
+            if registry.sink_requires_bundle_finalization(key) {
+                return Err(Error::unsupported(key, "direct", "bundle-finalization"));
+            }
         }
         let plan = multi_output::prepare_sinks(&graph, &registry, left.key(), right.key())?;
         let pool = rayon::ThreadPoolBuilder::new()
@@ -590,6 +593,13 @@ impl DirectRunner {
                     return Err(error);
                 }
             };
+            let probes = ensure_bounded_sink_session(left.key(), left_session.as_ref())
+                .and_then(|()| ensure_bounded_sink_session(right.key(), right_session.as_ref()));
+            if let Err(error) = probes {
+                let _ = catch_unwind(AssertUnwindSafe(|| left_session.abort()));
+                let _ = catch_unwind(AssertUnwindSafe(|| right_session.abort()));
+                return Err(error);
+            }
             let result = multi_output::execute_sinks(
                 &pool,
                 &registry,
@@ -683,6 +693,13 @@ impl DirectRunner {
         if !registry.has_sink(sink.key()) {
             return Err(Error::unsupported(sink.key(), "direct", "sink-factory"));
         }
+        if registry.sink_requires_bundle_finalization(sink.key()) {
+            return Err(Error::unsupported(
+                sink.key(),
+                "direct",
+                "bundle-finalization",
+            ));
+        }
         let plan = planner::lower(&graph, &registry, sink.key(), config.buffer_budget_elements)?;
         if plan.materialized {
             ensure_aggregates(&graph, &registry, sink.key())?;
@@ -720,6 +737,10 @@ impl DirectRunner {
                         "sink factory panicked",
                     ))
                 })?;
+            if let Err(error) = ensure_bounded_sink_session(sink.key(), session.as_ref()) {
+                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                return Err(error);
+            }
             if let Err(error) = sink::execute::<T>(
                 &pool,
                 &graph,
@@ -851,6 +872,18 @@ fn read_source_batch(
     }))
     .unwrap_or_else(|_| Err(Error::execution(key, "direct", "source iterator panicked")))
 }
+fn ensure_bounded_sink_session(key: &str, session: &dyn SinkSession) -> Result<(), Error> {
+    match catch_unwind(AssertUnwindSafe(|| session.requires_bundle_finalization())) {
+        Ok(false) => Ok(()),
+        Ok(true) => Err(Error::unsupported(key, "direct", "bundle-finalization")),
+        Err(_) => Err(Error::execution(
+            key,
+            "direct",
+            "sink finalization probe panicked",
+        )),
+    }
+}
+
 fn validate_config(config: &JobConfig) -> Result<(), Error> {
     if config.parallelism == 0
         || config.memory_budget_bytes == 0
@@ -1001,8 +1034,8 @@ fn execute<T: Element>(
             .is_none()
             .then(|| registry.vec_source_batches::<T>(&route.source_key))
             .flatten();
-        let typed_eligible = (config.parallelism == 1 || route.operations.is_empty())
-            && typed_transforms.is_some();
+        let typed_eligible =
+            (config.parallelism == 1 || route.operations.is_empty()) && typed_transforms.is_some();
         let mut source = if typed_eligible && vector_batches.is_none() {
             open_typed_source_safe::<T>(registry, &route.source_key)?
         } else {
