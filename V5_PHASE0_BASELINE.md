@@ -193,6 +193,14 @@ pool setup together, and 1.160 ms for execution. Source construction before
 the run accounted for most of the remaining roughly 1.66 ms. That probe was
 removed after measurement; pool startup alone cannot explain the gap.
 
+Direct's typed source-only route now appends a batch to the output store after
+one exact budget check, falling back to per-element writes when spill is on.
+Tests cover the exact memory boundary, spill files, and coder-panic attribution.
+Two warmed six-run v5 source-copy samples had medians of 2.54 and 2.53 ms,
+compared with the preceding 3.07 ms paired-run v5 median. These are adjacent
+local characterization runs, not a controlled release threshold; the paired
+v4 gap remains open.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

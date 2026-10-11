@@ -9,7 +9,7 @@ staged locally.
 
 - Clean core and Direct coverage corpora now pass their unchanged CI ratios:
   core 2,194/2,282 source locations and 341/390 branch outcomes; Direct
-  1,260/1,340 source locations and 231/250 branch outcomes. New Direct tests
+  1,283/1,365 source locations and 238/258 branch outcomes. New Direct tests
   exercise fallible terminals, cancellation, lifted combine failures, and
   checkpoint recovery through flat-map output. That recovery test exposed an
   invalid assumption that output count cannot exceed source position. The
@@ -17,7 +17,9 @@ staged locally.
   canonical checksum, and its schema version is 1.1. Corrupt progress and frame counts
   are rejected; flat-map checkpoints recover successfully. Direct now aborts
   an open sink and reports cancellation if the job is cancelled while writing
-  or immediately before commit.
+  or immediately before commit. The typed source-only route now appends bounded
+  output batches in one budget check when spill is disabled; exact-budget,
+  spill, and panic-attribution tests pass.
 - `bash scripts/check_v5_packages.sh` passed after the checkpoint schema fix:
   workspace tests, selected feature variants, all-feature
   documentation, and local package verification for all twenty-five v5 crates.

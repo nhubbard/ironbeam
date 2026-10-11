@@ -1,6 +1,6 @@
 use ironbeam_core::{Element, ErrorKind, Pipeline, Replay, SourceProgress};
 use ironbeam_direct::{
-    CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobStatus,
+    CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobStatus, SpillConfig,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -142,6 +142,82 @@ fn typed_source_only_route_preserves_results_and_metrics() {
     assert_eq!(job.metrics().batches, 3);
     assert_eq!(job.metrics().peak_batch_elements, 2);
     assert_eq!(job.processed(), 5);
+}
+
+#[test]
+fn typed_source_batch_append_respects_exact_memory_and_spill_limits() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", vec![1_i32, 2, 3, 4, 5])
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let exact = JobConfig {
+        memory_budget_bytes: 20,
+        buffer_budget_elements: 2,
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner.run_collect(&output, &exact).unwrap().0,
+        [1, 2, 3, 4, 5]
+    );
+    let too_small = JobConfig {
+        memory_budget_bytes: 19,
+        ..exact.clone()
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &too_small)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let spilled = JobConfig {
+        memory_budget_bytes: 8,
+        spill: Some(SpillConfig {
+            directory: directory.path().to_path_buf(),
+            threshold_bytes: 8,
+        }),
+        ..exact
+    };
+    let (values, job) = DirectRunner.run_collect(&output, &spilled).unwrap();
+    assert_eq!(values, [1, 2, 3, 4, 5]);
+    assert!(job.metrics().spill_files > 0);
+}
+
+#[test]
+fn typed_batch_append_attributes_coder_panics_to_output() {
+    #[derive(Clone)]
+    struct PanickingSize;
+    impl Element for PanickingSize {
+        const TYPE_ID: &'static str = "test/panicking-size";
+        const CODER_ID: &'static str = "test/panicking-size-v1";
+        fn supports_coder() -> bool {
+            true
+        }
+        fn encode(&self) -> Result<Vec<u8>, ironbeam_core::Error> {
+            Ok(vec![1])
+        }
+        fn encoded_len(&self) -> Result<usize, ironbeam_core::Error> {
+            panic!("size panic")
+        }
+    }
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", vec![PanickingSize])
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("out"));
+    assert_eq!(error.message, "output collection panicked");
 }
 
 #[test]

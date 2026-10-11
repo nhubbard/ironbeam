@@ -141,6 +141,31 @@ impl<T: Element> OutputStore<T> {
         }
         Ok(())
     }
+    pub(crate) fn extend_batch(&mut self, values: Vec<T>) -> Result<(), Error> {
+        if self.spill.is_some() {
+            for value in values {
+                self.push(value)?;
+            }
+            return Ok(());
+        }
+        let minimum = std::mem::size_of::<T>().max(1);
+        let additional = if T::supports_coder() {
+            values.iter().try_fold(0_usize, |total, value| {
+                Ok::<_, Error>(total.saturating_add(value.encoded_len()?.max(minimum)))
+            })?
+        } else {
+            values.len().saturating_mul(minimum)
+        };
+        if self.memory_bytes.saturating_add(additional) > self.memory_budget {
+            return Err(Error::resource(
+                T::TYPE_ID,
+                "output exceeds job memory budget; enable spilling",
+            ));
+        }
+        self.memory_bytes = self.memory_bytes.saturating_add(additional);
+        self.memory.extend(values);
+        Ok(())
+    }
     fn flush(&mut self) -> Result<(), Error> {
         if self.memory.is_empty() {
             return Ok(());

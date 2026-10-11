@@ -729,6 +729,12 @@ fn execute<T: Element>(
                 let mut panic_node = route.source_key.as_str();
                 let result = pool.install(|| {
                     catch_unwind(AssertUnwindSafe(|| -> Result<(), Error> {
+                        if route.operations.is_empty() {
+                            output_count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+                            panic_node = output_key;
+                            store.extend_batch(batch)?;
+                            return Ok(());
+                        }
                         for value in batch {
                             let mut current = Some(value);
                             for (key, transform) in route.operations.iter().zip(&typed_transforms) {
