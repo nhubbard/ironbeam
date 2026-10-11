@@ -247,6 +247,15 @@ checksums still matched across all five workloads. The two adjacent v5
 source-copy medians agree within 0.012 ms; the v4 denominator moved enough
 to change the ratio.
 
+A follow-up 100,000-row source-copy trial batched the bytes sent to SHA-256
+while retaining the same digest format. Six alternating runs before the trial
+measured post-warmup medians of 0.064 ms for v4 and 0.770 ms for v5, with
+0.533 ms of the v5 case in source construction. Eight alternating runs after
+the trial measured 0.060 ms for v4 and 0.909 ms for v5, with 0.662 ms in
+source construction. The added byte copying outweighed fewer hash calls, so
+the implementation was reverted. This is a local comparison, not a release
+threshold; source identity and output checksums were unchanged.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
