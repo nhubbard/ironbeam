@@ -389,6 +389,10 @@ staged locally.
    now closes its runner outputs without opening the user source for that case,
    with a focused Fn Data regression test and a subsequent live passing run.
    A pending finalizer still cannot be recovered after worker restart.
+   The v5 worker now tracks progress across multiple sinks in one bundle:
+   when a later finalizer fails, retry resumes at that sink without replaying
+   earlier successes. A two-bundle registry test also verifies isolated and
+   duplicate callbacks; this is not a live Prism multi-bundle proof.
    No real Dataflow cloud job has reached `DONE` with the
    v5 worker; cloud execution remains unverified and is not the requested
    release proof at this stage.
