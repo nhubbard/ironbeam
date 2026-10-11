@@ -38,6 +38,12 @@ staged locally.
   consecutive times on one service, followed by the Arrow IPC proof. This
   closes that reproduced race, while broader worker restart and portable
   operation parity remain open.
+- The same production unbounded-source Prism fixture now writes a user-defined
+  record through native-schema Avro fragments. At least two bundles finalize;
+  their accepted row total matches Prism's committed sink metric, and the
+  published Avro file reopens with all three IDs and labels. Repeated
+  publication returns the same receipt. The updated four-test live Prism
+  corpus and strict proof-package lint pass.
 - The separate Dataflow worker now validates connected branches and
   fixed-window assignment after a production unbounded SDF source. A live
   local Prism `Run` reached `DONE` across two residual bundles; three idempotent
