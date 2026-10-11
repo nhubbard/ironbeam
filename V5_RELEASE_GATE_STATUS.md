@@ -628,6 +628,14 @@ staged locally.
    a clean coverage rerun remains above the existing gates at core
    2,430/2,525 lines and 354/402 branches and Direct 1,821/1,938 lines and
    373/408 branches. The performance gap is still open.
+   Local checkpoint replacement now generates a recognizable data filename
+   and validates the previous manifest before deleting its referenced data.
+   Tests show that path traversal, a sibling file, `latest.json`, mismatched
+   version or identity, and a bad progress checksum cannot trigger cleanup;
+   valid replacement still removes the prior data file. This does not add
+   aggregate-state recovery or v4 checkpoint policy parity. Full Direct tests,
+   strict lint, and clean coverage pass: Direct 1,894/2,011 source locations
+   and 384/420 branches, with core unchanged at 2,430/2,525 and 354/402.
    Workspace-wide `cargo fmt --all --check` currently reports formatting
    changes in many untouched files. Changed files in this batch were formatted
    locally; a focused workspace formatting pass remains for the final cutover.

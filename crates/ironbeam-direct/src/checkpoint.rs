@@ -118,12 +118,7 @@ impl CheckpointManager {
                 "checkpoint graph/source/coder identity mismatch",
             ));
         }
-        let mut components = Path::new(&manifest.data_file).components();
-        if !matches!(components.next(), Some(std::path::Component::Normal(_)))
-            || components.next().is_some()
-        {
-            return Err(Error::recovery("checkpoint", "invalid data file name"));
-        }
+        validate_data_file_name(&manifest.data_file)?;
         if manifest.progress_sha256
             != progress_sha256(
                 manifest.source_offset,
@@ -169,7 +164,9 @@ impl CheckpointManager {
         source_offset: usize,
         store: &OutputStore<T>,
     ) -> Result<(), Error> {
-        let mut data_tmp = tempfile::NamedTempFile::new_in(&self.config.directory)
+        let mut data_tmp = tempfile::Builder::new()
+            .prefix("checkpoint-data-")
+            .tempfile_in(&self.config.directory)
             .map_err(|e| io_error("checkpoint", e))?;
         let output_count = store.for_each_encoded(|bytes| {
             write_frame(&mut data_tmp, bytes, "checkpoint")?;
@@ -186,14 +183,14 @@ impl CheckpointManager {
             .ok_or_else(|| Error::recovery("checkpoint", "checkpoint data path lacks file name"))?
             .to_string_lossy()
             .into_owned();
-        let progress_sha256 = progress_sha256(source_offset, output_count, &data_file, &data_hash);
+        let progress_hash = progress_sha256(source_offset, output_count, &data_file, &data_hash);
         let manifest = Manifest {
             version: CHECKPOINT_VERSION,
             identity: self.identity.clone(),
             source_offset,
             output_count,
             data_file,
-            progress_sha256,
+            progress_sha256: progress_hash,
             data_sha256: data_hash,
         };
         let mut manifest_tmp = tempfile::NamedTempFile::new_in(&self.config.directory)
@@ -213,12 +210,35 @@ impl CheckpointManager {
         manifest_tmp
             .persist(self.manifest_path())
             .map_err(|e| io_error("checkpoint", e))?;
-        if let Some(old) = old {
+        if let Some(old) = old
+            && old.version == CHECKPOINT_VERSION
+            && old.identity == self.identity
+            && old.data_file.starts_with("checkpoint-data-")
+            && old.data_file != manifest.data_file
+            && validate_data_file_name(&old.data_file).is_ok()
+            && old.progress_sha256
+                == progress_sha256(
+                    old.source_offset,
+                    old.output_count,
+                    &old.data_file,
+                    &old.data_sha256,
+                )
+        {
             let _ = fs::remove_file(self.config.directory.join(old.data_file));
         }
         self.metrics.checkpoints.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
+}
+
+fn validate_data_file_name(data_file: &str) -> Result<(), Error> {
+    let mut components = Path::new(data_file).components();
+    if !matches!(components.next(), Some(std::path::Component::Normal(_)))
+        || components.next().is_some()
+    {
+        return Err(Error::recovery("checkpoint", "invalid data file name"));
+    }
+    Ok(())
 }
 
 fn progress_sha256(
@@ -342,5 +362,88 @@ mod tests {
         let error = manager.recover(&mut recovered).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Recovery);
         assert!(error.message.contains("output count mismatch"));
+    }
+
+    #[test]
+    fn saving_does_not_delete_files_named_by_an_untrusted_old_manifest() {
+        let parent = tempfile::tempdir().unwrap();
+        let checkpoint_dir = parent.path().join("checkpoints");
+        let config = CheckpointConfig {
+            directory: checkpoint_dir.clone(),
+            binary_build_id: "cleanup-test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "cleanup-test".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+        let mut store = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        store.push(7).unwrap();
+        manager.save(1, &store).unwrap();
+        let manifest_path = checkpoint_dir.join("latest.json");
+        let original: Manifest =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        assert!(original.data_file.starts_with("checkpoint-data-"));
+
+        let outside = parent.path().join("outside.txt");
+        fs::write(&outside, b"keep outside").unwrap();
+        let sibling = checkpoint_dir.join("notes.txt");
+        fs::write(&sibling, b"keep sibling").unwrap();
+        for data_file in ["../outside.txt", "notes.txt", "latest.json"] {
+            let mut forged = Manifest {
+                version: original.version,
+                identity: original.identity.clone(),
+                source_offset: original.source_offset,
+                output_count: original.output_count,
+                data_file: data_file.into(),
+                data_sha256: original.data_sha256.clone(),
+                progress_sha256: String::new(),
+            };
+            forged.progress_sha256 = progress_sha256(
+                forged.source_offset,
+                forged.output_count,
+                &forged.data_file,
+                &forged.data_sha256,
+            );
+            fs::write(&manifest_path, serde_json::to_vec(&forged).unwrap()).unwrap();
+            manager.save(2, &store).unwrap();
+            assert_eq!(fs::read(&outside).unwrap(), b"keep outside");
+            assert_eq!(fs::read(&sibling).unwrap(), b"keep sibling");
+            assert!(manifest_path.exists());
+        }
+        let original_data = checkpoint_dir.join(&original.data_file);
+        for case in 0..4 {
+            let mut forged = Manifest {
+                version: original.version,
+                identity: original.identity.clone(),
+                source_offset: original.source_offset,
+                output_count: original.output_count,
+                data_file: original.data_file.clone(),
+                data_sha256: original.data_sha256.clone(),
+                progress_sha256: original.progress_sha256.clone(),
+            };
+            match case {
+                0 => forged.version.major += 1,
+                1 => forged.identity.graph_fingerprint.push_str("-other"),
+                2 => forged.data_file = "checkpoint-data-/../outside.txt".into(),
+                _ => forged.progress_sha256 = "invalid".into(),
+            }
+            fs::write(&manifest_path, serde_json::to_vec(&forged).unwrap()).unwrap();
+            manager.save(2, &store).unwrap();
+            assert!(original_data.exists());
+        }
+        let mut recovered = OutputStore::<i32>::new(1024, None, metrics).unwrap();
+        assert_eq!(manager.recover(&mut recovered).unwrap(), 2);
+        let previous: Manifest =
+            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        let previous_data = checkpoint_dir.join(previous.data_file);
+        assert!(previous_data.exists());
+        manager.save(3, &store).unwrap();
+        assert!(!previous_data.exists());
     }
 }
