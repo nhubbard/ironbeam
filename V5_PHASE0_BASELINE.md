@@ -171,6 +171,14 @@ The source-content digest is a real v5 contract cost, but it does not explain
 the grouping and join execution gaps. Peak memory and build/test-time paired
 measurements remain open.
 
+Direct now updates materialized output counters once after a successful
+terminal instead of performing two atomic writes for each emitted row. The
+grouping and join metric tests still report the same counts. A separate
+five-run warmed v5 sample measured the inner join at 17.167 ms versus
+17.671 ms in the prior paired sample; GroupByKey measured 4.385 versus
+4.391 ms. This small difference may be run noise and does not close the
+performance gate.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

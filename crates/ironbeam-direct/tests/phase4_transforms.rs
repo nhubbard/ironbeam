@@ -49,7 +49,7 @@ fn grouping_join_and_combine_execute_from_typed_graph() {
             buffer_budget_elements: 2,
             ..JobConfig::default()
         };
-        let (groups, _) = DirectRunner.run_collect(&grouped, &config).unwrap();
+        let (groups, grouped_job) = DirectRunner.run_collect(&grouped, &config).unwrap();
         assert_eq!(
             groups,
             vec![
@@ -57,7 +57,9 @@ fn grouping_join_and_combine_execute_from_typed_graph() {
                 (2, vec!["c".into()])
             ]
         );
-        let (pairs, _) = DirectRunner.run_collect(&joined, &config).unwrap();
+        assert_eq!(grouped_job.metrics().output_elements, 2);
+        assert_eq!(grouped_job.processed(), 2);
+        let (pairs, joined_job) = DirectRunner.run_collect(&joined, &config).unwrap();
         assert_eq!(
             pairs,
             vec![
@@ -67,6 +69,8 @@ fn grouping_join_and_combine_execute_from_typed_graph() {
                 (1, ("b".to_string(), 20))
             ]
         );
+        assert_eq!(joined_job.metrics().output_elements, 4);
+        assert_eq!(joined_job.processed(), 4);
         assert_eq!(
             DirectRunner.run_collect(&summed, &config).unwrap().0,
             vec![60]

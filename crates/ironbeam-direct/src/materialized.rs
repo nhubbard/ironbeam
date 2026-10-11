@@ -21,6 +21,7 @@ pub(crate) fn execute<T: Element>(
         config.spill.as_ref(),
         handle.metrics.clone(),
     )?;
+    let output_count = u64::try_from(events.len()).unwrap_or(u64::MAX);
     for event in events {
         if config.cancellation.load(Ordering::Acquire) {
             return Err(cancelled());
@@ -30,14 +31,15 @@ pub(crate) fn execute<T: Element>(
             .downcast::<T>()
             .map_err(|_| Error::execution(output_key, "direct", "output type mismatch"))?;
         store.push(*value)?;
-        let count = handle
-            .metrics
-            .output_elements
-            .fetch_add(1, Ordering::Relaxed)
-            + 1;
-        handle.processed.store(count, Ordering::Relaxed);
     }
-    store.into_vec()
+    let values = store.into_vec()?;
+    let count = handle
+        .metrics
+        .output_elements
+        .fetch_add(output_count, Ordering::Relaxed)
+        .saturating_add(output_count);
+    handle.processed.store(count, Ordering::Relaxed);
+    Ok(values)
 }
 
 #[allow(clippy::too_many_lines)] // One bounded traversal keeps recursive evaluation and errors together.
