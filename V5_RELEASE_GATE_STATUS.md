@@ -401,6 +401,11 @@ staged locally.
    distinguish confidently from run noise. A bounded slice reader for
    `from_vec` then reduced an adjacent v5 source-copy median from 0.897 to
    0.768 ms; the performance gate remains open.
+   Plain single-worker vector copies now collect inline without creating a
+   Rayon pool; transformed, materialized, parallel, and sink jobs retain their
+   job-owned pools. An alternating release sample moved source copy from
+   0.770 to 0.602 ms with the same output checksum, while map/filter stayed
+   near 1.15 ms. This does not close the v4 performance gap.
    A paired whole-corpus peak-RSS sample measured 25.8 MiB for v4 and
    54.4 MiB for v5. A per-operation allocation profile and a defined
    performance threshold are still needed before calling performance

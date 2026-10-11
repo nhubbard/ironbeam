@@ -364,10 +364,22 @@ impl DirectRunner {
         } else {
             None
         };
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(config.parallelism)
-            .build()
-            .map_err(|e| Error::execution("job", "direct", e.to_string()))?;
+        let inline_vec_copy = !plan.materialized
+            && config.parallelism == 1
+            && config.checkpoint.is_none()
+            && plan.routes.len() == 1
+            && plan.routes[0].operations.is_empty()
+            && registry
+                .vec_source_batches::<T>(&plan.routes[0].source_key)
+                .is_some();
+        let pool = (!inline_vec_copy)
+            .then(|| {
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(config.parallelism)
+                    .build()
+                    .map_err(|e| Error::execution("job", "direct", e.to_string()))
+            })
+            .transpose()?;
         #[allow(unused_mut)]
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
@@ -382,10 +394,17 @@ impl DirectRunner {
         }
         handle.set_status(JobStatus::Running);
         let result = if plan.materialized {
-            materialized::execute(&pool, &graph, &registry, output.key(), config, &handle)
+            materialized::execute(
+                pool.as_ref().expect("materialized execution owns a pool"),
+                &graph,
+                &registry,
+                output.key(),
+                config,
+                &handle,
+            )
         } else {
             execute(
-                &pool,
+                pool.as_ref(),
                 &registry,
                 &plan,
                 output.key(),
@@ -535,7 +554,15 @@ impl DirectRunner {
             let values: Vec<T> = if plan.materialized {
                 materialized::execute(&pool, &graph, &registry, sink.key(), config, &handle)?
             } else {
-                execute(&pool, &registry, &plan, sink.key(), config, None, &handle)?
+                execute(
+                    Some(&pool),
+                    &registry,
+                    &plan,
+                    sink.key(),
+                    config,
+                    None,
+                    &handle,
+                )?
             };
             let mut session = catch_unwind(AssertUnwindSafe(|| registry.open_sink(sink.key())))
                 .unwrap_or_else(|_| {
@@ -730,7 +757,7 @@ fn validate_config(config: &JobConfig) -> Result<(), Error> {
 
 #[allow(clippy::too_many_lines)]
 fn execute<T: Element>(
-    pool: &rayon::ThreadPool,
+    pool: Option<&rayon::ThreadPool>,
     registry: &ironbeam_core::Registry,
     plan: &planner::PhysicalPlan,
     output_key: &str,
@@ -811,14 +838,18 @@ fn execute<T: Element>(
                     .metrics
                     .peak_batch_elements
                     .fetch_max(count, Ordering::Relaxed);
-                pool.install(|| catch_unwind(AssertUnwindSafe(|| store.extend_batch(batch))))
-                    .unwrap_or_else(|_| {
-                        Err(Error::execution(
-                            output_key,
-                            "direct",
-                            "output collection panicked",
-                        ))
-                    })?;
+                let collect = || catch_unwind(AssertUnwindSafe(|| store.extend_batch(batch)));
+                let result = match pool {
+                    Some(pool) => pool.install(collect),
+                    None => collect(),
+                };
+                result.unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        output_key,
+                        "direct",
+                        "output collection panicked",
+                    ))
+                })?;
                 let total = handle
                     .metrics
                     .output_elements
@@ -867,7 +898,7 @@ fn execute<T: Element>(
                     .fetch_max(count, Ordering::Relaxed);
                 let mut output_count = 0_u64;
                 let mut panic_node = route.source_key.as_str();
-                let result = pool.install(|| {
+                let result = pool.expect("transform route owns a pool").install(|| {
                     catch_unwind(AssertUnwindSafe(|| -> Result<(), Error> {
                         if route.operations.is_empty() {
                             output_count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
@@ -973,7 +1004,7 @@ fn execute<T: Element>(
             if let Some(transforms) = &single_transforms {
                 if config.parallelism == 1 {
                     let mut panic_node = route.source_key.as_str();
-                    let result = pool.install(|| {
+                    let result = pool.expect("transform route owns a pool").install(|| {
                         catch_unwind(AssertUnwindSafe(|| -> Result<(), Error> {
                             for event in batch {
                                 let mut current = Some(event);
@@ -1045,8 +1076,9 @@ fn execute<T: Element>(
                         }
                         Ok(current)
                     };
-                    let results: Vec<Result<Option<Envelope>, Error>> =
-                        pool.install(|| batch.into_par_iter().map(apply_single).collect());
+                    let results: Vec<Result<Option<Envelope>, Error>> = pool
+                        .expect("transform route owns a pool")
+                        .install(|| batch.into_par_iter().map(apply_single).collect());
                     for result in results {
                         if let Some(event) = result? {
                             push_output(event, &mut store, output_key)?;
@@ -1055,45 +1087,46 @@ fn execute<T: Element>(
                     }
                 }
             } else {
-                let results: Vec<Result<Vec<Envelope>, Error>> = pool.install(|| {
-                    batch
-                        .into_par_iter()
-                        .map(|event| {
-                            let mut events = vec![event];
-                            for key in &route.operations {
-                                let mut next_events = Vec::new();
-                                for event in events {
-                                    if config.cancellation.load(Ordering::Acquire) {
-                                        return Err(cancelled());
-                                    }
-                                    match catch_unwind(AssertUnwindSafe(|| {
-                                        registry.apply_many(key, event)
-                                    })) {
-                                        Ok(Ok(produced)) => {
-                                            if produced.is_empty() {
-                                                handle
-                                                    .metrics
-                                                    .filtered_elements
-                                                    .fetch_add(1, Ordering::Relaxed);
+                let results: Vec<Result<Vec<Envelope>, Error>> =
+                    pool.expect("transform route owns a pool").install(|| {
+                        batch
+                            .into_par_iter()
+                            .map(|event| {
+                                let mut events = vec![event];
+                                for key in &route.operations {
+                                    let mut next_events = Vec::new();
+                                    for event in events {
+                                        if config.cancellation.load(Ordering::Acquire) {
+                                            return Err(cancelled());
+                                        }
+                                        match catch_unwind(AssertUnwindSafe(|| {
+                                            registry.apply_many(key, event)
+                                        })) {
+                                            Ok(Ok(produced)) => {
+                                                if produced.is_empty() {
+                                                    handle
+                                                        .metrics
+                                                        .filtered_elements
+                                                        .fetch_add(1, Ordering::Relaxed);
+                                                }
+                                                next_events.extend(produced);
                                             }
-                                            next_events.extend(produced);
-                                        }
-                                        Ok(Err(error)) => return Err(error),
-                                        Err(_) => {
-                                            return Err(Error::execution(
-                                                key,
-                                                "direct",
-                                                "user transform panicked",
-                                            ));
+                                            Ok(Err(error)) => return Err(error),
+                                            Err(_) => {
+                                                return Err(Error::execution(
+                                                    key,
+                                                    "direct",
+                                                    "user transform panicked",
+                                                ));
+                                            }
                                         }
                                     }
+                                    events = next_events;
                                 }
-                                events = next_events;
-                            }
-                            Ok(events)
-                        })
-                        .collect()
-                });
+                                Ok(events)
+                            })
+                            .collect()
+                    });
                 for result in results {
                     for event in result? {
                         push_output(event, &mut store, output_key)?;

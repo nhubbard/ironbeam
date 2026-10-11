@@ -171,6 +171,15 @@ The source-content digest is a real v5 contract cost, but it does not explain
 the grouping and join execution gaps. Peak memory and build/test-time paired
 measurements remain open.
 
+An adjacent alternating twelve-run 100,000-row v5 sample then compared the
+same release executable before and after skipping pool creation for a plain
+single vector-source copy. The first run of each executable was warmup.
+Source-copy medians moved from 0.770 to 0.602 ms with matching counts and
+checksums. Map/filter medians were 1.145 and 1.163 ms; user transforms still
+run inside their own job pool. This change leaves source identity and repeatable
+vector reads intact. The result remains substantially slower than v4, and the
+performance gate stays open.
+
 Direct now updates materialized output counters once after a successful
 terminal instead of performing two atomic writes for each emitted row. The
 grouping and join metric tests still report the same counts. A separate
