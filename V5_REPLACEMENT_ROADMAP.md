@@ -56,6 +56,8 @@ elementwise, grouped, and fused paths. V4's detailed optimization decisions
 remain a planner-parity gap.
 The `sql_pipeline` example now uses the isolated v5 SQL extension and checks
 its deferred read-transform-write path against a temporary SQLite database.
+The `mongodb_pipeline` example uses its separate v5 extension and passed a
+read-transform-write check against a temporary local MongoDB container.
 The v4 checkpoint examples remain legacy-gated because v5 does not yet
 implement their barrier, time, and node-based policies.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes

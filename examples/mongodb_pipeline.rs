@@ -1,138 +1,104 @@
-//! MongoDB I/O pipeline example (feature: `io-mongodb`).
+//! Read, transform, and write documents through the v5 MongoDB extension.
 //!
-//! Demonstrates a full pipeline: seed documents into a `people` collection, read them back
-//! with a filter via [`ironbeam::read_mongodb`], transform them, and write the results to a
-//! second collection via [`ironbeam::PCollection::write_mongodb`].
-//!
-//! **Requires a running MongoDB server.** By default this connects to
-//! `mongodb://localhost:27017`; override with the `MONGODB_URI` environment variable (e.g. to
-//! point at a `testcontainers`-managed instance, or a remote server).
-//!
-//! No MongoDB service is available in this crate's CI, so this example first runs a fast (2
-//! second timeout) connectivity check and prints a graceful skip message instead of running the
-//! demo if no server is reachable, rather than failing (or hanging on the driver's much longer
-//! default server-selection timeout).
-//!
-//! Run with:
-//! ```bash
-//! cargo run --example mongodb_pipeline --features io-mongodb
-//! ```
+//! Run with `cargo run --example mongodb_pipeline --features io-mongodb`.
+//! Set `MONGODB_URI` to choose a server; localhost is used by default.
 
-#[cfg(feature = "io-mongodb")]
-use anyhow::Result;
+use ironbeam::v5::{
+    DirectRunner, Element, JobConfig, Pipeline, mongodb_sink, mongodb_source, prelude::*,
+};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[cfg(feature = "io-mongodb")]
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Person {
     id: i64,
     name: String,
     age: i32,
 }
 
-/// Quickly check whether a MongoDB server is reachable at `uri`, using a short
-/// `server_selection_timeout` instead of the driver's ~30 second default so an unreachable
-/// server (e.g. in CI, where none is running) fails fast.
-#[cfg(feature = "io-mongodb")]
-fn mongodb_reachable(uri: &str) -> Result<bool> {
-    use std::time::Duration;
+impl Element for Person {
+    const TYPE_ID: &'static str = "examples/mongodb-person";
+    const CODER_ID: &'static str = "examples/mongodb-person-local";
+}
 
-    let rt = tokio::runtime::Runtime::new()?;
-    Ok(rt.block_on(async {
-        let Ok(mut options) = mongodb::options::ClientOptions::parse(uri).await else {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let uri = std::env::var("MONGODB_URI")
+        .unwrap_or_else(|_| "mongodb://localhost:27017".into());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let reachable = runtime.block_on(async {
+        let Ok(mut options) = mongodb::options::ClientOptions::parse(&uri).await else {
             return false;
         };
         options.server_selection_timeout = Some(Duration::from_secs(2));
-
         let Ok(client) = mongodb::Client::with_options(options) else {
             return false;
         };
-        client
-            .database("admin")
-            .run_command(bson::doc! { "ping": 1 })
-            .await
-            .is_ok()
-    }))
-}
-
-#[cfg(feature = "io-mongodb")]
-fn main() -> Result<()> {
-    use ironbeam::{Pipeline, from_vec, read_mongodb};
-    use std::env;
-
-    let uri = env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".into());
-    let database = "ironbeam_examples";
-
-    println!("🚀 MongoDB Pipeline Example: Person Processing");
-    println!("   Connecting to {uri}\n");
-
-    if !mongodb_reachable(&uri)? {
-        println!("⚠️  No MongoDB server reachable at {uri}; skipping example.");
-        println!("   Start a MongoDB server and re-run, optionally setting MONGODB_URI.");
+        client.database("admin").run_command(bson::doc! { "ping": 1 }).await.is_ok()
+    });
+    if !reachable {
+        println!("No MongoDB server reachable at {uri}; start one and retry.");
         return Ok(());
     }
-
-    let p = Pipeline::default();
-
-    println!("📥 Seeding the `people` collection...");
-    let seed = from_vec(
-        &p,
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let database = format!("ironbeam_example_{timestamp}");
+    let seed = Pipeline::default();
+    let input = seed.from_vec(
+        "seed-people",
         vec![
-            Person {
-                id: 1,
-                name: "Alice".into(),
-                age: 30,
-            },
-            Person {
-                id: 2,
-                name: "Bob".into(),
-                age: 17,
-            },
-            Person {
-                id: 3,
-                name: "Carol".into(),
-                age: 45,
-            },
-            Person {
-                id: 4,
-                name: "Dave".into(),
-                age: 8,
-            },
+            Person { id: 1, name: "Alice".into(), age: 30 },
+            Person { id: 2, name: "Bob".into(), age: 17 },
+            Person { id: 3, name: "Carol".into(), age: 45 },
+            Person { id: 4, name: "Dave".into(), age: 8 },
         ],
-    );
-    let seeded = seed.write_mongodb(&uri, database, "people")?;
-    println!("  ✓ Inserted {seeded} people\n");
+    )?;
+    DirectRunner.run_sink(
+        &mongodb_sink(&input, "write-people", &uri, &database, "people")?,
+        &JobConfig::default(),
+    )?;
 
-    println!("📖 Reading + transforming adults (age >= 18)...");
-    let adults = read_mongodb::<Person>(
-        &p,
+    let processing = Pipeline::default();
+    let adults = mongodb_source::<Person>(
+        &processing,
+        "read-adults",
         &uri,
-        database,
+        &database,
         "people",
         bson::doc! { "age": { "$gte": 18 } },
     )?
-    .map(|person: &Person| Person {
+    .map_named("uppercase-names", |person| Person {
         id: person.id,
         name: person.name.to_uppercase(),
         age: person.age,
-    });
+    })?;
+    DirectRunner.run_sink(
+        &mongodb_sink(&adults, "write-adults", &uri, &database, "adults")?,
+        &JobConfig::default(),
+    )?;
 
-    println!("💾 Writing results to `adults`...");
-    let written = adults.write_mongodb(&uri, database, "adults")?;
-    println!("  ✓ Wrote {written} adults\n");
-
-    println!("📊 Final contents of `adults`:");
-    let result =
-        read_mongodb::<Person>(&p, &uri, database, "adults", bson::doc! {})?.collect_seq()?;
-    for person in &result {
-        println!("  #{:<3} {:<10} {}", person.id, person.name, person.age);
+    let verify = Pipeline::default();
+    let mut rows = mongodb_source::<Person>(
+        &verify,
+        "verify",
+        &uri,
+        &database,
+        "adults",
+        bson::doc! {},
+    )?
+    .collect_seq()?;
+    rows.sort_by_key(|person| person.id);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].name, "ALICE");
+    assert_eq!(rows[1].name, "CAROL");
+    for person in rows {
+        println!("#{:3} {:10} age {}", person.id, person.name, person.age);
     }
-
-    println!("\n✅ MongoDB Pipeline Complete!");
+    runtime.block_on(async {
+        mongodb::Client::with_uri_str(&uri)
+            .await?
+            .database(&database)
+            .drop()
+            .await
+    })?;
     Ok(())
-}
-
-#[cfg(not(feature = "io-mongodb"))]
-fn main() {
-    println!("This example requires the 'io-mongodb' feature.");
-    println!("Run with: cargo run --example mongodb_pipeline --features io-mongodb");
 }

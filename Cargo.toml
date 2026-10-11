@@ -224,7 +224,7 @@ required-features = ["v5-metrics"]
 
 [[example]]
 name = "mongodb_pipeline"
-required-features = ["legacy-v4"]
+required-features = ["io-mongodb"]
 
 [[example]]
 name = "multi_output"
