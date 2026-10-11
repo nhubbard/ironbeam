@@ -358,8 +358,10 @@ staged locally.
    a shared local filesystem, so it does not prove remote staging.
    The v5 worker now serves compact Fn API monitoring metadata, and a live
    Prism run returns committed element counts for sources and intermediate
-   collections. Prism did not report the finalized sink's runner-managed input
-   count, so this is not yet a completeness check for whole-job publication.
+   collections. A transform-scoped user counter now records the finalized
+   sink's input count; the live fixture verifies that this committed count
+   equals the accepted fragment row total. Multi-bundle retry, abandoned
+   attempts, and whole-job publication remain unproved.
    A transient Prism run also exposed an empty source-rooted bundle; the worker
    now closes its runner outputs without opening the user source for that case,
    with a focused Fn Data regression test and a subsequent live passing run.
