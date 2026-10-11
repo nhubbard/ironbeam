@@ -2,6 +2,10 @@
 #![allow(clippy::missing_errors_doc)]
 
 use ironbeam_core::{Element, Error, PCollection, Pipeline, Sink, TypedSourceIterator};
+use ironbeam_io::final_result::{AcceptedFragment, LocalFinalResult, PublishedResult};
+use ironbeam_io::sequence_final::{
+    publish_sequence_fragments, sequence_fragment_sink, sequence_fragment_store,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use std::path::{Path, PathBuf};
 
@@ -72,6 +76,80 @@ pub fn cbor_sink<T: Element + Serialize>(
     ironbeam_io::sink(input, key, path, write_cbor::<T>)
 }
 
+/// Scope for finalized CBOR record sequences.
+#[derive(Clone)]
+pub struct CborFragmentStore {
+    local: LocalFinalResult,
+}
+
+impl CborFragmentStore {
+    pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
+        self.local.accepted_fragments()
+    }
+}
+
+pub fn cbor_fragment_store(
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+    key: &str,
+) -> Result<CborFragmentStore, Error> {
+    Ok(CborFragmentStore {
+        local: sequence_fragment_store(staging, job, graph, key, "cbor")?,
+    })
+}
+
+fn write_cbor_record<T: Serialize>(
+    value: &T,
+    output: &mut dyn std::io::Write,
+) -> Result<(), Error> {
+    ciborium::ser::into_writer(value, output)
+        .map_err(|error| ironbeam_io::io("cbor-fragment", error))
+}
+
+pub fn cbor_fragment_sink<T: Element + Serialize>(
+    input: &PCollection<T>,
+    key: &str,
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+) -> Result<Sink<T>, Error> {
+    sequence_fragment_sink(
+        input,
+        key,
+        staging,
+        job,
+        graph,
+        "cbor",
+        write_cbor_record::<T>,
+    )
+}
+
+/// Publish one validated CBOR sequence after the runner reports DONE.
+pub fn publish_cbor_fragments<T: DeserializeOwned>(
+    store: &CborFragmentStore,
+    expected_rows: u64,
+    target: impl AsRef<Path>,
+) -> Result<PublishedResult, Error> {
+    use std::io::BufRead;
+    publish_sequence_fragments(&store.local, expected_rows, target, |path| {
+        let file =
+            std::fs::File::open(path).map_err(|error| ironbeam_io::io("cbor-fragment", error))?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut count = 0_u64;
+        while !reader
+            .fill_buf()
+            .map_err(|error| ironbeam_io::io("cbor-fragment", error))?
+            .is_empty()
+        {
+            let _: T = ciborium::de::from_reader(&mut reader)
+                .map_err(|error| ironbeam_io::io("cbor-fragment", error))?;
+            count += 1;
+        }
+        Ok(count)
+    })
+}
+
 #[cfg(feature = "parallel-io")]
 pub fn cbor_parallel_sink<T: Element + Serialize + Sync>(
     input: &PCollection<T>,
@@ -121,4 +199,22 @@ pub fn cbor_sharded_source<T: Element + DeserializeOwned>(
         count_cbor_records::<T>,
         read_cbor_range::<T>,
     )
+}
+
+#[cfg(test)]
+mod fragment_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_record_cannot_replace_existing_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("result.cbor");
+        std::fs::write(&target, b"previous result").unwrap();
+        let store =
+            cbor_fragment_store(dir.path().join("staging"), "job", "graph", "sink").unwrap();
+        store.local.stage("bundle", 1, &[0xff]).unwrap();
+        store.local.accept("bundle").unwrap();
+        assert!(publish_cbor_fragments::<u32>(&store, 1, &target).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"previous result");
+    }
 }

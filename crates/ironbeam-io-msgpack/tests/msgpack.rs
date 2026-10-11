@@ -1,11 +1,58 @@
-use ironbeam_core::{Element, ErrorKind, Pipeline};
+use ironbeam_core::{Element, Envelope, ErrorKind, Pipeline, Window};
 use ironbeam_direct::{DirectRunner, JobConfig};
 #[cfg(feature = "parallel-io")]
 use ironbeam_io_msgpack::msgpack_parallel_sink;
 use ironbeam_io_msgpack::{
-    msgpack_glob_source, msgpack_sharded_source, msgpack_sink, msgpack_source,
-    msgpack_streaming_source,
+    msgpack_fragment_sink, msgpack_fragment_store, msgpack_glob_source, msgpack_sharded_source,
+    msgpack_sink, msgpack_source, msgpack_streaming_source, publish_msgpack_fragments,
 };
+
+#[test]
+fn finalized_msgpack_bundles_publish_one_valid_sequence() {
+    let dir = tempfile::tempdir().unwrap();
+    let staging = dir.path().join("staging");
+    let target = dir.path().join("final.msgpack");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", rows()).unwrap();
+    let sink = msgpack_fragment_sink(&input, "final", &staging, "job", "graph").unwrap();
+    let (_, registry) = sink.snapshot().unwrap();
+    assert!(registry.sink_requires_bundle_finalization("final"));
+    let store = msgpack_fragment_store(&staging, "job", "graph", "final").unwrap();
+    for (bundle, row) in [
+        ("bundle-1", rows()[0].clone()),
+        ("bundle-2", rows()[1].clone()),
+    ] {
+        let mut session = registry.open_sink("final").unwrap();
+        session.begin_bundle(bundle).unwrap();
+        session
+            .write(Envelope {
+                value: Box::new(row),
+                timestamp_ns: 0,
+                window: Window::Global,
+                assigned_window: None,
+            })
+            .unwrap();
+        session.commit().unwrap();
+        assert!(publish_msgpack_fragments::<Row>(&store, 2, &target).is_err());
+        session.finalize_bundle().unwrap();
+    }
+    assert_eq!(store.accepted_fragments().unwrap().len(), 2);
+    assert!(!target.exists());
+    let result = publish_msgpack_fragments::<Row>(&store, 2, &target).unwrap();
+    assert_eq!(result.rows, 2);
+    assert_eq!(
+        publish_msgpack_fragments::<Row>(&store, 2, &target).unwrap(),
+        result
+    );
+    let mut actual =
+        collect(&msgpack_source::<Row>(&Pipeline::default(), "verify", &target).unwrap());
+    actual.sort_by_key(|row| row.id);
+    assert_eq!(actual, rows());
+    assert!(publish_msgpack_fragments::<Row>(&store, 3, &target).is_err());
+    assert!(
+        publish_msgpack_fragments::<Row>(&store, 2, dir.path().join("bad.msgpack.gz")).is_err()
+    );
+}
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Row {
@@ -136,6 +183,32 @@ fn failed_msgpack_serialization_preserves_previous_result() {
         ErrorKind::Io
     );
     assert_eq!(std::fs::read(&path).unwrap(), b"previous result");
+    let staging = dir.path().join("fragment-stage");
+    let fragment = msgpack_fragment_sink(&input, "fragment", &staging, "job", "graph").unwrap();
+    let (_, registry) = fragment.snapshot().unwrap();
+    let mut session = registry.open_sink("fragment").unwrap();
+    session.begin_bundle("bad-bundle").unwrap();
+    assert_eq!(
+        session
+            .write(Envelope {
+                value: Box::new(Fails),
+                timestamp_ns: 0,
+                window: Window::Global,
+                assigned_window: None,
+            })
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    session.abort().unwrap();
+    assert!(
+        msgpack_fragment_store(&staging, "job", "graph", "fragment")
+            .unwrap()
+            .accepted_fragments()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[cfg(feature = "parallel-io")]

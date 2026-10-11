@@ -88,8 +88,8 @@ staged locally.
   with values in two fixed windows that is globally materialized to match
   Direct's side-view behavior,
   native Reshuffle in global and fixed windows,
-  and twenty-seven terminal
-  sinks. Three sinks commit pending fragments and accept them only after
+  and twenty-nine terminal
+  sinks. Five sinks commit pending fragments and accept them only after
   Prism's `FinalizeBundle` callback; the live proof verifies all three rows and
   leaves no pending fragments. The translator requires an immediate Reshuffle
   before a finalized sink, since a fused stage reached `DONE` without delivering
@@ -103,15 +103,15 @@ staged locally.
   transform in the worker, and writes the asserted result through a terminal sink.
   A separate Protobuf append sink writes length-delimited records in the worker;
   the v5 reader verifies the typed output. The append path needs a shared
-  filesystem and may duplicate records on replay. Whole-job replacement still
-  needs a runner-wide commit protocol.
+  filesystem and may duplicate records on replay. Protobuf whole-job
+  replacement remains a format-specific release gap.
   A TFRecord source reads a v5 Direct-written record through the separately
   launched worker, decodes its Protobuf payload, and writes the asserted
   transformed row. A separate TFRecord append sink writes complete frames in
   the Prism worker; the v5 reader validates the output bytes and CRCs. This
   append path has at-least-once replay semantics and needs a shared filesystem.
-  The original whole-job replacement sink still needs a runner-wide commit
-  protocol before it can be portable across bundles.
+  The original TFRecord whole-job replacement sink still needs the finalized
+  fragment adapter when used through the portable worker.
   CSV globs also lower to multiple source nodes and native Flatten in the
   mock worker contract. The format-heavy live proof now lives in the
   unpublished `ironbeam-prism-proof` package, so the Dataflow runtime package
@@ -370,11 +370,16 @@ staged locally.
    the publisher checks every frame and CRC, and the v5 reader reopens the
    original three rows. A native-schema Avro fragment sink also publishes one
    Avro container after `DONE`; the v5 reader reopens all three rows, and a
-   repeated publication produces identical bytes. Publication also rejects pending or orphaned staging
-   entries even if their row count is zero. The combined I/O coverage corpus
-   measured shared
-   I/O at 672/690 source locations and 78/80 branches, and TFRecord at
-   398/422 source locations and 35/38 branches; both pass unchanged gates.
+   repeated publication produces identical bytes. MessagePack and CBOR now
+   use a shared sequence-fragment lifecycle with format-specific streaming
+   validation; both publish and reopen the same three rows after `DONE` in
+   local Prism. Publication also rejects pending or orphaned staging
+   entries even if their row count is zero. Malformed MessagePack and CBOR
+   fragments cannot replace an existing result, and failed serialization
+   leaves no accepted fragment. The combined I/O coverage corpus measured
+   shared I/O at 852/880 source locations and 100/104 branches, MessagePack
+   at 112/116 and 8/8, CBOR at 100/104 and 7/8, and TFRecord at 398/422
+   and 35/38; all pass unchanged gates.
    Avro's gate is rebased to its expanded native fragment module at 367/387
    source locations and 27/28 branches. The untested lines are primarily
    filesystem and integer-overflow errors; malformed datum, wrong schema,

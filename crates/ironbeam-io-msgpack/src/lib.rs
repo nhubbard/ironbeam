@@ -2,6 +2,10 @@
 #![allow(clippy::missing_errors_doc)]
 
 use ironbeam_core::{Element, Error, PCollection, Pipeline, Sink, TypedSourceIterator};
+use ironbeam_io::final_result::{AcceptedFragment, LocalFinalResult, PublishedResult};
+use ironbeam_io::sequence_final::{
+    publish_sequence_fragments, sequence_fragment_sink, sequence_fragment_store,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use std::path::{Path, PathBuf};
 
@@ -78,6 +82,80 @@ pub fn msgpack_sink<T: Element + Serialize>(
     ironbeam_io::sink(input, key, path, write_msgpack::<T>)
 }
 
+/// Scope for finalized MessagePack record sequences.
+#[derive(Clone)]
+pub struct MsgpackFragmentStore {
+    local: LocalFinalResult,
+}
+
+impl MsgpackFragmentStore {
+    pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
+        self.local.accepted_fragments()
+    }
+}
+
+pub fn msgpack_fragment_store(
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+    key: &str,
+) -> Result<MsgpackFragmentStore, Error> {
+    Ok(MsgpackFragmentStore {
+        local: sequence_fragment_store(staging, job, graph, key, "msgpack")?,
+    })
+}
+
+fn write_msgpack_record<T: Serialize>(
+    value: &T,
+    output: &mut dyn std::io::Write,
+) -> Result<(), Error> {
+    rmp_serde::encode::write(output, value)
+        .map_err(|error| ironbeam_io::io("msgpack-fragment", error))
+}
+
+pub fn msgpack_fragment_sink<T: Element + Serialize>(
+    input: &PCollection<T>,
+    key: &str,
+    staging: impl AsRef<Path>,
+    job: &str,
+    graph: &str,
+) -> Result<Sink<T>, Error> {
+    sequence_fragment_sink(
+        input,
+        key,
+        staging,
+        job,
+        graph,
+        "msgpack",
+        write_msgpack_record::<T>,
+    )
+}
+
+/// Publish one validated MessagePack sequence after the runner reports DONE.
+pub fn publish_msgpack_fragments<T: DeserializeOwned>(
+    store: &MsgpackFragmentStore,
+    expected_rows: u64,
+    target: impl AsRef<Path>,
+) -> Result<PublishedResult, Error> {
+    use std::io::BufRead;
+    publish_sequence_fragments(&store.local, expected_rows, target, |path| {
+        let file = std::fs::File::open(path)
+            .map_err(|error| ironbeam_io::io("msgpack-fragment", error))?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut count = 0_u64;
+        while !reader
+            .fill_buf()
+            .map_err(|error| ironbeam_io::io("msgpack-fragment", error))?
+            .is_empty()
+        {
+            let _: T = rmp_serde::from_read(&mut reader)
+                .map_err(|error| ironbeam_io::io("msgpack-fragment", error))?;
+            count += 1;
+        }
+        Ok(count)
+    })
+}
+
 #[cfg(feature = "parallel-io")]
 pub fn msgpack_parallel_sink<T: Element + Serialize + Sync>(
     input: &PCollection<T>,
@@ -127,4 +205,32 @@ pub fn msgpack_sharded_source<T: Element + DeserializeOwned>(
         count_msgpack_records::<T>,
         read_msgpack_range::<T>,
     )
+}
+
+#[cfg(test)]
+mod fragment_tests {
+    use super::*;
+
+    #[test]
+    fn lazy_reader_stops_after_invalid_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("invalid.msgpack");
+        std::fs::write(&path, [0xc1]).unwrap();
+        let mut rows = read_msgpack_lazy::<u32>(path).unwrap();
+        assert!(rows.next().unwrap().is_err());
+        assert!(rows.next().is_none());
+    }
+
+    #[test]
+    fn invalid_record_cannot_replace_existing_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("result.msgpack");
+        std::fs::write(&target, b"previous result").unwrap();
+        let store =
+            msgpack_fragment_store(dir.path().join("staging"), "job", "graph", "sink").unwrap();
+        store.local.stage("bundle", 1, &[0xc1]).unwrap();
+        store.local.accept("bundle").unwrap();
+        assert!(publish_msgpack_fragments::<u32>(&store, 1, &target).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"previous result");
+    }
 }

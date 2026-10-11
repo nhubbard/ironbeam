@@ -17,6 +17,8 @@ use std::{
 
 #[cfg(feature = "file")]
 pub mod final_result;
+#[cfg(feature = "file")]
+pub mod sequence_final;
 
 fn read_decoded_file(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     #[cfg(any(
