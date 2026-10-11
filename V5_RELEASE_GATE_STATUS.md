@@ -50,7 +50,8 @@ staged locally.
 - The separate Dataflow checkout has a Prism `Run` reaching `DONE` through a
   separately launched v5 worker for six bounded sources, including a keyed
   input shared by GroupByKey and an ordinary branch, native Flatten and
-  GroupByKey, event-time assignment, and nine terminal
+  GroupByKey, event-time assignment, native fixed-window assignment with
+  offset, per-window GroupByKey, and eleven terminal
   append sinks. User-defined records pass through both the extracted file JSONL
   adapter and a provider-neutral object-backed JSONL source in that live job.
   The latter reconstructs and verifies the same object digest in the separately
@@ -114,13 +115,16 @@ staged locally.
    global-window `group_by_key_named` through native Beam KV/iterable coders
    and a live Prism shuffle proof. Its keyed input can also feed an ordinary
    branch, verified by another sink in that Prism job. It still rejects
-   joins, side inputs, window changes, unbounded sources, update sinks, and
+   joins, side inputs, unbounded sources, update sinks, and
    whole-job final-result sinks. Core now registers typed split/reassembly
    coders for actual `group_by_key_named` nodes, distinct from
    `latest_per_key_named`, which uses the same local operation marker. The
    worker decodes fixed and chunked inline iterables but still rejects Beam
    state-backed iterables, which require the Fn State API. Grouping across
-   non-global windows and full time-metadata parity remain open.
+   Bounded millisecond-aligned fixed windows now lower to native Beam
+   `WindowInto`; the worker carries interval metadata across Fn API boundaries.
+   One live Prism job verifies assigned intervals and keyed counts in each
+   fixed window. Other window types and full time-metadata parity remain open.
 3. **Remote I/O:** Provider clients can access hosted object storage from the
    bounded `ObjectIO` interface, but the local Prism worker still shares the
    driver's filesystem. Driver-local file paths are not staged to cloud
@@ -140,7 +144,8 @@ staged locally.
    make the legacy package release-ready.
 5. **Execution proof:** The user chose local Prism proof for now. The existing
    Prism job reaches `DONE` for the bounded elementwise, Flatten, and
-   global-window GroupByKey slice, including a JSONL connector round-trip.
+   global-window GroupByKey and fixed-window GroupByKey slices, including a
+   JSONL connector round-trip.
    The remaining portable feature
    corpus and other source/sink data still need local Prism runs. The object-backed
    fixture uses a shared local filesystem, so it does not prove remote staging.
