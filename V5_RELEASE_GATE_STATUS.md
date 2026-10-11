@@ -380,20 +380,23 @@ staged locally.
    v4; these are local measurements, not a broad performance conclusion.
    The wider v4/v5 latency gate remains open.
    The standalone fold state test does not prove in-progress recovery of the
-   entire keyed-latest output route. The full local package gate passed after
-   the initial portable change; the typed optimization has the full root
-   workspace test suite, strict core/Direct lint, and the live Prism fixture
-   verified separately. A Direct regression test checks three typed batches,
+   entire keyed-latest output route. The full local package gate passed again
+   after the typed optimization, verifying all twenty-five v5 packages without
+   publishing. The full root workspace suite, strict Direct lint, and the live
+   Prism fixture passed separately. A Direct regression test checks three typed batches,
    selected timestamps, equal-time ties, timestamp-panic attribution, and
    cancellation before output publication. The current coverage corpus passes
    the core gates at 2,857/2,972 source locations (96.13%) and 435/492
-   branches (88.41%), and passes the transforms gates. Direct source coverage
-   passes at 3,240/3,503 (92.49%), but its branch coverage is 688/794
-   (86.65%), below the unchanged 90% CI floor. Added tests cover malformed
+   branches (88.41%), and passes the transforms gates at 1,163/1,189
+   source locations (97.81%) and 108/116 branches (93.10%). Direct source
+   coverage passes at 3,257/3,515 (92.66%), but its branch coverage is
+   695/794 (87.53%), below the unchanged 90% CI floor. Added tests cover malformed
    latest registry input, fold checkpoint corruption, duplicate stream sinks,
    repeated stream cursors, non-idempotent or uncommitted stream sinks, source
-   and combined branch buffer limits. The Direct branch coverage gate remains
-   open.
+   and combined branch buffer limits, accumulated fan-out budgets, filtered
+   sink and wait-on stages, non-vector grouped-source memory limits, and
+   stream checkpoint identity rejection, and sink abort when a later route
+   stage observes cancellation. The Direct branch coverage gate remains open.
    `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
    typed tagged-value coder contracts for their inputs. Tests cover
    heterogeneous values, empty groups, and invalid tags. The translator now
