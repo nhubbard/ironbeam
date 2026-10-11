@@ -92,6 +92,10 @@ staged locally.
   default cases and 67 cases with metrics and checkpointing enabled passed
   against published 4.1.1. CI retains the opt-in branches, and the duplicate
   root targets are removed.
+- The v4 approximate-distinct and Bloom filter suites now contribute 26
+  default compatibility cases. The metrics and coder suites contribute 45
+  opt-in cases under `v4-metrics,v4-coders`; all passed against published
+  4.1.1, and their duplicate root targets are removed.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The

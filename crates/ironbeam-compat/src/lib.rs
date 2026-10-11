@@ -7,6 +7,11 @@ use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_v4::{Element as V4Element, PCollection as V4Collection, Pipeline as V4Pipeline};
 use std::fmt;
 
+/// Container images used by the optional published-v4 database references.
+#[cfg(feature = "v4-service-tests")]
+#[doc(hidden)]
+pub use testcontainers_modules as service_testcontainers_modules;
+
 /// Imports needed for the v5 convenience and local terminal methods.
 pub mod prelude {
     pub use ironbeam_direct::DirectCollectExt;

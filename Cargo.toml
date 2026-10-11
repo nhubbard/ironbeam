@@ -240,14 +240,6 @@ required-features = ["v5-preview"]
 # Skip v4 integration test binaries in the v5-default build.
 
 [[test]]
-name = "approx_count_distinct"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "bloom_filter"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "checkpoint"
 required-features = ["legacy-v4"]
 
@@ -256,23 +248,11 @@ name = "feature_gating"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "macros"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "mega_integration"
 required-features = ["legacy-v4"]
 
 [[test]]
-name = "metrics"
-required-features = ["legacy-v4"]
-
-[[test]]
 name = "par_write"
-required-features = ["legacy-v4"]
-
-[[test]]
-name = "serde_coders"
 required-features = ["legacy-v4"]
 
 [[test]]

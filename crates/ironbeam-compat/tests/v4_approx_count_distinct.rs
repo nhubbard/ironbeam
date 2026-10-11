@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Comprehensive tests for feature 4.13: HyperLogLog-based approximate
 //! distinct count.
 //!
@@ -16,8 +15,8 @@
 
 #![allow(clippy::assert_is_empty)]
 
-use ironbeam::combiners::HllApproxDistinctCount;
-use ironbeam::*;
+use ironbeam_v4::combiners::HllApproxDistinctCount;
+use ironbeam_v4::*;
 
 // ── HllApproxDistinctCount constructors ──────────────────────────────────────
 

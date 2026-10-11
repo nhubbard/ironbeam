@@ -1,14 +1,14 @@
-#![cfg(feature = "legacy-v4")]
 //! Tests for the metrics module.
 
-#![cfg(feature = "metrics")]
+#![cfg(feature = "v4-metrics")]
 
-use ironbeam::metrics::{
+use ironbeam_v4::metrics::{
     CounterMetric, GaugeMetric, HistogramMetric, HistogramStats, Metric, MetricsCollector,
 };
 use serde_json::json;
 
 #[macro_use]
+#[path = "common/macros.rs"]
 mod macros;
 
 #[test]

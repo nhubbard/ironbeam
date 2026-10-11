@@ -1,4 +1,3 @@
-#![cfg(feature = "legacy-v4")]
 //! Dedicated tests for the per-PCollection element coders (`coders` feature).
 //!
 //! Covers, per the adoption plan's Phase 7:
@@ -14,12 +13,12 @@
 //! 5. End-to-end: the build-time coder round-trips the actual runner output
 //!    partition, proving it matches the runtime partition shape.
 
-#![cfg(feature = "coders")]
+#![cfg(feature = "v4-coders")]
 
 use std::sync::Arc;
 
-use ironbeam::testing::PCollectionDebugExt;
-use ironbeam::*;
+use ironbeam_v4::testing::PCollectionDebugExt;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -23,7 +23,7 @@ use ironbeam_v4::testing::*;
 use ironbeam_v4::type_token::VecOps;
 use ironbeam_v4::{from_vec, read_mongodb, read_mongodb_streaming};
 use testcontainers::runners::SyncRunner;
-use testcontainers_modules::mongo::Mongo;
+use ironbeam_compat::service_testcontainers_modules::mongo::Mongo;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Doc {

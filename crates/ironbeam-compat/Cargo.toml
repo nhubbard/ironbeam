@@ -14,6 +14,7 @@ v4-arrow = ["ironbeam-v4/io-arrow", "dep:arrow", "dep:serde_arrow"]
 v4-avro = ["ironbeam-v4/io-avro", "dep:apache-avro"]
 v4-bzip2 = ["ironbeam-v4/compression-bzip2"]
 v4-cbor = ["ironbeam-v4/io-cbor"]
+v4-coders = ["ironbeam-v4/coders"]
 v4-csv = ["ironbeam-v4/io-csv", "dep:csv"]
 v4-checkpointing = ["ironbeam-v4/checkpointing"]
 v4-gzip = ["ironbeam-v4/compression-gzip", "dep:flate2"]
@@ -66,6 +67,14 @@ required-features = ["v4-parquet"]
 [[test]]
 name = "v4_io_arrow_ipc"
 required-features = ["v4-arrow"]
+
+[[test]]
+name = "v4_metrics"
+required-features = ["v4-metrics"]
+
+[[test]]
+name = "v4_serde_coders"
+required-features = ["v4-coders"]
 
 [[test]]
 name = "v4_io_avro"

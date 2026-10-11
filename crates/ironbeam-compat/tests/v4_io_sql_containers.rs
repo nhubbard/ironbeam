@@ -22,7 +22,7 @@ use ironbeam_v4::io::sql::*;
 use ironbeam_v4::testing::*;
 use ironbeam_v4::{from_vec, read_sql, read_sql_streaming};
 use testcontainers::runners::SyncRunner;
-use testcontainers_modules::{mysql::Mysql, postgres::Postgres};
+use ironbeam_compat::service_testcontainers_modules::{mysql::Mysql, postgres::Postgres};
 
 #[derive(Clone, Debug, PartialEq, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 struct Row {
