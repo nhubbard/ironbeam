@@ -19,6 +19,22 @@ fn facade_prelude_runs_v4_shaped_helper_chain_without_compat() {
     assert_eq!(result, vec![4]);
 }
 
+#[test]
+fn facade_cloud_module_routes_provider_neutral_objects() {
+    use ironbeam::v5::cloud::{LocalObjectIO, ObjectStores};
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut stores = ObjectStores::new();
+    stores
+        .register("local", LocalObjectIO::new(directory.path()).unwrap())
+        .unwrap();
+    stores.write("local://bucket/rows.jsonl", b"{\"id\":1}\n").unwrap();
+    assert_eq!(
+        stores.read("local://bucket/rows.jsonl").unwrap(),
+        b"{\"id\":1}\n"
+    );
+}
+
 #[cfg(feature = "v5-regex")]
 #[test]
 fn facade_prelude_exposes_isolated_regex_helpers() {
