@@ -1,111 +1,105 @@
-//! Example demonstrating file globbing and pattern input for batch ETL operations.
+//! Read partitioned JSONL files with stable v5 glob sources.
 //!
-//! This example shows how to use glob patterns to read multiple files at once,
-//! which is essential for real-world ETL scenarios with date-based partitions.
+//! Run with `cargo run --example glob_patterns`.
 
 use anyhow::Result;
-use ironbeam::{PCollection, Pipeline, read_jsonl, write_jsonl_vec};
+use ironbeam::v5::{
+    DirectRunner, Element, JobConfig, Pipeline, jsonl_glob_source, jsonl_sink, prelude::*,
+};
 use serde::{Deserialize, Serialize};
 use std::fs::create_dir_all;
+use std::path::Path;
 use tempfile::TempDir;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct LogEntry {
     timestamp: String,
     level: String,
     message: String,
 }
 
+impl Element for LogEntry {
+    const TYPE_ID: &'static str = "examples/glob-log-entry";
+    const CODER_ID: &'static str = "examples/glob-log-entry-local";
+}
+
+fn write_logs(path: &Path, entries: Vec<LogEntry>) -> Result<()> {
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("fixture-rows", entries)?;
+    let sink = jsonl_sink(&input, "fixture-write", path)?;
+    DirectRunner.run_sink(&sink, &JobConfig::default())?;
+    Ok(())
+}
+
 fn main() -> Result<()> {
-    // Set up a temporary directory with partitioned log files
     let temp = TempDir::new()?;
     let base = temp.path();
-
     println!("Setting up example data in {}", base.display());
 
-    // Create date-partitioned directory structure
     for day in 1..=3 {
         let day_dir = base.join(format!("logs/year=2024/month=01/day={day:02}"));
         create_dir_all(&day_dir)?;
-
         let log_file = day_dir.join("events.jsonl");
-        let entries = vec![
-            LogEntry {
-                timestamp: format!("2024-01-{day:02}T10:00:00"),
-                level: "INFO".to_string(),
-                message: format!("Day {day} event 1"),
-            },
-            LogEntry {
-                timestamp: format!("2024-01-{day:02}T11:00:00"),
-                level: "ERROR".to_string(),
-                message: format!("Day {day} event 2"),
-            },
-        ];
-
-        write_jsonl_vec(&log_file, &entries)?;
+        write_logs(
+            &log_file,
+            vec![
+                LogEntry {
+                    timestamp: format!("2024-01-{day:02}T10:00:00"),
+                    level: "INFO".into(),
+                    message: format!("Day {day} event 1"),
+                },
+                LogEntry {
+                    timestamp: format!("2024-01-{day:02}T11:00:00"),
+                    level: "ERROR".into(),
+                    message: format!("Day {day} event 2"),
+                },
+            ],
+        )?;
         println!("Created {}", log_file.display());
     }
 
-    // Example 1: Read all log files using a glob pattern
-    println!("\n=== Example 1: Read all logs with glob pattern ===");
-    let p = Pipeline::default();
     let pattern = format!("{}/logs/year=*/month=*/day=*/events.jsonl", base.display());
-    println!("Pattern: {pattern}");
-
-    let logs: PCollection<LogEntry> = read_jsonl(&p, &pattern)?;
+    println!("\nAll log files: {pattern}");
+    let pipeline = Pipeline::default();
+    let logs = jsonl_glob_source::<LogEntry>(&pipeline, "all-logs", &pattern)?;
     let all_logs = logs.collect_seq()?;
+    assert_eq!(all_logs.len(), 6);
     println!("Total log entries read: {}", all_logs.len());
 
-    // Example 2: Read only specific days
-    println!("\n=== Example 2: Read specific day range ===");
-    let p2 = Pipeline::default();
-    let pattern2 = format!(
-        "{}/logs/year=2024/month=01/day=01/events.jsonl",
-        base.display()
-    );
-    println!("Pattern: {pattern2}");
+    let day_one = base.join("logs/year=2024/month=01/day=01/events.jsonl");
+    let pipeline = Pipeline::default();
+    let day_one_logs =
+        jsonl_glob_source::<LogEntry>(&pipeline, "day-one", &day_one.to_string_lossy())?
+            .collect_seq()?;
+    assert_eq!(day_one_logs.len(), 2);
+    println!("Day 1 entries: {}", day_one_logs.len());
 
-    let day1_logs: PCollection<LogEntry> = read_jsonl(&p2, &pattern2)?;
-    let day1_entries = day1_logs.collect_seq()?;
-    println!("Day 1 entries: {}", day1_entries.len());
-
-    // Example 3: Process logs - filter and aggregate
-    println!("\n=== Example 3: Process and aggregate ===");
-    let p3 = Pipeline::default();
-    let pattern3 = format!("{}/logs/year=*/month=*/day=*/events.jsonl", base.display());
-
-    let error_logs = read_jsonl::<LogEntry>(&p3, &pattern3)?
-        .filter(|entry| entry.level == "ERROR")
+    let pipeline = Pipeline::default();
+    let error_logs = jsonl_glob_source::<LogEntry>(&pipeline, "error-input", &pattern)?
+        .filter_named("errors", |entry| entry.level == "ERROR")?
         .collect_seq()?;
-
+    assert_eq!(error_logs.len(), 3);
     println!("Total ERROR entries: {}", error_logs.len());
 
-    // Example 4: Using wildcards for multiple files in same directory
-    println!("\n=== Example 4: Multiple files in directory ===");
-
-    // Create multiple files in a single directory
     let data_dir = base.join("data");
     create_dir_all(&data_dir)?;
-
-    for i in 1..=3 {
-        let file = data_dir.join(format!("batch_{i}.jsonl"));
-        let entries = vec![LogEntry {
-            timestamp: format!("2024-01-01T{i:02}:00:00"),
-            level: "INFO".to_string(),
-            message: format!("Batch {i} processing"),
-        }];
-        write_jsonl_vec(&file, &entries)?;
+    for batch in 1..=3 {
+        let file = data_dir.join(format!("batch_{batch}.jsonl"));
+        write_logs(
+            &file,
+            vec![LogEntry {
+                timestamp: format!("2024-01-01T{batch:02}:00:00"),
+                level: "INFO".into(),
+                message: format!("Batch {batch} processing"),
+            }],
+        )?;
     }
-
-    let p4 = Pipeline::default();
-    let pattern4 = format!("{}/data/*.jsonl", base.display());
-    println!("Pattern: {pattern4}");
-
-    let batch_logs: PCollection<LogEntry> = read_jsonl(&p4, &pattern4)?;
-    let batches = batch_logs.collect_seq()?;
+    let pipeline = Pipeline::default();
+    let batch_pattern = format!("{}/data/*.jsonl", base.display());
+    let batches =
+        jsonl_glob_source::<LogEntry>(&pipeline, "batches", &batch_pattern)?.collect_seq()?;
+    assert_eq!(batches.len(), 3);
     println!("Total batch entries: {}", batches.len());
-
-    println!("\n✓ All examples completed successfully!");
-
+    println!("All examples completed successfully!");
     Ok(())
 }

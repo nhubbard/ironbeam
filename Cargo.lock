@@ -2178,6 +2178,7 @@ dependencies = [
  "glob",
  "hyperloglogplus",
  "ironbeam-cloud",
+ "ironbeam-compression",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",

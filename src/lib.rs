@@ -27,6 +27,8 @@ pub mod v5 {
         };
     }
     pub use ironbeam_core::*;
+    #[cfg(feature = "v5-compression")]
+    pub use ironbeam_compression::*;
     pub use ironbeam_direct::{
         CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobMetrics,
         JobStatus, PlanSummary, SpillConfig,

@@ -18,6 +18,7 @@ legacy-v4 = ["dep:ironbeam-cloud", "dep:anyhow", "dep:serde", "dep:serde_json", 
 v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "dep:ironbeam-io", "ironbeam-io/cloud", "dep:ironbeam-io-jsonl", "ironbeam-io-jsonl/cloud"]
 v5-regex = ["v5-preview", "dep:ironbeam-transform-regex"]
 v5-approx = ["v5-preview", "dep:ironbeam-transform-approx"]
+v5-compression = ["v5-preview", "dep:ironbeam-compression"]
 v5-io-sql = ["v5-preview", "dep:ironbeam-io-sql"]
 v5-io-mongodb = ["v5-preview", "dep:ironbeam-io-mongodb"]
 v5-io-avro = ["v5-preview", "dep:ironbeam-io-avro"]
@@ -51,10 +52,10 @@ io-sql = ["v5-io-sql", "dep:sqlx", "dep:tokio"]
 io-mongodb = ["v5-io-mongodb", "dep:mongodb", "dep:bson", "dep:tokio"]
 
 # Compression codecs (pluggable)
-compression-gzip = ["dep:flate2", "ironbeam-cloud?/compression-gzip", "ironbeam-io?/compression-gzip", "ironbeam-io-jsonl?/compression-gzip"]
-compression-zstd = ["dep:zstd", "ironbeam-cloud?/compression-zstd", "ironbeam-io?/compression-zstd", "ironbeam-io-jsonl?/compression-zstd"]
-compression-bzip2 = ["dep:bzip2", "ironbeam-cloud?/compression-bzip2", "ironbeam-io?/compression-bzip2", "ironbeam-io-jsonl?/compression-bzip2"]
-compression-xz = ["dep:xz2", "ironbeam-cloud?/compression-xz", "ironbeam-io?/compression-xz", "ironbeam-io-jsonl?/compression-xz"]
+compression-gzip = ["v5-compression", "dep:flate2", "ironbeam-compression/compression-gzip", "ironbeam-cloud?/compression-gzip", "ironbeam-io?/compression-gzip", "ironbeam-io-jsonl?/compression-gzip"]
+compression-zstd = ["v5-compression", "dep:zstd", "ironbeam-compression/compression-zstd", "ironbeam-cloud?/compression-zstd", "ironbeam-io?/compression-zstd", "ironbeam-io-jsonl?/compression-zstd"]
+compression-bzip2 = ["v5-compression", "dep:bzip2", "ironbeam-compression/compression-bzip2", "ironbeam-cloud?/compression-bzip2", "ironbeam-io?/compression-bzip2", "ironbeam-io-jsonl?/compression-bzip2"]
+compression-xz = ["v5-compression", "dep:xz2", "ironbeam-compression/compression-xz", "ironbeam-cloud?/compression-xz", "ironbeam-io?/compression-xz", "ironbeam-io-jsonl?/compression-xz"]
 
 # Behaviors
 parallel-io = ["ironbeam-io?/parallel-io", "ironbeam-io-jsonl?/parallel-io"]
@@ -69,6 +70,7 @@ spilling = ["dep:postcard"]
 coders = ["dep:postcard"]
 
 [dependencies]
+ironbeam-compression = { version = "0.1.0", path = "crates/ironbeam-compression", optional = true }
 ironbeam-cloud = { version = "0.1.0", path = "crates/ironbeam-cloud", optional = true }
 ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core", optional = true }
 ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct", optional = true }
@@ -194,7 +196,7 @@ required-features = ["legacy-v4"]
 
 [[example]]
 name = "compressed_io"
-required-features = ["legacy-v4"]
+required-features = ["compression-gzip"]
 
 [[example]]
 name = "data_quality_validation"
@@ -210,7 +212,7 @@ required-features = ["legacy-v4"]
 
 [[example]]
 name = "glob_patterns"
-required-features = ["legacy-v4"]
+required-features = ["v5-preview"]
 
 [[example]]
 name = "metrics_example"
