@@ -1,9 +1,12 @@
 //! Direct physical path for bounded grouping, joins, and global combines.
 use crate::checkpoint::{CheckpointManager, Identity};
 use crate::metrics::MetricsState;
+use crate::planner::Route;
 use crate::spill::OutputStore;
 use crate::{JobConfig, JobHandle, cancelled, open_source_safe, read_source_batch};
-use ironbeam_core::{Element, Envelope, Error, FoldSession, Graph, Operation, Registry};
+use ironbeam_core::{
+    Boundedness, Element, Envelope, Error, FoldSession, Graph, Operation, Registry,
+};
 use rayon::prelude::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
@@ -501,6 +504,119 @@ pub(crate) fn try_drain_fold_sink(
     }))
     .unwrap_or_else(|_| Err(Error::execution(fold_key, "direct", "user fold panicked")))?;
     Ok(true)
+}
+
+/// Complete a bounded wait signal, then return a linear main route that can
+/// write directly to a sink in source-sized batches.
+pub(crate) fn try_wait_sink_route(
+    pool: &rayon::ThreadPool,
+    graph: &Graph,
+    registry: &Registry,
+    sink_key: &str,
+    config: &JobConfig,
+    metrics: &MetricsState,
+) -> Result<Option<Route>, Error> {
+    let Some(mut key) = graph.node(sink_key).and_then(|node| node.input.as_deref()) else {
+        return Ok(None);
+    };
+    let mut downstream = Vec::new();
+    loop {
+        let Some(node) = graph.node(key) else {
+            return Ok(None);
+        };
+        if !matches!(
+            node.operation,
+            Operation::Map
+                | Operation::Filter
+                | Operation::FlatMap
+                | Operation::AssignTimestamp
+                | Operation::FixedWindow
+        ) {
+            break;
+        }
+        if !node.additional_inputs.is_empty() {
+            return Ok(None);
+        }
+        downstream.push(key.to_owned());
+        let Some(input) = node.input.as_deref() else {
+            return Ok(None);
+        };
+        key = input;
+    }
+    let Some(wait) = graph.node(key) else {
+        return Ok(None);
+    };
+    if !matches!(wait.operation, Operation::WaitOn) || wait.boundedness != Boundedness::Bounded {
+        return Ok(None);
+    }
+    let Some((source_key, mut operations)) = wait
+        .input
+        .as_deref()
+        .and_then(|input| linear_fold_route(graph, input))
+    else {
+        return Ok(None);
+    };
+    downstream.reverse();
+    operations.extend(downstream);
+    let signal = wait
+        .additional_inputs
+        .first()
+        .ok_or_else(|| Error::graph(key, "wait signal missing"))?;
+    if let Some((signal_source, signal_stages)) = linear_fold_route(graph, &signal.key) {
+        drain_linear_signal(registry, &signal_source, &signal_stages, config, metrics)?;
+    } else {
+        eval(pool, graph, registry, &signal.key, config, metrics)?;
+    }
+    Ok(Some(Route {
+        source_key,
+        operations,
+    }))
+}
+
+fn drain_linear_signal(
+    registry: &Registry,
+    source_key: &str,
+    stages: &[String],
+    config: &JobConfig,
+    metrics: &MetricsState,
+) -> Result<(), Error> {
+    let mut source = open_source_safe(registry, source_key)?;
+    loop {
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        let batch = read_source_batch(&mut source, config.buffer_budget_elements, source_key)?;
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+        metrics.source_elements.fetch_add(count, Ordering::Relaxed);
+        metrics
+            .peak_batch_elements
+            .fetch_max(count, Ordering::Relaxed);
+        metrics.batches.fetch_add(1, Ordering::Relaxed);
+        for event in batch {
+            let mut events = vec![event];
+            for key in stages {
+                let mut next = Vec::new();
+                for event in events {
+                    if config.cancellation.load(Ordering::Acquire) {
+                        return Err(cancelled());
+                    }
+                    let produced =
+                        catch_unwind(AssertUnwindSafe(|| registry.apply_many(key, event)))
+                            .unwrap_or_else(|_| {
+                                Err(Error::execution(key, "direct", "user transform panicked"))
+                            })?;
+                    if produced.is_empty() {
+                        metrics.filtered_elements.fetch_add(1, Ordering::Relaxed);
+                    }
+                    next.extend(produced);
+                }
+                events = next;
+            }
+        }
+    }
 }
 
 fn linear_fold_route(graph: &Graph, from: &str) -> Option<(String, Vec<String>)> {

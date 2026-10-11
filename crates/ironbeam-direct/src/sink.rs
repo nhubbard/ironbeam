@@ -92,6 +92,25 @@ pub(crate) fn execute<T: Element>(
             record_written(handle, written);
             return Ok(());
         }
+        if let Some(route) = materialized::try_wait_sink_route(
+            pool,
+            graph,
+            registry,
+            sink_key,
+            config,
+            &handle.metrics,
+        )? {
+            let mut summary = plan.summary.clone();
+            summary.source_key.clone_from(&route.source_key);
+            summary.routes = 1;
+            summary.materialized = false;
+            let streaming = PhysicalPlan {
+                summary,
+                routes: vec![route],
+                materialized: false,
+            };
+            return execute::<T>(pool, graph, registry, &streaming, config, handle, session);
+        }
         for event in materialized::eval(pool, graph, registry, sink_key, config, &handle.metrics)? {
             write_event(session, sink_key, event, config)?;
             written = written.saturating_add(1);

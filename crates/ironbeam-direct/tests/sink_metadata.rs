@@ -504,6 +504,80 @@ fn grouped_sink_writes_before_transforming_the_next_completed_group() {
 }
 
 #[test]
+fn wait_sink_streams_main_batches_after_signal_completion() {
+    use std::sync::atomic::AtomicBool;
+
+    struct CountingSink(Arc<AtomicUsize>);
+    impl TypedSink<i32> for CountingSink {
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+    let ready = Arc::new(AtomicBool::new(false));
+    let writes = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let signal_ready = Arc::clone(&ready);
+    let signal = pipeline
+        .from_vec("signal-source", (0_i32..1_000).collect())
+        .unwrap()
+        .map_named("complete-signal", move |value| {
+            if value == 999 {
+                signal_ready.store(true, Ordering::SeqCst);
+            }
+            value
+        })
+        .unwrap();
+    let main_ready = Arc::clone(&ready);
+    let sink = pipeline
+        .from_vec("main-source", (0_i32..1_000).collect())
+        .unwrap()
+        .map_named("check-signal", move |value| {
+            assert!(main_ready.load(Ordering::SeqCst));
+            value
+        })
+        .unwrap()
+        .wait_on_named("wait", &signal)
+        .unwrap()
+        .filter_named("evens", |value| value % 2 == 0)
+        .unwrap()
+        .sink_named(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            {
+                let writes = Arc::clone(&writes);
+                move || Ok(Box::new(CountingSink(Arc::clone(&writes))))
+            },
+        )
+        .unwrap();
+    let job = DirectRunner
+        .run_sink(
+            &sink,
+            &JobConfig {
+                memory_budget_bytes: 256,
+                buffer_budget_elements: 8,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(writes.load(Ordering::SeqCst), 500);
+    assert_eq!(job.metrics().source_elements, 2_000);
+    assert_eq!(job.metrics().filtered_elements, 500);
+    assert_eq!(job.metrics().output_elements, 500);
+    assert!(job.metrics().peak_batch_elements <= 8);
+}
+
+#[test]
 fn direct_sink_counts_filtered_rows_on_both_execution_modes() {
     for parallelism in [1, 3] {
         let pipeline = Pipeline::default();

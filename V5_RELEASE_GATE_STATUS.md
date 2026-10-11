@@ -37,6 +37,13 @@ staged locally.
   transformed and checks filtered-row metrics. Tests cover
   grouped values, sink write failure and abort, fixed-window metadata, empty
   global input, and keyed sums; core and Direct suites and strict lint pass.
+  A bounded linear `wait_on` sink route now drains its linear signal first and
+  writes the main branch in bounded element batches. A 1,000-row signal and
+  1,000-row main branch pass with a 256-byte configured memory budget,
+  preserve signal-before-main ordering, and report the expected source,
+  filter, and output counts. This avoids whole-branch collection; exact
+  per-batch byte accounting remains open. Nonlinear signals and main branches
+  retain the materialized evaluator.
   Fold state still retains groups, and other materialized sink routes
   still evaluate their full bounded graph before writing, so streaming and
   memory limits remain an open Direct gate. An alternating 16-run release sample of the
