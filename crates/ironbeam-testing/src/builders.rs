@@ -281,6 +281,9 @@ pub fn skewed_kvs(count: usize) -> Vec<(String, i32)> {
 /// This generates deterministic "random" data that's reproducible across test runs.
 /// Uses a linear congruential generator with a fixed seed.
 ///
+/// # Panics
+/// Panics if `min` is not less than `max`.
+///
 /// # Example
 ///
 /// ```
@@ -298,19 +301,23 @@ pub fn pseudo_random_data(count: usize, min: i32, max: i32) -> Vec<i32> {
     let mut data = Vec::with_capacity(count);
     let mut seed: u32 = 12345; // Fixed seed for reproducibility
 
-    let range = (max - min).cast_unsigned();
+    assert!(min < max, "pseudo-random range must be nonempty");
+    let range = u32::try_from(i64::from(max) - i64::from(min)).unwrap();
 
     for _ in 0..count {
         // Simple LCG parameters
         seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
-        let val = ((seed / 65536) % range).cast_signed() + min;
-        data.push(val);
+        let val = i64::from(min) + i64::from((seed / 65536) % range);
+        data.push(i32::try_from(val).unwrap());
     }
 
     data
 }
 
 /// Generate key-value pairs with pseudo-random values.
+///
+/// # Panics
+/// Panics if `value_min` is not less than `value_max`.
 ///
 /// # Example
 ///
@@ -330,14 +337,18 @@ pub fn pseudo_random_kvs(
     let mut data = Vec::new();
     let mut seed: u32 = 54321; // Different seed than pseudo_random_data
 
-    let range = (value_max - value_min).cast_unsigned();
+    assert!(
+        value_min < value_max,
+        "pseudo-random value range must be nonempty"
+    );
+    let range = u32::try_from(i64::from(value_max) - i64::from(value_min)).unwrap();
 
     for key_idx in 0..num_keys {
         let key = format!("key_{key_idx}");
         for _ in 0..values_per_key {
             seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
-            let val = value_min + ((seed / 65536) % range).cast_signed();
-            data.push((key.clone(), val));
+            let val = i64::from(value_min) + i64::from((seed / 65536) % range);
+            data.push((key.clone(), i32::try_from(val).unwrap()));
         }
     }
 

@@ -3,7 +3,7 @@
 //! This module provides specialized assertion functions and the [`PAssert`] builder
 //! for comparing collections produced by pipelines with expected results.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::{BuildHasher, Hash};
 
@@ -247,8 +247,8 @@ pub fn assert_collections_equal<T: Debug + PartialEq>(actual: &[T], expected: &[
 
 /// Assert that two collections contain the same elements, ignoring order.
 ///
-/// This function converts both collections to sets and compares them.
-/// Useful for testing transformations that may not preserve element order.
+/// This function compares element counts, including duplicates. Useful for
+/// testing transformations that may not preserve element order.
 ///
 /// # Panics
 ///
@@ -264,24 +264,8 @@ pub fn assert_collections_equal<T: Debug + PartialEq>(actual: &[T], expected: &[
 /// assert_collections_unordered_equal(&actual, &expected);
 /// ```
 pub fn assert_collections_unordered_equal<T: Debug + Eq + Hash>(actual: &[T], expected: &[T]) {
-    let actual_set: HashSet<_> = actual.iter().collect();
-    let expected_set: HashSet<_> = expected.iter().collect();
-
-    assert_eq!(
-        actual.len(),
-        expected.len(),
-        "Collection length mismatch:\n  Expected length: {}\n  Actual length: {}\n  Expected: {expected:?}\n  Actual: {actual:?}",
-        expected.len(),
-        actual.len()
-    );
-
-    if actual_set != expected_set {
-        let missing: Vec<_> = expected_set.difference(&actual_set).collect();
-        let extra: Vec<_> = actual_set.difference(&expected_set).collect();
-
-        panic!(
-            "Collection content mismatch:\n  Missing elements: {missing:?}\n  Extra elements: {extra:?}\n  Expected: {expected:?}\n  Actual: {actual:?}"
-        );
+    if let Err(error) = PAssert::that(actual).contains_in_any_order(expected) {
+        panic!("{error}");
     }
 }
 
@@ -331,7 +315,7 @@ where
 ///
 /// This function compares grouped data (e.g., output from `group_by_key`) where
 /// each key maps to a vector of values. The keys are compared in sorted order,
-/// and the value vectors are compared as unordered sets.
+/// and the value vectors are compared as unordered multisets.
 ///
 /// # Panics
 ///
@@ -368,11 +352,17 @@ where
             "Key mismatch at index {i}:\n  Expected: {ek:?}\n  Actual: {ak:?}"
         );
 
-        let av_set: HashSet<_> = av.iter().collect();
-        let ev_set: HashSet<_> = ev.iter().collect();
+        let mut av_counts: HashMap<&V, usize> = HashMap::new();
+        let mut ev_counts: HashMap<&V, usize> = HashMap::new();
+        for value in av {
+            *av_counts.entry(value).or_insert(0) += 1;
+        }
+        for value in ev {
+            *ev_counts.entry(value).or_insert(0) += 1;
+        }
 
         assert_eq!(
-            av_set, ev_set,
+            av_counts, ev_counts,
             "Value mismatch for key {ak:?} at index {i}:\n  Expected values: {ev:?}\n  Actual values: {av:?}"
         );
     }

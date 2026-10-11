@@ -35,3 +35,21 @@ fn test_pipeline_and_debug_helpers_use_v5_direct() {
         .unwrap();
     assert_eq!(observed.load(Ordering::Relaxed), 3);
 }
+
+#[test]
+fn debug_inspection_and_graph_edge_count_handle_shared_inputs() {
+    let pipeline = TestPipeline::new();
+    assert_eq!(pipeline.pipeline().snapshot().unwrap().0.nodes.len(), 0);
+    let left = pipeline.from_vec("left", (0..12_i32).collect()).unwrap();
+    let right = pipeline.from_vec("right", vec![13_i32]).unwrap();
+    let merged = left
+        .flatten_named("merged", &[right])
+        .unwrap()
+        .debug_inspect_named("inspect-all", "merged values")
+        .unwrap();
+    assert_eq!(pipeline.edge_count().unwrap(), 3);
+    let collected = merged
+        .collect_debug_count_named("out", "all", &JobConfig::default())
+        .unwrap();
+    assert_eq!(collected.len(), 13);
+}

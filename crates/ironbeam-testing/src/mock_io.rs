@@ -123,14 +123,12 @@ impl Default for TempDirPath {
 /// ```
 #[cfg(feature = "io-csv")]
 pub fn mock_csv_file<T: Serialize>(data: &[T], with_header: bool) -> IoResult<TempFilePath> {
-    use csv::Writer;
+    use csv::WriterBuilder;
 
     let temp = TempFilePath::with_extension("csv")?;
-    let mut writer = if with_header {
-        Writer::from_path(temp.path())?
-    } else {
-        Writer::from_writer(File::create(temp.path())?)
-    };
+    let mut writer = WriterBuilder::new()
+        .has_headers(with_header)
+        .from_path(temp.path())?;
 
     for record in data {
         writer.serialize(record)?;
