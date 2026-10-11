@@ -19,7 +19,7 @@ Checkpoints contain framed encoded output, a checksum, source offset, output cou
 | Invalid budgets, unsupported nodes, or missing durable coder | No v5 equivalent | Typed rejection before source execution |
 | Grouping, joins, multi-input fan-in, format I/O, windows, deferred sinks, unbounded sources | v4 or later-phase behavior | Explicit unsupported capability; Phase 4 or later owns these migrations |
 
-The differential corpus is in `tests/v5_direct_differential.rs`; focused plan, ordering, metrics, resource, spill, and recovery tests are in `crates/ironbeam-direct/tests/phase3.rs` and private module tests. The unbounded-source rejection fixture remains in `crates/ironbeam-direct/tests/vertical.rs`.
+The differential corpus is in `crates/ironbeam-compat/tests/differential.rs` and runs against published Ironbeam 4.1.1; focused plan, ordering, metrics, resource, spill, and recovery tests are in `crates/ironbeam-direct/tests/phase3.rs` and private module tests. The unbounded-source rejection fixture remains in `crates/ironbeam-direct/tests/vertical.rs`.
 
 ## Coverage and remaining risk
 

@@ -16,3 +16,7 @@ ironbeam-transforms = { version = "0.1.0", path = "../ironbeam-transforms" }
 ironbeam-transform-regex = { version = "0.1.0", path = "../ironbeam-transform-regex" }
 ironbeam-transform-approx = { version = "0.1.0", path = "../ironbeam-transform-approx" }
 anyhow = "1"
+
+[dev-dependencies]
+ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false, features = ["io-jsonl"] }
+tempfile = "3"

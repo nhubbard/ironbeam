@@ -18,7 +18,7 @@ The full per-file report is in `V5_PHASE0_COVERAGE.md`. Representative module li
 
 ## Representative behavior and costs
 
-`tests/v5_behavior_corpus.rs` fixes sequential elementwise order, empty/singleton behavior, parallel result multisets, keyed grouping and join multiplicity, and immediate bounded JSONL round trip. It intentionally does not promise global parallel ordering or distributed retry semantics. Current v4 local operations do not declare source replay or sink commit guarantees.
+`crates/ironbeam-compat/tests/v4_baseline.rs` fixes sequential elementwise order, empty/singleton behavior, parallel result multisets, keyed grouping and join multiplicity, and immediate bounded JSONL round trip against published Ironbeam 4.1.1. It intentionally does not promise global parallel ordering or distributed retry semantics. Current v4 local operations do not declare source replay or sink commit guarantees.
 
 `examples/v4_benchmark_corpus.rs` prints stable workload names, row counts, elapsed nanoseconds, output counts, and checksums. On this host, a **debug** run with 10,000 rows gave map/filter 1.46 ms (5,000 rows; checksum 74,985,000), group-by-key 3.09 ms (100 groups; total 10,000 values), inner join 28.69 ms (10,000 rows; checksum 100,000,000), and JSONL write/read round trip 6.11 ms (10,000 rows; checksum 49,995,000). Earlier runs of the first three cases were faster, so these are characterization samples, not release thresholds. `examples/v5_benchmark_corpus.rs` now runs the same four workloads through the v5 facade for direct comparison. `/usr/bin/time -l` could not report peak RSS in the sandbox (`sysctl kern.clockrate: Operation not permitted`), so memory measurement remains an explicit gap.
 

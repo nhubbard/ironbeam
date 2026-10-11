@@ -1,12 +1,9 @@
-#![cfg(feature = "legacy-v4")]
-//! First Phase 3 differential case: the same bounded elementwise corpus on v4 and v5.
-#![cfg(feature = "v5-preview")]
+//! Bounded v4/v5 differential corpus against published Ironbeam 4.1.1.
 
-use ironbeam::v5::prelude::ElementwiseExt;
-use ironbeam::v5::{
-    CheckpointConfig, DirectRunner, JobConfig, Pipeline as V5Pipeline, SpillConfig,
-};
-use ironbeam::{Pipeline as V4Pipeline, from_vec};
+use ironbeam_compat::prelude::*;
+use ironbeam_core::Pipeline as V5Pipeline;
+use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, SpillConfig};
+use ironbeam_v4::{Pipeline as V4Pipeline, from_vec};
 
 #[test]
 fn bounded_elementwise_matches_v4_in_sequential_and_parallel_modes() {

@@ -1,6 +1,5 @@
-#![cfg(feature = "legacy-v4")]
-//! Stable v4 observations for the v5 direct-runner differential suite.
-use ironbeam::{Pipeline, from_vec};
+//! Stable observations against published Ironbeam 4.1.1.
+use ironbeam_v4::{Pipeline, from_vec};
 
 #[test]
 fn elementwise_empty_singleton_and_order() {
@@ -69,10 +68,9 @@ fn keyed_group_and_join_multisets() {
     );
 }
 
-#[cfg(feature = "io-jsonl")]
 #[test]
 fn jsonl_round_trip_is_bounded_and_immediate() {
-    use ironbeam::read_jsonl;
+    use ironbeam_v4::read_jsonl;
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("rows.jsonl");
     let p = Pipeline::default();

@@ -2288,6 +2288,7 @@ dependencies = [
  "ironbeam-transform-approx",
  "ironbeam-transform-regex",
  "ironbeam-transforms",
+ "tempfile",
 ]
 
 [[package]]

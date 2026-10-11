@@ -7,6 +7,13 @@ staged locally.
 
 ## Verified in this checkout
 
+- The bounded v4 behavior and v4/v5 Direct differential corpora now live in
+  `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
+  All seven moved tests and the full compatibility crate suite pass. The
+  root no longer owns those duplicate test binaries; its facade tests and
+  strict compatibility-crate lint pass. The root workspace test suite and
+  local `ironbeam-compat` package verification also pass. This preserves the comparison baseline
+  for the eventual root v4 deletion without changing the v5 runtime graph.
 - Mergeable global `CombineFn` folds now lower through a constant-key Beam
   GroupByKey into the typed v5 worker. A bounded global-window fold merges an
   Impulse seed with real inputs so empty input produces the combiner identity;

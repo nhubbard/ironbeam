@@ -7,6 +7,10 @@ implementation under `src/` is temporary migration scaffolding. The published
 v4 package may remain a dependency of `ironbeam-compat` for bounded migration
 tests; no v5 runtime package may depend on it.
 
+The bounded v4 behavior baseline and v4/v5 Direct differential tests now live
+in `ironbeam-compat` and run against published Ironbeam 4.1.1. Their reference
+results remain available after the temporary root v4 implementation is deleted.
+
 This is a replacement gate, not a claim that the current workspace has already
 reached it. `V5_HELPER_PARITY_TRACKER.md` closes *bounded Direct helper* parity.
 It does not close runner, durability, unbounded, Dataflow, or public-path parity.
