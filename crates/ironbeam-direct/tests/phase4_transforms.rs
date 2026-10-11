@@ -832,6 +832,53 @@ fn latest_per_key_recovers_a_saved_group_and_finishes_downstream_stages() {
 }
 
 #[test]
+fn grouped_checkpoint_retries_downstream_flat_map_without_reopening_source() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let fail_once = Arc::new(AtomicBool::new(true));
+    let fail = Arc::clone(&fail_once);
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", vec![(1_i32, 1_i32), (1, 2), (2, 3)])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .flat_map_named("expand", move |(key, values)| {
+            assert!(
+                !fail.swap(false, Ordering::SeqCst),
+                "first downstream attempt fails"
+            );
+            values.into_iter().map(|value| (key, value)).collect()
+        })
+        .unwrap()
+        .filter_named("odd", |(_, value)| value % 2 == 1)
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        buffer_budget_elements: 2,
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "group-downstream-retry-v1".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let error = DirectRunner.run_collect(&output, &config).err().unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("expand"));
+
+    let (rows, resumed) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(rows, [(1, 1), (2, 3)]);
+    assert_eq!(resumed.metrics().source_elements, 0);
+    assert_eq!(resumed.metrics().filtered_elements, 1);
+}
+
+#[test]
 fn windowed_combine_helpers_emit_explicit_offset_intervals() {
     let pipeline = Pipeline::default();
     let input = pipeline

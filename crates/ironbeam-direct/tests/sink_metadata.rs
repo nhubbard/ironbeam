@@ -504,6 +504,61 @@ fn grouped_sink_writes_before_transforming_the_next_completed_group() {
 }
 
 #[test]
+fn parallel_grouped_sink_keeps_downstream_filter_results() {
+    struct CollectSink(Arc<Mutex<Vec<(i32, u32)>>>);
+    impl TypedSink<(i32, u32)> for CollectSink {
+        fn write(&mut self, row: (i32, u32)) -> Result<(), Error> {
+            self.0.lock().unwrap().push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let captured = Arc::clone(&rows);
+    let sink = pipeline
+        .from_vec("source", vec![(1_i32, 10_i32), (2, 20), (1, 30), (3, 40)])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .map_named("count", |(key, values)| {
+            (key, u32::try_from(values.len()).unwrap())
+        })
+        .unwrap()
+        .filter_named("odd-keys", |(key, _)| key % 2 == 1)
+        .unwrap()
+        .sink_named(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            move || Ok(Box::new(CollectSink(Arc::clone(&captured)))),
+        )
+        .unwrap();
+    let job = DirectRunner
+        .run_sink(
+            &sink,
+            &JobConfig {
+                parallelism: 3,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(*rows.lock().unwrap(), vec![(1, 2), (3, 1)]);
+    assert_eq!(job.metrics().source_elements, 4);
+    assert_eq!(job.metrics().filtered_elements, 1);
+    assert_eq!(job.metrics().output_elements, 2);
+}
+
+#[test]
 fn wait_sink_streams_main_batches_after_signal_completion() {
     use std::sync::atomic::AtomicBool;
 
