@@ -845,6 +845,7 @@ fn built_in_coders_round_trip_and_source_digest_binds_values() {
 #[test]
 fn vector_source_digest_matches_the_existing_coder_byte_contract() {
     use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
     fn check<T: Element + Clone + Sync>(values: Vec<T>) {
         let mut hash = Sha256::new();
         hash.update(T::coder_identity().as_bytes());
@@ -855,13 +856,10 @@ fn vector_source_digest_matches_the_existing_coder_byte_contract() {
             hash.update((bytes.len() as u64).to_le_bytes());
             hash.update(bytes);
         }
-        let expected = format!(
-            "sha256-v1:{}",
-            hash.finalize()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
-        );
+        let mut expected = String::from("sha256-v1:");
+        for byte in hash.finalize() {
+            write!(expected, "{byte:02x}").unwrap();
+        }
         let pipeline = Pipeline::default();
         pipeline.from_vec("source", values).unwrap();
         let (_, registry) = pipeline.snapshot().unwrap();

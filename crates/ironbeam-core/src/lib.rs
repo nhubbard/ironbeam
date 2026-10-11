@@ -1788,7 +1788,7 @@ impl Registry {
             Error::incompatible(format!("join input index {input_index} is out of range")))?;
         let (encoded_key, encoded_value) = splitter(bytes)?;
         let mut tagged = Vec::with_capacity(9 + encoded_value.len());
-        tagged.push(input_index as u8);
+        tagged.push(u8::try_from(input_index).map_err(|_| Error::incompatible("join input tag exceeds one byte"))?);
         tagged.extend_from_slice(&timestamp_ns.to_be_bytes());
         tagged.extend_from_slice(&encoded_value);
         Ok((encoded_key, tagged))
@@ -1797,7 +1797,7 @@ impl Registry {
     /// Reuse the Direct join aggregate for each Beam grouped key.
     pub fn execute_join_group(
         &self, key: &str, encoded_key: &[u8], tagged_values: &[Vec<u8>],
-        window: Window, assigned_window: Option<WindowInterval>,
+        window: &Window, assigned_window: Option<WindowInterval>,
     ) -> Result<Vec<(Vec<u8>, i64)>, Error> {
         let coder = self.join_coders.get(key).ok_or_else(||
             Error::incompatible(format!("no join coder registered for node {key}")))?;
@@ -1809,7 +1809,9 @@ impl Registry {
                 Error::incompatible("join input tag is out of range"))?;
             let timestamp_bytes = payload.get(..8).ok_or_else(||
                 Error::incompatible("join tagged value lacks timestamp"))?;
-            let timestamp_ns = i64::from_be_bytes(timestamp_bytes.try_into().expect("eight bytes"));
+            let mut timestamp_array = [0_u8; 8];
+            timestamp_array.copy_from_slice(timestamp_bytes);
+            let timestamp_ns = i64::from_be_bytes(timestamp_array);
             inputs[usize::from(tag)].push(Envelope {
                 value: assembler(encoded_key, &payload[8..])?,
                 timestamp_ns, window: window.clone(), assigned_window,

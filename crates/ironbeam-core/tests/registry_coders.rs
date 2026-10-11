@@ -27,7 +27,7 @@ fn registry_rejects_missing_portable_coder_contracts() {
     incompatible!(registry.assemble_group_input("missing", &[], &[]));
     incompatible!(registry.assemble_group_output("missing", &[], &[]));
     incompatible!(registry.split_join_input("missing", 0, &[], 0));
-    incompatible!(registry.execute_join_group("missing", &[], &[], Window::Global, None));
+    incompatible!(registry.execute_join_group("missing", &[], &[], &Window::Global, None));
     incompatible!(registry.split_cogroup_input("missing", 0, &[]));
     incompatible!(registry.assemble_cogroup_output("missing", &[], &[]));
     assert_eq!(registry.open_fold("missing").err().unwrap().kind,
@@ -133,7 +133,7 @@ fn cogroup_registry_tags_heterogeneous_inputs_and_reassembles_typed_values() {
     assert_eq!(left_tagged[0], 0);
     assert_eq!(right_tagged[0], 1);
     let output = registry.assemble_cogroup_output("cogroup", &key,
-        &[right_tagged.clone(), left_tagged.clone(), left_tagged]).unwrap();
+        &[right_tagged, left_tagged.clone(), left_tagged]).unwrap();
     assert_eq!(<(String, (Vec<i32>, Vec<UserRow>))>::decode(&output).unwrap(),
         ("a".to_owned(), (vec![1, 1], vec![UserRow(7)])));
     assert!(registry.split_cogroup_input("cogroup", 2, &left_bytes).is_err());
@@ -179,7 +179,7 @@ fn portable_join_reuses_direct_matching_and_input_timestamps() {
     let (_, right_one) = registry.split_join_input("join", 1,
         &("a".to_owned(), true).encode().unwrap(), 21).unwrap();
     let rows = registry.execute_join_group("join", &key,
-        &[left_one, left_two, right_one], Window::Global, None).unwrap();
+        &[left_one, left_two, right_one], &Window::Global, None).unwrap();
     let mut decoded = rows.into_iter().map(|(bytes, timestamp)|
         (<(String, (Option<i32>, Option<bool>))>::decode(&bytes).unwrap(), timestamp))
         .collect::<Vec<_>>();
@@ -188,7 +188,7 @@ fn portable_join_reuses_direct_matching_and_input_timestamps() {
         (("a".to_owned(), (Some(1), Some(true))), 21),
         (("a".to_owned(), (Some(2), Some(true))), 21),
     ]);
-    assert!(registry.execute_join_group("join", &key, &[vec![2]], Window::Global, None).is_err());
+    assert!(registry.execute_join_group("join", &key, &[vec![2]], &Window::Global, None).is_err());
     assert!(registry.split_join_input("join", 2, &[], 0).is_err());
 }
 
