@@ -585,6 +585,8 @@ fn direct_sink_counts_filtered_rows_on_both_execution_modes() {
             .from_vec("source", vec![1_i32, 2, 3, 4])
             .unwrap()
             .filter_named("evens", |value| *value % 2 == 0)
+            .unwrap()
+            .map_named("after-filter", |value| value + 10)
             .unwrap();
         let captured = Arc::new(Mutex::new(Vec::new()));
         struct ValueSink(Arc<Mutex<Vec<i32>>>);
@@ -622,7 +624,7 @@ fn direct_sink_counts_filtered_rows_on_both_execution_modes() {
                 },
             )
             .unwrap();
-        assert_eq!(*captured.lock().unwrap(), vec![2, 4]);
+        assert_eq!(*captured.lock().unwrap(), vec![12, 14]);
         assert_eq!(job.processed(), 2);
         assert_eq!(job.metrics().filtered_elements, 2);
     }

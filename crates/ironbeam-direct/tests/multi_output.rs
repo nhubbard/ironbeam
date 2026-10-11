@@ -189,6 +189,41 @@ fn pair_rejects_shared_and_branch_expansion_over_buffer_budget() {
     );
 }
 
+#[test]
+fn pair_rejects_accumulated_branch_expansion_after_shared_fanout() {
+    let config = JobConfig {
+        buffer_budget_elements: 2,
+        parallelism: 1,
+        ..JobConfig::default()
+    };
+    for overflowing_left in [true, false] {
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+        let shared = source
+            .flat_map_named("shared-fanout", |value| vec![value, value + 1])
+            .unwrap();
+        let expanded = shared
+            .flat_map_named("branch-fanout", |value| vec![value, value * 10])
+            .unwrap();
+        let (left, right) = if overflowing_left {
+            (
+                expanded.output("left").unwrap(),
+                shared.output("right").unwrap(),
+            )
+        } else {
+            (
+                shared.output("left").unwrap(),
+                expanded.output("right").unwrap(),
+            )
+        };
+        let error = DirectRunner
+            .run_collect_pair(&left, &right, &config)
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, ErrorKind::Resource);
+    }
+}
+
 struct Uncoded(i32);
 impl Element for Uncoded {
     const TYPE_ID: &'static str = "tests/uncoded-pair";
@@ -337,6 +372,34 @@ fn pair_observes_cancellation_between_shared_and_branch_stages() {
         .err()
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Cancelled);
+}
+
+#[test]
+fn pair_observes_cancellation_before_the_next_event_and_batch() {
+    for batch_size in [1, 2] {
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();
+        let config = JobConfig {
+            parallelism: 1,
+            buffer_budget_elements: batch_size,
+            ..JobConfig::default()
+        };
+        let cancellation = Arc::clone(&config.cancellation);
+        let left = source.output("left-out").unwrap();
+        let right = source
+            .map_named("cancel-after-first-event", move |value| {
+                cancellation.store(true, Ordering::SeqCst);
+                value
+            })
+            .unwrap()
+            .output("right-out")
+            .unwrap();
+        let error = DirectRunner
+            .run_collect_pair(&left, &right, &config)
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, ErrorKind::Cancelled);
+    }
 }
 
 #[test]
