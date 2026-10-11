@@ -162,9 +162,10 @@ staged locally.
    materialized views are transferable across executor threads. The separate
    Dataflow harness uses a tested Fn State client with continuation and error
    handling. Beam side-input ParDo lowering, bundle validation, and worker
-   materialization reach `DONE` in local Prism for a bounded global view.
-   Windowed views still need semantics that preserve Direct's whole-view
-   materialization across windows; the translator rejects them explicitly.
+   materialization reach `DONE` in local Prism for bounded global and
+   fixed-window views. For a fixed-window side collection, the translator
+   inserts a global-window branch so Beam materializes the same whole view
+   as Direct. Stateful or unbounded side views remain outside this proof.
 3. **Remote I/O:** Provider clients can access hosted object storage from the
    bounded `ObjectIO` interface, but the local Prism worker still shares the
    driver's filesystem. Driver-local file paths are not staged to cloud
