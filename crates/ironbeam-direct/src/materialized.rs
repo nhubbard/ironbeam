@@ -51,9 +51,10 @@ pub(crate) fn execute<T: Element>(
         return Ok(values);
     }
     let events = if let Some((manager, source_len)) = &checkpoint
-        && let Some((group_key, source_key, stages)) = checkpointed_group_route(graph, output_key)
+        && let Some((group_key, source_key, stages, downstream)) =
+            checkpointed_group_route(graph, output_key)
     {
-        eval_checkpointed_group(
+        let grouped = eval_checkpointed_group(
             registry,
             &group_key,
             &source_key,
@@ -63,7 +64,8 @@ pub(crate) fn execute<T: Element>(
             manager,
             config,
             &handle.metrics,
-        )?
+        )?;
+        apply_checkpointed_downstream(registry, grouped, &downstream, config, &handle.metrics)?
     } else {
         if pending_state.is_some() {
             return Err(Error::recovery(
@@ -100,17 +102,65 @@ pub(crate) fn execute<T: Element>(
 fn checkpointed_group_route(
     graph: &Graph,
     output_key: &str,
-) -> Option<(String, String, Vec<String>)> {
+) -> Option<(String, String, Vec<String>, Vec<String>)> {
     let output = graph.node(output_key)?;
     if !matches!(output.operation, Operation::Output) {
         return None;
     }
-    let group = graph.node(output.input.as_deref()?)?;
-    if !matches!(group.operation, Operation::GroupByKey) || !group.additional_inputs.is_empty() {
+    let mut key = output.input.as_deref()?;
+    let mut downstream = Vec::new();
+    let group = loop {
+        let node = graph.node(key)?;
+        if matches!(node.operation, Operation::GroupByKey) {
+            break node;
+        }
+        if !matches!(
+            node.operation,
+            Operation::Map
+                | Operation::Filter
+                | Operation::FlatMap
+                | Operation::AssignTimestamp
+                | Operation::FixedWindow
+        ) || !node.additional_inputs.is_empty()
+        {
+            return None;
+        }
+        downstream.push(key.to_owned());
+        key = node.input.as_deref()?;
+    };
+    if !group.additional_inputs.is_empty() {
         return None;
     }
     let (source_key, stages) = linear_fold_route(graph, group.input.as_deref()?)?;
-    Some((group.key.clone(), source_key, stages))
+    downstream.reverse();
+    Some((group.key.clone(), source_key, stages, downstream))
+}
+
+fn apply_checkpointed_downstream(
+    registry: &Registry,
+    mut events: Vec<Envelope>,
+    stages: &[String],
+    config: &JobConfig,
+    metrics: &MetricsState,
+) -> Result<Vec<Envelope>, Error> {
+    for key in stages {
+        let mut next = Vec::new();
+        for event in events {
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            let produced = catch_unwind(AssertUnwindSafe(|| registry.apply_many(key, event)))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(key, "direct", "user transform panicked"))
+                })?;
+            if produced.is_empty() {
+                metrics.filtered_elements.fetch_add(1, Ordering::Relaxed);
+            }
+            next.extend(produced);
+        }
+        events = next;
+    }
+    Ok(events)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -883,7 +933,7 @@ mod checkpoint_tests {
         let (graph, _) = direct.snapshot().unwrap();
         assert_eq!(
             checkpointed_group_route(&graph, "out"),
-            Some(("group".into(), "source".into(), Vec::new()))
+            Some(("group".into(), "source".into(), Vec::new(), Vec::new()))
         );
         assert!(checkpointed_group_route(&graph, "source").is_none());
         assert!(checkpointed_group_route(&graph, plain.key()).is_none());
@@ -920,7 +970,12 @@ mod checkpoint_tests {
         let (graph, _) = output.snapshot().unwrap();
         assert_eq!(
             checkpointed_group_route(&graph, "out"),
-            Some(("group".into(), "source".into(), vec!["map".into()]))
+            Some((
+                "group".into(),
+                "source".into(),
+                vec!["map".into()],
+                Vec::new()
+            ))
         );
         let pipeline = Pipeline::default();
         let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();

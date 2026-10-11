@@ -753,6 +753,85 @@ fn latest_per_key_uses_typed_timestamp_batches_and_attributes_failures() {
 }
 
 #[test]
+fn latest_per_key_recovers_a_saved_group_and_finishes_downstream_stages() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+
+    let fail_once = Arc::new(AtomicBool::new(true));
+    let timestamp_calls = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let fail = Arc::clone(&fail_once);
+    let calls = Arc::clone(&timestamp_calls);
+    let output = pipeline
+        .from_vec(
+            "source",
+            vec![(1_i32, 1_i32), (2, 2), (1, 3), (2, 4), (1, 5)],
+        )
+        .unwrap()
+        .assign_timestamps_named("time", move |(_, value)| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            if *value == 3 && fail.swap(false, Ordering::SeqCst) {
+                panic!("fail after the first saved group batch");
+            }
+            i64::from(*value) * 1_000_000
+        })
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .latest_per_key_named("latest")
+        .unwrap()
+        .reify_timestamps_named("reify")
+        .unwrap()
+        .with_window_named("interval")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        buffer_budget_elements: 2,
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "latest-recovery-v1".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+
+    let error = DirectRunner.run_collect(&output, &config).err().unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("time"));
+    assert_eq!(timestamp_calls.load(Ordering::SeqCst), 3);
+
+    let (rows, resumed) = DirectRunner.run_collect(&output, &config).unwrap();
+    let interval = ironbeam_core::WindowInterval {
+        start_ns: 0,
+        end_ns: 10_000_000,
+    };
+    assert_eq!(
+        rows,
+        [
+            (interval, (5_000_000, (1, 5))),
+            (interval, (4_000_000, (2, 4)))
+        ]
+    );
+    assert_eq!(resumed.metrics().source_elements, 3);
+    assert_eq!(timestamp_calls.load(Ordering::SeqCst), 6);
+
+    let (rows, completed) = DirectRunner.run_collect(&output, &config).unwrap();
+    assert_eq!(
+        rows,
+        [
+            (interval, (5_000_000, (1, 5))),
+            (interval, (4_000_000, (2, 4)))
+        ]
+    );
+    assert_eq!(completed.metrics().source_elements, 0);
+    assert_eq!(timestamp_calls.load(Ordering::SeqCst), 6);
+}
+
+#[test]
 fn windowed_combine_helpers_emit_explicit_offset_intervals() {
     let pipeline = Pipeline::default();
     let input = pipeline
