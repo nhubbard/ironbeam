@@ -236,7 +236,7 @@ required-features = ["legacy-v4"]
 
 [[example]]
 name = "windowing_aggregations"
-required-features = ["legacy-v4"]
+required-features = ["v5-preview"]
 
 # Skip v4 integration test binaries in the v5-default build.
 
