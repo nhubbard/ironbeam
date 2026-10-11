@@ -167,19 +167,9 @@ required-features = ["v5-preview"]
 name = "v5_checkpoint_recovery"
 required-features = ["v5-preview"]
 
-# Legacy examples remain opt-in until their v5 replacements are complete.
-
 [[example]]
 name = "advanced_joins"
 required-features = ["v5-preview"]
-
-[[example]]
-name = "checkpoint_recovery_demo"
-required-features = ["legacy-v4"]
-
-[[example]]
-name = "checkpointing_demo"
-required-features = ["legacy-v4"]
 
 [[example]]
 name = "cloud_io_demo"

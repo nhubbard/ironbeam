@@ -491,7 +491,7 @@ The `examples/` directory contains complete demonstrations:
 - `windowing_aggregations.rs` - Time-based windowing
 - `combiners_showcase.rs` - Using built-in combiners
 - `compressed_io.rs` - Working with compressed files
-- `checkpointing_demo.rs` - Checkpoint and recovery
+- `crates/ironbeam-compat/examples/v4_checkpointing_demo.rs` - Published-v4 checkpoint policy reference (progress metadata reload; execution starts over)
 - `metrics_example.rs` - Collecting metrics
 - `cloud_io_demo.rs` - Cloud service integrations
 - `data_quality_validation.rs` - Production data validation

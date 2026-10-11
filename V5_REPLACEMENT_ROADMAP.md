@@ -44,7 +44,7 @@ direction without creating a crate for every source file.
 
 | Boundary | Current state | Next change and reason |
 | --- | --- | --- |
-| Public facade | Root `ironbeam` 4.1.1 now defaults to v5 and also exposes it under `v5`; v4 modules and two examples remain gated by `legacy-v4`, while the v4 reference tests run against published 4.1.1 from `ironbeam-compat` | Migrate or retire the remaining v4 examples and feature flags, then delete the v4 modules after the replacement gates pass. This removes the remaining build coupling. |
+| Public facade | Root `ironbeam` 4.1.1 now defaults to v5 and also exposes it under `v5`; v4 modules remain gated by `legacy-v4`, while v4 reference tests and checkpoint-policy examples run against published 4.1.1 from `ironbeam-compat` | Finish checkpoint scheduling and the other replacement gates, then delete the v4 modules and feature flags. This removes the remaining build coupling. |
 | Logical graph and extension API | `ironbeam-core` owns `Pipeline`, `PCollection`, graph, `Element`, errors, typed source/sink registration | Keep these types together while extensions must construct graph nodes. Extract a runner-neutral `ironbeam-model` only if graph descriptors need an independently versioned serialization contract. An API-only crate that repeats these types would add an abstraction without isolating dependencies. |
 | Local runner | `ironbeam-direct` owns planner, execution, metrics, checkpoint, and spill modules | Finish shared-upstream execution, physical scheduling, state, and recovery here. Extract a state/checkpoint backend only when it can be independently selected and tested by more than one runner. |
 | Custom metrics and reports | Built-in job counters stay in `ironbeam-direct`; optional `ironbeam-metrics` owns v4-shaped counters, gauges, histograms, custom metric registration, and JSON reporting | Attach the shared collector to `JobConfig` for a Direct run instead of storing it on a reusable `Pipeline`. Keep the `metrics` feature alias while the root v4 module remains gated. |
@@ -93,8 +93,8 @@ families still need a v5 ownership and parity decision before deleting the
 legacy cloud package; this example does not claim those families are complete.
 The `etl_pipeline` example now uses v5 grouping, global TopK, bot counts, and
 the separate CSV and JSONL connectors with checked temporary round trips.
-The v4 checkpoint examples remain legacy-gated because v5 does not yet
-implement their barrier, time, and node-based policies. V5 Direct recovers the
+The v4 checkpoint examples now live in `ironbeam-compat` because v5 does not
+yet implement their barrier, time, and node-based policies. V5 Direct recovers the
 completed output of a coded aggregate from one bounded built-in vector source.
 The `v5_checkpoint_recovery` example rebuilds the graph after a completed
 aggregate and verifies that the second run reads zero source rows from its

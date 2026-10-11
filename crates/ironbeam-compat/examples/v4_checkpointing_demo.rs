@@ -1,22 +1,21 @@
 //! Demonstration of automatic checkpointing for fault tolerance.
 //!
-//! This example shows how to use Ironbeam's checkpointing feature to make
-//! long-running batch jobs resilient to failures. Checkpoints are automatically
-//! created at configurable intervals, and the pipeline can resume from the last
-//! checkpoint on restart.
+//! This example shows v4 progress-marker checkpointing for a batch job.
+//! The v4 runner reloads checkpoint metadata, then re-executes the graph from
+//! the start on restart.
 //!
 //! Run with:
 //! ```bash
-//! cargo run --example checkpointing_demo --features checkpointing
+//! cargo run -p ironbeam-compat --example v4_checkpointing_demo --features v4-checkpointing
 //! ```
 
 use anyhow::Result;
-use ironbeam::{ExecMode, Pipeline, Runner, Sum, from_vec};
+use ironbeam_v4::{ExecMode, Pipeline, Runner, Sum, from_vec};
 
-#[cfg(feature = "checkpointing")]
-use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
+#[cfg(feature = "v4-checkpointing")]
+use ironbeam_v4::checkpoint::{CheckpointConfig, CheckpointPolicy};
 
-#[cfg(feature = "checkpointing")]
+#[cfg(feature = "v4-checkpointing")]
 fn main() -> Result<()> {
     println!("=== Ironbeam Checkpointing Demo ===\n");
 
@@ -46,7 +45,7 @@ fn main() -> Result<()> {
     println!("\nCheckpoint Configuration:");
     println!("  Directory: {:?}", checkpoint_config.directory.display());
     println!("  Policy: AfterEveryBarrier");
-    println!("  Auto-recovery: enabled");
+    println!("  Progress-marker reload: enabled");
     println!("  Max checkpoints: 5");
 
     // Create a runner with checkpointing
@@ -71,14 +70,16 @@ fn main() -> Result<()> {
 
     println!("\n=== Checkpointing Summary ===");
     println!("Checkpoints were automatically created after each barrier node.");
-    println!("If this pipeline had failed, it could resume from the last checkpoint.");
+    println!("V4 can reload its progress marker after failure, but re-executes from the start.");
     println!("Since execution completed successfully, all checkpoints were cleaned up.");
 
     Ok(())
 }
 
-#[cfg(not(feature = "checkpointing"))]
+#[cfg(not(feature = "v4-checkpointing"))]
 fn main() {
-    println!("This example requires the 'checkpointing' feature.");
-    println!("Run with: cargo run --example checkpointing_demo --features checkpointing");
+    println!("This example requires the 'v4-checkpointing' feature.");
+    println!(
+        "Run with: cargo run -p ironbeam-compat --example v4_checkpointing_demo --features v4-checkpointing"
+    );
 }

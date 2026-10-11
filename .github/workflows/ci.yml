@@ -193,6 +193,7 @@ jobs:
           cargo test -p ironbeam-compat --features v4-metrics,v4-coders --test v4_metrics --test v4_serde_coders
           cargo test -p ironbeam-compat --features v4-checkpointing,v4-jsonl,v4-parallel-io,v4-spilling,v4-zstd --test v4_checkpoint --test v4_par_write --test v4_spill --test v4_spill_integration
           cargo test -p ironbeam-compat --features v4-mega --test v4_mega_integration
+          cargo check -p ironbeam-compat --features v4-checkpointing --examples
 
       - name: Check published v4 file-format references independently
         run: bash scripts/check_v4_format_reference.sh

@@ -34,6 +34,9 @@ Checkpoint, parallel JSONL writing, spill, and spill-integration references
 add 48 opt-in cases under their corresponding features.
 The two disabled-feature stub checks run in the default compatibility suite;
 the broad integration fixture runs only under `v4-mega`.
+The two v4 checkpoint policy examples are available with `v4-checkpointing`.
+They retain the original scheduling examples as references; v4 reloads
+progress metadata but re-executes the graph after a restart.
 The mock I/O target runs its JSONL and temporary-path checks by default; its
 CSV check uses `cargo test -p ironbeam-compat --features v4-csv --test
 v4_testing_mock_io`.

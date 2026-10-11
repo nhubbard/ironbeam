@@ -1,23 +1,23 @@
-//! Advanced checkpointing demo showing different policies and recovery scenarios.
+//! V4 checkpoint policy reference showing its progress-marker schedules.
 //!
 //! This example demonstrates:
 //! - Different checkpoint policies (`AfterEveryBarrier`, `EveryNNodes`, `TimeInterval`)
-//! - Checkpoint recovery on failure
+//! - Checkpoint metadata reload after failure (the graph re-executes)
 //! - Checkpoint management and cleanup
 //!
 //! Run with:
 //! ```bash
-//! cargo run --example checkpoint_recovery_demo --features checkpointing
+//! cargo run -p ironbeam-compat --example v4_checkpoint_recovery_demo --features v4-checkpointing
 //! ```
 
 use anyhow::Result;
-use ironbeam::{AverageF64, Count, ExecMode, Pipeline, Runner, Sum, from_vec};
+use ironbeam_v4::{AverageF64, Count, ExecMode, Pipeline, Runner, Sum, from_vec};
 use std::env::args;
 
-#[cfg(feature = "checkpointing")]
-use ironbeam::checkpoint::{CheckpointConfig, CheckpointPolicy};
+#[cfg(feature = "v4-checkpointing")]
+use ironbeam_v4::checkpoint::{CheckpointConfig, CheckpointPolicy};
 
-#[cfg(feature = "checkpointing")]
+#[cfg(feature = "v4-checkpointing")]
 fn run_with_time_based_checkpoints() -> Result<()> {
     println!("=== Time-Based Checkpointing ===\n");
 
@@ -53,7 +53,7 @@ fn run_with_time_based_checkpoints() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "checkpointing")]
+#[cfg(feature = "v4-checkpointing")]
 fn run_with_node_based_checkpoints() -> Result<()> {
     println!("=== Node-Based Checkpointing ===\n");
 
@@ -77,7 +77,7 @@ fn run_with_node_based_checkpoints() -> Result<()> {
     };
 
     println!("Policy: Checkpoint every 2 nodes");
-    println!("This creates more frequent checkpoints for fine-grained recovery\n");
+    println!("This creates more frequent progress markers\n");
 
     let runner = Runner {
         mode: ExecMode::Sequential,
@@ -95,7 +95,7 @@ fn run_with_node_based_checkpoints() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "checkpointing")]
+#[cfg(feature = "v4-checkpointing")]
 fn run_with_hybrid_checkpoints() -> Result<()> {
     println!("=== Hybrid Checkpointing ===\n");
 
@@ -138,7 +138,7 @@ fn run_with_hybrid_checkpoints() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "checkpointing")]
+#[cfg(feature = "v4-checkpointing")]
 fn main() -> Result<()> {
     let args: Vec<String> = args().collect();
 
@@ -175,13 +175,15 @@ fn main() -> Result<()> {
     println!("  - ./checkpoints_node_based/");
     println!("  - ./checkpoints_hybrid/");
     println!("\nCheckpoints are automatically cleaned up on successful completion.");
-    println!("To test recovery, interrupt a run (Ctrl+C) and restart it.");
+    println!("V4 reloads progress metadata but re-executes the graph from the start on restart.");
 
     Ok(())
 }
 
-#[cfg(not(feature = "checkpointing"))]
+#[cfg(not(feature = "v4-checkpointing"))]
 fn main() {
-    println!("This example requires the 'checkpointing' feature.");
-    println!("Run with: cargo run --example checkpoint_recovery_demo --features checkpointing");
+    println!("This example requires the 'v4-checkpointing' feature.");
+    println!(
+        "Run with: cargo run -p ironbeam-compat --example v4_checkpoint_recovery_demo --features v4-checkpointing"
+    );
 }

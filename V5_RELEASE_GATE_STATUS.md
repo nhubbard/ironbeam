@@ -109,6 +109,11 @@ staged locally.
   and local packaging checks for all 25 v5 crates using Mr Boxington. The
   script now accepts `IRONBEAM_CARGO` for the configured wrapper. No crate was
   published.
+- The two v4 checkpoint-policy examples now live in `ironbeam-compat` and
+  compile against published 4.1.1 under `v4-checkpointing`. Their text now
+  states the v4 recovery limit: it reloads progress metadata but re-executes
+  from the start. The root example tree uses v5 only. V5 scheduling-policy
+  parity remains open.
 - The bounded v4 behavior and v4/v5 Direct differential corpora now live in
   `ironbeam-compat` and test against the published Ironbeam 4.1.1 package.
   All nine moved tests and the full compatibility crate suite pass. The
