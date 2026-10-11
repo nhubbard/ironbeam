@@ -362,6 +362,9 @@ staged locally.
    sink's input count; the live fixture verifies that this committed count
    equals the accepted fragment row total. Multi-bundle retry, abandoned
    attempts, and whole-job publication remain unproved.
+   The worker now passes a stable bundle attempt ID to each sink before writes;
+   the Prism probe uses it for deterministic fragment names and rejects a
+   conflicting replay. This prepares durable manifest and publication work.
    A transient Prism run also exposed an empty source-rooted bundle; the worker
    now closes its runner outputs without opening the user source for that case,
    with a focused Fn Data regression test and a subsequent live passing run.

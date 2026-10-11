@@ -1692,6 +1692,11 @@ impl<
     }
 }
 pub trait SinkSession: Send {
+    /// Bind a portable runner's stable bundle-attempt ID before the first write.
+    /// Direct execution does not call this method.
+    fn begin_bundle(&mut self, _instruction_id: &str) -> Result<(), Error> {
+        Ok(())
+    }
     fn write(&mut self, event: Envelope) -> Result<(), Error>;
     fn commit(&mut self) -> Result<(), Error>;
     fn abort(&mut self) -> Result<(), Error>;
@@ -1707,6 +1712,9 @@ pub trait SinkSession: Send {
     }
 }
 pub trait TypedSink<T: Element>: Send {
+    fn begin_bundle(&mut self, _instruction_id: &str) -> Result<(), Error> {
+        Ok(())
+    }
     fn write(&mut self, value: T) -> Result<(), Error>;
     fn commit(&mut self) -> Result<(), Error>;
     fn abort(&mut self) -> Result<(), Error>;
@@ -1729,6 +1737,9 @@ struct SinkAdapter<T: Element> {
     inner: Box<dyn TypedSink<T>>,
 }
 impl<T: Element> SinkSession for SinkAdapter<T> {
+    fn begin_bundle(&mut self, instruction_id: &str) -> Result<(), Error> {
+        self.inner.begin_bundle(instruction_id)
+    }
     fn write(&mut self, event: Envelope) -> Result<(), Error> {
         let value = event
             .value

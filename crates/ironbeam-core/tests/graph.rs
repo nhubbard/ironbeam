@@ -1017,6 +1017,11 @@ fn sink_session_exposes_bundle_finalization_through_typed_adapter() {
 
     struct Finalizable(Arc<AtomicUsize>);
     impl TypedSink<i32> for Finalizable {
+        fn begin_bundle(&mut self, instruction_id: &str) -> Result<(), Error> {
+            if instruction_id != "bundle-7" { return Err(Error::incompatible("wrong bundle ID")); }
+            self.0.fetch_add(10, Ordering::SeqCst);
+            Ok(())
+        }
         fn write(&mut self, _: i32) -> Result<(), Error> { Ok(()) }
         fn commit(&mut self) -> Result<(), Error> { Ok(()) }
         fn abort(&mut self) -> Result<(), Error> { Ok(()) }
@@ -1040,9 +1045,10 @@ fn sink_session_exposes_bundle_finalization_through_typed_adapter() {
     assert!(registry.sink_requires_bundle_finalization("sink"));
     let mut session = registry.open_sink("sink").unwrap();
     assert!(session.requires_bundle_finalization());
+    session.begin_bundle("bundle-7").unwrap();
     session.commit().unwrap();
     session.finalize_bundle().unwrap();
-    assert_eq!(completed.load(Ordering::SeqCst), 1);
+    assert_eq!(completed.load(Ordering::SeqCst), 11);
 }
 
 #[test]
