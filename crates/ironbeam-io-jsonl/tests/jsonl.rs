@@ -587,7 +587,11 @@ fn malformed_source_never_replaces_existing_sink_output() {
 fn jsonl_blank_lines_and_file_commit_error_are_explicit() {
     let dir = tempfile::tempdir().unwrap();
     let source_path = dir.path().join("blank.jsonl");
-    fs::write(&source_path, b"\n{\"id\":1,\"name\":\"Ada\"}\n\n").unwrap();
+    fs::write(
+        &source_path,
+        "\n\u{2003}\n{\"id\":1,\"name\":\"Ada\"}\r\n\n",
+    )
+    .unwrap();
     let pipeline = Pipeline::default();
     let source = jsonl_source::<Row>(&pipeline, "read", &source_path)
         .unwrap()
@@ -599,6 +603,26 @@ fn jsonl_blank_lines_and_file_commit_error_are_explicit() {
             .unwrap()
             .0,
         rows()[..1]
+    );
+    fs::write(&source_path, b"\n{\"id\":1,\"name\":\"Ada\"}\nnot-json\n").unwrap();
+    let invalid = jsonl_source::<Row>(&Pipeline::default(), "invalid", &source_path)
+        .unwrap()
+        .output("invalid-out")
+        .unwrap()
+        .collect_seq()
+        .unwrap_err();
+    assert_eq!(invalid.kind, ErrorKind::Io);
+    assert!(invalid.to_string().contains("line 3"));
+    fs::write(&source_path, b"\xff\n").unwrap();
+    assert_eq!(
+        jsonl_source::<Row>(&Pipeline::default(), "invalid-utf8", &source_path)
+            .unwrap()
+            .output("invalid-utf8-out")
+            .unwrap()
+            .collect_seq()
+            .unwrap_err()
+            .kind,
+        ErrorKind::Io
     );
     assert_eq!(
         jsonl_source::<Row>(

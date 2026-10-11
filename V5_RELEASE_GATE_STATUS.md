@@ -56,10 +56,10 @@ below is complete.
 
 | Check | Result |
 | --- | --- |
-| Root workspace | Tests and doctests passed after the CoGroupByKey event-time fix. |
+| Root workspace | Tests and doctests passed after the eager JSONL and shared file-source changes. |
 | Local release script | Dependency and feature checks, tests, docs, and verification of 28 packages passed with Mr Boxington after legacy cloud retirement. |
 | Cloud operation coverage | **186/261 source locations** and **34/42 branches** after bounding parallel helper concurrency; both CI ratchets pass. Uncovered utility paths remain in the quality review. |
-| JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** after eager cloud helper migration. |
+| JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** at the last coverage run. The latest eager reader change has passing default/all-feature tests and strict lint; coverage has not been rerun. |
 | Local Prism | 19 live tests passed across the prior suite and a new failed-bundle proof. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. The provider-neutral harness coordinator requires `DONE`, validates the graph's ten final sinks against the whole-job journal and committed row metrics, then supplies exact attempt IDs and counts to all ten publishers. A separate job failed after staging and left no fragment, journal completion, or published output. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch; the full harness suite and warning-free lint pass. |
 | Separate Dataflow workspace | Tests and doctests passed; changed proof package passed warning-free lint. |
@@ -72,15 +72,15 @@ seven cases. It is a measurement, **not a performance gate pass**:
 
 | 100,000-row workload | V5/v4 median latency | Peak memory, v4 → v5 |
 | --- | ---: | ---: |
-| Map/filter | 3.12× | 3.83 → 3.55 MiB |
-| JSONL round trip | 2.63× | 4.33 → 5.05 MiB |
-| Duplicate-key join | 2.18× | 5.53 → 31.66 MiB |
+| Map/filter | 2.94× | 3.83 → 3.58 MiB |
+| JSONL round trip | 2.01× | 4.33 → 4.45 MiB |
+| Duplicate-key join | 2.09× | 5.53 → 21.42 MiB |
 
-After a further smaller-side join index change, a paired duplicate-key rerun
-peaked at **23.06 MiB** in v5, down from **29.95 MiB** immediately before it,
-with matching counts and checksums. The [full seven-case measurement](V5_PHASE0_BASELINE.md)
-and repeatable comparison command are in the baseline record. A fresh full
-run is needed before performance can be judged against release limits.
+An adjacent comparison measured JSONL round trip at **10.227 → 8.177 ms**
+and **5.06 → 4.44 MiB** in v5 after the eager reader and source-byte changes.
+Counts and checksums matched. The [full seven-case measurement](V5_PHASE0_BASELINE.md)
+and repeatable command are in the baseline record. Acceptable release limits
+are still unset.
 
 ## Contract decisions
 

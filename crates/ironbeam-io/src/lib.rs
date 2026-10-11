@@ -47,6 +47,34 @@ fn read_decoded_file(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     }
 }
 
+fn decode_source_bytes(bytes: Vec<u8>, path: &Path, key: &str) -> Result<Vec<u8>, Error> {
+    #[cfg(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    ))]
+    {
+        use std::io::Read;
+        let mut reader =
+            ironbeam_compression::auto_detect_reader(std::io::Cursor::new(bytes), path)
+                .map_err(|e| io(key, e))?;
+        let mut decoded = Vec::new();
+        reader.read_to_end(&mut decoded).map_err(|e| io(key, e))?;
+        Ok(decoded)
+    }
+    #[cfg(not(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    )))]
+    {
+        let _ = (path, key);
+        Ok(bytes)
+    }
+}
+
 fn compressed_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
@@ -154,7 +182,7 @@ pub fn source<T: Element>(
                     "source contents changed after graph construction",
                 ));
             }
-            let decoded = read_decoded_file(&path, &name)?;
+            let decoded = decode_source_bytes(current, &path, &name)?;
             let values = read(&decoded)?;
             Ok(Box::new(values.into_iter().map(Ok)) as TypedSourceIterator<T>)
         },

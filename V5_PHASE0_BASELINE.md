@@ -431,6 +431,29 @@ variants, unmatched rows, timestamps, and windows; the v4/v5 differential
 corpus still passes. This reduction does not yet establish an acceptable
 release memory limit against v4.
 
+The eager JSONL parser now reads borrowed line slices and parses directly
+from bytes. The shared eager file source decodes the same bytes whose digest
+it checked at execution, avoiding a third file read and a possible change
+between validation and decoding. Default and all-feature JSONL tests pass,
+including malformed UTF-8, Unicode blank lines, CRLF, and compressed files;
+strict all-feature lint passes. An adjacent 12-sample release comparison
+against the binary before both changes measured JSONL round trip at
+**10.227 → 8.177 ms** and **5.06 → 4.44 MiB** peak RSS, with matching counts
+and checksums. A fresh eight-sample paired v4/v5 comparison measured:
+
+| Case (100,000 rows) | v4 ms | v5 ms | v5/v4 | v4 peak MiB | v5 peak MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Source copy | 0.061 | 0.118 | 1.92× | 3.41 | 3.90 |
+| Map/filter | 0.113 | 0.332 | 2.94× | 3.83 | 3.58 |
+| GroupByKey | 0.560 | 1.091 | 1.95× | 5.05 | 4.52 |
+| Latest per key | 0.654 | 1.239 | 1.89× | 7.31 | 3.84 |
+| Inner join | 11.022 | 13.070 | 1.19× | 21.50 | 45.96 |
+| Duplicate-key join | 2.742 | 5.719 | 2.09× | 5.53 | 21.42 |
+| JSONL round trip | 3.983 | 8.016 | 2.01× | 4.33 | 4.45 |
+
+Counts and checksums matched in all seven cases. These are local medians,
+not release thresholds; join memory and JSONL latency still need work.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

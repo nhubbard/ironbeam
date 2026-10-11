@@ -22,17 +22,15 @@ pub use cloud_io::{
 };
 
 fn read_jsonl<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
-    use std::io::BufRead;
-    std::io::BufReader::new(bytes)
-        .lines()
+    bytes
+        .split(|&byte| byte == b'\n')
         .enumerate()
-        .filter_map(|(line, value)| match value {
-            Ok(value) if value.trim().is_empty() => None,
-            other => Some((line, other)),
+        .filter_map(|(line, value)| match std::str::from_utf8(value) {
+            Ok(text) if text.trim().is_empty() => None,
+            _ => Some((line, value)),
         })
         .map(|(line, value)| {
-            let value = value.map_err(|e| ironbeam_io::io("jsonl", e))?;
-            serde_json::from_str(&value)
+            serde_json::from_slice(value)
                 .map_err(|e| ironbeam_io::io("jsonl", format!("line {}: {e}", line + 1)))
         })
         .collect()
