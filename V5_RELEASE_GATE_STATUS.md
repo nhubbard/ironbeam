@@ -86,8 +86,10 @@ staged locally.
   integration tests are also gated by `legacy-v4`, allowing the complete
   root test target set to build in v5-only mode. The crate root and README
   now show a v5 quick start, with a passing doctest; legacy builds retain
-  their old documentation. Fifteen v4 examples require `legacy-v4`; advanced
-  joins and CoGroupByKey examples now run the v5 API by default.
+  their old documentation. Fourteen examples still require `legacy-v4`,
+  including the v4 benchmark corpus. Advanced joins, CoGroupByKey, JSONL
+  globbing, and pluggable compression examples now run through v5; the latter
+  remains opt-in under `compression-gzip`.
   Both v4 and v5 benchmark examples produce matching counts and checksums
   for four workloads at 1,000 rows. A single aligned 100,000-row release
   sample found substantial v5 latency regressions in all four cases; see

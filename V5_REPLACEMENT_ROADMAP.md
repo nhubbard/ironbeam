@@ -45,6 +45,13 @@ MessagePack is similarly isolated as `ironbeam-io-msgpack` under the
 `ironbeam-io-cbor` under `v5-io-cbor` and its old alias. JSONL and its
 object-storage adapters moved to `ironbeam-io-jsonl`, which the root v5
 facade includes by default. Legacy paths still require `legacy-v4`.
+The `glob_patterns` example now runs the v5 JSONL glob source and deferred
+sink, including the same six partitioned records, three filtered errors, and
+three batch files. The `compressed_io` example uses the isolated
+`ironbeam-compression` codec API through the opt-in root `v5-compression`
+feature; gzip and a registered custom codec both round-trip the sample rows.
+The v4 checkpoint examples remain legacy-gated because v5 does not yet
+implement their barrier, time, and node-based policies.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
 `RegexExt` when `v5-regex` is enabled. Plain `ironbeam-transforms` builds no
 longer compile the regex engine. The v4 root helpers retain their current
