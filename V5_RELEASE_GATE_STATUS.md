@@ -198,6 +198,18 @@ staged locally.
   tests pass, and a clean core/Direct/transforms coverage run passes the CI
   thresholds: Direct 1,479/1,576 source locations and 267/292 branch outcomes;
   core 2,230/2,318 source locations and 341/390 branch outcomes.
+  Direct now also runs two deferred sink branches from the same bounded linear
+  source in one job. Their common transforms execute once, and each sink keeps
+  event-time/window metadata. Both sinks must declare idempotent replay because
+  commits happen in sequence: a failure in the second commit can leave the
+  first committed. Tests cover single source execution, branch values and
+  metadata, preflight rejection, write and factory failures, cancellation,
+  both commit-failure positions, and source-batch backpressure. Sequential
+  pair sinks write each element before moving to the next. The fresh combined
+  coverage corpus passes the existing gates: core 2,340/2,427 source locations
+  and 348/396 branches; Direct 1,781/1,893 source locations and 344/376
+  branches. General multi-sink DAGs, atomic commit,
+  checkpointed sink jobs, and unbounded execution remain open.
   Both v4 and v5 benchmark examples produce matching counts and checksums
   for four workloads at 1,000 rows. A single aligned 100,000-row release
   sample found substantial v5 latency regressions in all four cases; see

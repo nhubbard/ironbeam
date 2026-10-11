@@ -2,7 +2,7 @@
 use crate::metrics::MetricsState;
 use crate::spill::OutputStore;
 use crate::{JobConfig, JobHandle, cancelled, open_source_safe, read_source_batch};
-use ironbeam_core::{Element, Envelope, Error, Graph, Operation, Registry};
+use ironbeam_core::{Element, Envelope, Error, Graph, Operation, Registry, SinkSession};
 use rayon::prelude::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
@@ -32,7 +32,7 @@ fn linear_route(
         reversed.push(key.to_owned());
         match node.operation {
             Operation::Source { .. } => break,
-            Operation::Output | Operation::Reshuffle => {}
+            Operation::Output | Operation::Sink { .. } | Operation::Reshuffle => {}
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
@@ -67,6 +67,32 @@ pub(crate) fn prepare(
             return Err(Error::graph(key, "requested terminal is not an output"));
         }
     }
+    prepare_routes(graph, registry, left_key, right_key)
+}
+
+pub(crate) fn prepare_sinks(
+    graph: &Graph,
+    registry: &Registry,
+    left_key: &str,
+    right_key: &str,
+) -> Result<PairPlan, Error> {
+    for key in [left_key, right_key] {
+        if !graph
+            .node(key)
+            .is_some_and(|node| matches!(node.operation, Operation::Sink { .. }))
+        {
+            return Err(Error::graph(key, "requested terminal is not a sink"));
+        }
+    }
+    prepare_routes(graph, registry, left_key, right_key)
+}
+
+fn prepare_routes(
+    graph: &Graph,
+    registry: &Registry,
+    left_key: &str,
+    right_key: &str,
+) -> Result<PairPlan, Error> {
     let left = linear_route(graph, registry, left_key)?;
     let right = linear_route(graph, registry, right_key)?;
     if left.first() != right.first() {
@@ -207,6 +233,108 @@ fn enforce_memory<T: Element, U: Element>(
     } else {
         right.flush()
     }
+}
+
+fn write_sink_event(
+    session: &mut dyn SinkSession,
+    key: &str,
+    event: Envelope,
+    config: &JobConfig,
+) -> Result<(), Error> {
+    if config.cancellation.load(Ordering::Acquire) {
+        return Err(cancelled());
+    }
+    catch_unwind(AssertUnwindSafe(|| session.write(event)))
+        .unwrap_or_else(|_| Err(Error::execution(key, "direct", "sink writer panicked")))
+}
+
+fn write_sink_pair(
+    events: (Vec<Envelope>, Vec<Envelope>),
+    left: &mut dyn SinkSession,
+    right: &mut dyn SinkSession,
+    left_key: &str,
+    right_key: &str,
+    config: &JobConfig,
+) -> Result<u64, Error> {
+    let (left_events, right_events) = events;
+    let mut written = 0_u64;
+    for event in left_events {
+        write_sink_event(left, left_key, event, config)?;
+        written = written.saturating_add(1);
+    }
+    for event in right_events {
+        write_sink_event(right, right_key, event, config)?;
+        written = written.saturating_add(1);
+    }
+    Ok(written)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_sinks(
+    pool: &rayon::ThreadPool,
+    registry: &Registry,
+    plan: &PairPlan,
+    left_key: &str,
+    right_key: &str,
+    config: &JobConfig,
+    handle: &JobHandle,
+    left: &mut dyn SinkSession,
+    right: &mut dyn SinkSession,
+) -> Result<(), Error> {
+    let mut source = open_source_safe(registry, &plan.source_key)?;
+    loop {
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        let batch =
+            read_source_batch(&mut source, config.buffer_budget_elements, &plan.source_key)?;
+        if batch.is_empty() {
+            break;
+        }
+        let source_count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+        handle
+            .metrics
+            .source_elements
+            .fetch_add(source_count, Ordering::Relaxed);
+        handle
+            .metrics
+            .peak_batch_elements
+            .fetch_max(source_count, Ordering::Relaxed);
+        handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+        let written = if config.parallelism == 1 {
+            pool.install(|| {
+                let mut written = 0_u64;
+                for event in batch {
+                    let events = process_event(event, plan, registry, config, &handle.metrics)?;
+                    written = written.saturating_add(write_sink_pair(
+                        events, left, right, left_key, right_key, config,
+                    )?);
+                }
+                Ok::<u64, Error>(written)
+            })?
+        } else {
+            let results: Vec<_> = pool.install(|| {
+                batch
+                    .into_par_iter()
+                    .map(|event| process_event(event, plan, registry, config, &handle.metrics))
+                    .collect()
+            });
+            let mut written = 0_u64;
+            for result in results {
+                written = written.saturating_add(write_sink_pair(
+                    result?, left, right, left_key, right_key, config,
+                )?);
+            }
+            written
+        };
+        let total = handle
+            .metrics
+            .output_elements
+            .fetch_add(written, Ordering::Relaxed)
+            .saturating_add(written);
+        handle.processed.store(total, Ordering::Relaxed);
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]

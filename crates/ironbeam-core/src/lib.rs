@@ -4271,6 +4271,11 @@ impl<T> Sink<T> {
     pub fn snapshot(&self) -> Result<(Graph, Registry), Error> {
         self.pipeline.snapshot()
     }
+    /// Whether two sinks were built from the same logical graph.
+    #[must_use]
+    pub fn shares_pipeline_with<U>(&self, other: &Sink<U>) -> bool {
+        Arc::ptr_eq(&self.pipeline.inner, &other.pipeline.inner)
+    }
 }
 impl<T> Output<T> {
     #[must_use]

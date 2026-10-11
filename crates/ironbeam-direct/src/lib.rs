@@ -21,7 +21,7 @@ pub use spill::SpillConfig;
 
 use ironbeam_core::{
     Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection,
-    Registry, RetryClass, Sink, SinkMode, SourceIterator, TypedSourceIterator,
+    Registry, Replay, RetryClass, Sink, SinkMode, SourceIterator, TypedSourceIterator,
 };
 use metrics::MetricsState;
 use rayon::prelude::*;
@@ -489,6 +489,145 @@ impl DirectRunner {
                     right: right_values,
                     job: handle,
                 })
+            }
+            Err(error) => {
+                handle.set_status(if error.kind == ErrorKind::Cancelled {
+                    JobStatus::Cancelled
+                } else {
+                    JobStatus::Failed
+                });
+                Err(error)
+            }
+        }
+    }
+    /// Execute two idempotent sink branches in one bounded job. Their shared
+    /// source and common transforms run once. Commits are sequential; if the
+    /// second commit fails, the first may already be visible and a retry must
+    /// be safe for both sinks.
+    pub fn run_sink_pair<T: Element, U: Element>(
+        &self,
+        left: &Sink<T>,
+        right: &Sink<U>,
+        config: &JobConfig,
+    ) -> Result<JobHandle, Error> {
+        if !left.shares_pipeline_with(right) {
+            return Err(Error::graph("job", "sinks belong to different pipelines"));
+        }
+        if left.key() == right.key() {
+            return Err(Error::graph("job", "sink branches must be distinct"));
+        }
+        let (graph, registry) = left.snapshot()?;
+        self.validate(&graph)?;
+        validate_config(config)?;
+        if config.checkpoint.is_some() {
+            return Err(Error::unsupported("job", "direct", "multi-sink-checkpoint"));
+        }
+        for key in [left.key(), right.key()] {
+            let Some(Operation::Sink { spec }) = graph.node(key).map(|node| &node.operation) else {
+                return Err(Error::graph(key, "requested terminal is not a sink"));
+            };
+            if !spec.commit || spec.replay != Replay::Idempotent {
+                return Err(Error::unsupported(
+                    key,
+                    "direct",
+                    "multi-sink-idempotent-commit",
+                ));
+            }
+            if !registry.has_sink(key) {
+                return Err(Error::unsupported(key, "direct", "sink-factory"));
+            }
+        }
+        let plan = multi_output::prepare_sinks(&graph, &registry, left.key(), right.key())?;
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(config.parallelism)
+            .build()
+            .map_err(|error| Error::execution("job", "direct", error.to_string()))?;
+        #[allow(unused_mut)]
+        let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+        #[cfg(feature = "metrics")]
+        {
+            handle
+                .metrics_collector
+                .clone_from(&config.metrics_collector);
+        }
+        if config.cancellation.load(Ordering::Acquire) {
+            handle.cancel();
+            return Err(cancelled());
+        }
+        handle.set_status(JobStatus::Running);
+        let result = (|| {
+            let open = |key: &str| {
+                catch_unwind(AssertUnwindSafe(|| registry.open_sink(key))).unwrap_or_else(|_| {
+                    Err(Error::execution(key, "direct", "sink factory panicked"))
+                })
+            };
+            let mut left_session = open(left.key())?;
+            let mut right_session = match open(right.key()) {
+                Ok(session) => session,
+                Err(error) => {
+                    let _ = catch_unwind(AssertUnwindSafe(|| left_session.abort()));
+                    return Err(error);
+                }
+            };
+            let result = multi_output::execute_sinks(
+                &pool,
+                &registry,
+                &plan,
+                left.key(),
+                right.key(),
+                config,
+                &handle,
+                left_session.as_mut(),
+                right_session.as_mut(),
+            );
+            if let Err(error) = result {
+                let _ = catch_unwind(AssertUnwindSafe(|| left_session.abort()));
+                let _ = catch_unwind(AssertUnwindSafe(|| right_session.abort()));
+                return Err(error);
+            }
+            if config.cancellation.load(Ordering::Acquire) {
+                let _ = catch_unwind(AssertUnwindSafe(|| left_session.abort()));
+                let _ = catch_unwind(AssertUnwindSafe(|| right_session.abort()));
+                return Err(cancelled());
+            }
+            if let Err(error) = catch_unwind(AssertUnwindSafe(|| left_session.commit()))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        left.key(),
+                        "direct",
+                        "sink commit panicked",
+                    ))
+                })
+            {
+                let _ = catch_unwind(AssertUnwindSafe(|| left_session.abort()));
+                let _ = catch_unwind(AssertUnwindSafe(|| right_session.abort()));
+                return Err(error);
+            }
+            if let Err(error) = catch_unwind(AssertUnwindSafe(|| right_session.commit()))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        right.key(),
+                        "direct",
+                        "sink commit panicked",
+                    ))
+                })
+            {
+                let _ = catch_unwind(AssertUnwindSafe(|| right_session.abort()));
+                return Err(Error {
+                    message: format!(
+                        "{}; left sink {} is already committed; retry both idempotently",
+                        error.message,
+                        left.key()
+                    ),
+                    ..error
+                });
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                handle.set_status(JobStatus::Succeeded);
+                Ok(handle)
             }
             Err(error) => {
                 handle.set_status(if error.kind == ErrorKind::Cancelled {
