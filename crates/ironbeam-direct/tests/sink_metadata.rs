@@ -162,6 +162,60 @@ fn direct_sink_writes_before_reading_the_next_source_batch() {
 }
 
 #[test]
+fn typed_vector_sink_writes_each_batch_before_transforming_the_next() {
+    struct CountingSink(Arc<AtomicUsize>);
+    impl TypedSink<i32> for CountingSink {
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+    let writes = Arc::new(AtomicUsize::new(0));
+    let inspected = Arc::clone(&writes);
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .from_vec("source", vec![1_i32, 2])
+        .unwrap()
+        .map_named("inspect-prior-write", move |value| {
+            if value == 2 {
+                assert_eq!(inspected.load(Ordering::SeqCst), 1);
+            }
+            value
+        })
+        .unwrap()
+        .sink_named(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            {
+                let writes = Arc::clone(&writes);
+                move || Ok(Box::new(CountingSink(Arc::clone(&writes))))
+            },
+        )
+        .unwrap();
+    let job = DirectRunner
+        .run_sink(
+            &sink,
+            &JobConfig {
+                buffer_budget_elements: 1,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(writes.load(Ordering::SeqCst), 2);
+    assert_eq!(job.metrics().peak_batch_elements, 1);
+}
+
+#[test]
 fn direct_sink_counts_filtered_rows_on_both_execution_modes() {
     for parallelism in [1, 3] {
         let pipeline = Pipeline::default();

@@ -126,6 +126,77 @@ pub(crate) fn execute<T: Element>(
         }
         return Ok(());
     }
+    if config.parallelism == 1
+        && let [route] = plan.routes.as_slice()
+        && !route.operations.is_empty()
+        && let Some((source_len, read_batch)) = registry.vec_source_batches::<T>(&route.source_key)
+        && let Some(transforms) = route
+            .operations
+            .iter()
+            .map(|key| registry.typed_value_transform::<T>(key))
+            .collect::<Option<Vec<_>>>()
+    {
+        for start in (0..source_len).step_by(plan.summary.batch_limit) {
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            let len = (source_len - start).min(plan.summary.batch_limit);
+            let batch =
+                catch_unwind(AssertUnwindSafe(|| read_batch(start, len))).unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        &route.source_key,
+                        "direct",
+                        "source value clone panicked",
+                    ))
+                })?;
+            let count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+            handle
+                .metrics
+                .source_elements
+                .fetch_add(count, Ordering::Relaxed);
+            handle
+                .metrics
+                .peak_batch_elements
+                .fetch_max(count, Ordering::Relaxed);
+            handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+            let mut filtered = 0_u64;
+            let mut written = 0_u64;
+            for value in batch {
+                let mut current = Some(value);
+                for (key, transform) in route.operations.iter().zip(&transforms) {
+                    let Some(value) = current else { break };
+                    if config.cancellation.load(Ordering::Acquire) {
+                        return Err(cancelled());
+                    }
+                    current = catch_unwind(AssertUnwindSafe(|| transform.apply(value)))
+                        .map_err(|_| Error::execution(key, "direct", "user transform panicked"))?;
+                    if current.is_none() {
+                        filtered = filtered.saturating_add(1);
+                    }
+                }
+                if let Some(value) = current {
+                    write_event(
+                        session,
+                        sink_key,
+                        Envelope {
+                            value: Box::new(value),
+                            timestamp_ns: 0,
+                            window: Window::Global,
+                            assigned_window: None,
+                        },
+                        config,
+                    )?;
+                    written = written.saturating_add(1);
+                }
+            }
+            handle
+                .metrics
+                .filtered_elements
+                .fetch_add(filtered, Ordering::Relaxed);
+            record_written(handle, written);
+        }
+        return Ok(());
+    }
     for route in &plan.routes {
         let mut source = open_source_safe(registry, &route.source_key)?;
         loop {

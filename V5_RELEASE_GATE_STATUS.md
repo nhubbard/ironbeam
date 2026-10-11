@@ -25,9 +25,13 @@ staged locally.
   existing value-only sinks keep their `write` implementation. A bounded
   source fixture verifies that a batch is written before the next is read, and
   tests cover metadata on linear and materialized paths, filtering, cancellation,
-  and panic attribution. Materialized sink routes still evaluate their full
-  bounded graph before writing, so streaming and memory limits remain an open
-  Direct gate for those routes. An alternating 16-run release sample of the
+  and panic attribution. Sequential same-type map/filter routes over built-in
+  vector sources now use typed batches before writing each sink batch; the
+  sink test confirms the first batch is written before the next transform runs.
+  Parallel or metadata-changing routes retain the envelope path. Full Direct
+  tests and strict lint pass for this addition. Materialized sink routes still
+  evaluate their full bounded graph before writing, so streaming and memory
+  limits remain an open Direct gate for those routes. An alternating 16-run release sample of the
   100,000-row JSONL round trip measured 10.52 ms median after this change
   versus 10.74 ms in the preserved pre-change binary, with matching 100,000
   rows and checksum 4,999,950,000. This is a local performance sample, and the
