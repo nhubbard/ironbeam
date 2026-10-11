@@ -8,6 +8,8 @@ mod multi_output;
 mod planner;
 mod sink;
 mod spill;
+mod stream;
+mod stream_checkpoint;
 
 pub use checkpoint::CheckpointConfig;
 pub use helpers::{
@@ -18,6 +20,7 @@ pub use helpers::{
 pub use metrics::JobMetrics;
 pub use planner::PlanSummary;
 pub use spill::SpillConfig;
+pub use stream::StreamJob;
 
 use ironbeam_core::{
     Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection,
@@ -224,10 +227,14 @@ impl DirectRunner {
     /// # Errors
     /// Returns a typed graph or unsupported-capability error.
     pub fn validate(&self, graph: &Graph) -> Result<(), Error> {
+        self.validate_with_unbounded(graph, false)
+    }
+    fn validate_with_unbounded(&self, graph: &Graph, unbounded_source: bool) -> Result<(), Error> {
         graph.validate_for(
             "direct",
             &Capabilities {
                 external_bounded_source: true,
+                unbounded_source,
                 flatten: true,
                 reshuffle: true,
                 wait_on: true,

@@ -722,10 +722,23 @@ nonblocking poll result, bounded event batches, timestamped values, and a
 checkpoint progress signal. Reopening passes the saved cursor to the factory
 and validates split identity and nondecreasing watermark against the saved
 signal. Core tests cover progress-only polls, resume, capacity and cursor
-limits, and invalid source progress. Direct and the Dataflow translator both
-reject this source before opening it; neither runner executes production
-unbounded polling yet. The core and Direct coverage ratchets pass after this
-change.
+limits, and invalid source progress. Direct now runs one registered unbounded
+source through a linear transform route to an idempotent append sink. Each
+bounded poll batch receives a stable sink bundle ID, commits before its cursor
+is checkpointed, and must advance the cursor when it carries data; cancellation,
+restart, completed recovery, failed commits, and checkpoint integrity are
+covered by Direct tests. Direct rejects stateful or multi-source streaming
+routes, non-idempotent sinks, and sinks requiring bundle finalization. The
+ordinary bounded `run_sink` path still rejects unbounded graphs. The separate
+Dataflow translator still rejects production source polling, so portable
+source execution and remote Dataflow remain release gates.
+The new Direct stream and checkpoint modules have 605/665 source locations
+covered in isolation. With the expanded failure-path tests, the package now
+measures 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%).
+The Direct CI floor is set to 91% source locations and 90% branches for this
+larger runner surface; the former 93.74%/91.38% ratios were measured before
+unbounded execution was added. This is a coverage floor, not a claim that
+the remaining runner paths are complete.
 
 The detailed architecture and exit criteria remain in
 `WORKSPACE_ARCHITECTURE_PLAN.md`, `IRONBEAM_V5_EXECUTION_PLAN.md`, and

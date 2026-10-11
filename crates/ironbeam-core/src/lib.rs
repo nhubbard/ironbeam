@@ -1775,7 +1775,8 @@ impl<
 }
 pub trait SinkSession: Send {
     /// Bind a portable runner's stable bundle-attempt ID before the first write.
-    /// Direct execution does not call this method.
+    /// Direct streaming binds this to the source cursor; bounded Direct jobs
+    /// do not call this method.
     fn begin_bundle(&mut self, _instruction_id: &str) -> Result<(), Error> {
         Ok(())
     }
@@ -2397,6 +2398,12 @@ impl Registry {
             last_watermark: resume.as_ref().and_then(|signal| signal.event_time_ns),
             completed: false,
         }))
+    }
+    #[must_use]
+    pub fn has_unbounded_source(&self, key: &str) -> bool {
+        self.sources
+            .get(key)
+            .is_some_and(|source| source.unbounded_factory.is_some())
     }
     /// Open a source directly as `T` when its registration retains a typed factory.
     ///

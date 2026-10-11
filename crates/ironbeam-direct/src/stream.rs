@@ -1,0 +1,419 @@
+//! One-split Direct execution for a resumable unbounded source.
+
+use crate::planner::{self, PhysicalPlan};
+use crate::stream_checkpoint::StreamCheckpoint;
+use crate::{DirectRunner, JobConfig, JobHandle, JobStatus, cancelled, validate_config};
+use ironbeam_core::{
+    Element, Error, ErrorKind, Operation, ProgressSignal, Registry, Replay, Sink, SinkMode,
+    SinkSession, UnboundedPoll,
+};
+use sha2::{Digest, Sha256};
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::Duration;
+
+/// A running unbounded Direct job. Dropping it requests cancellation and joins
+/// its worker; `wait` preserves the execution error for the caller.
+pub struct StreamJob {
+    handle: JobHandle,
+    progress: Arc<Mutex<Option<ProgressSignal>>>,
+    worker: Option<JoinHandle<Result<(), Error>>>,
+}
+
+impl StreamJob {
+    #[must_use]
+    pub fn handle(&self) -> &JobHandle {
+        &self.handle
+    }
+
+    #[must_use]
+    pub fn progress(&self) -> Option<ProgressSignal> {
+        self.progress
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    pub fn cancel(&self) {
+        self.handle.cancel();
+    }
+
+    pub fn wait(mut self) -> Result<JobHandle, Error> {
+        if let Some(worker) = self.worker.take() {
+            worker
+                .join()
+                .map_err(|_| Error::execution("job", "direct", "stream worker panicked"))??;
+        }
+        Ok(self.handle.clone())
+    }
+}
+
+impl Drop for StreamJob {
+    fn drop(&mut self) {
+        if let Some(worker) = self.worker.take() {
+            self.handle.cancel();
+            let _ = worker.join();
+        }
+    }
+}
+
+impl DirectRunner {
+    /// Start one unbounded source feeding a linear transform route and an
+    /// idempotent append sink. Validation and checkpoint recovery finish before
+    /// the worker can open either endpoint.
+    pub fn start_stream_sink<T: Element>(
+        &self,
+        sink: &Sink<T>,
+        config: &JobConfig,
+    ) -> Result<StreamJob, Error> {
+        let (graph, registry) = sink.snapshot()?;
+        self.validate_with_unbounded(&graph, true)?;
+        validate_config(config)?;
+        let sink_key = sink.key().to_owned();
+        let sink_node = graph
+            .node(&sink_key)
+            .ok_or_else(|| Error::graph(&sink_key, "sink node missing"))?;
+        if !matches!(&sink_node.operation, Operation::Sink { spec }
+            if spec.mode == SinkMode::Append && spec.replay == Replay::Idempotent && spec.commit)
+        {
+            return Err(Error::unsupported(
+                &sink_key,
+                "direct",
+                "idempotent-stream-sink",
+            ));
+        }
+        if !registry.has_sink(&sink_key) {
+            return Err(Error::unsupported(&sink_key, "direct", "sink-factory"));
+        }
+        if config.spill.is_some() {
+            return Err(Error::unsupported(&sink_key, "direct", "stream-spill"));
+        }
+        let plan = planner::lower(&graph, &registry, &sink_key, config.buffer_budget_elements)?;
+        if plan.materialized {
+            return Err(Error::unsupported(
+                &sink_key,
+                "direct",
+                "stateful-stream-route",
+            ));
+        }
+        let [route] = plan.routes.as_slice() else {
+            return Err(Error::unsupported(
+                &sink_key,
+                "direct",
+                "multi-source-stream",
+            ));
+        };
+        let source_node = graph
+            .node(&route.source_key)
+            .ok_or_else(|| Error::graph(&route.source_key, "stream source node missing"))?;
+        let Operation::Source {
+            progress: source_progress,
+        } = &source_node.operation
+        else {
+            return Err(Error::graph(
+                &route.source_key,
+                "stream route has no source",
+            ));
+        };
+        if source_node.boundedness != ironbeam_core::Boundedness::Unbounded
+            || !source_progress.stable_split_id
+            || source_progress.replay == Replay::None
+            || !registry.has_unbounded_source(&route.source_key)
+        {
+            return Err(Error::unsupported(
+                &route.source_key,
+                "direct",
+                "resumable-stream-source",
+            ));
+        }
+        let checkpoint = config
+            .checkpoint
+            .as_ref()
+            .map(|checkpoint| {
+                StreamCheckpoint::new::<T>(
+                    checkpoint,
+                    &plan.summary.graph_fingerprint,
+                    registry
+                        .source_config_digest(&route.source_key)
+                        .ok_or_else(|| {
+                            Error::unsupported(&route.source_key, "direct", "source-config-digest")
+                        })?,
+                    registry.sink_config_digest(&sink_key).ok_or_else(|| {
+                        Error::unsupported(&sink_key, "direct", "sink-config-digest")
+                    })?,
+                    &route.source_key,
+                    &sink_key,
+                )
+            })
+            .transpose()?;
+        let recovered = checkpoint
+            .as_ref()
+            .map(StreamCheckpoint::load)
+            .transpose()?
+            .flatten();
+        #[allow(unused_mut)] // Metrics feature installs a collector before the worker starts.
+        let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
+        #[cfg(feature = "metrics")]
+        {
+            handle
+                .metrics_collector
+                .clone_from(&config.metrics_collector);
+        }
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        if recovered
+            .as_ref()
+            .is_some_and(|progress| progress.completed)
+        {
+            handle.set_status(JobStatus::Succeeded);
+            return Ok(StreamJob {
+                handle,
+                progress: Arc::new(Mutex::new(recovered)),
+                worker: None,
+            });
+        }
+        let progress = Arc::new(Mutex::new(recovered.clone()));
+        let worker_progress = Arc::clone(&progress);
+        let worker_handle = handle.clone();
+        let worker_config = config.clone();
+        handle.set_status(JobStatus::Running);
+        let worker = std::thread::Builder::new()
+            .name(format!("ironbeam-stream-{}", handle.id()))
+            .spawn(move || {
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    run_stream(
+                        &registry,
+                        &plan,
+                        &sink_key,
+                        &worker_config,
+                        &worker_handle,
+                        &worker_progress,
+                        checkpoint,
+                        recovered,
+                    )
+                }))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution("job", "direct", "stream worker panicked"))
+                });
+                worker_handle.set_status(match &result {
+                    Ok(()) => JobStatus::Succeeded,
+                    Err(error) if error.kind == ErrorKind::Cancelled => JobStatus::Cancelled,
+                    Err(_) => JobStatus::Failed,
+                });
+                result
+            })
+            .map_err(|error| Error::execution("job", "direct", error.to_string()))?;
+        Ok(StreamJob {
+            handle,
+            progress,
+            worker: Some(worker),
+        })
+    }
+}
+
+fn merge_progress(previous: Option<&ProgressSignal>, mut next: ProgressSignal) -> ProgressSignal {
+    if let Some(previous) = previous {
+        if next.checkpoint_position.is_none() {
+            next.checkpoint_position
+                .clone_from(&previous.checkpoint_position);
+        }
+        if next.event_time_ns.is_none() {
+            next.event_time_ns = previous.event_time_ns;
+        }
+    }
+    next
+}
+
+fn open_sink(registry: &Registry, key: &str) -> Result<Box<dyn SinkSession>, Error> {
+    let session = catch_unwind(AssertUnwindSafe(|| registry.open_sink(key)))
+        .unwrap_or_else(|_| Err(Error::execution(key, "direct", "sink factory panicked")))?;
+    let requires_finalization =
+        catch_unwind(AssertUnwindSafe(|| session.requires_bundle_finalization()))
+            .map_err(|_| Error::execution(key, "direct", "sink finalization probe panicked"))?;
+    if requires_finalization {
+        return Err(Error::unsupported(
+            key,
+            "direct",
+            "stream-bundle-finalization",
+        ));
+    }
+    Ok(session)
+}
+
+fn bundle_id(plan: &PhysicalPlan, sink_key: &str, progress: &ProgressSignal) -> String {
+    let mut hasher = Sha256::new();
+    for bytes in [
+        plan.summary.graph_fingerprint.as_bytes(),
+        sink_key.as_bytes(),
+        progress.source_key.as_bytes(),
+        progress.split_id.as_bytes(),
+        progress.checkpoint_position.as_deref().unwrap_or_default(),
+    ] {
+        hasher.update((bytes.len() as u64).to_le_bytes());
+        hasher.update(bytes);
+    }
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_stream(
+    registry: &Registry,
+    plan: &PhysicalPlan,
+    sink_key: &str,
+    config: &JobConfig,
+    handle: &JobHandle,
+    shared_progress: &Arc<Mutex<Option<ProgressSignal>>>,
+    checkpoint: Option<StreamCheckpoint>,
+    mut progress: Option<ProgressSignal>,
+) -> Result<(), Error> {
+    let route = &plan.routes[0];
+    let mut source = catch_unwind(AssertUnwindSafe(|| {
+        registry.open_unbounded_source(&route.source_key, progress.clone())
+    }))
+    .unwrap_or_else(|_| {
+        Err(Error::execution(
+            &route.source_key,
+            "direct",
+            "source factory panicked",
+        ))
+    })?;
+    loop {
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        let polled = catch_unwind(AssertUnwindSafe(|| source.poll(plan.summary.batch_limit)))
+            .unwrap_or_else(|_| {
+                Err(Error::execution(
+                    &route.source_key,
+                    "direct",
+                    "source poll panicked",
+                ))
+            })?;
+        let UnboundedPoll::Ready(batch) = polled else {
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        };
+        if !batch.elements.is_empty()
+            && progress.as_ref().is_some_and(|previous| {
+                previous.checkpoint_position == batch.progress.checkpoint_position
+            })
+        {
+            return Err(Error::execution(
+                &route.source_key,
+                "source",
+                "data batch did not advance its cursor",
+            ));
+        }
+        let instruction_id = bundle_id(plan, sink_key, &batch.progress);
+        let input_count = u64::try_from(batch.elements.len()).unwrap_or(u64::MAX);
+        handle
+            .metrics
+            .source_elements
+            .fetch_add(input_count, Ordering::Relaxed);
+        handle
+            .metrics
+            .peak_batch_elements
+            .fetch_max(input_count, Ordering::Relaxed);
+        handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+        let mut session = None;
+        let mut written = 0_u64;
+        let result = (|| {
+            for input in batch.elements {
+                let mut events = vec![input];
+                for key in &route.operations {
+                    let mut next = Vec::new();
+                    for event in events {
+                        if config.cancellation.load(Ordering::Acquire) {
+                            return Err(cancelled());
+                        }
+                        let produced =
+                            catch_unwind(AssertUnwindSafe(|| registry.apply_many(key, event)))
+                                .unwrap_or_else(|_| {
+                                    Err(Error::execution(key, "direct", "user transform panicked"))
+                                })?;
+                        if produced.is_empty() {
+                            handle
+                                .metrics
+                                .filtered_elements
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                        if next.len().saturating_add(produced.len()) > config.buffer_budget_elements
+                        {
+                            return Err(Error::resource(
+                                key,
+                                "stream transform output exceeds buffer budget",
+                            ));
+                        }
+                        next.extend(produced);
+                    }
+                    events = next;
+                }
+                for event in events {
+                    if config.cancellation.load(Ordering::Acquire) {
+                        return Err(cancelled());
+                    }
+                    if session.is_none() {
+                        let mut opened = open_sink(registry, sink_key)?;
+                        catch_unwind(AssertUnwindSafe(|| opened.begin_bundle(&instruction_id)))
+                            .unwrap_or_else(|_| {
+                                Err(Error::execution(
+                                    sink_key,
+                                    "direct",
+                                    "sink bundle begin panicked",
+                                ))
+                            })?;
+                        session = Some(opened);
+                    }
+                    catch_unwind(AssertUnwindSafe(|| {
+                        session.as_mut().expect("opened sink").write(event)
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(sink_key, "direct", "sink writer panicked"))
+                    })?;
+                    written = written.saturating_add(1);
+                }
+            }
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            if let Some(session) = &mut session {
+                catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(|_| {
+                    Err(Error::execution(sink_key, "direct", "sink commit panicked"))
+                })?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if let Some(session) = &mut session {
+                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+            }
+            return Err(error);
+        }
+        let next_progress = merge_progress(progress.as_ref(), batch.progress);
+        if let Some(checkpoint) = &checkpoint
+            && (next_progress.checkpoint_position.is_some() || next_progress.completed)
+        {
+            checkpoint.save(&next_progress)?;
+        }
+        let total = handle
+            .metrics
+            .output_elements
+            .fetch_add(written, Ordering::Relaxed)
+            .saturating_add(written);
+        handle.processed.store(total, Ordering::Relaxed);
+        *shared_progress
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(next_progress.clone());
+        if next_progress.completed {
+            return Ok(());
+        }
+        progress = Some(next_progress);
+    }
+}
