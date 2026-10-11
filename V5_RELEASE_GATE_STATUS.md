@@ -371,14 +371,28 @@ staged locally.
    9,994,950. A single-output Direct fold route now passes elements through
    map, filter, timestamp, and window stages without allocating temporary
    vectors at each stage; routes with FlatMap keep their multi-output path.
-   In a 12-run local sample after this change, v5's median was 5.390 ms
-   against v4's 0.729 ms, down from 13.926 ms for v5 in the earlier
-   10-run sample. Keyed-latest latency remains a release performance gap.
+   For a built-in vector source followed immediately by timestamp assignment
+   and the private keyed timestamp-capture node, Direct now feeds typed batches
+   into that fold without per-row envelopes. Other graph shapes keep the
+   general route. In a 14-run alternating local sample, v5's median was
+   1.328 ms against v4's 0.762 ms, down from 5.390 ms in the prior v5
+   12-run sample. One peak-RSS run measured 4.1 MiB for v5 and 7.3 MiB for
+   v4; these are local measurements, not a broad performance conclusion.
+   The wider v4/v5 latency gate remains open.
    The standalone fold state test does not prove in-progress recovery of the
    entire keyed-latest output route. The full local package gate passed after
-   the initial portable change; this later optimization has the full root
+   the initial portable change; the typed optimization has the full root
    workspace test suite, strict core/Direct lint, and the live Prism fixture
-   verified separately.
+   verified separately. A Direct regression test checks three typed batches,
+   selected timestamps, equal-time ties, timestamp-panic attribution, and
+   cancellation before output publication. The current coverage corpus passes
+   the core gates at 2,857/2,972 source locations (96.13%) and 435/492
+   branches (88.41%), and passes the transforms gates. Direct source coverage
+   passes at 3,238/3,503 (92.44%), but its branch coverage is 685/794
+   (86.27%), below the unchanged 90% CI floor. Added tests cover malformed
+   latest registry input, fold checkpoint corruption, duplicate stream sinks,
+   repeated stream cursors, and combined branch buffer limits. The Direct
+   branch coverage gate remains open.
    `cogroup_by_key_2_named` through `cogroup_by_key_10_named` register
    typed tagged-value coder contracts for their inputs. Tests cover
    heterogeneous values, empty groups, and invalid tags. The translator now

@@ -314,6 +314,160 @@ fn stream_pair_shares_source_and_recovers_both_branches() {
 }
 
 #[test]
+fn stream_pair_rejects_duplicate_foreign_and_spilled_sinks_before_source_open() {
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let (left, right) = pair_fixture(
+        Arc::new(Mutex::new(Vec::new())),
+        Arc::new(Mutex::new(Vec::new())),
+        Arc::clone(&opens),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+        None,
+    );
+    let foreign = fixture(
+        Arc::new(Mutex::new(Vec::new())),
+        Arc::new(Mutex::new(Vec::new())),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    for other in [&left, &foreign] {
+        assert_eq!(
+            DirectRunner
+                .start_stream_sink_pair(&left, other, &JobConfig::default())
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Graph
+        );
+    }
+    assert!(matches!(
+        DirectRunner
+            .start_stream_sink_pair(
+                &left,
+                &right,
+                &JobConfig {
+                    spill: Some(SpillConfig::default()),
+                    ..JobConfig::default()
+                },
+            )
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    assert!(opens.lock().unwrap().is_empty());
+}
+
+#[test]
+fn stream_pair_rejects_repeated_data_cursor_before_second_commit() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "repeated-cursor-source".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![batch(3, 1, false), batch(4, 1, true)].into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let left_values = Arc::new(Mutex::new(Vec::new()));
+    let right_values = Arc::new(Mutex::new(Vec::new()));
+    let left = source
+        .sink_named_with_config(
+            "left",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "left-v1".into(),
+            {
+                let values = Arc::clone(&left_values);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&values),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let right = source
+        .sink_named_with_config(
+            "right",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "right-v1".into(),
+            {
+                let values = Arc::clone(&right_values);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&values),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink_pair(&left, &right, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.message, "data batch did not advance its cursor");
+    assert_eq!(*left_values.lock().unwrap(), [3]);
+    assert_eq!(*right_values.lock().unwrap(), [3]);
+}
+
+#[test]
+fn stream_pair_enforces_combined_branch_buffer_before_writing() {
+    let left_values = Arc::new(Mutex::new(Vec::new()));
+    let right_values = Arc::new(Mutex::new(Vec::new()));
+    let (left, right) = pair_fixture(
+        Arc::clone(&left_values),
+        Arc::clone(&right_values),
+        Arc::new(Mutex::new(Vec::new())),
+        Arc::new(AtomicUsize::new(0)),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+        None,
+    );
+    let error = DirectRunner
+        .start_stream_sink_pair(
+            &left,
+            &right,
+            &JobConfig {
+                buffer_budget_elements: 1,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert_eq!(error.message, "stream branch output exceeds buffer budget");
+    assert!(left_values.lock().unwrap().is_empty());
+    assert!(right_values.lock().unwrap().is_empty());
+}
+
+#[test]
 fn stream_pair_replays_first_commit_idempotently_after_second_fails() {
     let temporary = tempfile::tempdir().unwrap();
     let left_values = Arc::new(Mutex::new(Vec::new()));

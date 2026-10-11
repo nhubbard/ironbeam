@@ -1702,9 +1702,19 @@ fn latest_per_key_direct_fold_keeps_one_value_and_restores_checkpoint() {
     source.latest_per_key_named("latest").unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
     let mut ordinary = registry.open_fold("ordinary-group").unwrap();
+    assert!(!ordinary.accepts_timed_vec_batch(std::any::TypeId::of::<Vec<(String, i32)>>()));
+    assert!(
+        ordinary
+            .add_timed_vec_batch(Box::new(vec![("a".to_owned(), 1_i32)]), &0_i32, "time")
+            .is_err()
+    );
     ordinary.add(event("a", 1, 7)).unwrap();
     let ordinary_checkpoint = ordinary.checkpoint_state().unwrap().unwrap();
     let mut fold = registry.open_fold("latest/group").unwrap();
+    assert!(
+        fold.add_vec_batch(Box::new(vec![("a".to_owned(), (1_i64, 7_i32))]))
+            .is_err()
+    );
     fold.add(event("a", 1, 7)).unwrap();
     fold.add(event("a", 2, 8)).unwrap();
     fold.add(event("b", 1, 9)).unwrap();
@@ -1728,6 +1738,176 @@ fn latest_per_key_direct_fold_keeps_one_value_and_restores_checkpoint() {
     assert_eq!(
         rows,
         vec![("a".into(), vec![(3, 10)]), ("b".into(), vec![(1, 9)])]
+    );
+
+    let mut streamed = registry.open_fold("latest/group").unwrap();
+    streamed.add(event("a", 4, 12)).unwrap();
+    let mut emitted = Vec::new();
+    streamed
+        .finish_into(&mut |event| {
+            emitted.push(*event.value.downcast::<(String, Vec<(i64, i32)>)>().unwrap());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(emitted, vec![("a".into(), vec![(4, 12)])]);
+}
+
+#[test]
+fn latest_per_key_registry_rejects_bad_groups_and_restores_selected_event_time() {
+    fn envelope<T: Element>(value: T, timestamp_ns: i64) -> Envelope {
+        Envelope {
+            value: Box::new(value),
+            timestamp_ns,
+            window: Window::Global,
+            assigned_window: None,
+        }
+    }
+
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![("a".to_owned(), 1_i32)])
+        .unwrap()
+        .assign_timestamps_named("time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .latest_per_key_named("latest")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.typed_timestamp_transform("time").is_some());
+    assert!(registry.typed_timestamp_transform("source").is_none());
+    assert!(registry.is_keyed_timestamp_reification("latest/timestamp"));
+    assert!(!registry.is_keyed_timestamp_reification("time"));
+
+    let captured = registry
+        .apply("latest/timestamp", envelope(("a".to_owned(), 7_i32), 70))
+        .unwrap()
+        .unwrap();
+    assert_eq!(captured.timestamp_ns, 70);
+    assert_eq!(
+        *captured.value.downcast::<(String, (i64, i32))>().unwrap(),
+        ("a".to_owned(), (70, 7))
+    );
+    assert!(
+        registry
+            .apply("latest/timestamp", envelope(9_i32, 70))
+            .is_err()
+    );
+    assert!(registry.apply_aggregate("latest/group", vec![]).is_err());
+
+    let grouped = registry
+        .apply_aggregate(
+            "latest/group",
+            vec![vec![
+                envelope(("a".to_owned(), (10_i64, 1_i32)), 10),
+                envelope(("a".to_owned(), (30_i64, 3_i32)), 30),
+                envelope(("a".to_owned(), (20_i64, 2_i32)), 20),
+            ]],
+        )
+        .unwrap();
+    assert_eq!(grouped.len(), 1);
+    let selected = registry
+        .apply("latest", grouped.into_iter().next().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(selected.timestamp_ns, 30);
+    assert_eq!(
+        *selected.value.downcast::<(String, i32)>().unwrap(),
+        ("a".into(), 3)
+    );
+    assert!(registry.apply("latest", envelope(7_i32, 0)).is_err());
+    assert!(
+        registry
+            .apply(
+                "latest",
+                envelope(("a".to_owned(), Vec::<(i64, i32)>::new()), 0)
+            )
+            .is_err()
+    );
+    let selected = registry
+        .apply(
+            "latest",
+            envelope(("a".to_owned(), vec![(10_i64, 1_i32), (30, 3), (20, 2)]), 0),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(selected.timestamp_ns, 30);
+    assert_eq!(
+        *selected.value.downcast::<(String, i32)>().unwrap(),
+        ("a".into(), 3)
+    );
+}
+
+#[test]
+fn latest_per_key_fold_rejects_mismatched_typed_batches_and_checkpoint_state() {
+    fn event(value: impl Element) -> Envelope {
+        Envelope {
+            value: Box::new(value),
+            timestamp_ns: 1,
+            window: Window::Global,
+            assigned_window: None,
+        }
+    }
+
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![("a".to_owned(), 1_i32)])
+        .unwrap()
+        .assign_timestamps_named("time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .latest_per_key_named("latest")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let timestamp = registry.typed_timestamp_transform("time").unwrap();
+    assert!(registry.apply("time", event(7_i32)).is_err());
+    let mut fold = registry.open_fold("latest/group").unwrap();
+    assert!(fold.accepts_timed_vec_batch(std::any::TypeId::of::<Vec<(String, i32)>>()));
+    assert!(!fold.accepts_timed_vec_batch(std::any::TypeId::of::<Vec<i32>>()));
+    assert!(fold.add(event(7_i32)).is_err());
+    assert!(
+        fold.add_timed_vec_batch(Box::new(vec![7_i32]), timestamp, "time")
+            .is_err()
+    );
+    assert!(
+        fold.add_timed_vec_batch(
+            Box::new(vec![("a".to_owned(), 1_i32)]),
+            &"wrong timestamp type".to_owned(),
+            "time",
+        )
+        .is_err()
+    );
+    fold.add_timed_vec_batch(Box::new(vec![("a".to_owned(), 1_i32)]), timestamp, "time")
+        .unwrap();
+    let state = fold.checkpoint_state().unwrap().unwrap();
+    assert!(fold.restore_checkpoint_state(&state).is_err());
+
+    let mut wrong_version: serde_json::Value = serde_json::from_slice(&state).unwrap();
+    wrong_version["version"]["major"] = serde_json::json!(999);
+    assert!(
+        registry
+            .open_fold("latest/group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&wrong_version).unwrap())
+            .is_err()
+    );
+
+    let mut wrong_coder: serde_json::Value = serde_json::from_slice(&state).unwrap();
+    wrong_coder["value_coder"] = serde_json::json!("wrong-coder");
+    assert!(
+        registry
+            .open_fold("latest/group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&wrong_coder).unwrap())
+            .is_err()
+    );
+
+    let mut duplicate: serde_json::Value = serde_json::from_slice(&state).unwrap();
+    let row = duplicate["groups"][0].clone();
+    duplicate["groups"].as_array_mut().unwrap().push(row);
+    assert!(
+        registry
+            .open_fold("latest/group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&duplicate).unwrap())
+            .is_err()
     );
 }
 
