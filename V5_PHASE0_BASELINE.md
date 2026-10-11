@@ -201,6 +201,14 @@ compared with the preceding 3.07 ms paired-run v5 median. These are adjacent
 local characterization runs, not a controlled release threshold; the paired
 v4 gap remains open.
 
+The v5 benchmark now emits source-copy phase timings under
+`IRONBEAM_BENCH_PHASES=1`, as it already does for the other in-memory cases.
+One 2026-10-11 release run at 100,000 rows measured 1.403 ms in source
+construction (including the stable content digest), 0.017 ms attaching the
+terminal, and 1.187 ms in Direct execution; the full case was 2.723 ms.
+These phases identify both construction and execution as material costs.
+They are a diagnostic sample, not a new v4/v5 paired result.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

@@ -14,9 +14,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let p = Pipeline::default();
     let start = Instant::now();
-    let copied = p.from_vec("copy-input", (0..count).collect())?
-        .output("copy-result")?
-        .collect_seq()?;
+    let input = p.from_vec("copy-input", (0..count).collect())?;
+    let source_ready = Instant::now();
+    let output = input.output("copy-result")?;
+    let graph_ready = Instant::now();
+    let copied = output.collect_seq()?;
+    let run_ready = Instant::now();
+    if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
+        eprintln!("source_copy_phases_ns,source={},graph={},run={}",
+            source_ready.duration_since(start).as_nanos(),
+            graph_ready.duration_since(source_ready).as_nanos(),
+            run_ready.duration_since(graph_ready).as_nanos());
+    }
     println!("source_copy,{count},{},{},{}", start.elapsed().as_nanos(),
         copied.len(), copied.iter().map(|&n| u64::from(n)).sum::<u64>());
 
