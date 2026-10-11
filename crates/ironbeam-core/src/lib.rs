@@ -2723,6 +2723,20 @@ impl<T: Element> PCollection<T> {
             marker: PhantomData,
         })
     }
+    /// Create an output terminal on an isolated graph snapshot.
+    /// Repeated local collections can use the same stable terminal key without
+    /// registering duplicate nodes on the source pipeline.
+    pub fn detached_output(&self, key: &str) -> Result<Output<T>, Error> {
+        let (graph, registry) = self.pipeline.snapshot()?;
+        let detached = Self {
+            pipeline: Pipeline {
+                inner: Arc::new(Mutex::new(Builder { graph, registry })),
+            },
+            key: self.key.clone(),
+            marker: PhantomData,
+        };
+        detached.output(key)
+    }
     pub fn append_sink(&self, key: &str, replay: Replay) -> Result<(), Error> {
         self.next::<T>(
             key,

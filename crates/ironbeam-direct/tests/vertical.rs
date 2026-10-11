@@ -1,5 +1,7 @@
 use ironbeam_core::{Element, ErrorKind, Pipeline, Replay, SourceProgress};
-use ironbeam_direct::{DirectRunner, JobConfig, JobHandle, JobStatus};
+use ironbeam_direct::{
+    CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobStatus,
+};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -34,6 +36,32 @@ fn small_graph_runs_with_job_owned_settings() {
         .unwrap();
     assert_eq!(values, [2, 4, 6, 8]);
     assert_ne!(job.id(), second.id());
+}
+
+#[test]
+fn collection_collect_repeats_without_mutating_the_graph() {
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("input", vec![1_i32, 2, 3, 4]).unwrap();
+    let filtered = source.filter_named("even", |value| value % 2 == 0).unwrap();
+    let original = pipeline.snapshot().unwrap().0.fingerprint().unwrap();
+    assert_eq!(filtered.collect_seq().unwrap(), vec![2, 4]);
+    assert_eq!(filtered.collect_par(2).unwrap(), vec![2, 4]);
+    let directory = tempfile::tempdir().unwrap();
+    let config = JobConfig {
+        buffer_budget_elements: 2,
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "detached-collect-test".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    assert_eq!(filtered.collect_with(&config).unwrap().0, vec![2, 4]);
+    let (recovered, job) = filtered.collect_with(&config).unwrap();
+    assert_eq!(recovered, vec![2, 4]);
+    assert_eq!(job.metrics().recovered_elements, 2);
+    assert_eq!(pipeline.snapshot().unwrap().0.fingerprint().unwrap(), original);
+    assert_eq!(filtered.output("explicit").unwrap().collect_seq().unwrap(), vec![2, 4]);
 }
 
 #[test]

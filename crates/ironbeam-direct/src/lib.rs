@@ -17,7 +17,7 @@ pub use planner::PlanSummary;
 pub use spill::SpillConfig;
 
 use ironbeam_core::{
-    Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, Registry,
+    Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection, Registry,
     RetryClass, Sink, SinkMode, SourceIterator, Window,
 };
 use metrics::MetricsState;
@@ -142,6 +142,23 @@ pub trait DirectCollectExt<T: Element> {
 impl<T: Element> DirectCollectExt<T> for Output<T> {
     fn collect_with(&self, config: &JobConfig) -> Result<(Vec<T>, JobHandle), Error> {
         DirectRunner.run_collect(self, config)
+    }
+    fn collect_seq(&self) -> Result<Vec<T>, Error> {
+        Ok(self.collect_with(&JobConfig::default())?.0)
+    }
+    fn collect_par(&self, parallelism: usize) -> Result<Vec<T>, Error> {
+        Ok(self
+            .collect_with(&JobConfig {
+                parallelism,
+                ..JobConfig::default()
+            })?
+            .0)
+    }
+}
+impl<T: Element> DirectCollectExt<T> for PCollection<T> {
+    fn collect_with(&self, config: &JobConfig) -> Result<(Vec<T>, JobHandle), Error> {
+        let key = format!("{}/direct-collect", self.key());
+        DirectRunner.run_collect(&self.detached_output(&key)?, config)
     }
     fn collect_seq(&self) -> Result<Vec<T>, Error> {
         Ok(self.collect_with(&JobConfig::default())?.0)

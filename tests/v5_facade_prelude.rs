@@ -12,8 +12,6 @@ fn facade_prelude_runs_v4_shaped_helper_chain_without_compat() {
         .unwrap()
         .filter_eq_named("fours", &4)
         .unwrap()
-        .output("result")
-        .unwrap()
         .collect_seq()
         .unwrap();
     assert_eq!(result, vec![4]);
