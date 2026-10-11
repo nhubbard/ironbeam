@@ -349,6 +349,10 @@ impl TypedSink<Vec<u8>> for TfrecordFragmentSink {
         }
         self.store.accept(bundle_id)
     }
+
+    fn recover_bundle_finalization(&mut self, instruction_id: &str) -> Result<(), Error> {
+        self.store.accept(instruction_id)
+    }
 }
 
 /// Reopen the same local staging scope on a worker or job coordinator.
@@ -582,6 +586,9 @@ mod fragment_tests {
         conflicting.write(b"other".to_vec()).unwrap();
         assert!(conflicting.commit().is_err());
         conflicting.abort().unwrap();
+        let mut restarted = session(&store);
+        assert!(restarted.recover_bundle_finalization("missing").is_err());
+        restarted.recover_bundle_finalization("bundle-1").unwrap();
         first.finalize_bundle().unwrap();
         first.finalize_bundle().unwrap();
         let mut empty = session(&store);

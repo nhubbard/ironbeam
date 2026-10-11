@@ -397,12 +397,20 @@ staged locally.
    between creating the accepted hard link and removing the pending name:
    a reopened scope verifies both complete files are byte-identical before
    removing the pending name. Conflicting bytes still fail closed. This fixes
-   the fragment-store crash window, while the worker's in-memory callback
-   registry still needs durable recovery for a restarted worker.
+   the fragment-store crash window. The worker can now record the exact sink
+   set for each bundle in a local, identity-bound finalization journal before
+   returning `ProcessBundleResponse`. A fresh registry recovers a Protobuf
+   fragment using only that record, rejects unknown and missing fragments,
+   and persists a completion marker for duplicate callbacks. The six-sink
+   local Prism job reached `DONE` with journal records and matching completion
+   markers. This is a local filesystem proof; an actual worker kill/restart
+   during a live Prism job and a remote journal implementation remain open.
    A transient Prism run also exposed an empty source-rooted bundle; the worker
    now closes its runner outputs without opening the user source for that case,
    with a focused Fn Data regression test and a subsequent live passing run.
-   A pending finalizer still cannot be recovered after worker restart.
+   Recovery requires `IRONBEAM_V5_FINALIZATION_JOURNAL_DIR` to point to the
+   same durable local directory after restart. Without that setting the
+   worker uses its in-memory registry and cannot recover after process loss.
    The v5 worker now tracks progress across multiple sinks in one bundle:
    when a later finalizer fails, retry resumes at that sink without replaying
    earlier successes. A two-bundle registry test also verifies isolated and

@@ -92,6 +92,10 @@ impl<T: Element> TypedSink<T> for SequenceFragmentSink<T> {
         }
         self.store.accept(bundle_id)
     }
+
+    fn recover_bundle_finalization(&mut self, instruction_id: &str) -> Result<(), Error> {
+        self.store.accept(instruction_id)
+    }
 }
 
 /// Reopen the same format-bound local staging scope on a worker or coordinator.
@@ -235,6 +239,9 @@ mod tests {
         accepted.begin_bundle("accepted").unwrap();
         accepted.write(2).unwrap();
         accepted.commit().unwrap();
+        let mut restarted = session(&store);
+        assert!(restarted.recover_bundle_finalization("missing").is_err());
+        restarted.recover_bundle_finalization("accepted").unwrap();
         accepted.finalize_bundle().unwrap();
         assert!(publish_sequence_fragments(&store, 2, &output, count_u32).is_err());
         assert!(!output.exists());

@@ -156,6 +156,10 @@ impl<T: Element + Serialize> TypedSink<T> for AvroFragmentSink<T> {
         }
         self.store.local.accept(bundle_id)
     }
+
+    fn recover_bundle_finalization(&mut self, instruction_id: &str) -> Result<(), Error> {
+        self.store.local.accept(instruction_id)
+    }
 }
 
 /// Register a native-schema Avro fragment sink for portable jobs. Publication
@@ -374,6 +378,9 @@ mod fragment_tests {
             })
             .unwrap();
         second.commit().unwrap();
+        let mut restarted = session(&store);
+        assert!(restarted.recover_bundle_finalization("missing").is_err());
+        restarted.recover_bundle_finalization("bundle-2").unwrap();
         second.finalize_bundle().unwrap();
         let published = publish_avro_fragments(&store, 3, &output).unwrap();
         assert_eq!(published.rows, 3);

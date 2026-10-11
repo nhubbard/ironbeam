@@ -1068,6 +1068,7 @@ fn unregistered_sink_finalization_fails_closed() {
     let mut untyped = Untyped;
     assert!(!untyped.requires_bundle_finalization());
     assert!(untyped.finalize_bundle().is_err());
+    assert!(untyped.recover_bundle_finalization("bundle-7").is_err());
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("input", vec![1_i32]).unwrap();
     let spec = SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true };
@@ -1086,6 +1087,7 @@ fn unregistered_sink_finalization_fails_closed() {
     let mut session = registry.open_sink("ordinary").unwrap();
     assert!(!session.requires_bundle_finalization());
     assert!(session.finalize_bundle().is_err());
+    assert!(session.recover_bundle_finalization("bundle-7").is_err());
 }
 
 #[test]

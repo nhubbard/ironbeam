@@ -1710,6 +1710,11 @@ pub trait SinkSession: Send {
     fn finalize_bundle(&mut self) -> Result<(), Error> {
         Err(Error::unsupported("sink", "runner", "bundle-finalization"))
     }
+    /// Recover a committed attempt after worker state was lost. Implementations
+    /// must verify durable state for this exact ID and fail if it is missing.
+    fn recover_bundle_finalization(&mut self, _instruction_id: &str) -> Result<(), Error> {
+        Err(Error::unsupported("sink", "runner", "bundle-finalization-recovery"))
+    }
 }
 pub trait TypedSink<T: Element>: Send {
     fn begin_bundle(&mut self, _instruction_id: &str) -> Result<(), Error> {
@@ -1723,6 +1728,9 @@ pub trait TypedSink<T: Element>: Send {
     }
     fn finalize_bundle(&mut self) -> Result<(), Error> {
         Err(Error::unsupported("sink", "runner", "bundle-finalization"))
+    }
+    fn recover_bundle_finalization(&mut self, _instruction_id: &str) -> Result<(), Error> {
+        Err(Error::unsupported("sink", "runner", "bundle-finalization-recovery"))
     }
 }
 type SinkFactory = Arc<dyn Fn() -> Result<Box<dyn SinkSession>, Error> + Send + Sync>;
@@ -1758,6 +1766,9 @@ impl<T: Element> SinkSession for SinkAdapter<T> {
     }
     fn finalize_bundle(&mut self) -> Result<(), Error> {
         self.inner.finalize_bundle()
+    }
+    fn recover_bundle_finalization(&mut self, instruction_id: &str) -> Result<(), Error> {
+        self.inner.recover_bundle_finalization(instruction_id)
     }
 }
 
@@ -4263,6 +4274,32 @@ impl<T> Output<T> {
 mod internal_tests {
     use super::*;
     use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn bundle_recovery_is_explicit_and_typed_adapter_forwards_the_exact_id() {
+        struct RecoveringSink;
+        impl TypedSink<i32> for RecoveringSink {
+            fn write(&mut self, _: i32) -> Result<(), Error> { Ok(()) }
+            fn commit(&mut self) -> Result<(), Error> { Ok(()) }
+            fn abort(&mut self) -> Result<(), Error> { Ok(()) }
+            fn recover_bundle_finalization(&mut self, instruction_id: &str) -> Result<(), Error> {
+                if instruction_id == "bundle-7" { Ok(()) }
+                else { Err(Error::incompatible("wrong bundle ID")) }
+            }
+        }
+        struct OrdinarySession;
+        impl SinkSession for OrdinarySession {
+            fn write(&mut self, _: Envelope) -> Result<(), Error> { Ok(()) }
+            fn commit(&mut self) -> Result<(), Error> { Ok(()) }
+            fn abort(&mut self) -> Result<(), Error> { Ok(()) }
+        }
+
+        let mut direct = OrdinarySession;
+        assert!(direct.recover_bundle_finalization("bundle-7").is_err());
+        let mut typed = SinkAdapter { key: "sink".into(), inner: Box::new(RecoveringSink) };
+        assert!(typed.recover_bundle_finalization("bundle-7").is_ok());
+        assert!(typed.recover_bundle_finalization("other").is_err());
+    }
 
     #[test]
     fn poisoned_builder_reports_typed_errors() {
