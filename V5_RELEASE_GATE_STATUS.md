@@ -1,76 +1,94 @@
-# Ironbeam 5.0.0 release status
+# Ironbeam 5.0.0 release gates
 
-**Release decision: hold.** Last reviewed 2026-10-11 on
+**Decision: hold the release.** Reviewed 2026-10-11 on
 `codex/ironbeam-v5-runner-core`.
 
-The root source uses v5 exclusively, but the root package is still versioned
-`4.1.1` and the v5 crates are `0.1.0`. Publication is staged locally, as
-requested. The target proof is local Prism; hosted Dataflow is a later
-extension.
+The root source runs v5, but the root package is still `4.1.1` and the v5
+crates are `0.1.0`. Publication remains staged locally. Local Prism is the
+portable runner proof for this release; hosted Dataflow is a later extension.
 
-## At a glance
+## Release snapshot
 
-| Area | Status | Current proof |
+| Area | Where it stands | Next proof |
 | --- | --- | --- |
-| Workspace cutover | **Mostly complete** | The root's local v4 source and `legacy-v4` feature are gone. All 26 local v5 packages passed package verification. |
-| Bounded Direct behavior | **In progress** | The v4 reference corpus and v5 Direct helper tests pass. Public API and edge-case parity still need a complete audit. |
-| Portable behavior | **In progress** | All 18 live local Prism tests pass. Bounded Direct/Prism and mixed bounded/unbounded Prism joins and co-groups verify values and time metadata. More shared cases are needed. |
-| Streaming and recovery | **In progress** | Direct cursor checkpoints and a two-batch production-source join/co-group Prism job work. Worker restart and runner-wide output commit proofs remain. |
-| Quality and release | **In progress** | Coverage floors, package verification, and formatting pass. The final clean matrix, benchmarks, and version change remain. |
+| Workspace | V5-only root source; 26 local packages verify | Finish API and legacy package audit |
+| Direct | V4 reference corpus and v5 helper tests pass | Close public API and edge-case parity |
+| Portable | 18 live local Prism tests pass | Expand shared Direct/Prism corpus |
+| Streaming | Production reader resumes through join and co-group | Prove worker restart and output recovery |
+| Quality | Coverage floors, formatting, and package checks pass | Set performance limits and run final clean matrix |
 
-These are progress indicators, not release approvals. Each open item below must
-be resolved before the version changes to 5.0.0.
+Passing a current check does not close a release gate unless its full proof
+below is complete.
 
-## Remaining release gates
+## Open gates
 
-| Gate | What must be demonstrated | State |
-| --- | --- | --- |
-| API and v4 behavior | Audit the public root API and promised behavior against the [helper parity tracker](V5_HELPER_PARITY_TRACKER.md) and [migration guide](V4_TO_V5_MIGRATION.md). | Open |
-| Portable operation coverage | Run shared Direct and Prism success and failure graphs for every advertised operation, including remaining multi-input and output cases. | Open |
-| Runner agreement | Compare values, grouping, event times, windows, typed failures, and committed output for those graphs. | Open |
-| Unbounded recovery | Prove worker recovery after an accepted batch, split responses, and remaining graph shapes. | Open |
-| Output durability | Finish the runner-wide commit contract, abandoned-attempt and restart proofs, and v4 checkpoint-policy replacement decisions. | Open |
-| Cloud package cleanup | Resolve legacy `ironbeam-cloud` ownership and obsolete compatibility behavior. | Open |
-| Coverage and verification | Review uncovered contract paths, then rerun clean coverage, tests, lint, docs, and package checks. | Open |
-| Performance | Set acceptable regression limits and rerun paired v4/v5 latency and memory benchmarks. | Open |
-| Formatting | Format both workspaces and rerun their tests and the live Prism proof. | Passed |
-| Versioning | Set intended release versions after the other gates pass. | Open |
+### Behavior and API
 
-The release remains local. Publishing the packages is a separate decision.
+| Gate | Done when |
+| --- | --- |
+| ☐ Public API and v4 behavior | The root API and promised behaviors are audited against the [helper tracker](V5_HELPER_PARITY_TRACKER.md) and [migration guide](V4_TO_V5_MIGRATION.md). |
+| ☐ Portable operation coverage | Every advertised operation has shared Direct/Prism success and failure cases, including multi-input and output paths. |
+| ☐ Runner agreement | Shared cases match on values, grouping, event times, windows, typed failures, and committed output. |
 
-## Contract decisions already made
+### Streaming and durability
 
-For operations advertised by both Direct and portable execution, the same
-graph and input must yield the same observable results: values, grouping,
-event times, window intervals, typed failure category, and committed output.
-Bundle size, scheduling, and retry timing may differ. Unsupported operations
-must fail validation before a source or sink opens.
+| Gate | Done when |
+| --- | --- |
+| ☐ Unbounded recovery | A worker resumes after an accepted batch, handles split responses, and covers the remaining graph shapes. |
+| ☐ Output durability | The runner-wide commit contract passes abandoned-attempt and restart proofs; v4 checkpoint-policy replacements are decided. |
 
-Portable ordered folds require an explicit order key. With an explicit order
-or tie key, order-sensitive results are part of runner parity. The v4
-encounter-order methods remain Direct compatibility behavior because Beam
-shuffle does not preserve encounter order. See the
-[API similarity contract](V5_REPLACEMENT_ROADMAP.md#api-similarity-contract).
+### Packaging and release quality
 
-## Latest verified checks
+| Gate | Done when |
+| --- | --- |
+| ☐ Cloud package cleanup | Legacy `ironbeam-cloud` ownership and obsolete compatibility behavior are resolved. |
+| ☐ Coverage and verification | Uncovered contract paths are reviewed; clean tests, coverage, lint, docs, and package checks pass. |
+| ☐ Performance | Acceptable latency and memory limits are set and pass on the paired v4/v5 corpus. |
+| ☐ Versioning | The packages receive their intended release versions after the other gates pass. |
+
+**Completed gate:** formatting passes in both workspaces, followed by their
+workspace tests and the live Prism suite.
+
+## Latest measured results
 
 | Check | Result |
 | --- | --- |
-| Root workspace tests and doctests | Passed after the CoGroupByKey event-time correction. |
-| Local release script | Passed dependency checks, workspace tests, feature matrix, documentation, and verification of 26 packages on 2026-10-11 using Mr Boxington. No crate was published. |
-| Local Prism suite | All 18 live tests passed. The production-reader join/co-group job resumed from a residual cursor and verified five exact committed rows across two windows. |
-| Separate Dataflow workspace | Tests and doctests passed with the new coder; warning-free lint passed for the changed proof package. |
-| Clean shared coverage corpus | Core: 3,055/3,178 source locations (96.13%), 468/528 branches (88.64%). Direct: 3,913/4,187 (93.46%), 837/928 (90.19%). Transforms: 1,163/1,189 (97.81%), 108/116 (93.10%). All pass their existing floors. |
-| Postcard coder coverage | 13/13 source locations passed the new isolated gate; LLVM reports no instrumented branches. |
-| Workspace formatting | `cargo fmt --all --check` passes in both workspaces; both workspace test suites and root all-feature examples passed afterward. |
+| Root workspace | Tests and doctests passed after the CoGroupByKey event-time fix. |
+| Local release script | Dependency and feature checks, tests, docs, and verification of 26 packages passed with Mr Boxington. |
+| Local Prism | 18 live tests passed. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. |
+| Separate Dataflow workspace | Tests and doctests passed; changed proof package passed warning-free lint. |
+| Clean coverage | Core **96.13% locations / 88.64% branches**; Direct **93.46% / 90.19%**; transforms **97.81% / 93.10%**. Existing floors pass. |
+| Postcard coder | 13/13 source locations covered; LLVM reports no instrumented branches. |
+| Formatting | Both workspaces pass `cargo fmt --all --check`. |
 
-These results describe the last complete gate run; in-flight changes require
-a fresh run before they count as release evidence.
+The current paired benchmark matches output counts and checksums in all seven
+cases. It is a measurement, **not a performance gate pass**:
 
-## Supporting detail
+| 100,000-row workload | V5/v4 median latency | Peak memory, v4 → v5 |
+| --- | ---: | ---: |
+| Map/filter | 3.12× | 3.83 → 3.55 MiB |
+| JSONL round trip | 2.63× | 4.33 → 5.05 MiB |
+| Duplicate-key join | 2.18× | 5.53 → 31.66 MiB |
 
-- [Evidence archive](V5_RELEASE_GATE_EVIDENCE.md): implementation history,
-  fixture results, measurements, and known limits.
-- [Replacement roadmap](V5_REPLACEMENT_ROADMAP.md): API and runtime scope.
-- [Workspace architecture plan](WORKSPACE_ARCHITECTURE_PLAN.md) and
-  [v5 execution plan](IRONBEAM_V5_EXECUTION_PLAN.md): design and exit criteria.
+The [full seven-case measurement](V5_PHASE0_BASELINE.md) and repeatable
+comparison command are in the baseline record. A fresh clean run is needed
+after in-flight changes before these results count as release evidence.
+
+## Contract decisions
+
+| Topic | Decision |
+| --- | --- |
+| Cross-runner parity | The same advertised graph and input must give the same values, grouping, event times, windows, typed failure category, and committed output. |
+| Execution differences | Bundle size, scheduling, and retry timing may differ. Unsupported operations fail validation before a source or sink opens. |
+| Ordered folds | Portable folds require an explicit order key. V4 encounter-order methods remain Direct compatibility behavior. See the [API similarity contract](V5_REPLACEMENT_ROADMAP.md#api-similarity-contract). |
+
+## Detail and history
+
+| Document | Use it for |
+| --- | --- |
+| [Evidence archive](V5_RELEASE_GATE_EVIDENCE.md) | Implementation history, fixtures, measurements, and known limits |
+| [Replacement roadmap](V5_REPLACEMENT_ROADMAP.md) | API and runtime scope |
+| [Workspace architecture plan](WORKSPACE_ARCHITECTURE_PLAN.md) | Package structure and design |
+| [V5 execution plan](IRONBEAM_V5_EXECUTION_PLAN.md) | Phase criteria and exit gates |
+
+Publishing the packages remains a separate decision after these gates close.
