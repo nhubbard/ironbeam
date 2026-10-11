@@ -5517,6 +5517,80 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             let [left, right]: [Vec<Envelope>; 2] = inputs
                 .try_into()
                 .map_err(|_| Error::execution(&key_owned, "direct", "join requires two inputs"))?;
+            // Join output order is unspecified; indexing the smaller side
+            // avoids retaining one position per row of a highly skewed input.
+            if right.len() < left.len() {
+                let mut index: HashMap<(K, Option<WindowInterval>), JoinPositions> = HashMap::new();
+                let mut right_rows = Vec::with_capacity(right.len());
+                for event in right {
+                    let (row_key, value) = *event.value.downcast::<(K, W)>().map_err(|_| {
+                        Error::execution(&key_owned, "direct", "right join type mismatch")
+                    })?;
+                    let position = right_rows.len();
+                    match index.entry((row_key.clone(), event.assigned_window)) {
+                        std::collections::hash_map::Entry::Occupied(mut entry) => {
+                            entry.get_mut().push(position);
+                        }
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            entry.insert(JoinPositions::One(position));
+                        }
+                    }
+                    right_rows.push((
+                        row_key,
+                        value,
+                        event.timestamp_ns,
+                        event.window,
+                        event.assigned_window,
+                        false,
+                    ));
+                }
+                let mut output = Vec::new();
+                for event in left {
+                    let Envelope {
+                        value,
+                        timestamp_ns,
+                        window,
+                        assigned_window,
+                    } = event;
+                    let (row_key, value) = *value.downcast::<(K, V)>().map_err(|_| {
+                        Error::execution(&key_owned, "direct", "left join type mismatch")
+                    })?;
+                    if let Some(matches) = index.get(&(row_key.clone(), assigned_window)) {
+                        for &position in matches.as_slice() {
+                            let (_, right_value, right_time, right_window, right_assigned, matched) =
+                                &mut right_rows[position];
+                            *matched = true;
+                            if let Some(pair) = emit(Some(value.clone()), Some(right_value.clone()))
+                            {
+                                output.push(Envelope {
+                                    value: Box::new((row_key.clone(), pair)),
+                                    timestamp_ns: *right_time,
+                                    window: right_window.clone(),
+                                    assigned_window: *right_assigned,
+                                });
+                            }
+                        }
+                    } else if let Some(pair) = emit(Some(value), None) {
+                        output.push(Envelope {
+                            value: Box::new((row_key, pair)),
+                            timestamp_ns,
+                            window,
+                            assigned_window,
+                        });
+                    }
+                }
+                for (row_key, value, timestamp_ns, window, assigned_window, matched) in right_rows {
+                    if !matched && let Some(pair) = emit(None, Some(value)) {
+                        output.push(Envelope {
+                            value: Box::new((row_key, pair)),
+                            timestamp_ns,
+                            window,
+                            assigned_window,
+                        });
+                    }
+                }
+                return Ok(output);
+            }
             let mut index: HashMap<(K, Option<WindowInterval>), JoinPositions> = HashMap::new();
             let mut left_rows = Vec::with_capacity(left.len());
             for event in left {

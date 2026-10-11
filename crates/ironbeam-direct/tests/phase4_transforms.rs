@@ -404,6 +404,90 @@ fn outer_joins_preserve_duplicates_and_missing_sides() {
 }
 
 #[test]
+fn smaller_right_join_index_preserves_outer_rows_and_event_time() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("skewed-left", vec![(1_i32, 1_i32), (1, 2), (2, 3), (2, 4)])
+        .unwrap()
+        .assign_timestamps_named("skewed-left-time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .fixed_windows("skewed-left-window", 100)
+        .unwrap();
+    let right = pipeline
+        .from_vec("skewed-right", vec![(1_i32, 10_i32), (3, 30)])
+        .unwrap()
+        .assign_timestamps_named("skewed-right-time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .fixed_windows("skewed-right-window", 100)
+        .unwrap();
+    let inner = left
+        .join_inner_named("skewed-inner", &right)
+        .unwrap()
+        .output("skewed-inner-out")
+        .unwrap();
+    let left_join = left
+        .join_left_named("skewed-left-join", &right)
+        .unwrap()
+        .output("skewed-left-out")
+        .unwrap();
+    let right_join = left
+        .join_right_named("skewed-right-join", &right)
+        .unwrap()
+        .output("skewed-right-out")
+        .unwrap();
+    let full = left.join_full_named("skewed-full", &right).unwrap();
+    let full_meta = full
+        .with_window_named("skewed-full-window")
+        .unwrap()
+        .reify_timestamps_named("skewed-full-time")
+        .unwrap()
+        .map_named("skewed-full-meta", |(time, (window, (key, pair)))| {
+            (time, window.start_ns, window.end_ns, key, pair.0, pair.1)
+        })
+        .unwrap()
+        .output("skewed-full-out")
+        .unwrap();
+    for parallelism in [1, 3] {
+        let config = JobConfig {
+            parallelism,
+            ..JobConfig::default()
+        };
+        let mut inner_rows = DirectRunner.run_collect(&inner, &config).unwrap().0;
+        inner_rows.sort_unstable();
+        assert_eq!(inner_rows, [(1, (1, 10)), (1, (2, 10))]);
+        let mut left_rows = DirectRunner.run_collect(&left_join, &config).unwrap().0;
+        left_rows.sort_unstable();
+        assert_eq!(
+            left_rows,
+            [
+                (1, (1, Some(10))),
+                (1, (2, Some(10))),
+                (2, (3, None)),
+                (2, (4, None)),
+            ]
+        );
+        let mut right_rows = DirectRunner.run_collect(&right_join, &config).unwrap().0;
+        right_rows.sort_unstable();
+        assert_eq!(
+            right_rows,
+            [(1, (Some(1), 10)), (1, (Some(2), 10)), (3, (None, 30))]
+        );
+        let mut full_rows = DirectRunner.run_collect(&full_meta, &config).unwrap().0;
+        full_rows.sort_unstable();
+        assert_eq!(
+            full_rows,
+            [
+                (3, 0, 100, 2, Some(3), None),
+                (4, 0, 100, 2, Some(4), None),
+                (10, 0, 100, 1, Some(1), Some(10)),
+                (10, 0, 100, 1, Some(2), Some(10)),
+                (30, 0, 100, 3, None, Some(30)),
+            ]
+        );
+    }
+}
+
+#[test]
 fn bounded_fixed_windows_scope_group_combine_and_join() {
     let pipeline = Pipeline::default();
     let left = pipeline

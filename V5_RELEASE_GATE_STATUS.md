@@ -76,8 +76,9 @@ seven cases. It is a measurement, **not a performance gate pass**:
 | JSONL round trip | 2.63× | 4.33 → 5.05 MiB |
 | Duplicate-key join | 2.18× | 5.53 → 31.66 MiB |
 
-After a small Direct allocation change, a targeted duplicate-key rerun peaked
-at **29.91 MiB** in v5. The [full seven-case measurement](V5_PHASE0_BASELINE.md)
+After a further smaller-side join index change, a paired duplicate-key rerun
+peaked at **23.06 MiB** in v5, down from **29.95 MiB** immediately before it,
+with matching counts and checksums. The [full seven-case measurement](V5_PHASE0_BASELINE.md)
 and repeatable comparison command are in the baseline record. A fresh full
 run is needed before performance can be judged against release limits.
 

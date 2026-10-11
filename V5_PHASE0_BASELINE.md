@@ -421,6 +421,16 @@ peaks remained 21.50 and 5.53 MiB. Output counts and checksums matched;
 Direct tests, formatting, and strict lint passed. This modest gain leaves
 the join memory gate open.
 
+On 2026-10-11, an adjacent eight-sample release comparison of the v5 binary
+before and after indexing the smaller join input measured the duplicate-key
+case at **29.95 → 23.06 MiB** peak RSS and **5.833 → 5.830 ms** median latency.
+The equal-size inner join remained on its existing path and measured
+**46.01 → 46.82 MiB** and **12.201 → 13.155 ms** in the same run. Counts and
+checksums matched. The new skewed-input Direct test checks all four join
+variants, unmatched rows, timestamps, and windows; the v4/v5 differential
+corpus still passes. This reduction does not yet establish an acceptable
+release memory limit against v4.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.
