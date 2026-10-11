@@ -55,6 +55,9 @@ out of the build. Existing `io-*` format flags also enable their matching v5
 crate for migration; both spellings now select the same isolated v5 format
 crate.
 
+`ironbeam-io-jsonl` also owns eager object JSONL read, write, and glob
+helpers when its `cloud` feature is enabled.
+
 Enable the root `coders` feature, or depend on `ironbeam-coder-postcard`
 directly, to use `impl_postcard_element!(Row, "my-app/row/v1")` for a Serde
 record. Increment the ID when its wire representation changes; the same type

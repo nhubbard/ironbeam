@@ -94,9 +94,11 @@ The full v4 public method inventory is in `V5_PHASE0_API_INVENTORY.md`;
 current implementation status and physical execution gaps are in
 `V5_HELPER_PARITY_TRACKER.md`. In particular, v4 `read_*_streaming` describes
 lazy **bounded** file reads, not an unbounded event stream. Provider-neutral
-cloud contracts and helpers live in `ironbeam-cloud-objects`, with optional
-provider clients in `ironbeam-cloud-object-store`; `cloud_jsonl_source` and
-`cloud_jsonl_sink` attach an object store to a bounded Direct graph. SQL,
+object contracts live in `ironbeam-cloud-objects`, service contracts in
+`ironbeam-cloud-service-api`, and generic helpers in `ironbeam-cloud-ops`,
+with optional provider clients in `ironbeam-cloud-object-store`.
+`ironbeam-io-jsonl` supplies eager object read/write/glob helpers and
+`cloud_jsonl_source`/`cloud_jsonl_sink` for bounded Direct graphs. SQL,
 MongoDB, TFRecord, and Arrow IPC have opt-in bounded Direct adapters.
 Unsupported remote or unbounded connector graphs fail capability validation
 before source or sink side effects. Published v4 remains a separate reference
@@ -115,7 +117,7 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 | `io-jsonl`, `io-csv`, `io-parquet`, `io-avro`, `io-xml` | JSONL is in the default v5 facade. CSV, Parquet, Avro, and XML each have an isolated crate and a `v5-io-*` feature. The old `io-*` flags remain aliases for the v5 crates; the v4 API is available from published Ironbeam 4.1.1. |
 | `io-msgpack`, `io-cbor`, `io-protobuf`, `io-tfrecord` | Each format has a separate v5 crate and `v5-io-*` feature. The old feature names alias to those crates. `tfrecord_examples_source` requires both TFRecord and Protobuf. |
 | `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC, SQL, and MongoDB each have a separate v5 crate and `v5-io-*` feature. Old names alias to the v5 crates. SQL and MongoDB sinks are deferred append operations with application-managed replay. |
-| provider-neutral cloud utilities | `ironbeam-cloud-objects` supplies URI routing and local objects; `ironbeam-cloud-object-store` opts into S3, GCS, and Azure Blob clients. `ironbeam-cloud-service-api` owns the non-object contracts, `ironbeam-cloud-fakes` supplies in-memory services, and `ironbeam-cloud-ops` owns generic retry, pagination, batching, and operation helpers. The old `ironbeam-cloud` paths reexport these packages and are not a root v5 runtime dependency. |
+| provider-neutral cloud utilities | `ironbeam-cloud-objects` supplies URI routing and local objects; `ironbeam-cloud-object-store` opts into S3, GCS, and Azure Blob clients. `ironbeam-cloud-service-api` owns non-object contracts, `ironbeam-cloud-fakes` supplies in-memory services, and `ironbeam-cloud-ops` owns generic operation helpers. Eager object JSONL read, write, and glob helpers now live in `ironbeam-io-jsonl` behind `cloud`, alongside graph sources and sinks. The old `ironbeam-cloud` paths remain in published Ironbeam 4.1.1 for migration; the legacy crate is absent from the v5 workspace. |
 | `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | `ironbeam-compression` owns codec streams. Enabling one of these flags exposes its pluggable codec API under `ironbeam::v5`; `v5-compression` exposes the codec registry without a built-in codec. Shared I/O and JSONL activate matching codecs without legacy cloud helpers. |
 | `parallel-io` | `ironbeam-io` parallel sinks and per-format `parallel-io` features on Avro, Parquet, and Arrow IPC | Pass an explicit positive shard count; v5 writes ordered fragments and assembles them before final atomic publish. XML, Avro, Parquet, and Arrow fragments are complete containers that are read and rewritten into the final container. Direct job parallelism still controls execution separately. |
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |

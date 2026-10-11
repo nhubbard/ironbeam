@@ -41,7 +41,12 @@ fn configuration_digest(label: &str, parts: &[&str]) -> String {
     output
 }
 
-fn write_cloud_jsonl_vec<T: Serialize, O: ObjectIO + ?Sized>(
+/// Write bounded JSONL values to a provider-neutral object store.
+/// The object suffix selects an enabled compression codec.
+///
+/// # Errors
+/// Returns an object, serialization, or compression error.
+pub fn write_cloud_jsonl_vec<T: Serialize, O: ObjectIO + ?Sized>(
     storage: &O,
     bucket: &str,
     object: &str,
@@ -57,6 +62,43 @@ fn write_cloud_jsonl_vec<T: Serialize, O: ObjectIO + ?Sized>(
     .map_err(|error| CloudIOError::new(CloudErrorKind::InvalidInput, error.to_string()))?;
     storage.put_object(bucket, object, &bytes)?;
     Ok(values.len())
+}
+
+/// Read a bounded JSONL object into typed values.
+/// Blank lines are ignored, and the object suffix selects an enabled decoder.
+///
+/// # Errors
+/// Returns an object, decompression, or line-specific decoding error.
+pub fn read_cloud_jsonl_vec<T: DeserializeOwned, O: ObjectIO + ?Sized>(
+    storage: &O,
+    bucket: &str,
+    object: &str,
+) -> CloudResult<Vec<T>> {
+    let bytes = storage.get_object(bucket, object)?;
+    let reader = ironbeam_compression::auto_detect_reader(std::io::Cursor::new(bytes), object)
+        .map_err(|error| CloudIOError::new(CloudErrorKind::InvalidInput, error.to_string()))?;
+    std::io::BufReader::new(reader)
+        .lines()
+        .enumerate()
+        .filter_map(|(line, result)| match result {
+            Ok(ref text) if text.trim().is_empty() => None,
+            other => Some((line, other)),
+        })
+        .map(|(line, result)| {
+            let text = result.map_err(|error| {
+                CloudIOError::new(
+                    CloudErrorKind::InvalidInput,
+                    format!("{bucket}/{object} line {}: {error}", line + 1),
+                )
+            })?;
+            serde_json::from_str(&text).map_err(|error| {
+                CloudIOError::new(
+                    CloudErrorKind::InvalidInput,
+                    format!("{bucket}/{object} line {}: {error}", line + 1),
+                )
+            })
+        })
+        .collect()
 }
 
 fn glob_matches(pattern: &str, key: &str) -> bool {
@@ -98,7 +140,12 @@ fn glob_matches(pattern: &str, key: &str) -> bool {
     current[key.len()]
 }
 
-fn expand_cloud_glob_required<O: ObjectIO + ?Sized>(
+/// Return sorted object keys matching the v4 compatible `*`, `**`, and `?` glob alphabet.
+/// An unmatched pattern returns an empty vector.
+///
+/// # Errors
+/// Returns the provider's listing error.
+pub fn expand_cloud_glob<O: ObjectIO + ?Sized>(
     storage: &O,
     bucket: &str,
     pattern: &str,
@@ -113,6 +160,19 @@ fn expand_cloud_glob_required<O: ObjectIO + ?Sized>(
         .filter_map(|object| glob_matches(pattern, &object.key).then_some(object.key))
         .collect::<Vec<_>>();
     keys.sort();
+    Ok(keys)
+}
+
+/// Expand a cloud object glob and require at least one match.
+///
+/// # Errors
+/// Returns a provider listing error or `NotFound` when no object matches.
+pub fn expand_cloud_glob_required<O: ObjectIO + ?Sized>(
+    storage: &O,
+    bucket: &str,
+    pattern: &str,
+) -> CloudResult<Vec<String>> {
+    let keys = expand_cloud_glob(storage, bucket, pattern)?;
     if keys.is_empty() {
         return Err(CloudIOError::new(
             CloudErrorKind::NotFound,
@@ -120,6 +180,23 @@ fn expand_cloud_glob_required<O: ObjectIO + ?Sized>(
         ));
     }
     Ok(keys)
+}
+
+/// Read all matching JSONL objects in sorted object-key order.
+/// An unmatched pattern returns an empty vector.
+///
+/// # Errors
+/// Returns a listing, object, decompression, or line-specific decoding error.
+pub fn read_cloud_jsonl_glob<T: DeserializeOwned, O: ObjectIO + ?Sized>(
+    storage: &O,
+    bucket: &str,
+    pattern: &str,
+) -> CloudResult<Vec<T>> {
+    let mut rows = Vec::new();
+    for object in expand_cloud_glob(storage, bucket, pattern)? {
+        rows.extend(read_cloud_jsonl_vec(storage, bucket, &object)?);
+    }
+    Ok(rows)
 }
 
 /// Bind an object version to a bounded source. The object is read at graph

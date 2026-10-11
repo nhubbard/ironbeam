@@ -4,6 +4,8 @@
 
 use ironbeam::v5::{Pipeline, cogroup_by_key_named, prelude::*};
 
+// Keep the three arities together so the example can be read top to bottom.
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let p = Pipeline::default();
     let users = p.from_vec(

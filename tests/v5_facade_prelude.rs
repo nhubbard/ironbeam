@@ -18,7 +18,15 @@ fn facade_prelude_runs_v4_shaped_helper_chain_without_compat() {
 #[cfg(feature = "cloud")]
 #[test]
 fn facade_cloud_module_routes_provider_neutral_objects() {
-    use ironbeam::v5::cloud::{LocalObjectIO, ObjectStores};
+    use ironbeam::v5::{
+        cloud::{LocalObjectIO, ObjectStores},
+        expand_cloud_glob, read_cloud_jsonl_vec, write_cloud_jsonl_vec,
+    };
+
+    #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+    struct Row {
+        id: u32,
+    }
 
     let directory = tempfile::tempdir().unwrap();
     let mut stores = ObjectStores::new();
@@ -31,6 +39,16 @@ fn facade_cloud_module_routes_provider_neutral_objects() {
     assert_eq!(
         stores.read("local://bucket/rows.jsonl").unwrap(),
         b"{\"id\":1}\n"
+    );
+    let provider = stores.provider("local").unwrap();
+    assert_eq!(
+        read_cloud_jsonl_vec::<Row, _>(&*provider, "bucket", "rows.jsonl").unwrap(),
+        [Row { id: 1 }]
+    );
+    write_cloud_jsonl_vec(&*provider, "bucket", "other.jsonl", &[Row { id: 2 }]).unwrap();
+    assert_eq!(
+        expand_cloud_glob(&*provider, "bucket", "*.jsonl").unwrap(),
+        ["other.jsonl", "rows.jsonl"]
     );
 }
 

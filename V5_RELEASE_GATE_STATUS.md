@@ -11,7 +11,7 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 
 | Area | Where it stands | Next proof |
 | --- | --- | --- |
-| Workspace | V5-only root source, including with no default features; 29 local packages verify | Finish API and legacy package audit |
+| Workspace | V5-only root source, including with no default features; 28 local packages verify after legacy cloud retirement | Finish public API audit |
 | Direct | V4 reference corpus and v5 helper tests pass | Close public API and edge-case parity |
 | Portable | 18 live local Prism tests pass | Expand shared Direct/Prism corpus |
 | Streaming | A split and accepted batches survive separate worker process restarts in the Fn Data fixture; the production reader also resumes through join and co-group | Prove live Prism worker restart and output recovery |
@@ -41,21 +41,25 @@ below is complete.
 
 | Gate | Done when |
 | --- | --- |
-| ☐ Cloud package cleanup | Service contracts, in-memory fakes, and operation helpers have separate crates; finish legacy reader and compatibility ownership review. |
 | ☐ Coverage and verification | Uncovered contract paths are reviewed; clean tests, coverage, lint, docs, and package checks pass. |
 | ☐ Performance | Acceptable latency and memory limits are set and pass on the paired v4/v5 corpus. |
 | ☐ Versioning | The packages receive their intended release versions after the other gates pass. |
 
-**Completed gate:** formatting passes in both workspaces, followed by their
-workspace tests and the live Prism suite.
+## Completed gates
+
+| Gate | Evidence |
+| --- | --- |
+| Formatting and current suites | Both workspaces pass formatting, workspace tests, and the live Prism suite from their last full runs. |
+| Cloud package cleanup | Contracts, fakes, operations, objects, provider clients, and JSONL readers have separate owners. The unused legacy cloud crate is removed; all 28 packages verify locally. |
 
 ## Latest measured results
 
 | Check | Result |
 | --- | --- |
 | Root workspace | Tests and doctests passed after the CoGroupByKey event-time fix. |
-| Local release script | Dependency and feature checks, tests, docs, and verification of 29 packages passed with Mr Boxington after the cloud operation extraction. |
+| Local release script | Dependency and feature checks, tests, docs, and verification of 28 packages passed with Mr Boxington after legacy cloud retirement. |
 | Cloud operation coverage | New package: **165/240 source locations** and **30/38 branches**; CI ratchet added. Uncovered utility paths remain in the quality review. |
+| JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** after eager cloud helper migration. |
 | Local Prism | 18 live tests passed. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch; the full harness suite and warning-free lint pass. |
 | Separate Dataflow workspace | Tests and doctests passed; changed proof package passed warning-free lint. |

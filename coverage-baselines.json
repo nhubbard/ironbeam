@@ -79,12 +79,12 @@
   "ironbeam-io-jsonl": {
     "source": "crates/ironbeam-io-jsonl/src",
     "lines": {
-      "covered": 177,
-      "count": 190
+      "covered": 407,
+      "count": 435
     },
     "branches": {
-      "covered": 12,
-      "count": 14
+      "covered": 38,
+      "count": 40
     }
   },
   "ironbeam-io-protobuf": {

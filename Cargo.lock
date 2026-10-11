@@ -2263,26 +2263,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ironbeam-cloud"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bzip2",
- "flate2",
- "ironbeam-cloud-fakes",
- "ironbeam-cloud-objects",
- "ironbeam-cloud-ops",
- "ironbeam-cloud-service-api",
- "ironbeam-compression",
- "regex",
- "serde",
- "serde_json",
- "tempfile",
- "xz2",
- "zstd",
-]
-
-[[package]]
 name = "ironbeam-cloud-fakes"
 version = "0.1.0"
 dependencies = [
@@ -2468,6 +2448,7 @@ dependencies = [
 name = "ironbeam-io-jsonl"
 version = "0.1.0"
 dependencies = [
+ "ironbeam-cloud-fakes",
  "ironbeam-cloud-objects",
  "ironbeam-compression",
  "ironbeam-core",

@@ -27,4 +27,5 @@ sha2 = { version = "0.11", optional = true }
 
 [dev-dependencies]
 ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+ironbeam-cloud-fakes = { version = "0.1.0", path = "../ironbeam-cloud-fakes" }
 tempfile = "3"

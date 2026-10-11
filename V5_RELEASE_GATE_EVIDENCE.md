@@ -42,7 +42,7 @@ features enable the default extras while the root package is still versioned
 extras. No-default facade tests execute a core
 pipeline, a helper chain, and JSONL round trip; a CSV-only dependency check
 has no cloud package. The full local package script passed workspace tests,
-isolated feature checks, documentation, and verification of all 29 packages.
+isolated feature checks, documentation, and verification of all 28 packages.
 Publication remains staged.
 
 </details>
@@ -52,8 +52,8 @@ Publication remains staged.
 
 The non-object cloud service traits and value types now live in
 `ironbeam-cloud-service-api`, depending only on `ironbeam-cloud-objects`.
-The existing `ironbeam-cloud::traits` path reexports them, so its fake service
-implementations and callers continue to compile. Isolated API coverage is
+During migration, `ironbeam-cloud::traits` reexported them, so fake service
+implementations and callers continued to compile. Isolated API coverage is
 61/61 source locations and 2/2 branches; its tests, the compatibility cloud
 tests and doctests, strict lint, and the local package gate pass. The
 operation helpers were subsequently extracted as described below.
@@ -64,8 +64,8 @@ operation helpers were subsequently extracted as described below.
 <summary>Provider-neutral in-memory service implementations</summary>
 
 The in-memory fake services now live in `ironbeam-cloud-fakes`, depending on
-the service API crate. `ironbeam-cloud::fake` and root reexports preserve the
-existing paths. Credential, warehouse, and object storage behavior tests pass
+the service API crate. The former `ironbeam-cloud::fake` path reexported them
+until the legacy package was retired. Credential, warehouse, and object storage behavior tests pass
 inside the new crate, and compatibility tests and doctests still pass.
 
 </details>
@@ -75,9 +75,9 @@ inside the new crate, and compatibility tests and doctests still pass.
 
 `ironbeam-cloud-ops` now owns retry, timeout, batching, pagination, resource
 validation, and high-level operation helpers. It depends on the service API
-at runtime and uses fakes only for doctests. The old `ironbeam-cloud::helpers`
-and `ironbeam-cloud::utils` paths reexport the same operations; test credential
-constructors stay in the compatibility wrapper. Nine behavior tests cover
+at runtime and uses fakes only for doctests. During extraction, the old
+`ironbeam-cloud::helpers` and `ironbeam-cloud::utils` paths reexported the
+same operations; that legacy crate has since been retired. Nine behavior tests cover
 transient and permanent failures, ordered batches, page progression, metadata,
 timeout classification, resources, connection reuse, actual operation overlap,
 join-all failure handling, and panic classification. The old `run_parallel`
@@ -88,6 +88,23 @@ return typed input errors before invoking a provider; an empty page with a
 continuation no longer loses later values. Source coverage is 165/240 locations
 and 30/38 branches, now included in CI's coverage ratchet. Remaining paths need
 quality review.
+
+</details>
+
+<details>
+<summary>Legacy cloud package retirement and eager JSONL parity</summary>
+
+The old `ironbeam-cloud` package had only reexports and eager cloud JSONL
+readers left. `ironbeam-io-jsonl` now publicly owns bounded object JSONL
+read/write and sorted `*`, `**`, and `?` glob helpers under its `cloud` feature.
+The root v5 facade reexports them when `cloud` is enabled. Tests cover sorted
+round trips, empty and required glob behavior, line-specific decode failures,
+gzip round trips, and a typed error when gzip is disabled before an object is
+written. The legacy package and its Markdown README were removed from the
+workspace; the 28-package local gate passed afterward. The JSONL coverage
+ratchet is 407/435 source locations and 38/40
+branches with all features enabled. Published Ironbeam 4.1.1 remains the v4
+API reference during migration.
 
 </details>
 
@@ -1232,13 +1249,12 @@ its all-feature dependency tree also excludes the legacy cloud package.
  reached `DONE` again through a separate v5 worker after this cutover.
  The root package's own v4 modules and compatibility feature have since been
  removed; the remaining behavior and API replacement gates are still open.
- `ironbeam-cloud` still contains legacy traits, fake services, readers,
- and helpers. Its compression and object APIs now reexport separate crates;
- v5 JSONL and shared I/O no longer depend on it. Remove
- the remaining legacy package from the v5 runtime and root feature graph
- during the v4 cutover. Its earlier isolated source corpus measured only
- 37/1,695 locations after the object extraction, so reexports alone do not
- make the legacy package release-ready.
+ At that point `ironbeam-cloud` still contained legacy traits, fake services,
+ readers, and helpers. Its compression and object APIs reexported separate
+ crates; v5 JSONL and shared I/O no longer depended on it. Its earlier isolated
+ source corpus measured only 37/1,695 locations after the object extraction.
+ The package was subsequently retired after its unique eager JSONL behavior
+ moved into `ironbeam-io-jsonl`.
 
 </details>
 
