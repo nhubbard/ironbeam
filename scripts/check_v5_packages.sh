@@ -37,17 +37,18 @@ if cargo tree -p ironbeam-io-jsonl --all-features --edges normal | grep -E 'iron
 fi
 
 cargo test --workspace
-cargo test -p ironbeam --features v5-preview --test v5_behavior_corpus --test v5_direct_differential --test v5_facade_preview --test v5_facade_prelude --test v5_tfrecord_examples
+cargo test -p ironbeam --features legacy-v4,v5-preview --test v5_behavior_corpus --test v5_direct_differential --test v5_facade_preview --test v5_facade_prelude --test v5_tfrecord_examples
 cargo test -p ironbeam --no-default-features --features v5-preview --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-approx --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-csv --test v5_facade_prelude
+cargo test -p ironbeam --no-default-features --features io-csv --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-xml --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-msgpack --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-cbor --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-protobuf --test v5_facade_prelude
 cargo test -p ironbeam --no-default-features --features v5-io-tfrecord --test v5_facade_prelude
-cargo test -p ironbeam --features v5-io-tfrecord,io-tfrecord,io-protobuf --test v5_tfrecord_examples
+cargo test -p ironbeam --features legacy-v4,v5-io-tfrecord,io-tfrecord,io-protobuf --test v5_tfrecord_examples
 cargo test -p ironbeam --no-default-features --features v5-preview,v5-io-arrow --test v5_facade_prelude
 cargo test -p ironbeam-io --all-features
 cargo test -p ironbeam-compression --all-features

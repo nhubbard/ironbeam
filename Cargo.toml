@@ -13,7 +13,7 @@ description = "A batch processing clone of Apache Beam in Rust."
 repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
-default = ["legacy-v4", "io-jsonl", "io-csv", "io-parquet", "io-avro", "io-xml", "parallel-io", "compression-gzip", "compression-zstd", "compression-bzip2", "compression-xz", "metrics", "checkpointing", "spilling", "coders"]
+default = ["v5-preview"]
 legacy-v4 = ["dep:ironbeam-cloud", "dep:anyhow", "dep:serde", "dep:serde_json", "dep:rayon", "dep:num_cpus", "dep:ordered-float", "dep:glob", "dep:regex", "dep:paste", "dep:hyperloglogplus", "dep:tempfile"]
 v5-preview = ["dep:ironbeam-core", "dep:ironbeam-direct", "dep:ironbeam-transforms", "dep:ironbeam-io", "ironbeam-io/cloud", "dep:ironbeam-io-jsonl", "ironbeam-io-jsonl/cloud"]
 v5-regex = ["v5-preview", "dep:ironbeam-transform-regex"]
@@ -31,24 +31,24 @@ v5-io-parquet = ["v5-preview", "dep:ironbeam-io-parquet"]
 v5-io-arrow = ["v5-preview", "dep:ironbeam-io-arrow"]
 
 # IO backends
-io-jsonl = []
-io-csv = ["dep:csv"]
-io-parquet = ["dep:parquet", "dep:arrow", "dep:serde_arrow"]
-io-avro = ["dep:apache-avro"]
-io-xml = ["dep:quick-xml"]
+io-jsonl = ["v5-preview"]
+io-csv = ["v5-io-csv", "dep:csv"]
+io-parquet = ["v5-io-parquet", "dep:parquet", "dep:arrow", "dep:serde_arrow"]
+io-avro = ["v5-io-avro", "dep:apache-avro"]
+io-xml = ["v5-io-xml", "dep:quick-xml"]
 
 # Additional I/O formats (Tier 5).
 #
 # Deliberate exception to the usual "everything on by default" tenant: these
 # less-common connectors are intentionally absent from `default`. Each pulls in
 # extra dependencies that would bloat the common build, so users opt in.
-io-msgpack = ["dep:rmp-serde"]
-io-cbor = ["dep:ciborium"]
-io-protobuf = ["dep:prost"]
-io-tfrecord = ["dep:crc32c"]
-io-arrow = ["dep:arrow", "dep:serde_arrow"]
-io-sql = ["dep:sqlx", "dep:tokio"]
-io-mongodb = ["dep:mongodb", "dep:bson", "dep:tokio"]
+io-msgpack = ["v5-io-msgpack", "dep:rmp-serde"]
+io-cbor = ["v5-io-cbor", "dep:ciborium"]
+io-protobuf = ["v5-io-protobuf", "dep:prost"]
+io-tfrecord = ["v5-io-tfrecord", "dep:crc32c"]
+io-arrow = ["v5-io-arrow", "dep:arrow", "dep:serde_arrow"]
+io-sql = ["v5-io-sql", "dep:sqlx", "dep:tokio"]
+io-mongodb = ["v5-io-mongodb", "dep:mongodb", "dep:bson", "dep:tokio"]
 
 # Compression codecs (pluggable)
 compression-gzip = ["dep:flate2", "ironbeam-cloud?/compression-gzip", "ironbeam-io?/compression-gzip", "ironbeam-io-jsonl?/compression-gzip"]
@@ -157,3 +157,275 @@ unused_imports = "allow"
 
 [lints.clippy]
 large_futures = "allow"
+
+[[example]]
+name = "v4_benchmark_corpus"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "v5_benchmark_corpus"
+required-features = ["v5-preview"]
+
+# Legacy examples remain opt-in until their v5 replacements are complete.
+
+[[example]]
+name = "advanced_joins"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "checkpoint_recovery_demo"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "checkpointing_demo"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "cloud_io_demo"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "co_gbk"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "combiners_showcase"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "compressed_io"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "data_quality_validation"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "etl_pipeline"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "explain_pipeline"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "glob_patterns"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "metrics_example"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "mongodb_pipeline"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "multi_output"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "sql_pipeline"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "testing_pipeline"
+required-features = ["legacy-v4"]
+
+[[example]]
+name = "windowing_aggregations"
+required-features = ["legacy-v4"]
+
+# Skip v4 integration test binaries in the v5-default build.
+
+[[test]]
+name = "approx_count_distinct"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "batch_elements"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "batch_map_values"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "bloom_filter"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "checkpoint"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "co_gbk"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "core"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "count_per_element"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "dead_letter"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "explain"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "extensions"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "feature_gating"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "filter_enhanced"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "group_into_batches"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "keys_values"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "kv_swap"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "lib"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "log_elements"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "macros"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "mean"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "mega_integration"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "metrics"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "multi_output"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "named_operations"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "node"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "node_id"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "ordering"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "par_write"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "pipeline"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "planner"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "runner"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "sample"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "serde_coders"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "spill"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "spill_integration"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "tee"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "test_flatten"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "testing_utilities"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "to_dict"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "to_display_string"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "to_hashmap"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "utils"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "v5_behavior_corpus"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "v5_direct_differential"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "v5_tfrecord_examples"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "validation"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "wait_on"
+required-features = ["legacy-v4"]
+
+[[test]]
+name = "with_keys"
+required-features = ["legacy-v4"]

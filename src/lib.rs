@@ -4,7 +4,7 @@
 #![cfg_attr(all(not(feature = "legacy-v4"), feature = "v5-preview"), doc = include_str!("v5_docs.md"))]
 #![cfg_attr(all(not(feature = "legacy-v4"), not(feature = "v5-preview")), doc = "Enable `v5-preview` to build the isolated Ironbeam 5 facade.")]
 
-/// Experimental Ironbeam 5 graph and direct runner.
+/// Ironbeam 5 graph, transforms, I/O, and Direct runner.
 #[cfg(feature = "v5-preview")]
 pub mod v5 {
     /// Imports for v5 convenience transforms and Direct execution terminals.
@@ -61,6 +61,9 @@ pub mod v5 {
     pub use ironbeam_io_cbor::*;
     pub use ironbeam_transforms::*;
 }
+
+#[cfg(all(feature = "v5-preview", not(feature = "legacy-v4")))]
+pub use v5::*;
 
 #[cfg(feature = "legacy-v4")]
 include!("legacy_exports.rs");
