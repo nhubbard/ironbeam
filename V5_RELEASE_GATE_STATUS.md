@@ -28,6 +28,16 @@ staged locally.
   long-lived Prism instance stalled two Arrow jobs beyond the fixture's
   ten-second deadline; a restart cleared the stall. Its cause is unverified,
   so repeatability across a long-lived service remains an open proof gate.
+- The production unbounded-source fixture now also writes user-defined
+  Protobuf rows through at least two finalized Prism bundles and reopens the
+  published native file with the expected values. A repeated live suite
+  exposed occasional lost input in the ten-source co-group: Fn Data arrival
+  could race reader registration between separate pending and reader locks.
+  The worker now routes both under one lock. Its concurrent regression and
+  all-feature harness suite pass; the four-test live Prism suite passed ten
+  consecutive times on one service, followed by the Arrow IPC proof. This
+  closes that reproduced race, while broader worker restart and portable
+  operation parity remain open.
 - The separate Dataflow worker now validates connected branches and
   fixed-window assignment after a production unbounded SDF source. A live
   local Prism `Run` reached `DONE` across two residual bundles; three idempotent
