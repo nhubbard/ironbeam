@@ -632,13 +632,19 @@ fn execute<T: Element>(
         Ordering::Relaxed,
     );
     for route in &plan.routes {
+        let typed_transforms: Option<Vec<_>> = route
+            .operations
+            .iter()
+            .map(|key| registry.typed_value_transform::<T>(key))
+            .collect();
         let single_transforms: Option<Vec<_>> = route
             .operations
             .iter()
             .map(|key| registry.single_transform(key))
             .collect();
         let mut source_offset = recovered_offset;
-        if route.operations.is_empty()
+        if (config.parallelism == 1 || route.operations.is_empty())
+            && let Some(typed_transforms) = typed_transforms
             && let Some(mut source) = open_typed_source_safe::<T>(registry, &route.source_key)?
         {
             for _ in 0..source_offset {
@@ -666,10 +672,41 @@ fn execute<T: Element>(
                 let count = u64::try_from(batch_len).unwrap_or(u64::MAX);
                 handle.metrics.source_elements.fetch_add(count, Ordering::Relaxed);
                 handle.metrics.peak_batch_elements.fetch_max(count, Ordering::Relaxed);
-                for value in batch {
-                    store.push(value)?;
+                let mut output_count = 0_u64;
+                let mut panic_node = route.source_key.as_str();
+                let result = pool.install(|| {
+                    catch_unwind(AssertUnwindSafe(|| -> Result<(), Error> {
+                        for value in batch {
+                            let mut current = Some(value);
+                            for (key, transform) in route.operations.iter().zip(&typed_transforms) {
+                                let Some(value) = current else { break; };
+                                if config.cancellation.load(Ordering::Acquire) {
+                                    return Err(cancelled());
+                                }
+                                panic_node = key;
+                                current = transform.apply(value);
+                                if current.is_none() {
+                                    handle.metrics.filtered_elements.fetch_add(1, Ordering::Relaxed);
+                                }
+                            }
+                            if let Some(value) = current {
+                                panic_node = output_key;
+                                store.push(value)?;
+                                output_count += 1;
+                            }
+                        }
+                        Ok(())
+                    }))
+                });
+                match result {
+                    Ok(result) => result?,
+                    Err(_) => return Err(Error::execution(
+                        panic_node,
+                        "direct",
+                        if panic_node == output_key { "output collection panicked" } else { "user transform panicked" },
+                    )),
                 }
-                let total = handle.metrics.output_elements.fetch_add(count, Ordering::Relaxed) + count;
+                let total = handle.metrics.output_elements.fetch_add(output_count, Ordering::Relaxed) + output_count;
                 handle.processed.store(total, Ordering::Relaxed);
                 source_offset = source_offset
                     .checked_add(batch_len)

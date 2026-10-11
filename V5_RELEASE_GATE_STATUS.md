@@ -118,7 +118,14 @@ staged locally.
   each source batch, while retaining the failing transform key, brought a
   warmed 100,000-row map/filter sample from about 4.0 ms to 3.2 ms with
   matching output counts and checksums. The v4 map/filter implementation is
-  still substantially faster, so the performance gate remains open. The
+  still substantially faster, so the performance gate remains open. Direct
+  now keeps same-type sequential map/filter routes typed from source through
+  output. A five-run 100,000-row release sample moved the map/filter run
+  median from roughly 3.2 ms to 0.63 ms with the same 50,000 output rows and
+  checksum. Type-changing, metadata-bearing, and parallel routes keep the
+  envelope path; core, Direct, root workspace, and Dataflow workspace tests
+  pass. The v4 map/filter path remains faster in local measurements, and the
+  performance gate stays open. The
   v5 Direct
   collection trait now accepts `PCollection` as well as `Output`; it builds
   an isolated terminal snapshot, so repeated v4-shaped `collect_seq` and `collect_par`

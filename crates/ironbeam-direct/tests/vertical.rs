@@ -39,6 +39,54 @@ fn small_graph_runs_with_job_owned_settings() {
 }
 
 #[test]
+fn typed_map_filter_route_preserves_values_and_metrics() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .from_vec("source", (0..17).collect::<Vec<i32>>())
+        .unwrap();
+    let mapped = source.map_named("double", |value| value * 2).unwrap();
+    let filtered = mapped
+        .filter_named("multiple-of-four", |value| value % 4 == 0)
+        .unwrap();
+    let output = filtered.output("result").unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.typed_value_transform::<i32>("double").is_some());
+    assert!(
+        registry
+            .typed_value_transform::<i32>("multiple-of-four")
+            .is_some()
+    );
+    assert!(registry.typed_value_transform::<String>("double").is_none());
+    for parallelism in [1, 3] {
+        let (values, job) = DirectRunner
+            .run_collect(
+                &output,
+                &JobConfig {
+                    parallelism,
+                    buffer_budget_elements: 5,
+                    ..JobConfig::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(values, vec![0, 4, 8, 12, 16, 20, 24, 28, 32]);
+        assert_eq!(job.metrics().source_elements, 17);
+        assert_eq!(job.metrics().filtered_elements, 8);
+        assert_eq!(job.metrics().output_elements, 9);
+        assert_eq!(job.metrics().batches, 4);
+    }
+    let labels = filtered
+        .map_named("label", |value| value.to_string())
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.typed_value_transform::<i32>("label").is_none());
+    assert!(registry.typed_value_transform::<String>("label").is_none());
+    assert_eq!(
+        labels.collect_seq().unwrap(),
+        vec!["0", "4", "8", "12", "16", "20", "24", "28", "32"]
+    );
+}
+
+#[test]
 fn typed_source_only_route_preserves_results_and_metrics() {
     let pipeline = Pipeline::default();
     let output = pipeline

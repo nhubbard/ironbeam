@@ -1408,6 +1408,27 @@ type TypedSourceFactory<T> =
     Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
 type SingleTransform = Arc<dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync>;
 type MultiTransform = Arc<dyn Fn(Envelope) -> Result<Vec<Envelope>, Error> + Send + Sync>;
+type TypedMap<T, U> = Arc<dyn Fn(T) -> U + Send + Sync>;
+type TypedFilter<T> = Arc<dyn Fn(&T) -> bool + Send + Sync>;
+#[derive(Clone)]
+enum TypedTransformRegistration {
+    Map(Arc<dyn Any + Send + Sync>),
+    Filter(Arc<dyn Any + Send + Sync>),
+}
+
+/// A same-type value operation for a Direct route with no envelope metadata changes.
+pub enum TypedValueTransform<'a, T> {
+    Map(&'a (dyn Fn(T) -> T + Send + Sync)),
+    Filter(&'a (dyn Fn(&T) -> bool + Send + Sync)),
+}
+impl<T> TypedValueTransform<'_, T> {
+    pub fn apply(&self, value: T) -> Option<T> {
+        match self {
+            Self::Map(map) => Some(map(value)),
+            Self::Filter(predicate) => predicate(&value).then_some(value),
+        }
+    }
+}
 #[derive(Clone)]
 enum Transform {
     Single(SingleTransform),
@@ -1619,6 +1640,7 @@ struct SourceRegistration {
 pub struct Registry {
     sources: BTreeMap<String, SourceRegistration>,
     transforms: BTreeMap<String, Transform>,
+    typed_transforms: BTreeMap<String, TypedTransformRegistration>,
     aggregates: BTreeMap<String, Aggregate>,
     folds: BTreeMap<String, FoldFactory>,
     sinks: BTreeMap<String, SinkRegistration>,
@@ -1933,6 +1955,18 @@ impl Registry {
             Transform::Multi(_) => None,
         }
     }
+    /// Return a typed same-type map or filter when a route can avoid envelopes.
+    #[must_use]
+    pub fn typed_value_transform<T: Element>(&self, key: &str) -> Option<TypedValueTransform<'_, T>> {
+        match self.typed_transforms.get(key)? {
+            TypedTransformRegistration::Map(map) => map
+                .downcast_ref::<TypedMap<T, T>>()
+                .map(|map| TypedValueTransform::Map(map.as_ref())),
+            TypedTransformRegistration::Filter(predicate) => predicate
+                .downcast_ref::<TypedFilter<T>>()
+                .map(|predicate| TypedValueTransform::Filter(predicate.as_ref())),
+        }
+    }
     pub fn apply_aggregate(
         &self,
         key: &str,
@@ -2137,6 +2171,19 @@ impl Pipeline {
         inner.registry.folds.insert(node.key.clone(), factory);
         inner.graph.nodes.push(node);
         drop(inner);
+        Ok(())
+    }
+    fn add_typed_transform(
+        &self,
+        key: &str,
+        transform: TypedTransformRegistration,
+    ) -> Result<(), Error> {
+        self.inner
+            .lock()
+            .map_err(|_| Error::graph(key, "builder lock poisoned"))?
+            .registry
+            .typed_transforms
+            .insert(key.to_owned(), transform);
         Ok(())
     }
     pub fn from_vec<T: Element + Clone + Sync>(
@@ -2474,15 +2521,20 @@ impl<T: Element> PCollection<T> {
         f: impl Fn(T) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
         let key_owned = key.to_owned();
+        let f = Arc::new(f);
+        let envelope_f = Arc::clone(&f);
+        let typed_f: TypedMap<T, U> = f;
         let transform = Transform::Single(Arc::new(move |mut e| {
             let value = e
                 .value
                 .downcast::<T>()
                 .map_err(|_| Error::execution(&key_owned, "direct", "input type mismatch"))?;
-            e.value = Box::new(f(*value));
+            e.value = Box::new(envelope_f(*value));
             Ok(Some(e))
         }));
-        self.next(key, Operation::Map, Some(transform), None)
+        let output = self.next(key, Operation::Map, Some(transform), None)?;
+        self.pipeline.add_typed_transform(key, TypedTransformRegistration::Map(Arc::new(typed_f)))?;
+        Ok(output)
     }
     pub fn filter_named(
         &self,
@@ -2490,14 +2542,19 @@ impl<T: Element> PCollection<T> {
         f: impl Fn(&T) -> bool + Send + Sync + 'static,
     ) -> Result<Self, Error> {
         let key_owned = key.to_owned();
+        let f = Arc::new(f);
+        let envelope_f = Arc::clone(&f);
+        let typed_f: TypedFilter<T> = f;
         let transform = Transform::Single(Arc::new(move |e| {
             let value = e
                 .value
                 .downcast_ref::<T>()
                 .ok_or_else(|| Error::execution(&key_owned, "direct", "input type mismatch"))?;
-            Ok(if f(value) { Some(e) } else { None })
+            Ok(if envelope_f(value) { Some(e) } else { None })
         }));
-        self.next(key, Operation::Filter, Some(transform), None)
+        let output = self.next(key, Operation::Filter, Some(transform), None)?;
+        self.pipeline.add_typed_transform(key, TypedTransformRegistration::Filter(Arc::new(typed_f)))?;
+        Ok(output)
     }
     pub fn flat_map_named<U: Element>(
         &self,
