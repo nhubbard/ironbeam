@@ -14,11 +14,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let p = Pipeline::default();
     let start = Instant::now();
-    let mapped = p.from_vec("map-input", (0..count).collect())?
+    let input = p.from_vec("map-input", (0..count).collect())?;
+    let source_ready = Instant::now();
+    let output = input
         .map_named("map-triple", |n| n.wrapping_mul(3))?
         .filter_named("map-even", |n| n % 2 == 0)?
-        .output("map-result")?
-        .collect_seq()?;
+        .output("map-result")?;
+    let graph_ready = Instant::now();
+    let mapped = output.collect_seq()?;
+    let run_ready = Instant::now();
+    if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
+        eprintln!("map_filter_phases_ns,source={},graph={},run={}",
+            source_ready.duration_since(start).as_nanos(),
+            graph_ready.duration_since(source_ready).as_nanos(),
+            run_ready.duration_since(graph_ready).as_nanos());
+    }
     println!("map_filter,{count},{},{},{}", start.elapsed().as_nanos(),
         mapped.len(), mapped.iter().map(|&n| u64::from(n)).sum::<u64>());
 

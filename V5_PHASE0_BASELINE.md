@@ -73,6 +73,11 @@ at 100,000 rows measured v5 medians (ms) of map/filter 5.565, GroupByKey
 12.377, inner join 32.654, and JSONL 15.992. Counts and checksums matched
 the earlier corpus. The map/filter median is still about 12× the previously
 measured v4 median of 0.456 ms, so the performance gate remains open.
+The benchmark can now print source, graph-construction, and runner timing
+for the map/filter case with `IRONBEAM_BENCH_PHASES=1`. In four warmed
+100,000-row release runs, source construction took 0.51–0.58 ms, graph
+construction 0.004–0.006 ms, and Direct execution 4.94–5.54 ms. The
+remaining gap is concentrated in row execution, not graph construction.
 
 ## Runner-specific assumptions and Dataflow dependency check
 
