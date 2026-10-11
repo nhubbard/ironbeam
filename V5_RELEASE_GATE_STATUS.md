@@ -9,12 +9,12 @@ staged locally.
 
 - Clean core and Direct coverage corpora now pass their unchanged CI ratios:
   core 2,194/2,282 source locations and 341/390 branch outcomes; Direct
-  1,252/1,332 source locations and 231/250 branch outcomes. New Direct tests
+  1,260/1,340 source locations and 231/250 branch outcomes. New Direct tests
   exercise fallible terminals, cancellation, lifted combine failures, and
   checkpoint recovery through flat-map output. That recovery test exposed an
   invalid assumption that output count cannot exceed source position. The
   checkpoint manifest now binds its progress fields and data digest with a
-  checksum, and its schema version is 1.1. Corrupt progress and frame counts
+  canonical checksum, and its schema version is 1.1. Corrupt progress and frame counts
   are rejected; flat-map checkpoints recover successfully. Direct now aborts
   an open sink and reports cancellation if the job is cancelled while writing
   or immediately before commit.

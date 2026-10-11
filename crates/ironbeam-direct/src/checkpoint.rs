@@ -228,8 +228,11 @@ fn progress_sha256(
     data_sha256: &str,
 ) -> String {
     let mut hash = Sha256::new();
-    hash.update(source_offset.to_le_bytes());
-    hash.update(output_count.to_le_bytes());
+    hash.update(b"ironbeam/checkpoint-progress/v1\0");
+    hash.update(source_offset.to_string().as_bytes());
+    hash.update([0]);
+    hash.update(output_count.to_string().as_bytes());
+    hash.update([0]);
     hash.update(data_file.as_bytes());
     hash.update([0]);
     hash.update(data_sha256.as_bytes());
@@ -266,6 +269,14 @@ fn sha256_file(path: &Path) -> Result<String, Error> {
 mod tests {
     use super::*;
     use ironbeam_core::ErrorKind;
+
+    #[test]
+    fn progress_checksum_has_a_stable_cross_platform_wire_shape() {
+        assert_eq!(
+            progress_sha256(12, 24, "rows.bin", "abc123"),
+            "05e810a630c9c8d081d0a6809282731b4cd183d88e7c8266ba38b4d433c4e582"
+        );
+    }
 
     #[test]
     fn manager_rejects_zero_interval_and_missing_data_file() {
