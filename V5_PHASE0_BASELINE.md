@@ -45,6 +45,14 @@ case. A trial that removed a per-row result vector only in single-worker
 execution had no measurable gain and was reverted. The dedicated job worker
 pool must remain in use even at parallelism one, as its existing test verifies.
 
+The vector-source digest now reuses one wire buffer for built-in scalar and
+string coders while retaining the same coder ID, version, length prefixes,
+and SHA-256 result. A direct 100,000-element `u32` source probe fell from
+4.13 ms before the change to 0.96–1.34 ms over five runs afterward. The
+five-run v5 medians (ms) then measured map/filter 24.572, GroupByKey 18.138,
+inner join 38.262, and JSONL 20.872. Source construction improved, but most
+of the map/filter gap remains in Direct execution and requires profiling.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

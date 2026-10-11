@@ -93,7 +93,10 @@ staged locally.
   sample found substantial v5 latency regressions in all four cases; see
   `V5_PHASE0_BASELINE.md`. Exact encoded-length accounting reduced allocations
   and improved join latency in repeated release runs, but the performance gate
-  remains open. The v4 implementation remains in the repository,
+  remains open. Reusing the vector-source digest buffer reduced a 100,000-row
+  scalar source probe from 4.13 ms to roughly 1.2 ms without changing its
+  versioned digest; Direct execution remains the larger gap. The v4
+  implementation remains in the repository,
   and the root package version is still 4.1.1, until the replacement gates close.
 - `ironbeam-cloud-objects` owns URI routing, registered provider handles, the
   object contract, and a filesystem-backed local adapter. Its isolated corpus
