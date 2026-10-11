@@ -38,7 +38,7 @@ v5 can replace the entire v4 package; they are not hidden by helper parity.
 | `arrow_ipc` | optional I/O | Present for bounded Direct values | Bounded row and record-batch sources/sinks plus file glob sources, lazy readers, finite row/batch range sources, and parallel row/batch container sinks exist. Indexed batch sources split directly at Arrow IPC batch boundaries as in v4; older finite row/batch range readers still rescan earlier batches. |
 | `sql` | `ironbeam-io-sql` | Present for bounded Direct values | Opt-in SQL eager, paged, and explicit finite shard sources plus deferred single and parallel append sinks execute on Direct. SQLite, live Postgres, and live MySQL round trips pass, along with snapshot-range length checks, deferred write, typed failure, and capability rejection. Shard keys include stable offsets and a caller supplied snapshot ID; the query must have total ordering and its database snapshot must stay unchanged. Parallel append shards use independent connections and can partially commit. |
 | `mongodb` | `ironbeam-io-mongodb` | Present for bounded Direct values | Opt-in bounded `find`, paged `skip`/`limit`, and explicit finite shard sources plus deferred single and parallel append sinks execute on Direct; live Rancher Desktop round trips, snapshot-range length check, typed failure, and capability rejection pass. Shards sort by `_id` and include stable offsets and a caller supplied snapshot ID; the collection must remain unchanged across retries. Multi-batch and parallel writes can partially commit and require application deduplication for retries. |
-| `cloud` | `ironbeam-cloud`, optional I/O | Present for v4 provider-neutral helpers | Provider-neutral traits, fake services, retry, timeout, batch, pagination, operation helpers, compressed cloud JSONL readers/writers, and the codec registry live in a shared package reexported through v4 and opt-in v5 I/O. Bounded JSONL object and sorted glob sources plus deferred final-result sink live in `ironbeam-io-jsonl` and execute on Direct with fake storage; digest mismatch produces a recovery error. Provider-specific storage clients, streaming object reads, and remote runner lowering remain. |
+| `cloud` | `ironbeam-cloud-objects`, `ironbeam-cloud-object-store`, `ironbeam-io-jsonl` | Partial v5 migration | The v5 object contract has URI routing, local storage, cross-provider prefix copy, and optional S3/GCS/Azure clients. JSONL has URI source, glob, and deferred final-result sink adapters with location identity; the URI source passed a live local Prism job. The v4 fake cache, queue, search, graph, compute, inference, retry, and pagination families still need v5 ownership and parity review. Remote staging and portable final-result commits remain open. |
 | v4 test utilities | `ironbeam-testing` | Present with v5 execution contract | Assertion, builder, fixture, mock I/O, test pipeline, and debug helpers live in a separate package. Debug count is a Direct terminal; inspect/sample are graph passthroughs. The package is included in local release verification and remains unpublished by choice. |
 
 ## Bounded Direct parity evidence
@@ -54,6 +54,10 @@ v5 can replace the entire v4 package; they are not hidden by helper parity.
   all three outer-join multisets for twenty-four deterministic bounded input
   pairs, including empty sides, duplicate keys, and duplicate values. Both
   sequential and three-worker v5 executions match v4 for every case.
+- Eighteen bounded inputs now also compare `take`, `first`, exact distinct,
+  per-element counts, and global distinct counts. Sequential selection order
+  and sequential/three-worker multiset or count results match v4, including
+  empty inputs and repeated values.
 - Parquet row-group and Arrow IPC batch-index sources have multi-split tests;
   file changes after graph construction fail recovery. SQL and MongoDB helper
   round trips were also exercised against live local containers.

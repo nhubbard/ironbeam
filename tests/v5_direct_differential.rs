@@ -2,6 +2,7 @@
 //! First Phase 3 differential case: the same bounded elementwise corpus on v4 and v5.
 #![cfg(feature = "v5-preview")]
 
+use ironbeam::v5::prelude::ElementwiseExt;
 use ironbeam::v5::{
     CheckpointConfig, DirectRunner, JobConfig, Pipeline as V5Pipeline, SpillConfig,
 };
@@ -202,6 +203,93 @@ fn grouping_and_join_multisets_match_v4_across_bounded_inputs() {
             assert_eq!(
                 actual, expected_full,
                 "full seed {seed}, parallelism {parallelism}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bounded_selection_and_count_helpers_match_v4() {
+    for seed in 0_i32..18 {
+        let input = (0..(seed % 12))
+            .map(|index| (index * 7 + seed) % 5)
+            .collect::<Vec<_>>();
+        let limit = usize::try_from(seed % 7).unwrap();
+
+        let v4 = V4Pipeline::default();
+        let source = from_vec(&v4, input.clone());
+        let expected_take = source.clone().take(limit).collect_seq().unwrap();
+        let expected_first = source.clone().first().collect_seq().unwrap();
+        let mut expected_distinct = source.clone().distinct().collect_seq().unwrap();
+        let mut expected_counts = source.clone().count_per_element().collect_seq().unwrap();
+        let expected_unique_count = source.distinct_count_globally().collect_seq().unwrap();
+        expected_distinct.sort_unstable();
+        expected_counts.sort_unstable();
+
+        let v5 = V5Pipeline::default();
+        let source = v5.from_vec("source", input).unwrap();
+        let take = source
+            .take_named("take", limit)
+            .unwrap()
+            .output("take-out")
+            .unwrap();
+        let first = source
+            .first_named("first")
+            .unwrap()
+            .output("first-out")
+            .unwrap();
+        let distinct = source
+            .distinct_named("distinct")
+            .unwrap()
+            .output("distinct-out")
+            .unwrap();
+        let counts = source
+            .count_per_element_named("counts")
+            .unwrap()
+            .output("counts-out")
+            .unwrap();
+        let unique_count = source
+            .distinct_count_globally_named("unique-count")
+            .unwrap()
+            .output("unique-count-out")
+            .unwrap();
+
+        let sequential = JobConfig {
+            parallelism: 1,
+            ..JobConfig::default()
+        };
+        assert_eq!(
+            DirectRunner.run_collect(&take, &sequential).unwrap().0,
+            expected_take,
+            "take seed {seed}"
+        );
+        assert_eq!(
+            DirectRunner.run_collect(&first, &sequential).unwrap().0,
+            expected_first,
+            "first seed {seed}"
+        );
+        for parallelism in [1, 3] {
+            let config = JobConfig {
+                parallelism,
+                buffer_budget_elements: 3,
+                ..JobConfig::default()
+            };
+            let mut actual_distinct = DirectRunner.run_collect(&distinct, &config).unwrap().0;
+            actual_distinct.sort_unstable();
+            assert_eq!(
+                actual_distinct, expected_distinct,
+                "distinct seed {seed}, parallelism {parallelism}"
+            );
+            let mut actual_counts = DirectRunner.run_collect(&counts, &config).unwrap().0;
+            actual_counts.sort_unstable();
+            assert_eq!(
+                actual_counts, expected_counts,
+                "counts seed {seed}, parallelism {parallelism}"
+            );
+            assert_eq!(
+                DirectRunner.run_collect(&unique_count, &config).unwrap().0,
+                expected_unique_count,
+                "unique-count seed {seed}, parallelism {parallelism}"
             );
         }
     }
