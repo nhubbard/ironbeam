@@ -1492,6 +1492,12 @@ impl Graph {
 }
 
 pub type Payload = Box<dyn Any + Send>;
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ElementMetadata {
+    pub timestamp_ns: i64,
+    pub window: Window,
+    pub assigned_window: Option<WindowInterval>,
+}
 pub struct Envelope {
     pub value: Payload,
     pub timestamp_ns: i64,
@@ -1721,6 +1727,11 @@ pub trait TypedSink<T: Element>: Send {
         Ok(())
     }
     fn write(&mut self, value: T) -> Result<(), Error>;
+    /// Write a value with its event-time and window context. Existing sinks
+    /// can continue implementing `write`; metadata-aware sinks override this.
+    fn write_with_metadata(&mut self, value: T, _metadata: ElementMetadata) -> Result<(), Error> {
+        self.write(value)
+    }
     fn commit(&mut self) -> Result<(), Error>;
     fn abort(&mut self) -> Result<(), Error>;
     fn requires_bundle_finalization(&self) -> bool {
@@ -1753,7 +1764,14 @@ impl<T: Element> SinkSession for SinkAdapter<T> {
             .value
             .downcast::<T>()
             .map_err(|_| Error::execution(&self.key, "direct", "sink input type mismatch"))?;
-        self.inner.write(*value)
+        self.inner.write_with_metadata(
+            *value,
+            ElementMetadata {
+                timestamp_ns: event.timestamp_ns,
+                window: event.window,
+                assigned_window: event.assigned_window,
+            },
+        )
     }
     fn commit(&mut self) -> Result<(), Error> {
         self.inner.commit()

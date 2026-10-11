@@ -6,6 +6,7 @@ mod materialized;
 mod metrics;
 mod multi_output;
 mod planner;
+mod sink;
 mod spill;
 
 pub use checkpoint::CheckpointConfig;
@@ -20,7 +21,7 @@ pub use spill::SpillConfig;
 
 use ironbeam_core::{
     Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection,
-    Registry, RetryClass, Sink, SinkMode, SourceIterator, TypedSourceIterator, Window,
+    Registry, RetryClass, Sink, SinkMode, SourceIterator, TypedSourceIterator,
 };
 use metrics::MetricsState;
 use rayon::prelude::*;
@@ -551,19 +552,6 @@ impl DirectRunner {
         }
         handle.set_status(JobStatus::Running);
         let result = (|| {
-            let values: Vec<T> = if plan.materialized {
-                materialized::execute(&pool, &graph, &registry, sink.key(), config, &handle)?
-            } else {
-                execute(
-                    Some(&pool),
-                    &registry,
-                    &plan,
-                    sink.key(),
-                    config,
-                    None,
-                    &handle,
-                )?
-            };
             let mut session = catch_unwind(AssertUnwindSafe(|| registry.open_sink(sink.key())))
                 .unwrap_or_else(|_| {
                     Err(Error::execution(
@@ -572,29 +560,17 @@ impl DirectRunner {
                         "sink factory panicked",
                     ))
                 })?;
-            for value in values {
-                if config.cancellation.load(Ordering::Acquire) {
-                    let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
-                    return Err(cancelled());
-                }
-                let event = Envelope {
-                    value: Box::new(value),
-                    timestamp_ns: 0,
-                    window: Window::Global,
-                    assigned_window: None,
-                };
-                let written = catch_unwind(AssertUnwindSafe(|| session.write(event)))
-                    .unwrap_or_else(|_| {
-                        Err(Error::execution(
-                            sink.key(),
-                            "direct",
-                            "sink writer panicked",
-                        ))
-                    });
-                if let Err(error) = written {
-                    let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
-                    return Err(error);
-                }
+            if let Err(error) = sink::execute::<T>(
+                &pool,
+                &graph,
+                &registry,
+                &plan,
+                config,
+                &handle,
+                session.as_mut(),
+            ) {
+                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                return Err(error);
             }
             if config.cancellation.load(Ordering::Acquire) {
                 let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));

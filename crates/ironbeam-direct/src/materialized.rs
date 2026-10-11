@@ -43,7 +43,7 @@ pub(crate) fn execute<T: Element>(
 }
 
 #[allow(clippy::too_many_lines)] // One bounded traversal keeps recursive evaluation and errors together.
-fn eval(
+pub(crate) fn eval(
     pool: &rayon::ThreadPool,
     graph: &Graph,
     registry: &Registry,

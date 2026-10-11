@@ -7,6 +7,26 @@ staged locally.
 
 ## Verified in this checkout
 
+- Direct bounded linear sinks now write one source batch at a time instead of
+  collecting the entire result before opening the sink. Typed sinks can opt in
+  to `write_with_metadata` to receive event time, window, and assigned interval;
+  existing value-only sinks keep their `write` implementation. A bounded
+  source fixture verifies that a batch is written before the next is read, and
+  tests cover metadata on linear and materialized paths, filtering, cancellation,
+  and panic attribution. Materialized sink routes still evaluate their full
+  bounded graph before writing, so streaming and memory limits remain an open
+  Direct gate for those routes. An alternating 16-run release sample of the
+  100,000-row JSONL round trip measured 10.52 ms median after this change
+  versus 10.74 ms in the preserved pre-change binary, with matching 100,000
+  rows and checksum 4,999,950,000. This is a local performance sample, and the
+  broader v4/v5 performance gate remains open. The fresh combined
+  core/Direct/transforms coverage corpus passes the unchanged core and Direct
+  gates: core 2,337/2,424 source locations and 348/396 branches; Direct
+  1,638/1,734 source locations and 311/340 branches.
+- The all-feature Dataflow workspace suite and the opt-in live local Prism
+  fixture passed with the metadata-aware core contract. The fixture completed
+  its multi-source, format, grouping, side-input, and finalized-sink job; the
+  temporary Prism service was stopped afterward.
 - Clean core and Direct coverage corpora now pass their unchanged CI ratios:
   core 2,194/2,282 source locations and 341/390 branch outcomes; Direct
   1,283/1,365 source locations and 238/258 branch outcomes. New Direct tests

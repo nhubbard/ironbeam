@@ -1,6 +1,52 @@
 use ironbeam_core::*;
 
 #[test]
+fn typed_source_and_portable_join_registry_reject_malformed_inputs() {
+    let pipeline = Pipeline::default();
+    let left = pipeline.from_vec("left", vec![(1_i32, 2_i32)]).unwrap();
+    let right = pipeline.from_vec("right", vec![(1_i32, 3_i32)]).unwrap();
+    left.join_inner_named("join", &right).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+
+    assert_eq!(
+        registry
+            .open_typed_source::<i32>("missing")
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+    assert!(registry.open_typed_source::<i32>("left").unwrap().is_none());
+    assert!(registry.vec_source_batches::<i32>("left").is_none());
+    assert!(registry.vec_source_batches::<(i32, i32)>("left").is_some());
+
+    for tagged in [vec![], vec![2], vec![0, 1]] {
+        assert_eq!(
+            registry
+                .execute_join_group(
+                    "join",
+                    &1_i32.encode().unwrap(),
+                    &[tagged],
+                    &Window::Global,
+                    None
+                )
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Incompatible
+        );
+    }
+    assert_eq!(
+        registry
+            .execute_join_group("missing", &[], &[], &Window::Global, None)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Incompatible
+    );
+}
+
+#[test]
 fn coder_contract_and_direct_error_taxonomy() {
     #[derive(Clone)]
     struct Opaque;
