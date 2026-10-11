@@ -379,18 +379,23 @@ staged locally.
    12-run sample. One peak-RSS run measured 4.1 MiB for v5 and 7.3 MiB for
    v4; these are local measurements, not a broad performance conclusion.
    The wider v4/v5 latency gate remains open.
-   The standalone fold state test does not prove in-progress recovery of the
-   entire keyed-latest output route. The full local package gate passed again
-   after the typed optimization, verifying all twenty-five v5 packages without
-   publishing. The full root workspace suite, strict Direct lint, and the live
-   Prism fixture passed separately. A Direct regression test checks three typed batches,
+   Direct now checkpoints GroupByKey routes with validated stateless stages
+   after the group, including keyed-latest selection and time/window metadata
+   projection. An end-to-end test fails after the first saved two-row group
+   batch, resumes the remaining three rows without replaying the committed
+   batch, verifies selected event times and the fixed-window interval, then
+   loads completed output without reopening the source. The full Direct suite
+   and strict lint pass for this route extension. The full local package gate
+   passed after this extension, verifying all twenty-five v5 packages without
+   publishing. The live Prism fixture passed before this Direct-only extension. A Direct
+   regression test checks three typed batches,
    selected timestamps, equal-time ties, timestamp-panic attribution, and
    cancellation before output publication. The current coverage corpus passes
    the core gates at 2,857/2,972 source locations (96.13%) and 435/492
    branches (88.41%), and passes the transforms gates at 1,163/1,189
    source locations (97.81%) and 108/116 branches (93.10%). Direct source
-   coverage passes at 3,257/3,515 (92.66%), but its branch coverage is
-   695/794 (87.53%), below the unchanged 90% CI floor. Added tests cover malformed
+   coverage passes at 3,284/3,547 (92.59%), but its branch coverage is
+   698/800 (87.25%), below the unchanged 90% CI floor. Added tests cover malformed
    latest registry input, fold checkpoint corruption, duplicate stream sinks,
    repeated stream cursors, non-idempotent or uncommitted stream sinks, source
    and combined branch buffer limits, accumulated fan-out budgets, filtered
