@@ -739,6 +739,11 @@ lowering now has a structural test for pair, split/size, process, coder graph,
 and SDF requirement. Fn API worker execution and residual split responses are
 not yet connected, so the translator's production-source rejection remains
 in place.
+The Fn API control loop now accepts split requests while a bundle runs, and a
+live Prism TestStream run still reaches `DONE`. The Dataflow bundle planner
+recognizes the three v5 SDF stages and validates their restriction-coder
+payloads. The worker explicitly rejects these stages until execution and
+residual checkpoint responses are implemented.
 The new Direct stream and checkpoint modules have 605/665 source locations
 covered in isolation. With the expanded failure-path tests, the package now
 measures 2,860/3,132 source locations (91.32%) and 560/618 branches (90.61%).
