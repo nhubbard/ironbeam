@@ -20,6 +20,10 @@ if cargo tree -p ironbeam --no-default-features --features v5-preview --edges no
   echo "V5-only facade unexpectedly depends on the legacy root implementation." >&2
   exit 1
 fi
+if cargo tree -p ironbeam --no-default-features --features v5-preview --edges normal,dev | grep -E 'testcontainers(-modules)? v'; then
+  echo "V5-only root tests unexpectedly depend on the legacy service harness." >&2
+  exit 1
+fi
 if cargo tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro|prost|crc32c) v'; then
   echo "Default ironbeam-io unexpectedly depends on a heavy opt-in adapter." >&2
   exit 1
