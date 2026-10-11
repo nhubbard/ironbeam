@@ -3,10 +3,10 @@
 // These tests verify the high-level helpers that allow end-users to run
 // custom cloud operations with built-in retry, timeout, and error handling.
 
-use ironbeam::helpers::cloud::*;
-use ironbeam::io::cloud::CloudResult;
-use ironbeam::io::cloud::traits::{CloudIOError, ErrorKind};
-use ironbeam::io::cloud::utils::{PaginationConfig, RetryConfig};
+use ironbeam_v4::helpers::cloud::*;
+use ironbeam_v4::io::cloud::CloudResult;
+use ironbeam_v4::io::cloud::traits::{CloudIOError, ErrorKind};
+use ironbeam_v4::io::cloud::utils::{PaginationConfig, RetryConfig};
 use std::time::Duration;
 
 // ============================================================================

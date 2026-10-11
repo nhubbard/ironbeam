@@ -1,7 +1,7 @@
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::window::{Timestamped, Window};
-use ironbeam::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::window::{Timestamped, Window};
+use ironbeam_v4::*;
 
 const fn mk_ts(i: u64) -> u64 {
     i

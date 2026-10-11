@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ironbeam::*;
+use ironbeam_v4::*;
 
 // ─────────────────────────────── approx_median_globally ──────────────────────
 

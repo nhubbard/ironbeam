@@ -184,7 +184,9 @@ jobs:
           cargo test -p ironbeam --no-default-features --features v5-preview --lib --tests
 
       - name: Compare v4 and v5 behavior against published v4
-        run: cargo test -p ironbeam-compat --test v4_baseline --test differential --test mean --test count_per_element --test keys_values --test kv_swap --test to_dict --test to_hashmap --test to_display_string --test v4_basic_helpers
+        run: |
+          cargo test -p ironbeam-compat --tests
+          cargo test -p ironbeam-compat --features v4-parquet --test v4_helper_parquet
 
   test:
     name: Facade Tests with Coverage

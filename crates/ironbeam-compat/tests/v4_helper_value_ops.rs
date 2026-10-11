@@ -1,6 +1,6 @@
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::{Sum, from_vec};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{Sum, from_vec};
 
 #[test]
 fn map_values_and_filter_values_work_and_reorder_safely() -> Result<()> {

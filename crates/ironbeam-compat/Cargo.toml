@@ -8,6 +8,10 @@ description = "Bounded in-process data bridges and migration imports for Ironbea
 repository = "https://github.com/nhubbard/ironbeam"
 readme = "README.md"
 
+[features]
+default = []
+v4-parquet = ["ironbeam-v4/io-parquet"]
+
 [dependencies]
 ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false }
 ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }

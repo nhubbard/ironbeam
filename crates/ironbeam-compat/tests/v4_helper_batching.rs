@@ -1,6 +1,6 @@
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::*;
 
 #[test]
 fn map_batches_matches_elementwise_seq() -> Result<()> {

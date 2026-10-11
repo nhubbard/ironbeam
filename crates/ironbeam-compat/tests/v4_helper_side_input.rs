@@ -4,8 +4,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-use ironbeam::testing::*;
-use ironbeam::{from_vec, side_hashmap, side_multimap, side_singleton, side_vec};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{from_vec, side_hashmap, side_multimap, side_singleton, side_vec};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Product {

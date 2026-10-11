@@ -1,7 +1,7 @@
 // tests/joins.rs
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::*;
+use ironbeam_v4::testing::*;
+use ironbeam_v4::*;
 
 fn sorted<T: Ord>(mut v: Vec<T>) -> Vec<T> {
     v.sort();

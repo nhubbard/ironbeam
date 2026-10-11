@@ -3,8 +3,8 @@
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::window::Timestamped;
-use ironbeam::*;
+use ironbeam_v4::window::Timestamped;
+use ironbeam_v4::*;
 
 // --- Basic correctness -------------------------------------------------------
 

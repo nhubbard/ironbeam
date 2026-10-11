@@ -1,10 +1,10 @@
 //! Tests for Parquet helper functions with focus on error handling and edge cases.
 
-#![cfg(feature = "io-parquet")]
+#![cfg(feature = "v4-parquet")]
 
 use anyhow::Result;
-use ironbeam::testing::*;
-use ironbeam::{from_vec, read_parquet_streaming};
+use ironbeam_v4::testing::*;
+use ironbeam_v4::{from_vec, read_parquet_streaming};
 use serde::{Deserialize, Serialize};
 use std::fs;
 

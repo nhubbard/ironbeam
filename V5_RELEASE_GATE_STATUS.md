@@ -48,6 +48,12 @@ staged locally.
   published 4.1.1. Its duplicate root test module was removed, and CI lists
   the compatibility target explicitly. It retains global and keyed summaries,
   collection materializers, and top/bottom selection reference behavior.
+- The other 225 root helper cases now run in `ironbeam-compat` against published
+  4.1.1. The whole root helper test tree is gone. CI runs the full compatibility
+  test corpus and separately enables the 15-case Parquet family through an
+  opt-in feature, preserving default build isolation. These are v4 reference
+  results; v5 helper behavior remains covered by its own package tests and
+  differential corpus.
 - The v4 dictionary, hash-map, and display-string conversion suites also moved
   to `ironbeam-compat`; their 58 cases pass against published v4. The root no
   longer owns those three legacy test targets, and CI retains the reference

@@ -2211,7 +2211,7 @@ dependencies = [
  "regex",
  "rmp-serde",
  "serde",
- "serde_arrow",
+ "serde_arrow 0.15.0",
  "serde_json",
  "sha2 0.11.0",
  "sqlx",
@@ -2230,16 +2230,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fe20a0a0eca7ca1a1f25d300687f749edf8170a91c929b6ee3822e16b39ff39"
 dependencies = [
  "anyhow",
+ "arrow",
  "crc32c",
  "glob",
  "hyperloglogplus",
  "num_cpus",
  "ordered-float",
+ "parquet",
  "paste",
  "prost",
  "rayon",
  "regex",
  "serde",
+ "serde_arrow 0.14.2",
  "serde_json",
  "tempfile",
 ]
@@ -2354,7 +2357,7 @@ dependencies = [
  "ironbeam-direct",
  "ironbeam-io",
  "serde",
- "serde_arrow",
+ "serde_arrow 0.15.0",
  "serde_json",
  "tempfile",
 ]
@@ -2451,7 +2454,7 @@ dependencies = [
  "ironbeam-io",
  "parquet",
  "serde",
- "serde_arrow",
+ "serde_arrow 0.15.0",
  "serde_json",
  "tempfile",
 ]
@@ -2898,6 +2901,21 @@ dependencies = [
  "macro_magic_core",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "marrow"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48b7541d9bd6781e25b0dfe7d638e5a8aa7950d5cdbf86f97537b5672768f7c4"
+dependencies = [
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-data",
+ "arrow-schema",
+ "bytemuck",
+ "half",
+ "serde",
 ]
 
 [[package]]
@@ -4058,6 +4076,21 @@ dependencies = [
 
 [[package]]
 name = "serde_arrow"
+version = "0.14.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f7168b019016101c432501f4cffb94869bed2ba1083ca9df06e90e10bd6f998"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "bytemuck",
+ "chrono",
+ "half",
+ "marrow 0.2.7",
+ "serde",
+]
+
+[[package]]
+name = "serde_arrow"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d721ae07f73163c3c71db5fbee5874e2188914e7ca7790814ba821b256a914e2"
@@ -4067,7 +4100,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "half",
- "marrow",
+ "marrow 0.3.0",
  "serde",
 ]
 

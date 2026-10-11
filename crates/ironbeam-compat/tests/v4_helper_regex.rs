@@ -1,7 +1,7 @@
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::*;
+use ironbeam_v4::*;
 
 // ─────────────────────────────────── regex_matches ───────────────────────────────────
 

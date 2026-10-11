@@ -20,6 +20,9 @@ The v4 `to_dict`, `to_hashmap`, and `to_display_string` suites add 58 more
 reference cases in the same leaf crate.
 The 49 basic-helper cases also run there against published v4, with the root
 test module removed and CI retaining the leaf target.
+The remaining 225 helper cases now run in the compatibility crate too, so the
+root `tests/helpers` tree has been removed. Parquet's 15 cases use the opt-in
+`v4-parquet` feature to keep the default compatibility dependency graph small.
 
 This is a replacement gate, not a claim that the current workspace has already
 reached it. `V5_HELPER_PARITY_TRACKER.md` closes *bounded Direct helper* parity.

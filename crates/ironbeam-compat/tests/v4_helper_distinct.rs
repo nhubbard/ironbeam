@@ -3,7 +3,7 @@
 #![allow(clippy::assert_is_empty)]
 
 use anyhow::Result;
-use ironbeam::*;
+use ironbeam_v4::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
