@@ -167,3 +167,24 @@ fn repeated_latest_tie_key_fails_in_keyed_and_global_variants() {
         assert!(result.message.contains("duplicate latest tie key"));
     }
 }
+
+#[test]
+fn empty_global_latest_tie_key_fails_instead_of_emitting_a_value() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("source", Vec::<(i64, (i32, i32))>::new())
+        .unwrap()
+        .timestamps_from_pairs_named("time")
+        .unwrap()
+        .latest_globally_by_named("latest", |value| value.0)
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("latest"));
+    assert!(error.message.contains("latest on empty input"));
+}

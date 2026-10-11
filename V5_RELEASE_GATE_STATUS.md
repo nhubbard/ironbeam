@@ -11,8 +11,8 @@ staged locally.
   tie key at the maximum event time within each window, rejecting repeated
   time/tie pairs. Direct tests cover values, time/window metadata, duplicate
   errors, and one/four-worker keyed execution. A live local Prism job matches
-  Direct for both forms and separately fails duplicate keyed and global jobs
-  before sink commit. Existing first-arrival tie methods remain Direct
+  Direct for both forms and separately fails duplicate keyed, duplicate global,
+  and empty global jobs before sink commit. Existing first-arrival tie methods remain Direct
   compatibility behavior.
 - Explicit-order keyed and global folds now use the same grouped and sorted
   logic on Direct and portable execution. They reject duplicate order keys
