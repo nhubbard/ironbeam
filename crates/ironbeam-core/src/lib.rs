@@ -1903,6 +1903,16 @@ impl Registry {
     pub fn has_single_transform(&self, key: &str) -> bool {
         matches!(self.transforms.get(key), Some(Transform::Single(_)))
     }
+    #[must_use]
+    pub fn single_transform(
+        &self,
+        key: &str,
+    ) -> Option<&(dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync)> {
+        match self.transforms.get(key)? {
+            Transform::Single(transform) => Some(transform.as_ref()),
+            Transform::Multi(_) => None,
+        }
+    }
     pub fn apply_aggregate(
         &self,
         key: &str,

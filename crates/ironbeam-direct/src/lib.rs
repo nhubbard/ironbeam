@@ -590,10 +590,11 @@ fn execute<T: Element>(
         Ordering::Relaxed,
     );
     for route in &plan.routes {
-        let single_route = route
+        let single_transforms: Option<Vec<_>> = route
             .operations
             .iter()
-            .all(|key| registry.has_single_transform(key));
+            .map(|key| registry.single_transform(key))
+            .collect();
         let mut source_offset = recovered_offset;
         let mut source = open_source_safe(registry, &route.source_key)?;
         for _ in 0..source_offset {
@@ -623,19 +624,17 @@ fn execute<T: Element>(
                 u64::try_from(batch_len).unwrap_or(u64::MAX),
                 Ordering::Relaxed,
             );
-            if single_route {
+            if let Some(transforms) = &single_transforms {
                 let apply_single = |event| {
                     let mut current = Some(event);
-                    for key in &route.operations {
+                    for (key, transform) in route.operations.iter().zip(transforms) {
                         let Some(event) = current else {
                             break;
                         };
                         if config.cancellation.load(Ordering::Acquire) {
                             return Err(cancelled());
                         }
-                        current = match catch_unwind(AssertUnwindSafe(|| {
-                            registry.apply(key, event)
-                        })) {
+                        current = match catch_unwind(AssertUnwindSafe(|| transform(event))) {
                             Ok(result) => result?,
                             Err(_) => {
                                 return Err(Error::execution(
