@@ -148,9 +148,10 @@ staged locally.
    right, and full joins. Tagged join values preserve each input timestamp;
    the live Prism corpus checks duplicate-key products, unmatched rows,
    interval windows, and timestamps.
-   The worker decodes fixed and chunked inline iterables but still rejects
-   Beam state-backed iterables, which still need integration with the new
-   Fn State client. Bounded millisecond-aligned fixed windows lower
+   The worker decodes fixed and chunked inline iterables and can resolve
+   Beam state-backed iterables through the Fn State client. Prefix, token,
+   and fetched suffix assembly have focused tests; a runner-emitted
+   state-backed group still needs a live proof. Bounded millisecond-aligned fixed windows lower
    to native Beam
    `WindowInto`; the worker carries interval metadata across Fn API boundaries.
    One live Prism job verifies assigned intervals and keyed counts in each
