@@ -53,9 +53,12 @@ staged locally.
   least two finalized bundles each, matching committed row counts and
   reopening values 7, 8, and 9. The updated full local Prism corpus passes.
   Prism coalesced adjacent Reshuffles in the first fixture attempt, causing
-  the worker's graph-parent check to fail; each branch now includes a Map
-  before its required finalization boundary. General adjacent-Reshuffle
-  lowering remains a portable graph-shape gap.
+  the worker's graph-parent check to fail. The worker now accepts a runner
+  collection only if it lies on a chain of Reshuffle parents; a focused
+  negative test rejects aliases across a user Map. The live MessagePack
+  branch passes with two consecutive Reshuffles and CBOR with three, without
+  fixture Maps. The full four-test Prism corpus and strict harness/proof lint
+  pass with this graph-shape fix.
 - The separate Dataflow worker now validates connected branches and
   fixed-window assignment after a production unbounded SDF source. A live
   local Prism `Run` reached `DONE` across two residual bundles; three idempotent
