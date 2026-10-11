@@ -145,13 +145,11 @@ staged locally.
   no longer directly depends on those connector crates.
   The JSONL append sink uses a shared filesystem and may duplicate records on
   replay. This is a local runner proof of this bounded slice.
-- The separate Dataflow checkout now defaults its graph translator, Fn API
-  harness, and Dataflow runtime packages to v5-only dependencies. The old v4
-  entrypoints, translator, handler, tests, and wordcount example remain behind
-  an explicit `legacy-v4` feature. A package-scoped Dataflow test and a live
-  Prism run pass with that feature absent; workspace tests also pass with the
-  compatibility example enabling it. The root `ironbeam` package now gates
-  its v4 modules and direct legacy dependencies behind `legacy-v4`, and now
+- The separate Dataflow checkout's graph translator, Fn API harness, and
+  Dataflow runtime packages now have v5-only dependencies and protocol tests.
+  The old v4 entrypoints, translator, handler, and example have been removed;
+  the all-feature Dataflow workspace suite passes. The root `ironbeam` package
+  gates its v4 modules and direct legacy dependencies behind `legacy-v4`, and now
   defaults to the v5 facade. The default build has only core, Direct,
   transforms, shared I/O, and JSONL as
   direct dependencies; it excludes the legacy cloud package. The v4 root
@@ -383,11 +381,13 @@ staged locally.
    The Dataflow runtime and graph translator now expose only v5 lowering;
    their v4 entrypoints, translation tests, and example have been replaced.
    The all-feature Dataflow workspace suite and strict package lint pass.
-   Its optional `legacy-v4` harness still depends on this checkout: the
-   published 4.1.1 crate lacks the local grouped-KV coder contract used by
-   that harness. Repointing that feature to crates.io failed to compile, so
-   the dependency change was reverted. Remove or replace the optional v4
-   harness path before changing the root package to 5.0.0.
+   The separate Dataflow harness has also removed its optional v4 root
+   dependency and old DynOp execution path. Its remaining plan, control, and
+   worker fixtures use the v5 DoFn wire contract; the planner rejects the
+   old v4 URN. The all-feature Dataflow workspace tests and strict graphx
+   and harness lint pass, and its lockfile no longer contains `ironbeam` v4.
+   The root package's own v4 modules and compatibility feature are still a
+   release blocker before changing the root package to 5.0.0.
    `ironbeam-cloud` still contains legacy traits, fake services, readers,
    and helpers. Its compression and object APIs now reexport separate crates;
    v5 JSONL and shared I/O no longer depend on it. Remove
