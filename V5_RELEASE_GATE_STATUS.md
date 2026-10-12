@@ -15,7 +15,7 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 | Direct | V4 reference corpus and v5 helper tests pass | Close public API and edge-case parity |
 | Portable | 19 live local Prism tests and the separate native Arrow proof pass with completed-attempt manifests | Expand shared Direct/Prism corpus |
 | Streaming | A split and accepted batches survive separate worker process restarts in the Fn Data fixture; the production reader also resumes through join and co-group | Prove live Prism worker restart and output recovery |
-| Quality | Corrected branch accounting passes the core, Direct, and transforms floors after a paired-stream progress test; focused tests and strict lint pass | Audit uncovered contracts, reconcile the earlier coverage denominator, and set performance limits |
+| Quality | The exact CI coverage package set passes the core, Direct, and transforms floors after checkpoint recovery and planner tests | Audit uncovered contracts, reconcile the earlier coverage denominator, and set performance limits |
 
 Passing a current check does not close a release gate unless its full proof
 below is complete.
@@ -70,7 +70,8 @@ below is complete.
 | Direct checkpoint history | `max_checkpoints` retains 1–128 bounded or streaming snapshots. Tests cover rotation, pruning after a lower limit, bounded output/fold fallback, streaming progress fallback, and refusal to cross execution identities. A paired streaming sink test replays from older progress without duplicate commits after the latest manifest is corrupted. |
 | Parallel I/O facade | The root `parallel-io` flag now forwards to each optional format crate only when that format is enabled. An isolated Avro facade test writes and reads a parallel container; the parallel flag alone does not pull in optional formats. |
 | Separate Dataflow workspace | The full harness suite and doctests pass after publication-plan validation rejects a Beam transform that requests finalization but is absent from the declared sink set. The changed harness passes warning-free lint. |
-| Current coverage | A clean isolated 2026-10-11 run with untouched branch sites counted reports core **3,146/3,258 locations (96.56%) / 487/562 branches (86.65%)**, Direct **3,936/4,209 (93.51%) / 841/932 (90.24%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. All three packages pass their existing floors. |
+| Current coverage | A 2026-10-11 run of the exact CI package set with untouched branch sites counted reports core **3,146/3,258 locations (96.56%) / 487/562 branches (86.65%)**, Direct **4,451/4,727 (94.16%) / 902/1,000 (90.20%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. All three packages pass their existing floors. |
+| Exhausted checkpoint recovery | New bounded and streaming tests corrupt both retained manifests and require a typed recovery error; a source-only planner test verifies that its explanation has no physical decisions. All 50 Direct library tests pass. |
 | Paired streaming progress | A Direct unbounded source emits an empty progress poll, a data poll, and an empty completion poll to two idempotent sinks. Both sinks receive exactly one row; the final checkpoint retains the source cursor, event time, and completion. |
 | Direct plan explanation | `PlanDecision` now exposes selected-plan pruning, materialization barriers, and fused stateless routes through the Direct package and root facade. The `explain_pipeline` example prints these decisions; focused planner tests, the full Direct suite, and strict Direct/root lint pass. This reports v5 choices and does not claim unimplemented v4 optimizer passes. |
 | Core aggregate contracts | Core and Direct tests and doctests pass; strict core lint passes. New cases cover malformed join inputs, corrupt portable shuffle groups, fold-session output and emitter failure, and rejection of extra runner inputs. |
@@ -82,9 +83,11 @@ zero hits, making the branch ratios look better than they were. It now counts
 those sites as uncovered. The earlier reused build target reported **3,657**
 core source locations and **4,644** Direct locations, with both line floors
 failing. A second clean isolated run reproduced the smaller counts above.
-The denominator difference
-needs investigation before treating this as a stable CI result; the coverage
-gate still requires an uncovered-contract review and a clean full CI run.
+The exact CI package set produced identical denominators in two consecutive
+runs against one isolated build target: core **3,258**, Direct **4,682** before
+the latest tests. The earlier reused-target difference remains unexplained.
+The coverage gate still requires an uncovered-contract review and a clean full
+CI run.
 
 The last full paired benchmark matched output counts and checksums in all
 seven cases. It is a measurement, **not a performance gate pass**:

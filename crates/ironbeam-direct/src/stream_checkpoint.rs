@@ -572,6 +572,29 @@ mod tests {
     }
 
     #[test]
+    fn recovery_rejects_every_corrupt_retained_stream_snapshot() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: temporary.path().into(),
+            max_checkpoints: 2,
+            binary_build_id: "test-build".into(),
+            ..CheckpointConfig::default()
+        };
+        let checkpoint =
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                .unwrap();
+        for cursor in 1..=2 {
+            let mut progress = signal();
+            progress.checkpoint_position = Some(vec![cursor]);
+            checkpoint.save(&progress).unwrap();
+        }
+        fs::write(&checkpoint.path, b"{broken").unwrap();
+        fs::write(temporary.path().join("stream-history-1.json"), b"{broken").unwrap();
+
+        assert_eq!(checkpoint.load().unwrap_err().kind, ErrorKind::Recovery);
+    }
+
+    #[test]
     fn pair_checkpoint_binds_both_sink_and_coder_contracts() {
         let temporary = tempfile::tempdir().unwrap();
         let config = CheckpointConfig {

@@ -431,6 +431,20 @@ mod tests {
     }
 
     #[test]
+    fn source_only_plan_reports_no_physical_decisions() {
+        let pipeline = Pipeline::default();
+        pipeline
+            .from_vec("source", vec![1_i32, 2])
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let (graph, registry) = pipeline.snapshot().unwrap();
+        let summary = lower(&graph, &registry, "out", 2).unwrap().summary;
+        assert!(summary.decisions.is_empty());
+        assert!(summary.explain().contains("Decisions: none"));
+    }
+
+    #[test]
     fn explain_identifies_the_materializing_operation() {
         let pipeline = Pipeline::default();
         pipeline

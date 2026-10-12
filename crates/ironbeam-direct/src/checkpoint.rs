@@ -999,6 +999,42 @@ mod tests {
     }
 
     #[test]
+    fn recovery_rejects_every_corrupt_retained_bounded_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            max_checkpoints: 2,
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "all-corrupt-test".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+        let mut store = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        store.push(1).unwrap();
+        manager.save(1, &store).unwrap();
+        store.push(2).unwrap();
+        manager.save(2, &store).unwrap();
+        fs::write(directory.path().join("latest.json"), b"{broken").unwrap();
+        fs::write(
+            directory.path().join("checkpoint-history-1.json"),
+            b"{broken",
+        )
+        .unwrap();
+
+        let mut recovered = OutputStore::<i32>::new(1024, None, metrics).unwrap();
+        assert_eq!(
+            manager.recover(&mut recovered).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+    }
+
+    #[test]
     fn reducing_bounded_retention_prunes_previous_history_after_publication() {
         let directory = tempfile::tempdir().unwrap();
         let config = CheckpointConfig {
