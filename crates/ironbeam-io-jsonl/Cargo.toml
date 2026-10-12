@@ -1,6 +1,6 @@
 [package]
 name = "ironbeam-io-jsonl"
-version = "0.1.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
@@ -17,15 +17,15 @@ compression-bzip2 = ["ironbeam-io/compression-bzip2", "ironbeam-compression?/com
 compression-xz = ["ironbeam-io/compression-xz", "ironbeam-compression?/compression-xz"]
 
 [dependencies]
-ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
-ironbeam-io = { version = "0.1.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
-ironbeam-cloud-objects = { version = "0.1.0", path = "../ironbeam-cloud-objects", optional = true }
-ironbeam-compression = { version = "0.1.0", path = "../ironbeam-compression", optional = true }
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-io = { version = "5.0.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
+ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects", optional = true }
+ironbeam-compression = { version = "5.0.0", path = "../ironbeam-compression", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = { version = "0.11", optional = true }
 
 [dev-dependencies]
-ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
-ironbeam-cloud-fakes = { version = "0.1.0", path = "../ironbeam-cloud-fakes" }
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
+ironbeam-cloud-fakes = { version = "5.0.0", path = "../ironbeam-cloud-fakes" }
 tempfile = "3"

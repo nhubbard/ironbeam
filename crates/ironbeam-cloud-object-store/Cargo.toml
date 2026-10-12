@@ -1,6 +1,6 @@
 [package]
 name = "ironbeam-cloud-object-store"
-version = "0.1.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
@@ -14,7 +14,7 @@ gcp = ["object_store/gcp"]
 azure = ["object_store/azure"]
 
 [dependencies]
-ironbeam-cloud-objects = { version = "0.1.0", path = "../ironbeam-cloud-objects" }
+ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects" }
 object_store = { version = "0.14.2", default-features = false }
 futures-util = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread"] }

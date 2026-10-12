@@ -80,28 +80,28 @@ spilling = []
 coders = ["dep:ironbeam-coder-postcard"]
 
 [dependencies]
-ironbeam-compression = { version = "0.1.0", path = "crates/ironbeam-compression", optional = true }
-ironbeam-coder-postcard = { version = "0.1.0", path = "crates/ironbeam-coder-postcard", optional = true }
-ironbeam-core = { version = "0.1.0", path = "crates/ironbeam-core" }
-ironbeam-direct = { version = "0.1.0", path = "crates/ironbeam-direct" }
-ironbeam-transforms = { version = "0.1.0", path = "crates/ironbeam-transforms" }
-ironbeam-transform-regex = { version = "0.1.0", path = "crates/ironbeam-transform-regex", optional = true }
-ironbeam-transform-approx = { version = "0.1.0", path = "crates/ironbeam-transform-approx", optional = true }
-ironbeam-testing = { version = "0.1.0", path = "crates/ironbeam-testing", optional = true }
-ironbeam-metrics = { version = "0.1.0", path = "crates/ironbeam-metrics", optional = true }
-ironbeam-io = { version = "0.1.0", path = "crates/ironbeam-io", default-features = false }
-ironbeam-io-jsonl = { version = "0.1.0", path = "crates/ironbeam-io-jsonl" }
-ironbeam-io-protobuf = { version = "0.1.0", path = "crates/ironbeam-io-protobuf", optional = true }
-ironbeam-io-tfrecord = { version = "0.1.0", path = "crates/ironbeam-io-tfrecord", optional = true }
-ironbeam-io-avro = { version = "0.1.0", path = "crates/ironbeam-io-avro", optional = true }
-ironbeam-io-csv = { version = "0.1.0", path = "crates/ironbeam-io-csv", optional = true }
-ironbeam-io-xml = { version = "0.1.0", path = "crates/ironbeam-io-xml", optional = true }
-ironbeam-io-msgpack = { version = "0.1.0", path = "crates/ironbeam-io-msgpack", optional = true }
-ironbeam-io-cbor = { version = "0.1.0", path = "crates/ironbeam-io-cbor", optional = true }
-ironbeam-io-parquet = { version = "0.1.0", path = "crates/ironbeam-io-parquet", optional = true }
-ironbeam-io-arrow = { version = "0.1.0", path = "crates/ironbeam-io-arrow", optional = true }
-ironbeam-io-sql = { version = "0.1.0", path = "crates/ironbeam-io-sql", optional = true }
-ironbeam-io-mongodb = { version = "0.1.0", path = "crates/ironbeam-io-mongodb", optional = true }
+ironbeam-compression = { version = "5.0.0", path = "crates/ironbeam-compression", optional = true }
+ironbeam-coder-postcard = { version = "5.0.0", path = "crates/ironbeam-coder-postcard", optional = true }
+ironbeam-core = { version = "5.0.0", path = "crates/ironbeam-core" }
+ironbeam-direct = { version = "5.0.0", path = "crates/ironbeam-direct" }
+ironbeam-transforms = { version = "5.0.0", path = "crates/ironbeam-transforms" }
+ironbeam-transform-regex = { version = "5.0.0", path = "crates/ironbeam-transform-regex", optional = true }
+ironbeam-transform-approx = { version = "5.0.0", path = "crates/ironbeam-transform-approx", optional = true }
+ironbeam-testing = { version = "5.0.0", path = "crates/ironbeam-testing", optional = true }
+ironbeam-metrics = { version = "5.0.0", path = "crates/ironbeam-metrics", optional = true }
+ironbeam-io = { version = "5.0.0", path = "crates/ironbeam-io", default-features = false }
+ironbeam-io-jsonl = { version = "5.0.0", path = "crates/ironbeam-io-jsonl" }
+ironbeam-io-protobuf = { version = "5.0.0", path = "crates/ironbeam-io-protobuf", optional = true }
+ironbeam-io-tfrecord = { version = "5.0.0", path = "crates/ironbeam-io-tfrecord", optional = true }
+ironbeam-io-avro = { version = "5.0.0", path = "crates/ironbeam-io-avro", optional = true }
+ironbeam-io-csv = { version = "5.0.0", path = "crates/ironbeam-io-csv", optional = true }
+ironbeam-io-xml = { version = "5.0.0", path = "crates/ironbeam-io-xml", optional = true }
+ironbeam-io-msgpack = { version = "5.0.0", path = "crates/ironbeam-io-msgpack", optional = true }
+ironbeam-io-cbor = { version = "5.0.0", path = "crates/ironbeam-io-cbor", optional = true }
+ironbeam-io-parquet = { version = "5.0.0", path = "crates/ironbeam-io-parquet", optional = true }
+ironbeam-io-arrow = { version = "5.0.0", path = "crates/ironbeam-io-arrow", optional = true }
+ironbeam-io-sql = { version = "5.0.0", path = "crates/ironbeam-io-sql", optional = true }
+ironbeam-io-mongodb = { version = "5.0.0", path = "crates/ironbeam-io-mongodb", optional = true }
 # SQL example dependency (opt-in with the connector)
 sqlx = { version = "0.9", features = ["any", "postgres", "mysql", "sqlite", "runtime-tokio", "tls-rustls-ring"], optional = true }
 

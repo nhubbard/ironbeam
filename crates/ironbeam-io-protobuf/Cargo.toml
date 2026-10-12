@@ -1,6 +1,6 @@
 [package]
 name = "ironbeam-io-protobuf"
-version = "0.1.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
@@ -16,10 +16,10 @@ compression-bzip2 = ["ironbeam-io/compression-bzip2"]
 compression-xz = ["ironbeam-io/compression-xz"]
 
 [dependencies]
-ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
-ironbeam-io = { version = "0.1.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-io = { version = "5.0.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
 prost = "0.14"
 
 [dev-dependencies]
-ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
 tempfile = "3"

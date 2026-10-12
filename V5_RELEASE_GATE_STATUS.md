@@ -4,7 +4,7 @@
 `codex/ironbeam-v5-runner-core`.
 
 The root is an unpublished `5.0.0` candidate and the implementation crates
-are `0.1.0`. Publication remains staged locally. Local Prism is the
+are `5.0.0`. Publication remains staged locally. Local Prism is the
 portable runner proof for this release; hosted Dataflow is a later extension.
 
 ## Release snapshot
@@ -59,7 +59,7 @@ handlers expand into those variants before lowering.
 | --- | --- |
 | ☑ Coverage and verification | The final-version core, Direct, and transforms coverage run passes all six unchanged CI ratchets. The largest uncovered source clusters were reviewed: generic helper forwarding and defensive callback-panic, integer-overflow, and I/O error paths remain, while the public behavior, recovery, and publication contracts have focused tests. The full 29-package local matrix, all-feature root tests and strict lint, workspace docs, separate Dataflow all-feature tests, and 50 live local Prism jobs pass. Coverage is a release floor, not a claim that every branch is exercised. |
 | ☑ Performance | The paired million-row corpus matches outputs and passes explicit v5 latency and peak-memory limits. |
-| ☑ Versioning and publication staging | The public facade is an unpublished `5.0.0` candidate; the 28 implementation/helper crates are `0.1.0`. The local release-order checker validates every path dependency and puts the facade last. The legacy root-only release workflow refuses a v5 workspace. The ordered multi-crate publication script and manually gated workflow are staged. The first publication of new crate names requires a crates.io token supplied as a protected `CRATES_IO_TOKEN` release secret; trusted publishing can be configured after those first releases. All 29 packages passed local tests and package verification at these versions; the separate Dataflow all-feature workspace also passed. Publication remains held at the user's request; actual registry ownership and credentials cannot be validated locally. |
+| ☑ Versioning and publication staging | The public facade is an unpublished `5.0.0` candidate; the 28 implementation/helper crates are `5.0.0`. The local release-order checker validates every path dependency and puts the facade last. The legacy root-only release workflow refuses a v5 workspace. The ordered multi-crate publication script and manually gated workflow are staged. The first publication of new crate names requires a crates.io token supplied as a protected `CRATES_IO_TOKEN` release secret; trusted publishing can be configured after those first releases. All 29 packages passed local tests and package verification at these versions; the separate Dataflow all-feature workspace also passed. Publication remains held at the user's request; actual registry ownership and credentials cannot be validated locally. |
 
 ### Paired performance gate
 

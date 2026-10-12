@@ -1,6 +1,6 @@
 [package]
 name = "ironbeam-io"
-version = "0.1.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
@@ -18,9 +18,9 @@ compression-bzip2 = ["dep:ironbeam-compression", "ironbeam-compression/compressi
 compression-xz = ["dep:ironbeam-compression", "ironbeam-compression/compression-xz"]
 
 [dependencies]
-ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
-ironbeam-cloud-objects = { version = "0.1.0", path = "../ironbeam-cloud-objects", optional = true }
-ironbeam-compression = { version = "0.1.0", path = "../ironbeam-compression", optional = true }
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects", optional = true }
+ironbeam-compression = { version = "5.0.0", path = "../ironbeam-compression", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", optional = true }
 sha2 = "0.11"
@@ -28,4 +28,4 @@ tempfile = "3"
 glob = "0.3"
 
 [dev-dependencies]
-ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }

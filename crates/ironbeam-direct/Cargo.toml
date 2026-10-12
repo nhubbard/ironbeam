@@ -1,6 +1,6 @@
 [package]
 name = "ironbeam-direct"
-version = "0.1.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
@@ -11,8 +11,8 @@ repository = "https://github.com/nhubbard/ironbeam"
 metrics = ["dep:ironbeam-metrics"]
 
 [dependencies]
-ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
-ironbeam-metrics = { version = "0.1.0", path = "../ironbeam-metrics", optional = true }
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-metrics = { version = "5.0.0", path = "../ironbeam-metrics", optional = true }
 rayon = "1"
 tempfile = "3"
 serde = { version = "1", features = ["derive"] }

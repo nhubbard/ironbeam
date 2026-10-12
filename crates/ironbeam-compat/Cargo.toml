@@ -1,6 +1,6 @@
 [package]
 name = "ironbeam-compat"
-version = "0.1.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
@@ -36,11 +36,11 @@ v4-zstd = ["ironbeam-v4/compression-zstd"]
 
 [dependencies]
 ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false }
-ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
-ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
-ironbeam-transforms = { version = "0.1.0", path = "../ironbeam-transforms" }
-ironbeam-transform-regex = { version = "0.1.0", path = "../ironbeam-transform-regex" }
-ironbeam-transform-approx = { version = "0.1.0", path = "../ironbeam-transform-approx" }
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
+ironbeam-transforms = { version = "5.0.0", path = "../ironbeam-transforms" }
+ironbeam-transform-regex = { version = "5.0.0", path = "../ironbeam-transform-regex" }
+ironbeam-transform-approx = { version = "5.0.0", path = "../ironbeam-transform-approx" }
 anyhow = "1"
 apache-avro = { version = "0.21", optional = true }
 arrow = { version = "59", optional = true }
@@ -57,7 +57,7 @@ tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 
 [dev-dependencies]
 ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false, features = ["io-jsonl", "io-tfrecord", "io-protobuf"] }
-ironbeam-io-tfrecord = { version = "0.1.0", path = "../ironbeam-io-tfrecord" }
+ironbeam-io-tfrecord = { version = "5.0.0", path = "../ironbeam-io-tfrecord" }
 prost = "0.14"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -1,6 +1,6 @@
 [package]
 name = "ironbeam-testing"
-version = "0.1.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.94.0"
 license = "MIT"
@@ -13,8 +13,8 @@ io-csv = []
 io-jsonl = []
 
 [dependencies]
-ironbeam-core = { version = "0.1.0", path = "../ironbeam-core" }
-ironbeam-direct = { version = "0.1.0", path = "../ironbeam-direct" }
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

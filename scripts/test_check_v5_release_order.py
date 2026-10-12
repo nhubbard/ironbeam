@@ -27,7 +27,7 @@ class ReleaseOrderTests(unittest.TestCase):
         self.assertEqual(len(order), 29)
         self.assertEqual(order[-1], ("ironbeam", "5.0.0"))
 
-    def workspace(self, dependency_version="0.1.0", reverse_dependency=False):
+    def workspace(self, dependency_version="5.0.0", reverse_dependency=False):
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
         base = root / "crates" / "ironbeam-core"
@@ -39,7 +39,7 @@ class ReleaseOrderTests(unittest.TestCase):
             f'ironbeam-core = {{ path = "crates/ironbeam-core", version = "{dependency_version}" }}\n'
         )
         (base / "Cargo.toml").write_text(
-            '[package]\nname = "ironbeam-core"\nversion = "0.1.0"\n'
+            '[package]\nname = "ironbeam-core"\nversion = "5.0.0"\n'
             + (
                 '[dependencies]\nironbeam = { path = "../..", version = "5.0.0" }\n'
                 if reverse_dependency
@@ -53,12 +53,12 @@ class ReleaseOrderTests(unittest.TestCase):
         with temporary:
             self.assertEqual(
                 release_order(root),
-                [("ironbeam-core", "0.1.0"), ("ironbeam", "5.0.0")],
+                [("ironbeam-core", "5.0.0"), ("ironbeam", "5.0.0")],
             )
 
     def test_rejects_stale_local_version_requirement(self):
-        temporary, root = self.workspace(dependency_version="0.2.0")
-        with temporary, self.assertRaisesRegex(ValueError, "requires '0.2.0'"):
+        temporary, root = self.workspace(dependency_version="5.1.0")
+        with temporary, self.assertRaisesRegex(ValueError, "requires '5.1.0'"):
             release_order(root)
 
     def test_rejects_dependency_cycle(self):

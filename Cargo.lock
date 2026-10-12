@@ -2264,14 +2264,14 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-cloud-fakes"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-cloud-service-api",
 ]
 
 [[package]]
 name = "ironbeam-cloud-object-store"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "futures-util",
  "ironbeam-cloud-objects",
@@ -2281,14 +2281,14 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-cloud-objects"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "ironbeam-cloud-ops"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "futures-executor",
  "ironbeam-cloud-fakes",
@@ -2297,14 +2297,14 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-cloud-service-api"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-cloud-objects",
 ]
 
 [[package]]
 name = "ironbeam-coder-postcard"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
@@ -2314,7 +2314,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-compat"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "anyhow",
  "apache-avro 0.21.0",
@@ -2344,7 +2344,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-compression"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "anyhow",
  "bzip2",
@@ -2356,7 +2356,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-core"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2365,7 +2365,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-direct"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-metrics",
@@ -2378,7 +2378,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "glob",
  "ironbeam-cloud-objects",
@@ -2393,7 +2393,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-arrow"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "arrow",
  "ironbeam-core",
@@ -2407,7 +2407,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-avro"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "apache-avro 0.22.0",
  "ironbeam-core",
@@ -2421,7 +2421,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-cbor"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ciborium",
  "ironbeam-core",
@@ -2433,7 +2433,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-csv"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "csv",
  "ironbeam-core",
@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-jsonl"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-cloud-fakes",
  "ironbeam-cloud-objects",
@@ -2462,7 +2462,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-mongodb"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "bson 3.1.0",
  "ironbeam-core",
@@ -2477,7 +2477,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-msgpack"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
@@ -2489,7 +2489,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-parquet"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "arrow",
  "bytes",
@@ -2505,7 +2505,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-protobuf"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
@@ -2516,7 +2516,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-sql"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
@@ -2530,7 +2530,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-tfrecord"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "crc32c",
  "ironbeam-core",
@@ -2544,7 +2544,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-io-xml"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-metrics"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -2565,7 +2565,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-runner-contract-tests"
-version = "0.0.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam 4.1.1",
  "ironbeam-core",
@@ -2574,7 +2574,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-testing"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "anyhow",
  "csv",
@@ -2587,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-transform-approx"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "hyperloglogplus",
  "ironbeam-core",
@@ -2596,7 +2596,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-transform-regex"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
@@ -2605,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "ironbeam-transforms"
-version = "0.1.0"
+version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-direct",
