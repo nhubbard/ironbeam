@@ -13,9 +13,9 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 | --- | --- | --- |
 | Workspace | V5-only root source, including with no default features; the root facade and 28 workspace crates verify as local packages | Finish public API audit |
 | Direct | V4 reference corpus and v5 helper tests pass; stateless Flatten and fixed-window joins now accept two unbounded sources with independent checkpointed cursors and open-window state | Expand runner agreement and API parity |
-| Portable | All 36 live local Prism tests pass; one tagged TestStream now drives two-unbounded fixed-window join, co-group, and stateless Flatten fixtures that match Direct | Expand remaining shared operation corpus |
+| Portable | All 37 live local Prism tests pass; tagged TestStream drives two-unbounded join, co-group, and Flatten, and a fallible helper's two output branches rejoin with exact Direct parity | Expand remaining shared operation corpus |
 | Streaming | A split and accepted batches survive separate worker process restarts in the Fn Data fixture, including a two-output fanout; the production reader also resumes through join and co-group | Expand worker recovery to remaining graph shapes; retain Prism's fail-closed worker-loss proof |
-| Quality | The exact Direct CI coverage gate passes after multi-source streaming: 92.70% source lines and 90.06% branches; strict lint and the all-feature Direct suite pass | Refresh the complete package matrix and performance limits |
+| Quality | The exact core/Direct/transforms CI coverage set, full local package matrix, and seven-case performance gate pass | Review remaining uncovered contracts and final packaging |
 
 Passing a current check does not close a release gate unless its full proof
 below is complete.
@@ -106,6 +106,7 @@ compact inner-join measurements remain in `V5_PHASE0_BASELINE.md`.
 | JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** at the last coverage run. The latest eager reader change has passing default/all-feature tests and strict lint; coverage has not been rerun. |
 | Local Prism | All 36 live tests pass, including shared two-unbounded full join, co-group, and stateless Flatten jobs with exact Direct-matching values, windows, and event times. The translator combines two same-coder test sources into one tagged Beam TestStream because Prism allows only one TestStream transform. Tagged streams reject processing-time advances. Existing cases include unbounded grouping, ordered batches, per-window side inputs, wait-on behavior, dynamic output failures, semantic-version rejection, and supervised worker loss. The production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. |
 | Two-source stateless fan-in | On 2026-10-12, a tagged two-unbounded TestStream graph also ran through Flatten on both Direct and local Prism. It produced four exact rows with matching source values, assigned fixed windows, and preserved individual event times. The complete live suite passed **36/36** and strict Prism fixture lint passed. |
+| Dead-letter fanout and merge | A fallible `map_catching_named` classifies four bounded records once, sends good values and typed dead letters through separate branches, and merges them into one committed output. Direct and local Prism produce the same two good and two error rows. All **37/37** live Prism tests and strict Prism proof lint pass. |
 | Dual-source co-group regression | On 2026-10-12, all 39 Direct stream tests and strict Direct lint passed after adding a two-unbounded co-group case with duplicate and side-only keys. The shared local Prism suite passed **35/35** live jobs after adding the same tagged-source co-group graph; strict Prism fixture lint passed. |
 | Join event-time agreement | Adding output event times to both two-unbounded fixtures exposed a matched-row mismatch: portable join used the right timestamp while Direct used the earlier timestamp. The v5 join contract now selects the earlier timestamp of each matched pair in every indexed execution path; unmatched rows retain their own time. Core tests, 51 bounded Direct transform tests, all 39 Direct stream tests, strict core/Direct and Prism fixture lint, and all **35/35** live Prism cases pass with exact joined, side-only, and main-only timestamps. |
 | Tagged TestStream regression | On 2026-10-12, **34/34** live `prism_v5_run` tests passed against the local Beam clone after tagged lowering, including the new two-unbounded full join. Graphx package tests, strict Graphx/Prism fixture lint, and a second targeted live join run also passed. |
@@ -133,39 +134,6 @@ compact inner-join measurements remain in `V5_PHASE0_BASELINE.md`.
 | Core aggregate contracts | Core and Direct tests and doctests pass; strict core lint passes. New cases cover malformed join inputs, corrupt portable shuffle groups, fold-session output and emitter failure, and rejection of extra runner inputs. |
 | Postcard coder | 13/13 source locations covered; LLVM reports no instrumented branches. |
 | Formatting | Both workspaces pass `cargo fmt --all --check`. |
-
-The coverage checker previously dropped branch sites whose two outcomes had
-zero hits, making the branch ratios look better than they were. It now counts
-those sites as uncovered. The earlier reused build target reported **3,657**
-core source locations and **4,644** Direct locations, with both line floors
-failing. A second clean isolated run reproduced smaller counts.
-The exact CI package set produced identical denominators in two consecutive
-runs against one isolated build target: core **3,258**, Direct **4,682** before
-the latest API and test additions. The earlier reused-target difference remains unexplained.
-The coverage gate still requires an uncovered-contract review and a clean full
-CI run.
-
-The latest paired 100,000-row release run used two warmup pairs and eight
-measured pairs per case. Output counts and checksums matched throughout.
-These are measurements, **not a performance gate pass**:
-
-| Workload | v4 ms | v5 ms | v5/v4 | Peak MiB, v4 → v5 |
-| --- | ---: | ---: | ---: | ---: |
-| Source copy | 0.062 | 0.127 | 2.05× | 3.41 → 4.00 |
-| Map/filter | 0.139 | 0.426 | 3.05× | 3.81 → 3.69 |
-| GroupByKey | 0.647 | 1.100 | 1.70× | 5.06 → 4.59 |
-| Latest per key | 0.733 | 1.210 | 1.65× | 7.30 → 3.94 |
-| Equal-size inner join | 11.245 | 10.955 | 0.97× | 21.48 → 37.74 |
-| Duplicate-key join | 2.800 | 4.403 | 1.57× | 5.51 → 16.11 |
-| JSONL round trip | 4.396 | 11.746 | 2.67× | 4.39 → 4.58 |
-
-The JSONL fixture now measures source construction, sink graph construction,
-write, read graph construction, and read separately. V5's local final-result
-sink syncs both the temporary file and published directory entry; v4's write
-does not make that durability promise. The measured v5 writer still takes
-most of its round-trip time. Earlier optimization samples and the repeatable
-command are in the [baseline record](V5_PHASE0_BASELINE.md). Acceptable release
-limits remain unset.
 
 ## Contract decisions
 
