@@ -3,7 +3,7 @@ use ironbeam_core::{
     TypedSourceIterator,
 };
 use ironbeam_direct::{DirectRunner, JobConfig};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 const fn spec() -> SinkSpec {
@@ -364,6 +364,14 @@ fn invalid_multi_sink_plan_fails_before_opening_source_or_sinks() {
     );
     assert_eq!(
         DirectRunner
+            .run_sinks(&pipeline, &["a"], &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+    assert_eq!(
+        DirectRunner
             .run_sinks(&pipeline, &["a", "missing"], &JobConfig::default())
             .err()
             .unwrap()
@@ -372,6 +380,392 @@ fn invalid_multi_sink_plan_fails_before_opening_source_or_sinks() {
     );
     assert_eq!(opens.load(Ordering::SeqCst), 0);
     assert_eq!(sink_opens.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn multi_sink_rejects_uncoded_split_and_declared_finalization_before_opening() {
+    #[derive(Clone)]
+    struct Opaque;
+    impl Element for Opaque {
+        const TYPE_ID: &'static str = "tests/multi-sink-opaque";
+        const CODER_ID: &'static str = "tests/multi-sink-opaque-v1";
+    }
+    let opens = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![Opaque]).unwrap();
+    for key in ["left", "right"] {
+        let opened = Arc::clone(&opens);
+        source
+            .sink_named(key, spec(), move || {
+                opened.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(Capture {
+                    rows: Arc::new(Mutex::new(Vec::new())),
+                    pending: Vec::new(),
+                }))
+            })
+            .unwrap();
+    }
+    let error = DirectRunner
+        .run_sinks(&pipeline, &["left", "right"], &JobConfig::default())
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    assert_eq!(opens.load(Ordering::SeqCst), 0);
+
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    let opened = Arc::clone(&opens);
+    source
+        .sink_named_with_config_and_finalization(
+            "finalizing",
+            spec(),
+            "sink-v1".into(),
+            move || {
+                opened.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(Probe {
+                    aborts: Arc::new(AtomicUsize::new(0)),
+                    commits: Arc::new(AtomicUsize::new(0)),
+                    fail_write: false,
+                    fail_commit: false,
+                }))
+            },
+        )
+        .unwrap();
+    source
+        .sink_named("other", spec(), || {
+            Ok(Box::new(Probe {
+                aborts: Arc::new(AtomicUsize::new(0)),
+                commits: Arc::new(AtomicUsize::new(0)),
+                fail_write: false,
+                fail_commit: false,
+            }))
+        })
+        .unwrap();
+    let error = DirectRunner
+        .run_sinks(&pipeline, &["finalizing", "other"], &JobConfig::default())
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    assert_eq!(opens.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn multi_sink_rejects_non_idempotent_commit_contracts_before_opening() {
+    for invalid in [
+        SinkSpec {
+            mode: SinkMode::Update,
+            ..spec()
+        },
+        SinkSpec {
+            commit: false,
+            ..spec()
+        },
+        SinkSpec {
+            replay: Replay::AtLeastOnce,
+            ..spec()
+        },
+    ] {
+        let opens = Arc::new(AtomicUsize::new(0));
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+        for (key, sink_spec) in [("invalid", invalid), ("valid", spec())] {
+            let opened = Arc::clone(&opens);
+            source
+                .sink_named(key, sink_spec, move || {
+                    opened.fetch_add(1, Ordering::SeqCst);
+                    Ok(Box::new(Probe {
+                        aborts: Arc::new(AtomicUsize::new(0)),
+                        commits: Arc::new(AtomicUsize::new(0)),
+                        fail_write: false,
+                        fail_commit: false,
+                    }))
+                })
+                .unwrap();
+        }
+        assert!(matches!(
+            DirectRunner
+                .run_sinks(&pipeline, &["invalid", "valid"], &JobConfig::default())
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::UnsupportedCapability { .. }
+        ));
+        assert_eq!(opens.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[test]
+fn multi_sink_cancellation_after_first_write_aborts_every_session() {
+    struct CancelOnWrite {
+        cancellation: Arc<AtomicBool>,
+        aborts: Arc<AtomicUsize>,
+        commits: Arc<AtomicUsize>,
+    }
+    impl TypedSink<i32> for CancelOnWrite {
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            self.cancellation.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            self.commits.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.aborts.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let aborts = Arc::new(AtomicUsize::new(0));
+    let commits = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    let cancel = Arc::clone(&cancellation);
+    let aborted = Arc::clone(&aborts);
+    let committed = Arc::clone(&commits);
+    source
+        .sink_named("cancel", spec(), move || {
+            Ok(Box::new(CancelOnWrite {
+                cancellation: Arc::clone(&cancel),
+                aborts: Arc::clone(&aborted),
+                commits: Arc::clone(&committed),
+            }))
+        })
+        .unwrap();
+    let aborted = Arc::clone(&aborts);
+    let committed = Arc::clone(&commits);
+    source
+        .sink_named("other", spec(), move || {
+            Ok(Box::new(Probe {
+                aborts: Arc::clone(&aborted),
+                commits: Arc::clone(&committed),
+                fail_write: false,
+                fail_commit: false,
+            }))
+        })
+        .unwrap();
+    let error = DirectRunner
+        .run_sinks(
+            &pipeline,
+            &["cancel", "other"],
+            &JobConfig {
+                cancellation,
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Cancelled);
+    assert_eq!(aborts.load(Ordering::SeqCst), 2);
+    assert_eq!(commits.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn multi_sink_cancellation_after_source_end_aborts_before_commit() {
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let aborts = Arc::new(AtomicUsize::new(0));
+    let commits = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let token = Arc::clone(&cancellation);
+    let source = pipeline
+        .bounded_source_with_semantic::<i32>(
+            "source",
+            "tests/multi-sink-cancel-before-commit",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "source-v1".into(),
+            None,
+            move || {
+                let token = Arc::clone(&token);
+                let mut emitted = 0;
+                Ok(Box::new(std::iter::from_fn(move || {
+                    if emitted == 2 {
+                        token.store(true, Ordering::SeqCst);
+                        None
+                    } else {
+                        emitted += 1;
+                        Some(Ok(1))
+                    }
+                })) as TypedSourceIterator<i32>)
+            },
+        )
+        .unwrap();
+    for key in ["first", "second"] {
+        let aborted = Arc::clone(&aborts);
+        let committed = Arc::clone(&commits);
+        source
+            .sink_named(key, spec(), move || {
+                Ok(Box::new(Probe {
+                    aborts: Arc::clone(&aborted),
+                    commits: Arc::clone(&committed),
+                    fail_write: false,
+                    fail_commit: false,
+                }))
+            })
+            .unwrap();
+    }
+    let error = DirectRunner
+        .run_sinks(
+            &pipeline,
+            &["first", "second"],
+            &JobConfig {
+                buffer_budget_elements: 2,
+                cancellation,
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Cancelled);
+    assert_eq!(aborts.load(Ordering::SeqCst), 2);
+    assert_eq!(commits.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn later_sink_factory_failure_aborts_open_session_before_source_runs() {
+    let aborts = Arc::new(AtomicUsize::new(0));
+    let commits = Arc::new(AtomicUsize::new(0));
+    let source_opens = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let opened = Arc::clone(&source_opens);
+    let source = pipeline
+        .bounded_source_with_semantic::<i32>(
+            "source",
+            "tests/multi-sink-factory-failure",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "source-v1".into(),
+            Some(1),
+            move || {
+                opened.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(std::iter::once(Ok(1))) as TypedSourceIterator<i32>)
+            },
+        )
+        .unwrap();
+    let aborted = Arc::clone(&aborts);
+    let committed = Arc::clone(&commits);
+    source
+        .sink_named("first", spec(), move || {
+            Ok(Box::new(Probe {
+                aborts: Arc::clone(&aborted),
+                commits: Arc::clone(&committed),
+                fail_write: false,
+                fail_commit: false,
+            }))
+        })
+        .unwrap();
+    source
+        .sink_named("broken", spec(), || {
+            Err(Error::execution("broken", "direct", "factory failed"))
+        })
+        .unwrap();
+    let error = DirectRunner
+        .run_sinks(&pipeline, &["first", "broken"], &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(aborts.load(Ordering::SeqCst), 1);
+    assert_eq!(commits.load(Ordering::SeqCst), 0);
+    assert_eq!(source_opens.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn multi_sink_rejects_undeclared_bundle_finalization_and_oversized_expansion() {
+    struct FinalizingProbe(Arc<AtomicUsize>);
+    impl TypedSink<i32> for FinalizingProbe {
+        fn write(&mut self, _: i32) -> Result<(), Error> {
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn requires_bundle_finalization(&self) -> bool {
+            true
+        }
+    }
+
+    let aborts = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    let aborted = Arc::clone(&aborts);
+    source
+        .sink_named("finalizing", spec(), move || {
+            Ok(Box::new(FinalizingProbe(Arc::clone(&aborted))))
+        })
+        .unwrap();
+    source
+        .sink_named("other", spec(), || {
+            Ok(Box::new(Probe {
+                aborts: Arc::new(AtomicUsize::new(0)),
+                commits: Arc::new(AtomicUsize::new(0)),
+                fail_write: false,
+                fail_commit: false,
+            }))
+        })
+        .unwrap();
+    assert!(matches!(
+        DirectRunner
+            .run_sinks(&pipeline, &["finalizing", "other"], &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    assert_eq!(aborts.load(Ordering::SeqCst), 1);
+
+    let pipeline = Pipeline::default();
+    let expanded = pipeline
+        .from_vec("source", vec![1_i32])
+        .unwrap()
+        .flat_map_named("expand", |value| vec![value, value + 1, value + 2])
+        .unwrap();
+    let aborts = Arc::new(AtomicUsize::new(0));
+    for key in ["left", "right"] {
+        let aborted = Arc::clone(&aborts);
+        expanded
+            .sink_named(key, spec(), move || {
+                Ok(Box::new(Probe {
+                    aborts: Arc::clone(&aborted),
+                    commits: Arc::new(AtomicUsize::new(0)),
+                    fail_write: false,
+                    fail_commit: false,
+                }))
+            })
+            .unwrap();
+    }
+    assert_eq!(
+        DirectRunner
+            .run_sinks(
+                &pipeline,
+                &["left", "right"],
+                &JobConfig {
+                    buffer_budget_elements: 2,
+                    ..JobConfig::default()
+                },
+            )
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+    assert_eq!(aborts.load(Ordering::SeqCst), 2);
 }
 
 #[test]

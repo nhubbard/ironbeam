@@ -688,6 +688,172 @@ mod tests {
     }
 
     #[test]
+    fn grouped_state_rejects_invalid_digest_missing_blob_and_corrupt_retry() {
+        for invalid_hash in [
+            String::from("../outside"),
+            "0".repeat(64),
+            "A".repeat(64),
+            format!("{}g", "0".repeat(63)),
+        ] {
+            let temporary = tempfile::tempdir().unwrap();
+            let checkpoint = checkpoint(temporary.path(), "sink");
+            checkpoint.save_state(&signal(), b"fold", 1024).unwrap();
+            let mut manifest = checkpoint.load_at(&checkpoint.path).unwrap().unwrap();
+            manifest.state.as_mut().unwrap().hash = invalid_hash;
+            manifest.checksum = checksum(
+                manifest.version,
+                &manifest.identity,
+                &manifest.progress,
+                manifest.state.as_ref(),
+            )
+            .unwrap();
+            fs::write(&checkpoint.path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+            assert_eq!(
+                checkpoint.load_state(1024).unwrap_err().kind,
+                ErrorKind::Recovery
+            );
+        }
+
+        let temporary = tempfile::tempdir().unwrap();
+        let checkpoint = checkpoint(temporary.path(), "sink");
+        assert_eq!(
+            checkpoint
+                .save_state(&signal(), b"fold", 3)
+                .unwrap_err()
+                .kind,
+            ErrorKind::Resource
+        );
+        assert!(checkpoint.load_state(1024).unwrap().is_none());
+        checkpoint.save_state(&signal(), b"fold", 1024).unwrap();
+        checkpoint.save_state(&signal(), b"fold", 1024).unwrap();
+        let state = checkpoint
+            .load_at(&checkpoint.path)
+            .unwrap()
+            .unwrap()
+            .state
+            .unwrap();
+        fs::write(checkpoint.state_path(&state).unwrap(), b"evil").unwrap();
+        assert_eq!(
+            checkpoint.load_state(1024).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+        assert_eq!(
+            checkpoint
+                .save_state(&signal(), b"fold", 1024)
+                .unwrap_err()
+                .kind,
+            ErrorKind::Recovery
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn grouped_state_and_history_symlinks_fail_closed() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: temporary.path().into(),
+            max_checkpoints: 2,
+            binary_build_id: "test-build".into(),
+            ..CheckpointConfig::default()
+        };
+        let checkpoint =
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                .unwrap();
+        checkpoint.save_state(&signal(), b"fold", 1024).unwrap();
+        let state = checkpoint
+            .load_at(&checkpoint.path)
+            .unwrap()
+            .unwrap()
+            .state
+            .unwrap();
+        let state_path = checkpoint.state_path(&state).unwrap();
+        let outside = temporary.path().join("outside");
+        fs::write(&outside, b"fold").unwrap();
+        fs::remove_file(&state_path).unwrap();
+        std::os::unix::fs::symlink(&outside, &state_path).unwrap();
+        assert_eq!(
+            checkpoint.load_state(1024).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+        assert_eq!(fs::read(&outside).unwrap(), b"fold");
+
+        fs::remove_file(&state_path).unwrap();
+        fs::write(&state_path, b"fold").unwrap();
+        let history = checkpoint.slot_path(1);
+        std::os::unix::fs::symlink(&outside, &history).unwrap();
+        let mut next = signal();
+        next.checkpoint_position = Some(vec![5]);
+        assert_eq!(
+            checkpoint.save(&next).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+        assert_eq!(checkpoint.load().unwrap(), Some(signal()));
+        assert_eq!(fs::read(&outside).unwrap(), b"fold");
+    }
+
+    #[test]
+    fn grouped_state_rejects_wrong_blob_size_before_decoding() {
+        let temporary = tempfile::tempdir().unwrap();
+        let checkpoint = checkpoint(temporary.path(), "sink");
+        checkpoint.save_state(&signal(), b"fold", 1024).unwrap();
+        let state = checkpoint
+            .load_at(&checkpoint.path)
+            .unwrap()
+            .unwrap()
+            .state
+            .unwrap();
+        let path = checkpoint.state_path(&state).unwrap();
+        fs::write(&path, b"short").unwrap();
+        assert_eq!(
+            checkpoint.load_state(1024).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+        assert_eq!(
+            checkpoint.read_state(&state, 1024).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert_eq!(
+            checkpoint.read_state(&state, 1024).unwrap_err().kind,
+            ErrorKind::Recovery
+        );
+    }
+
+    #[test]
+    fn grouped_state_pruning_preserves_files_outside_the_state_namespace() {
+        let temporary = tempfile::tempdir().unwrap();
+        let checkpoint = checkpoint(temporary.path(), "sink");
+        checkpoint.save_state(&signal(), b"old-fold", 1024).unwrap();
+        let old = checkpoint
+            .load_at(&checkpoint.path)
+            .unwrap()
+            .unwrap()
+            .state
+            .unwrap();
+        let protected = [
+            "stream-state-short.bin".to_owned(),
+            format!("stream-state-{}.bin", "G".repeat(64)),
+            format!("stream-state-{}.bin", "A".repeat(64)),
+            format!("stream-state-{}.tmp", "0".repeat(64)),
+        ];
+        for name in &protected {
+            fs::write(temporary.path().join(name), b"unrelated").unwrap();
+        }
+        let mut next = signal();
+        next.checkpoint_position = Some(vec![5]);
+        checkpoint.save_state(&next, b"new-fold", 1024).unwrap();
+        assert!(!checkpoint.state_path(&old).unwrap().exists());
+        for name in &protected {
+            assert_eq!(fs::read(temporary.path().join(name)).unwrap(), b"unrelated");
+        }
+        assert_eq!(
+            checkpoint.load_state(1024).unwrap(),
+            Some((next, b"new-fold".to_vec()))
+        );
+    }
+
+    #[test]
     fn stream_checkpoint_crash_child() {
         let Ok(directory) = std::env::var("IRONBEAM_STREAM_CHECKPOINT_CHILD_DIRECTORY") else {
             return;
