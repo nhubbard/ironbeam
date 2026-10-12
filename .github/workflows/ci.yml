@@ -62,7 +62,7 @@ jobs:
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
-          cargo clippy -p ironbeam-compression -p ironbeam-coder-postcard -p ironbeam-cloud-objects -p ironbeam-cloud-service-api -p ironbeam-cloud-fakes -p ironbeam-cloud-ops -p ironbeam-cloud-object-store -p ironbeam-core -p ironbeam-direct -p ironbeam-metrics -p ironbeam-testing -p ironbeam-transforms -p ironbeam-transform-regex -p ironbeam-transform-approx -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
+          cargo clippy -p ironbeam-compression -p ironbeam-coder-postcard -p ironbeam-cloud-objects -p ironbeam-cloud-service-api -p ironbeam-cloud-fakes -p ironbeam-cloud-ops -p ironbeam-cloud-object-store -p ironbeam-cloud-gcp -p ironbeam-core -p ironbeam-direct -p ironbeam-metrics -p ironbeam-testing -p ironbeam-transforms -p ironbeam-transform-regex -p ironbeam-transform-approx -p ironbeam-io -p ironbeam-io-jsonl -p ironbeam-io-protobuf -p ironbeam-io-tfrecord -p ironbeam-io-csv -p ironbeam-io-xml -p ironbeam-io-msgpack -p ironbeam-io-cbor -p ironbeam-io-avro -p ironbeam-io-parquet -p ironbeam-io-arrow -p ironbeam-io-sql -p ironbeam-io-mongodb -p ironbeam-compat --all-targets -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
@@ -439,7 +439,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: '3.13'
       - name: Install Zensical
@@ -448,10 +448,10 @@ jobs:
         run: zensical build --strict --clean --config-file docs/zensical.toml
       - name: Configure GitHub Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6
       - name: Upload documentation site
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5
         with:
           path: docs/site
 
@@ -467,5 +467,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/deploy-pages@v5
+      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5
         id: deployment
