@@ -5625,17 +5625,45 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         }));
         grouped.next(key, Operation::Map, Some(select), None)
     }
+    /// Map equal-length batches of keyed values while retaining each row's
+    /// key and event-time metadata. A size of one runs on unbounded input;
+    /// larger batches require bounded materialization.
     pub fn map_values_batches_named<O: Element>(
         &self,
         key: &str,
         batch_size: usize,
         f: impl Fn(&[V]) -> Vec<O> + Send + Sync + 'static,
     ) -> Result<PCollection<(K, O)>, Error> {
+        let limit = batch_size.max(1);
+        if limit == 1 {
+            let node_key = key.to_owned();
+            let transform = Transform::Single(Arc::new(move |event| {
+                let Envelope {
+                    value,
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                } = event;
+                let (row_key, row_value) = *value.downcast::<(K, V)>().map_err(|_| {
+                    Error::execution(&node_key, "direct", "batch keyed input type mismatch")
+                })?;
+                let mapped = f(std::slice::from_ref(&row_value));
+                let [mapped]: [O; 1] = mapped.try_into().map_err(|_| {
+                    Error::execution(&node_key, "direct", "batch value map changed length")
+                })?;
+                Ok(Some(Envelope {
+                    value: Box::new((row_key, mapped)),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                }))
+            }));
+            return self.next(key, Operation::Map, Some(transform), None);
+        }
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded {
             return Err(Error::graph(key, "batch mapping requires a bounded input"));
         }
-        let limit = batch_size.max(1);
         let node_key = key.to_owned();
         let aggregate: Aggregate = Arc::new(move |mut inputs| {
             let events = inputs

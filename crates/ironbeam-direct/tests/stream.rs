@@ -1238,6 +1238,80 @@ fn singleton_batch_helper_runs_on_unbounded_direct_input() {
     assert_eq!(*committed.lock().unwrap(), [3, -3, 4, -4]);
 }
 
+#[test]
+fn singleton_keyed_batch_map_preserves_unbounded_event_time() {
+    struct PairScript {
+        polls: VecDeque<UnboundedPoll<Timestamped<(i32, i32)>>>,
+    }
+    impl UnboundedSource<Timestamped<(i32, i32)>> for PairScript {
+        fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<(i32, i32)>>, Error> {
+            Ok(self.polls.pop_front().unwrap_or(UnboundedPoll::Pending))
+        }
+    }
+    let pair_batch = |value, cursor, completed| {
+        UnboundedPoll::Ready(UnboundedBatch {
+            elements: vec![Timestamped {
+                value,
+                timestamp_ns: i64::from(cursor) * 100,
+            }],
+            progress: signal(cursor, completed),
+        })
+    };
+    let temporary = tempfile::tempdir().unwrap();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "keyed-batch-source-v1".into(),
+            0,
+            move |_| {
+                Ok(Box::new(PairScript {
+                    polls: vec![pair_batch((1, 3), 1, false), pair_batch((2, 4), 2, true)].into(),
+                }) as TypedUnboundedSourceReader<(i32, i32)>)
+            },
+        )
+        .unwrap()
+        .map_values_batches_named("keyed-single", 1, |values| vec![values[0] * 2])
+        .unwrap()
+        .reify_timestamps_named("keyed-time")
+        .unwrap()
+        .map_named("keyed-capture", |(time, (key, value))| {
+            i32::try_from(time).unwrap() + key * 100 + value
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "keyed-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "keyed-batch-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let job = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap();
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(*committed.lock().unwrap(), [206, 408]);
+}
+
 #[derive(Clone, Copy)]
 enum Fault {
     SourceFactory,

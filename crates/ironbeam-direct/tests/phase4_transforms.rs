@@ -1387,6 +1387,11 @@ fn bounded_batch_helpers_keep_chunks_and_key_groups() {
         .unwrap()
         .output("batch-wrong-length-out")
         .unwrap();
+    let wrong_single = keyed
+        .map_values_batches_named("batch-wrong-single", 1, |_| Vec::<i32>::new())
+        .unwrap()
+        .output("batch-wrong-single-out")
+        .unwrap();
     for parallelism in [1, 3] {
         let config = JobConfig {
             parallelism,
@@ -1423,6 +1428,14 @@ fn bounded_batch_helpers_keep_chunks_and_key_groups() {
         assert_eq!(
             DirectRunner
                 .run_collect(&wrong_length, &config)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Execution
+        );
+        assert_eq!(
+            DirectRunner
+                .run_collect(&wrong_single, &config)
                 .err()
                 .unwrap()
                 .kind,
