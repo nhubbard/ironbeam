@@ -35,7 +35,7 @@ below is complete.
 | Gate | Done when |
 | --- | --- |
 | ☐ Unbounded recovery | Extend the passing Fn Data process restart proof to a supervised live Prism restart and cover the remaining graph shapes. |
-| ☐ Output durability | The runner-wide commit contract passes successful retry and restart proofs, and v4 checkpoint-policy replacements are decided. Shared final-result publication now requires an exact attempt manifest; the portable proof obtains it from the completed journal. A live failed bundle already proves abort cleanup. |
+| ☐ Output durability | The runner-wide commit contract passes successful retry and restart proofs, and v4 checkpoint-policy behavior is implemented or an intentional change is approved. Shared final-result publication now requires an exact attempt manifest; the portable proof obtains it from the completed journal. A live failed bundle already proves abort cleanup. |
 
 ### Packaging and release quality
 
@@ -64,6 +64,8 @@ below is complete.
 | Fresh Prism regression | The full 19-test live corpus and separate native Arrow proof passed again on 2026-10-11 against Prism built from the local Beam clone, after the publication-plan guard was added. |
 | Final-result manifest binding | All shared final-result publishers reject an unbound store, including empty output. The live Prism corpus and Arrow proof passed after their stores were bound to the completed job journal's exact attempts. Local format tests and strict lint passed. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch. A separate final-result proof now checks that the journal refuses publication after staging and a wrong-build restart, then supplies the exact completed attempt after recovery and a duplicate callback. The full harness suite and warning-free lint pass. |
+| Side-input runner agreement | The same bounded, windowed side-input graph now runs on Direct and live Prism. Their sorted output values match; Prism also matches the fixture's exact three rows. |
+| Checkpoint policy audit | The [migration guide](V4_TO_V5_MIGRATION.md#checkpoint-policy-migration) maps v4 settings to current v5 Direct behavior. Node-count, elapsed-time, graph-barrier, and retention policies have no exact replacement yet; this remains an open release parity decision. |
 | Separate Dataflow workspace | The full harness suite and doctests pass after publication-plan validation rejects a Beam transform that requests finalization but is absent from the declared sink set. The changed harness passes warning-free lint. |
 | Current coverage | A clean isolated 2026-10-11 run with untouched branch sites counted reports core **3,146/3,258 locations (96.56%) / 487/562 branches (86.65%)**, Direct **3,936/4,209 (93.51%) / 841/932 (90.24%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. All three packages pass their existing floors. |
 | Paired streaming progress | A Direct unbounded source emits an empty progress poll, a data poll, and an empty completion poll to two idempotent sinks. Both sinks receive exactly one row; the final checkpoint retains the source cursor, event time, and completion. |

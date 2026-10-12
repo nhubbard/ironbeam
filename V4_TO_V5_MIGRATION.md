@@ -136,6 +136,27 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 | `coders` | Enables the opt-in `ironbeam-coder-postcard` crate and reexports `impl_postcard_element!(Type, "stable/type/v1")` from `ironbeam::v5`. Serde records can use this macro instead of hand-writing `Element`; wire changes require a new coder ID. V5 keeps an explicit `Element` contract rather than v4's global Serde bound. |
 | `default` | The v5-only root defaults to core, Direct runner, common transforms, shared I/O, and JSONL. Other formats remain opt-in. Use published Ironbeam 4.1.1 or `ironbeam-compat` to compare old behavior. |
 
+### Checkpoint policy migration
+
+V4's checkpoint policies schedule **progress markers by graph node, barrier, or
+elapsed time**. Its type-erased intermediate partitions are not restored from
+those markers; recovery re-executes the graph. V5 Direct checkpoints coded
+output or fold state at supported batch boundaries and checks graph, source,
+coder, and binary identity before recovery. V4 checkpoint files cannot be
+loaded as v5 state.
+
+| V4 setting | V5 Direct status |
+| --- | --- |
+| `enabled` | `JobConfig::checkpoint: Some(CheckpointConfig)` enables checkpoints; `None` disables them. |
+| `auto_recover` | `CheckpointConfig::recover` controls loading the latest checkpoint. |
+| `AfterEveryBarrier` | `interval_batches: 1` saves at every supported batch boundary, but is not an exact graph-barrier schedule. |
+| `EveryNNodes(n)` | `interval_batches: n` counts processed source batches, not completed graph nodes. There is no exact node-count policy yet. |
+| `TimeInterval(secs)` and `Hybrid` | No elapsed-time checkpoint schedule exists yet. Streaming requires an interval of one batch and saves on source progress or completion. |
+| `max_checkpoints` | V5 currently keeps one latest checkpoint in the configured directory; give independent jobs separate directories. It has no configurable history or fallback to an older snapshot. |
+
+The node, barrier, time, and retention differences remain release parity work;
+changing `interval_batches` alone does not reproduce those v4 policies.
+
 Sequential elementwise output is compared in order in the migration tests. Grouped, joined, sampled, and parallel results should be compared as multisets unless the operation documents an order. V5 validates boundedness and backend capabilities before opening sources or sinks. V5 graph, coder, and checkpoint versions are independent; unsupported versions fail explicitly rather than being interpreted as v4 state.
 
 ## Release boundary
