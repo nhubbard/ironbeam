@@ -110,7 +110,10 @@ pub trait ObjectIO: Send + Sync {
     /// Returns an error if the object doesn't exist, permissions are not enough, or the deletion fails
     fn delete_object(&self, bucket: &str, key: &str) -> CloudResult<()>;
 
-    /// List objects with a prefix
+    /// List objects with a prefix. Final-result publication relies on this
+    /// listing converging with completed conditional writes and deletes; a
+    /// stale listing can delay publication, while fragment checksums and the
+    /// completed attempt manifest protect the published bytes.
     ///
     /// # Errors
     ///
