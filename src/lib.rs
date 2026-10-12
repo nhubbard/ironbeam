@@ -37,7 +37,7 @@ pub mod v5 {
     pub use ironbeam_core::*;
     pub use ironbeam_direct::{
         CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobMetrics,
-        JobStatus, PairResult, Partition3, Partition4, PlanSummary, SpillConfig,
+        JobStatus, PairResult, Partition3, Partition4, PlanDecision, PlanSummary, SpillConfig,
     };
     pub use ironbeam_io::*;
     #[cfg(feature = "v5-io-arrow")]

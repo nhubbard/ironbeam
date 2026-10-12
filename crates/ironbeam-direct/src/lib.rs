@@ -19,7 +19,7 @@ pub use helpers::{
     Partitioned3, Partitioned4,
 };
 pub use metrics::JobMetrics;
-pub use planner::PlanSummary;
+pub use planner::{PlanDecision, PlanSummary};
 pub use spill::SpillConfig;
 pub use stream::StreamJob;
 

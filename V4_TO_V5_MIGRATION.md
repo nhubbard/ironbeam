@@ -46,7 +46,7 @@ runner state.
 | --- | --- | --- |
 | `Pipeline`, `PCollection<T>` | `ironbeam_core::{Pipeline, PCollection<T>}` | Separate graph and element types; no type cast or graph conversion. |
 | `from_vec(&pipeline, values)` | `pipeline.from_vec(key, values)` or `ironbeam_compat::from_vec(&pipeline, key, values)` | Stable source key is required; construction can fail. |
-| `build_plan(&pipeline, node_id)?.explain()` | `DirectRunner.explain(&output, &JobConfig::default())?.explain()` | A named `Output` selects the terminal. V5 reports the execution path, route and batch estimates, and graph fingerprint; v4's individual optimization decisions are not yet ported. |
+| `build_plan(&pipeline, node_id)?.explain()` | `DirectRunner.explain(&output, &JobConfig::default())?.explain()` | A named `Output` selects the terminal. V5 reports the execution path, route and batch estimates, graph fingerprint, and `PlanDecision` entries for pruning, materialization, and stateless fusion. V4-specific optimization decisions appear only if v5 actually implements the corresponding pass. |
 | `.map(f)`, `.filter(f)`, `.flat_map(f)` | `.map_named(key, f)`, `.filter_named(key, f)`, `.flat_map_named(key, f)` | Values, keys, and graph errors are explicit. |
 | `.key_by(f)`, `.group_by_key()` | `ElementwiseExt::key_by_named(key, f)`, `PCollection::group_by_key_named(key)` | Import `ironbeam_transforms::ElementwiseExt` for `key_by_named`. |
 | `.count_globally()`, `.distinct()`, `.sum_globally()` and related helpers | `ElementwiseExt` / `KeyedExt` methods such as `.count_globally_named(key)` | `ironbeam::v5::prelude` imports v5 helper extension traits and Direct collection terminals without a v4 dependency; individual traits can also be imported from `ironbeam_transforms`. |

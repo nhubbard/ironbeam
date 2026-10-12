@@ -1,6 +1,22 @@
 //! Direct-only lowering and stateless fusion.
 use ironbeam_core::{Error, Graph, Operation, Registry};
 
+/// A physical planning choice made while lowering the selected Direct output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PlanDecision {
+    PrunedNodes {
+        keys: Vec<String>,
+    },
+    MaterializationBarrier {
+        key: String,
+        semantic_id: String,
+    },
+    FusedStatelessRoute {
+        source_key: String,
+        operations: Vec<String>,
+    },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlanSummary {
     pub source_key: String,
@@ -13,13 +29,14 @@ pub struct PlanSummary {
     pub graph_fingerprint: String,
     pub routes: usize,
     pub materialized: bool,
+    pub decisions: Vec<PlanDecision>,
 }
 
 impl PlanSummary {
     /// Describe the selected Direct plan without opening any source.
     #[must_use]
     pub fn explain(&self) -> String {
-        format!(
+        let mut description = format!(
             "Direct plan: {} -> {}\nGraph: {}\nExecution: {}\nOperations: {}\nFused stages: {}\nSource routes: {}\nBatch limit: {}\nSource length hint: {}\nEstimated partitions: {}",
             self.source_key,
             self.output_key,
@@ -37,7 +54,34 @@ impl PlanSummary {
                 .map_or_else(|| "unknown".to_owned(), |value| value.to_string()),
             self.estimated_partitions
                 .map_or_else(|| "unknown".to_owned(), |value| value.to_string()),
-        )
+        );
+        description.push_str("\nDecisions:");
+        if self.decisions.is_empty() {
+            description.push_str(" none");
+        }
+        for decision in &self.decisions {
+            match decision {
+                PlanDecision::PrunedNodes { keys } => {
+                    description
+                        .push_str(&format!("\n  Pruned unselected nodes: {}", keys.join(", ")));
+                }
+                PlanDecision::MaterializationBarrier { key, semantic_id } => {
+                    description.push_str(&format!(
+                        "\n  Materialization barrier: {key} ({semantic_id})"
+                    ));
+                }
+                PlanDecision::FusedStatelessRoute {
+                    source_key,
+                    operations,
+                } => {
+                    description.push_str(&format!(
+                        "\n  Fused stateless route from {source_key}: {}",
+                        operations.join(" -> ")
+                    ));
+                }
+            }
+        }
+        description
     }
 }
 
@@ -69,28 +113,30 @@ pub(crate) fn lower(
     }
     let mut selected = std::collections::BTreeSet::new();
     collect_dependencies(graph, output_key, &mut selected)?;
-    let materialized = selected.iter().any(|key| {
-        graph.node(key).is_some_and(|node| {
-            matches!(
-                node.operation,
-                Operation::GroupByKey
-                    | Operation::Reshuffle
-                    | Operation::WaitOn
-                    | Operation::CoGroupByKey
-                    | Operation::JoinInner
-                    | Operation::JoinLeft
-                    | Operation::JoinRight
-                    | Operation::JoinFull
-                    | Operation::SideInputMap
-                    | Operation::GlobalCombine
-                    | Operation::FoldGlobal
-                    | Operation::FoldPerKey
-                    | Operation::FoldOrderedGlobal
-                    | Operation::FoldOrderedPerKey
-                    | Operation::BatchMapValues { .. }
-            )
-        })
-    });
+    let mut decisions = Vec::new();
+    let mut pruned = graph
+        .nodes
+        .iter()
+        .filter(|node| !selected.contains(&node.key))
+        .map(|node| node.key.clone())
+        .collect::<Vec<_>>();
+    if !pruned.is_empty() {
+        pruned.sort();
+        decisions.push(PlanDecision::PrunedNodes { keys: pruned });
+    }
+    for key in &selected {
+        if let Some(node) = graph.node(key)
+            && requires_materialization(&node.operation)
+        {
+            decisions.push(PlanDecision::MaterializationBarrier {
+                key: key.clone(),
+                semantic_id: node.semantic_id.clone(),
+            });
+        }
+    }
+    let materialized = decisions
+        .iter()
+        .any(|decision| matches!(decision, PlanDecision::MaterializationBarrier { .. }));
     if materialized {
         let sources: Vec<_> = selected
             .iter()
@@ -141,6 +187,7 @@ pub(crate) fn lower(
                 graph_fingerprint: graph.fingerprint()?,
                 routes: sources.len(),
                 materialized: true,
+                decisions,
             },
             routes: Vec::new(),
             materialized: true,
@@ -183,12 +230,45 @@ pub(crate) fn lower(
         graph_fingerprint: graph.fingerprint()?,
         routes: routes.len(),
         materialized: false,
+        decisions: {
+            decisions.extend(
+                routes
+                    .iter()
+                    .filter(|route| route.operations.len() >= 2)
+                    .map(|route| PlanDecision::FusedStatelessRoute {
+                        source_key: route.source_key.clone(),
+                        operations: route.operations.clone(),
+                    }),
+            );
+            decisions
+        },
     };
     Ok(PhysicalPlan {
         summary,
         routes,
         materialized: false,
     })
+}
+
+fn requires_materialization(operation: &Operation) -> bool {
+    matches!(
+        operation,
+        Operation::GroupByKey
+            | Operation::Reshuffle
+            | Operation::WaitOn
+            | Operation::CoGroupByKey
+            | Operation::JoinInner
+            | Operation::JoinLeft
+            | Operation::JoinRight
+            | Operation::JoinFull
+            | Operation::SideInputMap
+            | Operation::GlobalCombine
+            | Operation::FoldGlobal
+            | Operation::FoldPerKey
+            | Operation::FoldOrderedGlobal
+            | Operation::FoldOrderedPerKey
+            | Operation::BatchMapValues { .. }
+    )
 }
 
 fn collect_dependencies(
@@ -315,5 +395,57 @@ mod tests {
             .unwrap()
             .operation = Operation::GlobalCombine;
         assert!(lower(&broken, &registry, "out", 1).unwrap().materialized);
+    }
+
+    #[test]
+    fn explain_reports_only_decisions_the_selected_plan_makes() {
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();
+        source.map_named("unused", |value| value + 10).unwrap();
+        source
+            .map_named("double", |value| value * 2)
+            .unwrap()
+            .filter_named("even", |value| value % 2 == 0)
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let (graph, registry) = pipeline.snapshot().unwrap();
+        let summary = lower(&graph, &registry, "out", 1).unwrap().summary;
+        assert!(!summary.materialized);
+        assert_eq!(
+            summary.decisions,
+            vec![
+                PlanDecision::PrunedNodes {
+                    keys: vec!["unused".into()],
+                },
+                PlanDecision::FusedStatelessRoute {
+                    source_key: "source".into(),
+                    operations: vec!["double".into(), "even".into()],
+                },
+            ]
+        );
+        let explanation = summary.explain();
+        assert!(explanation.contains("Pruned unselected nodes: unused"));
+        assert!(explanation.contains("Fused stateless route from source: double -> even"));
+        assert!(!explanation.contains("Materialization barrier"));
+    }
+
+    #[test]
+    fn explain_identifies_the_materializing_operation() {
+        let pipeline = Pipeline::default();
+        pipeline
+            .from_vec("source", vec![(1_i32, 2_i32)])
+            .unwrap()
+            .group_by_key_named("group")
+            .unwrap()
+            .output("out")
+            .unwrap();
+        let (graph, registry) = pipeline.snapshot().unwrap();
+        let summary = lower(&graph, &registry, "out", 2).unwrap().summary;
+        assert!(summary.materialized);
+        assert!(summary.decisions.iter().any(|decision| {
+            matches!(decision, PlanDecision::MaterializationBarrier { key, .. } if key == "group")
+        }));
+        assert!(summary.explain().contains("Materialization barrier: group"));
     }
 }
