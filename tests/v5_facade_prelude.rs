@@ -1,4 +1,5 @@
 use ironbeam::v5::{Pipeline, Version, prelude::*};
+use std::sync::Arc;
 
 #[test]
 fn facade_runs_versioned_semantic_handlers() {
@@ -45,6 +46,32 @@ fn facade_exposes_owned_partition_transform() {
                 values.reverse();
                 values
             },
+        )
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(values, [3, 2, 1]);
+}
+
+#[test]
+fn facade_exposes_reusable_dynamic_partition_transform() {
+    struct Reverse;
+    impl ironbeam::v5::DynOp for Reverse {
+        fn apply(&self, input: ironbeam::v5::Partition) -> ironbeam::v5::Partition {
+            let mut values = *input.downcast::<Vec<i32>>().unwrap();
+            values.reverse();
+            Box::new(values)
+        }
+    }
+    let values = Pipeline::default()
+        .from_vec("source", vec![1_i32, 2, 3])
+        .unwrap()
+        .apply_dyn_transform_with_semantic_named::<i32>(
+            "reverse-dyn",
+            3,
+            "user/reverse-dyn",
+            Version { major: 1, minor: 0 },
+            Arc::new(Reverse),
         )
         .unwrap()
         .collect_seq()

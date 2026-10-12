@@ -71,6 +71,38 @@ pub trait Element: Send + 'static {
         Err(Error::unsupported(Self::TYPE_ID, "direct", "element-coder"))
     }
 }
+
+/// An owned partition passed to a reusable dynamic operator.
+pub type Partition = Box<dyn Any + Send + Sync>;
+
+/// A v4-style reusable operator over one partition. The v5 graph binds each
+/// registration to an application semantic ID and version; the runner does not
+/// infer those from the compiled operator. Planner hints are retained for API
+/// migration, but the v5 planner does not yet reorder operations using them.
+pub trait DynOp: Send + Sync {
+    fn apply(&self, input: Partition) -> Partition;
+    fn key_preserving(&self) -> bool {
+        false
+    }
+    fn value_only(&self) -> bool {
+        false
+    }
+    fn reorder_safe_with_value_only(&self) -> bool {
+        false
+    }
+    fn cost_hint(&self) -> u8 {
+        10
+    }
+    fn cardinality_reducing(&self) -> bool {
+        false
+    }
+    fn limit_n(&self) -> Option<usize> {
+        None
+    }
+    fn cardinality_multiplier_hint(&self) -> f64 {
+        1.0
+    }
+}
 macro_rules! integer_element {
     ($type:ty, $id:literal, $coder:literal, $size:expr) => {
         impl Element for $type {
@@ -4320,6 +4352,61 @@ impl<T: Element> PCollection<T> {
         Self::validate_semantic_handler(key, semantic_id, version)?;
         self.batch_elements_named(&format!("{key}/batches"), batch_size)?
             .flat_map_with_semantic_named(key, semantic_id, version, f)
+    }
+    /// Register a reusable v4-style partition operator with a portable
+    /// application identity. The same operator must be registered by the
+    /// worker. Batch size is explicit because physical partitions differ
+    /// between runners.
+    pub fn apply_dyn_transform_with_semantic_named<U: Element + Sync>(
+        &self,
+        key: &str,
+        batch_size: usize,
+        semantic_id: &str,
+        version: Version,
+        op: Arc<dyn DynOp>,
+    ) -> Result<PCollection<U>, Error>
+    where
+        T: Sync,
+    {
+        if batch_size == 0 {
+            return Err(Error::graph(key, "semantic batch size must be positive"));
+        }
+        Self::validate_semantic_handler(key, semantic_id, version)?;
+        let key_owned = key.to_owned();
+        let transform = Transform::Multi(Arc::new(move |event| {
+            let Envelope {
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let input = value.downcast::<Vec<T>>().map_err(|_| {
+                Error::execution(&key_owned, "direct", "partition input type mismatch")
+            })?;
+            let output = op
+                .apply(Box::new(*input))
+                .downcast::<Vec<U>>()
+                .map_err(|_| {
+                    Error::execution(&key_owned, "direct", "partition output type mismatch")
+                })?;
+            Ok((*output)
+                .into_iter()
+                .map(|value| Envelope {
+                    value: Box::new(value) as Payload,
+                    timestamp_ns,
+                    window: window.clone(),
+                    assigned_window,
+                })
+                .collect())
+        }));
+        self.batch_elements_named(&format!("{key}/batches"), batch_size)?
+            .next_with_semantic(
+                key,
+                Operation::FlatMap,
+                Some(transform),
+                None,
+                Some((semantic_id, version)),
+            )
     }
     pub fn batch_by_size_named(
         &self,

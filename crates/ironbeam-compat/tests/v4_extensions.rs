@@ -170,6 +170,15 @@ impl DynOp for ReverseAndRepeatPartition {
     }
 }
 
+impl ironbeam_core::DynOp for ReverseAndRepeatPartition {
+    fn apply(&self, input: ironbeam_core::Partition) -> ironbeam_core::Partition {
+        let mut values = *input.downcast::<Vec<i32>>().unwrap();
+        values.reverse();
+        values.push(values[0]);
+        Box::new(values)
+    }
+}
+
 #[test]
 fn versioned_batch_handler_matches_v4_partition_operator() -> Result<()> {
     let input = vec![1_i32, 2, 3, 4, 5];
@@ -191,6 +200,45 @@ fn versioned_batch_handler_matches_v4_partition_operator() -> Result<()> {
         )?
         .collect_seq()?;
     assert_eq!(current, expected);
+    Ok(())
+}
+
+#[test]
+fn dynamic_partition_operator_matches_v4_and_reports_wrong_output_type() -> Result<()> {
+    let input = vec![1_i32, 2, 3, 4, 5];
+    let old: PCollection<i32> = from_vec(&TestPipeline::new(), input.clone())
+        .apply_transform(Arc::new(ReverseAndRepeatPartition));
+    let current: Vec<i32> = V5Pipeline::default()
+        .from_vec("source", input)?
+        .apply_dyn_transform_with_semantic_named(
+            "reverse-dyn",
+            5,
+            "compat/reverse-dyn",
+            Version { major: 1, minor: 0 },
+            Arc::new(ReverseAndRepeatPartition),
+        )?
+        .collect_seq()?;
+    assert_eq!(current, old.collect_seq()?);
+
+    struct WrongOutput;
+    impl ironbeam_core::DynOp for WrongOutput {
+        fn apply(&self, _input: ironbeam_core::Partition) -> ironbeam_core::Partition {
+            Box::new(vec!["wrong".to_owned()])
+        }
+    }
+    let error = V5Pipeline::default()
+        .from_vec("source", vec![1_i32])?
+        .apply_dyn_transform_with_semantic_named::<i32>(
+            "wrong-output",
+            1,
+            "compat/wrong-output",
+            Version { major: 1, minor: 0 },
+            Arc::new(WrongOutput),
+        )?
+        .collect_seq()
+        .unwrap_err();
+    assert_eq!(error.kind, ironbeam_core::ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("wrong-output"));
     Ok(())
 }
 
