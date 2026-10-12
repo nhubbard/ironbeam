@@ -4270,6 +4270,21 @@ impl<T: Element> PCollection<T> {
         self.batch_elements_named(&format!("{key}/batches"), batch_size)?
             .flat_map_named(key, move |batch| f(&batch))
     }
+    /// Apply a versioned custom handler to explicitly sized batches.
+    /// Batch boundaries follow `batch_elements_named`; input encounter order
+    /// within a batch is not portable across runners after a shuffle.
+    pub fn map_batches_with_semantic_named<U: Element>(
+        &self,
+        key: &str,
+        batch_size: usize,
+        semantic_id: &str,
+        version: Version,
+        f: impl Fn(&[T]) -> Vec<U> + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        Self::validate_semantic_handler(key, semantic_id, version)?;
+        self.batch_elements_named(&format!("{key}/batches"), batch_size)?
+            .flat_map_with_semantic_named(key, semantic_id, version, move |batch| f(&batch))
+    }
     pub fn batch_by_size_named(
         &self,
         key: &str,
@@ -6165,6 +6180,52 @@ mod internal_tests {
                     "example/duplicate",
                     Version { major: 0, minor: 1 },
                     |value| vec![value]
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn semantic_batch_handler_records_application_version() {
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();
+        let version = Version { major: 2, minor: 3 };
+        source
+            .map_batches_with_semantic_named("batch", 2, "example/partition", version, |values| {
+                values.iter().rev().copied().collect::<Vec<_>>()
+            })
+            .unwrap();
+        let (graph, registry) = pipeline.snapshot().unwrap();
+        let node = graph.node("batch").unwrap();
+        assert_eq!(node.operation, Operation::FlatMap);
+        assert_eq!(node.semantic_id, "example/partition");
+        assert_eq!(node.semantic_version, version);
+        let result = registry
+            .apply_many(
+                "batch",
+                Envelope {
+                    value: Box::new(vec![1_i32, 2]),
+                    timestamp_ns: 0,
+                    window: Window::Global,
+                    assigned_window: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            result
+                .into_iter()
+                .map(|event| *event.value.downcast::<i32>().unwrap())
+                .collect::<Vec<_>>(),
+            [2, 1]
+        );
+        assert!(
+            source
+                .map_batches_with_semantic_named(
+                    "invalid-batch",
+                    2,
+                    "example/partition",
+                    Version { major: 0, minor: 1 },
+                    |values| values.to_vec(),
                 )
                 .is_err()
         );

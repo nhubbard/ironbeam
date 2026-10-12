@@ -159,6 +159,42 @@ fn versioned_semantic_map_matches_v4_custom_operator_examples() -> Result<()> {
     Ok(())
 }
 
+struct ReverseAndRepeatPartition;
+
+impl DynOp for ReverseAndRepeatPartition {
+    fn apply(&self, input: Partition) -> Partition {
+        let mut values = *input.downcast::<Vec<i32>>().unwrap();
+        values.reverse();
+        values.push(values[0]);
+        Box::new(values)
+    }
+}
+
+#[test]
+fn versioned_batch_handler_matches_v4_partition_operator() -> Result<()> {
+    let input = vec![1_i32, 2, 3, 4, 5];
+    let old: PCollection<i32> = from_vec(&TestPipeline::new(), input.clone())
+        .apply_transform(Arc::new(ReverseAndRepeatPartition));
+    let expected = old.collect_seq()?;
+    let current = V5Pipeline::default()
+        .from_vec("source", input)?
+        .map_batches_with_semantic_named(
+            "reverse-and-repeat",
+            5,
+            "compat/reverse-repeat-partition",
+            Version { major: 1, minor: 0 },
+            |batch| {
+                let mut values = batch.to_vec();
+                values.reverse();
+                values.push(values[0]);
+                values
+            },
+        )?
+        .collect_seq()?;
+    assert_eq!(current, expected);
+    Ok(())
+}
+
 // Test CompositeTransform
 struct TrimAndFilter;
 
