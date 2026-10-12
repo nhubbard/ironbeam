@@ -114,12 +114,11 @@ def source_location_coverage(report: dict, source: Path) -> dict[str, tuple[int,
                 counts = branches.setdefault(key, [0, 0])
                 counts[0] += branch[4]
                 counts[1] += branch[5]
-    active_branches = [counts for counts in branches.values() if sum(counts) > 0]
     return {
         "lines": (sum(lines.values()), len(lines)),
         "branches": (
-            sum((counts[0] > 0) + (counts[1] > 0) for counts in active_branches),
-            2 * len(active_branches),
+            sum((counts[0] > 0) + (counts[1] > 0) for counts in branches.values()),
+            2 * len(branches),
         ),
     }
 

@@ -2,7 +2,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from check_coverage import area_for, coverage_for_source, meets_baseline
+from check_coverage import (
+    area_for,
+    coverage_for_source,
+    meets_baseline,
+    source_location_coverage,
+)
 
 
 class CoverageGateTests(unittest.TestCase):
@@ -47,6 +52,27 @@ class CoverageGateTests(unittest.TestCase):
                 ]
             }
             self.assertEqual(coverage_for_source(report, source), {"lines": (3, 4), "branches": (1, 2)})
+
+    def test_unreached_branch_sites_count_as_uncovered(self):
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "src"
+            report = {
+                "data": [
+                    {
+                        "files": [
+                            {
+                                "filename": str(source / "lib.rs"),
+                                "segments": [[1, 1, 1, True], [2, 1, 0, True]],
+                                "branches": [[1, 1, 1, 10, 1, 0], [2, 1, 2, 10, 0, 0]],
+                            }
+                        ]
+                    }
+                ]
+            }
+            self.assertEqual(
+                source_location_coverage(report, source),
+                {"lines": (1, 2), "branches": (1, 4)},
+            )
 
 
 if __name__ == "__main__":

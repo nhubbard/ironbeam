@@ -15,7 +15,7 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 | Direct | V4 reference corpus and v5 helper tests pass | Close public API and edge-case parity |
 | Portable | 19 live local Prism tests pass | Expand shared Direct/Prism corpus |
 | Streaming | A split and accepted batches survive separate worker process restarts in the Fn Data fixture; the production reader also resumes through join and co-group | Prove live Prism worker restart and output recovery |
-| Quality | A clean isolated core/Direct/transforms coverage run passes the existing floors; formatting, focused tests, and strict core lint pass | Audit uncovered contracts, reconcile the earlier coverage denominator, and set performance limits |
+| Quality | Corrected branch accounting passes core and transforms but puts Direct just below its 90% floor; focused tests and strict core lint pass | Cover missing Direct contracts, reconcile the earlier coverage denominator, and set performance limits |
 
 Passing a current check does not close a release gate unless its full proof
 below is complete.
@@ -63,14 +63,17 @@ below is complete.
 | Local Prism | 19 live tests passed across the prior suite and a new failed-bundle proof. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. The provider-neutral harness coordinator requires `DONE`, validates the graph's ten final sinks against the whole-job journal and committed row metrics, then supplies exact attempt IDs and counts to all ten publishers. A separate job failed after staging and left no fragment, journal completion, or published output. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch; the full harness suite and warning-free lint pass. |
 | Separate Dataflow workspace | Tests and doctests passed; changed proof package passed warning-free lint. |
-| Current coverage | A clean isolated 2026-10-11 run reports core **3,146/3,258 locations (96.56%) / 487/548 branches (88.87%)**, Direct **3,917/4,191 (93.46%) / 837/928 (90.19%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. All three packages pass their existing line and branch floors. |
+| Current coverage | A clean isolated 2026-10-11 run with unreachable branch sites counted reports core **3,146/3,258 locations (96.56%) / 487/562 branches (86.65%)**, Direct **3,935/4,209 (93.49%) / 837/932 (89.81%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. Direct branch coverage misses its 90% floor; the other floors pass. |
 | Core aggregate contracts | Core and Direct tests and doctests pass; strict core lint passes. New cases cover malformed join inputs, corrupt portable shuffle groups, fold-session output and emitter failure, and rejection of extra runner inputs. |
 | Postcard coder | 13/13 source locations covered; LLVM reports no instrumented branches. |
 | Formatting | Both workspaces pass `cargo fmt --all --check`. |
 
-The earlier reused build target reported **3,657** core source locations and
-**4,644** Direct locations, with both line floors failing. A second clean
-isolated run reproduced the smaller counts above. The denominator difference
+The coverage checker previously dropped branch sites whose two outcomes had
+zero hits, making the branch ratios look better than they were. It now counts
+those sites as uncovered. The earlier reused build target reported **3,657**
+core source locations and **4,644** Direct locations, with both line floors
+failing. A second clean isolated run reproduced the smaller counts above.
+The denominator difference
 needs investigation before treating this as a stable CI result; the coverage
 gate still requires an uncovered-contract review and a clean full CI run.
 
