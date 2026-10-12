@@ -51,6 +51,10 @@ if "$cargo_bin" tree -p ironbeam --no-default-features --features parallel-io --
   echo "The parallel-io facade feature unexpectedly enables an optional format." >&2
   exit 1
 fi
+if "$cargo_bin" tree -p ironbeam --no-default-features --features cloud-gcp-storage --edges normal | grep -E 'google-cloud-(pubsub|bigquery|secretmanager-v1) v'; then
+  echo "The GCP Storage facade feature unexpectedly enables another GCP service." >&2
+  exit 1
+fi
 if "$cargo_bin" tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro|prost|crc32c) v'; then
   echo "Default ironbeam-io unexpectedly depends on a heavy opt-in adapter." >&2
   exit 1
@@ -117,6 +121,7 @@ for package in "${packages[@]}"; do
     ironbeam-cloud-fakes) patches=("${cloud_objects_patch[@]}" "${cloud_service_api_patch[@]}") ;;
     ironbeam-cloud-ops) patches=("${cloud_objects_patch[@]}" "${cloud_service_api_patch[@]}" "${cloud_fakes_patch[@]}") ;;
     ironbeam-cloud-object-store) patches=("${cloud_objects_patch[@]}") ;;
+    ironbeam-cloud-gcp) patches=("${cloud_objects_patch[@]}" "${cloud_service_api_patch[@]}") ;;
     ironbeam-direct) patches=("${core_patch[@]}" "${metrics_patch[@]}") ;;
     ironbeam-transforms|ironbeam-transform-regex|ironbeam-transform-approx|ironbeam-testing)
       patches=("${core_patch[@]}" "${direct_patch[@]}") ;;

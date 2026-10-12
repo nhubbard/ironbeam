@@ -16,7 +16,10 @@ Ironbeam 5 is a workspace of small crates. Applications can depend on the root f
 | `ironbeam-cloud-service-api` | Other provider-neutral service contracts |
 | `ironbeam-cloud-fakes`, `ironbeam-cloud-ops` | Test implementations and generic operations |
 | `ironbeam-cloud-object-store` | Optional S3, GCS, and Azure Blob clients |
+| `ironbeam-cloud-gcp` | Official Google Cloud Storage, Pub/Sub, BigQuery, and Secret Manager clients |
 | `ironbeam-testing`, `ironbeam-metrics` | Test helpers and metrics |
 | `ironbeam-coder-postcard`, `ironbeam-compression` | Optional coding and compression |
 
 The separate `ironbeam-dataflow` workspace contains graph lowering, Beam protobuf definitions, the worker harness, and a local Prism proof. See [portable execution](../guides/portable.md).
+
+The GCP crate has one feature per service. See the [Google Cloud guide](../guides/gcp.md) for authentication and examples.

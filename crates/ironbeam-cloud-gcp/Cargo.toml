@@ -1,0 +1,26 @@
+[package]
+name = "ironbeam-cloud-gcp"
+version = "5.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT"
+description = "Google Cloud Storage, Pub/Sub, BigQuery, and Secret Manager clients for Ironbeam 5"
+repository = "https://github.com/nhubbard/ironbeam"
+
+[features]
+default = ["storage", "pubsub", "bigquery", "secrets"]
+storage = ["dep:google-cloud-storage", "dep:bytes"]
+pubsub = ["dep:google-cloud-pubsub", "dep:tokio"]
+bigquery = ["dep:google-cloud-bigquery"]
+secrets = ["dep:google-cloud-secretmanager-v1", "dep:google-cloud-gax"]
+
+[dependencies]
+ironbeam-cloud-service-api = { version = "5.0.0", path = "../ironbeam-cloud-service-api" }
+google-cloud-storage = { version = "1.20.0", optional = true }
+google-cloud-pubsub = { version = "1.6.0", optional = true }
+google-cloud-bigquery = { version = "0.18.0", optional = true }
+google-cloud-secretmanager-v1 = { version = "1.14.0", optional = true }
+google-cloud-gax = { version = "1.15.0", optional = true }
+tokio = { version = "1", features = ["sync"], optional = true }
+bytes = { version = "1", optional = true }
+thiserror = "2"

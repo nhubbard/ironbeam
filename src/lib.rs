@@ -34,6 +34,15 @@ pub mod v5 {
     }
     #[cfg(feature = "v5-compression")]
     pub use ironbeam_compression::*;
+    #[cfg(any(
+        feature = "cloud-gcp-storage",
+        feature = "cloud-gcp-pubsub",
+        feature = "cloud-gcp-bigquery",
+        feature = "cloud-gcp-secrets"
+    ))]
+    pub mod gcp {
+        pub use ironbeam_cloud_gcp::*;
+    }
     pub use ironbeam_core::*;
     pub use ironbeam_direct::{
         CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobMetrics,

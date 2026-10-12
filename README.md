@@ -49,6 +49,7 @@ The same v5 API remains available under `ironbeam::v5::*` during migration.
 | `ironbeam-cloud-fakes` | In-memory implementations of the cloud service contracts for tests |
 | `ironbeam-cloud-ops` | Provider-neutral retry, pagination, batching, and operation helpers |
 | `ironbeam-cloud-object-store` | Opt-in S3, GCS, and Azure Blob clients |
+| `ironbeam-cloud-gcp` | Opt-in official GCP Storage, Pub/Sub, BigQuery, and Secret Manager clients |
 
 Regex and approximate distinct helpers have separate extension crates. Avro,
 Arrow IPC, CBOR, CSV, JSONL, MessagePack, MongoDB, Parquet, Protobuf, SQL,
@@ -71,6 +72,13 @@ For example, a program using CSV and native Avro can enable
 `ironbeam-cloud-object-store` and register the providers it needs with the
 object URI router. The object contract itself does not depend on a provider
 SDK.
+
+For Google Cloud applications, enable the root `cloud-gcp` feature or depend
+on `ironbeam-cloud-gcp` directly. Its four service features can be selected
+individually, including through root `cloud-gcp-*` flags; each client uses
+Application Default Credentials. The
+[Google Cloud guide](docs/docs/guides/gcp.md) shows common operations and
+required access.
 
 ## Execution and compatibility
 

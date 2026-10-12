@@ -24,3 +24,5 @@ let values = jsonl_source::<i64>(&pipeline, "input", "values.jsonl")?
 ```
 
 See the repository's [ETL example](https://github.com/nhubbard/ironbeam/blob/main/examples/etl_pipeline.rs) for CSV and JSONL in one pipeline, and [cloud I/O example](https://github.com/nhubbard/ironbeam/blob/main/examples/cloud_io_demo.rs) for object storage. SQL and MongoDB have opt-in bounded Direct adapters. Their legacy append sinks require application-managed replay behavior; do not assume exactly-once effects from an append operation.
+
+For direct access to Google Cloud Storage and related services, see the [Google Cloud client guide](gcp.md). The hosted object URI router remains available through `ironbeam-cloud-object-store`; the GCP client crate exposes Google's Rust clients and common operations for application code.

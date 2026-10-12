@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-metrics", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-compression", "crates/ironbeam-coder-postcard", "crates/ironbeam-cloud-objects", "crates/ironbeam-cloud-service-api", "crates/ironbeam-cloud-fakes", "crates/ironbeam-cloud-ops", "crates/ironbeam-cloud-object-store", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-metrics", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-compression", "crates/ironbeam-coder-postcard", "crates/ironbeam-cloud-objects", "crates/ironbeam-cloud-service-api", "crates/ironbeam-cloud-fakes", "crates/ironbeam-cloud-ops", "crates/ironbeam-cloud-object-store", "crates/ironbeam-cloud-gcp", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
 default-members = ["."]
 resolver = "3"
 
@@ -21,6 +21,11 @@ v5-approx = ["dep:ironbeam-transform-approx"]
 v5-testing = ["dep:ironbeam-testing"]
 v5-metrics = ["dep:ironbeam-metrics", "ironbeam-direct/metrics"]
 v5-compression = ["dep:ironbeam-compression"]
+cloud-gcp = ["cloud-gcp-storage", "cloud-gcp-pubsub", "cloud-gcp-bigquery", "cloud-gcp-secrets"]
+cloud-gcp-storage = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/storage"]
+cloud-gcp-pubsub = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/pubsub"]
+cloud-gcp-bigquery = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/bigquery"]
+cloud-gcp-secrets = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/secrets"]
 v5-io-sql = ["dep:ironbeam-io-sql"]
 v5-io-mongodb = ["dep:ironbeam-io-mongodb"]
 v5-io-avro = ["dep:ironbeam-io-avro"]
@@ -80,6 +85,7 @@ spilling = []
 coders = ["dep:ironbeam-coder-postcard"]
 
 [dependencies]
+ironbeam-cloud-gcp = { version = "5.0.0", path = "crates/ironbeam-cloud-gcp", default-features = false, optional = true }
 ironbeam-compression = { version = "5.0.0", path = "crates/ironbeam-compression", optional = true }
 ironbeam-coder-postcard = { version = "5.0.0", path = "crates/ironbeam-coder-postcard", optional = true }
 ironbeam-core = { version = "5.0.0", path = "crates/ironbeam-core" }
