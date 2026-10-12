@@ -20,6 +20,38 @@ pub mod final_result;
 #[cfg(feature = "file")]
 pub mod sequence_final;
 
+fn sync_directory(path: &Path, key: &str) -> Result<(), Error> {
+    fs::File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| io(key, error))
+}
+
+fn create_dir_all_durable(path: &Path, key: &str) -> Result<(), Error> {
+    let path = if path.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        path
+    };
+    let mut missing = Vec::new();
+    let mut current = path;
+    while !current.exists() {
+        missing.push(current.to_path_buf());
+        current = current
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+    }
+    fs::create_dir_all(path).map_err(|error| io(key, error))?;
+    for directory in missing.into_iter().rev() {
+        let parent = directory
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        sync_directory(parent, key)?;
+    }
+    Ok(())
+}
+
 fn read_decoded_file(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     #[cfg(any(
         feature = "compression-gzip",
@@ -374,8 +406,12 @@ impl<T: Element> TypedSink<T> for FileSink<T> {
         Ok(())
     }
     fn commit(&mut self) -> Result<(), Error> {
-        let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent).map_err(|e| io(&self.key, e))?;
+        let parent = self
+            .path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        create_dir_all_durable(parent, &self.key)?;
         let extension = self
             .path
             .extension()
@@ -393,9 +429,7 @@ impl<T: Element> TypedSink<T> for FileSink<T> {
         (self.write)(temp.path(), &self.values)?;
         temp.as_file().sync_all().map_err(|e| io(&self.key, e))?;
         temp.persist(&self.path).map_err(|e| io(&self.key, e))?;
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| io(&self.key, error))?;
+        sync_directory(parent, &self.key)?;
         Ok(())
     }
     fn abort(&mut self) -> Result<(), Error> {

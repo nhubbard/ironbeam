@@ -587,6 +587,22 @@ fn malformed_source_never_replaces_existing_sink_output() {
 }
 
 #[test]
+fn final_sink_creates_nested_output_directories() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("new").join("nested").join("rows.jsonl");
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", rows()).unwrap();
+    let sink = jsonl_sink(&input, "write", &path).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let reader = Pipeline::default();
+    let output = jsonl_source::<Row>(&reader, "read", &path)
+        .unwrap()
+        .output("out")
+        .unwrap();
+    assert_eq!(output.collect_seq().unwrap(), rows());
+}
+
+#[test]
 fn jsonl_blank_lines_and_file_commit_error_are_explicit() {
     let dir = tempfile::tempdir().unwrap();
     let source_path = dir.path().join("blank.jsonl");

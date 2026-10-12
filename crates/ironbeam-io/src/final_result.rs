@@ -41,9 +41,7 @@ fn scope_digest(job: &str, graph: &str, sink: &str) -> [u8; 32] {
 }
 
 fn sync_directory(path: &Path) -> Result<(), Error> {
-    File::open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(io)
+    super::sync_directory(path, "final-result")
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +158,7 @@ impl LocalFinalResult {
     ) -> Result<(), Error> {
         let pending = self.path(bundle_id, "pending")?;
         let accepted = self.path(bundle_id, "accepted")?;
-        fs::create_dir_all(&self.staging).map_err(io)?;
+        super::create_dir_all_durable(&self.staging, "final-result")?;
         if accepted.exists() {
             return Err(invalid("bundle fragment is already accepted"));
         }
@@ -402,8 +400,11 @@ impl LocalFinalResult {
             )));
         }
         let target = target.as_ref();
-        let parent = target.parent().unwrap_or_else(|| Path::new("."));
-        fs::create_dir_all(parent).map_err(io)?;
+        let parent = target
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        super::create_dir_all_durable(parent, "final-result")?;
         let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(io)?;
         let temp_path = temp.path().to_path_buf();
         let merged_rows = merge(&fragments, &temp_path, temp.as_file_mut())?;
@@ -538,6 +539,21 @@ mod tests {
         fs::write(&pending, b"corrupt").unwrap();
         assert!(reopened.stage("bundle", 1, b"payload").is_err());
         assert_eq!(fs::read(&pending).unwrap(), b"corrupt");
+    }
+
+    #[test]
+    fn nested_staging_and_output_directories_publish_after_reopen() {
+        let temp = tempfile::tempdir().unwrap();
+        let staging = temp.path().join("new").join("nested").join("stage");
+        let output = temp.path().join("result").join("nested").join("rows.bin");
+        let store = LocalFinalResult::new(&staging, "job", "graph", "sink").unwrap();
+        store.stage("bundle", 1, b"row").unwrap();
+        let reopened = LocalFinalResult::new(&staging, "job", "graph", "sink").unwrap();
+        reopened.accept("bundle").unwrap();
+        let bound = reopened.require_bundle_attempts(["bundle"]).unwrap();
+        assert_eq!(bound.publish_concatenated(1, &output).unwrap().bytes, 3);
+        assert_eq!(bound.publish_concatenated(1, &output).unwrap().bytes, 3);
+        assert_eq!(fs::read(output).unwrap(), b"row");
     }
 
     #[test]
