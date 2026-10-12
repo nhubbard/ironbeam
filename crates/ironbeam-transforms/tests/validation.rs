@@ -168,6 +168,22 @@ fn skip_log_and_fail_modes_match_v4_values() {
 }
 
 #[test]
+fn validation_mode_changes_graph_identity() {
+    let build = |mode| {
+        let pipeline = Pipeline::default();
+        pipeline
+            .from_vec("rows", vec![Row { score: 1 }])
+            .unwrap()
+            .validate_with_mode_named("validate", mode, None)
+            .unwrap();
+        pipeline.snapshot().unwrap().0.fingerprint().unwrap()
+    };
+    let skip = build(ValidationMode::SkipInvalid);
+    assert_ne!(skip, build(ValidationMode::LogAndContinue));
+    assert_ne!(skip, build(ValidationMode::FailFast));
+}
+
+#[test]
 fn keyed_validation_preserves_keys() {
     let pipeline = Pipeline::default();
     let rows = pipeline

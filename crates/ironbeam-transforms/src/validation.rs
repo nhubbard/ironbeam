@@ -1,5 +1,5 @@
 //! Validation and error collection for local bounded execution.
-use ironbeam_core::{Element, Error, PCollection};
+use ironbeam_core::{Element, Error, PCollection, Version};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::{
@@ -154,6 +154,17 @@ pub enum ValidationMode {
     FailFast,
 }
 
+fn validation_semantic_id(mode: ValidationMode, keyed: bool) -> &'static str {
+    match (mode, keyed) {
+        (ValidationMode::SkipInvalid, false) => "ironbeam-transforms/validation-skip/v1",
+        (ValidationMode::LogAndContinue, false) => "ironbeam-transforms/validation-log/v1",
+        (ValidationMode::FailFast, false) => "ironbeam-transforms/validation-fail/v1",
+        (ValidationMode::SkipInvalid, true) => "ironbeam-transforms/keyed-validation-skip/v1",
+        (ValidationMode::LogAndContinue, true) => "ironbeam-transforms/keyed-validation-log/v1",
+        (ValidationMode::FailFast, true) => "ironbeam-transforms/keyed-validation-fail/v1",
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct RecordError {
     pub record_id: Option<String>,
@@ -271,14 +282,19 @@ impl<T: Element + Validate> ValidationExt<T> for PCollection<T> {
         collector: Option<Arc<Mutex<ErrorCollector>>>,
     ) -> Result<Self, Error> {
         let ordinal = AtomicUsize::new(0);
-        self.filter_named(key, move |value| {
-            accepted(
-                value,
-                mode,
-                collector.as_ref(),
-                ordinal.fetch_add(1, Ordering::Relaxed),
-            )
-        })
+        self.filter_with_semantic_named(
+            key,
+            validation_semantic_id(mode, false),
+            Version { major: 1, minor: 0 },
+            move |value| {
+                accepted(
+                    value,
+                    mode,
+                    collector.as_ref(),
+                    ordinal.fetch_add(1, Ordering::Relaxed),
+                )
+            },
+        )
     }
     fn validate_skip_invalid_named(&self, key: &str) -> Result<Self, Error> {
         self.validate_with_mode_named(key, ValidationMode::SkipInvalid, None)
@@ -305,14 +321,19 @@ impl<K: Element, V: Element + Validate> KeyedValidationExt<K, V> for PCollection
         collector: Option<Arc<Mutex<ErrorCollector>>>,
     ) -> Result<Self, Error> {
         let ordinal = AtomicUsize::new(0);
-        self.filter_named(key, move |(_, value)| {
-            accepted(
-                value,
-                mode,
-                collector.as_ref(),
-                ordinal.fetch_add(1, Ordering::Relaxed),
-            )
-        })
+        self.filter_with_semantic_named(
+            key,
+            validation_semantic_id(mode, true),
+            Version { major: 1, minor: 0 },
+            move |(_, value)| {
+                accepted(
+                    value,
+                    mode,
+                    collector.as_ref(),
+                    ordinal.fetch_add(1, Ordering::Relaxed),
+                )
+            },
+        )
     }
     fn validate_values_skip_invalid_named(&self, key: &str) -> Result<Self, Error> {
         self.validate_values_with_mode_named(key, ValidationMode::SkipInvalid, None)
