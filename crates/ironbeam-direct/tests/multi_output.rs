@@ -1,9 +1,10 @@
 use ironbeam_core::{
-    Element, ErrorKind, Pipeline, Replay, SourceProgress, TypedSourceIterator, WindowInterval,
+    Element, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, SourceProgress, TypedSink,
+    TypedSourceIterator, WindowInterval,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, SpillConfig};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn pair_outputs_open_shared_source_once_and_preserve_branch_results() {
@@ -513,6 +514,66 @@ impl Element for PanickingDecoder {
     fn decode(_bytes: &[u8]) -> Result<Self, ironbeam_core::Error> {
         panic!("expected decoder panic")
     }
+}
+
+#[test]
+fn multi_sink_catches_split_decoder_panic_without_committing() {
+    struct Capture {
+        committed: Arc<Mutex<Vec<i32>>>,
+        pending: Vec<i32>,
+    }
+    impl TypedSink<PanickingDecoder> for Capture {
+        fn write(&mut self, value: PanickingDecoder) -> Result<(), ironbeam_core::Error> {
+            self.pending.push(value.0);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), ironbeam_core::Error> {
+            self.committed
+                .lock()
+                .unwrap()
+                .extend(self.pending.drain(..));
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), ironbeam_core::Error> {
+            self.pending.clear();
+            Ok(())
+        }
+    }
+
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let shared = pipeline
+        .from_vec("source", vec![1_i32])
+        .unwrap()
+        .map_named("shared", PanickingDecoder)
+        .unwrap();
+    for key in ["first", "second"] {
+        let committed = Arc::clone(&committed);
+        shared
+            .sink_named(
+                key,
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                },
+            )
+            .unwrap();
+    }
+    let error = DirectRunner
+        .run_sinks(&pipeline, &["first", "second"], &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("shared"));
+    assert!(error.message.contains("split coder panicked"));
+    assert!(committed.lock().unwrap().is_empty());
 }
 
 #[test]
