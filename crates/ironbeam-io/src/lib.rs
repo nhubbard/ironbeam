@@ -393,6 +393,9 @@ impl<T: Element> TypedSink<T> for FileSink<T> {
         (self.write)(temp.path(), &self.values)?;
         temp.as_file().sync_all().map_err(|e| io(&self.key, e))?;
         temp.persist(&self.path).map_err(|e| io(&self.key, e))?;
+        fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| io(&self.key, error))?;
         Ok(())
     }
     fn abort(&mut self) -> Result<(), Error> {
