@@ -35,6 +35,10 @@ if "$cargo_bin" tree -p ironbeam --no-default-features --features v5-io-csv --ed
   echo "The isolated CSV facade feature unexpectedly enables cloud packages." >&2
   exit 1
 fi
+if "$cargo_bin" tree -p ironbeam --no-default-features --features parallel-io --edges normal | grep -E 'ironbeam-io-(avro|csv|xml|msgpack|cbor|protobuf|tfrecord|parquet|arrow) v'; then
+  echo "The parallel-io facade feature unexpectedly enables an optional format." >&2
+  exit 1
+fi
 if "$cargo_bin" tree -p ironbeam-io --edges normal | grep -E '(^|[[:space:]])(sqlx|mongodb|bson|arrow|parquet|apache-avro|prost|crc32c) v'; then
   echo "Default ironbeam-io unexpectedly depends on a heavy opt-in adapter." >&2
   exit 1
@@ -70,6 +74,7 @@ fi
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-io-tfrecord --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam-compat --test tfrecord_wire
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-io-arrow --test v5_facade_prelude
+"$cargo_bin" test -p ironbeam --no-default-features --features io-avro,parallel-io --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam-io --all-features
 "$cargo_bin" test -p ironbeam-compression --all-features
 "$cargo_bin" test -p ironbeam-cloud-object-store --all-features

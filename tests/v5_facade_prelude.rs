@@ -334,6 +334,22 @@ fn facade_exposes_native_avro_without_v4_bridge() {
         .output("out")
         .unwrap();
     assert_eq!(output.collect_seq().unwrap(), vec![Value { value: 3 }]);
+
+    #[cfg(feature = "parallel-io")]
+    {
+        let parallel_path = dir.path().join("parallel.avro");
+        let writer =
+            ironbeam::v5::avro_parallel_sink(&input, "write-parallel", &parallel_path, schema, 2)
+                .unwrap();
+        DirectRunner
+            .run_sink(&writer, &JobConfig::default())
+            .unwrap();
+        let output = avro_source::<Value>(&Pipeline::default(), "read-parallel", &parallel_path)
+            .unwrap()
+            .output("parallel-out")
+            .unwrap();
+        assert_eq!(output.collect_seq().unwrap(), vec![Value { value: 3 }]);
+    }
 }
 
 #[cfg(feature = "v5-io-parquet")]

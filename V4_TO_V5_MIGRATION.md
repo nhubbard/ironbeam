@@ -130,7 +130,7 @@ These helpers are for finite data that fits in memory. They do not transfer grap
 | `io-arrow`, `io-sql`, `io-mongodb` | Arrow IPC, SQL, and MongoDB each have a separate v5 crate and `v5-io-*` feature. Old names alias to the v5 crates. SQL and MongoDB sinks are deferred append operations with application-managed replay. |
 | provider-neutral cloud utilities | `ironbeam-cloud-objects` supplies URI routing and local objects; `ironbeam-cloud-object-store` opts into S3, GCS, and Azure Blob clients. `ironbeam-cloud-service-api` owns non-object contracts, `ironbeam-cloud-fakes` supplies in-memory services, and `ironbeam-cloud-ops` owns generic operation helpers. Eager object JSONL read, write, and glob helpers now live in `ironbeam-io-jsonl` behind `cloud`, alongside graph sources and sinks. The old `ironbeam-cloud` paths remain in published Ironbeam 4.1.1 for migration; the legacy crate is absent from the v5 workspace. |
 | `compression-gzip`, `compression-zstd`, `compression-bzip2`, `compression-xz` | `ironbeam-compression` owns codec streams. Enabling one of these flags exposes its pluggable codec API under `ironbeam::v5`; `v5-compression` exposes the codec registry without a built-in codec. Shared I/O and JSONL activate matching codecs without legacy cloud helpers. |
-| `parallel-io` | `ironbeam-io` parallel sinks and per-format `parallel-io` features on Avro, Parquet, and Arrow IPC | Pass an explicit positive shard count; v5 writes ordered fragments and assembles them before final atomic publish. XML, Avro, Parquet, and Arrow fragments are complete containers that are read and rewritten into the final container. Direct job parallelism still controls execution separately. |
+| `parallel-io` | `ironbeam-io` parallel sinks and the `parallel-io` feature of each enabled format crate | Pass an explicit positive shard count; v5 writes ordered fragments and assembles them before final atomic publish. The root flag forwards only to formats already selected by their `io-*` or `v5-io-*` feature. XML, Avro, Parquet, and Arrow fragments are complete containers that are read and rewritten into the final container. Direct job parallelism still controls execution separately. |
 | `metrics` | v5 `JobHandle::metrics` is part of Direct; no feature flag. |
 | `checkpointing`, `spilling` | v5 Direct `JobConfig` has optional `CheckpointConfig` and `SpillConfig` without feature gates. The old feature names are lightweight aliases for the v5 facade; v4 checkpoint files are not v5 state. |
 | `coders` | Enables the opt-in `ironbeam-coder-postcard` crate and reexports `impl_postcard_element!(Type, "stable/type/v1")` from `ironbeam::v5`. Serde records can use this macro instead of hand-writing `Element`; wire changes require a new coder ID. V5 keeps an explicit `Element` contract rather than v4's global Serde bound. |
@@ -154,8 +154,10 @@ loaded as v5 state.
 | `TimeInterval(secs)` and `Hybrid` | No elapsed-time checkpoint schedule exists yet. Streaming requires an interval of one batch and saves on source progress or completion. |
 | `max_checkpoints` | V5 currently keeps one latest checkpoint in the configured directory; give independent jobs separate directories. It has no configurable history or fallback to an older snapshot. |
 
-The node, barrier, time, and retention differences remain release parity work;
-changing `interval_batches` alone does not reproduce those v4 policies.
+For 5.0.0, v5 batch/progress checkpoints are the chosen replacement for
+v4's node, barrier, and time schedules. This is an intentional scheduling API
+change, not a claim that `interval_batches` reproduces those schedules.
+Configurable checkpoint history and fallback remain unimplemented.
 
 Sequential elementwise output is compared in order in the migration tests. Grouped, joined, sampled, and parallel results should be compared as multisets unless the operation documents an order. V5 validates boundedness and backend capabilities before opening sources or sinks. V5 graph, coder, and checkpoint versions are independent; unsupported versions fail explicitly rather than being interpreted as v4 state.
 

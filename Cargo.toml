@@ -60,7 +60,19 @@ compression-bzip2 = ["v5-compression", "ironbeam-compression/compression-bzip2",
 compression-xz = ["v5-compression", "ironbeam-compression/compression-xz", "ironbeam-io/compression-xz", "ironbeam-io-jsonl/compression-xz"]
 
 # Behaviors
-parallel-io = ["ironbeam-io/parallel-io", "ironbeam-io-jsonl/parallel-io"]
+parallel-io = [
+    "ironbeam-io/parallel-io",
+    "ironbeam-io-jsonl/parallel-io",
+    "ironbeam-io-avro?/parallel-io",
+    "ironbeam-io-csv?/parallel-io",
+    "ironbeam-io-xml?/parallel-io",
+    "ironbeam-io-msgpack?/parallel-io",
+    "ironbeam-io-cbor?/parallel-io",
+    "ironbeam-io-protobuf?/parallel-io",
+    "ironbeam-io-tfrecord?/parallel-io",
+    "ironbeam-io-parquet?/parallel-io",
+    "ironbeam-io-arrow?/parallel-io",
+]
 metrics = ["v5-metrics"]
 checkpointing = []
 spilling = []
