@@ -1,4 +1,6 @@
 use anyhow::Result;
+use ironbeam_core::{Pipeline as V5Pipeline, Version};
+use ironbeam_direct::DirectCollectExt;
 use ironbeam_v4::extensions::CompositeTransform;
 use ironbeam_v4::node::DynOp;
 use ironbeam_v4::testing::*;
@@ -100,6 +102,60 @@ fn apply_transform_key_preserving() -> Result<()> {
             ("b".to_string(), "WORLD".to_string()),
         ],
     );
+    Ok(())
+}
+
+#[test]
+fn versioned_semantic_map_matches_v4_custom_operator_examples() -> Result<()> {
+    let v4 = TestPipeline::new();
+    let words = vec!["hello".to_owned(), "world".to_owned()];
+    let old: PCollection<String> =
+        from_vec(&v4, words.clone()).apply_transform(Arc::new(ReverseStringOp));
+    let expected = old.collect_seq()?;
+    let current = V5Pipeline::default()
+        .from_vec("words", words)?
+        .map_with_semantic_named(
+            "reverse",
+            "compat/reverse-string",
+            Version { major: 1, minor: 0 },
+            |word| word.chars().rev().collect::<String>(),
+        )?
+        .collect_seq()?;
+    assert_eq!(current, expected);
+
+    let v4 = TestPipeline::new();
+    let old: PCollection<i32> =
+        from_vec(&v4, vec![1, 2, 3, 4, 5]).apply_transform(Arc::new(DoubleOp));
+    let expected = old.collect_seq()?;
+    let current = V5Pipeline::default()
+        .from_vec("numbers", vec![1_i32, 2, 3, 4, 5])?
+        .map_with_semantic_named(
+            "double",
+            "compat/double-number",
+            Version { major: 1, minor: 0 },
+            |value| value * 2,
+        )?
+        .collect_seq()?;
+    assert_eq!(current, expected);
+
+    let pairs = vec![
+        ("a".to_owned(), "hello".to_owned()),
+        ("b".to_owned(), "world".to_owned()),
+    ];
+    let v4 = TestPipeline::new();
+    let old: PCollection<(String, String)> =
+        from_vec(&v4, pairs.clone()).apply_transform(Arc::new(UppercaseValueOp));
+    let expected = old.collect_seq()?;
+    let current = V5Pipeline::default()
+        .from_vec("pairs", pairs)?
+        .map_with_semantic_named(
+            "uppercase-value",
+            "compat/uppercase-value",
+            Version { major: 1, minor: 0 },
+            |(key, value)| (key, value.to_uppercase()),
+        )?
+        .collect_seq()?;
+    assert_eq!(current, expected);
     Ok(())
 }
 
