@@ -12,6 +12,10 @@ pub struct GcpStorage {
 
 impl GcpProject {
     /// Connect to Cloud Storage with Application Default Credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials or the client transport cannot be initialized.
     pub async fn storage(&self) -> Result<GcpStorage, GcpError> {
         GcpStorage::connect().await
     }
@@ -19,6 +23,10 @@ impl GcpProject {
 
 impl GcpStorage {
     /// Create a Storage client using Application Default Credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials or the client transport cannot be initialized.
     pub async fn connect() -> Result<Self, GcpError> {
         Ok(Self {
             client: Storage::builder().build().await.map_err(GcpError::client)?,
@@ -27,11 +35,15 @@ impl GcpStorage {
 
     /// Access the official client for streaming, preconditions, and metadata.
     #[must_use]
-    pub fn client(&self) -> &Storage {
+    pub const fn client(&self) -> &Storage {
         &self.client
     }
 
     /// Read one object into memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid name or a failed Storage request or read.
     pub async fn read_bytes(&self, bucket: &str, object: &str) -> Result<Vec<u8>, GcpError> {
         let bucket = GcpProject::bucket(bucket)?;
         if object.is_empty() {
@@ -56,6 +68,10 @@ impl GcpStorage {
     }
 
     /// Create an object only if no current generation exists at its name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid name, an existing object, or a failed write.
     pub async fn write_new(
         &self,
         bucket: &str,
@@ -66,10 +82,11 @@ impl GcpStorage {
         if object.is_empty() {
             return Err(GcpError::InvalidResource("empty object name".into()));
         }
-        self.client
+        let write = self
+            .client
             .write_object(bucket, object, bytes::Bytes::from(data))
-            .set_if_generation_match(0)
-            .send_buffered()
+            .set_if_generation_match(0);
+        Box::pin(write.send_buffered())
             .await
             .map_err(GcpError::client)?;
         Ok(())

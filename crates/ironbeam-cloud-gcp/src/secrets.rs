@@ -14,6 +14,10 @@ pub struct GcpSecrets {
 
 impl GcpProject {
     /// Connect to Secret Manager with Application Default Credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials or the client transport cannot be initialized.
     pub async fn secrets(&self) -> Result<GcpSecrets, GcpError> {
         GcpSecrets::connect(self.clone()).await
     }
@@ -21,6 +25,10 @@ impl GcpProject {
 
 impl GcpSecrets {
     /// Create a Secret Manager client for a project.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials or the client transport cannot be initialized.
     pub async fn connect(project: GcpProject) -> Result<Self, GcpError> {
         let client = SecretManagerService::builder()
             .build()
@@ -31,11 +39,15 @@ impl GcpSecrets {
 
     /// Access the official client for version and replication controls.
     #[must_use]
-    pub fn client(&self) -> &SecretManagerService {
+    pub const fn client(&self) -> &SecretManagerService {
         &self.client
     }
 
     /// Read the latest version of a secret as bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid name, failed request, or missing payload.
     pub async fn access_latest(&self, secret: &str) -> Result<Vec<u8>, GcpError> {
         let name = format!("{}/versions/latest", self.project.secret_name(secret)?);
         let response = self
@@ -50,11 +62,19 @@ impl GcpSecrets {
     }
 
     /// Read a UTF-8 secret value from its latest version.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or the payload is not valid UTF-8.
     pub async fn access_latest_utf8(&self, secret: &str) -> Result<String, GcpError> {
         Ok(String::from_utf8(self.access_latest(secret).await?)?)
     }
 
     /// Create a secret with automatic replication. The first version is added separately.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid name or a failed create request.
     pub async fn create_secret(&self, secret: &str) -> Result<(), GcpError> {
         let name = self.project.secret_name(secret)?;
         let (parent, id) = name
@@ -76,6 +96,10 @@ impl GcpSecrets {
     }
 
     /// Add a version to an existing secret and return the new version name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid name or a failed add-version request.
     pub async fn add_version(&self, secret: &str, data: Vec<u8>) -> Result<String, GcpError> {
         let version = self
             .client
@@ -89,6 +113,10 @@ impl GcpSecrets {
     }
 
     /// List fully qualified secret names in the project.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if listing or reading a page fails.
     pub async fn list(&self) -> Result<Vec<String>, GcpError> {
         let mut items = self
             .client

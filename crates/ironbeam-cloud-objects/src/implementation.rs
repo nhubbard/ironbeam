@@ -97,6 +97,11 @@ pub trait ObjectIO: Send + Sync {
 
     /// Atomically create an immutable object from a reader without holding the
     /// entire object in memory. Providers must fail closed when unsupported.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provider lacks streaming conditional creation,
+    /// the object already exists, or the write fails.
     fn put_object_if_absent_from(
         &self,
         _bucket: &str,
@@ -111,6 +116,11 @@ pub trait ObjectIO: Send + Sync {
 
     /// Open an object for a bounded-memory sequential read. Providers must
     /// fail closed when unsupported.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provider lacks streaming reads or the object
+    /// cannot be opened.
     fn open_object(&self, _bucket: &str, _key: &str) -> CloudResult<Box<dyn std::io::Read + Send>> {
         Err(CloudIOError::new(
             ErrorKind::InvalidInput,

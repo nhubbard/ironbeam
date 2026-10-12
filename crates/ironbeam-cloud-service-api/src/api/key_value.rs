@@ -1,4 +1,4 @@
-use super::*;
+use super::{CloudResult, HashMap};
 
 // ============================================================================
 // KeyValueIO - Document/NoSQL Databases

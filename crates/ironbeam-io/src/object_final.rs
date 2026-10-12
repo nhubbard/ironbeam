@@ -149,7 +149,7 @@ impl ObjectFinalResult {
         ))
     }
 
-    fn decode(&self, bytes: Vec<u8>, bundle_id: Option<&str>) -> Result<Fragment, Error> {
+    fn decode(&self, bytes: &[u8], bundle_id: Option<&str>) -> Result<Fragment, Error> {
         if bytes.len() < HEADER_LEN || &bytes[..8] != MAGIC || bytes[8..40] != self.scope {
             return Err(invalid("object fragment header or scope differs"));
         }
@@ -220,7 +220,7 @@ impl ObjectFinalResult {
                     .storage
                     .get_object(&self.staging_bucket, &pending)
                     .map_err(object_error)?;
-                self.decode(existing.clone(), Some(bundle_id))?;
+                self.decode(&existing, Some(bundle_id))?;
                 if existing != bytes {
                     return Err(invalid("object pending fragment conflicts with retry"));
                 }
@@ -251,7 +251,7 @@ impl ObjectFinalResult {
                 .storage
                 .get_object(&self.staging_bucket, &accepted)
                 .map_err(object_error)?;
-            self.decode(accepted_bytes.clone(), Some(bundle_id))?;
+            self.decode(&accepted_bytes, Some(bundle_id))?;
             if self
                 .storage
                 .object_exists(&self.staging_bucket, &pending)
@@ -261,7 +261,7 @@ impl ObjectFinalResult {
                     .storage
                     .get_object(&self.staging_bucket, &pending)
                     .map_err(object_error)?;
-                self.decode(pending_bytes.clone(), Some(bundle_id))?;
+                self.decode(&pending_bytes, Some(bundle_id))?;
                 if accepted_bytes != pending_bytes {
                     return Err(invalid(
                         "object accepted fragment conflicts with pending attempt",
@@ -275,7 +275,7 @@ impl ObjectFinalResult {
             .storage
             .get_object(&self.staging_bucket, &pending)
             .map_err(object_error)?;
-        self.decode(bytes.clone(), Some(bundle_id))?;
+        self.decode(&bytes, Some(bundle_id))?;
         match self
             .storage
             .put_object_if_absent(&self.staging_bucket, &accepted, &bytes)
@@ -286,7 +286,7 @@ impl ObjectFinalResult {
                     .storage
                     .get_object(&self.staging_bucket, &accepted)
                     .map_err(object_error)?;
-                self.decode(existing.clone(), Some(bundle_id))?;
+                self.decode(&existing, Some(bundle_id))?;
                 if existing != bytes {
                     return Err(invalid(
                         "object accepted fragment conflicts with pending attempt",
@@ -326,7 +326,7 @@ impl ObjectFinalResult {
                 .storage
                 .get_object(&self.staging_bucket, &object.key)
                 .map_err(object_error)?;
-            let fragment = self.decode(bytes, None)?;
+            let fragment = self.decode(&bytes, None)?;
             if name != format!("part-{}.accepted", hex(&fragment.bundle_digest))
                 || !seen.insert(hex(&fragment.bundle_digest))
             {
@@ -348,6 +348,7 @@ impl ObjectFinalResult {
     /// Validate and publish an arbitrarily large completed result using disk
     /// scratch space and the provider's streaming object contract. The
     /// validator must consume its reader fully and reject partial records.
+    #[allow(clippy::too_many_lines)] // Keep the validation and atomic publication sequence together.
     pub fn publish_validated_streaming(
         &self,
         expected_rows: u64,
@@ -426,7 +427,7 @@ impl ObjectFinalResult {
             let start = bytes;
             let mut remaining = length;
             let mut hasher = Sha256::new();
-            let mut buffer = [0_u8; 64 * 1024];
+            let mut buffer = vec![0_u8; 64 * 1024];
             while remaining > 0 {
                 let wanted = usize::try_from(remaining.min(buffer.len() as u64))
                     .map_err(|_| invalid("object fragment length overflow"))?;
@@ -486,8 +487,8 @@ impl ObjectFinalResult {
                     .storage
                     .open_object(&self.target_bucket, &self.target_key)
                     .map_err(object_error)?;
-                let mut expected_buf = [0_u8; 64 * 1024];
-                let mut actual_buf = [0_u8; 64 * 1024];
+                let mut expected_buf = vec![0_u8; 64 * 1024];
+                let mut actual_buf = vec![0_u8; 64 * 1024];
                 loop {
                     let expected_n = output.read(&mut expected_buf).map_err(stream_error)?;
                     if expected_n == 0 {

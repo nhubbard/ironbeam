@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_lines)] // Integration scenarios include complete graph setup and result checks.
+
 use ironbeam_core::{
     Capabilities, ErrorKind, Pipeline, Replay, SourceProgress, cogroup_by_key_3_named,
     cogroup_by_key_10_named,
@@ -1572,7 +1574,7 @@ fn ordered_keyed_batches_preserve_row_time_and_reject_ambiguous_order() {
             "ordered-batch-duplicate",
             2,
             |value| value.0,
-            |values| values.to_vec(),
+            <[(i32, i32)]>::to_vec,
         )
         .unwrap()
         .output("ordered-batch-duplicate-out")
@@ -1590,7 +1592,7 @@ fn ordered_keyed_batches_preserve_row_time_and_reject_ambiguous_order() {
                 "ordered-batch-zero",
                 0,
                 |value| value.0,
-                |values| values.to_vec(),
+                <[(i32, i32)]>::to_vec,
             )
             .is_err()
     );

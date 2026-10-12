@@ -252,7 +252,9 @@ fn bounded_history_retains_a_limit_and_recovers_the_previous_valid_snapshot() {
     let mut data_files = Vec::new();
     for offset in 1..=4 {
         store.push(offset).unwrap();
-        manager.save(offset as usize, &store).unwrap();
+        manager
+            .save(usize::try_from(offset).unwrap(), &store)
+            .unwrap();
         let manifest: Manifest =
             serde_json::from_slice(&fs::read(directory.path().join("latest.json")).unwrap())
                 .unwrap();

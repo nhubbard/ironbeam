@@ -11,6 +11,7 @@ use rayon::prelude::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
 
+#[allow(clippy::too_many_lines)] // Bounded checkpoint recovery and execution share one state flow.
 pub(crate) fn execute<T: Element>(
     pool: &rayon::ThreadPool,
     graph: &Graph,

@@ -38,9 +38,8 @@ fn portable_mongodb_sink_requires_stable_non_null_id_before_connecting() {
         Operation::Sink { spec } if spec.replay == Replay::Idempotent
     ));
     assert!(registry.sink_config_digest("write").is_some());
-    let error = match DirectRunner.run_sink(&sink, &JobConfig::default()) {
-        Ok(_) => panic!("row without _id was accepted"),
-        Err(error) => error,
+    let Err(error) = DirectRunner.run_sink(&sink, &JobConfig::default()) else {
+        panic!("row without _id was accepted");
     };
     assert!(error.message.contains("non-null _id"));
 }

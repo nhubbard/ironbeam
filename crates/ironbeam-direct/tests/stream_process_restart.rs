@@ -6,6 +6,7 @@ use ironbeam_core::{
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
 use std::collections::VecDeque;
+use std::fmt::Write as FmtWrite;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -61,11 +62,10 @@ impl TypedSink<i32> for OneResultSink {
         if self.staged.is_empty() {
             return Ok(());
         }
-        let bytes = self
-            .staged
-            .iter()
-            .map(|value| format!("{value}\n"))
-            .collect::<String>();
+        let bytes = self.staged.iter().fold(String::new(), |mut bytes, value| {
+            writeln!(bytes, "{value}").unwrap();
+            bytes
+        });
         match OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -117,7 +117,7 @@ fn pipeline(directory: &Path, stage: &str) -> ironbeam_core::Sink<i32> {
                 move |cursor| {
                     let position = cursor
                         .as_deref()
-                        .map_or("none".to_owned(), |bytes| format!("{}", bytes[0]));
+                        .map_or_else(|| "none".to_owned(), |bytes| bytes[0].to_string());
                     let mut file = OpenOptions::new()
                         .create(true)
                         .append(true)

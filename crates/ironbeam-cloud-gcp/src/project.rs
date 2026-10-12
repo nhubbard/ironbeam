@@ -37,6 +37,10 @@ pub struct GcpProject {
 
 impl GcpProject {
     /// Create a project scope. A project ID or numeric project number is accepted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the project identifier is empty or malformed.
     pub fn new(id: impl Into<String>) -> Result<Self, GcpError> {
         let id = id.into();
         if !valid_project_name(&id) {
@@ -50,7 +54,11 @@ impl GcpProject {
         &self.id
     }
 
-    /// Set the BigQuery job location, such as `US` or `us-central1`.
+    /// Set the `BigQuery` job location, such as `US` or `us-central1`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the location is empty or malformed.
     pub fn with_location(mut self, location: impl Into<String>) -> Result<Self, GcpError> {
         let location = location.into();
         if location.is_empty()
@@ -70,16 +78,28 @@ impl GcpProject {
     }
 
     /// Expand a topic ID or accept a fully qualified topic name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the topic name is malformed.
     pub fn topic_name(&self, name: &str) -> Result<String, GcpError> {
         self.resource("topics", name)
     }
 
     /// Expand a subscription ID or accept a fully qualified subscription name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the subscription name is malformed.
     pub fn subscription_name(&self, name: &str) -> Result<String, GcpError> {
         self.resource("subscriptions", name)
     }
 
     /// Expand a secret ID or accept a fully qualified secret name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the secret name is malformed.
     pub fn secret_name(&self, name: &str) -> Result<String, GcpError> {
         self.resource("secrets", name)
     }
@@ -101,6 +121,10 @@ impl GcpProject {
     }
 
     /// Expand a bucket ID or a `gs://bucket` URI for the Storage client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bucket name or URI is malformed.
     pub fn bucket(bucket: &str) -> Result<String, GcpError> {
         let bucket = bucket.strip_prefix("gs://").unwrap_or(bucket);
         let segments: Vec<_> = bucket.split('/').collect();

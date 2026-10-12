@@ -34,10 +34,7 @@ fn window_state_roundtrip_preserves_metadata_and_rejects_tampering() {
     assert_eq!(restored.assigned_window, Some(interval));
 
     let original: CodedWindowRows = serde_json::from_slice(&encoded).unwrap();
-    let mut duplicated = CodedWindowRows {
-        version: original.version,
-        windows: original.windows,
-    };
+    let mut duplicated = original;
     duplicated.windows.push(CodedWindow {
         start_ns: 0,
         end_ns: 10,

@@ -467,7 +467,7 @@ impl Drop for StreamJob {
 
 impl DirectRunner {
     /// Start resumable unbounded sources feeding a linear route, stateless
-    /// Flatten, fixed-window GroupByKey, or fixed-window co-group/join.
+    /// `Flatten`, fixed-window `GroupByKey`, or fixed-window co-group/join.
     /// Stateful routes close on the applicable source watermarks or completion
     /// and checkpoint coded open-window state.
     /// Validation and checkpoint recovery finish before opening endpoints.

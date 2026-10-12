@@ -54,7 +54,9 @@ pub trait Element: Send + 'static {
 /// An owned partition passed to a reusable dynamic operator.
 pub type Partition = Box<dyn Any + Send + Sync>;
 
-/// A v4-style reusable operator over one partition. The v5 graph binds each
+/// A v4-style reusable operator over one partition.
+///
+/// The v5 graph binds each
 /// registration to an application semantic ID and version; the runner does not
 /// infer those from the compiled operator. Planner hints are retained for API
 /// migration. They do not change v5 execution or graph identity; batch size

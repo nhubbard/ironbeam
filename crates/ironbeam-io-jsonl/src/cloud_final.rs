@@ -185,6 +185,8 @@ pub fn cloud_jsonl_fragment_store(
     graph: &str,
     key: &str,
 ) -> Result<ObjectFinalResult, Error> {
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
+    // The format contract uses lowercase .jsonl.
     if !target.1.ends_with(".jsonl") {
         return Err(Error::graph(
             key,

@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_lines)] // End-to-end streaming scenarios retain their setup and assertions together.
+
 use ironbeam_core::{
     DynOp, Error, ErrorKind, Partition, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
     SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
@@ -840,7 +842,7 @@ fn two_unbounded_cogroup_preserves_duplicate_and_side_only_keys() {
     let sink = ironbeam_core::cogroup_by_key_2_named("group", &main, &side)
         .unwrap()
         .map_named("group-counts", |(key, (main, side))| {
-            key * 100 + main.len() as i32 * 10 + side.len() as i32
+            key * 100 + i32::try_from(main.len()).unwrap() * 10 + i32::try_from(side.len()).unwrap()
         })
         .unwrap()
         .sink_named_with_config(
@@ -1294,7 +1296,7 @@ fn bounded_side_stream_drops_late_main_and_rejects_excess_open_state() {
         false,
     );
     late.unwrap();
-    assert!(committed.is_empty());
+    assert_eq!(committed.len(), 0);
     let (excess, committed) = bounded_side_stream_run(
         vec![
             ready(1, 0, false, vec![(1, 1)]),
@@ -1306,7 +1308,7 @@ fn bounded_side_stream_drops_late_main_and_rejects_excess_open_state() {
         false,
     );
     assert_eq!(excess.unwrap_err().kind, ErrorKind::Resource);
-    assert!(committed.is_empty());
+    assert_eq!(committed.len(), 0);
 }
 
 #[test]
@@ -1333,7 +1335,7 @@ fn bounded_side_stream_aborts_on_callback_panic_or_commit_failure() {
             fail_commit,
         );
         assert_eq!(error.unwrap_err().kind, ErrorKind::Execution);
-        assert!(committed.is_empty());
+        assert_eq!(committed.len(), 0);
     }
 }
 
@@ -1557,7 +1559,7 @@ fn grouped_stream_drops_late_input_and_rejects_excess_state() {
     let error = result.unwrap_err();
     assert_eq!(error.kind, ErrorKind::Resource);
     assert_eq!(error.node.as_deref(), Some("groups"));
-    assert!(committed.is_empty());
+    assert_eq!(committed.len(), 0);
 }
 
 fn fixture(

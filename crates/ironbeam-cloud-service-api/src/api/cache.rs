@@ -1,4 +1,4 @@
-use super::*;
+use super::CloudResult;
 
 // ============================================================================
 // CacheIO - In-Memory Caching

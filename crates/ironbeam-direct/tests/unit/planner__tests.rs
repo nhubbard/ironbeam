@@ -96,7 +96,7 @@ fn source_only_plan_reports_no_physical_decisions() {
         .unwrap();
     let (graph, registry) = pipeline.snapshot().unwrap();
     let summary = lower(&graph, &registry, "out", 2).unwrap().summary;
-    assert!(summary.decisions.is_empty());
+    assert_eq!(summary.decisions.len(), 0);
     assert!(summary.explain().contains("Decisions: none"));
 }
 

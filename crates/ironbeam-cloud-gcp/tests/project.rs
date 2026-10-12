@@ -12,7 +12,7 @@ fn project_names_and_locations_are_checked() {
     assert_eq!(project.id(), "ironbeam-prod");
     assert_eq!(project.region(), Some("US"));
     assert!(matches!(
-        project.clone().with_location("bad/location"),
+        project.with_location("bad/location"),
         Err(GcpError::InvalidResource(_))
     ));
 }

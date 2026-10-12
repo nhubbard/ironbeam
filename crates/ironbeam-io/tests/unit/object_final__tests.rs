@@ -17,6 +17,7 @@ fn store() -> (tempfile::TempDir, Arc<dyn ObjectIO>, ObjectFinalResult) {
     (directory, storage, result)
 }
 
+#[allow(clippy::unnecessary_wraps)] // Matches the validator callback signature.
 fn count_lines(bytes: &[u8]) -> Result<u64, Error> {
     Ok(bytes
         .split(|byte| *byte == b'\n')
@@ -24,6 +25,7 @@ fn count_lines(bytes: &[u8]) -> Result<u64, Error> {
         .count() as u64)
 }
 
+#[allow(clippy::naive_bytecount)] // Avoid another dependency for this test helper.
 fn count_streamed_lines(reader: &mut dyn Read) -> Result<u64, Error> {
     let mut count = 0_u64;
     let mut buffer = [0_u8; 4096];
@@ -193,10 +195,8 @@ fn empty_manifest_creates_empty_output_without_staging_bucket() {
             .bytes,
         0
     );
-    assert!(
-        storage
-            .get_object("output", "result.jsonl")
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        storage.get_object("output", "result.jsonl").unwrap().len(),
+        0
     );
 }

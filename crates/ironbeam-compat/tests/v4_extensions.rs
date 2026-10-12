@@ -204,6 +204,7 @@ fn versioned_batch_handler_matches_v4_partition_operator() -> Result<()> {
 }
 
 #[test]
+#[allow(clippy::items_after_statements)] // Keep the failing test operator next to its assertion.
 fn dynamic_partition_operator_matches_v4_and_reports_wrong_output_type() -> Result<()> {
     let input = vec![1_i32, 2, 3, 4, 5];
     let old: PCollection<i32> = from_vec(&TestPipeline::new(), input.clone())

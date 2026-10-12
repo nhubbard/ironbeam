@@ -18,6 +18,10 @@ pub struct GcpPubSub {
 
 impl GcpProject {
     /// Connect to Pub/Sub with Application Default Credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials or a client transport cannot be initialized.
     pub async fn pubsub(&self) -> Result<GcpPubSub, GcpError> {
         GcpPubSub::connect(self.clone()).await
     }
@@ -25,6 +29,10 @@ impl GcpProject {
 
 impl GcpPubSub {
     /// Build clients for publishing and subscription management.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials or a client transport cannot be initialized.
     pub async fn connect(project: GcpProject) -> Result<Self, GcpError> {
         let subscriber = Subscriber::builder()
             .build()
@@ -48,6 +56,10 @@ impl GcpPubSub {
     }
 
     /// Get a reusable publisher for a topic. Short and qualified names work.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid topic or a publisher initialization failure.
     pub async fn publisher(&self, topic: &str) -> Result<Publisher, GcpError> {
         let topic = self.project.topic_name(topic)?;
         if let Some(client) = self.publishers.lock().await.get(&topic) {
@@ -62,6 +74,10 @@ impl GcpPubSub {
     }
 
     /// Publish one message and return its server-assigned ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the topic is invalid or publishing fails.
     pub async fn publish(
         &self,
         topic: &str,
@@ -77,12 +93,20 @@ impl GcpPubSub {
 
     /// Start the official streaming subscriber for a subscription.
     /// Received messages include acknowledgment handlers.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the subscription name is invalid.
     pub fn stream(&self, subscription: &str) -> Result<MessageStream, GcpError> {
         let name = self.project.subscription_name(subscription)?;
         Ok(self.subscriber.subscribe(name).build())
     }
 
     /// Create a pull subscription attached to a topic.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a resource name is invalid or the service rejects creation.
     pub async fn create_subscription(
         &self,
         topic: &str,
@@ -101,6 +125,10 @@ impl GcpPubSub {
     }
 
     /// Create a topic before publishing to it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the topic name is invalid or the service rejects creation.
     pub async fn create_topic(&self, topic: &str) -> Result<(), GcpError> {
         self.topics
             .create_topic()
@@ -113,19 +141,19 @@ impl GcpPubSub {
 
     /// Access the official topic administration client.
     #[must_use]
-    pub fn topic_admin(&self) -> &TopicAdmin {
+    pub const fn topic_admin(&self) -> &TopicAdmin {
         &self.topics
     }
 
     /// Access the official subscription administration client.
     #[must_use]
-    pub fn subscription_admin(&self) -> &SubscriptionAdmin {
+    pub const fn subscription_admin(&self) -> &SubscriptionAdmin {
         &self.subscriptions
     }
 
     /// Access the official subscriber for flow control and stream options.
     #[must_use]
-    pub fn subscriber(&self) -> &Subscriber {
+    pub const fn subscriber(&self) -> &Subscriber {
         &self.subscriber
     }
 }

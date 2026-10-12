@@ -1,6 +1,9 @@
 //! Multi-source Direct streaming with route-local progress and shared window checkpoints.
 
+#![allow(clippy::wildcard_imports)] // The child module shares the parent stream state machine.
+
 use super::*;
+use std::fmt::Write as _;
 
 const MULTI_SOURCE_KEY: &str = "ironbeam:multi-source";
 
@@ -79,7 +82,8 @@ pub(super) fn start_dual_side_stream<T: Element>(
                 let part = registry
                     .source_config_digest(key)
                     .ok_or_else(|| Error::unsupported(key, "direct", "source-config-digest"))?;
-                digest.push_str(&format!("{}:{}{}:{}", key.len(), key, part.len(), part));
+                write!(digest, "{}:{}{}:{}", key.len(), key, part.len(), part)
+                    .expect("writing to String cannot fail");
             }
             StreamCheckpoint::new::<T>(
                 checkpoint,
@@ -270,13 +274,15 @@ pub(super) fn start_multi_stream_sink<T: Element>(
                 .ok_or_else(|| {
                     Error::unsupported(&route.source_key, "direct", "source-config-digest")
                 })?;
-            source_digest.push_str(&format!(
+            write!(
+                source_digest,
                 "{}:{}{}:{}",
                 route.source_key.len(),
                 route.source_key,
                 digest.len(),
                 digest
-            ));
+            )
+            .expect("writing to String cannot fail");
         }
     }
     let checkpoint = config

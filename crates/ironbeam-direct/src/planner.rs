@@ -1,5 +1,6 @@
 //! Direct-only lowering and stateless fusion.
 use ironbeam_core::{Error, Graph, Operation, Registry};
+use std::fmt::Write as _;
 
 /// A physical planning choice made while lowering the selected Direct output.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -62,22 +63,30 @@ impl PlanSummary {
         for decision in &self.decisions {
             match decision {
                 PlanDecision::PrunedNodes { keys } => {
-                    description
-                        .push_str(&format!("\n  Pruned unselected nodes: {}", keys.join(", ")));
+                    write!(
+                        description,
+                        "\n  Pruned unselected nodes: {}",
+                        keys.join(", ")
+                    )
+                    .expect("writing to String cannot fail");
                 }
                 PlanDecision::MaterializationBarrier { key, semantic_id } => {
-                    description.push_str(&format!(
+                    write!(
+                        description,
                         "\n  Materialization barrier: {key} ({semantic_id})"
-                    ));
+                    )
+                    .expect("writing to String cannot fail");
                 }
                 PlanDecision::FusedStatelessRoute {
                     source_key,
                     operations,
                 } => {
-                    description.push_str(&format!(
+                    write!(
+                        description,
                         "\n  Fused stateless route from {source_key}: {}",
                         operations.join(" -> ")
-                    ));
+                    )
+                    .expect("writing to String cannot fail");
                 }
             }
         }
@@ -250,7 +259,7 @@ pub(crate) fn lower(
     })
 }
 
-fn requires_materialization(operation: &Operation) -> bool {
+const fn requires_materialization(operation: &Operation) -> bool {
     matches!(
         operation,
         Operation::GroupByKey

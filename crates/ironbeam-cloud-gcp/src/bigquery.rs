@@ -1,7 +1,7 @@
 use crate::{GcpError, GcpProject};
 use google_cloud_bigquery::{client::BigQuery, query::Row};
 
-/// BigQuery SQL queries in a configured project and location.
+/// `BigQuery` SQL queries in a configured project and location.
 #[derive(Clone)]
 pub struct GcpBigQuery {
     project: GcpProject,
@@ -9,14 +9,22 @@ pub struct GcpBigQuery {
 }
 
 impl GcpProject {
-    /// Connect to BigQuery with Application Default Credentials.
+    /// Connect to `BigQuery` with Application Default Credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials or the client transport cannot be initialized.
     pub async fn bigquery(&self) -> Result<GcpBigQuery, GcpError> {
         GcpBigQuery::connect(self.clone()).await
     }
 }
 
 impl GcpBigQuery {
-    /// Create a BigQuery client for a project.
+    /// Create a `BigQuery` client for a project.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if credentials or the client transport cannot be initialized.
     pub async fn connect(project: GcpProject) -> Result<Self, GcpError> {
         let client = BigQuery::builder()
             .with_project_id(project.id().to_string())
@@ -28,12 +36,16 @@ impl GcpBigQuery {
 
     /// Access the official client for query parameters and advanced jobs.
     #[must_use]
-    pub fn client(&self) -> &BigQuery {
+    pub const fn client(&self) -> &BigQuery {
         &self.client
     }
 
     /// Run SQL and collect its result rows. Each `Row` supports typed `get`.
     /// For large results, use [`client`](Self::client) to stream rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for empty SQL, a failed query, or a failed row read.
     pub async fn query_rows(&self, sql: &str) -> Result<Vec<Row>, GcpError> {
         if sql.trim().is_empty() {
             return Err(GcpError::InvalidResource("empty BigQuery SQL".into()));
@@ -51,6 +63,10 @@ impl GcpBigQuery {
     }
 
     /// Execute SQL and wait for its job to complete.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for empty SQL or a failed query job.
     pub async fn execute(&self, sql: &str) -> Result<(), GcpError> {
         if sql.trim().is_empty() {
             return Err(GcpError::InvalidResource("empty BigQuery SQL".into()));

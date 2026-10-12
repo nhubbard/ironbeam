@@ -154,7 +154,7 @@ pub enum ValidationMode {
     FailFast,
 }
 
-fn validation_semantic_id(mode: ValidationMode, keyed: bool) -> &'static str {
+const fn validation_semantic_id(mode: ValidationMode, keyed: bool) -> &'static str {
     match (mode, keyed) {
         (ValidationMode::SkipInvalid, false) => "ironbeam-transforms/validation-skip/v1",
         (ValidationMode::LogAndContinue, false) => "ironbeam-transforms/validation-log/v1",

@@ -350,7 +350,7 @@ impl StreamCheckpoint {
         for slot in (1..self.max_checkpoints).rev() {
             let target = self.slot_path(slot);
             if let Some(old) = &previous[slot - 1] {
-                self.write_manifest(&target, old)?;
+                Self::write_manifest(&target, old)?;
             }
         }
         if self.max_checkpoints > 1 {
@@ -358,7 +358,7 @@ impl StreamCheckpoint {
             #[cfg(test)]
             crash_after("stream_history_synced");
         }
-        self.write_manifest(&self.path, &manifest)?;
+        Self::write_manifest(&self.path, &manifest)?;
         #[cfg(test)]
         crash_after("stream_latest_renamed");
         sync_directory(directory)?;
@@ -427,7 +427,7 @@ impl StreamCheckpoint {
         let mut file = fs::File::open(&path)
             .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
         let mut hasher = Sha256::new();
-        let mut buffer = [0_u8; 64 * 1024];
+        let mut buffer = vec![0_u8; 64 * 1024];
         loop {
             let count = file
                 .read(&mut buffer)
@@ -509,7 +509,7 @@ impl StreamCheckpoint {
         Ok(())
     }
 
-    fn write_manifest(&self, path: &Path, manifest: &Manifest) -> Result<(), Error> {
+    fn write_manifest(path: &Path, manifest: &Manifest) -> Result<(), Error> {
         let bytes = serde_json::to_vec(manifest)
             .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
         if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_MANIFEST_BYTES {
@@ -573,12 +573,12 @@ fn checksum(
     progress: &ProgressSignal,
     state: Option<&StateRef>,
 ) -> Result<String, Error> {
-    let bytes = if let Some(state) = state {
-        serde_json::to_vec(&(version, identity, progress, state))
-    } else {
-        serde_json::to_vec(&(version, identity, progress))
-    }
-    .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+    let bytes = state
+        .map_or_else(
+            || serde_json::to_vec(&(version, identity, progress)),
+            |state| serde_json::to_vec(&(version, identity, progress, state)),
+        )
+        .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
     Ok(hex_bytes(&Sha256::digest(bytes)))
 }
 

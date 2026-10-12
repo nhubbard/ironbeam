@@ -264,6 +264,7 @@ fn collection_coders_reject_duplicate_wire_members() {
 }
 
 #[test]
+#[allow(clippy::zero_sized_map_values)] // The unsupported zero-sized value is the subject of this test.
 fn nested_container_coders_reject_unsupported_element_types() {
     #[derive(Eq, PartialEq, Hash)]
     struct Opaque;

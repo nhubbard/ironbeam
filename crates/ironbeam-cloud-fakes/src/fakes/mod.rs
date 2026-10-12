@@ -1,3 +1,4 @@
+#![allow(clippy::wildcard_imports)] // Split fake implementations share the parent test types.
 //!
 //! These implementations use in-memory data structures to simulate cloud services,
 //! making them ideal for unit testing without external dependencies.

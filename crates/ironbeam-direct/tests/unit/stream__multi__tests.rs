@@ -66,13 +66,15 @@ fn save_stateless_state(
     let mut digest = String::new();
     for route in &plan.routes {
         let part = registry.source_config_digest(&route.source_key).unwrap();
-        digest.push_str(&format!(
+        write!(
+            digest,
             "{}:{}{}:{}",
             route.source_key.len(),
             route.source_key,
             part.len(),
             part
-        ));
+        )
+        .unwrap();
     }
     let checkpoint = StreamCheckpoint::new::<i32>(
         config.checkpoint.as_ref().unwrap(),
@@ -144,7 +146,7 @@ fn save_dual_state(
     let mut digest = String::new();
     for key in [&route.source_key, &route.side_source_key] {
         let part = registry.source_config_digest(key).unwrap();
-        digest.push_str(&format!("{}:{}{}:{}", key.len(), key, part.len(), part));
+        write!(digest, "{}:{}{}:{}", key.len(), key, part.len(), part).unwrap();
     }
     let checkpoint = StreamCheckpoint::new::<i32>(
         config.checkpoint.as_ref().unwrap(),

@@ -122,6 +122,7 @@ where
 }
 
 /// Portable SQL append sink with a stable destination and binding identity.
+///
 /// The caller must make the SQL statement idempotent, for example by using a
 /// unique key and conflict handling: a portable runner may replay a bundle.
 /// Change `version` when the binding callback's behavior changes.

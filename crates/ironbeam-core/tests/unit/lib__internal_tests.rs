@@ -145,7 +145,7 @@ fn semantic_batch_handler_records_application_version() {
                 2,
                 "example/partition",
                 Version { major: 0, minor: 1 },
-                |values| values.to_vec(),
+                <[i32]>::to_vec,
             )
             .is_err()
     );
@@ -182,7 +182,7 @@ fn batch_size_is_part_of_graph_identity() {
                 size,
                 "example/partition",
                 Version { major: 1, minor: 0 },
-                |values| values.to_vec(),
+                <[i32]>::to_vec,
             )
             .unwrap();
         pipeline.snapshot().unwrap().0
@@ -254,7 +254,7 @@ fn ordered_keyed_batch_size_is_part_of_graph_identity() {
                 "batch",
                 size,
                 |value| value.0,
-                |values| values.to_vec(),
+                <[(i32, i32)]>::to_vec,
             )
             .unwrap();
         pipeline.snapshot().unwrap().0
@@ -282,7 +282,7 @@ fn ordered_keyed_batch_size_is_part_of_graph_identity() {
                 "unbounded-global-batch",
                 2,
                 |value| value.0,
-                |values| values.to_vec(),
+                <[(i32, i32)]>::to_vec,
             )
             .is_err()
     );

@@ -10,13 +10,15 @@ use std::{
     sync::Arc,
 };
 
-pub(crate) fn sync_directory(path: &Path, key: &str) -> Result<(), Error> {
+#[allow(clippy::redundant_pub_crate)] // Used by the parent crate but not part of the public facade.
+pub(super) fn sync_directory(path: &Path, key: &str) -> Result<(), Error> {
     fs::File::open(path)
         .and_then(|directory| directory.sync_all())
         .map_err(|error| io(key, error))
 }
 
-pub(crate) fn create_dir_all_durable(path: &Path, key: &str) -> Result<(), Error> {
+#[allow(clippy::redundant_pub_crate)] // Used by the parent crate but not part of the public facade.
+pub(super) fn create_dir_all_durable(path: &Path, key: &str) -> Result<(), Error> {
     let path = if path.as_os_str().is_empty() {
         Path::new(".")
     } else {
