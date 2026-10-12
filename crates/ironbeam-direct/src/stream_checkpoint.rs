@@ -299,13 +299,24 @@ mod tests {
     }
 
     #[test]
-    fn stream_checkpoint_requires_a_stable_build_identity() {
+    fn stream_checkpoint_requires_a_stable_build_identity_and_batch_interval() {
         let temporary = tempfile::tempdir().unwrap();
         let config = CheckpointConfig {
             directory: temporary.path().into(),
             interval_batches: 1,
             recover: true,
             binary_build_id: String::new(),
+        };
+        assert!(
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                .is_err()
+        );
+        assert!(!temporary.path().join("stream-latest.json").exists());
+
+        let config = CheckpointConfig {
+            interval_batches: 2,
+            binary_build_id: "test-build".into(),
+            ..config
         };
         assert!(
             StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
@@ -420,6 +431,23 @@ mod tests {
         )
         .unwrap();
         assert!(no_recover.load().unwrap().is_none());
+    }
+
+    #[test]
+    fn load_rejects_validly_checksummed_incomplete_progress_without_cursor() {
+        let temporary = tempfile::tempdir().unwrap();
+        let checkpoint = checkpoint(temporary.path(), "sink");
+        let mut progress = signal();
+        progress.checkpoint_position = None;
+        let manifest = Manifest {
+            version: STREAM_CHECKPOINT_VERSION,
+            identity: checkpoint.identity.clone(),
+            checksum: checksum(STREAM_CHECKPOINT_VERSION, &checkpoint.identity, &progress).unwrap(),
+            progress,
+        };
+        fs::write(&checkpoint.path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let error = checkpoint.load().unwrap_err();
+        assert!(error.message.contains("requires a cursor"));
     }
 
     #[test]
