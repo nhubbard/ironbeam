@@ -232,7 +232,13 @@ impl LocalFinalResult {
         let pending = self.path(bundle_id, "pending")?;
         match fs::remove_file(pending) {
             Ok(()) => sync_directory(&self.staging),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if self.staging.exists() {
+                    sync_directory(&self.staging)
+                } else {
+                    Ok(())
+                }
+            }
             Err(error) => Err(io(error)),
         }
     }
@@ -539,6 +545,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let store =
             LocalFinalResult::new(temp.path().join("stage"), "job", "graph", "sink").unwrap();
+        store.abandon("never-staged").unwrap();
         store.stage("abandoned", 1, b"x").unwrap();
         store.abandon("abandoned").unwrap();
         store.abandon("abandoned").unwrap();
