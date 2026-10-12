@@ -3393,14 +3393,22 @@ impl<T: Element> PCollection<T> {
         version: Version,
         f: impl Fn(T) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
+        Self::validate_semantic_handler(key, semantic_id, version)?;
+        self.map_registered(key, Some((semantic_id, version)), f)
+    }
+    fn validate_semantic_handler(
+        key: &str,
+        semantic_id: &str,
+        version: Version,
+    ) -> Result<(), Error> {
         if !semantic_id.contains('/') || semantic_id.starts_with("ironbeam/") || version.major == 0
         {
             return Err(Error::graph(
                 key,
-                "semantic map requires an application namespace and major version",
+                "semantic handler requires an application namespace and major version",
             ));
         }
-        self.map_registered(key, Some((semantic_id, version)), f)
+        Ok(())
     }
     fn map_registered<U: Element>(
         &self,
@@ -3431,6 +3439,26 @@ impl<T: Element> PCollection<T> {
         key: &str,
         f: impl Fn(&T) -> bool + Send + Sync + 'static,
     ) -> Result<Self, Error> {
+        self.filter_registered(key, None, f)
+    }
+    /// Register a versioned predicate under an application semantic ID.
+    /// The portable worker must construct the same predicate and version.
+    pub fn filter_with_semantic_named(
+        &self,
+        key: &str,
+        semantic_id: &str,
+        version: Version,
+        f: impl Fn(&T) -> bool + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
+        Self::validate_semantic_handler(key, semantic_id, version)?;
+        self.filter_registered(key, Some((semantic_id, version)), f)
+    }
+    fn filter_registered(
+        &self,
+        key: &str,
+        semantic: Option<(&str, Version)>,
+        f: impl Fn(&T) -> bool + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
         let key_owned = key.to_owned();
         let f = Arc::new(f);
         let envelope_f = Arc::clone(&f);
@@ -3442,7 +3470,8 @@ impl<T: Element> PCollection<T> {
                 .ok_or_else(|| Error::execution(&key_owned, "direct", "input type mismatch"))?;
             Ok(if envelope_f(value) { Some(e) } else { None })
         }));
-        let output = self.next(key, Operation::Filter, Some(transform), None)?;
+        let output =
+            self.next_with_semantic(key, Operation::Filter, Some(transform), None, semantic)?;
         self.pipeline
             .add_typed_transform(key, TypedTransformRegistration::Filter(Arc::new(typed_f)))?;
         Ok(output)
@@ -3450,6 +3479,26 @@ impl<T: Element> PCollection<T> {
     pub fn flat_map_named<U: Element>(
         &self,
         key: &str,
+        f: impl Fn(T) -> Vec<U> + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        self.flat_map_registered(key, None, f)
+    }
+    /// Register a versioned zero-or-many-output handler under an application
+    /// semantic ID. The portable worker must construct the same handler.
+    pub fn flat_map_with_semantic_named<U: Element>(
+        &self,
+        key: &str,
+        semantic_id: &str,
+        version: Version,
+        f: impl Fn(T) -> Vec<U> + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        Self::validate_semantic_handler(key, semantic_id, version)?;
+        self.flat_map_registered(key, Some((semantic_id, version)), f)
+    }
+    fn flat_map_registered<U: Element>(
+        &self,
+        key: &str,
+        semantic: Option<(&str, Version)>,
         f: impl Fn(T) -> Vec<U> + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
         let key_owned = key.to_owned();
@@ -3473,7 +3522,7 @@ impl<T: Element> PCollection<T> {
                 })
                 .collect())
         }));
-        self.next(key, Operation::FlatMap, Some(transform), None)
+        self.next_with_semantic(key, Operation::FlatMap, Some(transform), None, semantic)
     }
     pub fn flatten_named(&self, key: &str, others: &[Self]) -> Result<Self, Error> {
         if others.is_empty() {
@@ -6065,6 +6114,59 @@ mod internal_tests {
         assert_ne!(
             graph.fingerprint().unwrap(),
             changed.snapshot().unwrap().0.fingerprint().unwrap()
+        );
+    }
+
+    #[test]
+    fn semantic_filter_and_flat_map_record_versions_in_graph_identity() {
+        let build = |minor| {
+            let pipeline = Pipeline::default();
+            let source = pipeline.from_vec("source", vec![1_i32, 2, 3]).unwrap();
+            let version = Version { major: 1, minor };
+            let filtered = source
+                .filter_with_semantic_named("filter", "example/odd", version, |value| {
+                    value % 2 != 0
+                })
+                .unwrap();
+            filtered
+                .flat_map_with_semantic_named("expand", "example/duplicate", version, |value| {
+                    vec![value, value]
+                })
+                .unwrap();
+            pipeline.snapshot().unwrap().0
+        };
+        let graph = build(0);
+        assert_eq!(graph.node("filter").unwrap().operation, Operation::Filter);
+        assert_eq!(graph.node("expand").unwrap().operation, Operation::FlatMap);
+        assert_eq!(graph.node("filter").unwrap().semantic_id, "example/odd");
+        assert_eq!(
+            graph.node("expand").unwrap().semantic_id,
+            "example/duplicate"
+        );
+        assert_ne!(
+            graph.fingerprint().unwrap(),
+            build(1).fingerprint().unwrap()
+        );
+        let source = Pipeline::default().from_vec("source", vec![1_i32]).unwrap();
+        assert!(
+            source
+                .filter_with_semantic_named(
+                    "bad-filter",
+                    "ironbeam/odd",
+                    Version { major: 1, minor: 0 },
+                    |_| true
+                )
+                .is_err()
+        );
+        assert!(
+            source
+                .flat_map_with_semantic_named(
+                    "bad-expand",
+                    "example/duplicate",
+                    Version { major: 0, minor: 1 },
+                    |value| vec![value]
+                )
+                .is_err()
         );
     }
 

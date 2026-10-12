@@ -57,6 +57,31 @@ fn versioned_semantic_map_executes_with_direct() {
 }
 
 #[test]
+fn versioned_filter_and_flat_map_execute_with_direct() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("source", vec![1_i32, 2, 3, 4])
+        .unwrap()
+        .filter_with_semantic_named(
+            "odd",
+            "example/odd",
+            Version { major: 1, minor: 0 },
+            |value| value % 2 != 0,
+        )
+        .unwrap()
+        .flat_map_with_semantic_named(
+            "duplicate",
+            "example/duplicate",
+            Version { major: 1, minor: 0 },
+            |value| vec![value, value],
+        )
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(values, [1, 1, 3, 3]);
+}
+
+#[test]
 fn typed_map_filter_route_preserves_values_and_metrics() {
     let pipeline = Pipeline::default();
     let source = pipeline
