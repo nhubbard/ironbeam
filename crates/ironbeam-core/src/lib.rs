@@ -3835,10 +3835,10 @@ impl<T: Element> PCollection<T> {
         }
         let key_owned = key.to_owned();
         let output_window = parent.time.window.clone();
-        let aggregate: Aggregate = Arc::new(move |mut inputs| {
-            let values = inputs
-                .pop()
-                .ok_or_else(|| Error::execution(&key_owned, "direct", "combine input missing"))?;
+        let aggregate: Aggregate = Arc::new(move |inputs| {
+            let [values]: [Vec<Envelope>; 1] = inputs.try_into().map_err(|_| {
+                Error::execution(&key_owned, "direct", "combine requires exactly one input")
+            })?;
             let mut groups: BTreeMap<Option<i64>, (Vec<T>, i64, Option<WindowInterval>)> =
                 BTreeMap::new();
             for event in values {
@@ -3965,9 +3965,13 @@ impl<T: Element> PCollection<T> {
         }
         let node_key = key.to_owned();
         let output_window = parent.time.window.clone();
-        let aggregate: Aggregate = Arc::new(move |mut inputs| {
-            let events = inputs.pop().ok_or_else(|| {
-                Error::execution(&node_key, "runner", "ordered global fold input missing")
+        let aggregate: Aggregate = Arc::new(move |inputs| {
+            let [events]: [Vec<Envelope>; 1] = inputs.try_into().map_err(|_| {
+                Error::execution(
+                    &node_key,
+                    "runner",
+                    "ordered global fold requires one input",
+                )
             })?;
             let mut groups: OrderedGlobalGroups<Q, T> = BTreeMap::new();
             for event in events {
@@ -5228,9 +5232,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         });
         let aggregate_factory = Arc::clone(&fold_factory);
         let aggregate_key = group_key.clone();
-        let aggregate: Aggregate = Arc::new(move |mut inputs| {
-            let events = inputs.pop().ok_or_else(|| {
-                Error::execution(&aggregate_key, "direct", "latest group input missing")
+        let aggregate: Aggregate = Arc::new(move |inputs| {
+            let [events]: [Vec<Envelope>; 1] = inputs.try_into().map_err(|_| {
+                Error::execution(&aggregate_key, "direct", "latest group requires one input")
             })?;
             let mut fold = aggregate_factory();
             for event in events {
@@ -5411,10 +5415,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 groups: Vec::new(),
             })
         });
-        let aggregate: Aggregate = Arc::new(move |mut inputs| {
-            let events = inputs
-                .pop()
-                .ok_or_else(|| Error::execution(&key_owned, "direct", "group input missing"))?;
+        let aggregate: Aggregate = Arc::new(move |inputs| {
+            let [events]: [Vec<Envelope>; 1] = inputs.try_into().map_err(|_| {
+                Error::execution(&key_owned, "direct", "group requires exactly one input")
+            })?;
             let mut fold: Box<dyn FoldSession> = Box::new(GroupByKeyFoldState::<K, V> {
                 key: key_owned.clone(),
                 global_indices: HashMap::new(),

@@ -2289,6 +2289,9 @@ fn aggregate_registry_reports_bad_arity_and_runtime_types() {
         .unwrap();
     left.group_by_key_named("group").unwrap();
     left.join_inner_named("join", &right).unwrap();
+    left.join_left_named("left-join", &right).unwrap();
+    left.join_right_named("right-join", &right).unwrap();
+    left.join_full_named("full-join", &right).unwrap();
     values.flat_map_named("flat", |value| vec![value]).unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
     assert!(registry.apply_aggregate("sum", vec![]).is_err());
@@ -2335,6 +2338,233 @@ fn aggregate_registry_reports_bad_arity_and_runtime_types() {
             .is_err()
     );
     assert!(registry.apply_many("flat", event("bad")).is_err());
+
+    // Portable workers can receive malformed typed payloads from an input
+    // coder. Both index orientations must reject them with the join node's
+    // execution error, including outer joins that retain unmatched rows.
+    for join in ["join", "left-join", "right-join", "full-join"] {
+        for inputs in [
+            vec![
+                vec![event("bad")],
+                vec![event((1_i32, 3_i32)), event((2, 4))],
+            ],
+            vec![
+                vec![event((1_i32, 2_i32))],
+                vec![event("bad"), event((2, 4))],
+            ],
+            vec![
+                vec![event((1_i32, 2_i32)), event((2, 4))],
+                vec![event("bad")],
+            ],
+            vec![
+                vec![event((1_i32, 2_i32)), event("bad")],
+                vec![event((1_i32, 3_i32))],
+            ],
+        ] {
+            let Err(error) = registry.apply_aggregate(join, inputs) else {
+                panic!("{join} accepted a malformed typed input");
+            };
+            assert_eq!(error.kind, ErrorKind::Execution);
+            assert_eq!(error.node.as_deref(), Some(join));
+            assert!(error.message.contains("type mismatch"), "{join}: {error:?}");
+        }
+    }
+}
+
+#[test]
+fn portable_ordered_and_latest_steps_reject_corrupt_shuffle_groups() {
+    fn event(value: impl Send + 'static) -> Envelope {
+        Envelope {
+            value: Box::new(value),
+            timestamp_ns: 0,
+            window: Window::Global,
+            assigned_window: None,
+        }
+    }
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![(1_i32, 2_i32)]).unwrap();
+    input
+        .fold_values_ordered_by_named("ordered", |value| *value, SumI32)
+        .unwrap();
+    input
+        .latest_per_key_by_named("latest-tie", |value| *value)
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+
+    for (key, value) in [
+        ("ordered/order", event("bad")),
+        ("ordered", event("bad")),
+        ("ordered", event((1_i32, Vec::<(i32, (i64, i32))>::new()))),
+        (
+            "ordered",
+            event((1_i32, vec![(7_i32, (0_i64, 1_i32)), (7, (1, 2))])),
+        ),
+        ("latest-tie/tie", event("bad")),
+        ("latest-tie", event("bad")),
+        (
+            "latest-tie",
+            event((1_i32, Vec::<(i64, (i32, i32))>::new())),
+        ),
+        (
+            "latest-tie",
+            event((1_i32, vec![(0_i64, (7_i32, 1_i32)), (0, (7, 2))])),
+        ),
+    ] {
+        let Err(error) = registry.apply_many(key, value) else {
+            panic!("{key} accepted a corrupt shuffle input");
+        };
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert_eq!(error.node.as_deref(), Some(key));
+    }
+}
+
+#[test]
+fn single_input_aggregates_reject_extra_runner_inputs() {
+    fn event(value: impl Send + 'static) -> Envelope {
+        Envelope {
+            value: Box::new(value),
+            timestamp_ns: 0,
+            window: Window::Global,
+            assigned_window: None,
+        }
+    }
+    let pipeline = Pipeline::default();
+    let values = pipeline.from_vec("values", vec![1_i32]).unwrap();
+    values
+        .combine_globally_named("combine", |rows| rows.into_iter().sum::<i32>())
+        .unwrap();
+    values
+        .fold_globally_ordered_by_named("ordered", |value| *value, SumI32)
+        .unwrap();
+    let keyed = pipeline.from_vec("keyed", vec![(1_i32, 2_i32)]).unwrap();
+    keyed.group_by_key_named("group").unwrap();
+    keyed.latest_per_key_named("latest").unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+
+    for (key, inputs) in [
+        ("combine", vec![vec![event(1_i32)], vec![event(2_i32)]]),
+        ("ordered", vec![vec![event(1_i32)], vec![event(2_i32)]]),
+        (
+            "group",
+            vec![vec![event((1_i32, 2_i32))], vec![event((2_i32, 3_i32))]],
+        ),
+        (
+            "latest/group",
+            vec![
+                vec![event((1_i32, (0_i64, 2_i32)))],
+                vec![event((2_i32, (0_i64, 3_i32)))],
+            ],
+        ),
+    ] {
+        let Err(error) = registry.apply_aggregate(key, inputs) else {
+            panic!("{key} ignored an extra runner input");
+        };
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert_eq!(error.node.as_deref(), Some(key));
+        assert!(error.message.contains("one input"));
+    }
+}
+
+#[test]
+fn built_in_fold_sessions_drain_values_and_propagate_emitter_failure() {
+    fn event(value: impl Send + 'static, timestamp_ns: i64) -> Envelope {
+        Envelope {
+            value: Box::new(value),
+            timestamp_ns,
+            window: Window::Global,
+            assigned_window: None,
+        }
+    }
+    let pipeline = Pipeline::default();
+    let values = pipeline.from_vec("values", vec![1_i32, 2]).unwrap();
+    values
+        .fold_globally_ordered_named("global", SumI32)
+        .unwrap();
+    let keyed = pipeline.from_vec("keyed", vec![(1_i32, 1_i32)]).unwrap();
+    keyed.fold_values_ordered_named("per-key", SumI32).unwrap();
+    keyed.group_by_key_named("group").unwrap();
+    keyed.latest_per_key_named("latest").unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+
+    let empty_global = registry.open_fold("global").unwrap();
+    let mut empty = Vec::new();
+    empty_global
+        .finish_into(&mut |row| {
+            empty.push((*row.value.downcast::<i32>().unwrap(), row.timestamp_ns));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(empty, [(0, 0)]);
+
+    let mut global = registry.open_fold("global").unwrap();
+    global.add(event(1_i32, 5)).unwrap();
+    global.add(event(2_i32, 10)).unwrap();
+    let mut sums = Vec::new();
+    global
+        .finish_into(&mut |row| {
+            sums.push((*row.value.downcast::<i32>().unwrap(), row.timestamp_ns));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(sums, [(3, 5)]);
+
+    let mut per_key = registry.open_fold("per-key").unwrap();
+    per_key.add(event((1_i32, 1_i32), 5)).unwrap();
+    per_key.add(event((1_i32, 2_i32), 10)).unwrap();
+    let mut keyed_sums = Vec::new();
+    per_key
+        .finish_into(&mut |row| {
+            keyed_sums.push((
+                *row.value.downcast::<(i32, i32)>().unwrap(),
+                row.timestamp_ns,
+            ));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(keyed_sums, [((1, 3), 5)]);
+
+    let mut group = registry.open_fold("group").unwrap();
+    group.add(event((1_i32, 1_i32), 5)).unwrap();
+    group.add(event((1_i32, 2_i32), 10)).unwrap();
+    let mut groups = Vec::new();
+    group
+        .finish_into(&mut |row| {
+            groups.push((
+                *row.value.downcast::<(i32, Vec<i32>)>().unwrap(),
+                row.timestamp_ns,
+            ));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(groups, [((1, vec![1, 2]), 5)]);
+
+    let mut latest = registry.open_fold("latest/group").unwrap();
+    latest.add(event((1_i32, (5_i64, 1_i32)), 5)).unwrap();
+    latest.add(event((1_i32, (10_i64, 2_i32)), 10)).unwrap();
+    let mut latest_groups = Vec::new();
+    latest
+        .finish_into(&mut |row| {
+            latest_groups.push((
+                *row.value.downcast::<(i32, Vec<(i64, i32)>)>().unwrap(),
+                row.timestamp_ns,
+            ));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(latest_groups, [((1, vec![(10, 2)]), 5)]);
+
+    let mut failing = registry.open_fold("group").unwrap();
+    failing.add(event((1_i32, 1_i32), 5)).unwrap();
+    failing.add(event((2_i32, 2_i32), 10)).unwrap();
+    let mut emitted = 0;
+    let error = failing
+        .finish_into(&mut |_| {
+            emitted += 1;
+            Err(Error::io("sink", "test", "write failed"))
+        })
+        .unwrap_err();
+    assert_eq!(emitted, 1);
+    assert_eq!(error.kind, ErrorKind::Io);
 }
 
 #[test]
