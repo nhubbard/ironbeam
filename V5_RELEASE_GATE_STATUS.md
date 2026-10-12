@@ -15,7 +15,7 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 | Direct | V4 reference corpus and v5 helper tests pass; a bounded side input now joins an unbounded main by fixed window with coded open-window checkpoints | Close public API and edge-case parity |
 | Portable | All 33 live local Prism tests pass; the production unbounded job executes versioned map, flat-map, and filter handlers and publishes object-backed JSONL | Expand shared Direct/Prism corpus |
 | Streaming | A split and accepted batches survive separate worker process restarts in the Fn Data fixture, including a two-output fanout; the production reader also resumes through join and co-group | Expand worker recovery to remaining graph shapes; retain Prism's fail-closed worker-loss proof |
-| Quality | All six core/Direct/transforms coverage ratchets pass, as do strict lint and the complete local 29-package release script | Review remaining uncovered contracts and set performance limits |
+| Quality | All six core/Direct/transforms coverage ratchets pass after the typed-route optimization, as do strict lint and the complete local 29-package release script | Review remaining uncovered contracts and set performance limits |
 
 Passing a current check does not close a release gate unless its full proof
 below is complete.
@@ -70,6 +70,18 @@ Map/filter latency and join shapes outside the typed Direct path need work
 before setting acceptance limits.
 The million-row JSONL ratio is much smaller than the 100,000-row ratio, so its
 fixed setup and durable publication costs need separate measurement.
+
+On 2026-10-12, a paired release run of sixteen sampled million-row map/filter
+executions per version measured **0.946 ms for v4 and 2.125 ms for v5
+(2.25×)**, with matching output count and checksum. The previous v5 binary
+and the candidate ran two warmup pairs and sixteen alternating sample pairs:
+2.778 ms versus 2.083 ms (0.75× candidate/previous). Direct now specializes
+the common two-stage typed route while checking cancellation between stages;
+the complete Direct package suite and strict test lint pass. The exact CI
+coverage set also passes: Direct **5477/5883 lines (93.10%)** and
+**1143/1270 branches (90.00%)**, with core and transforms at their previous
+passing rates. The v5 map/filter median remains above v4, so this does not
+close the performance gate.
 
 A terminal streaming inner-join prototype was measured against the previous
 v5 binary on the same million-row inputs and then removed. It made equal-size
