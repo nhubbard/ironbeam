@@ -1,7 +1,7 @@
 use ironbeam_core::{
     DynOp, Error, ErrorKind, Partition, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
-    SourceProgress, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
-    UnboundedPoll, UnboundedSource, Version,
+    SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
+    UnboundedBatch, UnboundedPoll, UnboundedSource, Version,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus, SpillConfig};
 use std::collections::{HashSet, VecDeque};
@@ -815,6 +815,70 @@ fn two_unbounded_full_join_emits_both_unmatched_sides() {
             ("side".into(), None),
         ]
     );
+}
+
+#[test]
+fn two_unbounded_cogroup_preserves_duplicate_and_side_only_keys() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let source = |key: &str, rows: Vec<(i32, i32)>| {
+        pipeline
+            .test_stream_source(
+                key,
+                vec![
+                    TestStreamEvent::Elements(rows.into_iter().map(|row| (row, 1_i64)).collect()),
+                    TestStreamEvent::AdvanceWatermark(10),
+                ],
+            )
+            .unwrap()
+            .fixed_windows(&format!("{key}-window"), 10)
+            .unwrap()
+    };
+    let main = source("group-main", vec![(1, 10), (1, 11)]);
+    let side = source("group-side", vec![(1, 20), (2, 30)]);
+    let sink = ironbeam_core::cogroup_by_key_2_named("group", &main, &side)
+        .unwrap()
+        .map_named("group-counts", |(key, (main, side))| {
+            key * 100 + main.len() as i32 * 10 + side.len() as i32
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "group-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "group-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap()
+            .status(),
+        JobStatus::Succeeded
+    );
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort_unstable();
+    assert_eq!(rows, vec![121, 201]);
 }
 
 #[test]
