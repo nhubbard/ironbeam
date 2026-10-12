@@ -4290,6 +4290,9 @@ impl<T: Element> PCollection<T> {
         batch_size: usize,
     ) -> Result<PCollection<Vec<T>>, Error> {
         let limit = batch_size.max(1);
+        if limit == 1 {
+            return self.map_named(key, |value| vec![value]);
+        }
         self.combine_globally_named(&format!("{key}/collect"), |values| values)?
             .flat_map_named(key, move |values| {
                 let mut batches = Vec::new();
