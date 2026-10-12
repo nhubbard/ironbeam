@@ -15,6 +15,37 @@ fn facade_prelude_runs_v4_shaped_helper_chain_without_compat() {
     assert_eq!(result, vec![4]);
 }
 
+#[test]
+fn facade_prelude_composes_keyed_aggregates_and_a_join() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec(
+            "left",
+            vec![
+                ("a".to_owned(), 2_i32),
+                ("a".to_owned(), 3),
+                ("b".to_owned(), 4),
+            ],
+        )
+        .unwrap()
+        .sum_per_key_named("left-sum")
+        .unwrap();
+    let right = pipeline
+        .from_vec("right", vec![("a".to_owned(), 7_i32), ("b".to_owned(), 8)])
+        .unwrap()
+        .sum_per_key_named("right-sum")
+        .unwrap();
+    let mut totals = left
+        .join_inner_named("join", &right)
+        .unwrap()
+        .map_named("add", |(key, (left, right))| (key, left + right))
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    totals.sort();
+    assert_eq!(totals, [("a".to_owned(), 12), ("b".to_owned(), 12)]);
+}
+
 #[cfg(feature = "cloud")]
 #[test]
 fn facade_cloud_module_routes_provider_neutral_objects() {
