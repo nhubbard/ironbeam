@@ -1,7 +1,7 @@
 use ironbeam::v5::{Pipeline, Version, prelude::*};
 
 #[test]
-fn facade_runs_versioned_semantic_map() {
+fn facade_runs_versioned_semantic_handlers() {
     let values = Pipeline::default()
         .from_vec("source", vec![2_i32, 4])
         .unwrap()
@@ -10,6 +10,20 @@ fn facade_runs_versioned_semantic_map() {
             "user/scale",
             Version { major: 1, minor: 0 },
             |value| value * 3,
+        )
+        .unwrap()
+        .flat_map_with_semantic_named(
+            "expand",
+            "user/expand",
+            Version { major: 1, minor: 0 },
+            |value| vec![value, -value],
+        )
+        .unwrap()
+        .filter_with_semantic_named(
+            "positive",
+            "user/positive",
+            Version { major: 1, minor: 0 },
+            |value| *value > 0,
         )
         .unwrap()
         .collect_seq()
