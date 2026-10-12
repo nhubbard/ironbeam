@@ -7,7 +7,11 @@ cargo_bin="${IRONBEAM_CARGO:-cargo}"
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-compression ironbeam-coder-postcard ironbeam-cloud-objects ironbeam-cloud-service-api ironbeam-cloud-fakes ironbeam-cloud-ops ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-metrics ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat ironbeam)
+release_order="$(python3 scripts/check_v5_release_order.py --order-only)"
+packages=()
+while IFS= read -r package; do
+  packages+=("$package")
+done <<< "$release_order"
 compression_patch=(--config "patch.crates-io.ironbeam-compression.path=\"$root/crates/ironbeam-compression\"")
 cloud_objects_patch=(--config "patch.crates-io.ironbeam-cloud-objects.path=\"$root/crates/ironbeam-cloud-objects\"")
 cloud_service_api_patch=(--config "patch.crates-io.ironbeam-cloud-service-api.path=\"$root/crates/ironbeam-cloud-service-api\"")
@@ -130,4 +134,4 @@ for package in "${packages[@]}"; do
   esac
   "$cargo_bin" package -p "$package" --allow-dirty --offline "${patches[@]}"
 done
-echo "All twenty-nine v5 packages, including the root facade, verified locally; no crates were published."
+echo "All ${#packages[@]} v5 packages, including the root facade, verified locally; no crates were published."

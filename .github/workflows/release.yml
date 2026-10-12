@@ -33,6 +33,18 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
+      - name: Keep v5 publication in the multi-crate release path
+        run: |
+          python3 - <<'PY'
+          import sys
+          import tomllib
+          with open('Cargo.toml', 'rb') as source:
+              manifest = tomllib.load(source)
+          version = manifest['package']['version']
+          if int(version.split('.', 1)[0]) >= 5 or 'ironbeam-core' in manifest.get('dependencies', {}):
+              sys.exit('This root-only release workflow cannot publish v5 workspace dependencies.')
+          PY
+
       - name: Install Rust nightly
         run: |
           rustup toolchain install nightly --no-self-update

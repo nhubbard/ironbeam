@@ -57,7 +57,7 @@ handlers expand into those variants before lowering.
 | --- | --- |
 | ☐ Coverage and verification | Uncovered contract paths are reviewed; clean tests, coverage, lint, docs, and package checks pass. |
 | ☑ Performance | The paired million-row corpus matches outputs and passes explicit v5 latency and peak-memory limits. |
-| ☐ Versioning | The packages receive their intended release versions after the other gates pass. |
+| ☐ Versioning and publication staging | The public facade is still `4.1.1`; the 28 implementation/helper crates are `0.1.0`. The local release-order checker validates every path dependency and puts the facade last. The legacy root-only release workflow now refuses a v5 workspace. Before release, set the public version to `5.0.0` and add the ordered multi-crate publication process. Publication remains staged locally. |
 
 ### Paired performance gate
 
@@ -90,6 +90,7 @@ compact inner-join measurements remain in `V5_PHASE0_BASELINE.md`.
 
 | Gate | Evidence |
 | --- | --- |
+| Local release order | A manifest-driven checker verifies each publishable path dependency's package name and version, detects cycles, and places the public facade last. Its four focused tests and all eight script tests pass. The complete 29-package local matrix passed with that generated order, including workspace/feature tests, docs, and local packaging; the 20 GiB temporary build and log were removed. The legacy root-only release workflow refuses this v5 workspace. Nothing was published. |
 | Coverage after late-window agreement | The exact CI package set passes with unchanged floors: core **3851/4007 lines (96.11%)**, **590/676 branches (87.28%)**; Direct **6273/6759 lines (92.81%)**, **1296/1438 branches (90.13%)**; transforms **1178/1206 lines (97.68%)**, **108/116 branches (93.10%)**. The isolated 1.7 GiB coverage build and report were removed. |
 | Late-window runner agreement | A shared two-unbounded inner join closes its fixed window after both watermarks advance, then receives another row for that window. Direct now drops that late row, matching live Prism's zero-lateness result; both commit exactly the on-time pair. Direct also drops late rows in one-source grouping and bounded-side routes. The 40-case Direct stream suite and 48-case live Prism suite pass. |
 | Two-source Direct process restart | A child process checkpoints two unbounded sources with an open join window, then exits without shutting down the job. A fresh child rebuilds the graph, resumes only the side source from cursor one, closes the window, and writes one durable result. A third process verifies the completed checkpoint opens no readers and produces no duplicate. The focused test, full Direct integration suite, formatting, and strict test lint pass. |
