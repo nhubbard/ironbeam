@@ -44,6 +44,13 @@ fn sync_directory(path: &Path) -> Result<(), Error> {
     super::sync_directory(path, "final-result")
 }
 
+#[cfg(test)]
+fn crash_after(stage: &str) {
+    if std::env::var("IRONBEAM_FINAL_RESULT_EXIT_STAGE").as_deref() == Ok(stage) {
+        std::process::exit(86);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LocalFinalResult {
     staging: PathBuf,
@@ -199,6 +206,8 @@ impl LocalFinalResult {
             }
             Err(error) => return Err(io(error)),
         }
+        #[cfg(test)]
+        crash_after("fragment_staged");
         sync_directory(&self.staging)
     }
 
@@ -221,6 +230,8 @@ impl LocalFinalResult {
         }
         self.read_fragment(&pending, Some(bundle_id))?;
         fs::hard_link(&pending, &accepted).map_err(io)?;
+        #[cfg(test)]
+        crash_after("fragment_linked");
         fs::remove_file(&pending).map_err(io)?;
         sync_directory(&self.staging)
     }
@@ -414,7 +425,11 @@ impl LocalFinalResult {
         temp.as_file().sync_all().map_err(io)?;
         let bytes = temp.as_file().metadata().map_err(io)?.len();
         match temp.persist_noclobber(target) {
-            Ok(_) => sync_directory(parent)?,
+            Ok(_) => {
+                #[cfg(test)]
+                crash_after("result_persisted");
+                sync_directory(parent)?;
+            }
             Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
                 if !files_equal(error.file.path(), target)? {
                     return Err(invalid("published result conflicts with this job output"));
@@ -454,6 +469,78 @@ fn files_equal(left: &Path, right: &Path) -> Result<bool, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+
+    #[test]
+    fn final_result_crash_child() {
+        let Ok(directory) = std::env::var("IRONBEAM_FINAL_RESULT_CHILD_DIRECTORY") else {
+            return;
+        };
+        let stage = std::env::var("IRONBEAM_FINAL_RESULT_EXIT_STAGE").unwrap();
+        let root = Path::new(&directory);
+        let store = LocalFinalResult::new(root.join("stage"), "job", "graph", "sink").unwrap();
+        match stage.as_str() {
+            "fragment_staged" => store.stage("bundle", 1, b"row").unwrap(),
+            "fragment_linked" => store.accept("bundle").unwrap(),
+            "result_persisted" => {
+                store
+                    .require_bundle_attempts(["bundle"])
+                    .unwrap()
+                    .publish_concatenated(1, root.join("result.bin"))
+                    .unwrap();
+            }
+            _ => panic!("unexpected final-result crash stage"),
+        }
+        panic!("final-result child did not exit at its fault stage");
+    }
+
+    #[test]
+    fn final_result_recovers_from_process_exit_at_publication_boundaries() {
+        for stage in ["fragment_staged", "fragment_linked", "result_persisted"] {
+            for lose_unsynced_entry in [false, true] {
+                let directory = tempfile::tempdir().unwrap();
+                let root = directory.path();
+                let store =
+                    LocalFinalResult::new(root.join("stage"), "job", "graph", "sink").unwrap();
+                if stage != "fragment_staged" {
+                    store.stage("bundle", 1, b"row").unwrap();
+                }
+                if stage == "result_persisted" {
+                    store.accept("bundle").unwrap();
+                }
+                let result = Command::new(std::env::current_exe().unwrap())
+                    .args(["--exact", "final_result::tests::final_result_crash_child"])
+                    .env("IRONBEAM_FINAL_RESULT_CHILD_DIRECTORY", root)
+                    .env("IRONBEAM_FINAL_RESULT_EXIT_STAGE", stage)
+                    .output()
+                    .unwrap();
+                assert_eq!(result.status.code(), Some(86), "stage {stage}: {result:?}");
+                if lose_unsynced_entry {
+                    let unsynced = match stage {
+                        "fragment_staged" => store.path("bundle", "pending").unwrap(),
+                        "fragment_linked" => store.path("bundle", "accepted").unwrap(),
+                        "result_persisted" => root.join("result.bin"),
+                        _ => unreachable!(),
+                    };
+                    fs::remove_file(unsynced).unwrap();
+                }
+
+                let reopened =
+                    LocalFinalResult::new(root.join("stage"), "job", "graph", "sink").unwrap();
+                if stage == "fragment_staged" {
+                    reopened.stage("bundle", 1, b"row").unwrap();
+                }
+                reopened.accept("bundle").unwrap();
+                let published = reopened
+                    .require_bundle_attempts(["bundle"])
+                    .unwrap()
+                    .publish_concatenated(1, root.join("result.bin"))
+                    .unwrap();
+                assert_eq!(published.rows, 1);
+                assert_eq!(fs::read(root.join("result.bin")).unwrap(), b"row");
+            }
+        }
+    }
 
     #[test]
     fn accepted_fragments_publish_once_after_exact_row_accounting() {
