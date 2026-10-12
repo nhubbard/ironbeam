@@ -7069,6 +7069,23 @@ mod internal_tests {
         let mut resumed = registry
             .open_unbounded_source("events", Some(first.progress))
             .unwrap();
+        let UnboundedPoll::Ready(remaining_first_event) = resumed.poll(2).unwrap() else {
+            panic!("remaining test stream element must be ready");
+        };
+        assert_eq!(
+            *remaining_first_event.elements[0]
+                .value
+                .downcast_ref::<i32>()
+                .unwrap(),
+            3
+        );
+        let UnboundedPoll::Ready(first_watermark) = resumed.poll(2).unwrap() else {
+            panic!("first test stream watermark must be ready");
+        };
+        assert_eq!(first_watermark.progress.event_time_ns, Some(10));
+        let mut resumed = registry
+            .open_unbounded_source("events", Some(first_watermark.progress))
+            .unwrap();
         let mut seen = Vec::new();
         loop {
             let UnboundedPoll::Ready(batch) = resumed.poll(2).unwrap() else {
@@ -7082,7 +7099,7 @@ mod internal_tests {
                 break;
             }
         }
-        assert_eq!(seen, [3, 4]);
+        assert_eq!(seen, [4]);
         let invalid = ProgressSignal {
             source_key: "events".into(),
             split_id: "test-stream".into(),
@@ -7098,5 +7115,27 @@ mod internal_tests {
                 .kind,
             ErrorKind::Recovery
         );
+        for cursor in [
+            vec![1],
+            [u64::MAX.to_le_bytes(), 0_u64.to_le_bytes()].concat(),
+            [1_u64.to_le_bytes(), 1_u64.to_le_bytes()].concat(),
+            [5_u64.to_le_bytes(), 1_u64.to_le_bytes()].concat(),
+        ] {
+            let invalid = ProgressSignal {
+                source_key: "events".into(),
+                split_id: "test-stream".into(),
+                checkpoint_position: Some(cursor),
+                event_time_ns: None,
+                completed: false,
+            };
+            assert_eq!(
+                registry
+                    .open_unbounded_source("events", Some(invalid))
+                    .err()
+                    .unwrap()
+                    .kind,
+                ErrorKind::Recovery
+            );
+        }
     }
 }

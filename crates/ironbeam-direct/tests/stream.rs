@@ -395,6 +395,18 @@ fn unbounded_main_uses_bounded_side_by_fixed_window() {
         )
         .unwrap();
     let temporary = tempfile::tempdir().unwrap();
+    let tight = JobConfig {
+        buffer_budget_elements: 1,
+        ..JobConfig::default()
+    };
+    let error = DirectRunner
+        .start_stream_sink(&sink, &tight)
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert!(opens.lock().unwrap().is_empty());
     let job = DirectRunner
         .start_stream_sink(&sink, &config(temporary.path()))
         .unwrap();
