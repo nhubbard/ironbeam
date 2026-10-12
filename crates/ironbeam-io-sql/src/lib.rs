@@ -4,11 +4,12 @@
 //! application SQL, as in v4.
 use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, SourceProgress,
-    TypedSink, TypedSourceIterator,
+    TypedSink, TypedSourceIterator, Version,
 };
 use sha2::{Digest, Sha256};
 use sqlx::Execute;
 use std::fmt::Write as _;
+use std::future::Future;
 use std::{
     collections::VecDeque,
     sync::{Arc, LazyLock},
@@ -26,6 +27,21 @@ fn runtime(key: &str) -> Result<&'static tokio::runtime::Runtime, Error> {
         .as_ref()
         .map_err(|message| Error::io(key, "sql", message))
 }
+fn block_on<T: Send>(key: &str, future: impl Future<Output = T> + Send) -> Result<T, Error> {
+    let runtime = runtime(key)?;
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            Ok(tokio::task::block_in_place(|| runtime.block_on(future)))
+        }
+        Ok(_) => std::thread::scope(|scope| {
+            scope
+                .spawn(move || runtime.block_on(future))
+                .join()
+                .map_err(|_| Error::execution(key, "sql", "SQL adapter task panicked"))
+        }),
+        Err(_) => Ok(runtime.block_on(future)),
+    }
+}
 fn sql_error(key: &str, error: impl std::fmt::Display) -> Error {
     Error::io(key, "sql", error.to_string())
 }
@@ -37,6 +53,20 @@ fn digest(url: &str, query: &str, batch_size: Option<usize>) -> String {
     hasher.update([0]);
     hasher.update(batch_size.unwrap_or(0).to_le_bytes());
     let mut result = String::from("sql-sha256-v1:");
+    for byte in hasher.finalize() {
+        let _ = write!(result, "{byte:02x}");
+    }
+    result
+}
+fn sink_digest(url: &str, insert_prefix: &str, application_id: &str, version: Version) -> String {
+    let mut hasher = Sha256::new();
+    for part in [url, insert_prefix, application_id] {
+        hasher.update((part.len() as u64).to_le_bytes());
+        hasher.update(part.as_bytes());
+    }
+    hasher.update(version.major.to_le_bytes());
+    hasher.update(version.minor.to_le_bytes());
+    let mut result = String::from("sql-sink-sha256-v1:");
     for byte in hasher.finalize() {
         let _ = write!(result, "{byte:02x}");
     }
@@ -72,8 +102,7 @@ where
         None,
         move || {
             sqlx::any::install_default_drivers();
-            let rt = runtime(&source_key)?;
-            let values = rt.block_on(async {
+            let values = block_on(&source_key, async {
                 let pool = sqlx::AnyPool::connect(&source_url)
                     .await
                     .map_err(|e| sql_error(&source_key, e))?;
@@ -81,7 +110,7 @@ where
                     .fetch_all(&pool)
                     .await
                     .map_err(|e| sql_error(&source_key, e))
-            })?;
+            })??;
             Ok(Box::new(values.into_iter().map(Ok)) as TypedSourceIterator<T>)
         },
     )
@@ -113,14 +142,13 @@ where
             "SELECT * FROM ({}) AS _ironbeam_page LIMIT {limit} OFFSET {}",
             self.query, self.offset
         );
-        let rows = runtime(&self.key).and_then(|rt| {
-            rt.block_on(async {
-                sqlx::query_as::<sqlx::Any, T>(sqlx::AssertSqlSafe(statement))
-                    .fetch_all(&self.pool)
-                    .await
-                    .map_err(|e| sql_error(&self.key, e))
-            })
-        });
+        let rows = block_on(&self.key, async {
+            sqlx::query_as::<sqlx::Any, T>(sqlx::AssertSqlSafe(statement))
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| sql_error(&self.key, e))
+        })
+        .and_then(std::convert::identity);
         match rows {
             Ok(rows) => {
                 self.done = rows.len() < self.page_size;
@@ -161,8 +189,7 @@ where
         None,
         move || {
             sqlx::any::install_default_drivers();
-            let pool = runtime(&source_key)?
-                .block_on(sqlx::AnyPool::connect(&source_url))
+            let pool = block_on(&source_key, sqlx::AnyPool::connect(&source_url))?
                 .map_err(|e| sql_error(&source_key, e))?;
             Ok(Box::new(SqlPages::<T> {
                 key: source_key.clone(),
@@ -229,7 +256,7 @@ where
                 let statement = format!(
                     "SELECT * FROM ({source_query}) AS _ironbeam_shard LIMIT {limit} OFFSET {start}"
                 );
-                let values = runtime(&source_name)?.block_on(async {
+                let values = block_on(&source_name, async {
                     let pool = sqlx::AnyPool::connect(&source_url)
                         .await
                         .map_err(|e| sql_error(&source_name, e))?;
@@ -237,7 +264,7 @@ where
                         .fetch_all(&pool)
                         .await
                         .map_err(|e| sql_error(&source_name, e))
-                })?;
+                })??;
                 if values.len() != limit {
                     return Err(Error::recovery(
                         &source_name,
@@ -277,28 +304,28 @@ where
         return Ok(());
     }
     sqlx::any::install_default_drivers();
-    runtime(key)?.block_on(async {
+    let mut builder = sqlx::QueryBuilder::<sqlx::Any>::new(prefix.to_owned());
+    builder.push_values(values.iter(), bind);
+    let statement = if url.starts_with("postgres://") || url.starts_with("postgresql://") {
+        postgres_placeholders(builder.sql().as_str())
+    } else {
+        builder.sql().as_str().to_owned()
+    };
+    let arguments = builder
+        .build()
+        .take_arguments()
+        .map_err(|e| sql_error(key, e))?
+        .unwrap_or_default();
+    block_on(key, async {
         let pool = sqlx::AnyPool::connect(url)
             .await
             .map_err(|e| sql_error(key, e))?;
-        let mut builder = sqlx::QueryBuilder::<sqlx::Any>::new(prefix.to_owned());
-        builder.push_values(values.iter(), bind);
-        let statement = if url.starts_with("postgres://") || url.starts_with("postgresql://") {
-            postgres_placeholders(builder.sql().as_str())
-        } else {
-            builder.sql().as_str().to_owned()
-        };
-        let arguments = builder
-            .build()
-            .take_arguments()
-            .map_err(|e| sql_error(key, e))?
-            .unwrap_or_default();
         sqlx::query_with::<sqlx::Any, _>(sqlx::AssertSqlSafe(statement), arguments)
             .execute(&pool)
             .await
             .map_err(|e| sql_error(key, e))?;
         Ok(())
-    })
+    })?
 }
 impl<T, F> TypedSink<T> for SqlSink<T, F>
 where
@@ -367,6 +394,56 @@ where
             replay: Replay::None,
             commit: true,
         },
+        move || {
+            Ok(Box::new(SqlSink::<T, F> {
+                key: sink_key.clone(),
+                url: sink_url.clone(),
+                prefix: sink_prefix.clone(),
+                bind: Arc::clone(&bind),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
+/// Portable SQL append sink with a stable destination and binding identity.
+/// The caller must make the SQL statement idempotent, for example by using a
+/// unique key and conflict handling: a portable runner may replay a bundle.
+/// Change `version` when the binding callback's behavior changes.
+pub fn sql_idempotent_sink_with<T, F>(
+    input: &PCollection<T>,
+    key: &str,
+    url: &str,
+    insert_prefix: &str,
+    application_id: &str,
+    version: Version,
+    bind: F,
+) -> Result<Sink<T>, Error>
+where
+    T: Element,
+    F: for<'q> Fn(sqlx::query_builder::Separated<'q, sqlx::Any, &'static str>, &T)
+        + Send
+        + Sync
+        + 'static,
+{
+    if application_id.is_empty() {
+        return Err(Error::graph(
+            key,
+            "SQL sink application identity is required",
+        ));
+    }
+    let sink_key = key.to_owned();
+    let sink_url = url.to_owned();
+    let sink_prefix = insert_prefix.to_owned();
+    let bind = Arc::new(bind);
+    input.sink_named_with_config(
+        key,
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::Idempotent,
+            commit: true,
+        },
+        sink_digest(url, insert_prefix, application_id, version),
         move || {
             Ok(Box::new(SqlSink::<T, F> {
                 key: sink_key.clone(),

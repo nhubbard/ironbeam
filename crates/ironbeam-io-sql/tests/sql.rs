@@ -1,8 +1,57 @@
-use ironbeam_core::{Capabilities, Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
+use ironbeam_core::{
+    Capabilities, Element, ErrorKind, Operation, Pipeline, Replay, SinkMode, Version,
+};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_io_sql::{
-    sql_parallel_sink_with, sql_sharded_source, sql_sink_with, sql_source, sql_streaming_source,
+    sql_idempotent_sink_with, sql_parallel_sink_with, sql_sharded_source, sql_sink_with,
+    sql_source, sql_streaming_source,
 };
+
+#[test]
+fn portable_sql_sink_binds_destination_and_application_version() {
+    let digest_for = |version: Version| {
+        let pipeline = Pipeline::default();
+        let input = pipeline.from_vec("rows", vec![1_i64]).unwrap();
+        sql_idempotent_sink_with(
+            &input,
+            "write",
+            "sqlite:///tmp/portable-sql-fixture.db",
+            "INSERT OR IGNORE INTO rows (id)",
+            "tests/sql-bind",
+            version,
+            |mut separated, row: &i64| {
+                separated.push_bind(*row);
+            },
+        )
+        .unwrap();
+        let (graph, registry) = pipeline.snapshot().unwrap();
+        assert!(matches!(
+            &graph.node("write").unwrap().operation,
+            Operation::Sink { spec } if spec.replay == Replay::Idempotent
+        ));
+        registry.sink_config_digest("write").unwrap().to_owned()
+    };
+    assert_ne!(
+        digest_for(Version { major: 1, minor: 0 }),
+        digest_for(Version { major: 1, minor: 1 })
+    );
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("rows", vec![1_i64]).unwrap();
+    assert!(
+        sql_idempotent_sink_with(
+            &input,
+            "write",
+            "sqlite:///tmp/portable-sql-fixture.db",
+            "INSERT OR IGNORE INTO rows (id)",
+            "",
+            Version { major: 1, minor: 0 },
+            |mut separated, row: &i64| {
+                separated.push_bind(*row);
+            },
+        )
+        .is_err()
+    );
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, sqlx::FromRow)]
 struct Row {

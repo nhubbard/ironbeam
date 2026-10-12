@@ -1,8 +1,8 @@
 use ironbeam_core::{Capabilities, Element, ErrorKind, Operation, Pipeline, Replay, SinkMode};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_io_mongodb::{
-    MongoShardSpec, mongodb_parallel_sink, mongodb_sharded_source, mongodb_sink, mongodb_source,
-    mongodb_streaming_source,
+    MongoShardSpec, mongodb_idempotent_sink, mongodb_parallel_sink, mongodb_sharded_source,
+    mongodb_sink, mongodb_source, mongodb_streaming_source,
 };
 use serde::{Deserialize, Serialize};
 use testcontainers::runners::SyncRunner;
@@ -16,6 +16,33 @@ struct Doc {
 impl Element for Doc {
     const TYPE_ID: &'static str = "tests/mongodb-doc";
     const CODER_ID: &'static str = "tests/mongodb-doc-local";
+}
+
+#[test]
+fn portable_mongodb_sink_requires_stable_non_null_id_before_connecting() {
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec(
+            "rows",
+            vec![Doc {
+                id: 1,
+                name: "Ada".into(),
+            }],
+        )
+        .unwrap();
+    let sink =
+        mongodb_idempotent_sink(&input, "write", "not-a-mongodb-uri", "db", "output").unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    assert!(matches!(
+        &graph.node("write").unwrap().operation,
+        Operation::Sink { spec } if spec.replay == Replay::Idempotent
+    ));
+    assert!(registry.sink_config_digest("write").is_some());
+    let error = match DirectRunner.run_sink(&sink, &JobConfig::default()) {
+        Ok(_) => panic!("row without _id was accepted"),
+        Err(error) => error,
+    };
+    assert!(error.message.contains("non-null _id"));
 }
 
 #[test]

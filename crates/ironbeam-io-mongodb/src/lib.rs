@@ -7,7 +7,7 @@ use ironbeam_core::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
-use std::{collections::VecDeque, fmt::Write as _, sync::LazyLock};
+use std::{collections::VecDeque, fmt::Write as _, future::Future, sync::LazyLock};
 
 static MONGO_RUNTIME: LazyLock<Result<tokio::runtime::Runtime, String>> = LazyLock::new(|| {
     tokio::runtime::Builder::new_multi_thread()
@@ -19,6 +19,21 @@ fn runtime(key: &str) -> Result<&'static tokio::runtime::Runtime, Error> {
     MONGO_RUNTIME
         .as_ref()
         .map_err(|message| Error::io(key, "mongodb", message))
+}
+fn block_on<T: Send>(key: &str, future: impl Future<Output = T> + Send) -> Result<T, Error> {
+    let runtime = runtime(key)?;
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            Ok(tokio::task::block_in_place(|| runtime.block_on(future)))
+        }
+        Ok(_) => std::thread::scope(|scope| {
+            scope
+                .spawn(move || runtime.block_on(future))
+                .join()
+                .map_err(|_| Error::execution(key, "mongodb", "MongoDB adapter task panicked"))
+        }),
+        Err(_) => Ok(runtime.block_on(future)),
+    }
 }
 fn mongo_error(key: &str, error: impl std::fmt::Display) -> Error {
     Error::io(key, "mongodb", error.to_string())
@@ -42,6 +57,18 @@ fn digest(
         let _ = write!(result, "{byte:02x}");
     }
     Ok(result)
+}
+fn sink_digest(uri: &str, database: &str, collection: &str) -> String {
+    let mut hash = Sha256::new();
+    for part in ["mongodb-idempotent-upsert-v1", uri, database, collection] {
+        hash.update((part.len() as u64).to_le_bytes());
+        hash.update(part.as_bytes());
+    }
+    let mut result = String::from("mongodb-sink-sha256-v1:");
+    for byte in hash.finalize() {
+        let _ = write!(result, "{byte:02x}");
+    }
+    result
 }
 const fn source_progress() -> SourceProgress {
     SourceProgress {
@@ -75,7 +102,7 @@ where
         config_digest,
         None,
         move || {
-            let rows = runtime(&source_key)?.block_on(async {
+            let rows = block_on(&source_key, async {
                 let client = mongodb::Client::with_uri_str(&uri)
                     .await
                     .map_err(|e| mongo_error(&source_key, e))?;
@@ -97,7 +124,7 @@ where
                     );
                 }
                 Ok::<_, Error>(rows)
-            })?;
+            })??;
             Ok(Box::new(rows.into_iter().map(Ok)) as TypedSourceIterator<T>)
         },
     )
@@ -123,34 +150,33 @@ impl<T: Element + DeserializeOwned + Unpin + Sync> Iterator for MongoPages<T> {
         if self.done {
             return None;
         }
-        let page = runtime(&self.key).and_then(|rt| {
-            rt.block_on(async {
-                let collection = self
-                    .client
-                    .database(&self.database)
-                    .collection::<T>(&self.collection);
-                let limit = i64::try_from(self.page_size).map_err(|e| mongo_error(&self.key, e))?;
-                let mut cursor = collection
-                    .find(self.filter.clone())
-                    .skip(self.offset)
-                    .limit(limit)
-                    .await
-                    .map_err(|e| mongo_error(&self.key, e))?;
-                let mut rows = Vec::new();
-                while cursor
-                    .advance()
-                    .await
-                    .map_err(|e| mongo_error(&self.key, e))?
-                {
-                    rows.push(
-                        cursor
-                            .deserialize_current()
-                            .map_err(|e| mongo_error(&self.key, e))?,
-                    );
-                }
-                Ok::<_, Error>(rows)
-            })
-        });
+        let page = block_on(&self.key, async {
+            let collection = self
+                .client
+                .database(&self.database)
+                .collection::<T>(&self.collection);
+            let limit = i64::try_from(self.page_size).map_err(|e| mongo_error(&self.key, e))?;
+            let mut cursor = collection
+                .find(self.filter.clone())
+                .skip(self.offset)
+                .limit(limit)
+                .await
+                .map_err(|e| mongo_error(&self.key, e))?;
+            let mut rows = Vec::new();
+            while cursor
+                .advance()
+                .await
+                .map_err(|e| mongo_error(&self.key, e))?
+            {
+                rows.push(
+                    cursor
+                        .deserialize_current()
+                        .map_err(|e| mongo_error(&self.key, e))?,
+                );
+            }
+            Ok::<_, Error>(rows)
+        })
+        .and_then(std::convert::identity);
         match page {
             Ok(rows) => {
                 self.done = rows.len() < self.page_size;
@@ -193,8 +219,7 @@ where
         config_digest,
         None,
         move || {
-            let client = runtime(&source_key)?
-                .block_on(mongodb::Client::with_uri_str(&uri))
+            let client = block_on(&source_key, mongodb::Client::with_uri_str(&uri))?
                 .map_err(|e| mongo_error(&source_key, e))?;
             Ok(Box::new(MongoPages::<T> {
                 key: source_key.clone(),
@@ -274,7 +299,7 @@ where
                 if start == end {
                     return Ok(Box::new(std::iter::empty()) as TypedSourceIterator<T>);
                 }
-                let values = runtime(&source_name)?.block_on(async {
+                let values = block_on(&source_name, async {
                     let client = mongodb::Client::with_uri_str(&source_uri)
                         .await
                         .map_err(|e| mongo_error(&source_name, e))?;
@@ -304,7 +329,7 @@ where
                         );
                     }
                     Ok::<_, Error>(rows)
-                })?;
+                })??;
                 if values.len() != end - start {
                     return Err(Error::recovery(
                         &source_name,
@@ -340,7 +365,7 @@ fn insert_rows<T: Element + Serialize + Sync>(
     if values.is_empty() {
         return Ok(());
     }
-    runtime(key)?.block_on(async {
+    block_on(key, async {
         let client = mongodb::Client::with_uri_str(uri)
             .await
             .map_err(|e| mongo_error(key, e))?;
@@ -352,7 +377,7 @@ fn insert_rows<T: Element + Serialize + Sync>(
                 .map_err(|e| mongo_error(key, e))?;
         }
         Ok(())
-    })
+    })?
 }
 impl<T: Element + Serialize + Sync> TypedSink<T> for MongoSink<T> {
     fn write(&mut self, value: T) -> Result<(), Error> {
@@ -400,6 +425,92 @@ pub fn mongodb_sink<T: Element + Serialize + Sync>(
                 database: database.clone(),
                 collection: collection.clone(),
                 values: Vec::new(),
+            }))
+        },
+    )
+}
+
+struct MongoIdempotentSink<T> {
+    key: String,
+    uri: String,
+    database: String,
+    collection: String,
+    values: Vec<Document>,
+    marker: std::marker::PhantomData<T>,
+}
+
+impl<T: Element + Serialize + Sync> TypedSink<T> for MongoIdempotentSink<T> {
+    fn write(&mut self, value: T) -> Result<(), Error> {
+        let document =
+            bson::serialize_to_document(&value).map_err(|error| mongo_error(&self.key, error))?;
+        if document.get("_id").is_none_or(|id| *id == bson::Bson::Null) {
+            return Err(Error::graph(
+                &self.key,
+                "idempotent MongoDB sink needs a non-null _id in every row",
+            ));
+        }
+        self.values.push(document);
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        if self.values.is_empty() {
+            return Ok(());
+        }
+        block_on(&self.key, async {
+            let client = mongodb::Client::with_uri_str(&self.uri)
+                .await
+                .map_err(|error| mongo_error(&self.key, error))?;
+            let collection = client
+                .database(&self.database)
+                .collection::<Document>(&self.collection);
+            for value in &self.values {
+                let id = value.get("_id").expect("validated at write").clone();
+                collection
+                    .replace_one(bson::doc! {"_id": id}, value.clone())
+                    .upsert(true)
+                    .await
+                    .map_err(|error| mongo_error(&self.key, error))?;
+            }
+            Ok(())
+        })?
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.values.clear();
+        Ok(())
+    }
+}
+
+/// Portable MongoDB sink that replaces each row by its stable `_id`.
+/// Replaying a bundle produces the same collection state for identical input.
+pub fn mongodb_idempotent_sink<T: Element + Serialize + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    uri: &str,
+    database: &str,
+    collection: &str,
+) -> Result<Sink<T>, Error> {
+    let sink_key = key.to_owned();
+    let sink_uri = uri.to_owned();
+    let sink_database = database.to_owned();
+    let sink_collection = collection.to_owned();
+    input.sink_named_with_config(
+        key,
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::Idempotent,
+            commit: true,
+        },
+        sink_digest(uri, database, collection),
+        move || {
+            Ok(Box::new(MongoIdempotentSink::<T> {
+                key: sink_key.clone(),
+                uri: sink_uri.clone(),
+                database: sink_database.clone(),
+                collection: sink_collection.clone(),
+                values: Vec::new(),
+                marker: std::marker::PhantomData,
             }))
         },
     )
