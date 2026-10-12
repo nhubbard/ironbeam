@@ -1109,6 +1109,76 @@ fn singleton_dynamic_partition_runs_on_unbounded_direct_input() {
     assert_eq!(*committed.lock().unwrap(), [3, -3, 4, -4]);
 }
 
+#[test]
+fn singleton_typed_partition_runs_on_unbounded_direct_input() {
+    let temporary = tempfile::tempdir().unwrap();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "typed-source-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![batch(3, 1, false), batch(4, 2, true)].into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .apply_transform_with_semantic_named(
+            "typed-expand",
+            1,
+            "tests/typed-expand-singleton",
+            Version { major: 1, minor: 0 },
+            |values| {
+                values
+                    .into_iter()
+                    .flat_map(|value| [value, -value])
+                    .collect()
+            },
+        )
+        .unwrap()
+        .sink_named_with_config(
+            "typed-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "typed-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    assert!(
+        pipeline
+            .snapshot()
+            .unwrap()
+            .0
+            .node("typed-expand/batches")
+            .is_none()
+    );
+    let job = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap();
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(*committed.lock().unwrap(), [3, -3, 4, -4]);
+}
+
 #[derive(Clone, Copy)]
 enum Fault {
     SourceFactory,

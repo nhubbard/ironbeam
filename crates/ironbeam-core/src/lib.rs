@@ -4338,6 +4338,7 @@ impl<T: Element> PCollection<T> {
     /// batch. This is the typed v5 replacement for the executable part of
     /// v4 `apply_transform`; the runner chooses no implicit partition size.
     /// A portable shuffle can change encounter order within each batch.
+    /// A size of one runs incrementally on unbounded input.
     pub fn apply_transform_with_semantic_named<U: Element>(
         &self,
         key: &str,
@@ -4350,8 +4351,14 @@ impl<T: Element> PCollection<T> {
             return Err(Error::graph(key, "semantic batch size must be positive"));
         }
         Self::validate_semantic_handler(key, semantic_id, version)?;
-        self.batch_elements_named(&format!("{key}/batches"), batch_size)?
-            .flat_map_with_semantic_named(key, semantic_id, version, f)
+        if batch_size == 1 {
+            self.flat_map_with_semantic_named(key, semantic_id, version, move |value| {
+                f(vec![value])
+            })
+        } else {
+            self.batch_elements_named(&format!("{key}/batches"), batch_size)?
+                .flat_map_with_semantic_named(key, semantic_id, version, f)
+        }
     }
     /// Register a reusable v4-style partition operator with a portable
     /// application identity. The same operator must be registered by the

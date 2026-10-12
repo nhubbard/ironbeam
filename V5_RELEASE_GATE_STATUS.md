@@ -27,7 +27,7 @@ below is complete.
 | Gate | Done when |
 | --- | --- |
 | ☐ Public API and v4 behavior | The root API and promised behaviors are audited against the [helper tracker](V5_HELPER_PARITY_TRACKER.md) and [migration guide](V4_TO_V5_MIGRATION.md). |
-| ☐ Custom transform execution | Versioned map, filter, flat-map, and batch handlers execute on Direct and local Prism. A reusable `DynOp` runs with an explicit batch size and semantic version on both runners; size one also runs incrementally on unbounded inputs. Complete v4 implicit partition and planner-hint semantics; `custom_named` remains a marker rejected by Direct. |
+| ☐ Custom transform execution | Versioned map, filter, flat-map, and batch handlers execute on Direct and local Prism. Typed and reusable `DynOp` partition handlers run with an explicit batch size and semantic version on both runners; size one also runs incrementally on unbounded inputs. Complete v4 implicit partition and planner-hint semantics; `custom_named` remains a marker rejected by Direct. |
 | ☐ Portable operation coverage | Every advertised operation has shared Direct/Prism success and failure cases, including multi-input and output paths. |
 | ☐ Runner agreement | Shared cases match on values, grouping, event times, windows, typed failures, and committed output. |
 
