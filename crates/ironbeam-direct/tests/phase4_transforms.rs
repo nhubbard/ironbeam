@@ -420,10 +420,12 @@ fn smaller_right_join_index_preserves_outer_rows_and_event_time() {
         .unwrap()
         .fixed_windows("skewed-right-window", 100)
         .unwrap();
-    let inner = left
-        .join_inner_named("skewed-inner", &right)
+    let inner = left.join_inner_named("skewed-inner", &right).unwrap();
+    let inner_output = inner.output("skewed-inner-out").unwrap();
+    let inner_time = inner
+        .reify_timestamps_named("skewed-inner-time")
         .unwrap()
-        .output("skewed-inner-out")
+        .output("skewed-inner-time-out")
         .unwrap();
     let left_join = left
         .join_left_named("skewed-left-join", &right)
@@ -452,9 +454,12 @@ fn smaller_right_join_index_preserves_outer_rows_and_event_time() {
             parallelism,
             ..JobConfig::default()
         };
-        let mut inner_rows = DirectRunner.run_collect(&inner, &config).unwrap().0;
+        let mut inner_rows = DirectRunner.run_collect(&inner_output, &config).unwrap().0;
         inner_rows.sort_unstable();
         assert_eq!(inner_rows, [(1, (1, 10)), (1, (2, 10))]);
+        let mut inner_times = DirectRunner.run_collect(&inner_time, &config).unwrap().0;
+        inner_times.sort_unstable();
+        assert_eq!(inner_times, [(10, (1, (1, 10))), (10, (1, (2, 10)))]);
         let mut left_rows = DirectRunner.run_collect(&left_join, &config).unwrap().0;
         left_rows.sort_unstable();
         assert_eq!(
@@ -482,6 +487,61 @@ fn smaller_right_join_index_preserves_outer_rows_and_event_time() {
                 (10, 0, 100, 1, Some(1), Some(10)),
                 (10, 0, 100, 1, Some(2), Some(10)),
                 (30, 0, 100, 3, None, Some(30)),
+            ]
+        );
+    }
+}
+
+#[test]
+fn equal_size_inner_join_keeps_duplicate_windows_and_right_timestamps() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("equal-left", vec![(1_i32, -1_i32), (1, 2), (1, 3)])
+        .unwrap()
+        .assign_timestamps_named("equal-left-time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .fixed_windows("equal-left-window", 10)
+        .unwrap();
+    let right = pipeline
+        .from_vec("equal-right", vec![(1_i32, -2_i32), (1, 4), (1, 5)])
+        .unwrap()
+        .assign_timestamps_named("equal-right-time", |(_, value)| i64::from(*value))
+        .unwrap()
+        .fixed_windows("equal-right-window", 10)
+        .unwrap();
+    let joined = left
+        .join_inner_named("equal-inner", &right)
+        .unwrap()
+        .with_window_named("equal-inner-window")
+        .unwrap()
+        .reify_timestamps_named("equal-inner-time")
+        .unwrap()
+        .map_named("equal-inner-meta", |(time, (window, (key, (a, b))))| {
+            (time, window.start_ns, window.end_ns, key, a, b)
+        })
+        .unwrap()
+        .output("equal-inner-out")
+        .unwrap();
+    for parallelism in [1, 3] {
+        let mut actual = DirectRunner
+            .run_collect(
+                &joined,
+                &JobConfig {
+                    parallelism,
+                    ..JobConfig::default()
+                },
+            )
+            .unwrap()
+            .0;
+        actual.sort_unstable();
+        assert_eq!(
+            actual,
+            [
+                (-2, -10, 0, 1, -1, -2),
+                (4, 0, 10, 1, 2, 4),
+                (4, 0, 10, 1, 3, 4),
+                (5, 0, 10, 1, 2, 5),
+                (5, 0, 10, 1, 3, 5),
             ]
         );
     }

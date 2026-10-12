@@ -82,6 +82,12 @@ Counts and checksums matched. The [full seven-case measurement](V5_PHASE0_BASELI
 and repeatable command are in the baseline record. Acceptable release limits
 are still unset.
 
+A subsequent compact inner-join path reduced equal-size join memory from
+**45.97 to 39.54 MiB** and latency from **12.810 to 11.385 ms** in an adjacent
+12-sample v5 comparison. The skewed duplicate-key case stayed near baseline
+at **22.20 → 21.52 MiB** and **5.666 → 5.671 ms**. Output matched throughout.
+Join memory remains an open gate against v4.
+
 ## Contract decisions
 
 | Topic | Decision |

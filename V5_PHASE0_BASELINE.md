@@ -454,6 +454,18 @@ and checksums. A fresh eight-sample paired v4/v5 comparison measured:
 Counts and checksums matched in all seven cases. These are local medians,
 not release thresholds; join memory and JSONL latency still need work.
 
+Equal-size and smaller-left Direct inner joins now retain only indexed
+values and positions. Skewed smaller-right and outer joins keep their
+existing bookkeeping. In a 12-sample adjacent release comparison of the
+final code at 100,000 rows, equal-size inner join moved from
+**45.97 → 39.54 MiB** peak RSS and **12.810 → 11.385 ms** median latency.
+The duplicate-key case stayed near baseline at **22.20 → 21.52 MiB** and
+**5.666 → 5.671 ms**.
+Counts and checksums matched. Direct tests cover equal-size and skewed joins,
+duplicate multiplicity, fixed-window isolation, and right-side output time;
+core and Direct tests plus strict lint pass. The v5 join remains above v4's
+measured memory use.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

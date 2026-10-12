@@ -4336,6 +4336,22 @@ enum JoinPositions {
     Many(Vec<usize>),
 }
 impl JoinPositions {
+    fn record<K: Eq + Hash>(
+        index: &mut HashMap<(K, Option<WindowInterval>), Self>,
+        key: K,
+        window: Option<WindowInterval>,
+        position: usize,
+    ) {
+        match index.entry((key, window)) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                entry.get_mut().push(position);
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(Self::One(position));
+            }
+        }
+    }
+
     fn push(&mut self, position: usize) {
         match self {
             Self::One(first) => {
@@ -5512,11 +5528,51 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 "unbounded global join requires a finite window",
             ));
         }
+        let inner_join = matches!(operation, Operation::JoinInner);
         let key_owned = key.to_owned();
         let aggregate: Aggregate = Arc::new(move |inputs| {
             let [left, right]: [Vec<Envelope>; 2] = inputs
                 .try_into()
                 .map_err(|_| Error::execution(&key_owned, "direct", "join requires two inputs"))?;
+            if inner_join && left.len() <= right.len() {
+                let mut index: HashMap<(K, Option<WindowInterval>), JoinPositions> = HashMap::new();
+                let mut left_values = Vec::with_capacity(left.len());
+                for event in left {
+                    let (row_key, value) = *event.value.downcast::<(K, V)>().map_err(|_| {
+                        Error::execution(&key_owned, "direct", "left join type mismatch")
+                    })?;
+                    let position = left_values.len();
+                    JoinPositions::record(&mut index, row_key, event.assigned_window, position);
+                    left_values.push(value);
+                }
+                let mut output = Vec::new();
+                for event in right {
+                    let Envelope {
+                        value,
+                        timestamp_ns,
+                        window,
+                        assigned_window,
+                    } = event;
+                    let (row_key, value) = *value.downcast::<(K, W)>().map_err(|_| {
+                        Error::execution(&key_owned, "direct", "right join type mismatch")
+                    })?;
+                    if let Some(matches) = index.get(&(row_key.clone(), assigned_window)) {
+                        for &position in matches.as_slice() {
+                            if let Some(pair) =
+                                emit(Some(left_values[position].clone()), Some(value.clone()))
+                            {
+                                output.push(Envelope {
+                                    value: Box::new((row_key.clone(), pair)),
+                                    timestamp_ns,
+                                    window: window.clone(),
+                                    assigned_window,
+                                });
+                            }
+                        }
+                    }
+                }
+                return Ok(output);
+            }
             // Join output order is unspecified; indexing the smaller side
             // avoids retaining one position per row of a highly skewed input.
             if right.len() < left.len() {
