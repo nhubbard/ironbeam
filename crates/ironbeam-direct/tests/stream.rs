@@ -1328,6 +1328,125 @@ fn progress_only_poll_and_filtered_batch_keep_watermark_and_cursor() {
 }
 
 #[test]
+fn paired_stream_skips_empty_progress_bundles_and_checkpoints_final_cursor() {
+    let temporary = tempfile::tempdir().unwrap();
+    let left_values = Arc::new(Mutex::new(Vec::new()));
+    let right_values = Arc::new(Mutex::new(Vec::new()));
+    let left_accepted = Arc::new(Mutex::new(HashSet::new()));
+    let right_accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "pair-progress-source-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![
+                        UnboundedPoll::Ready(UnboundedBatch {
+                            elements: Vec::new(),
+                            progress: ProgressSignal {
+                                checkpoint_position: None,
+                                event_time_ns: Some(50),
+                                ..signal(0, false)
+                            },
+                        }),
+                        batch(7, 1, false),
+                        UnboundedPoll::Ready(UnboundedBatch {
+                            elements: Vec::new(),
+                            progress: ProgressSignal {
+                                checkpoint_position: None,
+                                event_time_ns: None,
+                                ..signal(1, true)
+                            },
+                        }),
+                    ]
+                    .into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let left = source
+        .map_named("double", |value| value * 2)
+        .unwrap()
+        .sink_named_with_config(
+            "left-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "pair-progress-left-v1".into(),
+            {
+                let committed = Arc::clone(&left_values);
+                let accepted = Arc::clone(&left_accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let right = source
+        .map_named("plus-hundred", |value| value + 100)
+        .unwrap()
+        .sink_named_with_config(
+            "right-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "pair-progress-right-v1".into(),
+            {
+                let committed = Arc::clone(&right_values);
+                let accepted = Arc::clone(&right_accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let job = DirectRunner
+        .start_stream_sink_pair(&left, &right, &config(temporary.path()))
+        .unwrap();
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(*left_values.lock().unwrap(), [14]);
+    assert_eq!(*right_values.lock().unwrap(), [107]);
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(temporary.path().join("stream-latest.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        manifest["progress"]["checkpoint_position"],
+        serde_json::json!([1])
+    );
+    assert_eq!(
+        manifest["progress"]["event_time_ns"],
+        serde_json::json!(100)
+    );
+    assert_eq!(manifest["progress"]["completed"], serde_json::json!(true));
+}
+
+#[test]
 fn stream_transform_output_obeys_buffer_limit() {
     let pipeline = Pipeline::default();
     let source = pipeline
