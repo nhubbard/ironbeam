@@ -4449,25 +4449,30 @@ impl<T: Element> PCollection<T> {
         size_fn: impl Fn(&T) -> usize + Send + Sync + 'static,
     ) -> Result<PCollection<Vec<T>>, Error> {
         let limit = max_bytes.max(1);
-        self.combine_globally_named(&format!("{key}/collect"), move |values| {
-            let mut batches = Vec::new();
-            let mut current = Vec::new();
-            let mut bytes = 0_usize;
-            for value in values {
-                let size = size_fn(&value);
-                if !current.is_empty() && bytes.saturating_add(size) > limit {
-                    batches.push(std::mem::take(&mut current));
-                    bytes = 0;
-                }
-                bytes = bytes.saturating_add(size);
-                current.push(value);
-            }
-            if !current.is_empty() {
-                batches.push(current);
-            }
-            batches
-        })?
-        .flat_map_named(key, |batches| batches)
+        let batch_semantic_id = format!("ironbeam/batch-by-size/{limit}");
+        self.combine_globally_named(&format!("{key}/collect"), |values| values)?
+            .flat_map_registered(
+                key,
+                Some((&batch_semantic_id, BUILTIN_OPERATION_VERSION)),
+                move |values| {
+                    let mut batches = Vec::new();
+                    let mut current = Vec::new();
+                    let mut bytes = 0_usize;
+                    for value in values {
+                        let size = size_fn(&value);
+                        if !current.is_empty() && bytes.saturating_add(size) > limit {
+                            batches.push(std::mem::take(&mut current));
+                            bytes = 0;
+                        }
+                        bytes = bytes.saturating_add(size);
+                        current.push(value);
+                    }
+                    if !current.is_empty() {
+                        batches.push(current);
+                    }
+                    batches
+                },
+            )
     }
     pub fn map_with_side_named<S: Element, U: Element>(
         &self,
@@ -5696,24 +5701,29 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         batch_size: usize,
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
         let limit = batch_size.max(1);
+        let batch_semantic_id = format!("ironbeam/group-into-batches/{limit}");
         self.group_by_key_named(&format!("{key}/group"))?
-            .flat_map_named(key, move |(group_key, values)| {
-                let mut batches = Vec::new();
-                let mut current = Vec::with_capacity(limit);
-                for value in values {
-                    current.push(value);
-                    if current.len() == limit {
-                        batches.push((
-                            group_key.clone(),
-                            std::mem::replace(&mut current, Vec::with_capacity(limit)),
-                        ));
+            .flat_map_registered(
+                key,
+                Some((&batch_semantic_id, BUILTIN_OPERATION_VERSION)),
+                move |(group_key, values)| {
+                    let mut batches = Vec::new();
+                    let mut current = Vec::with_capacity(limit);
+                    for value in values {
+                        current.push(value);
+                        if current.len() == limit {
+                            batches.push((
+                                group_key.clone(),
+                                std::mem::replace(&mut current, Vec::with_capacity(limit)),
+                            ));
+                        }
                     }
-                }
-                if !current.is_empty() {
-                    batches.push((group_key, current));
-                }
-                batches
-            })
+                    if !current.is_empty() {
+                        batches.push((group_key, current));
+                    }
+                    batches
+                },
+            )
     }
     pub fn combine_per_key_and_window_named<U: Element>(
         &self,
@@ -6590,6 +6600,49 @@ mod internal_tests {
             "ironbeam/batch-elements/3"
         );
         assert_ne!(two.fingerprint().unwrap(), three.fingerprint().unwrap());
+    }
+
+    #[test]
+    fn byte_and_keyed_batch_limits_are_part_of_graph_identity() {
+        let bytes = |limit| {
+            let pipeline = Pipeline::default();
+            pipeline
+                .from_vec("source", vec!["one".to_owned(), "two".to_owned()])
+                .unwrap()
+                .batch_by_size_named("batch", limit, String::len)
+                .unwrap();
+            pipeline.snapshot().unwrap().0
+        };
+        let four_bytes = bytes(4);
+        let five_bytes = bytes(5);
+        assert_eq!(
+            four_bytes.node("batch").unwrap().semantic_id,
+            "ironbeam/batch-by-size/4"
+        );
+        assert_ne!(
+            four_bytes.fingerprint().unwrap(),
+            five_bytes.fingerprint().unwrap()
+        );
+
+        let keyed = |limit| {
+            let pipeline = Pipeline::default();
+            pipeline
+                .from_vec("source", vec![(1_i32, 2_i32), (1, 3)])
+                .unwrap()
+                .group_into_batches_named("batch", limit)
+                .unwrap();
+            pipeline.snapshot().unwrap().0
+        };
+        let two_values = keyed(2);
+        let three_values = keyed(3);
+        assert_eq!(
+            two_values.node("batch").unwrap().semantic_id,
+            "ironbeam/group-into-batches/2"
+        );
+        assert_ne!(
+            two_values.fingerprint().unwrap(),
+            three_values.fingerprint().unwrap()
+        );
     }
 
     #[test]
