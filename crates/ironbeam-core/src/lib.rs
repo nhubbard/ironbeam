@@ -4356,7 +4356,8 @@ impl<T: Element> PCollection<T> {
     /// Register a reusable v4-style partition operator with a portable
     /// application identity. The same operator must be registered by the
     /// worker. Batch size is explicit because physical partitions differ
-    /// between runners.
+    /// between runners. A size of one runs as a stateless operator and also
+    /// supports unbounded input without waiting for a window to close.
     pub fn apply_dyn_transform_with_semantic_named<U: Element + Sync>(
         &self,
         key: &str,
@@ -4373,6 +4374,7 @@ impl<T: Element> PCollection<T> {
         }
         Self::validate_semantic_handler(key, semantic_id, version)?;
         let key_owned = key.to_owned();
+        let single = batch_size == 1;
         let transform = Transform::Multi(Arc::new(move |event| {
             let Envelope {
                 value,
@@ -4380,11 +4382,17 @@ impl<T: Element> PCollection<T> {
                 window,
                 assigned_window,
             } = event;
-            let input = value.downcast::<Vec<T>>().map_err(|_| {
-                Error::execution(&key_owned, "direct", "partition input type mismatch")
-            })?;
+            let input = if single {
+                vec![*value.downcast::<T>().map_err(|_| {
+                    Error::execution(&key_owned, "direct", "partition input type mismatch")
+                })?]
+            } else {
+                *value.downcast::<Vec<T>>().map_err(|_| {
+                    Error::execution(&key_owned, "direct", "partition input type mismatch")
+                })?
+            };
             let output = op
-                .apply(Box::new(*input))
+                .apply(Box::new(input))
                 .downcast::<Vec<U>>()
                 .map_err(|_| {
                     Error::execution(&key_owned, "direct", "partition output type mismatch")
@@ -4399,14 +4407,24 @@ impl<T: Element> PCollection<T> {
                 })
                 .collect())
         }));
-        self.batch_elements_named(&format!("{key}/batches"), batch_size)?
-            .next_with_semantic(
+        if single {
+            self.next_with_semantic(
                 key,
                 Operation::FlatMap,
                 Some(transform),
                 None,
                 Some((semantic_id, version)),
             )
+        } else {
+            self.batch_elements_named(&format!("{key}/batches"), batch_size)?
+                .next_with_semantic(
+                    key,
+                    Operation::FlatMap,
+                    Some(transform),
+                    None,
+                    Some((semantic_id, version)),
+                )
+        }
     }
     pub fn batch_by_size_named(
         &self,

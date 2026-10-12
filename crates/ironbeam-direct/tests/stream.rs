@@ -1,7 +1,7 @@
 use ironbeam_core::{
-    Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
-    Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
-    UnboundedSource,
+    DynOp, Error, ErrorKind, Partition, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
+    SourceProgress, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
+    UnboundedPoll, UnboundedSource, Version,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus, SpillConfig};
 use std::collections::{HashSet, VecDeque};
@@ -1035,6 +1035,78 @@ fn one_job_commits_multiple_batches_and_tracks_progress() {
     assert_eq!(handle.processed(), 2);
     assert_eq!(*committed.lock().unwrap(), vec![3, 4]);
     assert!(temporary.path().join("stream-latest.json").exists());
+}
+
+#[test]
+fn singleton_dynamic_partition_runs_on_unbounded_direct_input() {
+    struct Expand;
+    impl DynOp for Expand {
+        fn apply(&self, input: Partition) -> Partition {
+            let [value]: [i32; 1] = (*input.downcast::<Vec<i32>>().unwrap()).try_into().unwrap();
+            Box::new(vec![value, -value])
+        }
+    }
+    let temporary = tempfile::tempdir().unwrap();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "dynamic-source-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![batch(3, 1, false), batch(4, 2, true)].into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .apply_dyn_transform_with_semantic_named::<i32>(
+            "expand",
+            1,
+            "tests/expand-singleton",
+            Version { major: 1, minor: 0 },
+            Arc::new(Expand),
+        )
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "dynamic-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    assert!(
+        pipeline
+            .snapshot()
+            .unwrap()
+            .0
+            .node("expand/batches")
+            .is_none()
+    );
+    let job = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap();
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(*committed.lock().unwrap(), [3, -3, 4, -4]);
 }
 
 #[derive(Clone, Copy)]

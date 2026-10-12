@@ -4,7 +4,7 @@ Source: `src/collection.rs` and `src/helpers/*.rs` at `main` `d64c26a` (same cod
 
 | v4 module | Public operations | Proposed v5 home | Reason / migration impact |
 | --- | --- | --- | --- |
-| `collection` | `node_id`, `apply_transform` | core graph identity and custom operation; replace `DynOp` partition contract with semantic registration | `node_id` remains build-local; portable identity is separate. |
+| `collection` | `node_id`, `apply_transform` | core graph identity and versioned `DynOp` registration | `node_id` remains build-local; portable identity is separate. V5 requires an explicit batch size and application semantic version; size one runs incrementally on unbounded input. |
 | `arrow_ipc` | `read_arrow_ipc`, `read_arrow_ipc_streaming`, `read_arrow_ipc_batches`, `write_arrow_ipc_rows`, `write_arrow_ipc_batches`, `write_arrow_ipc_rows_par`, `write_arrow_ipc_batches_par` | I/O extension or free source/sink builder; immediate writes currently execute local collect | v5 import changes if moved from inherent method; see operation matrix. |
 | `avro` | `write_avro_with_schema`, `write_avro_par`, `read_avro`, `read_avro_streaming` | I/O extension or free source/sink builder; immediate writes currently execute local collect | v5 import changes if moved from inherent method; see operation matrix. |
 | `basic` | `sum_globally`, `min_globally`, `max_globally`, `average_globally`, `mean_globally`, `sum_per_key`, `min_per_key`, `max_per_key`, `average_per_key`, `mean_per_key` | transform extension trait; composed convenience operation | v5 import changes if moved from inherent method; see operation matrix. |

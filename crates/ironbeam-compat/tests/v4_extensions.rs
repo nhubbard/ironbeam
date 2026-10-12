@@ -257,6 +257,38 @@ impl DynOp for LongWordLengths {
     }
 }
 
+impl ironbeam_core::DynOp for LongWordLengths {
+    fn apply(&self, input: ironbeam_core::Partition) -> ironbeam_core::Partition {
+        let words = *input.downcast::<Vec<String>>().unwrap();
+        Box::new(
+            words
+                .into_iter()
+                .filter(|word| word.len() > 3)
+                .map(|word| i32::try_from(word.len()).unwrap())
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
+#[test]
+fn dynamic_partition_operator_matches_v4_type_change_and_filter() -> Result<()> {
+    let words = vec!["a".to_owned(), "rust".to_owned(), "beam".to_owned()];
+    let old: PCollection<i32> =
+        from_vec(&TestPipeline::new(), words.clone()).apply_transform(Arc::new(LongWordLengths));
+    let current = V5Pipeline::default()
+        .from_vec("words", words)?
+        .apply_dyn_transform_with_semantic_named::<i32>(
+            "long-word-lengths-dyn",
+            3,
+            "compat/long-word-lengths-dyn",
+            Version { major: 1, minor: 0 },
+            Arc::new(LongWordLengths),
+        )?
+        .collect_seq()?;
+    assert_eq!(current, old.collect_seq()?);
+    Ok(())
+}
+
 #[test]
 fn versioned_partition_handler_matches_v4_type_change_and_filter() -> Result<()> {
     let words = vec!["a".to_owned(), "rust".to_owned(), "beam".to_owned()];
