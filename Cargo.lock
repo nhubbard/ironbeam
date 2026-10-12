@@ -2189,43 +2189,6 @@ dependencies = [
 [[package]]
 name = "ironbeam"
 version = "4.1.1"
-dependencies = [
- "anyhow",
- "bson 3.1.0",
- "ironbeam-coder-postcard",
- "ironbeam-compression",
- "ironbeam-core",
- "ironbeam-direct",
- "ironbeam-io",
- "ironbeam-io-arrow",
- "ironbeam-io-avro",
- "ironbeam-io-cbor",
- "ironbeam-io-csv",
- "ironbeam-io-jsonl",
- "ironbeam-io-mongodb",
- "ironbeam-io-msgpack",
- "ironbeam-io-parquet",
- "ironbeam-io-protobuf",
- "ironbeam-io-sql",
- "ironbeam-io-tfrecord",
- "ironbeam-io-xml",
- "ironbeam-metrics",
- "ironbeam-testing",
- "ironbeam-transform-approx",
- "ironbeam-transform-regex",
- "ironbeam-transforms",
- "mongodb",
- "prost",
- "serde",
- "serde_json",
- "sqlx",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "ironbeam"
-version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fe20a0a0eca7ca1a1f25d300687f749edf8170a91c929b6ee3822e16b39ff39"
 dependencies = [
@@ -2260,6 +2223,43 @@ dependencies = [
  "tokio",
  "xz2",
  "zstd",
+]
+
+[[package]]
+name = "ironbeam"
+version = "5.0.0"
+dependencies = [
+ "anyhow",
+ "bson 3.1.0",
+ "ironbeam-coder-postcard",
+ "ironbeam-compression",
+ "ironbeam-core",
+ "ironbeam-direct",
+ "ironbeam-io",
+ "ironbeam-io-arrow",
+ "ironbeam-io-avro",
+ "ironbeam-io-cbor",
+ "ironbeam-io-csv",
+ "ironbeam-io-jsonl",
+ "ironbeam-io-mongodb",
+ "ironbeam-io-msgpack",
+ "ironbeam-io-parquet",
+ "ironbeam-io-protobuf",
+ "ironbeam-io-sql",
+ "ironbeam-io-tfrecord",
+ "ironbeam-io-xml",
+ "ironbeam-metrics",
+ "ironbeam-testing",
+ "ironbeam-transform-approx",
+ "ironbeam-transform-regex",
+ "ironbeam-transforms",
+ "mongodb",
+ "prost",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -2322,7 +2322,7 @@ dependencies = [
  "bson 3.1.0",
  "csv",
  "flate2",
- "ironbeam 4.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ironbeam 4.1.1",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io-tfrecord",
@@ -2567,7 +2567,7 @@ dependencies = [
 name = "ironbeam-runner-contract-tests"
 version = "0.0.0"
 dependencies = [
- "ironbeam 4.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ironbeam 4.1.1",
  "ironbeam-core",
  "ironbeam-direct",
 ]

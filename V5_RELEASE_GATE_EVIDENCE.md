@@ -6,9 +6,8 @@ work, read [V5_RELEASE_GATE_STATUS.md](V5_RELEASE_GATE_STATUS.md) first.
 Some entries describe an earlier state and have since been superseded.
 
 Measured on `codex/ironbeam-v5-runner-core` through 2026-10-11. This is a working
-audit, not a release declaration. The v5 packages remain at `0.1.0`, the root
-facade defaults to v5 but is still versioned `4.1.1`, and publication is
-staged locally.
+audit, not a release declaration. The implementation crates remain at `0.1.0`;
+the root is an unpublished `5.0.0` candidate. Publication is staged locally.
 
 ## Find evidence by topic
 

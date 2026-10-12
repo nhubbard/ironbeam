@@ -1,3 +1,5 @@
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,10 +8,24 @@ from check_v5_release_order import release_order
 
 
 class ReleaseOrderTests(unittest.TestCase):
+    def test_publish_script_requires_explicit_confirmation(self):
+        environment = dict(os.environ)
+        environment.pop("IRONBEAM_RELEASE_CONFIRM", None)
+        result = subprocess.run(
+            ["bash", "scripts/publish_v5_packages.sh", "publish"],
+            cwd=Path(__file__).resolve().parent.parent,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires IRONBEAM_RELEASE_CONFIRM", result.stderr)
+
     def test_current_workspace_has_public_facade_last(self):
         order = release_order()
         self.assertEqual(len(order), 29)
-        self.assertEqual(order[-1][0], "ironbeam")
+        self.assertEqual(order[-1], ("ironbeam", "5.0.0"))
 
     def workspace(self, dependency_version="0.1.0", reverse_dependency=False):
         temporary = tempfile.TemporaryDirectory()

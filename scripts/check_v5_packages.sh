@@ -7,7 +7,7 @@ cargo_bin="${IRONBEAM_CARGO:-cargo}"
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-release_order="$(python3 scripts/check_v5_release_order.py --order-only)"
+release_order="$(python3 scripts/check_v5_release_order.py --release --order-only)"
 packages=()
 while IFS= read -r package; do
   packages+=("$package")

@@ -6,9 +6,10 @@ I/O by default on this conversion branch. File formats, databases, and hosted
 object storage live in separate crates so applications build the extensions
 they use.
 
-The 5.0.0 release is still staged locally. The package version remains 4.1.1
-while the final v4 removal, portable execution, and release checks are in
-progress; this branch is not a published 5.0.0 release.
+The root package is an unpublished 5.0.0 candidate on this branch. The v4
+reference corpus remains available through the compatibility crate against
+published 4.1.1. Final release checks and ordered workspace publication are
+still in progress.
 
 ## Quick start
 
@@ -71,9 +72,9 @@ SDK.
 
 ## Execution and compatibility
 
-`DirectRunner` executes bounded pipelines locally. The separate
+`DirectRunner` executes bounded and supported unbounded pipelines locally. The separate
 [`ironbeam-dataflow`](https://github.com/vgough/ironbeam-dataflow) integration
-lowers v5 graphs to Beam protobuf and runs a bounded feature corpus through a
+lowers v5 graphs to Beam protobuf and runs bounded and unbounded feature cases through a
 separately launched v5 worker with local Prism. Its release gaps and the root
 cutover gates are tracked in [V5_RELEASE_GATE_STATUS.md](V5_RELEASE_GATE_STATUS.md).
 
@@ -81,8 +82,8 @@ The root implementation is v5-only. The published 4.1.1 package remains the
 reference for the separate `ironbeam-compat` test corpus, and the
 [v4 README](V4_README.md) describes its old API. See the
 [migration guide](V4_TO_V5_MIGRATION.md) for concrete API changes and the
-[replacement roadmap](V5_REPLACEMENT_ROADMAP.md) for the remaining parity
-and release gates. Publication is staged until those gates pass.
+[replacement roadmap](V5_REPLACEMENT_ROADMAP.md) for the workspace boundary.
+The local release gates pass; publication remains staged at the user's request.
 
 Run the comparable local benchmark examples with:
 

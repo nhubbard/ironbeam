@@ -1,3 +1,18 @@
+## 5.0.0 (unpublished candidate)
+
+### Breaking changes
+
+- The root `ironbeam` package now exposes the v5 multi-crate workspace. The v4 implementation remains available as published 4.1.1 for migration comparisons.
+- Portable ordered folds require explicit order keys; custom transforms use explicit batch sizes and semantic versions. Batch/progress checkpoints replace v4 node, barrier, and time scheduling.
+- I/O formats, cloud adapters, metrics, coders, and specialized transforms are separate optional crates. The migration guide maps v4 feature names and APIs to their v5 equivalents.
+
+### Features
+
+- Direct runs bounded and supported unbounded graphs with durable checkpoints and recovery. The portable graph and worker run the shared corpus through local Apache Beam Prism, including unbounded sources, grouping, joins, custom operations, and finalized outputs.
+- The v5 root retains v4-shaped helper methods and terminal behavior where their contracts are portable. The [migration guide](V4_TO_V5_MIGRATION.md) documents intentional differences.
+
+Publication is held. The [release gates](V5_RELEASE_GATE_STATUS.md) record local verification and scope.
+
 ## [4.1.1](https://github.com/nhubbard/ironbeam/compare/v4.1.0...v4.1.1) (2026-08-22)
 
 ## [4.1.0](https://github.com/nhubbard/ironbeam/compare/v4.0.0...v4.1.0) (2026-07-05)

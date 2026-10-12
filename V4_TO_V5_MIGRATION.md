@@ -5,7 +5,7 @@ workspace. The [replacement roadmap](V5_REPLACEMENT_ROADMAP.md) records the
 extraction history and the remaining 5.0.0 release gates. The package and
 feature descriptions below reflect the current migration state.
 
-Ironbeam 5 is now the root `ironbeam` default on this branch and remains available as `ironbeam::v5`. The root package version is still 4.1.1 while the release gates remain open. Core, Direct, transforms, each file format, SQL, MongoDB, and cloud objects have separate packages. The root facade exposes optional connectors through `v5-io-*` features; old `io-*` names also enable the matching v5 connector. This guide describes the implemented v5 surface, not a published 5.0.0 release.
+Ironbeam 5 is now the root `ironbeam` default on this branch and remains available as `ironbeam::v5`. The root carries an unpublished 5.0.0 candidate version while release gates remain open. Core, Direct, transforms, each file format, SQL, MongoDB, and cloud objects have separate packages. The root facade exposes optional connectors through `v5-io-*` features; old `io-*` names also enable the matching v5 connector. This guide describes the implemented v5 surface, not a published 5.0.0 release.
 
 ## A bounded pipeline
 
@@ -178,7 +178,7 @@ Sequential elementwise output is compared in order in the migration tests. Group
 alias and directly on the v5 packages. The root facade exports only v5 source
 and does not depend on `ironbeam-compat`. Its core, Direct, transforms, and
 JSONL API remain available with no default features; `cloud` and
-`validation-json` are the two default extras. The package remains versioned
-4.1.1 while the release gates are open. See the
+`validation-json` are the two default extras. The package carries an
+unpublished 5.0.0 candidate version while the release gates are open. See the
 [release gate status](V5_RELEASE_GATE_STATUS.md) for current checks and the
 staged publication decision.
