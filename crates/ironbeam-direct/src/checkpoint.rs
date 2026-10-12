@@ -200,7 +200,13 @@ impl CheckpointManager {
             ));
         }
         let data_path = self.config.directory.join(&manifest.data_file);
-        let metadata = fs::symlink_metadata(&data_path).map_err(|e| io_error("checkpoint", e))?;
+        let metadata = fs::symlink_metadata(&data_path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                Error::recovery("checkpoint", "checkpoint data file is missing")
+            } else {
+                io_error("checkpoint", error)
+            }
+        })?;
         if !metadata.file_type().is_file() {
             return Err(Error::recovery(
                 "checkpoint",
@@ -680,6 +686,37 @@ mod tests {
         let error = manager.recover(&mut recovered).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Recovery);
         assert!(error.message.contains("output count mismatch"));
+    }
+
+    #[test]
+    fn recovery_reports_missing_checkpoint_data_as_corrupt_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            binary_build_id: "missing-data-test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "missing-data-test".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+        let mut store = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        store.push(7).unwrap();
+        manager.save(1, &store).unwrap();
+        let manifest: Manifest =
+            serde_json::from_slice(&fs::read(directory.path().join("latest.json")).unwrap())
+                .unwrap();
+        fs::remove_file(directory.path().join(manifest.data_file)).unwrap();
+
+        let mut recovered = OutputStore::<i32>::new(1024, None, metrics).unwrap();
+        let error = manager.recover(&mut recovered).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Recovery);
+        assert!(error.message.contains("data file is missing"));
     }
 
     #[test]
