@@ -68,6 +68,12 @@ Map/filter latency and join memory need work before setting acceptance limits.
 The million-row JSONL ratio is much smaller than the 100,000-row ratio, so its
 fixed setup and durable publication costs need separate measurement.
 
+A terminal streaming inner-join prototype was measured against the previous
+v5 binary on the same million-row inputs and then removed. It made equal-size
+joins 22% slower without reducing peak RSS; the duplicate-key case used 11%
+less memory but ran 8% slower. The next join-memory change needs a compact
+typed path rather than an envelope-at-a-time callback.
+
 ## Completed gates
 
 | Gate | Evidence |

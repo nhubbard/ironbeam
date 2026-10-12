@@ -4301,6 +4301,9 @@ impl<T: Element> PCollection<T> {
         version: Version,
         f: impl Fn(Vec<T>) -> Vec<U> + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
+        if batch_size == 0 {
+            return Err(Error::graph(key, "semantic batch size must be positive"));
+        }
         Self::validate_semantic_handler(key, semantic_id, version)?;
         self.batch_elements_named(&format!("{key}/batches"), batch_size)?
             .flat_map_with_semantic_named(key, semantic_id, version, f)
@@ -6248,6 +6251,25 @@ mod internal_tests {
                     |values| values.to_vec(),
                 )
                 .is_err()
+        );
+        assert!(
+            source
+                .apply_transform_with_semantic_named(
+                    "zero-batch",
+                    0,
+                    "example/partition",
+                    version,
+                    |values| values,
+                )
+                .is_err()
+        );
+        assert!(
+            pipeline
+                .snapshot()
+                .unwrap()
+                .0
+                .node("zero-batch/batches")
+                .is_none()
         );
     }
 
