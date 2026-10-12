@@ -50,6 +50,24 @@ pub trait DirectKeySortedExt<K: Element + Ord, V: Element> {
         key: &str,
         config: &JobConfig,
     ) -> Result<Vec<(K, V)>, Error>;
+
+    fn collect_seq_sorted_by_key_named(&self, key: &str) -> Result<Vec<(K, V)>, Error> {
+        self.collect_sorted_by_key_named(key, &JobConfig::default())
+    }
+
+    fn collect_par_sorted_by_key_named(
+        &self,
+        key: &str,
+        parallelism: usize,
+    ) -> Result<Vec<(K, V)>, Error> {
+        self.collect_sorted_by_key_named(
+            key,
+            &JobConfig {
+                parallelism,
+                ..JobConfig::default()
+            },
+        )
+    }
 }
 impl<K: Element + Ord, V: Element> DirectKeySortedExt<K, V> for PCollection<(K, V)> {
     fn collect_sorted_by_key_named(

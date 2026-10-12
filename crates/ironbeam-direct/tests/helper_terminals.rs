@@ -47,6 +47,18 @@ fn sorted_terminals_and_hashmap_materialization_match_v4() {
             ("b".to_string(), 2)
         ]
     );
+    assert_eq!(
+        pairs
+            .collect_seq_sorted_by_key_named("sequential-keys")
+            .unwrap(),
+        sorted
+    );
+    assert_eq!(
+        pairs
+            .collect_par_sorted_by_key_named("parallel-keys", 3)
+            .unwrap(),
+        sorted
+    );
 }
 
 #[test]
