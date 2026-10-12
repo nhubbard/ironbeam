@@ -1812,6 +1812,93 @@ fn run_stream_pair(
 }
 
 #[cfg(test)]
+mod state_codec_tests {
+    use super::*;
+
+    #[test]
+    fn window_state_rejects_invalid_version_windows_and_element_budget() {
+        let registry = Registry::default();
+        let encoded =
+            |version, windows| serde_json::to_vec(&CodedWindowRows { version, windows }).unwrap();
+        assert_eq!(
+            restore_window_rows(&registry, "main", &encoded(2, vec![]), 1)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Incompatible
+        );
+        for window in [
+            CodedWindow {
+                start_ns: 1,
+                end_ns: 1,
+                events: vec![CodedEvent {
+                    value: vec![],
+                    timestamp_ns: 1,
+                    window: Window::Global,
+                    assigned_window: None,
+                }],
+            },
+            CodedWindow {
+                start_ns: 0,
+                end_ns: 2,
+                events: vec![],
+            },
+        ] {
+            assert_eq!(
+                restore_window_rows(&registry, "main", &encoded(1, vec![window]), 1)
+                    .err()
+                    .unwrap()
+                    .kind,
+                ErrorKind::Recovery
+            );
+        }
+        let window = CodedWindow {
+            start_ns: 0,
+            end_ns: 2,
+            events: vec![CodedEvent {
+                value: vec![],
+                timestamp_ns: 1,
+                window: Window::Global,
+                assigned_window: None,
+            }],
+        };
+        assert_eq!(
+            restore_window_rows(&registry, "main", &encoded(1, vec![window]), 0)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Recovery
+        );
+    }
+
+    #[test]
+    fn grouped_state_rejects_corrupt_header_window_and_trailing_bytes() {
+        let registry = Registry::default();
+        for bytes in [
+            b"IBGS".as_slice(),
+            b"wrong\0\0\0\0".as_slice(),
+            b"IBGS1\0\0\0".as_slice(),
+            b"IBGS1\0\0\0\0trailing".as_slice(),
+        ] {
+            assert!(restore_grouped_folds(&registry, "group", bytes, 1).is_err());
+        }
+        let mut invalid_window = b"IBGS1".to_vec();
+        invalid_window.extend_from_slice(&1_u32.to_le_bytes());
+        invalid_window.extend_from_slice(&1_i64.to_le_bytes());
+        invalid_window.extend_from_slice(&1_i64.to_le_bytes());
+        invalid_window.extend_from_slice(&1_u64.to_le_bytes());
+        invalid_window.extend_from_slice(&0_u64.to_le_bytes());
+        assert_eq!(
+            restore_grouped_folds(&registry, "group", &invalid_window, 1)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Recovery
+        );
+    }
+}
+
+#[cfg(test)]
 mod sink_open_tests {
     use super::open_sink;
     use ironbeam_core::{Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, TypedSink};
