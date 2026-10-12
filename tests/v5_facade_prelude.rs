@@ -125,6 +125,60 @@ fn facade_prelude_composes_keyed_aggregates_and_a_join() {
     assert_eq!(totals, [("a".to_owned(), 12), ("b".to_owned(), 12)]);
 }
 
+#[test]
+fn facade_prelude_exposes_validation_and_dead_letter_branches() {
+    #[derive(Clone, Debug)]
+    struct Row(i32);
+    impl ironbeam::v5::Element for Row {
+        const TYPE_ID: &'static str = "tests/facade-validation-row";
+        const CODER_ID: &'static str = "tests/facade-validation-row";
+    }
+    impl ironbeam::v5::Validate for Row {
+        fn validate(&self) -> ironbeam::v5::ValidationResult {
+            if self.0 >= 0 {
+                Ok(())
+            } else {
+                Err(vec![ironbeam::v5::ValidationError::field(
+                    "value",
+                    "must be nonnegative",
+                )])
+            }
+        }
+    }
+
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec("input", vec![Row(2), Row(-1), Row(4)])
+        .unwrap()
+        .validate_skip_invalid_named("valid")
+        .unwrap();
+    let (good, errors) = input
+        .map_catching_named("classify", "good", "errors", |row| {
+            if row.0 == 4 {
+                Err("reserved value")
+            } else {
+                Ok(row.0)
+            }
+        })
+        .unwrap();
+    let mut result = good
+        .map_named("good-label", |value| format!("good:{value}"))
+        .unwrap()
+        .flatten_named(
+            "merge",
+            &[errors
+                .map_named("error-label", |letter| {
+                    format!("error:{}:{}", letter.element.0, letter.error)
+                })
+                .unwrap()],
+        )
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    result.sort();
+    assert_eq!(result, ["error:4:reserved value", "good:2"]);
+}
+
 #[cfg(feature = "cloud")]
 #[test]
 fn facade_cloud_module_routes_provider_neutral_objects() {
