@@ -6,8 +6,9 @@ use crate::checkpoint::{MAX_RETAINED_CHECKPOINTS, sync_directory};
 use ironbeam_core::{Element, Error, ErrorKind, ProgressSignal, Version};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
@@ -50,7 +51,15 @@ struct Manifest {
     version: u32,
     identity: StreamIdentity,
     progress: ProgressSignal,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state: Option<StateRef>,
     checksum: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+struct StateRef {
+    hash: String,
+    len: u64,
 }
 
 pub(crate) struct StreamCheckpoint {
@@ -156,6 +165,48 @@ impl StreamCheckpoint {
         Ok(None)
     }
 
+    /// Recover the cursor and its matching opaque fold-state snapshot together.
+    pub(crate) fn load_state(
+        &self,
+        max_bytes: usize,
+    ) -> Result<Option<(ProgressSignal, Vec<u8>)>, Error> {
+        if !self.recover {
+            return Ok(None);
+        }
+        let mut latest_error = None;
+        for slot in 0..self.max_checkpoints {
+            match self.load_at(&self.slot_path(slot)) {
+                Ok(Some(manifest)) => {
+                    let Some(state) = &manifest.state else {
+                        return Err(Error::incompatible(
+                            "grouped stream checkpoint has no fold state",
+                        ));
+                    };
+                    match self.read_state(state, max_bytes) {
+                        Ok(bytes) => return Ok(Some((manifest.progress, bytes))),
+                        Err(error) if error.kind == ErrorKind::Recovery => {
+                            if latest_error.is_none() {
+                                latest_error = Some(error);
+                            }
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                Ok(None) => {}
+                Err(error) if error.kind == ErrorKind::Recovery => {
+                    if latest_error.is_none() {
+                        latest_error = Some(error);
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        if let Some(error) = latest_error {
+            return Err(error);
+        }
+        Ok(None)
+    }
+
     fn slot_path(&self, slot: usize) -> PathBuf {
         if slot == 0 {
             self.path.clone()
@@ -188,24 +239,68 @@ impl StreamCheckpoint {
                 "stream checkpoint version or execution identity mismatch",
             ));
         }
-        if manifest.checksum != checksum(manifest.version, &manifest.identity, &manifest.progress)?
+        if manifest.checksum
+            != checksum(
+                manifest.version,
+                &manifest.identity,
+                &manifest.progress,
+                manifest.state.as_ref(),
+            )?
         {
             return Err(Error::recovery(
                 "checkpoint",
                 "stream progress checksum mismatch",
             ));
         }
+        if let Some(state) = &manifest.state {
+            self.validate_state_file(state)?;
+        }
         self.validate_progress(&manifest.progress)?;
         Ok(Some(manifest))
     }
 
     pub(crate) fn save(&self, progress: &ProgressSignal) -> Result<(), Error> {
+        self.save_manifest(progress, None)
+    }
+
+    pub(crate) fn save_state(
+        &self,
+        progress: &ProgressSignal,
+        bytes: &[u8],
+        max_bytes: usize,
+    ) -> Result<(), Error> {
+        self.validate_progress(progress)?;
+        if bytes.len() > max_bytes {
+            return Err(Error::resource(
+                "checkpoint",
+                "grouped stream fold state exceeds memory budget",
+            ));
+        }
+        let state = StateRef {
+            hash: hex_bytes(&Sha256::digest(bytes)),
+            len: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        };
+        self.write_state(&state, bytes)?;
+        self.save_manifest(progress, Some(state))
+    }
+
+    fn save_manifest(
+        &self,
+        progress: &ProgressSignal,
+        state: Option<StateRef>,
+    ) -> Result<(), Error> {
         self.validate_progress(progress)?;
         let manifest = Manifest {
             version: STREAM_CHECKPOINT_VERSION,
             identity: self.identity.clone(),
             progress: progress.clone(),
-            checksum: checksum(STREAM_CHECKPOINT_VERSION, &self.identity, progress)?,
+            checksum: checksum(
+                STREAM_CHECKPOINT_VERSION,
+                &self.identity,
+                progress,
+                state.as_ref(),
+            )?,
+            state,
         };
         let encoded = serde_json::to_vec(&manifest)
             .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
@@ -272,6 +367,145 @@ impl StreamCheckpoint {
         for path in stale_history {
             let _ = fs::remove_file(path);
         }
+        self.prune_state_files()?;
+        Ok(())
+    }
+
+    fn state_path(&self, state: &StateRef) -> Result<PathBuf, Error> {
+        if state.hash.len() != 64
+            || !state
+                .hash
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            return Err(Error::recovery("checkpoint", "invalid stream state digest"));
+        }
+        Ok(self
+            .path
+            .parent()
+            .expect("stream checkpoint path has parent")
+            .join(format!("stream-state-{}.bin", state.hash)))
+    }
+
+    fn read_state(&self, state: &StateRef, max_bytes: usize) -> Result<Vec<u8>, Error> {
+        if state.len > u64::try_from(max_bytes).unwrap_or(u64::MAX) {
+            return Err(Error::resource(
+                "checkpoint",
+                "grouped stream fold state exceeds memory budget",
+            ));
+        }
+        let path = self.state_path(state)?;
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+        if !metadata.file_type().is_file() || metadata.len() != state.len {
+            return Err(Error::recovery(
+                "checkpoint",
+                "stream state file size or type mismatch",
+            ));
+        }
+        let bytes =
+            fs::read(&path).map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+        if hex_bytes(&Sha256::digest(&bytes)) != state.hash {
+            return Err(Error::recovery(
+                "checkpoint",
+                "stream fold state checksum mismatch",
+            ));
+        }
+        Ok(bytes)
+    }
+
+    fn validate_state_file(&self, state: &StateRef) -> Result<(), Error> {
+        let path = self.state_path(state)?;
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+        if !metadata.file_type().is_file() || metadata.len() != state.len {
+            return Err(Error::recovery(
+                "checkpoint",
+                "stream state file size or type mismatch",
+            ));
+        }
+        let mut file = fs::File::open(&path)
+            .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let count = file
+                .read(&mut buffer)
+                .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
+        }
+        if hex_bytes(&hasher.finalize()) != state.hash {
+            return Err(Error::recovery(
+                "checkpoint",
+                "stream fold state checksum mismatch",
+            ));
+        }
+        Ok(())
+    }
+
+    fn write_state(&self, state: &StateRef, bytes: &[u8]) -> Result<(), Error> {
+        let path = self.state_path(state)?;
+        if path.exists() {
+            self.read_state(state, bytes.len())?;
+            return Ok(());
+        }
+        let directory = path.parent().expect("stream state path has parent");
+        let mut temporary = tempfile::NamedTempFile::new_in(directory)
+            .map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
+        temporary
+            .write_all(bytes)
+            .and_then(|()| temporary.as_file().sync_all())
+            .map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
+        match temporary.persist_noclobber(&path) {
+            Ok(_) => sync_directory(directory)?,
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                self.read_state(state, bytes.len())?;
+            }
+            Err(error) => return Err(Error::io("checkpoint", "direct", error.error.to_string())),
+        }
+        Ok(())
+    }
+
+    fn prune_state_files(&self) -> Result<(), Error> {
+        let directory = self
+            .path
+            .parent()
+            .expect("stream checkpoint path has parent");
+        let referenced = (0..self.max_checkpoints)
+            .filter_map(|slot| self.load_at(&self.slot_path(slot)).ok().flatten())
+            .filter_map(|manifest| manifest.state.map(|state| state.hash))
+            .collect::<HashSet<_>>();
+        let mut removed = false;
+        for entry in fs::read_dir(directory)
+            .map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?
+        {
+            let entry =
+                entry.map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
+            let name = entry.file_name();
+            let Some(hash) = name
+                .to_str()
+                .and_then(|name| name.strip_prefix("stream-state-"))
+                .and_then(|name| name.strip_suffix(".bin"))
+            else {
+                continue;
+            };
+            if hash.len() == 64
+                && hash
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                && !referenced.contains(hash)
+            {
+                fs::remove_file(entry.path())
+                    .map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
+                removed = true;
+            }
+        }
+        if removed {
+            sync_directory(directory)?;
+        }
         Ok(())
     }
 
@@ -337,9 +571,14 @@ fn checksum(
     version: u32,
     identity: &StreamIdentity,
     progress: &ProgressSignal,
+    state: Option<&StateRef>,
 ) -> Result<String, Error> {
-    let bytes = serde_json::to_vec(&(version, identity, progress))
-        .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+    let bytes = if let Some(state) = state {
+        serde_json::to_vec(&(version, identity, progress, state))
+    } else {
+        serde_json::to_vec(&(version, identity, progress))
+    }
+    .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
     Ok(hex_bytes(&Sha256::digest(bytes)))
 }
 
@@ -347,6 +586,62 @@ fn checksum(
 mod tests {
     use super::*;
     use std::process::Command;
+
+    #[test]
+    fn grouped_state_falls_back_to_verified_history_and_prunes_old_blobs() {
+        let temporary = tempfile::tempdir().unwrap();
+        let checkpoint = StreamCheckpoint::new::<i32>(
+            &CheckpointConfig {
+                directory: temporary.path().into(),
+                max_checkpoints: 2,
+                binary_build_id: "test-build".into(),
+                ..CheckpointConfig::default()
+            },
+            "graph",
+            "source",
+            "sink",
+            "events",
+            "sink",
+        )
+        .unwrap();
+        let mut first = signal();
+        first.checkpoint_position = Some(vec![1]);
+        let mut second = first.clone();
+        second.checkpoint_position = Some(vec![2]);
+        checkpoint.save_state(&first, b"first-fold", 1024).unwrap();
+        checkpoint
+            .save_state(&second, b"second-fold", 1024)
+            .unwrap();
+        assert_eq!(
+            checkpoint.load_state(1024).unwrap(),
+            Some((second.clone(), b"second-fold".to_vec()))
+        );
+        let latest = checkpoint.load_at(&checkpoint.path).unwrap().unwrap();
+        let state = latest.state.unwrap();
+        fs::write(checkpoint.state_path(&state).unwrap(), b"broken-fold").unwrap();
+        assert_eq!(
+            checkpoint.load_state(1024).unwrap(),
+            Some((first, b"first-fold".to_vec()))
+        );
+        let mut third = second;
+        third.checkpoint_position = Some(vec![3]);
+        checkpoint.save_state(&third, b"third-fold", 1024).unwrap();
+        assert_eq!(
+            checkpoint.load_state(1024).unwrap(),
+            Some((third, b"third-fold".to_vec()))
+        );
+        let states = fs::read_dir(temporary.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("stream-state-")
+            })
+            .count();
+        assert_eq!(states, 2);
+    }
 
     #[test]
     fn stream_checkpoint_crash_child() {
@@ -366,6 +661,71 @@ mod tests {
         progress.checkpoint_position = Some(vec![2]);
         checkpoint.save(&progress).unwrap();
         panic!("stream checkpoint child did not exit at its fault stage");
+    }
+
+    #[test]
+    fn grouped_state_crash_child() {
+        let Ok(directory) = std::env::var("IRONBEAM_GROUPED_STATE_CHILD_DIRECTORY") else {
+            return;
+        };
+        let config = CheckpointConfig {
+            directory: directory.into(),
+            max_checkpoints: 2,
+            binary_build_id: "test-build".into(),
+            ..CheckpointConfig::default()
+        };
+        let checkpoint =
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                .unwrap();
+        let mut progress = signal();
+        progress.checkpoint_position = Some(vec![2]);
+        checkpoint
+            .save_state(&progress, b"second-fold", 1024)
+            .unwrap();
+        panic!("grouped state child did not exit at its fault stage");
+    }
+
+    #[test]
+    fn grouped_state_survives_process_exit_at_publication_boundaries() {
+        for (stage, expected_cursor, expected_state) in [
+            ("stream_history_synced", 1, b"first-fold".as_slice()),
+            ("stream_latest_renamed", 2, b"second-fold".as_slice()),
+            ("stream_latest_synced", 2, b"second-fold".as_slice()),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let config = CheckpointConfig {
+                directory: directory.path().into(),
+                max_checkpoints: 2,
+                binary_build_id: "test-build".into(),
+                ..CheckpointConfig::default()
+            };
+            let checkpoint =
+                StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                    .unwrap();
+            let mut first = signal();
+            first.checkpoint_position = Some(vec![1]);
+            checkpoint.save_state(&first, b"first-fold", 1024).unwrap();
+
+            let result = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "stream_checkpoint::tests::grouped_state_crash_child",
+                ])
+                .env("IRONBEAM_GROUPED_STATE_CHILD_DIRECTORY", directory.path())
+                .env("IRONBEAM_CHECKPOINT_EXIT_STAGE", stage)
+                .output()
+                .unwrap();
+            assert_eq!(result.status.code(), Some(86), "stage {stage}: {result:?}");
+            let (progress, state) = checkpoint.load_state(1024).unwrap().unwrap();
+            assert_eq!(progress.checkpoint_position, Some(vec![expected_cursor]));
+            assert_eq!(state, expected_state);
+            if stage == "stream_latest_renamed" {
+                fs::remove_file(&checkpoint.path).unwrap();
+                let (progress, state) = checkpoint.load_state(1024).unwrap().unwrap();
+                assert_eq!(progress.checkpoint_position, Some(vec![1]));
+                assert_eq!(state, b"first-fold");
+            }
+        }
     }
 
     #[test]
@@ -713,8 +1073,15 @@ mod tests {
         let manifest = Manifest {
             version: STREAM_CHECKPOINT_VERSION,
             identity: checkpoint.identity.clone(),
-            checksum: checksum(STREAM_CHECKPOINT_VERSION, &checkpoint.identity, &progress).unwrap(),
+            checksum: checksum(
+                STREAM_CHECKPOINT_VERSION,
+                &checkpoint.identity,
+                &progress,
+                None,
+            )
+            .unwrap(),
             progress,
+            state: None,
         };
         fs::write(&checkpoint.path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         let error = checkpoint.load().unwrap_err();
@@ -772,8 +1139,15 @@ mod tests {
         let manifest = Manifest {
             version: STREAM_CHECKPOINT_VERSION,
             identity: checkpoint.identity.clone(),
-            checksum: checksum(STREAM_CHECKPOINT_VERSION, &checkpoint.identity, &altered).unwrap(),
+            checksum: checksum(
+                STREAM_CHECKPOINT_VERSION,
+                &checkpoint.identity,
+                &altered,
+                None,
+            )
+            .unwrap(),
             progress: altered,
+            state: None,
         };
         fs::write(&checkpoint.path, serde_json::to_vec(&manifest).unwrap()).unwrap();
         assert!(checkpoint.load().is_err());

@@ -31,6 +31,138 @@ struct GroupedStreamRoute {
     after_group: Vec<String>,
 }
 
+type WindowFolds = BTreeMap<(i64, i64), (Box<dyn FoldSession>, usize)>;
+const GROUPED_STATE_MAGIC: &[u8; 5] = b"IBGS1";
+
+fn encode_grouped_folds(
+    folds: &WindowFolds,
+    max_bytes: usize,
+    group_key: &str,
+) -> Result<Vec<u8>, Error> {
+    let count = u32::try_from(folds.len())
+        .map_err(|_| Error::resource(group_key, "too many grouped stream windows"))?;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(GROUPED_STATE_MAGIC);
+    bytes.extend_from_slice(&count.to_le_bytes());
+    for (&(start, end), (fold, rows)) in folds {
+        let state = catch_unwind(AssertUnwindSafe(|| fold.checkpoint_state()))
+            .unwrap_or_else(|_| {
+                Err(Error::execution(
+                    group_key,
+                    "direct",
+                    "group fold checkpoint panicked",
+                ))
+            })?
+            .ok_or_else(|| Error::unsupported(group_key, "direct", "fold-checkpoint-state"))?;
+        bytes.extend_from_slice(&start.to_le_bytes());
+        bytes.extend_from_slice(&end.to_le_bytes());
+        bytes.extend_from_slice(&u64::try_from(*rows).unwrap_or(u64::MAX).to_le_bytes());
+        bytes.extend_from_slice(&u64::try_from(state.len()).unwrap_or(u64::MAX).to_le_bytes());
+        bytes.extend_from_slice(&state);
+        if bytes.len() > max_bytes {
+            return Err(Error::resource(
+                "checkpoint",
+                "grouped stream fold state exceeds memory budget",
+            ));
+        }
+    }
+    Ok(bytes)
+}
+
+fn take_state_bytes<'a>(remaining: &mut &'a [u8], len: usize) -> Result<&'a [u8], Error> {
+    let Some((taken, rest)) = remaining.split_at_checked(len) else {
+        return Err(Error::recovery(
+            "checkpoint",
+            "truncated grouped stream fold state",
+        ));
+    };
+    *remaining = rest;
+    Ok(taken)
+}
+
+fn restore_grouped_folds(
+    registry: &Registry,
+    group_key: &str,
+    bytes: &[u8],
+    budget_elements: usize,
+) -> Result<(WindowFolds, usize), Error> {
+    let mut remaining = bytes;
+    if take_state_bytes(&mut remaining, GROUPED_STATE_MAGIC.len())? != GROUPED_STATE_MAGIC {
+        return Err(Error::incompatible(
+            "grouped stream fold state version mismatch",
+        ));
+    }
+    let count = u32::from_le_bytes(
+        take_state_bytes(&mut remaining, 4)?
+            .try_into()
+            .expect("four bytes"),
+    );
+    let mut folds = BTreeMap::new();
+    let mut buffered = 0_usize;
+    for _ in 0..count {
+        let start = i64::from_le_bytes(
+            take_state_bytes(&mut remaining, 8)?
+                .try_into()
+                .expect("eight bytes"),
+        );
+        let end = i64::from_le_bytes(
+            take_state_bytes(&mut remaining, 8)?
+                .try_into()
+                .expect("eight bytes"),
+        );
+        let rows = usize::try_from(u64::from_le_bytes(
+            take_state_bytes(&mut remaining, 8)?
+                .try_into()
+                .expect("eight bytes"),
+        ))
+        .map_err(|_| Error::recovery("checkpoint", "invalid grouped stream row count"))?;
+        let len = usize::try_from(u64::from_le_bytes(
+            take_state_bytes(&mut remaining, 8)?
+                .try_into()
+                .expect("eight bytes"),
+        ))
+        .map_err(|_| Error::recovery("checkpoint", "invalid grouped stream fold size"))?;
+        if end <= start || rows == 0 || rows > budget_elements.saturating_sub(buffered) {
+            return Err(Error::recovery(
+                "checkpoint",
+                "invalid grouped stream window or row count",
+            ));
+        }
+        let state = take_state_bytes(&mut remaining, len)?;
+        let mut fold = catch_unwind(AssertUnwindSafe(|| registry.open_fold(group_key)))
+            .unwrap_or_else(|_| {
+                Err(Error::execution(
+                    group_key,
+                    "direct",
+                    "group fold factory panicked",
+                ))
+            })?;
+        catch_unwind(AssertUnwindSafe(|| fold.restore_checkpoint_state(state))).unwrap_or_else(
+            |_| {
+                Err(Error::execution(
+                    group_key,
+                    "direct",
+                    "group fold recovery panicked",
+                ))
+            },
+        )?;
+        if folds.insert((start, end), (fold, rows)).is_some() {
+            return Err(Error::recovery(
+                "checkpoint",
+                "duplicate grouped stream window",
+            ));
+        }
+        buffered += rows;
+    }
+    if !remaining.is_empty() {
+        return Err(Error::recovery(
+            "checkpoint",
+            "trailing grouped stream fold state",
+        ));
+    }
+    Ok((folds, buffered))
+}
+
 fn grouped_stream_route(
     graph: &Graph,
     sink_key: &str,
@@ -125,7 +257,7 @@ impl Drop for StreamJob {
 impl DirectRunner {
     /// Start one unbounded source feeding a linear route or one fixed-window
     /// GroupByKey route and an idempotent append sink. Grouped routes close on
-    /// source watermarks or completion and currently reject checkpoints.
+    /// source watermarks or completion and checkpoint coded window fold state.
     /// Validation and checkpoint recovery finish before opening endpoints.
     #[allow(clippy::too_many_lines)] // Worker setup validates recovery before opening endpoints.
     pub fn start_stream_sink<T: Element>(
@@ -166,13 +298,6 @@ impl DirectRunner {
                 &sink_key,
                 "direct",
                 "stateful-stream-route",
-            ));
-        }
-        if grouped.is_some() && config.checkpoint.is_some() {
-            return Err(Error::unsupported(
-                &sink_key,
-                "direct",
-                "grouped-stream-checkpoint",
             ));
         }
         if let Some(grouped) = &grouped
@@ -219,6 +344,48 @@ impl DirectRunner {
         if grouped.is_some() && !source_progress.reports_event_time {
             return Err(Error::unsupported(source_key, "direct", "stream-watermark"));
         }
+        if let Some(grouped) = &grouped
+            && config.checkpoint.is_some()
+        {
+            let fold = catch_unwind(AssertUnwindSafe(|| registry.open_fold(&grouped.group_key)))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        &grouped.group_key,
+                        "direct",
+                        "group fold factory panicked",
+                    ))
+                })?;
+            let state = catch_unwind(AssertUnwindSafe(|| fold.checkpoint_state()))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        &grouped.group_key,
+                        "direct",
+                        "group fold checkpoint panicked",
+                    ))
+                })?
+                .ok_or_else(|| {
+                    Error::unsupported(&grouped.group_key, "direct", "fold-checkpoint-state")
+                })?;
+            let mut restored =
+                catch_unwind(AssertUnwindSafe(|| registry.open_fold(&grouped.group_key)))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            &grouped.group_key,
+                            "direct",
+                            "group fold factory panicked",
+                        ))
+                    })?;
+            catch_unwind(AssertUnwindSafe(|| {
+                restored.restore_checkpoint_state(&state)
+            }))
+            .unwrap_or_else(|_| {
+                Err(Error::execution(
+                    &grouped.group_key,
+                    "direct",
+                    "group fold recovery panicked",
+                ))
+            })?;
+        }
         let checkpoint = config
             .checkpoint
             .as_ref()
@@ -237,11 +404,40 @@ impl DirectRunner {
                 )
             })
             .transpose()?;
-        let recovered = checkpoint
-            .as_ref()
-            .map(StreamCheckpoint::load)
-            .transpose()?
-            .flatten();
+        let (recovered, grouped_folds, grouped_buffered) = if let Some(grouped) = &grouped {
+            let saved = checkpoint
+                .as_ref()
+                .map(|checkpoint| checkpoint.load_state(config.memory_budget_bytes))
+                .transpose()?
+                .flatten();
+            if let Some((progress, state)) = saved {
+                let (folds, buffered) = restore_grouped_folds(
+                    &registry,
+                    &grouped.group_key,
+                    &state,
+                    config.buffer_budget_elements,
+                )?;
+                if progress.completed && !folds.is_empty() {
+                    return Err(Error::recovery(
+                        "checkpoint",
+                        "completed grouped stream retains open windows",
+                    ));
+                }
+                (Some(progress), folds, buffered)
+            } else {
+                (None, BTreeMap::new(), 0)
+            }
+        } else {
+            (
+                checkpoint
+                    .as_ref()
+                    .map(StreamCheckpoint::load)
+                    .transpose()?
+                    .flatten(),
+                BTreeMap::new(),
+                0,
+            )
+        };
         #[allow(unused_mut)] // Metrics feature installs a collector before the worker starts.
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
@@ -282,6 +478,10 @@ impl DirectRunner {
                             &worker_config,
                             &worker_handle,
                             &worker_progress,
+                            checkpoint.as_ref(),
+                            recovered.clone(),
+                            grouped_folds,
+                            grouped_buffered,
                         )
                     } else {
                         run_stream(
@@ -589,9 +789,13 @@ fn run_grouped_stream(
     config: &JobConfig,
     handle: &JobHandle,
     shared_progress: &Arc<Mutex<Option<ProgressSignal>>>,
+    checkpoint: Option<&StreamCheckpoint>,
+    mut progress: Option<ProgressSignal>,
+    mut folds: WindowFolds,
+    mut buffered: usize,
 ) -> Result<(), Error> {
     let mut source = catch_unwind(AssertUnwindSafe(|| {
-        registry.open_unbounded_source(&route.source_key, None)
+        registry.open_unbounded_source(&route.source_key, progress.clone())
     }))
     .unwrap_or_else(|_| {
         Err(Error::execution(
@@ -600,9 +804,6 @@ fn run_grouped_stream(
             "source factory panicked",
         ))
     })?;
-    let mut folds: BTreeMap<(i64, i64), (Box<dyn FoldSession>, usize)> = BTreeMap::new();
-    let mut buffered = 0_usize;
-    let mut progress: Option<ProgressSignal> = None;
     loop {
         if config.cancellation.load(Ordering::Acquire) {
             return Err(cancelled());
@@ -750,6 +951,12 @@ fn run_grouped_stream(
                 let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
             }
             return Err(error);
+        }
+        if let Some(checkpoint) = checkpoint
+            && (next_progress.checkpoint_position.is_some() || next_progress.completed)
+        {
+            let state = encode_grouped_folds(&folds, config.memory_budget_bytes, &route.group_key)?;
+            checkpoint.save_state(&next_progress, &state, config.memory_budget_bytes)?;
         }
         let total = handle
             .metrics

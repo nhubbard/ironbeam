@@ -279,24 +279,138 @@ fn grouped_stream_closes_fixed_windows_on_watermarks() {
         )
         .unwrap();
     let temporary = tempfile::tempdir().unwrap();
-    let error = DirectRunner
-        .start_stream_sink(&sink, &config(temporary.path()))
-        .err()
-        .unwrap();
-    assert!(matches!(
-        error.kind,
-        ErrorKind::UnsupportedCapability { .. }
-    ));
-    assert_eq!(opens.load(Ordering::SeqCst), 0);
-    let job = DirectRunner
-        .start_stream_sink(&sink, &JobConfig::default())
-        .unwrap();
+    let job_config = config(temporary.path());
+    let job = DirectRunner.start_stream_sink(&sink, &job_config).unwrap();
     let handle = job.wait().unwrap();
     assert_eq!(handle.status(), JobStatus::Succeeded);
+    assert_eq!(opens.load(Ordering::SeqCst), 1);
+    DirectRunner
+        .start_stream_sink(&sink, &job_config)
+        .unwrap()
+        .wait()
+        .unwrap();
     assert_eq!(opens.load(Ordering::SeqCst), 1);
     let mut rows = committed.lock().unwrap().clone();
     rows.sort_unstable();
     assert_eq!(rows, [10_104, 20_002, 110_004]);
+}
+
+#[test]
+fn grouped_stream_recovers_open_window_with_source_cursor() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pause_after_first = Arc::new(AtomicBool::new(true));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "grouped-recovery-source-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                let pause_after_first = Arc::clone(&pause_after_first);
+                move |position| {
+                    opens.lock().unwrap().push(position.clone());
+                    let ready = |cursor, watermark, completed, values: Vec<(i32, i64)>| {
+                        UnboundedPoll::Ready(UnboundedBatch {
+                            elements: values
+                                .into_iter()
+                                .map(|(value, timestamp_ns)| Timestamped {
+                                    value,
+                                    timestamp_ns,
+                                })
+                                .collect(),
+                            progress: ProgressSignal {
+                                source_key: "events".into(),
+                                split_id: "split-0".into(),
+                                checkpoint_position: Some(vec![cursor]),
+                                event_time_ns: Some(watermark),
+                                completed,
+                            },
+                        })
+                    };
+                    let first = ready(1, 20, false, vec![(1, 10), (2, 20)]);
+                    let second = ready(2, 100, false, vec![(3, 30)]);
+                    let final_poll = ready(3, 200, true, vec![(4, 110)]);
+                    let polls = match position.as_deref() {
+                        None if pause_after_first.load(Ordering::SeqCst) => vec![first],
+                        None => vec![first, second, final_poll],
+                        Some([1]) => vec![second, final_poll],
+                        Some([2]) => vec![final_poll],
+                        _ => return Err(Error::incompatible("unexpected grouped resume cursor")),
+                    };
+                    Ok(Box::new(Script {
+                        polls: polls.into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                }
+            },
+        )
+        .unwrap();
+    let sink = source
+        .fixed_windows("windows", 100)
+        .unwrap()
+        .map_named("key", |value| (value % 2, value))
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .map_named("sum", |(key, values)| {
+            key * 100 + values.iter().sum::<i32>()
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "grouped-recovery-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let job_config = config(temporary.path());
+    let job = DirectRunner.start_stream_sink(&sink, &job_config).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job.progress().and_then(|signal| signal.checkpoint_position) != Some(vec![1]) {
+        assert!(
+            Instant::now() < deadline,
+            "first grouped checkpoint was not saved"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(committed.lock().unwrap().is_empty());
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    pause_after_first.store(false, Ordering::SeqCst);
+    DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort_unstable();
+    assert_eq!(rows, [2, 4, 104]);
 }
 
 fn grouped_failure(
