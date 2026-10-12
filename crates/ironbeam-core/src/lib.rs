@@ -4293,21 +4293,27 @@ impl<T: Element> PCollection<T> {
         if limit == 1 {
             return self.map_named(key, |value| vec![value]);
         }
+        let batch_semantic_id = format!("ironbeam/batch-elements/{limit}");
         self.combine_globally_named(&format!("{key}/collect"), |values| values)?
-            .flat_map_named(key, move |values| {
-                let mut batches = Vec::new();
-                let mut current = Vec::with_capacity(limit);
-                for value in values {
-                    current.push(value);
-                    if current.len() == limit {
-                        batches.push(std::mem::replace(&mut current, Vec::with_capacity(limit)));
+            .flat_map_registered(
+                key,
+                Some((&batch_semantic_id, BUILTIN_OPERATION_VERSION)),
+                move |values| {
+                    let mut batches = Vec::new();
+                    let mut current = Vec::with_capacity(limit);
+                    for value in values {
+                        current.push(value);
+                        if current.len() == limit {
+                            batches
+                                .push(std::mem::replace(&mut current, Vec::with_capacity(limit)));
+                        }
                     }
-                }
-                if !current.is_empty() {
-                    batches.push(current);
-                }
-                batches
-            })
+                    if !current.is_empty() {
+                        batches.push(current);
+                    }
+                    batches
+                },
+            )
     }
     pub fn map_batches_named<U: Element>(
         &self,
@@ -6554,6 +6560,36 @@ mod internal_tests {
                 .node("zero-batch/batches")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn batch_size_is_part_of_graph_identity() {
+        let build = |size| {
+            let pipeline = Pipeline::default();
+            pipeline
+                .from_vec("source", vec![1_i32, 2, 3])
+                .unwrap()
+                .map_batches_with_semantic_named(
+                    "batch",
+                    size,
+                    "example/partition",
+                    Version { major: 1, minor: 0 },
+                    |values| values.to_vec(),
+                )
+                .unwrap();
+            pipeline.snapshot().unwrap().0
+        };
+        let two = build(2);
+        let three = build(3);
+        assert_eq!(
+            two.node("batch/batches").unwrap().semantic_id,
+            "ironbeam/batch-elements/2"
+        );
+        assert_eq!(
+            three.node("batch/batches").unwrap().semantic_id,
+            "ironbeam/batch-elements/3"
+        );
+        assert_ne!(two.fingerprint().unwrap(), three.fingerprint().unwrap());
     }
 
     #[test]
