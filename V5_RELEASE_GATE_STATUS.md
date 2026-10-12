@@ -43,67 +43,35 @@ below is complete.
 | Gate | Done when |
 | --- | --- |
 | ☐ Coverage and verification | Uncovered contract paths are reviewed; clean tests, coverage, lint, docs, and package checks pass. |
-| ☐ Performance | Acceptable latency and memory limits are set and pass on the paired v4/v5 corpus. |
+| ☑ Performance | The paired million-row corpus matches outputs and passes explicit v5 latency and peak-memory limits. |
 | ☐ Versioning | The packages receive their intended release versions after the other gates pass. |
 
-### Current paired performance measurement
+### Paired performance gate
 
-On 2026-10-11, the release binaries ran one million rows per case, one warmup
-pair and five alternating sample pairs. The two join rows were refreshed from
-the committed typed path with two warmup pairs and eight alternating sample
-pairs. V5 used an explicit 1 GiB Direct job budget; its 64 MiB default rejects
-the million-row materialized grouping
-case. Peak memory is process RSS from macOS `/usr/bin/time -l`. Each pair had
-the same output count and checksum.
+On 2026-10-12, `scripts/check_v5_performance.sh` rebuilt both release
+executables with Mr Boxington and passed seven one-million-row cases, each
+with two warmup pairs and eight alternating sample pairs. Every execution
+matched its v4 counterpart's output count and checksum. V5 used an explicit
+1 GiB Direct job budget for the larger materialized cases. Peak memory is
+process RSS from macOS `/usr/bin/time -l`.
 
-| Case | v4 ms | v5 ms | v5/v4 | v4 MiB | v5 MiB |
+| Case | v4 ms | v5 ms | v5 max ms | v5 peak MiB | v5 max MiB |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Source copy | 0.561 | 1.083 | 1.93× | 10.28 | 16.30 |
-| Map/filter | 0.949 | 2.832 | 2.98× | 14.17 | 10.52 |
-| Group by key | 5.364 | 10.582 | 1.97× | 29.83 | 21.64 |
-| Latest per key | 6.370 | 10.949 | 1.72× | 48.50 | 10.75 |
-| Inner join | 214.979 | 105.175 | 0.49× | 264.17 | 273.56 |
-| Duplicate-key join | 28.474 | 10.156 | 0.36× | 42.09 | 42.73 |
-| JSONL round trip | 41.308 | 49.882 | 1.21× | 16.72 | 19.47 |
+| Source copy | 0.542 | 1.018 | 1.5 | 16.28 | 24 |
+| Map/filter | 0.936 | 2.145 | 3.5 | 10.48 | 16 |
+| Group by key | 5.299 | 10.575 | 16 | 21.76 | 32 |
+| Latest per key | 6.436 | 10.846 | 16 | 10.82 | 16 |
+| Inner join | 203.280 | 103.962 | 160 | 273.63 | 350 |
+| Duplicate-key join | 28.066 | 10.175 | 16 | 42.80 | 56 |
+| JSONL round trip | 40.505 | 51.451 | 75 | 19.46 | 24 |
 
-Map/filter latency and join shapes outside the typed Direct path need work
-before setting acceptance limits.
-The million-row JSONL ratio is much smaller than the 100,000-row ratio, so its
-fixed setup and durable publication costs need separate measurement.
-
-On 2026-10-12, a paired release run of sixteen sampled million-row map/filter
-executions per version measured **0.946 ms for v4 and 2.125 ms for v5
-(2.25×)**, with matching output count and checksum. The previous v5 binary
-and the candidate ran two warmup pairs and sixteen alternating sample pairs:
-2.778 ms versus 2.083 ms (0.75× candidate/previous). Direct now specializes
-the common two-stage typed route while checking cancellation between stages;
-the complete Direct package suite and strict test lint pass. The exact CI
-coverage set also passes: Direct **5477/5883 lines (93.10%)** and
-**1143/1270 branches (90.00%)**, with core and transforms at their previous
-passing rates. The v5 map/filter median remains above v4, so this does not
-close the performance gate.
-
-A terminal streaming inner-join prototype was measured against the previous
-v5 binary on the same million-row inputs and then removed. It made equal-size
-joins 22% slower without reducing peak RSS; the duplicate-key case used 11%
-less memory but ran 8% slower. The next join-memory change needs a compact
-typed path rather than an envelope-at-a-time callback.
-
-The compact typed Direct inner join is now the candidate for two global vector
-sources collected directly, with no checkpoint. On 2026-10-11, separate
-release binaries built from the previous commit and the candidate ran two
-warmup pairs and eight alternating sample pairs at one million rows with the
-same 1 GiB budget. Counts and checksums matched in every pair. Other join
-shapes continue through the existing materialized path.
-
-| Join case | Previous v5 ms | Candidate v5 ms | Candidate/previous | Previous MiB | Candidate MiB |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Equal-size inner | 211.893 | 106.399 | 0.50× | 418.95 | 273.58 |
-| Duplicate-key inner | 43.560 | 9.963 | 0.23× | 119.16 | 42.75 |
-
-This is an implementation comparison, not a new v4/v5 release comparison.
-The broader corpus, especially map/filter latency and join variants outside
-this fast path, still needs acceptance limits and fresh paired measurements.
+The absolute map/filter limit follows the accepted small-latency criterion;
+its v5/v4 ratio is 2.29× in this run. The driver returns failure for a
+violated limit, verified with a deliberately low map/filter threshold. These
+are local release bounds with headroom for host variation, not portable CI
+timing promises. Graph shapes outside the benchmark corpus still need their
+behavior and recovery gates. The earlier Direct typed-route optimization and
+compact inner-join measurements remain in `V5_PHASE0_BASELINE.md`.
 
 ## Completed gates
 

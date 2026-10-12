@@ -409,10 +409,10 @@ default 64 MiB limit rejects the million-row grouped fixture.
 | JSONL round trip | 4.105 | 10.798 | 2.63× | 4.33 | 5.05 |
 
 The process peaks include runtime setup and are not an allocation profile.
-Host load can move absolute times; the paired comparisons identify the next
-work: map/filter and JSONL latency, and join memory, especially duplicate
-keys. No acceptable regression limits have been set, so this measurement
-does not close the performance gate.
+Host load can move absolute times. At the time of this baseline, no acceptable
+regression limits had been set. The later million-row gate and its explicit
+absolute limits are recorded in `V5_RELEASE_GATE_STATUS.md` and enforced by
+`scripts/check_v5_performance.sh`.
 
 The Direct materialized path now preallocates its source envelope vector only
 when the source is a registered vector with a known length, capped by the
