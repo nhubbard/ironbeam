@@ -290,4 +290,11 @@ fn nested_container_coders_reject_unsupported_element_types() {
     assert!((Opaque, 1_u8, 2_u8).encoded_len().is_err());
     assert!(<(Opaque, u8, u8)>::decode(&[]).is_err());
     assert!(HashSet::<Opaque>::decode(&[]).is_err());
+    assert!(HashSet::<Opaque>::new().encode().is_err());
+    assert!(HashMap::<Opaque, i32>::decode(&[]).is_err());
+    assert!(HashMap::<Opaque, i32>::new().encode().is_err());
+    assert!(HashMap::<i32, Opaque>::decode(&[]).is_err());
+    assert!(HashMap::<i32, Opaque>::new().encode().is_err());
+    assert!(Result::<Opaque, i32>::decode(&[]).is_err());
+    assert!(Result::<Opaque, i32>::Ok(Opaque).encode().is_err());
 }

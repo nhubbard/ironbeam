@@ -493,6 +493,40 @@ fn smaller_right_join_index_preserves_outer_rows_and_event_time() {
 }
 
 #[test]
+fn typed_inner_join_indexes_smaller_right_and_caps_duplicate_fanout() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("left", (0..11).map(|value| (1_i32, value)).collect())
+        .unwrap();
+    let right = pipeline
+        .from_vec("right", (0..10).map(|value| (1_i32, value)).collect())
+        .unwrap();
+    let output = left
+        .join_inner_named("join", &right)
+        .unwrap()
+        .output("joined")
+        .unwrap();
+    let (rows, _) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(rows.len(), 110);
+    assert!(rows.contains(&(1, (0, 0))));
+    assert!(rows.contains(&(1, (10, 9))));
+    let limited = JobConfig {
+        memory_budget_bytes: 1_024,
+        ..JobConfig::default()
+    };
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &limited)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+}
+
+#[test]
 fn equal_size_inner_join_keeps_duplicate_windows_and_right_timestamps() {
     let pipeline = Pipeline::default();
     let left = pipeline

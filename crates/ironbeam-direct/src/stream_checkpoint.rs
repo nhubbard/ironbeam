@@ -644,6 +644,50 @@ mod tests {
     }
 
     #[test]
+    fn grouped_recovery_requires_coded_state_and_enforces_the_current_budget() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: temporary.path().into(),
+            binary_build_id: "test-build".into(),
+            ..CheckpointConfig::default()
+        };
+        let checkpoint =
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                .unwrap();
+        checkpoint.save(&signal()).unwrap();
+        assert_eq!(
+            checkpoint.load_state(1024).unwrap_err().kind,
+            ErrorKind::Incompatible
+        );
+
+        checkpoint
+            .save_state(&signal(), b"fold-state", 1024)
+            .unwrap();
+        assert_eq!(
+            checkpoint.load_state(9).unwrap_err().kind,
+            ErrorKind::Resource
+        );
+        assert_eq!(
+            checkpoint.load_state(10).unwrap(),
+            Some((signal(), b"fold-state".to_vec()))
+        );
+
+        let no_recover = StreamCheckpoint::new::<i32>(
+            &CheckpointConfig {
+                recover: false,
+                ..config
+            },
+            "graph",
+            "source",
+            "sink",
+            "events",
+            "sink",
+        )
+        .unwrap();
+        assert!(no_recover.load_state(10).unwrap().is_none());
+    }
+
+    #[test]
     fn stream_checkpoint_crash_child() {
         let Ok(directory) = std::env::var("IRONBEAM_STREAM_CHECKPOINT_CHILD_DIRECTORY") else {
             return;

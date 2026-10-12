@@ -7009,12 +7009,51 @@ mod internal_tests {
 
         let mut direct = OrdinarySession;
         assert!(direct.recover_bundle_finalization("bundle-7").is_err());
+        direct
+            .write(Envelope {
+                value: Box::new(1_i32),
+                timestamp_ns: 0,
+                window: Window::Global,
+                assigned_window: None,
+            })
+            .unwrap();
+        direct.commit().unwrap();
+        direct.abort().unwrap();
         let mut typed = SinkAdapter {
             key: "sink".into(),
             inner: Box::new(RecoveringSink),
         };
         assert!(typed.recover_bundle_finalization("bundle-7").is_ok());
         assert!(typed.recover_bundle_finalization("other").is_err());
+        typed
+            .write(Envelope {
+                value: Box::new(1_i32),
+                timestamp_ns: 0,
+                window: Window::Global,
+                assigned_window: None,
+            })
+            .unwrap();
+        typed.commit().unwrap();
+        typed.abort().unwrap();
+    }
+
+    #[test]
+    fn reusable_operator_default_hints_are_explicit() {
+        struct Identity;
+        impl DynOp for Identity {
+            fn apply(&self, input: Partition) -> Partition {
+                input
+            }
+        }
+        let op: &dyn DynOp = &Identity;
+        assert!(!op.key_preserving());
+        assert!(!op.value_only());
+        assert!(!op.reorder_safe_with_value_only());
+        assert_eq!(op.cost_hint(), 10);
+        assert!(!op.cardinality_reducing());
+        assert_eq!(op.limit_n(), None);
+        assert_eq!(op.cardinality_multiplier_hint(), 1.0);
+        assert_eq!(*op.apply(Box::new(7_i32)).downcast::<i32>().unwrap(), 7);
     }
 
     #[test]
