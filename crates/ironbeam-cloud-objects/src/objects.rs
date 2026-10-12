@@ -276,9 +276,13 @@ impl LocalObjectIO {
     /// Returns a filesystem error if the root cannot be created or resolved.
     pub fn new(root: impl AsRef<Path>) -> CloudResult<Self> {
         fs::create_dir_all(root.as_ref()).map_err(fs_error)?;
-        Ok(Self {
-            root: root.as_ref().canonicalize().map_err(fs_error)?,
-        })
+        let root = root.as_ref().canonicalize().map_err(fs_error)?;
+        let mut current = root.as_path();
+        while let Some(parent) = current.parent() {
+            sync_directory(parent)?;
+            current = parent;
+        }
+        Ok(Self { root })
     }
 
     fn path(&self, bucket: &str, key: &str) -> CloudResult<PathBuf> {
@@ -310,7 +314,39 @@ impl LocalObjectIO {
         let parent = path
             .parent()
             .ok_or_else(|| invalid("object has no parent"))?;
-        fs::create_dir_all(parent).map_err(fs_error)?;
+        let relative = parent
+            .strip_prefix(&self.root)
+            .map_err(|_| invalid("object path escapes storage root"))?;
+        let mut current = self.root.clone();
+        for component in relative.components() {
+            if !matches!(component, Component::Normal(_)) {
+                return Err(invalid("invalid object parent path"));
+            }
+            current.push(component);
+            match fs::symlink_metadata(&current) {
+                Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                    return Err(invalid("object parent must be a real directory"));
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    match fs::create_dir(&current) {
+                        Ok(()) => {}
+                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                            let metadata = fs::symlink_metadata(&current).map_err(fs_error)?;
+                            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                                return Err(invalid("object parent must be a real directory"));
+                            }
+                        }
+                        Err(error) => return Err(fs_error(error)),
+                    }
+                    let ancestor = current
+                        .parent()
+                        .ok_or_else(|| invalid("object parent has no ancestor"))?;
+                    sync_directory(ancestor)?;
+                }
+                Err(error) => return Err(fs_error(error)),
+            }
+        }
         self.checked_existing(parent)?;
         if path.exists() {
             self.checked_existing(path)?;
@@ -350,6 +386,12 @@ fn fs_error(error: std::io::Error) -> CloudIOError {
     CloudIOError::new(kind, error.to_string())
 }
 
+fn sync_directory(path: &Path) -> CloudResult<()> {
+    fs::File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(fs_error)
+}
+
 impl ObjectIO for LocalObjectIO {
     fn put_object(&self, bucket: &str, key: &str, data: &[u8]) -> CloudResult<()> {
         let path = self.path(bucket, key)?;
@@ -367,9 +409,7 @@ impl ObjectIO for LocalObjectIO {
         temp.write_all(data).map_err(fs_error)?;
         temp.as_file().sync_all().map_err(fs_error)?;
         match temp.persist_noclobber(&path) {
-            Ok(_) => fs::File::open(parent)
-                .and_then(|dir| dir.sync_all())
-                .map_err(fs_error),
+            Ok(_) => sync_directory(parent),
             Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Err(
                 CloudIOError::new(ErrorKind::AlreadyExists, "object already exists"),
             ),

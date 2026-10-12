@@ -86,6 +86,23 @@ fn conditional_create_is_atomic_and_never_replaces_existing_bytes() {
 }
 
 #[test]
+fn conditional_create_reopens_nested_root_and_object_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("new").join("nested");
+    let provider = LocalObjectIO::new(&root).unwrap();
+    provider
+        .put_object_if_absent("bucket", "jobs/attempt/result", b"immutable")
+        .unwrap();
+    let reopened = LocalObjectIO::new(&root).unwrap();
+    assert_eq!(
+        reopened
+            .get_object("bucket", "jobs/attempt/result")
+            .unwrap(),
+        b"immutable"
+    );
+}
+
+#[test]
 fn provider_without_conditional_create_fails_closed() {
     struct LegacyProvider;
     impl ObjectIO for LegacyProvider {
@@ -300,6 +317,21 @@ fn local_store_rejects_symlink_escape() {
             .kind,
         ErrorKind::InvalidInput
     );
+    assert_eq!(
+        stores
+            .write("file://bucket/escape/new/object", b"x")
+            .unwrap_err()
+            .kind,
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        stores
+            .create("file://bucket/escape/new/immutable", b"x")
+            .unwrap_err()
+            .kind,
+        ErrorKind::InvalidInput
+    );
     assert!(stores.list("file://bucket/").unwrap().is_empty());
     assert!(!outside.path().join("object").exists());
+    assert!(!outside.path().join("new").exists());
 }
