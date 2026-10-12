@@ -3,13 +3,17 @@
 use crate::multi_output::{self, PairPlan};
 use crate::planner::{self, PhysicalPlan};
 use crate::stream_checkpoint::{StreamCheckpoint, hex_bytes};
-use crate::{DirectRunner, JobConfig, JobHandle, JobStatus, cancelled, validate_config};
+use crate::{
+    DirectRunner, JobConfig, JobHandle, JobStatus, cancelled, open_source_safe, read_source_batch,
+    validate_config,
+};
 use ironbeam_core::{
     Element, Envelope, Error, ErrorKind, FoldSession, Graph, Operation, ProgressSignal, Registry,
-    Replay, Sink, SinkMode, SinkSession, UnboundedPoll,
+    Replay, Sink, SinkMode, SinkSession, UnboundedPoll, Window, WindowInterval,
 };
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -31,8 +35,126 @@ struct GroupedStreamRoute {
     after_group: Vec<String>,
 }
 
+struct BoundedSideStreamRoute {
+    source_key: String,
+    main_stages: Vec<String>,
+    main_input_key: String,
+    side_source_key: String,
+    side_stages: Vec<String>,
+    aggregate_key: String,
+    after_aggregate: Vec<String>,
+}
+
 type WindowFolds = BTreeMap<(i64, i64), (Box<dyn FoldSession>, usize)>;
+type WindowRows = BTreeMap<(i64, i64), Vec<Envelope>>;
 const GROUPED_STATE_MAGIC: &[u8; 5] = b"IBGS1";
+
+#[derive(Serialize, Deserialize)]
+struct CodedWindowRows {
+    version: u8,
+    windows: Vec<CodedWindow>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CodedWindow {
+    start_ns: i64,
+    end_ns: i64,
+    events: Vec<CodedEvent>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CodedEvent {
+    value: Vec<u8>,
+    timestamp_ns: i64,
+    window: Window,
+    assigned_window: Option<WindowInterval>,
+}
+
+fn encode_window_rows(
+    registry: &Registry,
+    input_key: &str,
+    rows: &WindowRows,
+    max_bytes: usize,
+) -> Result<Vec<u8>, Error> {
+    let mut windows = Vec::with_capacity(rows.len());
+    for (&(start_ns, end_ns), events) in rows {
+        let mut coded = Vec::with_capacity(events.len());
+        for event in events {
+            coded.push(CodedEvent {
+                value: registry.encode_element(input_key, event.value.as_ref())?,
+                timestamp_ns: event.timestamp_ns,
+                window: event.window.clone(),
+                assigned_window: event.assigned_window,
+            });
+        }
+        windows.push(CodedWindow {
+            start_ns,
+            end_ns,
+            events: coded,
+        });
+    }
+    let bytes = serde_json::to_vec(&CodedWindowRows {
+        version: 1,
+        windows,
+    })
+    .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+    if bytes.len() > max_bytes {
+        return Err(Error::resource(
+            "checkpoint",
+            "stream window state exceeds memory budget",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn restore_window_rows(
+    registry: &Registry,
+    input_key: &str,
+    bytes: &[u8],
+    budget_elements: usize,
+) -> Result<(WindowRows, usize), Error> {
+    let coded: CodedWindowRows = serde_json::from_slice(bytes)
+        .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+    if coded.version != 1 {
+        return Err(Error::incompatible("stream window state version mismatch"));
+    }
+    let mut rows = BTreeMap::new();
+    let mut buffered = 0_usize;
+    for window in coded.windows {
+        let interval = (window.start_ns, window.end_ns);
+        if interval.1 <= interval.0
+            || window.events.is_empty()
+            || window.events.len() > budget_elements.saturating_sub(buffered)
+            || rows.contains_key(&interval)
+        {
+            return Err(Error::recovery(
+                "checkpoint",
+                "invalid or duplicate stream window state",
+            ));
+        }
+        let mut events = Vec::with_capacity(window.events.len());
+        for event in window.events {
+            if event.assigned_window
+                != Some(WindowInterval {
+                    start_ns: interval.0,
+                    end_ns: interval.1,
+                })
+                || event.window.assign(event.timestamp_ns)? != event.assigned_window
+            {
+                return Err(Error::recovery("checkpoint", "invalid stream event window"));
+            }
+            events.push(Envelope {
+                value: registry.decode_element(input_key, &event.value)?,
+                timestamp_ns: event.timestamp_ns,
+                window: event.window,
+                assigned_window: event.assigned_window,
+            });
+        }
+        buffered += events.len();
+        rows.insert(interval, events);
+    }
+    Ok((rows, buffered))
+}
 
 fn encode_grouped_folds(
     folds: &WindowFolds,
@@ -217,6 +339,86 @@ fn grouped_stream_route(
     }
 }
 
+fn linear_stream_input(graph: &Graph, input_key: &str) -> Option<(String, Vec<String>)> {
+    let mut key = input_key;
+    let mut stages = Vec::new();
+    loop {
+        let node = graph.node(key)?;
+        if !node.additional_inputs.is_empty() {
+            return None;
+        }
+        match node.operation {
+            Operation::Source { .. } => {
+                stages.reverse();
+                return Some((key.to_owned(), stages));
+            }
+            Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::FixedWindow => stages.push(key.to_owned()),
+            _ => return None,
+        }
+        key = node.input.as_deref()?;
+    }
+}
+
+fn bounded_side_stream_route(graph: &Graph, sink_key: &str) -> Option<BoundedSideStreamRoute> {
+    let mut key = sink_key;
+    let mut downstream = Vec::new();
+    loop {
+        let node = graph.node(key)?;
+        if matches!(node.operation, Operation::CoGroupByKey)
+            || matches!(
+                node.operation,
+                Operation::JoinInner
+                    | Operation::JoinLeft
+                    | Operation::JoinRight
+                    | Operation::JoinFull
+            )
+        {
+            let [side] = node.additional_inputs.as_slice() else {
+                return None;
+            };
+            let main_input_key = node.input.as_deref()?;
+            let (source_key, main_stages) = linear_stream_input(graph, main_input_key)?;
+            let (side_source_key, side_stages) = linear_stream_input(graph, &side.key)?;
+            if graph.node(&source_key)?.boundedness != ironbeam_core::Boundedness::Unbounded
+                || graph.node(&side_source_key)?.boundedness != ironbeam_core::Boundedness::Bounded
+                || !matches!(
+                    node.time.window,
+                    ironbeam_core::Window::Fixed { .. } | ironbeam_core::Window::FixedOffset { .. }
+                )
+            {
+                return None;
+            }
+            downstream.reverse();
+            return Some(BoundedSideStreamRoute {
+                source_key,
+                main_stages,
+                main_input_key: main_input_key.to_owned(),
+                side_source_key,
+                side_stages,
+                aggregate_key: key.to_owned(),
+                after_aggregate: downstream,
+            });
+        }
+        if !node.additional_inputs.is_empty() {
+            return None;
+        }
+        match node.operation {
+            Operation::Sink { .. } | Operation::Output => {}
+            Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::FixedWindow => downstream.push(key.to_owned()),
+            _ => return None,
+        }
+        key = node.input.as_deref()?;
+    }
+}
+
 impl StreamJob {
     #[must_use]
     pub const fn handle(&self) -> &JobHandle {
@@ -255,9 +457,10 @@ impl Drop for StreamJob {
 }
 
 impl DirectRunner {
-    /// Start one unbounded source feeding a linear route or one fixed-window
-    /// GroupByKey route and an idempotent append sink. Grouped routes close on
-    /// source watermarks or completion and checkpoint coded window fold state.
+    /// Start one unbounded source feeding a linear route, one fixed-window
+    /// GroupByKey route, or a fixed-window co-group/join with one bounded side.
+    /// Stateful routes close on source watermarks or completion; GroupByKey
+    /// checkpoints coded open-window state.
     /// Validation and checkpoint recovery finish before opening endpoints.
     #[allow(clippy::too_many_lines)] // Worker setup validates recovery before opening endpoints.
     pub fn start_stream_sink<T: Element>(
@@ -293,11 +496,26 @@ impl DirectRunner {
         } else {
             None
         };
-        if plan.materialized && grouped.is_none() {
+        let bounded_side = if plan.materialized && grouped.is_none() {
+            bounded_side_stream_route(&graph, &sink_key)
+        } else {
+            None
+        };
+        if plan.materialized && grouped.is_none() && bounded_side.is_none() {
             return Err(Error::unsupported(
                 &sink_key,
                 "direct",
                 "stateful-stream-route",
+            ));
+        }
+        if let Some(side) = &bounded_side
+            && config.checkpoint.is_some()
+            && !registry.has_coder(&side.main_input_key)
+        {
+            return Err(Error::unsupported(
+                &side.main_input_key,
+                "direct",
+                "stream-window-state-coder",
             ));
         }
         if let Some(grouped) = &grouped
@@ -311,6 +529,8 @@ impl DirectRunner {
         }
         let source_key = if let Some(grouped) = &grouped {
             grouped.source_key.as_str()
+        } else if let Some(side) = &bounded_side {
+            side.source_key.as_str()
         } else {
             let [route] = plan.routes.as_slice() else {
                 return Err(Error::unsupported(
@@ -341,7 +561,7 @@ impl DirectRunner {
                 "resumable-stream-source",
             ));
         }
-        if grouped.is_some() && !source_progress.reports_event_time {
+        if (grouped.is_some() || bounded_side.is_some()) && !source_progress.reports_event_time {
             return Err(Error::unsupported(source_key, "direct", "stream-watermark"));
         }
         if let Some(grouped) = &grouped
@@ -390,12 +610,32 @@ impl DirectRunner {
             .checkpoint
             .as_ref()
             .map(|checkpoint| {
+                let main_source_digest =
+                    registry.source_config_digest(source_key).ok_or_else(|| {
+                        Error::unsupported(source_key, "direct", "source-config-digest")
+                    })?;
+                let source_digest = if let Some(side) = &bounded_side {
+                    let side_digest = registry
+                        .source_config_digest(&side.side_source_key)
+                        .ok_or_else(|| {
+                            Error::unsupported(
+                                &side.side_source_key,
+                                "direct",
+                                "source-config-digest",
+                            )
+                        })?;
+                    format!(
+                        "{}:{main_source_digest}{}:{side_digest}",
+                        main_source_digest.len(),
+                        side_digest.len()
+                    )
+                } else {
+                    main_source_digest.to_owned()
+                };
                 StreamCheckpoint::new::<T>(
                     checkpoint,
                     &plan.summary.graph_fingerprint,
-                    registry.source_config_digest(source_key).ok_or_else(|| {
-                        Error::unsupported(source_key, "direct", "source-config-digest")
-                    })?,
+                    &source_digest,
                     registry.sink_config_digest(&sink_key).ok_or_else(|| {
                         Error::unsupported(&sink_key, "direct", "sink-config-digest")
                     })?,
@@ -437,6 +677,32 @@ impl DirectRunner {
                 BTreeMap::new(),
                 0,
             )
+        };
+        let (recovered, side_windows, side_buffered) = if let Some(side) = &bounded_side {
+            let saved = checkpoint
+                .as_ref()
+                .map(|checkpoint| checkpoint.load_state(config.memory_budget_bytes))
+                .transpose()?
+                .flatten();
+            if let Some((progress, state)) = saved {
+                let (windows, buffered) = restore_window_rows(
+                    &registry,
+                    &side.main_input_key,
+                    &state,
+                    config.buffer_budget_elements,
+                )?;
+                if progress.completed && !windows.is_empty() {
+                    return Err(Error::recovery(
+                        "checkpoint",
+                        "completed stream retains open windows",
+                    ));
+                }
+                (Some(progress), windows, buffered)
+            } else {
+                (None, BTreeMap::new(), 0)
+            }
+        } else {
+            (recovered, BTreeMap::new(), 0)
         };
         #[allow(unused_mut)] // Metrics feature installs a collector before the worker starts.
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
@@ -482,6 +748,20 @@ impl DirectRunner {
                             recovered.clone(),
                             grouped_folds,
                             grouped_buffered,
+                        )
+                    } else if let Some(side) = &bounded_side {
+                        run_bounded_side_stream(
+                            &registry,
+                            side,
+                            &plan.summary.graph_fingerprint,
+                            &sink_key,
+                            &worker_config,
+                            &worker_handle,
+                            &worker_progress,
+                            checkpoint.as_ref(),
+                            recovered.clone(),
+                            side_windows,
+                            side_buffered,
                         )
                     } else {
                         run_stream(
@@ -777,6 +1057,241 @@ fn apply_grouped_stages(
         events = next;
     }
     Ok(events)
+}
+
+fn stream_window(event: &Envelope, key: &str) -> Result<(i64, i64), Error> {
+    let interval = event.assigned_window.ok_or_else(|| {
+        Error::execution(key, "direct", "stateful stream input needs a fixed window")
+    })?;
+    Ok((interval.start_ns, interval.end_ns))
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn run_bounded_side_stream(
+    registry: &Registry,
+    route: &BoundedSideStreamRoute,
+    graph_fingerprint: &str,
+    sink_key: &str,
+    config: &JobConfig,
+    handle: &JobHandle,
+    shared_progress: &Arc<Mutex<Option<ProgressSignal>>>,
+    checkpoint: Option<&StreamCheckpoint>,
+    mut progress: Option<ProgressSignal>,
+    mut main_windows: WindowRows,
+    mut buffered: usize,
+) -> Result<(), Error> {
+    let mut side_source = open_source_safe(registry, &route.side_source_key)?;
+    let mut side_windows: WindowRows = BTreeMap::new();
+    loop {
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        let batch = read_source_batch(
+            &mut side_source,
+            config.buffer_budget_elements,
+            &route.side_source_key,
+        )?;
+        if batch.is_empty() {
+            break;
+        }
+        let count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+        handle
+            .metrics
+            .source_elements
+            .fetch_add(count, Ordering::Relaxed);
+        handle
+            .metrics
+            .peak_batch_elements
+            .fetch_max(count, Ordering::Relaxed);
+        handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+        for input in batch {
+            for event in apply_grouped_stages(registry, &route.side_stages, input, config, handle)?
+            {
+                let window = stream_window(&event, &route.aggregate_key)?;
+                if progress
+                    .as_ref()
+                    .and_then(|saved| saved.event_time_ns)
+                    .is_some_and(|watermark| window.1 <= watermark)
+                {
+                    continue;
+                }
+                if buffered >= config.buffer_budget_elements {
+                    return Err(Error::resource(
+                        &route.aggregate_key,
+                        "stateful stream input exceeds buffer budget",
+                    ));
+                }
+                side_windows.entry(window).or_default().push(event);
+                buffered += 1;
+            }
+        }
+    }
+    let mut source = catch_unwind(AssertUnwindSafe(|| {
+        registry.open_unbounded_source(&route.source_key, progress.clone())
+    }))
+    .unwrap_or_else(|_| {
+        Err(Error::execution(
+            &route.source_key,
+            "direct",
+            "source factory panicked",
+        ))
+    })?;
+    loop {
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        let polled = catch_unwind(AssertUnwindSafe(|| {
+            source.poll(config.buffer_budget_elements)
+        }))
+        .unwrap_or_else(|_| {
+            Err(Error::execution(
+                &route.source_key,
+                "direct",
+                "source poll panicked",
+            ))
+        })?;
+        let UnboundedPoll::Ready(batch) = polled else {
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        };
+        if !batch.elements.is_empty()
+            && progress.as_ref().is_some_and(|previous| {
+                previous.checkpoint_position == batch.progress.checkpoint_position
+            })
+        {
+            return Err(Error::execution(
+                &route.source_key,
+                "source",
+                "data batch did not advance its cursor",
+            ));
+        }
+        let count = u64::try_from(batch.elements.len()).unwrap_or(u64::MAX);
+        handle
+            .metrics
+            .source_elements
+            .fetch_add(count, Ordering::Relaxed);
+        handle
+            .metrics
+            .peak_batch_elements
+            .fetch_max(count, Ordering::Relaxed);
+        handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+        for input in batch.elements {
+            for event in apply_grouped_stages(registry, &route.main_stages, input, config, handle)?
+            {
+                let window = stream_window(&event, &route.aggregate_key)?;
+                if progress
+                    .as_ref()
+                    .and_then(|previous| previous.event_time_ns)
+                    .is_some_and(|watermark| window.1 <= watermark)
+                {
+                    return Err(Error::execution(
+                        &route.aggregate_key,
+                        "direct",
+                        "stateful stream received a late window element",
+                    ));
+                }
+                if buffered >= config.buffer_budget_elements {
+                    return Err(Error::resource(
+                        &route.aggregate_key,
+                        "stateful stream input exceeds buffer budget",
+                    ));
+                }
+                main_windows.entry(window).or_default().push(event);
+                buffered += 1;
+            }
+        }
+        let next_progress = merge_progress(progress.as_ref(), batch.progress);
+        let closing = main_windows
+            .keys()
+            .chain(side_windows.keys())
+            .copied()
+            .filter(|(_, end)| {
+                next_progress.completed
+                    || next_progress
+                        .event_time_ns
+                        .is_some_and(|watermark| *end <= watermark)
+            })
+            .collect::<BTreeSet<_>>();
+        let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &next_progress);
+        let mut session = None;
+        let mut written = 0_u64;
+        let result = (|| {
+            for window in closing {
+                let main = main_windows.remove(&window).unwrap_or_default();
+                let side = side_windows.remove(&window).unwrap_or_default();
+                buffered -= main.len() + side.len();
+                let grouped = catch_unwind(AssertUnwindSafe(|| {
+                    registry.apply_aggregate(&route.aggregate_key, vec![main, side])
+                }))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        &route.aggregate_key,
+                        "direct",
+                        "user aggregate panicked",
+                    ))
+                })?;
+                for event in grouped {
+                    for output in apply_grouped_stages(
+                        registry,
+                        &route.after_aggregate,
+                        event,
+                        config,
+                        handle,
+                    )? {
+                        if session.is_none() {
+                            session = Some(begin_sink_bundle(registry, sink_key, &instruction_id)?);
+                        }
+                        catch_unwind(AssertUnwindSafe(|| {
+                            session.as_mut().expect("opened sink").write(output)
+                        }))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(sink_key, "direct", "sink writer panicked"))
+                        })?;
+                        written = written.saturating_add(1);
+                    }
+                }
+            }
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            if let Some(session) = &mut session {
+                catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(|_| {
+                    Err(Error::execution(sink_key, "direct", "sink commit panicked"))
+                })?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if let Some(session) = &mut session {
+                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+            }
+            return Err(error);
+        }
+        if let Some(checkpoint) = checkpoint
+            && (next_progress.checkpoint_position.is_some() || next_progress.completed)
+        {
+            let state = encode_window_rows(
+                registry,
+                &route.main_input_key,
+                &main_windows,
+                config.memory_budget_bytes,
+            )?;
+            checkpoint.save_state(&next_progress, &state, config.memory_budget_bytes)?;
+        }
+        let total = handle
+            .metrics
+            .output_elements
+            .fetch_add(written, Ordering::Relaxed)
+            .saturating_add(written);
+        handle.processed.store(total, Ordering::Relaxed);
+        *shared_progress
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(next_progress.clone());
+        if next_progress.completed {
+            return Ok(());
+        }
+        progress = Some(next_progress);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

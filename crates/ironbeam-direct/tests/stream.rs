@@ -296,6 +296,266 @@ fn grouped_stream_closes_fixed_windows_on_watermarks() {
 }
 
 #[test]
+fn unbounded_main_uses_bounded_side_by_fixed_window() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pause_after_first = Arc::new(AtomicBool::new(true));
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "main",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "windowed-side-main-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                let pause_after_first = Arc::clone(&pause_after_first);
+                move |position| {
+                    opens.lock().unwrap().push(position.clone());
+                    let ready = |cursor, watermark, completed, values: Vec<(i32, i64)>| {
+                        UnboundedPoll::Ready(UnboundedBatch {
+                            elements: values
+                                .into_iter()
+                                .map(|(value, timestamp_ns)| Timestamped {
+                                    value,
+                                    timestamp_ns,
+                                })
+                                .collect(),
+                            progress: ProgressSignal {
+                                source_key: "main".into(),
+                                split_id: "split-0".into(),
+                                checkpoint_position: Some(vec![cursor]),
+                                event_time_ns: Some(watermark),
+                                completed,
+                            },
+                        })
+                    };
+                    let first = ready(1, 0, false, vec![(1, 1_000_000)]);
+                    let later = vec![
+                        ready(2, 2_000_000, false, vec![]),
+                        ready(3, 2_000_000, false, vec![(2, 3_000_000)]),
+                        ready(4, 4_000_000, false, vec![]),
+                        ready(5, 4_000_000, false, vec![(3, 5_000_000)]),
+                        ready(6, 6_000_000, true, vec![]),
+                    ];
+                    let polls = match position.as_deref() {
+                        None if pause_after_first.load(Ordering::SeqCst) => vec![first],
+                        None => std::iter::once(first).chain(later).collect(),
+                        Some([1]) => later,
+                        _ => return Err(Error::incompatible("unexpected side-view resume cursor")),
+                    };
+                    Ok(Box::new(Script {
+                        polls: polls.into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                }
+            },
+        )
+        .unwrap()
+        .fixed_windows("main-window", 2_000_000)
+        .unwrap();
+    let side = pipeline
+        .from_vec("side", vec![(0_i64, 10_i32), (2_000_000, 20)])
+        .unwrap()
+        .timestamps_from_pairs_named("side-time")
+        .unwrap()
+        .fixed_windows("side-window", 2_000_000)
+        .unwrap();
+    let sink = main
+        .map_with_windowed_side_named("side-add", &side, |value, values| {
+            value + values.iter().sum::<i32>()
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "windowed-side-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let job = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job.progress().and_then(|signal| signal.checkpoint_position) != Some(vec![1]) {
+        assert!(
+            Instant::now() < deadline,
+            "open side-view window was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(committed.lock().unwrap().is_empty());
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    pause_after_first.store(false, Ordering::SeqCst);
+    DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+    assert_eq!(*committed.lock().unwrap(), [11, 22, 3]);
+    DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(opens.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn unbounded_full_join_emits_bounded_side_only_and_main_only_rows() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pause_after_first = Arc::new(AtomicBool::new(true));
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "main",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "join-main-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                let pause_after_first = Arc::clone(&pause_after_first);
+                move |position| {
+                    opens.lock().unwrap().push(position.clone());
+                    let first = UnboundedPoll::Ready(UnboundedBatch {
+                        elements: vec![Timestamped {
+                            value: 10,
+                            timestamp_ns: 1,
+                        }],
+                        progress: ProgressSignal {
+                            source_key: "main".into(),
+                            split_id: "split-0".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(10),
+                            completed: false,
+                        },
+                    });
+                    let last = UnboundedPoll::Ready(UnboundedBatch {
+                        elements: vec![Timestamped {
+                            value: 40,
+                            timestamp_ns: 11,
+                        }],
+                        progress: ProgressSignal {
+                            source_key: "main".into(),
+                            split_id: "split-0".into(),
+                            checkpoint_position: Some(vec![2]),
+                            event_time_ns: Some(20),
+                            completed: true,
+                        },
+                    });
+                    let polls = match position.as_deref() {
+                        None if pause_after_first.load(Ordering::SeqCst) => vec![first],
+                        None => vec![first, last],
+                        Some([1]) => vec![last],
+                        _ => return Err(Error::incompatible("unexpected join resume cursor")),
+                    };
+                    Ok(Box::new(Script {
+                        polls: polls.into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                }
+            },
+        )
+        .unwrap()
+        .fixed_windows("main-window", 10)
+        .unwrap()
+        .map_named("main-key", |value| (if value == 10 { 1 } else { 3 }, value))
+        .unwrap();
+    let side = pipeline
+        .from_vec("side", vec![(0_i64, (1_i32, 20_i32)), (0, (2, 30))])
+        .unwrap()
+        .timestamps_from_pairs_named("side-time")
+        .unwrap()
+        .fixed_windows("side-window", 10)
+        .unwrap();
+    let sink = main
+        .join_full_named("join", &side)
+        .unwrap()
+        .map_named("sum", |(key, (left, right))| {
+            key * 100 + left.unwrap_or(0) + right.unwrap_or(0)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "join-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let job = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job.progress().and_then(|signal| signal.checkpoint_position) != Some(vec![1]) {
+        assert!(
+            Instant::now() < deadline,
+            "join window was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(committed.lock().unwrap().len(), 2);
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    pause_after_first.store(false, Ordering::SeqCst);
+    DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort_unstable();
+    assert_eq!(rows, [130, 230, 340]);
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+}
+
+#[test]
 fn grouped_stream_recovers_open_window_with_source_cursor() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
