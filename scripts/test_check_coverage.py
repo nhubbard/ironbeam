@@ -4,18 +4,18 @@ from tempfile import TemporaryDirectory
 
 from check_coverage import (
     area_for,
-    coverage_for_source,
+    coverage_by_area,
     meets_baseline,
     source_location_coverage,
 )
 
 
 class CoverageGateTests(unittest.TestCase):
-    def test_facade_areas_are_distinct(self):
-        self.assertEqual(area_for("ironbeam", Path("runner.rs")), "direct-runner")
-        self.assertEqual(area_for("ironbeam", Path("io/jsonl.rs")), "io")
-        self.assertEqual(area_for("ironbeam", Path("collection.rs")), "core-and-transforms")
-        self.assertEqual(area_for("ironbeam", Path("testing/assertions.rs")), "testing")
+    def test_implementation_packages_have_distinct_areas(self):
+        self.assertEqual(area_for("ironbeam-core", Path("lib.rs")), "logical-graph")
+        self.assertEqual(area_for("ironbeam-direct", Path("lib.rs")), "direct-runner")
+        self.assertEqual(area_for("ironbeam-io-jsonl", Path("lib.rs")), "bounded-io")
+        self.assertEqual(area_for("ironbeam-testing", Path("lib.rs")), "testing")
         self.assertEqual(
             area_for("ironbeam-runner-contract-tests", Path("lib.rs")), "integration-contract"
         )
@@ -51,7 +51,10 @@ class CoverageGateTests(unittest.TestCase):
                     }
                 ]
             }
-            self.assertEqual(coverage_for_source(report, source), {"lines": (3, 4), "branches": (1, 2)})
+            self.assertEqual(
+                coverage_by_area(report, source, "ironbeam-core"),
+                {"logical-graph": {"lines": (3, 4), "branches": (1, 2)}},
+            )
 
     def test_unreached_branch_sites_count_as_uncovered(self):
         with TemporaryDirectory() as directory:

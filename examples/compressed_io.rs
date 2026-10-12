@@ -39,7 +39,7 @@ impl CompressionCodec for CustomCodec {
         None
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IOResult<Box<dyn Read>> {
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read + Send>) -> IOResult<Box<dyn Read + Send>> {
         println!("🔧 Custom codec: wrapping reader");
         Ok(reader)
     }

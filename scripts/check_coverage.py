@@ -8,20 +8,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINES = ROOT / "coverage-baselines.json"
-IO_HELPERS = {
-    "arrow_ipc.rs", "avro.rs", "cbor.rs", "cloud.rs", "csv.rs",
-    "jsonl.rs", "mongodb.rs", "msgpack.rs", "parquet.rs",
-    "protobuf.rs", "sql.rs", "tfrecord.rs", "xml.rs",
-}
-DIRECT_FILES = {
-    "checkpoint.rs", "metrics.rs", "planner.rs", "runner.rs",
-    "spill.rs", "spill_integration.rs",
-}
-DIRECT_HELPERS = {"collect_sorted.rs", "reshuffle.rs", "tee.rs", "wait_on.rs"}
 V5_PACKAGES = {"ironbeam-compression", "ironbeam-coder-postcard", "ironbeam-cloud-objects", "ironbeam-cloud-service-api", "ironbeam-cloud-ops", "ironbeam-core", "ironbeam-direct", "ironbeam-metrics", "ironbeam-testing", "ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-transform-approx", "ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
 
 
-def area_for(package: str, relative: Path) -> str:
+def area_for(package: str, _relative: Path) -> str:
     if package == "ironbeam-compression":
         return "compression"
     if package == "ironbeam-coder-postcard":
@@ -48,14 +38,7 @@ def area_for(package: str, relative: Path) -> str:
         return "compatibility"
     if package == "ironbeam-runner-contract-tests":
         return "integration-contract"
-    parts = relative.parts
-    if parts[0] == "testing" or parts[0] == "testing.rs":
-        return "testing"
-    if parts[0] == "io" or (parts[0] == "helpers" and parts[-1] in IO_HELPERS):
-        return "io"
-    if parts[-1] in DIRECT_FILES or (parts[0] == "helpers" and parts[-1] in DIRECT_HELPERS):
-        return "direct-runner"
-    return "core-and-transforms"
+    raise ValueError(f"no coverage area for package {package}")
 
 
 def coverage_by_area(
@@ -77,14 +60,6 @@ def coverage_by_area(
     return {
         area: {kind: tuple(values) for kind, values in totals.items()}
         for area, totals in areas.items()
-    }
-
-
-def coverage_for_source(report: dict, source: Path) -> dict[str, tuple[int, int]]:
-    areas = coverage_by_area(report, source, "ironbeam")
-    return {
-        kind: tuple(sum(area[kind][index] for area in areas.values()) for index in (0, 1))
-        for kind in ("lines", "branches")
     }
 
 

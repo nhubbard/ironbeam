@@ -206,7 +206,7 @@ jobs:
           cargo test -p ironbeam-compat --features v4-sql,v4-parallel-io --test v4_io_sql
 
   test:
-    name: Facade Tests with Coverage
+    name: Facade Tests
     runs-on: ubuntu-latest
     environment: main
     concurrency:
@@ -223,12 +223,6 @@ jobs:
         run: |
           rustup toolchain install nightly --component llvm-tools-preview --no-self-update
           rustup default nightly
-
-      - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov
-
-      - name: Install rustfilt
-        run: cargo install rustfilt
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -248,27 +242,12 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      # Docker-backed MongoDB and SQL tests run in the separate service tier.
-      # Package selection keeps workspace feature unification from hiding a
-      # missing dependency in either package.
-      - name: Generate portable facade coverage
+      # The facade contains reexports rather than instrumented implementation
+      # code. The v5-coverage matrix measures the implementation crates.
+      - name: Test portable facade and coverage gate script
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
-          cargo llvm-cov -p ironbeam --all-features --branch --json --summary-only \
-            --output-path coverage-ironbeam.json -- \
-            --skip io::mongodb --skip io::sql_containers
-          python3 scripts/check_coverage.py ironbeam coverage-ironbeam.json | tee -a "$GITHUB_STEP_SUMMARY"
-          cargo llvm-cov report --branch --lcov --output-path lcov.info
-
-      - name: Demangle coverage output
-        run: rustfilt -i lcov.info -o lcov-demangled.info
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
-        with:
-          files: lcov-demangled.info
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          cargo test -p ironbeam --all-features
 
   contract-tests:
     name: Runner Contract Test Package
@@ -332,6 +311,14 @@ jobs:
               --branch --json --output-path coverage-v5.json
           fi
           python3 scripts/check_coverage.py "${{ matrix.package }}" coverage-v5.json | tee -a "$GITHUB_STEP_SUMMARY"
+          cargo llvm-cov report -p "${{ matrix.package }}" --branch --lcov --output-path "lcov-${{ matrix.package }}.info"
+      - name: Upload implementation coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
+        with:
+          files: lcov-${{ matrix.package }}.info
+          flags: ${{ matrix.package }}
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   service-tests:
     name: Docker Service Tests (manual)
