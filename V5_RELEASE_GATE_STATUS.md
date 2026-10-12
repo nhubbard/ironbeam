@@ -56,9 +56,9 @@ below is complete.
 
 | Check | Result |
 | --- | --- |
-| Root workspace | Tests and doctests passed after the eager JSONL and shared file-source changes. |
+| Root workspace | Tests and doctests passed with the current Direct inner-join implementation. |
 | Root API composition | A new facade test builds two keyed sums, joins them, and collects the exact result through `ironbeam::v5::prelude` without the compatibility crate. It passes with default and no default features; strict lint passes. This exercises one public composition path, not the complete API ledger. |
-| Local release script | On 2026-10-11, dependency and feature checks, workspace and feature tests, docs, and verification of the 28 listed crates passed with Mr Boxington. The previously omitted root `ironbeam` package also passed local package verification with all workspace dependencies patched locally; the script now includes it as its 29th package. Nothing was published. |
+| Local release script | On 2026-10-11, the complete script passed with Mr Boxington after the Direct join changes: dependency and feature checks, workspace and feature tests, docs, and local package verification for all 29 packages including the root facade. Nothing was published. |
 | Cloud operation coverage | **186/261 source locations** and **34/42 branches** after bounding parallel helper concurrency; both CI ratchets pass. Uncovered utility paths remain in the quality review. |
 | JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** at the last coverage run. The latest eager reader change has passing default/all-feature tests and strict lint; coverage has not been rerun. |
 | Local Prism | All 20 live tests pass, including the supervised worker-loss failure case. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. The provider-neutral harness coordinator requires `DONE`, validates the graph's ten final sinks against the whole-job journal and committed row metrics, then supplies exact attempt IDs and counts to all ten publishers. A separate job failed after staging and left no fragment, journal completion, or published output. |
