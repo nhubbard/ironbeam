@@ -947,6 +947,96 @@ fn two_unbounded_join_drops_late_rows_after_both_watermarks_close_window() {
 }
 
 #[test]
+fn stateful_two_source_fanout_fails_preflight_before_opening_endpoints() {
+    let pipeline = Pipeline::default();
+    let source_opens = Arc::new(AtomicUsize::new(0));
+    let sink_opens = Arc::new(AtomicUsize::new(0));
+    let source = |key: &str| {
+        let opens = Arc::clone(&source_opens);
+        pipeline
+            .unbounded_source_with_factory(
+                key,
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                format!("{key}-fanout-v1"),
+                0,
+                move |_| -> Result<TypedUnboundedSourceReader<i32>, Error> {
+                    opens.fetch_add(1, Ordering::SeqCst);
+                    Err(Error::incompatible("unexpected source open"))
+                },
+            )
+            .unwrap()
+            .fixed_windows(&format!("{key}-window"), 10)
+            .unwrap()
+            .map_named(&format!("{key}-key"), |value| (1_i32, value))
+            .unwrap()
+    };
+    let main = source("fanout-main");
+    let side = source("fanout-side");
+    let inner = main
+        .join_inner_named("fanout-inner", &side)
+        .unwrap()
+        .map_named("inner-value", |(key, (left, right))| key + left + right)
+        .unwrap();
+    let left = main
+        .join_left_named("fanout-left", &side)
+        .unwrap()
+        .map_named("left-value", |(key, (left, right))| {
+            key + left + right.unwrap_or_default()
+        })
+        .unwrap();
+    let right = main
+        .join_right_named("fanout-right", &side)
+        .unwrap()
+        .map_named("right-value", |(key, (left, right))| {
+            key + left.unwrap_or_default() + right
+        })
+        .unwrap();
+    let full = main
+        .join_full_named("fanout-full", &side)
+        .unwrap()
+        .map_named("full-value", |(key, (left, right))| {
+            key + left.unwrap_or_default() + right.unwrap_or_default()
+        })
+        .unwrap();
+    let observed_sink_opens = Arc::clone(&sink_opens);
+    let sink = inner
+        .flatten_named("fanout-merge", &[left, right, full])
+        .unwrap()
+        .sink_named_with_config(
+            "fanout-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "fanout-sink-v1".into(),
+            move || {
+                observed_sink_opens.fetch_add(1, Ordering::SeqCst);
+                Err(Error::incompatible("unexpected sink open"))
+            },
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "stateful-stream-route".into(),
+        }
+    );
+    assert_eq!(error.node.as_deref(), Some("fanout-sink"));
+    assert!(error.message.contains("stateful-stream-route"));
+    assert_eq!(source_opens.load(Ordering::SeqCst), 0);
+    assert_eq!(sink_opens.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn dual_stream_reopens_cursorless_watermark_after_checkpoint() {
     let temporary = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
