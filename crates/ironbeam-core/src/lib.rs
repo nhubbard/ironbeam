@@ -1996,6 +1996,127 @@ struct TypedUnboundedAdapter<T> {
     inner: TypedUnboundedSourceReader<T>,
 }
 
+struct DirectTestStream<T> {
+    key: String,
+    events: Arc<Vec<EncodedTestStreamEvent>>,
+    index: usize,
+    offset: usize,
+    watermark: Option<i64>,
+    finished: bool,
+    marker: PhantomData<T>,
+}
+
+impl<T: Element> DirectTestStream<T> {
+    fn open(
+        key: String,
+        events: Arc<Vec<EncodedTestStreamEvent>>,
+        position: Option<Vec<u8>>,
+    ) -> Result<Self, Error> {
+        let (index, offset) = if let Some(position) = position {
+            let bytes: [u8; 16] = position
+                .try_into()
+                .map_err(|_| Error::recovery(&key, "invalid test stream cursor"))?;
+            let index = usize::try_from(u64::from_le_bytes(bytes[..8].try_into().unwrap()))
+                .map_err(|_| Error::recovery(&key, "invalid test stream event position"))?;
+            let offset = usize::try_from(u64::from_le_bytes(bytes[8..].try_into().unwrap()))
+                .map_err(|_| Error::recovery(&key, "invalid test stream element position"))?;
+            (index, offset)
+        } else {
+            (0, 0)
+        };
+        if index > events.len()
+            || (index == events.len() && offset != 0)
+            || (index < events.len()
+                && match &events[index] {
+                    EncodedTestStreamEvent::Elements(values) => offset > values.len(),
+                    _ => offset != 0,
+                })
+        {
+            return Err(Error::recovery(&key, "test stream cursor is out of range"));
+        }
+        let watermark = events[..index]
+            .iter()
+            .filter_map(|event| {
+                if let EncodedTestStreamEvent::AdvanceWatermark(value) = event {
+                    Some(*value)
+                } else {
+                    None
+                }
+            })
+            .next_back();
+        Ok(Self {
+            key,
+            events,
+            index,
+            offset,
+            watermark,
+            finished: false,
+            marker: PhantomData,
+        })
+    }
+
+    fn progress(&self, completed: bool) -> ProgressSignal {
+        let mut position = Vec::with_capacity(16);
+        position.extend_from_slice(&u64::try_from(self.index).unwrap_or(u64::MAX).to_le_bytes());
+        position.extend_from_slice(&u64::try_from(self.offset).unwrap_or(u64::MAX).to_le_bytes());
+        ProgressSignal {
+            source_key: self.key.clone(),
+            split_id: "test-stream".into(),
+            checkpoint_position: Some(position),
+            event_time_ns: self.watermark,
+            completed,
+        }
+    }
+}
+
+impl<T: Element> UnboundedSource<Timestamped<T>> for DirectTestStream<T> {
+    fn poll(&mut self, max_elements: usize) -> Result<UnboundedPoll<Timestamped<T>>, Error> {
+        if self.finished {
+            return Ok(UnboundedPoll::Pending);
+        }
+        let Some(event) = self.events.get(self.index) else {
+            self.finished = true;
+            return Ok(UnboundedPoll::Ready(UnboundedBatch {
+                elements: Vec::new(),
+                progress: self.progress(true),
+            }));
+        };
+        let elements = match event {
+            EncodedTestStreamEvent::Elements(values) => {
+                let end = self.offset.saturating_add(max_elements).min(values.len());
+                let elements = values[self.offset..end]
+                    .iter()
+                    .map(|(bytes, timestamp_ns)| {
+                        T::decode(bytes).map(|value| Timestamped {
+                            value,
+                            timestamp_ns: *timestamp_ns,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.offset = end;
+                if self.offset == values.len() {
+                    self.index += 1;
+                    self.offset = 0;
+                }
+                elements
+            }
+            EncodedTestStreamEvent::AdvanceWatermark(next) => {
+                self.watermark = Some(*next);
+                self.index += 1;
+                Vec::new()
+            }
+            EncodedTestStreamEvent::AdvanceProcessingTime(_) => {
+                self.index += 1;
+                Vec::new()
+            }
+        };
+        Ok(UnboundedPoll::Ready(UnboundedBatch {
+            elements,
+            progress: self.progress(false),
+        }))
+    }
+}
+
 impl<T: Element> UnboundedSource<Envelope> for TypedUnboundedAdapter<T> {
     fn poll(&mut self, max_elements: usize) -> Result<UnboundedPoll<Envelope>, Error> {
         match self.inner.poll(max_elements)? {
@@ -3153,7 +3274,8 @@ impl Pipeline {
         )
     }
     /// Register a deterministic unbounded fixture with event-time and
-    /// processing-time controls for portable runner conformance tests.
+    /// processing-time controls for runner conformance tests. Direct advances
+    /// processing time as a progress step; it does not simulate timers.
     pub fn test_stream_source<T: Element>(
         &self,
         key: &str,
@@ -3196,6 +3318,8 @@ impl Pipeline {
         for byte in Sha256::digest(bytes) {
             write!(digest, "{byte:02x}").map_err(|error| Error::incompatible(error.to_string()))?;
         }
+        let direct_events = Arc::new(encoded.clone());
+        let direct_key = key.to_owned();
         self.source_node::<T>(
             key,
             "ironbeam/test-stream",
@@ -3211,7 +3335,15 @@ impl Pipeline {
                         "test stream requires a portable runner",
                     ))
                 }),
-                unbounded_factory: None,
+                unbounded_factory: Some(Arc::new(move |position| {
+                    Ok(Box::new(TypedUnboundedAdapter {
+                        inner: Box::new(DirectTestStream::<T>::open(
+                            direct_key.clone(),
+                            Arc::clone(&direct_events),
+                            position,
+                        )?),
+                    }))
+                })),
                 typed_factory: None,
                 vec_batch_factory: None,
                 erased_vec_batch_factory: None,
@@ -6909,6 +7041,62 @@ mod internal_tests {
         assert_eq!(
             input.map_named("map", |x| x + 1).err().unwrap().kind,
             ErrorKind::Graph
+        );
+    }
+
+    #[test]
+    fn direct_test_stream_splits_and_resumes_with_watermarks() {
+        let pipeline = Pipeline::default();
+        pipeline
+            .test_stream_source(
+                "events",
+                vec![
+                    TestStreamEvent::Elements(vec![(1_i32, 1), (2, 2), (3, 3)]),
+                    TestStreamEvent::AdvanceWatermark(10),
+                    TestStreamEvent::AdvanceProcessingTime(5),
+                    TestStreamEvent::Elements(vec![(4, 11)]),
+                    TestStreamEvent::AdvanceWatermark(20),
+                ],
+            )
+            .unwrap();
+        let (_, registry) = pipeline.snapshot().unwrap();
+        let mut reader = registry.open_unbounded_source("events", None).unwrap();
+        let UnboundedPoll::Ready(first) = reader.poll(2).unwrap() else {
+            panic!("first test stream poll must be ready");
+        };
+        assert_eq!(first.elements.len(), 2);
+        assert_eq!(first.progress.event_time_ns, None);
+        let mut resumed = registry
+            .open_unbounded_source("events", Some(first.progress))
+            .unwrap();
+        let mut seen = Vec::new();
+        loop {
+            let UnboundedPoll::Ready(batch) = resumed.poll(2).unwrap() else {
+                panic!("finite test stream must make progress");
+            };
+            for event in batch.elements {
+                seen.push(*event.value.downcast::<i32>().unwrap());
+            }
+            if batch.progress.completed {
+                assert_eq!(batch.progress.event_time_ns, Some(20));
+                break;
+            }
+        }
+        assert_eq!(seen, [3, 4]);
+        let invalid = ProgressSignal {
+            source_key: "events".into(),
+            split_id: "test-stream".into(),
+            checkpoint_position: Some(vec![255; 16]),
+            event_time_ns: None,
+            completed: false,
+        };
+        assert_eq!(
+            registry
+                .open_unbounded_source("events", Some(invalid))
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Recovery
         );
     }
 }
