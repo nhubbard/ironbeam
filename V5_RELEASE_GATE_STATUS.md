@@ -75,7 +75,7 @@ below is complete.
 | Direct checkpoint history | `max_checkpoints` retains 1–128 bounded or streaming snapshots. Tests cover rotation, pruning after a lower limit, bounded output/fold fallback, streaming progress fallback, and refusal to cross execution identities. A paired streaming sink test replays from older progress without duplicate commits after the latest manifest is corrupted. |
 | Parallel I/O facade | The root `parallel-io` flag now forwards to each optional format crate only when that format is enabled. An isolated Avro facade test writes and reads a parallel container; the parallel flag alone does not pull in optional formats. |
 | Separate Dataflow workspace | The full harness suite and doctests pass after publication-plan validation rejects a Beam transform that requests finalization but is absent from the declared sink set. The changed harness passes warning-free lint. |
-| Current coverage | A 2026-10-11 run of the exact CI package set with untouched branch sites counted reports core **3,177/3,290 locations (96.57%) / 493/570 branches (86.49%)**, Direct **4,451/4,727 (94.16%) / 902/1,000 (90.20%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. All three packages pass their existing floors. |
+| Current coverage | A fresh 2026-10-11 run of the exact CI package set with untouched branch sites counted reports core **3,219/3,337 locations (96.46%) / 505/580 branches (87.07%)**, Direct **4,451/4,727 (94.16%) / 902/1,000 (90.20%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. All three packages pass their existing floors. Core tests now exercise windowed side-view construction failures and malformed unbounded resume progress. |
 | Exhausted checkpoint recovery | New bounded and streaming tests corrupt both retained manifests and require a typed recovery error; a source-only planner test verifies that its explanation has no physical decisions. All 50 Direct library tests pass. |
 | Paired streaming progress | A Direct unbounded source emits an empty progress poll, a data poll, and an empty completion poll to two idempotent sinks. Both sinks receive exactly one row; the final checkpoint retains the source cursor, event time, and completion. |
 | Direct plan explanation | `PlanDecision` now exposes selected-plan pruning, materialization barriers, and fused stateless routes through the Direct package and root facade. The `explain_pipeline` example prints these decisions; focused planner tests, the full Direct suite, and strict Direct/root lint pass. This reports v5 choices and does not claim unimplemented v4 optimizer passes. |
@@ -87,10 +87,10 @@ The coverage checker previously dropped branch sites whose two outcomes had
 zero hits, making the branch ratios look better than they were. It now counts
 those sites as uncovered. The earlier reused build target reported **3,657**
 core source locations and **4,644** Direct locations, with both line floors
-failing. A second clean isolated run reproduced the smaller counts above.
+failing. A second clean isolated run reproduced smaller counts.
 The exact CI package set produced identical denominators in two consecutive
 runs against one isolated build target: core **3,258**, Direct **4,682** before
-the latest tests. The earlier reused-target difference remains unexplained.
+the latest API and test additions. The earlier reused-target difference remains unexplained.
 The coverage gate still requires an uncovered-contract review and a clean full
 CI run.
 

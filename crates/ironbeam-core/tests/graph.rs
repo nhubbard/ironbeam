@@ -262,6 +262,20 @@ fn unbounded_source_rejects_invalid_progress_and_capacity() {
             )
             .is_err()
     );
+    for invalid in [
+        ProgressSignal {
+            split_id: String::new(),
+            ..unbounded_signal(Some(vec![1]), None, false)
+        },
+        unbounded_signal(Some(vec![1]), None, true),
+        unbounded_signal(None, None, false),
+    ] {
+        assert!(
+            registry
+                .open_unbounded_source("events", Some(invalid))
+                .is_err()
+        );
+    }
 }
 
 #[test]
@@ -2057,6 +2071,10 @@ fn phase4_builder_rejects_incompatible_inputs() {
             .is_err()
     );
     assert!(a.map_with_side_named("side", &b, |value, _| value).is_err());
+    assert!(
+        a.map_with_windowed_side_named("windowed-side-cross", &b, |value, _| value)
+            .is_err()
+    );
     let timed = a.fixed_windows("window", 10).unwrap();
     assert!(
         a.flatten_named("time-mismatch", std::slice::from_ref(&timed))
@@ -2064,6 +2082,10 @@ fn phase4_builder_rejects_incompatible_inputs() {
     );
     assert!(
         a.map_with_side_named("side-time", &timed, |value, _| value)
+            .is_err()
+    );
+    assert!(
+        a.map_with_windowed_side_named("windowed-side-time", &timed, |value, _| value)
             .is_err()
     );
     let unbounded = first
@@ -2079,6 +2101,10 @@ fn phase4_builder_rejects_incompatible_inputs() {
         .unwrap();
     assert!(
         a.map_with_side_named("side-unbounded", &unbounded, |value, _| value)
+            .is_err()
+    );
+    assert!(
+        a.map_with_windowed_side_named("windowed-side-unbounded", &unbounded, |value, _| value)
             .is_err()
     );
     assert!(
