@@ -104,6 +104,17 @@ Unsupported remote or unbounded connector graphs fail capability validation
 before source or sink side effects. Published v4 remains a separate reference
 package, not a fallback inside this facade.
 
+## Final-result publication
+
+Manual final-result publishers must bind their fragment store with
+`require_bundle_attempts` before publishing. The IDs must come from the
+completed runner's attempt manifest; for portable local jobs,
+`PortablePublicationPlan::complete_local` validates the terminal state,
+finalization journal, and committed row counts, then supplies the IDs through
+`ReadyLocalPublication::bundle_attempts`. Publication rejects an unbound store,
+including when it has no fragments. Pass an empty manifest for a completed
+zero-attempt output.
+
 ## Materialized data handoff
 
 `ironbeam-compat` supports `v4_to_v5(v4_collection, &v5_pipeline, key)` and `v5_to_v4(&v5_collection, &v4_pipeline, output_key, &job_config)`. Both execute the source locally and copy all values into a new bounded in-memory source. The element type must implement both versions' `Element` traits, plus `Clone` and `Sync`; built-in integers and strings work directly. A custom type implements v5 `Element` with stable `TYPE_ID` and `CODER_ID` declarations in addition to the v4 bounds. Errors identify the v4 or v5 side of the bridge.

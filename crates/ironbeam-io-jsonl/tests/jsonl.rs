@@ -55,6 +55,9 @@ fn finalized_jsonl_bundles_publish_one_valid_file() {
         session.finalize_bundle().unwrap();
     }
     assert_eq!(store.accepted_fragments().unwrap().len(), 2);
+    let store = store
+        .require_bundle_attempts(["bundle-0", "bundle-1"])
+        .unwrap();
     let result = publish_jsonl_fragments::<Row>(&store, 2, &target).unwrap();
     assert_eq!(result.rows, 2);
     assert_eq!(

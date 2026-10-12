@@ -494,6 +494,7 @@ mod fragment_tests {
             .unwrap();
         second.commit().unwrap();
         second.finalize_bundle().unwrap();
+        let store = store.require_bundle_attempts(["first", "second"]).unwrap();
         let result = publish_csv_fragments::<Row>(&store, 2, &output).unwrap();
         assert_eq!(result.rows, 2);
         assert_eq!(result.fragments, 2);
@@ -568,6 +569,7 @@ mod fragment_tests {
         let mut restarted = session(&store);
         restarted.recover_bundle_finalization("empty").unwrap();
         bundle.finalize_bundle().unwrap();
+        let store = store.require_bundle_attempts(["empty"]).unwrap();
         assert_eq!(
             publish_csv_fragments::<Row>(&store, 0, &output)
                 .unwrap()

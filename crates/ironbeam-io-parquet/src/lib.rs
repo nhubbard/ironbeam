@@ -473,6 +473,7 @@ mod fragment_tests {
             store.local.stage(bundle, 1, &frame).unwrap();
             store.local.accept(bundle).unwrap();
         }
+        let store = store.require_bundle_attempts(["a", "b"]).unwrap();
         let published = publish_parquet_fragments::<Row>(&store, 2, &output).unwrap();
         assert_eq!(published.rows, 2);
         assert_eq!(published.fragments, 2);
@@ -545,6 +546,7 @@ mod fragment_tests {
         }
         store.local.stage("many", 1_030, &frames).unwrap();
         store.local.accept("many").unwrap();
+        let store = store.require_bundle_attempts(["many"]).unwrap();
         let output = dir.path().join("many.parquet");
         assert_eq!(
             publish_parquet_fragments::<Row>(&store, 1_030, &output)
@@ -559,6 +561,8 @@ mod fragment_tests {
             (0..1_030).sum::<i32>()
         );
         let empty = parquet_fragment_store::<Row>(dir.path().join("empty"), "job", "graph", "sink")
+            .unwrap()
+            .require_bundle_attempts([] as [&str; 0])
             .unwrap();
         let empty_output = dir.path().join("empty.parquet");
         assert_eq!(

@@ -268,6 +268,7 @@ mod fragment_tests {
             store.local.stage(bundle, 1, &bytes).unwrap();
             store.local.accept(bundle).unwrap();
         }
+        let store = store.require_bundle_attempts(["a", "b"]).unwrap();
         let result = publish_xml_fragments::<Row>(&store, 2, &output).unwrap();
         assert_eq!(result.fragments, 2);
         assert_eq!(
@@ -305,7 +306,10 @@ mod fragment_tests {
         invalid.local.accept("a").unwrap();
         assert!(publish_xml_fragments::<Row>(&invalid, 1, &output).is_err());
         assert!(!output.exists());
-        let empty = xml_fragment_store(dir.path().join("empty"), "job", "graph", "sink").unwrap();
+        let empty = xml_fragment_store(dir.path().join("empty"), "job", "graph", "sink")
+            .unwrap()
+            .require_bundle_attempts([] as [&str; 0])
+            .unwrap();
         assert!(xml_fragment_store("relative", "job", "graph", "sink").is_err());
         assert!(publish_xml_fragments::<Row>(&empty, 0, dir.path().join("result.xml.gz")).is_err());
         assert_eq!(

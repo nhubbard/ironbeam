@@ -38,6 +38,9 @@ fn finalized_cbor_bundles_publish_one_valid_sequence() {
     }
     assert_eq!(store.accepted_fragments().unwrap().len(), 2);
     assert!(!target.exists());
+    let store = store
+        .require_bundle_attempts(["bundle-1", "bundle-2"])
+        .unwrap();
     let result = publish_cbor_fragments::<Row>(&store, 2, &target).unwrap();
     assert_eq!(result.rows, 2);
     assert_eq!(

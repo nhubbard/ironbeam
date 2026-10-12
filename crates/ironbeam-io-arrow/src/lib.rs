@@ -228,6 +228,15 @@ pub struct ArrowIpcRowFragmentStore<T: Element> {
 }
 
 impl<T: Element> ArrowIpcRowFragmentStore<T> {
+    pub fn require_bundle_attempts<I, S>(mut self, bundle_ids: I) -> Result<Self, Error>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.local = self.local.require_bundle_attempts(bundle_ids)?;
+        Ok(self)
+    }
+
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
@@ -538,6 +547,15 @@ pub struct ArrowIpcBatchFragmentStore {
 }
 
 impl ArrowIpcBatchFragmentStore {
+    pub fn require_bundle_attempts<I, S>(mut self, bundle_ids: I) -> Result<Self, Error>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.local = self.local.require_bundle_attempts(bundle_ids)?;
+        Ok(self)
+    }
+
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
@@ -824,6 +842,7 @@ mod row_fragment_tests {
             store.local.accept(bundle).unwrap();
         }
         assert_eq!(store.accepted_fragments().unwrap().len(), 2);
+        let store = store.require_bundle_attempts(["a", "b"]).unwrap();
         let result = publish_arrow_ipc_row_fragments(&store, 2, &target).unwrap();
         assert_eq!(result.rows, 2);
         assert_eq!(result.fragments, 2);
@@ -907,6 +926,7 @@ mod row_fragment_tests {
         }
         store.local.stage("many", 1_030, &frames).unwrap();
         store.local.accept("many").unwrap();
+        let store = store.require_bundle_attempts(["many"]).unwrap();
         let target = dir.path().join("many.arrow");
         assert_eq!(
             publish_arrow_ipc_row_fragments(&store, 1_030, &target)
@@ -922,6 +942,8 @@ mod row_fragment_tests {
         );
         let empty =
             arrow_ipc_row_fragment_store::<Row>(dir.path().join("empty"), "job", "graph", "sink")
+                .unwrap()
+                .require_bundle_attempts([] as [&str; 0])
                 .unwrap();
         let empty_target = dir.path().join("empty.arrow");
         assert_eq!(
@@ -1005,6 +1027,7 @@ mod batch_fragment_tests {
             store.local.accept(bundle).unwrap();
         }
         assert_eq!(store.accepted_fragments().unwrap().len(), 2);
+        let store = store.require_bundle_attempts(["a", "b"]).unwrap();
         let published = publish_arrow_ipc_batch_fragments(&store, 2, &target).unwrap();
         assert_eq!(published.rows, 2);
         assert_eq!(published.fragments, 2);
@@ -1082,6 +1105,8 @@ mod batch_fragment_tests {
         let dir = tempfile::tempdir().unwrap();
         let store =
             arrow_ipc_batch_fragment_store(dir.path().join("stage"), "job", "graph", "sink")
+                .unwrap()
+                .require_bundle_attempts([] as [&str; 0])
                 .unwrap();
         let target = dir.path().join("empty.arrow");
         assert_eq!(

@@ -1,5 +1,6 @@
 //! Durable local fragments for a portable whole-job result.
-//! The driver calls `publish_concatenated` only after the runner reports DONE.
+//! After the runner reports DONE, the driver binds the completed bundle-attempt
+//! manifest with `require_bundle_attempts` before publishing.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -363,13 +364,19 @@ impl LocalFinalResult {
     }
 
     /// Merge accepted fragments into one temporary file, then atomically
-    /// publish only when the merger confirms the decoded row count.
+    /// publish only when the merger confirms the decoded row count. The store
+    /// must first be bound to the completed runner bundle-attempt manifest.
     pub fn publish_merged(
         &self,
         expected_rows: u64,
         target: impl AsRef<Path>,
         merge: impl FnOnce(&[AcceptedFragment], &Path, &mut File) -> Result<u64, Error>,
     ) -> Result<PublishedResult, Error> {
+        if self.expected_attempts.is_none() {
+            return Err(invalid(
+                "final-result publication requires a completed bundle-attempt manifest",
+            ));
+        }
         let fragments = self.scan_fragments(true)?;
         let rows = fragments.iter().try_fold(0_u64, |sum, part| {
             sum.checked_add(part.rows)
@@ -445,7 +452,12 @@ mod tests {
         store.accept("bundle-a").unwrap();
         store.accept("bundle-b").unwrap();
         store.accept("bundle-a").unwrap();
-        assert!(store.publish_concatenated(4, &output).is_err());
+        assert!(store.publish_concatenated(3, &output).is_err());
+        assert!(!output.exists());
+        let bound = store
+            .require_bundle_attempts(["bundle-a", "bundle-b"])
+            .unwrap();
+        assert!(bound.publish_concatenated(4, &output).is_err());
         assert!(!output.exists());
         let fragments = store.accepted_fragments().unwrap();
         assert_eq!(
@@ -462,16 +474,16 @@ mod tests {
         for fragment in &fragments {
             fragment.copy_payload(&mut expected).unwrap();
         }
-        let published = store.publish_concatenated(3, &output).unwrap();
+        let published = bound.publish_concatenated(3, &output).unwrap();
         assert_eq!(published.rows, 3);
         assert_eq!(published.fragments, 2);
         assert_eq!(published.bytes, expected.len() as u64);
         assert_eq!(fs::read(&output).unwrap(), expected);
-        assert_eq!(store.publish_concatenated(3, &output).unwrap(), published);
+        assert_eq!(bound.publish_concatenated(3, &output).unwrap(), published);
         fs::write(&output, b"short").unwrap();
-        assert!(store.publish_concatenated(3, &output).is_err());
+        assert!(bound.publish_concatenated(3, &output).is_err());
         fs::write(&output, vec![b'X'; expected.len()]).unwrap();
-        assert!(store.publish_concatenated(3, &output).is_err());
+        assert!(bound.publish_concatenated(3, &output).is_err());
     }
 
     #[test]
@@ -578,6 +590,8 @@ mod tests {
         assert_eq!(reopened.accepted_fragments().unwrap().len(), 1);
         assert_eq!(
             reopened
+                .require_bundle_attempts(["bundle"])
+                .unwrap()
                 .publish_concatenated(1, temp.path().join("result.bin"))
                 .unwrap()
                 .rows,
@@ -630,7 +644,12 @@ mod tests {
         store.accept("large").unwrap();
         let output = temp.path().join("large.bin");
         assert_eq!(
-            store.publish_concatenated(1, &output).unwrap().bytes,
+            store
+                .require_bundle_attempts(["large"])
+                .unwrap()
+                .publish_concatenated(1, &output)
+                .unwrap()
+                .bytes,
             payload.len() as u64
         );
         assert_eq!(fs::read(output).unwrap(), payload);
@@ -645,14 +664,15 @@ mod tests {
         store.accept("accepted").unwrap();
         store.stage("pending-empty", 0, b"").unwrap();
         let output = temp.path().join("result.bin");
-        assert!(store.publish_concatenated(1, &output).is_err());
+        let bound = store.require_bundle_attempts(["accepted"]).unwrap();
+        assert!(bound.publish_concatenated(1, &output).is_err());
         assert!(!output.exists());
         store.abandon("pending-empty").unwrap();
         let orphan = store.staging.join("orphaned-tempfile");
         fs::write(&orphan, b"incomplete").unwrap();
-        assert!(store.publish_concatenated(1, &output).is_err());
+        assert!(bound.publish_concatenated(1, &output).is_err());
         fs::remove_file(orphan).unwrap();
-        assert_eq!(store.publish_concatenated(1, &output).unwrap().rows, 1);
+        assert_eq!(bound.publish_concatenated(1, &output).unwrap().rows, 1);
     }
 
     #[test]
@@ -698,6 +718,7 @@ mod tests {
             LocalFinalResult::new(temp.path().join("stage"), "job", "graph", "sink").unwrap();
         store.stage("bundle", 2, b"one").unwrap();
         store.accept("bundle").unwrap();
+        let store = store.require_bundle_attempts(["bundle"]).unwrap();
         let output = temp.path().join("merged.bin");
         assert!(
             store

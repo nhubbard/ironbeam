@@ -13,7 +13,7 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 | --- | --- | --- |
 | Workspace | V5-only root source, including with no default features; 28 local packages verify after legacy cloud retirement | Finish public API audit |
 | Direct | V4 reference corpus and v5 helper tests pass | Close public API and edge-case parity |
-| Portable | 19 live local Prism tests pass | Expand shared Direct/Prism corpus |
+| Portable | 19 live local Prism tests and the separate native Arrow proof pass with completed-attempt manifests | Expand shared Direct/Prism corpus |
 | Streaming | A split and accepted batches survive separate worker process restarts in the Fn Data fixture; the production reader also resumes through join and co-group | Prove live Prism worker restart and output recovery |
 | Quality | Corrected branch accounting passes the core, Direct, and transforms floors after a paired-stream progress test; focused tests and strict lint pass | Audit uncovered contracts, reconcile the earlier coverage denominator, and set performance limits |
 
@@ -35,7 +35,7 @@ below is complete.
 | Gate | Done when |
 | --- | --- |
 | ☐ Unbounded recovery | Extend the passing Fn Data process restart proof to a supervised live Prism restart and cover the remaining graph shapes. |
-| ☐ Output durability | The runner-wide commit contract passes successful retry and restart proofs, all production publishers require the journal manifest, and v4 checkpoint-policy replacements are decided. A live failed bundle already proves abort cleanup. |
+| ☐ Output durability | The runner-wide commit contract passes successful retry and restart proofs, and v4 checkpoint-policy replacements are decided. Shared final-result publication now requires an exact attempt manifest; the portable proof obtains it from the completed journal. A live failed bundle already proves abort cleanup. |
 
 ### Packaging and release quality
 
@@ -57,11 +57,12 @@ below is complete.
 | Check | Result |
 | --- | --- |
 | Root workspace | Tests and doctests passed after the eager JSONL and shared file-source changes. |
-| Local release script | Dependency and feature checks, tests, docs, and verification of 28 packages passed with Mr Boxington after legacy cloud retirement. |
+| Local release script | Dependency and feature checks, workspace and feature tests, docs, and verification of all 28 packages passed with Mr Boxington on 2026-10-11 after mandatory final-result manifest binding. Nothing was published. |
 | Cloud operation coverage | **186/261 source locations** and **34/42 branches** after bounding parallel helper concurrency; both CI ratchets pass. Uncovered utility paths remain in the quality review. |
 | JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** at the last coverage run. The latest eager reader change has passing default/all-feature tests and strict lint; coverage has not been rerun. |
 | Local Prism | 19 live tests passed across the prior suite and a new failed-bundle proof. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. The provider-neutral harness coordinator requires `DONE`, validates the graph's ten final sinks against the whole-job journal and committed row metrics, then supplies exact attempt IDs and counts to all ten publishers. A separate job failed after staging and left no fragment, journal completion, or published output. |
 | Fresh Prism regression | The full 19-test live corpus and separate native Arrow proof passed again on 2026-10-11 against Prism built from the local Beam clone, after the publication-plan guard was added. |
+| Final-result manifest binding | All shared final-result publishers reject an unbound store, including empty output. The live Prism corpus and Arrow proof passed after their stores were bound to the completed job journal's exact attempts. Local format tests and strict lint passed. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch; the full harness suite and warning-free lint pass. |
 | Separate Dataflow workspace | The full harness suite and doctests pass after publication-plan validation rejects a Beam transform that requests finalization but is absent from the declared sink set. The changed harness passes warning-free lint. |
 | Current coverage | A clean isolated 2026-10-11 run with untouched branch sites counted reports core **3,146/3,258 locations (96.56%) / 487/562 branches (86.65%)**, Direct **3,936/4,209 (93.51%) / 841/932 (90.24%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. All three packages pass their existing floors. |

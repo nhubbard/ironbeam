@@ -596,6 +596,9 @@ mod fragment_tests {
         empty.begin_bundle("bundle-empty").unwrap();
         empty.commit().unwrap();
         empty.finalize_bundle().unwrap();
+        let store = store
+            .require_bundle_attempts(["bundle-1", "bundle-empty"])
+            .unwrap();
         let published = publish_tfrecord_fragments(&store, 2, &output).unwrap();
         assert_eq!(published.rows, 2);
         assert_eq!(published.fragments, 2);

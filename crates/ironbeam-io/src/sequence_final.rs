@@ -228,12 +228,13 @@ mod tests {
         assert!(sequence_fragment_store(&stage, "job", "", "sink", "test-u32").is_err());
         assert!(sequence_fragment_store(&stage, "job", "graph", "sink", "").is_err());
         let output = dir.path().join("result.bin");
+        let bound = store.require_bundle_attempts(["accepted"]).unwrap();
         let mut aborted = session(&store);
         assert!(aborted.write(1).is_err());
         aborted.begin_bundle("aborted").unwrap();
         aborted.write(1).unwrap();
         aborted.commit().unwrap();
-        assert!(publish_sequence_fragments(&store, 0, &output, count_u32).is_err());
+        assert!(publish_sequence_fragments(&bound, 0, &output, count_u32).is_err());
         aborted.abort().unwrap();
         assert!(store.accepted_fragments().unwrap().is_empty());
         let mut accepted = session(&store);
@@ -244,7 +245,7 @@ mod tests {
         assert!(restarted.recover_bundle_finalization("missing").is_err());
         restarted.recover_bundle_finalization("accepted").unwrap();
         accepted.finalize_bundle().unwrap();
-        assert!(publish_sequence_fragments(&store, 2, &output, count_u32).is_err());
+        assert!(publish_sequence_fragments(&bound, 2, &output, count_u32).is_err());
         assert!(!output.exists());
         let other = sequence_fragment_store(&stage, "job", "graph", "sink", "other").unwrap();
         assert!(other.accepted_fragments().is_err());
@@ -257,7 +258,7 @@ mod tests {
             sequence_fragment_store(&ambiguous_stage, "job", "graph\0test", "sink", "u32").unwrap();
         assert!(split_scope.accepted_fragments().is_err());
         assert_eq!(
-            publish_sequence_fragments(&store, 1, &output, count_u32)
+            publish_sequence_fragments(&bound, 1, &output, count_u32)
                 .unwrap()
                 .rows,
             1
@@ -272,6 +273,7 @@ mod tests {
             sequence_fragment_store(dir.path().join("stage"), "job", "graph", "sink", "test-u32")
                 .unwrap();
         let output = dir.path().join("empty.bin");
+        let bound = store.require_bundle_attempts(["empty"]).unwrap();
         let mut sink = session(&store);
         assert!(sink.commit().is_err());
         assert!(sink.finalize_bundle().is_err());
@@ -280,11 +282,11 @@ mod tests {
         assert!(sink.begin_bundle("again").is_err());
         assert!(sink.finalize_bundle().is_err());
         sink.commit().unwrap();
-        assert!(publish_sequence_fragments(&store, 0, &output, count_u32).is_err());
+        assert!(publish_sequence_fragments(&bound, 0, &output, count_u32).is_err());
         sink.finalize_bundle().unwrap();
         sink.finalize_bundle().unwrap();
         assert_eq!(
-            publish_sequence_fragments(&store, 0, &output, count_u32)
+            publish_sequence_fragments(&bound, 0, &output, count_u32)
                 .unwrap()
                 .rows,
             0
@@ -303,7 +305,8 @@ mod tests {
         store.stage("bundle", 1, &[1, 2, 3]).unwrap();
         store.accept("bundle").unwrap();
         let target = dir.path().join("result.bin");
-        assert!(publish_sequence_fragments(&store, 1, &target, count_u32).is_err());
+        let bound = store.require_bundle_attempts(["bundle"]).unwrap();
+        assert!(publish_sequence_fragments(&bound, 1, &target, count_u32).is_err());
         assert!(!target.exists());
     }
 }

@@ -396,6 +396,9 @@ mod fragment_tests {
         assert!(restarted.recover_bundle_finalization("missing").is_err());
         restarted.recover_bundle_finalization("bundle-2").unwrap();
         second.finalize_bundle().unwrap();
+        let store = store
+            .require_bundle_attempts(["bundle-1", "bundle-2"])
+            .unwrap();
         let published = publish_avro_fragments(&store, 3, &output).unwrap();
         assert_eq!(published.rows, 3);
         assert_eq!(published.fragments, 2);
