@@ -2574,11 +2574,17 @@ fn stream_transform_output_obeys_buffer_limit() {
 }
 
 #[test]
-fn stream_rejects_multiple_unbounded_sources_before_opening_them() {
+fn stream_flattens_two_unbounded_sources_and_recovers_each_cursor() {
+    let temporary = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
-    let opens = Arc::new(AtomicUsize::new(0));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let hold_second = Arc::new(AtomicBool::new(true));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
     let make_source = |key: &str| {
         let opens = Arc::clone(&opens);
+        let hold_second = Arc::clone(&hold_second);
+        let source_key = key.to_owned();
         pipeline
             .unbounded_source_with_factory(
                 key,
@@ -2589,38 +2595,92 @@ fn stream_rejects_multiple_unbounded_sources_before_opening_them() {
                 },
                 format!("{key}-config"),
                 0,
-                move |_| {
-                    opens.fetch_add(1, Ordering::SeqCst);
-                    Ok(Box::new(Script {
-                        polls: VecDeque::new(),
-                    }) as TypedUnboundedSourceReader<i32>)
+                move |cursor| {
+                    opens
+                        .lock()
+                        .unwrap()
+                        .push((source_key.clone(), cursor.clone()));
+                    let ready = |value, position, completed| {
+                        UnboundedPoll::Ready(UnboundedBatch {
+                            elements: vec![Timestamped {
+                                value,
+                                timestamp_ns: i64::from(position),
+                            }],
+                            progress: ProgressSignal {
+                                source_key: source_key.clone(),
+                                split_id: "split-0".into(),
+                                checkpoint_position: Some(vec![position]),
+                                event_time_ns: Some(i64::from(position)),
+                                completed,
+                            },
+                        })
+                    };
+                    let polls = match (source_key.as_str(), cursor.as_deref()) {
+                        ("events", None) => vec![ready(1, 1, true)].into(),
+                        ("other", None) if hold_second.load(Ordering::SeqCst) => {
+                            vec![ready(10, 1, false)].into()
+                        }
+                        ("other", Some([1])) => vec![ready(20, 2, true)].into(),
+                        _ => return Err(Error::incompatible("unexpected multi-source cursor")),
+                    };
+                    Ok(Box::new(Script { polls }) as TypedUnboundedSourceReader<i32>)
                 },
             )
             .unwrap()
     };
-    let first = make_source("events");
-    let second = make_source("other");
+    let first = make_source("events")
+        .map_named("first-map", |value| value + 100)
+        .unwrap();
+    let second = make_source("other")
+        .map_named("second-map", |value| value + 200)
+        .unwrap();
     let joined = first.flatten_named("merge", &[second]).unwrap();
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
     let sink = joined
-        .sink_named(
+        .sink_named_with_config(
             "sink",
             SinkSpec {
                 mode: SinkMode::Append,
                 replay: Replay::Idempotent,
                 commit: true,
             },
-            || Ok(Box::new(FaultWriter(Fault::SinkWrite))),
+            "multi-sink-v1".into(),
+            move || {
+                Ok(Box::new(BundleCapture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    staged: Vec::new(),
+                    bundle: None,
+                    fail_commit: Arc::new(AtomicBool::new(false)),
+                    cancel_on_write: None,
+                }))
+            },
         )
         .unwrap();
-    assert!(matches!(
-        DirectRunner
-            .start_stream_sink(&sink, &JobConfig::default())
-            .err()
-            .unwrap()
-            .kind,
-        ErrorKind::UnsupportedCapability { .. }
-    ));
-    assert_eq!(opens.load(Ordering::SeqCst), 0);
+    let job_config = config(temporary.path());
+    let first_job = DirectRunner.start_stream_sink(&sink, &job_config).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while first_job.handle().processed() < 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(first_job.handle().processed(), 2);
+    first_job.cancel();
+    assert_eq!(first_job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    hold_second.store(false, Ordering::SeqCst);
+    let resumed = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap();
+    assert_eq!(resumed.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(*committed.lock().unwrap(), vec![101, 210, 220]);
+    assert_eq!(
+        *opens.lock().unwrap(),
+        vec![
+            ("events".into(), None),
+            ("other".into(), None),
+            ("other".into(), Some(vec![1])),
+        ]
+    );
 }
 
 #[test]
