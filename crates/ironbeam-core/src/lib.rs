@@ -4871,7 +4871,7 @@ where
             .map_err(|_| Error::execution(key, "direct", "left join type mismatch"))?;
         let position = left_values.len();
         JoinPositions::record(&mut index, row_key, event.assigned_window, position);
-        left_values.push(value);
+        left_values.push((value, event.timestamp_ns));
     }
     // Consume each right input slot before appending its matches. This reuses
     // the input allocation while output grows.
@@ -4890,10 +4890,11 @@ where
             .map_err(|_| Error::execution(key, "direct", "right join type mismatch"))?;
         if let Some(matches) = index.get(&(row_key.clone(), assigned_window)) {
             for &position in matches.as_slice() {
-                if let Some(pair) = emit(Some(left_values[position].clone()), Some(value.clone())) {
+                if let Some(pair) = emit(Some(left_values[position].0.clone()), Some(value.clone()))
+                {
                     output.push_back(Envelope {
                         value: Box::new((row_key.clone(), pair)),
-                        timestamp_ns,
+                        timestamp_ns: timestamp_ns.min(left_values[position].1),
                         window: window.clone(),
                         assigned_window,
                     });
@@ -4936,6 +4937,7 @@ where
     let input_count = output.len();
     for _ in 0..input_count {
         let event = output.pop_front().expect("left input count is fixed");
+        let left_time = event.timestamp_ns;
         let (row_key, value) = *event
             .value
             .downcast::<(K, V)>()
@@ -4946,7 +4948,7 @@ where
                 if let Some(pair) = emit(Some(value.clone()), Some(right_value.clone())) {
                     output.push_back(Envelope {
                         value: Box::new((row_key.clone(), pair)),
-                        timestamp_ns: *timestamp_ns,
+                        timestamp_ns: left_time.min(*timestamp_ns),
                         window: window.clone(),
                         assigned_window: *assigned_window,
                     });
@@ -6418,7 +6420,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                             {
                                 output.push(Envelope {
                                     value: Box::new((row_key.clone(), pair)),
-                                    timestamp_ns: *right_time,
+                                    timestamp_ns: timestamp_ns.min(*right_time),
                                     window: right_window.clone(),
                                     assigned_window: *right_assigned,
                                 });
@@ -6482,12 +6484,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 })?;
                 if let Some(matches) = index.get(&(row_key.clone(), assigned_window)) {
                     for &position in matches.as_slice() {
-                        let (_, left_value, _, _, _, matched) = &mut left_rows[position];
+                        let (_, left_value, left_time, _, _, matched) = &mut left_rows[position];
                         *matched = true;
                         if let Some(pair) = emit(Some(left_value.clone()), Some(value.clone())) {
                             output.push(Envelope {
                                 value: Box::new((row_key.clone(), pair)),
-                                timestamp_ns,
+                                timestamp_ns: timestamp_ns.min(*left_time),
                                 window: window.clone(),
                                 assigned_window,
                             });

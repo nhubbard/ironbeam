@@ -311,8 +311,8 @@ fn portable_join_reuses_direct_matching_and_input_timestamps() {
     assert_eq!(
         decoded,
         vec![
-            (("a".to_owned(), (Some(1), Some(true))), 21),
-            (("a".to_owned(), (Some(2), Some(true))), 21),
+            (("a".to_owned(), (Some(1), Some(true))), 11),
+            (("a".to_owned(), (Some(2), Some(true))), 12),
         ]
     );
     assert!(

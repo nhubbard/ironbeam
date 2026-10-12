@@ -459,7 +459,7 @@ fn smaller_right_join_index_preserves_outer_rows_and_event_time() {
         assert_eq!(inner_rows, [(1, (1, 10)), (1, (2, 10))]);
         let mut inner_times = DirectRunner.run_collect(&inner_time, &config).unwrap().0;
         inner_times.sort_unstable();
-        assert_eq!(inner_times, [(10, (1, (1, 10))), (10, (1, (2, 10)))]);
+        assert_eq!(inner_times, [(1, (1, (1, 10))), (2, (1, (2, 10)))]);
         let mut left_rows = DirectRunner.run_collect(&left_join, &config).unwrap().0;
         left_rows.sort_unstable();
         assert_eq!(
@@ -482,10 +482,10 @@ fn smaller_right_join_index_preserves_outer_rows_and_event_time() {
         assert_eq!(
             full_rows,
             [
+                (1, 0, 100, 1, Some(1), Some(10)),
+                (2, 0, 100, 1, Some(2), Some(10)),
                 (3, 0, 100, 2, Some(3), None),
                 (4, 0, 100, 2, Some(4), None),
-                (10, 0, 100, 1, Some(1), Some(10)),
-                (10, 0, 100, 1, Some(2), Some(10)),
                 (30, 0, 100, 3, None, Some(30)),
             ]
         );
@@ -527,7 +527,7 @@ fn typed_inner_join_indexes_smaller_right_and_caps_duplicate_fanout() {
 }
 
 #[test]
-fn equal_size_inner_join_keeps_duplicate_windows_and_right_timestamps() {
+fn equal_size_inner_join_keeps_duplicate_windows_and_earliest_timestamps() {
     let pipeline = Pipeline::default();
     let left = pipeline
         .from_vec("equal-left", vec![(1_i32, -1_i32), (1, 2), (1, 3)])
@@ -572,10 +572,10 @@ fn equal_size_inner_join_keeps_duplicate_windows_and_right_timestamps() {
             actual,
             [
                 (-2, -10, 0, 1, -1, -2),
-                (4, 0, 10, 1, 2, 4),
-                (4, 0, 10, 1, 3, 4),
-                (5, 0, 10, 1, 2, 5),
-                (5, 0, 10, 1, 3, 5),
+                (2, 0, 10, 1, 2, 4),
+                (2, 0, 10, 1, 2, 5),
+                (3, 0, 10, 1, 3, 4),
+                (3, 0, 10, 1, 3, 5),
             ]
         );
     }
