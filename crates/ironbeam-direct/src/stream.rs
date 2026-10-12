@@ -997,16 +997,8 @@ fn start_multi_stream_sink<T: Element>(
     sink_key: String,
     config: &JobConfig,
 ) -> Result<StreamJob, Error> {
-    let mut seen = BTreeSet::new();
     let mut source_digest = String::new();
     for route in &plan.routes {
-        if !seen.insert(route.source_key.as_str()) {
-            return Err(Error::unsupported(
-                &route.source_key,
-                "direct",
-                "repeated-stream-source",
-            ));
-        }
         let node = graph
             .node(&route.source_key)
             .ok_or_else(|| Error::graph(&route.source_key, "stream source node missing"))?;
@@ -1228,7 +1220,7 @@ fn run_multi_stream(
                 ));
             }
             let instruction_id = bundle_id(
-                &plan.summary.graph_fingerprint,
+                &format!("{}:{index}", plan.summary.graph_fingerprint),
                 &[sink_key],
                 &batch.progress,
             );

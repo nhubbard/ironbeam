@@ -2684,6 +2684,179 @@ fn stream_flattens_two_unbounded_sources_and_recovers_each_cursor() {
 }
 
 #[test]
+fn multi_source_stream_retries_only_the_failed_source_bundle() {
+    let temporary = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let fail_second = Arc::new(AtomicBool::new(true));
+    let make_source = |key: &str, value: i32| {
+        let source_key = key.to_owned();
+        let opens = Arc::clone(&opens);
+        pipeline
+            .unbounded_source_with_factory(
+                key,
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: false,
+                },
+                format!("{key}-v1"),
+                0,
+                move |cursor| {
+                    opens
+                        .lock()
+                        .unwrap()
+                        .push((source_key.clone(), cursor.clone()));
+                    if cursor.is_some() {
+                        return Err(Error::incompatible(
+                            "unexpected failed-source resume cursor",
+                        ));
+                    }
+                    Ok(Box::new(Script {
+                        polls: vec![UnboundedPoll::Ready(UnboundedBatch {
+                            elements: vec![Timestamped {
+                                value,
+                                timestamp_ns: 0,
+                            }],
+                            progress: ProgressSignal {
+                                source_key: source_key.clone(),
+                                split_id: "split-0".into(),
+                                checkpoint_position: Some(vec![1]),
+                                event_time_ns: None,
+                                completed: true,
+                            },
+                        })]
+                        .into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                },
+            )
+            .unwrap()
+    };
+    let first = make_source("first", 1);
+    let second = make_source("second", 2);
+    let merged = first.flatten_named("merge", &[second]).unwrap();
+    let sink = merged
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "multi-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                let fail_second = Arc::clone(&fail_second);
+                move || {
+                    let fail =
+                        fail_second.load(Ordering::SeqCst) && !accepted.lock().unwrap().is_empty();
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(fail)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(*committed.lock().unwrap(), vec![1]);
+    fail_second.store(false, Ordering::SeqCst);
+    assert_eq!(
+        DirectRunner
+            .start_stream_sink(&sink, &config(temporary.path()))
+            .unwrap()
+            .wait()
+            .unwrap()
+            .status(),
+        JobStatus::Succeeded
+    );
+    assert_eq!(*committed.lock().unwrap(), vec![1, 2]);
+    assert_eq!(
+        *opens.lock().unwrap(),
+        vec![
+            ("first".into(), None),
+            ("second".into(), None),
+            ("second".into(), None),
+        ]
+    );
+}
+
+#[test]
+fn flattening_one_unbounded_source_twice_keeps_distinct_bundle_ids() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: false,
+            },
+            "events-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![batch(7, 1, true)].into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let merged = source
+        .flatten_named("merge", std::slice::from_ref(&source))
+        .unwrap();
+    let sink = merged
+        .sink_named(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap()
+            .status(),
+        JobStatus::Succeeded
+    );
+    assert_eq!(*committed.lock().unwrap(), vec![7, 7]);
+    assert_eq!(accepted.lock().unwrap().len(), 2);
+}
+
+#[test]
 fn dropping_stream_job_cancels_and_joins_worker() {
     let sink = fixture(
         Arc::new(Mutex::new(Vec::new())),
