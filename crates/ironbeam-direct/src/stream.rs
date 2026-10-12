@@ -1201,11 +1201,7 @@ fn run_bounded_side_stream(
                     .and_then(|previous| previous.event_time_ns)
                     .is_some_and(|watermark| window.1 <= watermark)
                 {
-                    return Err(Error::execution(
-                        &route.aggregate_key,
-                        "direct",
-                        "stateful stream received a late window element",
-                    ));
+                    continue;
                 }
                 if buffered >= config.buffer_budget_elements {
                     return Err(Error::resource(
@@ -1386,11 +1382,7 @@ fn run_grouped_stream(
                     .and_then(|previous| previous.event_time_ns)
                     .is_some_and(|watermark| interval.end_ns <= watermark)
                 {
-                    return Err(Error::execution(
-                        &route.group_key,
-                        "direct",
-                        "grouped stream received a late window element",
-                    ));
+                    continue;
                 }
                 if buffered >= config.buffer_budget_elements {
                     return Err(Error::resource(

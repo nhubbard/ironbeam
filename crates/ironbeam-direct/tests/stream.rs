@@ -882,7 +882,7 @@ fn two_unbounded_cogroup_preserves_duplicate_and_side_only_keys() {
 }
 
 #[test]
-fn two_unbounded_join_rejects_late_rows_after_both_watermarks_close_window() {
+fn two_unbounded_join_drops_late_rows_after_both_watermarks_close_window() {
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
@@ -890,24 +890,24 @@ fn two_unbounded_join_rejects_late_rows_after_both_watermarks_close_window() {
         .test_stream_source(
             "late-main",
             vec![
-                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 1)]),
-                TestStreamEvent::AdvanceWatermark(10),
-                TestStreamEvent::Elements(vec![((1, 11), 1)]),
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 1_000_000)]),
             ],
         )
         .unwrap()
-        .fixed_windows("late-main-window", 10)
+        .fixed_windows("late-main-window", 10_000_000)
         .unwrap();
     let side = pipeline
         .test_stream_source(
             "late-side",
             vec![
-                TestStreamEvent::Elements(vec![((1_i32, 20_i32), 1)]),
-                TestStreamEvent::AdvanceWatermark(10),
+                TestStreamEvent::Elements(vec![((1_i32, 20_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
             ],
         )
         .unwrap()
-        .fixed_windows("late-side-window", 10)
+        .fixed_windows("late-side-window", 10_000_000)
         .unwrap();
     let sink = main
         .join_inner_named("late-join", &side)
@@ -938,15 +938,11 @@ fn two_unbounded_join_rejects_late_rows_after_both_watermarks_close_window() {
             },
         )
         .unwrap();
-    let error = DirectRunner
+    DirectRunner
         .start_stream_sink(&sink, &JobConfig::default())
         .unwrap()
         .wait()
-        .err()
         .unwrap();
-    assert_eq!(error.kind, ErrorKind::Execution);
-    assert_eq!(error.node.as_deref(), Some("late-join"));
-    assert!(error.message.contains("late window element"));
     assert_eq!(*committed.lock().unwrap(), [130]);
 }
 
@@ -1097,13 +1093,13 @@ fn dual_stream_reopens_cursorless_watermark_after_checkpoint() {
     assert_eq!(opens.load(Ordering::SeqCst), 2);
 }
 
-fn bounded_side_stream_failure(
+fn bounded_side_stream_run(
     polls: Vec<UnboundedPoll<Timestamped<i32>>>,
     side_values: Vec<(i64, i32)>,
     budget: usize,
     panic_in_map: bool,
     fail_commit: bool,
-) -> (Error, Vec<i32>) {
+) -> (Result<(), Error>, Vec<i32>) {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let pipeline = Pipeline::default();
@@ -1168,18 +1164,17 @@ fn bounded_side_stream_failure(
         buffer_budget_elements: budget,
         ..JobConfig::default()
     };
-    let error = DirectRunner
+    let result = DirectRunner
         .start_stream_sink(&sink, &config)
         .unwrap()
         .wait()
-        .err()
-        .unwrap();
+        .map(|_| ());
     let rows = committed.lock().unwrap().clone();
-    (error, rows)
+    (result, rows)
 }
 
 #[test]
-fn bounded_side_stream_rejects_late_main_and_excess_open_state() {
+fn bounded_side_stream_drops_late_main_and_rejects_excess_open_state() {
     let ready = |cursor, watermark, completed, values: Vec<(i32, i64)>| {
         UnboundedPoll::Ready(UnboundedBatch {
             elements: values
@@ -1198,7 +1193,7 @@ fn bounded_side_stream_rejects_late_main_and_excess_open_state() {
             },
         })
     };
-    let (late, committed) = bounded_side_stream_failure(
+    let (late, committed) = bounded_side_stream_run(
         vec![
             ready(1, 10, false, vec![]),
             ready(2, 10, true, vec![(7, 1)]),
@@ -1208,9 +1203,9 @@ fn bounded_side_stream_rejects_late_main_and_excess_open_state() {
         false,
         false,
     );
-    assert_eq!(late.kind, ErrorKind::Execution);
+    late.unwrap();
     assert!(committed.is_empty());
-    let (excess, committed) = bounded_side_stream_failure(
+    let (excess, committed) = bounded_side_stream_run(
         vec![
             ready(1, 0, false, vec![(1, 1)]),
             ready(2, 0, true, vec![(2, 2)]),
@@ -1220,7 +1215,7 @@ fn bounded_side_stream_rejects_late_main_and_excess_open_state() {
         false,
         false,
     );
-    assert_eq!(excess.kind, ErrorKind::Resource);
+    assert_eq!(excess.unwrap_err().kind, ErrorKind::Resource);
     assert!(committed.is_empty());
 }
 
@@ -1240,14 +1235,14 @@ fn bounded_side_stream_aborts_on_callback_panic_or_commit_failure() {
         },
     });
     for (panic_in_map, fail_commit) in [(true, false), (false, true)] {
-        let (error, committed) = bounded_side_stream_failure(
+        let (error, committed) = bounded_side_stream_run(
             vec![UnboundedPoll::Pending, poll.clone()],
             vec![(0, 10)],
             4,
             panic_in_map,
             fail_commit,
         );
-        assert_eq!(error.kind, ErrorKind::Execution);
+        assert_eq!(error.unwrap_err().kind, ErrorKind::Execution);
         assert!(committed.is_empty());
     }
 }
@@ -1370,10 +1365,10 @@ fn grouped_stream_recovers_open_window_with_source_cursor() {
     assert_eq!(rows, [2, 4, 104]);
 }
 
-fn grouped_failure(
+fn grouped_stream_run(
     polls: Vec<UnboundedPoll<Timestamped<i32>>>,
     budget: usize,
-) -> (Error, Vec<i32>) {
+) -> (Result<(), Error>, Vec<i32>) {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let pipeline = Pipeline::default();
     let sink = pipeline
@@ -1423,7 +1418,7 @@ fn grouped_failure(
             },
         )
         .unwrap();
-    let error = DirectRunner
+    let result = DirectRunner
         .start_stream_sink(
             &sink,
             &JobConfig {
@@ -1433,14 +1428,13 @@ fn grouped_failure(
         )
         .unwrap()
         .wait()
-        .err()
-        .unwrap();
+        .map(|_| ());
     let values = committed.lock().unwrap().clone();
-    (error, values)
+    (result, values)
 }
 
 #[test]
-fn grouped_stream_rejects_late_input_and_excess_state() {
+fn grouped_stream_drops_late_input_and_rejects_excess_state() {
     let ready = |cursor, watermark, completed, value: i32, timestamp_ns| {
         UnboundedPoll::Ready(UnboundedBatch {
             elements: vec![Timestamped {
@@ -1456,15 +1450,13 @@ fn grouped_stream_rejects_late_input_and_excess_state() {
             },
         })
     };
-    let (error, committed) = grouped_failure(
+    let (result, committed) = grouped_stream_run(
         vec![ready(1, 100, false, 1, 10), ready(2, 100, true, 3, 20)],
         8,
     );
-    assert_eq!(error.kind, ErrorKind::Execution);
-    assert_eq!(error.node.as_deref(), Some("groups"));
-    assert!(error.message.contains("late window element"));
+    result.unwrap();
     assert_eq!(committed, [101]);
-    let (error, committed) = grouped_failure(
+    let (result, committed) = grouped_stream_run(
         vec![
             ready(1, 0, false, 1, 10),
             ready(2, 0, false, 2, 20),
@@ -1472,6 +1464,7 @@ fn grouped_stream_rejects_late_input_and_excess_state() {
         ],
         2,
     );
+    let error = result.unwrap_err();
     assert_eq!(error.kind, ErrorKind::Resource);
     assert_eq!(error.node.as_deref(), Some("groups"));
     assert!(committed.is_empty());

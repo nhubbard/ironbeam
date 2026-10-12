@@ -681,11 +681,7 @@ fn run_dual_side_stream(
                 for event in apply_grouped_stages(registry, stages[index], input, config, handle)? {
                     let window = stream_window(&event, &route.aggregate_key)?;
                     if old_watermark.is_some_and(|watermark| window.1 <= watermark) {
-                        return Err(Error::execution(
-                            &route.aggregate_key,
-                            "direct",
-                            "stateful stream received a late window element",
-                        ));
+                        continue;
                     }
                     if buffered >= config.buffer_budget_elements {
                         return Err(Error::resource(
