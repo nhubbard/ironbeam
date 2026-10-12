@@ -79,7 +79,8 @@ compact inner-join measurements remain in `V5_PHASE0_BASELINE.md`.
 | --- | --- |
 | Formatting and current suites | Both workspaces pass formatting, workspace tests, and the live Prism suite from their last full runs. |
 | Explicit custom batches | The five-row shared Direct/Prism fixture observes `[1, 2, 2]` lengths at batch size two. The complete local suite passes 40/40, and strict Prism fixture lint passes. One earlier parallel run saw a committed MessagePack count of one immediately after DONE; the standalone test and subsequent serial and parallel runs passed. The proof now waits up to three seconds for all committed counters to converge and still requires exact counts before publication. |
-| Cloud package cleanup | Contracts, fakes, operations, objects, provider clients, and JSONL readers have separate owners. The unused legacy cloud crate is removed; all 28 packages verify locally. |
+| Cloud package cleanup | Contracts, fakes, operations, objects, provider clients, and JSONL readers have separate owners. The unused legacy cloud crate is removed; the root facade plus 28 workspace crates verify locally. |
+| Current local package matrix | On 2026-10-12, `scripts/check_v5_packages.sh` passed again after the custom-batch and final-result changes: workspace tests, facade and optional-feature tests, all-feature docs, and local package verification for all 29 packages. The 20 GiB isolated build and log were removed. Nothing was published. |
 | Local object conditional create | Nested object parents are created component by component and each new directory entry is synced. A symlink escape is rejected before an outside child is created. Reopening a nested root returns the immutable object; the cloud-object package tests, strict lint, and the separate Dataflow object-journal tests pass. |
 
 ## Latest measured results
