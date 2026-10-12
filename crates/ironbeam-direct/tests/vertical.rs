@@ -1,4 +1,4 @@
-use ironbeam_core::{Element, ErrorKind, Pipeline, Replay, SourceProgress};
+use ironbeam_core::{Element, ErrorKind, Pipeline, Replay, SourceProgress, Version};
 use ironbeam_direct::{
     CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig, JobHandle, JobStatus, SpillConfig,
 };
@@ -36,6 +36,24 @@ fn small_graph_runs_with_job_owned_settings() {
         .unwrap();
     assert_eq!(values, [2, 4, 6, 8]);
     assert_ne!(job.id(), second.id());
+}
+
+#[test]
+fn versioned_semantic_map_executes_with_direct() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("source", vec![1_i32, 2, 3])
+        .unwrap()
+        .map_with_semantic_named(
+            "custom-map",
+            "example/add-five",
+            Version { major: 1, minor: 0 },
+            |value| value + 5,
+        )
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(values, [6, 7, 8]);
 }
 
 #[test]

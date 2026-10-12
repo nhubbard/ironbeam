@@ -3257,8 +3257,21 @@ impl<T: Element> PCollection<T> {
         transform: Option<Transform>,
         window: Option<Window>,
     ) -> Result<PCollection<U>, Error> {
+        self.next_with_semantic(key, operation, transform, window, None)
+    }
+    fn next_with_semantic<U: Element>(
+        &self,
+        key: &str,
+        operation: Operation,
+        transform: Option<Transform>,
+        window: Option<Window>,
+        semantic: Option<(&str, Version)>,
+    ) -> Result<PCollection<U>, Error> {
         let parent = self.parent()?;
-        let (semantic_id, semantic_version) = Pipeline::semantic_identity(&operation);
+        let (semantic_id, semantic_version) = semantic.map_or_else(
+            || Pipeline::semantic_identity(&operation),
+            |(id, version)| (id.to_owned(), version),
+        );
         let node = Node {
             key: key.into(),
             input: Some(self.key.clone()),
@@ -3367,6 +3380,34 @@ impl<T: Element> PCollection<T> {
         key: &str,
         f: impl Fn(T) -> U + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
+        self.map_registered(key, None, f)
+    }
+    /// Register a versioned unary map implementation under an application
+    /// semantic ID. The portable worker must construct the same handler, and
+    /// callers must change the version when its behavior changes: closure
+    /// bytes cannot be fingerprinted by the graph descriptor.
+    pub fn map_with_semantic_named<U: Element>(
+        &self,
+        key: &str,
+        semantic_id: &str,
+        version: Version,
+        f: impl Fn(T) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        if !semantic_id.contains('/') || semantic_id.starts_with("ironbeam/") || version.major == 0
+        {
+            return Err(Error::graph(
+                key,
+                "semantic map requires an application namespace and major version",
+            ));
+        }
+        self.map_registered(key, Some((semantic_id, version)), f)
+    }
+    fn map_registered<U: Element>(
+        &self,
+        key: &str,
+        semantic: Option<(&str, Version)>,
+        f: impl Fn(T) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
         let key_owned = key.to_owned();
         let f = Arc::new(f);
         let envelope_f = Arc::clone(&f);
@@ -3379,7 +3420,8 @@ impl<T: Element> PCollection<T> {
             e.value = Box::new(envelope_f(*value));
             Ok(Some(e))
         }));
-        let output = self.next(key, Operation::Map, Some(transform), None)?;
+        let output =
+            self.next_with_semantic(key, Operation::Map, Some(transform), None, semantic)?;
         self.pipeline
             .add_typed_transform(key, TypedTransformRegistration::Map(Arc::new(typed_f)))?;
         Ok(output)
@@ -5973,6 +6015,58 @@ impl<T> Output<T> {
 mod internal_tests {
     use super::*;
     use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn semantic_map_records_handler_identity_and_rejects_invalid_versions() {
+        let pipeline = Pipeline::default();
+        let source = pipeline.from_vec("source", vec![2_i32]).unwrap();
+        let version = Version { major: 2, minor: 1 };
+        source
+            .map_with_semantic_named("twice", "example/twice", version, |value| value * 2)
+            .unwrap();
+        let (graph, registry) = pipeline.snapshot().unwrap();
+        let node = graph.node("twice").unwrap();
+        assert_eq!(node.operation, Operation::Map);
+        assert_eq!(node.semantic_id, "example/twice");
+        assert_eq!(node.semantic_version, version);
+        assert!(registry.has_single_transform("twice"));
+        assert!(
+            source
+                .map_with_semantic_named("bad-id", "twice", version, |value| value)
+                .is_err()
+        );
+        assert!(
+            source
+                .map_with_semantic_named("builtin-id", "ironbeam/map", version, |value| value)
+                .is_err()
+        );
+        assert!(
+            source
+                .map_with_semantic_named(
+                    "bad-version",
+                    "example/twice",
+                    Version { major: 0, minor: 1 },
+                    |value| value,
+                )
+                .is_err()
+        );
+        assert_eq!(pipeline.snapshot().unwrap().0.nodes.len(), 2);
+        let changed = Pipeline::default();
+        changed
+            .from_vec("source", vec![2_i32])
+            .unwrap()
+            .map_with_semantic_named(
+                "twice",
+                "example/twice",
+                Version { major: 2, minor: 2 },
+                |value| value * 2,
+            )
+            .unwrap();
+        assert_ne!(
+            graph.fingerprint().unwrap(),
+            changed.snapshot().unwrap().0.fingerprint().unwrap()
+        );
+    }
 
     #[test]
     fn bundle_recovery_is_explicit_and_typed_adapter_forwards_the_exact_id() {

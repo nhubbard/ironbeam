@@ -89,7 +89,7 @@ runner state.
 | Immediate `.write_jsonl(path)` and similar methods | `ironbeam_io::jsonl_sink(&input, key, path)?`, then `DirectRunner.run_sink(&sink, &config)` | Sink construction is deferred; `FinalResult` files publish after job success. No immediate row count is returned. |
 | `read_jsonl(&pipeline, path)` and other file readers | `ironbeam_io::jsonl_source(&pipeline, key, path)` | v5 file sources bind path and content digest at graph build time; a changed file fails on execution. |
 | `write_avro_with_schema(path, schema)` | `avro_sink(&input, key, path, schema)` | v5 writes native Avro records; `avro_source` reads native containers. `avro_json_*` handles earlier v5 preview wrappers. |
-| v4 custom `DynOp` and local `NodeId` | Registered v5 semantic operation and stable graph key | Compiled v4 closures and node IDs cannot be imported into a v5 graph. |
+| v4 custom `DynOp` and local `NodeId` | Versioned `map_with_semantic_named` for unary map handlers, plus stable graph keys | Compiled v4 closures and node IDs cannot be imported into a v5 graph. The versioned map runs on Direct and the local Prism worker. The more general `custom_named` marker still has no executor handler and Direct rejects it. Arbitrary `DynOp` replacement remains a 5.0.0 parity gap. |
 
 The full v4 public method inventory is in `V5_PHASE0_API_INVENTORY.md`;
 current implementation status and physical execution gaps are in

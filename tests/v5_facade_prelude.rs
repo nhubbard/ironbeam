@@ -1,4 +1,21 @@
-use ironbeam::v5::{Pipeline, prelude::*};
+use ironbeam::v5::{Pipeline, Version, prelude::*};
+
+#[test]
+fn facade_runs_versioned_semantic_map() {
+    let values = Pipeline::default()
+        .from_vec("source", vec![2_i32, 4])
+        .unwrap()
+        .map_with_semantic_named(
+            "scale",
+            "user/scale",
+            Version { major: 1, minor: 0 },
+            |value| value * 3,
+        )
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(values, [6, 12]);
+}
 
 #[test]
 fn facade_prelude_runs_v4_shaped_helper_chain_without_compat() {

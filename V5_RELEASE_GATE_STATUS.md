@@ -27,6 +27,7 @@ below is complete.
 | Gate | Done when |
 | --- | --- |
 | ☐ Public API and v4 behavior | The root API and promised behaviors are audited against the [helper tracker](V5_HELPER_PARITY_TRACKER.md) and [migration guide](V4_TO_V5_MIGRATION.md). |
+| ☐ Custom transform execution | A versioned unary semantic map now executes on Direct and the local Prism worker. Replace the rest of v4's executable local `apply_transform` shapes with registered v5 handlers; `custom_named` remains a marker rejected by Direct. |
 | ☐ Portable operation coverage | Every advertised operation has shared Direct/Prism success and failure cases, including multi-input and output paths. |
 | ☐ Runner agreement | Shared cases match on values, grouping, event times, windows, typed failures, and committed output. |
 
@@ -59,6 +60,7 @@ below is complete.
 | --- | --- |
 | Root workspace | Tests and doctests passed with the current Direct inner-join implementation. |
 | Root API composition | A new facade test builds two keyed sums, joins them, and collects the exact result through `ironbeam::v5::prelude` without the compatibility crate. It passes with default and no default features; strict lint passes. This exercises one public composition path, not the complete API ledger. |
+| Versioned semantic map | `map_with_semantic_named` records an application ID and version in the graph fingerprint while using registered map execution. Core rejects invalid identity/version, Direct collects exact values, and the production unbounded Prism fixture executes a nontrivial map and restores its value in the next stage before its verified outputs. General custom operation registration remains open. |
 | Local release script | On 2026-10-11, the complete script passed with Mr Boxington after the Direct join changes: dependency and feature checks, workspace and feature tests, docs, and local package verification for all 29 packages including the root facade. Nothing was published. |
 | Cloud operation coverage | **186/261 source locations** and **34/42 branches** after bounding parallel helper concurrency; both CI ratchets pass. Uncovered utility paths remain in the quality review. |
 | JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** at the last coverage run. The latest eager reader change has passing default/all-feature tests and strict lint; coverage has not been rerun. |
