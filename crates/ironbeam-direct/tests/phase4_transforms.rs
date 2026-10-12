@@ -548,6 +548,83 @@ fn equal_size_inner_join_keeps_duplicate_windows_and_right_timestamps() {
 }
 
 #[test]
+fn typed_global_join_preserves_duplicate_pairs_and_resource_limits() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("typed-left", vec![(1_i32, 2_i32), (1, 3)])
+        .unwrap();
+    let right = pipeline
+        .from_vec("typed-right", vec![(1_i32, 10_i32), (1, 20), (2, 30)])
+        .unwrap();
+    let output = left
+        .join_inner_named("typed-join", &right)
+        .unwrap()
+        .output("typed-output")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(
+        registry
+            .typed_join::<(i32, (i32, i32))>("typed-join")
+            .is_some()
+    );
+
+    let (mut rows, job) = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                buffer_budget_elements: 2,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap();
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        [(1, (2, 10)), (1, (2, 20)), (1, (3, 10)), (1, (3, 20))]
+    );
+    assert_eq!(job.metrics().source_elements, 5);
+    assert_eq!(job.metrics().output_elements, 4);
+
+    let error = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                memory_budget_bytes: 1,
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert_eq!(error.node.as_deref(), Some("typed-left"));
+
+    let fanout = Pipeline::default();
+    let left = fanout
+        .from_vec("fanout-left", vec![(1_i32, 2_i32); 10])
+        .unwrap();
+    let right = fanout
+        .from_vec("fanout-right", vec![(1_i32, 3_i32); 10])
+        .unwrap();
+    let output = left
+        .join_inner_named("fanout-join", &right)
+        .unwrap()
+        .output("fanout-output")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                memory_budget_bytes: 1_100,
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert_eq!(error.node.as_deref(), Some("join"));
+}
+
+#[test]
 fn bounded_fixed_windows_scope_group_combine_and_join() {
     let pipeline = Pipeline::default();
     let left = pipeline

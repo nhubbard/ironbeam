@@ -50,6 +50,66 @@ pub(crate) fn execute<T: Element>(
         );
         return Ok(values);
     }
+    // This path assembles the joined rows in memory before OutputStore sees them.
+    // Keep the regular route when spill or checkpoint behavior is requested.
+    if checkpoint.is_none()
+        && config.spill.is_none()
+        && let Some(join_key) = graph
+            .node(output_key)
+            .filter(|node| matches!(node.operation, Operation::Output))
+            .and_then(|node| node.input.as_deref())
+        && let Some(join) = registry.typed_join::<T>(join_key)
+    {
+        let check_cancelled = || {
+            if config.cancellation.load(Ordering::Acquire) {
+                Err(cancelled())
+            } else {
+                Ok(())
+            }
+        };
+        let values = catch_unwind(AssertUnwindSafe(|| {
+            join(config.memory_budget_bytes, &check_cancelled)
+        }))
+        .unwrap_or_else(|_| {
+            Err(Error::execution(
+                join_key,
+                "direct",
+                "user aggregate panicked",
+            ))
+        })?;
+        let output_count = u64::try_from(values.len()).unwrap_or(u64::MAX);
+        store.extend_batch(values)?;
+        let join_node = graph.node(join_key).expect("registered join node exists");
+        for source_key in join_node.input.iter().map(String::as_str).chain(
+            join_node
+                .additional_inputs
+                .iter()
+                .map(|edge| edge.key.as_str()),
+        ) {
+            let len = registry.source_len_hint(source_key).unwrap_or(0);
+            handle
+                .metrics
+                .source_elements
+                .fetch_add(u64::try_from(len).unwrap_or(u64::MAX), Ordering::Relaxed);
+            let batch_limit = config.buffer_budget_elements;
+            handle.metrics.peak_batch_elements.fetch_max(
+                u64::try_from(len.min(batch_limit)).unwrap_or(u64::MAX),
+                Ordering::Relaxed,
+            );
+            handle.metrics.batches.fetch_add(
+                u64::try_from(len.div_ceil(batch_limit)).unwrap_or(u64::MAX),
+                Ordering::Relaxed,
+            );
+        }
+        let values = store.into_vec()?;
+        let count = handle
+            .metrics
+            .output_elements
+            .fetch_add(output_count, Ordering::Relaxed)
+            .saturating_add(output_count);
+        handle.processed.store(count, Ordering::Relaxed);
+        return Ok(values);
+    }
     let events = if let Some((manager, source_len)) = &checkpoint
         && let Some((group_key, source_key, stages, downstream)) =
             checkpointed_group_route(graph, output_key)

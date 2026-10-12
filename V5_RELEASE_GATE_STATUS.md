@@ -74,6 +74,22 @@ joins 22% slower without reducing peak RSS; the duplicate-key case used 11%
 less memory but ran 8% slower. The next join-memory change needs a compact
 typed path rather than an envelope-at-a-time callback.
 
+The compact typed Direct inner join is now the candidate for two global vector
+sources collected directly, with no checkpoint. On 2026-10-11, separate
+release binaries built from the previous commit and the candidate ran two
+warmup pairs and eight alternating sample pairs at one million rows with the
+same 1 GiB budget. Counts and checksums matched in every pair. Other join
+shapes continue through the existing materialized path.
+
+| Join case | Previous v5 ms | Candidate v5 ms | Candidate/previous | Previous MiB | Candidate MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Equal-size inner | 211.893 | 106.399 | 0.50× | 418.95 | 273.58 |
+| Duplicate-key inner | 43.560 | 9.963 | 0.23× | 119.16 | 42.75 |
+
+This is an implementation comparison, not a new v4/v5 release comparison.
+The broader corpus, especially map/filter latency and join variants outside
+this fast path, still needs acceptance limits and fresh paired measurements.
+
 ## Completed gates
 
 | Gate | Evidence |

@@ -1556,6 +1556,10 @@ type UnboundedSourceFactory =
 type SourceFactory = Arc<dyn Fn() -> Result<SourceIterator, Error> + Send + Sync>;
 type TypedSourceFactory<T> = Arc<dyn Fn() -> Result<TypedSourceIterator<T>, Error> + Send + Sync>;
 type TypedVecBatchFactory<T> = Arc<dyn Fn(usize, usize) -> Result<Vec<T>, Error> + Send + Sync>;
+/// Local typed join callback used by a runner with an in-memory vector source.
+pub type TypedJoin<T> =
+    dyn Fn(usize, &dyn Fn() -> Result<(), Error>) -> Result<Vec<T>, Error> + Send + Sync;
+type TypedJoinFactory<T> = Arc<TypedJoin<T>>;
 type ErasedVecBatchFactory = Arc<dyn Fn(usize, usize) -> Result<Payload, Error> + Send + Sync>;
 type VecEnvelopeBatchFactory =
     Arc<dyn Fn(usize, usize) -> Result<Vec<Envelope>, Error> + Send + Sync>;
@@ -2137,6 +2141,7 @@ pub struct Registry {
     typed_transforms: BTreeMap<String, TypedTransformRegistration>,
     keyed_timestamp_reifications: BTreeSet<String>,
     aggregates: BTreeMap<String, Aggregate>,
+    typed_joins: BTreeMap<String, Arc<dyn Any + Send + Sync>>,
     folds: BTreeMap<String, FoldFactory>,
     sinks: BTreeMap<String, SinkRegistration>,
     coders: BTreeMap<String, CoderRegistration>,
@@ -2650,6 +2655,14 @@ impl Registry {
         self.aggregates
             .get(key)
             .ok_or_else(|| Error::execution(key, "direct", "aggregate missing"))?(inputs)
+    }
+    /// Return a typed in-memory inner join registered for two vector sources.
+    #[must_use]
+    pub fn typed_join<T: Element>(&self, key: &str) -> Option<&TypedJoin<T>> {
+        self.typed_joins
+            .get(key)?
+            .downcast_ref::<TypedJoinFactory<T>>()
+            .map(Arc::as_ref)
     }
     #[must_use]
     pub fn has_aggregate(&self, key: &str) -> bool {
@@ -4685,6 +4698,82 @@ where
     }
     Ok(output.into())
 }
+
+fn typed_inner_join<K, V, W, O>(
+    left: Vec<(K, V)>,
+    right: Vec<(K, W)>,
+    memory_budget: usize,
+    check_cancelled: &dyn Fn() -> Result<(), Error>,
+    emit: &impl Fn(Option<V>, Option<W>) -> Option<O>,
+) -> Result<Vec<(K, O)>, Error>
+where
+    K: Element + Eq + Hash + Clone,
+    V: Element + Clone,
+    W: Element + Clone,
+    O: Element,
+{
+    let mut index: HashMap<(K, Option<WindowInterval>), JoinPositions> = HashMap::new();
+    let mut output = Vec::new();
+    let max_rows = memory_budget / std::mem::size_of::<(K, O)>().max(1);
+    if left.len() <= right.len() {
+        let mut left_values = Vec::with_capacity(left.len());
+        for (key, value) in left {
+            JoinPositions::record(&mut index, key, None, left_values.len());
+            left_values.push(value);
+        }
+        for (position, (key, value)) in right.into_iter().enumerate() {
+            if position % 4096 == 0 {
+                check_cancelled()?;
+            }
+            if let Some(matches) = index.get(&(key.clone(), None)) {
+                for &slot in matches.as_slice() {
+                    if let Some(pair) = emit(Some(left_values[slot].clone()), Some(value.clone())) {
+                        if output.len() % 4096 == 0 {
+                            check_cancelled()?;
+                        }
+                        if output.len() >= max_rows {
+                            return Err(Error::resource(
+                                "join",
+                                "output exceeds job memory budget",
+                            ));
+                        }
+                        output.push((key.clone(), pair));
+                    }
+                }
+            }
+        }
+    } else {
+        let mut right_values = Vec::with_capacity(right.len());
+        for (key, value) in right {
+            JoinPositions::record(&mut index, key, None, right_values.len());
+            right_values.push(value);
+        }
+        for (position, (key, value)) in left.into_iter().enumerate() {
+            if position % 4096 == 0 {
+                check_cancelled()?;
+            }
+            if let Some(matches) = index.get(&(key.clone(), None)) {
+                for &slot in matches.as_slice() {
+                    if let Some(pair) = emit(Some(value.clone()), Some(right_values[slot].clone()))
+                    {
+                        if output.len() % 4096 == 0 {
+                            check_cancelled()?;
+                        }
+                        if output.len() >= max_rows {
+                            return Err(Error::resource(
+                                "join",
+                                "output exceeds job memory budget",
+                            ));
+                        }
+                        output.push((key.clone(), pair));
+                    }
+                }
+            }
+        }
+    }
+    check_cancelled()?;
+    Ok(output)
+}
 struct GroupByKeyFoldState<K, V> {
     key: String,
     global_indices: HashMap<K, usize>,
@@ -5846,15 +5935,27 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         }
         let inner_join = matches!(operation, Operation::JoinInner);
         let key_owned = key.to_owned();
+        let emit = Arc::new(emit);
+        let typed_emit = Arc::clone(&emit);
         let aggregate: Aggregate = Arc::new(move |inputs| {
             let [left, right]: [Vec<Envelope>; 2] = inputs
                 .try_into()
                 .map_err(|_| Error::execution(&key_owned, "direct", "join requires two inputs"))?;
             if inner_join && left.len() <= right.len() {
-                return inner_join_reusing_right::<K, V, W, O>(left, right, &key_owned, &emit);
+                return inner_join_reusing_right::<K, V, W, O>(
+                    left,
+                    right,
+                    &key_owned,
+                    emit.as_ref(),
+                );
             }
             if inner_join && right.len() < left.len() {
-                return inner_join_indexed_right::<K, V, W, O>(left, right, &key_owned, &emit);
+                return inner_join_indexed_right::<K, V, W, O>(
+                    left,
+                    right,
+                    &key_owned,
+                    emit.as_ref(),
+                );
             }
             // Join output order is unspecified; indexing the smaller side
             // avoids retaining one position per row of a highly skewed input.
@@ -6044,14 +6145,81 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 },
             ],
         };
-        collection
+        let mut inner = collection
             .pipeline
             .inner
             .lock()
-            .map_err(|_| Error::graph(key, "builder lock poisoned"))?
+            .map_err(|_| Error::graph(key, "builder lock poisoned"))?;
+        inner
             .registry
             .join_coders
             .insert(key.to_owned(), registration);
+        if inner_join && left.time.window == Window::Global && left.time.initial_timestamp_ns == 0 {
+            let left_source = inner.registry.sources.get(&self.key).and_then(|source| {
+                Some((
+                    source.len_hint?,
+                    source
+                        .vec_batch_factory
+                        .as_ref()?
+                        .downcast_ref::<TypedVecBatchFactory<(K, V)>>()?
+                        .clone(),
+                ))
+            });
+            let right_source = inner.registry.sources.get(&right.key).and_then(|source| {
+                Some((
+                    source.len_hint?,
+                    source
+                        .vec_batch_factory
+                        .as_ref()?
+                        .downcast_ref::<TypedVecBatchFactory<(K, W)>>()?
+                        .clone(),
+                ))
+            });
+            if let (Some((left_len, left_factory)), Some((right_len, right_factory))) =
+                (left_source, right_source)
+            {
+                let left_key = self.key.clone();
+                let right_key = right.key.clone();
+                let typed_join: TypedJoinFactory<(K, O)> = Arc::new(move |budget, check| {
+                    check()?;
+                    for (source_key, len) in [(&left_key, left_len), (&right_key, right_len)] {
+                        if len.saturating_mul(std::mem::size_of::<Envelope>()) > budget {
+                            return Err(Error::resource(
+                                source_key,
+                                "materialized source exceeds job memory budget",
+                            ));
+                        }
+                    }
+                    let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        left_factory(0, left_len)
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            &left_key,
+                            "direct",
+                            "source value clone panicked",
+                        ))
+                    })?;
+                    check()?;
+                    let right = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        right_factory(0, right_len)
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            &right_key,
+                            "direct",
+                            "source value clone panicked",
+                        ))
+                    })?;
+                    typed_inner_join::<K, V, W, O>(left, right, budget, check, typed_emit.as_ref())
+                });
+                inner
+                    .registry
+                    .typed_joins
+                    .insert(key.to_owned(), Arc::new(typed_join));
+            }
+        }
+        drop(inner);
         Ok(collection)
     }
 }
