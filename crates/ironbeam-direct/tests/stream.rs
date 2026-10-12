@@ -882,6 +882,75 @@ fn two_unbounded_cogroup_preserves_duplicate_and_side_only_keys() {
 }
 
 #[test]
+fn two_unbounded_join_rejects_late_rows_after_both_watermarks_close_window() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let main = pipeline
+        .test_stream_source(
+            "late-main",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 1)]),
+                TestStreamEvent::AdvanceWatermark(10),
+                TestStreamEvent::Elements(vec![((1, 11), 1)]),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("late-main-window", 10)
+        .unwrap();
+    let side = pipeline
+        .test_stream_source(
+            "late-side",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 20_i32), 1)]),
+                TestStreamEvent::AdvanceWatermark(10),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("late-side-window", 10)
+        .unwrap();
+    let sink = main
+        .join_inner_named("late-join", &side)
+        .unwrap()
+        .map_named("late-sum", |(key, (left, right))| key * 100 + left + right)
+        .unwrap()
+        .sink_named_with_config(
+            "late-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "late-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("late-join"));
+    assert!(error.message.contains("late window element"));
+    assert_eq!(*committed.lock().unwrap(), [130]);
+}
+
+#[test]
 fn dual_stream_reopens_cursorless_watermark_after_checkpoint() {
     let temporary = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
