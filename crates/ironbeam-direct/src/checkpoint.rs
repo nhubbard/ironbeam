@@ -21,6 +21,13 @@ pub(crate) fn sync_directory(path: &Path) -> Result<(), Error> {
         .map_err(|error| io_error("checkpoint", error))
 }
 
+#[cfg(test)]
+pub(crate) fn crash_after(stage: &str) {
+    if std::env::var("IRONBEAM_CHECKPOINT_EXIT_STAGE").as_deref() == Ok(stage) {
+        std::process::exit(86);
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CheckpointConfig {
     pub directory: PathBuf,
@@ -497,6 +504,8 @@ impl CheckpointManager {
         // Make the new data file's directory entry durable before publishing
         // a manifest that points to it.
         sync_directory(&self.config.directory)?;
+        #[cfg(test)]
+        crash_after("bounded_data_synced");
         let data_file = data_path
             .file_name()
             .ok_or_else(|| Error::recovery("checkpoint", "checkpoint data path lacks file name"))?
@@ -558,11 +567,17 @@ impl CheckpointManager {
         // can replace the only reference to its predecessor.
         if self.config.max_checkpoints > 1 {
             sync_directory(&self.config.directory)?;
+            #[cfg(test)]
+            crash_after("bounded_history_synced");
         }
         self.write_manifest(&self.manifest_path(), &manifest)?;
+        #[cfg(test)]
+        crash_after("bounded_latest_renamed");
         // Do not remove the previous data file until the new manifest's
         // directory entry is durable. A crash must leave one recoverable pair.
         sync_directory(&self.config.directory)?;
+        #[cfg(test)]
+        crash_after("bounded_latest_synced");
         let retained = (0..self.config.max_checkpoints)
             .filter_map(|slot| {
                 let path = if slot == 0 {
@@ -691,6 +706,83 @@ fn sha256_file(path: &Path) -> Result<String, Error> {
 mod tests {
     use super::*;
     use ironbeam_core::ErrorKind;
+    use std::process::Command;
+
+    #[test]
+    fn checkpoint_crash_child() {
+        let Ok(directory) = std::env::var("IRONBEAM_CHECKPOINT_CHILD_DIRECTORY") else {
+            return;
+        };
+        let config = CheckpointConfig {
+            directory: directory.into(),
+            max_checkpoints: 2,
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "crash-test".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+        let mut store = OutputStore::<i32>::new(1024, None, metrics).unwrap();
+        store.push(1).unwrap();
+        store.push(2).unwrap();
+        manager.save(2, &store).unwrap();
+        panic!("checkpoint child did not exit at its fault stage");
+    }
+
+    #[test]
+    fn bounded_checkpoint_survives_process_exit_at_publication_boundaries() {
+        for (stage, expected_offset) in [
+            ("bounded_data_synced", 1),
+            ("bounded_history_synced", 1),
+            ("bounded_latest_renamed", 2),
+            ("bounded_latest_synced", 2),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let config = CheckpointConfig {
+                directory: directory.path().to_path_buf(),
+                max_checkpoints: 2,
+                ..CheckpointConfig::default()
+            };
+            let identity = Identity::new::<i32>(
+                "graph".into(),
+                "source".into(),
+                "input".into(),
+                "output".into(),
+                "crash-test".into(),
+            );
+            let metrics = Arc::new(MetricsState::default());
+            let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+            let mut store = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+            store.push(1).unwrap();
+            manager.save(1, &store).unwrap();
+
+            let result = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "checkpoint::tests::checkpoint_crash_child"])
+                .env("IRONBEAM_CHECKPOINT_CHILD_DIRECTORY", directory.path())
+                .env("IRONBEAM_CHECKPOINT_EXIT_STAGE", stage)
+                .output()
+                .unwrap();
+            assert_eq!(result.status.code(), Some(86), "stage {stage}: {result:?}");
+            let mut recovered = OutputStore::<i32>::new(1024, None, metrics).unwrap();
+            assert_eq!(manager.recover(&mut recovered).unwrap(), expected_offset);
+            assert_eq!(
+                recovered.into_vec().unwrap(),
+                vec![1, 2][..expected_offset].to_vec()
+            );
+            if stage == "bounded_latest_renamed" {
+                fs::remove_file(directory.path().join("latest.json")).unwrap();
+                let mut fallback =
+                    OutputStore::<i32>::new(1024, None, Arc::new(MetricsState::default())).unwrap();
+                assert_eq!(manager.recover(&mut fallback).unwrap(), 1);
+                assert_eq!(fallback.into_vec().unwrap(), vec![1]);
+            }
+        }
+    }
 
     #[test]
     fn progress_checksum_has_a_stable_cross_platform_wire_shape() {

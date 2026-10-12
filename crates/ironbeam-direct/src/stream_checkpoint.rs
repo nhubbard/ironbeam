@@ -1,5 +1,7 @@
 //! Durable progress for a single resumable source and idempotent sink.
 use crate::CheckpointConfig;
+#[cfg(test)]
+use crate::checkpoint::crash_after;
 use crate::checkpoint::{MAX_RETAINED_CHECKPOINTS, sync_directory};
 use ironbeam_core::{Element, Error, ErrorKind, ProgressSignal, Version};
 use serde::{Deserialize, Serialize};
@@ -258,9 +260,15 @@ impl StreamCheckpoint {
         }
         if self.max_checkpoints > 1 {
             sync_directory(directory)?;
+            #[cfg(test)]
+            crash_after("stream_history_synced");
         }
         self.write_manifest(&self.path, &manifest)?;
+        #[cfg(test)]
+        crash_after("stream_latest_renamed");
         sync_directory(directory)?;
+        #[cfg(test)]
+        crash_after("stream_latest_synced");
         for path in stale_history {
             let _ = fs::remove_file(path);
         }
@@ -338,6 +346,75 @@ fn checksum(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
+
+    #[test]
+    fn stream_checkpoint_crash_child() {
+        let Ok(directory) = std::env::var("IRONBEAM_STREAM_CHECKPOINT_CHILD_DIRECTORY") else {
+            return;
+        };
+        let config = CheckpointConfig {
+            directory: directory.into(),
+            max_checkpoints: 2,
+            binary_build_id: "test-build".into(),
+            ..CheckpointConfig::default()
+        };
+        let checkpoint =
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                .unwrap();
+        let mut progress = signal();
+        progress.checkpoint_position = Some(vec![2]);
+        checkpoint.save(&progress).unwrap();
+        panic!("stream checkpoint child did not exit at its fault stage");
+    }
+
+    #[test]
+    fn stream_checkpoint_survives_process_exit_at_publication_boundaries() {
+        for (stage, expected_cursor) in [
+            ("stream_history_synced", 1),
+            ("stream_latest_renamed", 2),
+            ("stream_latest_synced", 2),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let config = CheckpointConfig {
+                directory: directory.path().into(),
+                max_checkpoints: 2,
+                binary_build_id: "test-build".into(),
+                ..CheckpointConfig::default()
+            };
+            let checkpoint =
+                StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                    .unwrap();
+            let mut first = signal();
+            first.checkpoint_position = Some(vec![1]);
+            checkpoint.save(&first).unwrap();
+
+            let result = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "stream_checkpoint::tests::stream_checkpoint_crash_child",
+                ])
+                .env(
+                    "IRONBEAM_STREAM_CHECKPOINT_CHILD_DIRECTORY",
+                    directory.path(),
+                )
+                .env("IRONBEAM_CHECKPOINT_EXIT_STAGE", stage)
+                .output()
+                .unwrap();
+            assert_eq!(result.status.code(), Some(86), "stage {stage}: {result:?}");
+            assert_eq!(
+                checkpoint.load().unwrap().unwrap().checkpoint_position,
+                Some(vec![expected_cursor])
+            );
+            if stage == "stream_latest_renamed" {
+                fs::remove_file(&checkpoint.path).unwrap();
+                assert_eq!(
+                    checkpoint.load().unwrap().unwrap().checkpoint_position,
+                    Some(vec![1])
+                );
+            }
+        }
+    }
 
     fn checkpoint(directory: &std::path::Path, sink_digest: &str) -> StreamCheckpoint {
         StreamCheckpoint::new::<i32>(
