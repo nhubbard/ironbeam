@@ -11,7 +11,7 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 
 | Area | Where it stands | Next proof |
 | --- | --- | --- |
-| Workspace | V5-only root source, including with no default features; 28 local packages verify after legacy cloud retirement | Finish public API audit |
+| Workspace | V5-only root source, including with no default features; the root facade and 28 workspace crates verify as local packages | Finish public API audit |
 | Direct | V4 reference corpus and v5 helper tests pass | Close public API and edge-case parity |
 | Portable | 19 live local Prism tests and the separate native Arrow proof pass with completed-attempt manifests | Expand shared Direct/Prism corpus |
 | Streaming | A split and accepted batches survive separate worker process restarts in the Fn Data fixture; the production reader also resumes through join and co-group | Prove live Prism worker restart and output recovery |
@@ -57,7 +57,7 @@ below is complete.
 | Check | Result |
 | --- | --- |
 | Root workspace | Tests and doctests passed after the eager JSONL and shared file-source changes. |
-| Local release script | Dependency and feature checks, workspace and feature tests, docs, and verification of all 28 packages passed with Mr Boxington on 2026-10-11 after mandatory final-result manifest binding. Nothing was published. |
+| Local release script | On 2026-10-11, dependency and feature checks, workspace and feature tests, docs, and verification of the 28 listed crates passed with Mr Boxington. The previously omitted root `ironbeam` package also passed local package verification with all workspace dependencies patched locally; the script now includes it as its 29th package. Nothing was published. |
 | Cloud operation coverage | **186/261 source locations** and **34/42 branches** after bounding parallel helper concurrency; both CI ratchets pass. Uncovered utility paths remain in the quality review. |
 | JSONL coverage | All-feature package: **407/435 source locations** and **38/40 branches** at the last coverage run. The latest eager reader change has passing default/all-feature tests and strict lint; coverage has not been rerun. |
 | Local Prism | 19 live tests passed across the prior suite and a new failed-bundle proof. A production reader resumed from a residual cursor; join and co-group committed five exact rows across two windows. The provider-neutral harness coordinator requires `DONE`, validates the graph's ten final sinks against the whole-job journal and committed row metrics, then supplies exact attempt IDs and counts to all ten publishers. A separate job failed after staging and left no fragment, journal completion, or published output. |

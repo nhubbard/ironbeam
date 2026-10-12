@@ -7,7 +7,7 @@ cargo_bin="${IRONBEAM_CARGO:-cargo}"
 # publication or crates.io publish dry run occurs here.
 cd "$(dirname "$0")/.."
 root="$PWD"
-packages=(ironbeam-compression ironbeam-coder-postcard ironbeam-cloud-objects ironbeam-cloud-service-api ironbeam-cloud-fakes ironbeam-cloud-ops ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-metrics ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat)
+packages=(ironbeam-compression ironbeam-coder-postcard ironbeam-cloud-objects ironbeam-cloud-service-api ironbeam-cloud-fakes ironbeam-cloud-ops ironbeam-cloud-object-store ironbeam-core ironbeam-direct ironbeam-metrics ironbeam-transforms ironbeam-transform-regex ironbeam-transform-approx ironbeam-io-sql ironbeam-io-mongodb ironbeam-io ironbeam-io-jsonl ironbeam-io-protobuf ironbeam-io-tfrecord ironbeam-io-csv ironbeam-io-xml ironbeam-io-msgpack ironbeam-io-cbor ironbeam-io-avro ironbeam-io-parquet ironbeam-io-arrow ironbeam-testing ironbeam-compat ironbeam)
 compression_patch=(--config "patch.crates-io.ironbeam-compression.path=\"$root/crates/ironbeam-compression\"")
 cloud_objects_patch=(--config "patch.crates-io.ironbeam-cloud-objects.path=\"$root/crates/ironbeam-cloud-objects\"")
 cloud_service_api_patch=(--config "patch.crates-io.ironbeam-cloud-service-api.path=\"$root/crates/ironbeam-cloud-service-api\"")
@@ -18,6 +18,14 @@ metrics_patch=(--config "patch.crates-io.ironbeam-metrics.path=\"$root/crates/ir
 transforms_patch=(--config "patch.crates-io.ironbeam-transforms.path=\"$root/crates/ironbeam-transforms\"")
 regex_patch=(--config "patch.crates-io.ironbeam-transform-regex.path=\"$root/crates/ironbeam-transform-regex\"")
 approx_patch=(--config "patch.crates-io.ironbeam-transform-approx.path=\"$root/crates/ironbeam-transform-approx\"")
+root_patches=()
+for manifest in "$root"/crates/*/Cargo.toml; do
+  package_dir="${manifest%/Cargo.toml}"
+  package_name="${package_dir##*/}"
+  if [[ "$package_name" != ironbeam-runner-contract-tests ]]; then
+    root_patches+=(--config "patch.crates-io.$package_name.path=\"$package_dir\"")
+  fi
+done
 
 if "$cargo_bin" tree -p ironbeam --no-default-features --edges normal | grep -E 'ironbeam-cloud v|hyperloglogplus v|ordered-float v|num_cpus v'; then
   echo "V5-only facade unexpectedly depends on the legacy root implementation." >&2
@@ -118,7 +126,8 @@ for package in "${packages[@]}"; do
       patches=("${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-compat)
       patches=("${core_patch[@]}" "${direct_patch[@]}" "${transforms_patch[@]}" "${regex_patch[@]}" "${approx_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"" --config "patch.crates-io.ironbeam-io-tfrecord.path=\"$root/crates/ironbeam-io-tfrecord\"") ;;
+    ironbeam) patches=("${root_patches[@]}") ;;
   esac
   "$cargo_bin" package -p "$package" --allow-dirty --offline "${patches[@]}"
 done
-echo "All twenty-eight v5 packages verified locally; no crates were published."
+echo "All twenty-nine v5 packages, including the root facade, verified locally; no crates were published."
