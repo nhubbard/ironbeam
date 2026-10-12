@@ -11,6 +11,8 @@ reference corpus remains available through the compatibility crate against
 published 4.1.1. Final release checks and ordered workspace publication are
 still in progress.
 
+The [Ironbeam 5 documentation site](docs/docs/index.md) contains getting-started guidance, concepts, format and runner guides, migration steps, and runnable example links. Its Zensical project is in [`docs/`](docs/README.md).
+
 ## Quick start
 
 ```rust
