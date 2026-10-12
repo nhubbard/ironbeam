@@ -1,9 +1,10 @@
 //! Versioned local batch checkpoints bound to graph, source, and output coder identity.
 use crate::metrics::MetricsState;
 use crate::spill::{OutputStore, io_error, visit_frames, write_frame};
-use ironbeam_core::{CHECKPOINT_VERSION, Element, Error, Version};
+use ironbeam_core::{CHECKPOINT_VERSION, Element, Error, ErrorKind, Version};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -12,6 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+const MAX_RETAINED_CHECKPOINTS: usize = 128;
 
 fn sync_directory(path: &Path) -> Result<(), Error> {
     File::open(path)
@@ -23,6 +25,8 @@ fn sync_directory(path: &Path) -> Result<(), Error> {
 pub struct CheckpointConfig {
     pub directory: PathBuf,
     pub interval_batches: usize,
+    /// Number of bounded snapshots retained, including the latest (1..=128).
+    pub max_checkpoints: usize,
     pub recover: bool,
     /// Stable identity of the executable transform registry (for example a build hash).
     pub binary_build_id: String,
@@ -32,6 +36,7 @@ impl Default for CheckpointConfig {
         Self {
             directory: std::env::temp_dir().join("ironbeam-v5-checkpoints"),
             interval_batches: 1,
+            max_checkpoints: 1,
             recover: true,
             binary_build_id: String::new(),
         }
@@ -90,7 +95,7 @@ impl Identity {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Manifest {
     version: Version,
     #[serde(default)]
@@ -146,6 +151,12 @@ impl CheckpointManager {
                 "checkpoint interval must be positive",
             ));
         }
+        if !(1..=MAX_RETAINED_CHECKPOINTS).contains(&config.max_checkpoints) {
+            return Err(Error::graph(
+                "checkpoint",
+                "checkpoint retention must be between 1 and 128",
+            ));
+        }
         fs::create_dir_all(&config.directory).map_err(|e| io_error("checkpoint", e))?;
         Ok(Self {
             config: config.clone(),
@@ -156,6 +167,11 @@ impl CheckpointManager {
     fn manifest_path(&self) -> PathBuf {
         self.config.directory.join("latest.json")
     }
+    fn history_path(&self, slot: usize) -> PathBuf {
+        self.config
+            .directory
+            .join(format!("checkpoint-history-{slot}.json"))
+    }
     fn load_manifest(
         &self,
         max_fold_state_bytes: Option<usize>,
@@ -163,8 +179,35 @@ impl CheckpointManager {
         if !self.config.recover {
             return Ok(None);
         }
-        let path = self.manifest_path();
-        let metadata = match fs::symlink_metadata(&path) {
+        let mut latest_error = None;
+        for slot in 0..self.config.max_checkpoints {
+            let path = if slot == 0 {
+                self.manifest_path()
+            } else {
+                self.history_path(slot)
+            };
+            match self.load_manifest_at(&path, max_fold_state_bytes) {
+                Ok(Some(checkpoint)) => return Ok(Some(checkpoint)),
+                Ok(None) => {}
+                Err(error) if error.kind == ErrorKind::Recovery => {
+                    if latest_error.is_none() {
+                        latest_error = Some(error);
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        if let Some(error) = latest_error {
+            return Err(error);
+        }
+        Ok(None)
+    }
+    fn load_manifest_at(
+        &self,
+        path: &Path,
+        max_fold_state_bytes: Option<usize>,
+    ) -> Result<Option<(Manifest, PathBuf)>, Error> {
+        let metadata = match fs::symlink_metadata(path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(io_error("checkpoint", error)),
@@ -181,7 +224,7 @@ impl CheckpointManager {
                 "checkpoint manifest exceeds size limit",
             ));
         }
-        let bytes = fs::read(&path).map_err(|e| io_error("checkpoint", e))?;
+        let bytes = fs::read(path).map_err(|e| io_error("checkpoint", e))?;
         let manifest: Manifest = serde_json::from_slice(&bytes)
             .map_err(|e| Error::recovery("checkpoint", e.to_string()))?;
         if manifest.version != CHECKPOINT_VERSION {
@@ -470,37 +513,97 @@ impl CheckpointManager {
             data_sha256: data_hash,
         };
         manifest.progress_sha256 = manifest.progress_hash();
-        let mut manifest_tmp = tempfile::NamedTempFile::new_in(&self.config.directory)
-            .map_err(|e| io_error("checkpoint", e))?;
-        serde_json::to_writer(&mut manifest_tmp, &manifest)
-            .map_err(|e| Error::recovery("checkpoint", e.to_string()))?;
-        manifest_tmp
-            .flush()
-            .map_err(|e| io_error("checkpoint", e))?;
-        manifest_tmp
-            .as_file()
-            .sync_all()
-            .map_err(|e| io_error("checkpoint", e))?;
-        let old = fs::read(self.manifest_path())
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Manifest>(&bytes).ok());
-        manifest_tmp
-            .persist(self.manifest_path())
-            .map_err(|e| io_error("checkpoint", e))?;
+        let previous = (0..self.config.max_checkpoints)
+            .map(|slot| {
+                let path = if slot == 0 {
+                    self.manifest_path()
+                } else {
+                    self.history_path(slot)
+                };
+                self.load_manifest_at(&path, None)
+                    .ok()
+                    .flatten()
+                    .map(|(manifest, _)| manifest)
+            })
+            .collect::<Vec<_>>();
+        let mut stale_history = Vec::new();
+        for entry in
+            fs::read_dir(&self.config.directory).map_err(|error| io_error("checkpoint", error))?
+        {
+            let entry = entry.map_err(|error| io_error("checkpoint", error))?;
+            let name = entry.file_name();
+            let Some(slot) = name
+                .to_str()
+                .and_then(|name| name.strip_prefix("checkpoint-history-"))
+                .and_then(|name| name.strip_suffix(".json"))
+                .and_then(|name| name.parse::<usize>().ok())
+            else {
+                continue;
+            };
+            if slot >= self.config.max_checkpoints
+                && slot < MAX_RETAINED_CHECKPOINTS
+                && let Ok(Some((manifest, _))) = self.load_manifest_at(&entry.path(), None)
+            {
+                stale_history.push((entry.path(), manifest));
+            }
+        }
+        for slot in (1..self.config.max_checkpoints).rev() {
+            let target = self.history_path(slot);
+            let source_manifest = previous[slot - 1].as_ref().filter(|old| old.kind == kind);
+            if let Some(source_manifest) = source_manifest {
+                self.write_manifest(&target, source_manifest)?;
+            } else if target.exists() {
+                fs::remove_file(&target).map_err(|error| io_error("checkpoint", error))?;
+            }
+        }
+        // The archived manifests must be durable before a new latest manifest
+        // can replace the only reference to its predecessor.
+        if self.config.max_checkpoints > 1 {
+            sync_directory(&self.config.directory)?;
+        }
+        self.write_manifest(&self.manifest_path(), &manifest)?;
         // Do not remove the previous data file until the new manifest's
         // directory entry is durable. A crash must leave one recoverable pair.
         sync_directory(&self.config.directory)?;
-        if let Some(old) = old
-            && old.version == CHECKPOINT_VERSION
-            && old.identity == self.identity
-            && old.data_file.starts_with("checkpoint-data-")
-            && old.data_file != manifest.data_file
-            && validate_data_file_name(&old.data_file).is_ok()
-            && old.progress_sha256 == old.progress_hash()
-        {
-            let _ = fs::remove_file(self.config.directory.join(old.data_file));
+        let retained = std::iter::once(manifest.data_file.clone())
+            .chain(
+                previous
+                    .iter()
+                    .take(self.config.max_checkpoints.saturating_sub(1))
+                    .filter_map(Option::as_ref)
+                    .filter(|old| old.kind == kind)
+                    .map(|old| old.data_file.clone()),
+            )
+            .collect::<HashSet<_>>();
+        let mut pruned_stale = Vec::new();
+        for (path, old) in stale_history {
+            if fs::remove_file(path).is_ok() {
+                pruned_stale.push(old);
+            }
+        }
+        for old in previous.into_iter().flatten().chain(pruned_stale) {
+            if old.data_file.starts_with("checkpoint-data-") && !retained.contains(&old.data_file) {
+                let _ = fs::remove_file(self.config.directory.join(old.data_file));
+            }
         }
         self.metrics.checkpoints.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+    fn write_manifest(&self, path: &Path, manifest: &Manifest) -> Result<(), Error> {
+        let mut temporary = tempfile::NamedTempFile::new_in(&self.config.directory)
+            .map_err(|error| io_error("checkpoint", error))?;
+        serde_json::to_writer(&mut temporary, manifest)
+            .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+        temporary
+            .flush()
+            .map_err(|error| io_error("checkpoint", error))?;
+        temporary
+            .as_file()
+            .sync_all()
+            .map_err(|error| io_error("checkpoint", error))?;
+        temporary
+            .persist(path)
+            .map_err(|error| io_error("checkpoint", error))?;
         Ok(())
     }
 }
@@ -623,6 +726,27 @@ mod tests {
             sha256_file(&dir.path().join("missing")).unwrap_err().kind,
             ErrorKind::Io
         );
+        for max_checkpoints in [0, MAX_RETAINED_CHECKPOINTS + 1] {
+            let config = CheckpointConfig {
+                directory: dir.path().to_path_buf(),
+                max_checkpoints,
+                ..CheckpointConfig::default()
+            };
+            let identity = Identity::new::<i32>(
+                "graph".into(),
+                "source".into(),
+                "input".into(),
+                "output".into(),
+                "test".into(),
+            );
+            assert_eq!(
+                CheckpointManager::new(&config, identity, Arc::new(MetricsState::default()))
+                    .err()
+                    .unwrap()
+                    .kind,
+                ErrorKind::Graph
+            );
+        }
     }
 
     #[test]
@@ -717,6 +841,154 @@ mod tests {
         let error = manager.recover(&mut recovered).unwrap_err();
         assert_eq!(error.kind, ErrorKind::Recovery);
         assert!(error.message.contains("data file is missing"));
+    }
+
+    #[test]
+    fn bounded_history_retains_a_limit_and_recovers_the_previous_valid_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            max_checkpoints: 3,
+            binary_build_id: "history-test".into(),
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "history-test".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager = CheckpointManager::new(&config, identity, Arc::clone(&metrics)).unwrap();
+        let mut store = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        let mut data_files = Vec::new();
+        for offset in 1..=4 {
+            store.push(offset).unwrap();
+            manager.save(offset as usize, &store).unwrap();
+            let manifest: Manifest =
+                serde_json::from_slice(&fs::read(directory.path().join("latest.json")).unwrap())
+                    .unwrap();
+            data_files.push(manifest.data_file);
+        }
+        assert!(!directory.path().join(&data_files[0]).exists());
+        assert!(directory.path().join(&data_files[1]).exists());
+        assert!(directory.path().join(&data_files[2]).exists());
+        assert!(directory.path().join(&data_files[3]).exists());
+        let history_one: Manifest = serde_json::from_slice(
+            &fs::read(directory.path().join("checkpoint-history-1.json")).unwrap(),
+        )
+        .unwrap();
+        let history_two: Manifest = serde_json::from_slice(
+            &fs::read(directory.path().join("checkpoint-history-2.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            (history_one.source_offset, history_two.source_offset),
+            (3, 2)
+        );
+
+        fs::write(directory.path().join(&data_files[3]), b"corrupt latest").unwrap();
+        let mut recovered = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        assert_eq!(manager.recover(&mut recovered).unwrap(), 3);
+        assert_eq!(recovered.into_vec().unwrap(), vec![1, 2, 3]);
+
+        let latest_path = directory.path().join("latest.json");
+        let mut latest: Manifest =
+            serde_json::from_slice(&fs::read(&latest_path).unwrap()).unwrap();
+        latest.identity.graph_fingerprint.push_str("-other");
+        fs::write(&latest_path, serde_json::to_vec(&latest).unwrap()).unwrap();
+        let mut refused = OutputStore::<i32>::new(1024, None, metrics).unwrap();
+        assert_eq!(
+            manager.recover(&mut refused).unwrap_err().kind,
+            ErrorKind::Incompatible
+        );
+    }
+
+    #[test]
+    fn reducing_bounded_retention_prunes_previous_history_after_publication() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            max_checkpoints: 3,
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "history-limit-test".into(),
+        );
+        let metrics = Arc::new(MetricsState::default());
+        let manager =
+            CheckpointManager::new(&config, identity.clone(), Arc::clone(&metrics)).unwrap();
+        let mut store = OutputStore::<i32>::new(1024, None, Arc::clone(&metrics)).unwrap();
+        store.push(1).unwrap();
+        manager.save(1, &store).unwrap();
+        store.push(2).unwrap();
+        manager.save(2, &store).unwrap();
+        store.push(3).unwrap();
+        manager.save(3, &store).unwrap();
+        let older: Manifest = serde_json::from_slice(
+            &fs::read(directory.path().join("checkpoint-history-2.json")).unwrap(),
+        )
+        .unwrap();
+        let prior: Manifest = serde_json::from_slice(
+            &fs::read(directory.path().join("checkpoint-history-1.json")).unwrap(),
+        )
+        .unwrap();
+
+        let latest_only = CheckpointManager::new(
+            &CheckpointConfig {
+                max_checkpoints: 1,
+                ..config
+            },
+            identity,
+            metrics,
+        )
+        .unwrap();
+        store.push(4).unwrap();
+        latest_only.save(4, &store).unwrap();
+        for slot in 1..=2 {
+            assert!(
+                !directory
+                    .path()
+                    .join(format!("checkpoint-history-{slot}.json"))
+                    .exists()
+            );
+        }
+        assert!(!directory.path().join(older.data_file).exists());
+        assert!(!directory.path().join(prior.data_file).exists());
+    }
+
+    #[test]
+    fn fold_history_falls_back_to_the_previous_coded_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: directory.path().to_path_buf(),
+            max_checkpoints: 2,
+            ..CheckpointConfig::default()
+        };
+        let identity = Identity::new::<i32>(
+            "graph".into(),
+            "source".into(),
+            "input".into(),
+            "output".into(),
+            "fold-history-test".into(),
+        );
+        let manager =
+            CheckpointManager::new(&config, identity, Arc::new(MetricsState::default())).unwrap();
+        manager.save_fold_state(1, b"first", 1024).unwrap();
+        manager.save_fold_state(2, b"second", 1024).unwrap();
+        let latest: Manifest =
+            serde_json::from_slice(&fs::read(directory.path().join("latest.json")).unwrap())
+                .unwrap();
+        fs::write(directory.path().join(latest.data_file), b"bad").unwrap();
+        assert_eq!(
+            manager.recover_fold_state(1024).unwrap(),
+            Some((1, b"first".to_vec()))
+        );
     }
 
     #[test]

@@ -21,6 +21,7 @@ fn flat_map_route_checkpoints_complete_and_partial_intervals() {
             checkpoint: Some(CheckpointConfig {
                 directory: directory.path().to_path_buf(),
                 interval_batches,
+                max_checkpoints: 1,
                 recover: true,
                 binary_build_id: "flat-map-checkpoint-test".into(),
             }),
@@ -314,6 +315,7 @@ fn checkpoint_recovers_only_committed_batches() {
         checkpoint: Some(CheckpointConfig {
             directory: dir.path().to_path_buf(),
             interval_batches: 1,
+            max_checkpoints: 1,
             recover: true,
             binary_build_id: "test-build-1".into(),
         }),

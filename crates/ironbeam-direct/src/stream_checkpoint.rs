@@ -71,6 +71,12 @@ impl StreamCheckpoint {
                 "streaming requires checkpoint interval of one batch",
             ));
         }
+        if config.max_checkpoints != 1 {
+            return Err(Error::graph(
+                "checkpoint",
+                "streaming currently requires latest-only checkpoint retention",
+            ));
+        }
         if config.binary_build_id.is_empty() {
             return Err(Error::graph(
                 "checkpoint",
@@ -246,6 +252,7 @@ mod tests {
             &CheckpointConfig {
                 directory: directory.into(),
                 interval_batches: 1,
+                max_checkpoints: 1,
                 recover: true,
                 binary_build_id: "test-build".into(),
             },
@@ -304,6 +311,7 @@ mod tests {
         let config = CheckpointConfig {
             directory: temporary.path().into(),
             interval_batches: 1,
+            max_checkpoints: 1,
             recover: true,
             binary_build_id: String::new(),
         };
@@ -314,8 +322,19 @@ mod tests {
         assert!(!temporary.path().join("stream-latest.json").exists());
 
         let config = CheckpointConfig {
-            interval_batches: 2,
+            interval_batches: 1,
+            max_checkpoints: 2,
             binary_build_id: "test-build".into(),
+            ..config
+        };
+        assert!(
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                .is_err()
+        );
+
+        let config = CheckpointConfig {
+            interval_batches: 2,
+            max_checkpoints: 1,
             ..config
         };
         assert!(
@@ -331,6 +350,7 @@ mod tests {
         let config = CheckpointConfig {
             directory: temporary.path().into(),
             interval_batches: 1,
+            max_checkpoints: 1,
             recover: true,
             binary_build_id: "test-build".into(),
         };
@@ -420,6 +440,7 @@ mod tests {
             &CheckpointConfig {
                 directory: temporary.path().into(),
                 interval_batches: 1,
+                max_checkpoints: 1,
                 recover: false,
                 binary_build_id: "test-build".into(),
             },
@@ -460,6 +481,7 @@ mod tests {
                 &CheckpointConfig {
                     directory: file,
                     interval_batches: 1,
+                    max_checkpoints: 1,
                     recover: true,
                     binary_build_id: "test-build".into()
                 },

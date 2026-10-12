@@ -152,12 +152,14 @@ loaded as v5 state.
 | `AfterEveryBarrier` | `interval_batches: 1` saves at every supported batch boundary, but is not an exact graph-barrier schedule. |
 | `EveryNNodes(n)` | `interval_batches: n` counts processed source batches, not completed graph nodes. There is no exact node-count policy yet. |
 | `TimeInterval(secs)` and `Hybrid` | No elapsed-time checkpoint schedule exists yet. Streaming requires an interval of one batch and saves on source progress or completion. |
-| `max_checkpoints` | V5 currently keeps one latest checkpoint in the configured directory; give independent jobs separate directories. It has no configurable history or fallback to an older snapshot. |
+| `max_checkpoints` | V5 Direct bounded jobs retain `CheckpointConfig::max_checkpoints` snapshots (1–128, default 1). Recovery tries older verified snapshots if a newer one is corrupt; version or execution identity mismatches still fail. Streaming currently requires one latest progress checkpoint. Give independent jobs separate directories. |
 
 For 5.0.0, v5 batch/progress checkpoints are the chosen replacement for
 v4's node, barrier, and time schedules. This is an intentional scheduling API
 change, not a claim that `interval_batches` reproduces those schedules.
-Configurable checkpoint history and fallback remain unimplemented.
+Bounded checkpoint history applies to coded output and fold state. Streaming
+progress still has latest-only retention; its sink must be idempotent across
+retries.
 
 Sequential elementwise output is compared in order in the migration tests. Grouped, joined, sampled, and parallel results should be compared as multisets unless the operation documents an order. V5 validates boundedness and backend capabilities before opening sources or sinks. V5 graph, coder, and checkpoint versions are independent; unsupported versions fail explicitly rather than being interpreted as v4 state.
 

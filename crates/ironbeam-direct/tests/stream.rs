@@ -254,6 +254,7 @@ fn config(directory: &std::path::Path) -> JobConfig {
         checkpoint: Some(CheckpointConfig {
             directory: directory.into(),
             interval_batches: 1,
+            max_checkpoints: 1,
             recover: true,
             binary_build_id: "stream-test-build".into(),
         }),
