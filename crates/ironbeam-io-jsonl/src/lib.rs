@@ -13,7 +13,13 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "cloud")]
+mod cloud_final;
+#[cfg(feature = "cloud")]
 mod cloud_io;
+#[cfg(feature = "cloud")]
+pub use cloud_final::{
+    cloud_jsonl_fragment_sink, cloud_jsonl_fragment_store, publish_cloud_jsonl_fragments,
+};
 #[cfg(feature = "cloud")]
 pub use cloud_io::{
     cloud_jsonl_glob_source, cloud_jsonl_sink, cloud_jsonl_source, cloud_jsonl_uri_glob_source,

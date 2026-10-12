@@ -17,6 +17,8 @@ use std::{
 
 #[cfg(feature = "file")]
 pub mod final_result;
+#[cfg(feature = "cloud")]
+pub mod object_final;
 #[cfg(feature = "file")]
 pub mod sequence_final;
 
