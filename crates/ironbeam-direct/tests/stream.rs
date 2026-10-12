@@ -567,6 +567,161 @@ fn unbounded_full_join_emits_bounded_side_only_and_main_only_rows() {
     assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
 }
 
+fn bounded_side_stream_failure(
+    polls: Vec<UnboundedPoll<Timestamped<i32>>>,
+    side_values: Vec<(i64, i32)>,
+    budget: usize,
+    panic_in_map: bool,
+    fail_commit: bool,
+) -> (Error, Vec<i32>) {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "main",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "bounded-side-failure-main-v1".into(),
+            0,
+            move |_| {
+                Ok(Box::new(Script {
+                    polls: polls.clone().into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .fixed_windows("main-window", 10)
+        .unwrap();
+    let side = pipeline
+        .from_vec("side", side_values)
+        .unwrap()
+        .timestamps_from_pairs_named("side-time")
+        .unwrap()
+        .fixed_windows("side-window", 10)
+        .unwrap();
+    let sink = main
+        .map_with_windowed_side_named("side-add", &side, move |value, values| {
+            assert!(!panic_in_map, "side-view callback failed");
+            value + values.iter().sum::<i32>()
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "bounded-side-failure-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                let fail = Arc::new(AtomicBool::new(fail_commit));
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::clone(&fail),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = JobConfig {
+        buffer_budget_elements: budget,
+        ..JobConfig::default()
+    };
+    let error = DirectRunner
+        .start_stream_sink(&sink, &config)
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    let rows = committed.lock().unwrap().clone();
+    (error, rows)
+}
+
+#[test]
+fn bounded_side_stream_rejects_late_main_and_excess_open_state() {
+    let ready = |cursor, watermark, completed, values: Vec<(i32, i64)>| {
+        UnboundedPoll::Ready(UnboundedBatch {
+            elements: values
+                .into_iter()
+                .map(|(value, timestamp_ns)| Timestamped {
+                    value,
+                    timestamp_ns,
+                })
+                .collect(),
+            progress: ProgressSignal {
+                source_key: "main".into(),
+                split_id: "split-0".into(),
+                checkpoint_position: Some(vec![cursor]),
+                event_time_ns: Some(watermark),
+                completed,
+            },
+        })
+    };
+    let (late, committed) = bounded_side_stream_failure(
+        vec![
+            ready(1, 10, false, vec![]),
+            ready(2, 10, true, vec![(7, 1)]),
+        ],
+        vec![],
+        4,
+        false,
+        false,
+    );
+    assert_eq!(late.kind, ErrorKind::Execution);
+    assert!(committed.is_empty());
+    let (excess, committed) = bounded_side_stream_failure(
+        vec![
+            ready(1, 0, false, vec![(1, 1)]),
+            ready(2, 0, true, vec![(2, 2)]),
+        ],
+        vec![],
+        1,
+        false,
+        false,
+    );
+    assert_eq!(excess.kind, ErrorKind::Resource);
+    assert!(committed.is_empty());
+}
+
+#[test]
+fn bounded_side_stream_aborts_on_callback_panic_or_commit_failure() {
+    let poll = UnboundedPoll::Ready(UnboundedBatch {
+        elements: vec![Timestamped {
+            value: 1,
+            timestamp_ns: 1,
+        }],
+        progress: ProgressSignal {
+            source_key: "main".into(),
+            split_id: "split-0".into(),
+            checkpoint_position: Some(vec![1]),
+            event_time_ns: Some(10),
+            completed: true,
+        },
+    });
+    for (panic_in_map, fail_commit) in [(true, false), (false, true)] {
+        let (error, committed) = bounded_side_stream_failure(
+            vec![UnboundedPoll::Pending, poll.clone()],
+            vec![(0, 10)],
+            4,
+            panic_in_map,
+            fail_commit,
+        );
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert!(committed.is_empty());
+    }
+}
+
 #[test]
 fn grouped_stream_recovers_open_window_with_source_cursor() {
     let committed = Arc::new(Mutex::new(Vec::new()));
