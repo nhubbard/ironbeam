@@ -466,6 +466,19 @@ duplicate multiplicity, fixed-window isolation, and right-side output time;
 core and Direct tests plus strict lint pass. The v5 join remains above v4's
 measured memory use.
 
+On 2026-10-11, the Direct inner-join aggregate began consuming probe inputs
+through deques and reusing their envelope buffers for output. Smaller-right
+inner joins also stopped retaining unmatched-row bookkeeping needed only by
+outer joins. In a 64-sample alternating comparison of release binaries before
+and after this change at 100,000 rows, equal-size join peak RSS moved
+**39.48 → 36.22 MiB** and median time **10.971 → 11.332 ms**. The duplicate-key
+case moved **23.00 → 16.11 MiB** and **4.985 → 5.019 ms**. A fresh 32-sample
+v4/v5 comparison measured inner join at **10.973/11.334 ms** and
+**21.50/36.22 MiB**, and duplicate-key join at **2.785/5.069 ms** and
+**5.53/16.12 MiB**. Output rows and checksums matched. Core, Direct, and
+v4/v5 differential tests, strict lint, and the core/Direct/transforms coverage
+ratchets pass. These are measurements, not release thresholds.
+
 ## Runner-specific assumptions and Dataflow dependency check
 
 - `src/helpers/common.rs` `collect*` executes a terminal through the direct `Runner`; `src/runner.rs` uses `ThreadPoolBuilder::build_global()` on parallel paths, so requested thread counts are process-wide best effort.

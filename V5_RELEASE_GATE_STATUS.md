@@ -72,7 +72,7 @@ below is complete.
 | Direct checkpoint history | `max_checkpoints` retains 1–128 bounded or streaming snapshots. Tests cover rotation, pruning after a lower limit, bounded output/fold fallback, streaming progress fallback, and refusal to cross execution identities. A paired streaming sink test replays from older progress without duplicate commits after the latest manifest is corrupted. |
 | Parallel I/O facade | The root `parallel-io` flag now forwards to each optional format crate only when that format is enabled. An isolated Avro facade test writes and reads a parallel container; the parallel flag alone does not pull in optional formats. |
 | Separate Dataflow workspace | The full harness suite and doctests pass after publication-plan validation rejects a Beam transform that requests finalization but is absent from the declared sink set. The changed harness passes warning-free lint. |
-| Current coverage | A 2026-10-11 run of the exact CI package set with untouched branch sites counted reports core **3,146/3,258 locations (96.56%) / 487/562 branches (86.65%)**, Direct **4,451/4,727 (94.16%) / 902/1,000 (90.20%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. All three packages pass their existing floors. |
+| Current coverage | A 2026-10-11 run of the exact CI package set with untouched branch sites counted reports core **3,177/3,290 locations (96.57%) / 493/570 branches (86.49%)**, Direct **4,451/4,727 (94.16%) / 902/1,000 (90.20%)**, and transforms **1,163/1,189 (97.81%) / 108/116 (93.10%)**. All three packages pass their existing floors. |
 | Exhausted checkpoint recovery | New bounded and streaming tests corrupt both retained manifests and require a typed recovery error; a source-only planner test verifies that its explanation has no physical decisions. All 50 Direct library tests pass. |
 | Paired streaming progress | A Direct unbounded source emits an empty progress poll, a data poll, and an empty completion poll to two idempotent sinks. Both sinks receive exactly one row; the final checkpoint retains the source cursor, event time, and completion. |
 | Direct plan explanation | `PlanDecision` now exposes selected-plan pruning, materialization barriers, and fused stateless routes through the Direct package and root facade. The `explain_pipeline` example prints these decisions; focused planner tests, the full Direct suite, and strict Direct/root lint pass. This reports v5 choices and does not claim unimplemented v4 optimizer passes. |
@@ -110,7 +110,15 @@ A subsequent compact inner-join path reduced equal-size join memory from
 **45.97 to 39.54 MiB** and latency from **12.810 to 11.385 ms** in an adjacent
 12-sample v5 comparison. The skewed duplicate-key case stayed near baseline
 at **22.20 → 21.52 MiB** and **5.666 → 5.671 ms**. Output matched throughout.
-Join memory remains an open gate against v4.
+Reusing the probe input's envelope buffer and removing outer-join bookkeeping
+from smaller-right inner joins reduced peak memory in a 64-sample adjacent
+comparison: equal-size join **39.48 → 36.22 MiB**, duplicate-key join
+**23.00 → 16.11 MiB**. Median latency moved **10.971 → 11.332 ms** and
+**4.985 → 5.019 ms**, respectively. A fresh v4/v5 comparison measured
+equal-size join at **10.973/11.334 ms** and **21.50/36.22 MiB**;
+duplicate-key join at **2.785/5.069 ms** and **5.53/16.12 MiB**. Output
+counts and checksums matched. Join memory and duplicate-key latency remain
+open against v4.
 
 ## Contract decisions
 
