@@ -148,6 +148,7 @@ compact inner-join measurements remain in `V5_PHASE0_BASELINE.md`.
 | --- | --- |
 | Cross-runner parity | The same advertised graph and input must give the same values, grouping, event times, windows, typed failure category, and committed output. |
 | Execution differences | Bundle size, scheduling, and retry timing may differ. Unsupported operations fail validation before a source or sink opens. |
+| Custom transforms | Explicit positive batch size and application semantic version replace v4's implicit physical partition contract. These values contribute to graph identity. Legacy planner hints do not alter v5 execution. |
 | Ordered folds | Portable folds require an explicit order key. V4 encounter-order methods remain Direct compatibility behavior. See the [API similarity contract](V5_REPLACEMENT_ROADMAP.md#api-similarity-contract). |
 
 ## Detail and history
