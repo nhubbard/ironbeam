@@ -35,6 +35,31 @@ fn arc_provider_delegates_every_object_operation() {
 }
 
 #[test]
+fn local_streaming_create_is_conditional_and_reopens_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let provider = Arc::new(LocalObjectIO::new(dir.path()).unwrap());
+    let bytes = b"data".repeat(100_000);
+    provider
+        .put_object_if_absent_from("bucket", "nested/result", &mut bytes.as_slice())
+        .unwrap();
+    let mut opened = provider.open_object("bucket", "nested/result").unwrap();
+    let mut actual = Vec::new();
+    std::io::Read::read_to_end(&mut opened, &mut actual).unwrap();
+    assert_eq!(actual, bytes);
+    assert_eq!(
+        provider
+            .put_object_if_absent_from("bucket", "nested/result", &mut b"other".as_slice())
+            .unwrap_err()
+            .kind,
+        ErrorKind::AlreadyExists
+    );
+    assert_eq!(
+        provider.get_object("bucket", "nested/result").unwrap(),
+        bytes
+    );
+}
+
+#[test]
 fn conditional_create_is_atomic_and_never_replaces_existing_bytes() {
     let dir = tempfile::tempdir().unwrap();
     let provider = Arc::new(LocalObjectIO::new(dir.path()).unwrap());

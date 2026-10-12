@@ -235,6 +235,17 @@ impl<T: ObjectIO + ?Sized> ObjectIO for Arc<T> {
     fn put_object_if_absent(&self, bucket: &str, key: &str, data: &[u8]) -> CloudResult<()> {
         (**self).put_object_if_absent(bucket, key, data)
     }
+    fn put_object_if_absent_from(
+        &self,
+        bucket: &str,
+        key: &str,
+        reader: &mut dyn std::io::Read,
+    ) -> CloudResult<()> {
+        (**self).put_object_if_absent_from(bucket, key, reader)
+    }
+    fn open_object(&self, bucket: &str, key: &str) -> CloudResult<Box<dyn std::io::Read + Send>> {
+        (**self).open_object(bucket, key)
+    }
     fn get_object(&self, bucket: &str, key: &str) -> CloudResult<Vec<u8>> {
         (**self).get_object(bucket, key)
     }
@@ -415,6 +426,36 @@ impl ObjectIO for LocalObjectIO {
             ),
             Err(error) => Err(fs_error(error.error)),
         }
+    }
+
+    fn put_object_if_absent_from(
+        &self,
+        bucket: &str,
+        key: &str,
+        reader: &mut dyn std::io::Read,
+    ) -> CloudResult<()> {
+        let path = self.path(bucket, key)?;
+        self.checked_parent(&path)?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| invalid("object has no parent"))?;
+        let mut temp = tempfile::NamedTempFile::new_in(parent).map_err(fs_error)?;
+        std::io::copy(reader, &mut temp).map_err(fs_error)?;
+        temp.as_file().sync_all().map_err(fs_error)?;
+        match temp.persist_noclobber(&path) {
+            Ok(_) => sync_directory(parent),
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Err(
+                CloudIOError::new(ErrorKind::AlreadyExists, "object already exists"),
+            ),
+            Err(error) => Err(fs_error(error.error)),
+        }
+    }
+
+    fn open_object(&self, bucket: &str, key: &str) -> CloudResult<Box<dyn std::io::Read + Send>> {
+        let path = self.path(bucket, key)?;
+        Ok(Box::new(
+            fs::File::open(self.checked_existing(&path)?).map_err(fs_error)?,
+        ))
     }
 
     fn get_object(&self, bucket: &str, key: &str) -> CloudResult<Vec<u8>> {

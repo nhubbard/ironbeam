@@ -3,6 +3,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::Arc;
 
 use ironbeam_cloud_objects::{ErrorKind as ObjectErrorKind, ObjectIO};
@@ -18,6 +19,10 @@ fn invalid(message: impl Into<String>) -> Error {
 
 fn object_error(error: impl std::fmt::Display) -> Error {
     Error::io("object-final", "cloud", error.to_string())
+}
+
+fn stream_error(error: impl std::fmt::Display) -> Error {
+    Error::io("object-final", "stream", error.to_string())
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -340,9 +345,178 @@ impl ObjectFinalResult {
         Ok(fragments)
     }
 
-    /// Validate each complete fragment and the concatenation, then atomically
-    /// create the final object. The format validator must reject partial records.
-    /// An identical published object is an idempotent retry.
+    /// Validate and publish an arbitrarily large completed result using disk
+    /// scratch space and the provider's streaming object contract. The
+    /// validator must consume its reader fully and reject partial records.
+    pub fn publish_validated_streaming(
+        &self,
+        expected_rows: u64,
+        mut validate: impl FnMut(&mut dyn Read) -> Result<u64, Error>,
+    ) -> Result<ObjectPublishedResult, Error> {
+        let expected = self
+            .expected_attempts
+            .as_ref()
+            .ok_or_else(|| invalid("object publication requires a completed bundle manifest"))?;
+        let prefix = format!("{}/", self.staging_prefix);
+        let listed = match self
+            .storage
+            .list_objects(&self.staging_bucket, Some(&prefix))
+        {
+            Ok(objects) => objects,
+            Err(error) if error.kind == ObjectErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(object_error(error)),
+        };
+        let mut seen = BTreeSet::new();
+        let mut keys = Vec::with_capacity(listed.len());
+        for object in listed {
+            let name = object
+                .key
+                .strip_prefix(&prefix)
+                .ok_or_else(|| invalid("object fragment listing escaped staging prefix"))?;
+            if name.ends_with(".pending") {
+                return Err(invalid("object final result has a pending attempt"));
+            }
+            let digest = name
+                .strip_prefix("part-")
+                .and_then(|part| part.strip_suffix(".accepted"))
+                .ok_or_else(|| invalid("object final result has an unknown fragment"))?;
+            if digest.len() != 64 || !expected.contains(digest) || !seen.insert(digest.to_owned()) {
+                return Err(invalid(
+                    "object final result has an unknown or duplicate fragment",
+                ));
+            }
+            keys.push((digest.to_owned(), object.key));
+        }
+        if &seen != expected {
+            return Err(invalid(
+                "object accepted attempts differ from completed runner manifest",
+            ));
+        }
+        keys.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut output = tempfile::tempfile().map_err(stream_error)?;
+        let mut rows = 0_u64;
+        let mut bytes = 0_u64;
+        for (bundle_hex, key) in &keys {
+            let mut source = self
+                .storage
+                .open_object(&self.staging_bucket, key)
+                .map_err(object_error)?;
+            let mut header = [0_u8; HEADER_LEN];
+            source.read_exact(&mut header).map_err(stream_error)?;
+            if &header[..8] != MAGIC || header[8..40] != self.scope {
+                return Err(invalid("object fragment header or scope differs"));
+            }
+            let bundle_digest: [u8; 32] = header[40..72]
+                .try_into()
+                .map_err(|_| invalid("object fragment has no bundle digest"))?;
+            if hex(&bundle_digest) != *bundle_hex {
+                return Err(invalid("object fragment bundle identity differs"));
+            }
+            let fragment_rows = u64::from_le_bytes(
+                header[72..80]
+                    .try_into()
+                    .map_err(|_| invalid("object fragment has no row count"))?,
+            );
+            let length = u64::from_le_bytes(
+                header[80..88]
+                    .try_into()
+                    .map_err(|_| invalid("object fragment has no payload length"))?,
+            );
+            let start = bytes;
+            let mut remaining = length;
+            let mut hasher = Sha256::new();
+            let mut buffer = [0_u8; 64 * 1024];
+            while remaining > 0 {
+                let wanted = usize::try_from(remaining.min(buffer.len() as u64))
+                    .map_err(|_| invalid("object fragment length overflow"))?;
+                let count = source.read(&mut buffer[..wanted]).map_err(stream_error)?;
+                if count == 0 {
+                    return Err(invalid("object fragment payload is truncated"));
+                }
+                hasher.update(&buffer[..count]);
+                output.write_all(&buffer[..count]).map_err(stream_error)?;
+                remaining -= count as u64;
+            }
+            if header[88..HEADER_LEN] != hasher.finalize()[..]
+                || source.read(&mut buffer[..1]).map_err(stream_error)? != 0
+            {
+                return Err(invalid(
+                    "object fragment payload length or checksum differs",
+                ));
+            }
+            bytes = bytes
+                .checked_add(length)
+                .ok_or_else(|| invalid("object result payload length overflow"))?;
+            output.seek(SeekFrom::Start(start)).map_err(stream_error)?;
+            let mut payload = (&mut output).take(length);
+            if validate(&mut payload)? != fragment_rows || payload.limit() != 0 {
+                return Err(invalid(
+                    "object fragment decoded row count differs from header",
+                ));
+            }
+            output.seek(SeekFrom::Start(bytes)).map_err(stream_error)?;
+            rows = rows
+                .checked_add(fragment_rows)
+                .ok_or_else(|| invalid("object fragment row count overflow"))?;
+        }
+        if rows != expected_rows {
+            return Err(invalid(
+                "object fragment rows differ from runner commit count",
+            ));
+        }
+        output.rewind().map_err(stream_error)?;
+        if validate(&mut output)? != expected_rows
+            || output.stream_position().map_err(stream_error)? != bytes
+        {
+            return Err(invalid(
+                "object result decoded row count differs from runner",
+            ));
+        }
+        output.rewind().map_err(stream_error)?;
+        match self.storage.put_object_if_absent_from(
+            &self.target_bucket,
+            &self.target_key,
+            &mut output,
+        ) {
+            Ok(()) => {}
+            Err(error) if error.kind == ObjectErrorKind::AlreadyExists => {
+                output.rewind().map_err(stream_error)?;
+                let mut published = self
+                    .storage
+                    .open_object(&self.target_bucket, &self.target_key)
+                    .map_err(object_error)?;
+                let mut expected_buf = [0_u8; 64 * 1024];
+                let mut actual_buf = [0_u8; 64 * 1024];
+                loop {
+                    let expected_n = output.read(&mut expected_buf).map_err(stream_error)?;
+                    if expected_n == 0 {
+                        if published.read(&mut actual_buf[..1]).map_err(stream_error)? != 0 {
+                            return Err(invalid("published object conflicts with this job output"));
+                        }
+                        break;
+                    }
+                    published
+                        .read_exact(&mut actual_buf[..expected_n])
+                        .map_err(stream_error)?;
+                    if expected_buf[..expected_n] != actual_buf[..expected_n] {
+                        return Err(invalid("published object conflicts with this job output"));
+                    }
+                }
+            }
+            Err(error) => return Err(object_error(error)),
+        }
+        Ok(ObjectPublishedResult {
+            rows,
+            fragments: keys.len(),
+            bytes,
+        })
+    }
+
+    /// Legacy slice validator that holds the full result in memory. Portable
+    /// sinks should use `publish_validated_streaming` for large results. The
+    /// format validator must reject partial records. An identical published
+    /// object is an idempotent retry.
     pub fn publish_validated_concatenated(
         &self,
         expected_rows: u64,
@@ -438,6 +612,47 @@ mod tests {
             .count() as u64)
     }
 
+    fn count_streamed_lines(reader: &mut dyn Read) -> Result<u64, Error> {
+        let mut count = 0_u64;
+        let mut buffer = [0_u8; 4096];
+        loop {
+            let read = reader.read(&mut buffer).map_err(stream_error)?;
+            if read == 0 {
+                break;
+            }
+            count += buffer[..read].iter().filter(|byte| **byte == b'\n').count() as u64;
+        }
+        Ok(count)
+    }
+
+    #[test]
+    fn streaming_publication_crosses_buffers_and_retries_without_replacing() {
+        let (_directory, storage, result) = store();
+        let large = b"a\n".repeat(200_000);
+        result.stage("large", 200_000, &large).unwrap();
+        result.accept("large").unwrap();
+        let bound = result.require_bundle_attempts(["large"]).unwrap();
+        let published = bound
+            .publish_validated_streaming(200_000, count_streamed_lines)
+            .unwrap();
+        assert_eq!(published.bytes, large.len() as u64);
+        assert_eq!(
+            bound
+                .publish_validated_streaming(200_000, count_streamed_lines)
+                .unwrap(),
+            published
+        );
+        assert_eq!(storage.get_object("output", "result.jsonl").unwrap(), large);
+        storage
+            .put_object("output", "result.jsonl", b"different")
+            .unwrap();
+        assert!(
+            bound
+                .publish_validated_streaming(200_000, count_streamed_lines)
+                .is_err()
+        );
+    }
+
     #[test]
     fn accepted_attempts_publish_only_with_exact_manifest_and_are_idempotent() {
         let (_directory, storage, result) = store();
@@ -488,12 +703,22 @@ mod tests {
                 .publish_validated_concatenated(1, count_lines)
                 .is_err()
         );
+        assert!(
+            bound
+                .publish_validated_streaming(1, count_streamed_lines)
+                .is_err()
+        );
         result.abandon("expected").unwrap();
         result.stage("extra", 1, b"2\n").unwrap();
         result.accept("extra").unwrap();
         assert!(
             bound
                 .publish_validated_concatenated(1, count_lines)
+                .is_err()
+        );
+        assert!(
+            bound
+                .publish_validated_streaming(1, count_streamed_lines)
                 .is_err()
         );
     }
@@ -511,6 +736,11 @@ mod tests {
                 .publish_validated_concatenated(1, count_lines)
                 .is_err()
         );
+        assert!(
+            bound
+                .publish_validated_streaming(1, count_streamed_lines)
+                .is_err()
+        );
         storage.delete_object("stage", &accepted).unwrap();
         result.stage("a", 1, b"1\n").unwrap();
         result.accept("a").unwrap();
@@ -520,6 +750,11 @@ mod tests {
         assert!(
             bound
                 .publish_validated_concatenated(1, count_lines)
+                .is_err()
+        );
+        assert!(
+            bound
+                .publish_validated_streaming(1, count_streamed_lines)
                 .is_err()
         );
         assert_eq!(
@@ -535,6 +770,13 @@ mod tests {
         assert_eq!(
             bound
                 .publish_validated_concatenated(0, count_lines)
+                .unwrap()
+                .bytes,
+            0
+        );
+        assert_eq!(
+            bound
+                .publish_validated_streaming(0, count_streamed_lines)
                 .unwrap()
                 .bytes,
             0
