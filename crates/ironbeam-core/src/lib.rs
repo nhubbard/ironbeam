@@ -78,7 +78,8 @@ pub type Partition = Box<dyn Any + Send + Sync>;
 /// A v4-style reusable operator over one partition. The v5 graph binds each
 /// registration to an application semantic ID and version; the runner does not
 /// infer those from the compiled operator. Planner hints are retained for API
-/// migration, but the v5 planner does not yet reorder operations using them.
+/// migration. They do not change v5 execution or graph identity; batch size
+/// and semantic version are the execution contract.
 pub trait DynOp: Send + Sync {
     fn apply(&self, input: Partition) -> Partition;
     fn key_preserving(&self) -> bool {

@@ -242,6 +242,41 @@ fn dynamic_partition_operator_matches_v4_and_reports_wrong_output_type() -> Resu
     Ok(())
 }
 
+#[test]
+fn dynamic_operator_uses_explicit_v5_batch_boundaries() -> Result<()> {
+    struct BatchLength;
+    impl ironbeam_core::DynOp for BatchLength {
+        fn apply(&self, input: ironbeam_core::Partition) -> ironbeam_core::Partition {
+            let rows = input.downcast::<Vec<i32>>().unwrap();
+            Box::new(vec![i32::try_from(rows.len()).unwrap()])
+        }
+    }
+
+    let build = |batch_size, version| {
+        let pipeline = V5Pipeline::default();
+        let result = pipeline
+            .from_vec("source", vec![1_i32, 2, 3, 4, 5])?
+            .apply_dyn_transform_with_semantic_named::<i32>(
+                "batch-length",
+                batch_size,
+                "compat/batch-length",
+                version,
+                Arc::new(BatchLength),
+            )?;
+        let fingerprint = pipeline.snapshot()?.0.fingerprint()?;
+        Ok::<_, ironbeam_core::Error>((result, fingerprint))
+    };
+    let version = Version { major: 1, minor: 0 };
+    let (two, two_fingerprint) = build(2, version)?;
+    let (three, three_fingerprint) = build(3, version)?;
+    let (_, next_version_fingerprint) = build(2, Version { major: 1, minor: 1 })?;
+    assert_eq!(two.collect_seq()?, vec![2, 2, 1]);
+    assert_eq!(three.collect_seq()?, vec![3, 2]);
+    assert_ne!(two_fingerprint, three_fingerprint);
+    assert_ne!(two_fingerprint, next_version_fingerprint);
+    Ok(())
+}
+
 struct LongWordLengths;
 
 impl DynOp for LongWordLengths {
