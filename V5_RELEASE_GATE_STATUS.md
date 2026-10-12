@@ -35,7 +35,7 @@ below is complete.
 
 | Gate | Done when |
 | --- | --- |
-| ☐ Unbounded recovery | Extend the passing Fn Data process restart proof to a successful live Prism restart and cover the remaining graph shapes. A supervised process kill during the residual source open currently makes Prism fail the active job. |
+| ☐ Unbounded recovery | Extend the passing Fn Data process restart proof to a successful live portable job restart and cover the remaining graph shapes. A supervised process kill during the residual source open makes Prism fail the active job. The local Beam Prism process environment launches one worker command, and its control service fails every active instruction when that worker disconnects; an in-job restart requires runner support beyond the current Ironbeam worker. |
 | ☐ Output durability | The runner-wide commit contract passes successful retry and restart proofs and power-loss fault injection. Direct bounded and streaming checkpoints now have configurable retention and verified fallback. V5 batch/progress checkpoints replace v4's node, barrier, and time schedules. Shared final-result publication requires an exact attempt manifest from the completed journal. A live failed bundle already proves abort cleanup. |
 
 ### Packaging and release quality
