@@ -1194,23 +1194,49 @@ fn execute<T: Element>(
                             return Ok(());
                         }
                         let mut produced = Vec::with_capacity(batch.len());
-                        for value in batch {
-                            let mut current = Some(value);
-                            for (key, transform) in route.operations.iter().zip(&typed_transforms) {
-                                let Some(value) = current else {
-                                    break;
+                        if let [first, second] = typed_transforms.as_slice() {
+                            let first_key = route.operations[0].as_str();
+                            let second_key = route.operations[1].as_str();
+                            for value in batch {
+                                if config.cancellation.load(Ordering::Acquire) {
+                                    return Err(cancelled());
+                                }
+                                panic_node = first_key;
+                                let Some(value) = first.apply(value) else {
+                                    filtered_count = filtered_count.saturating_add(1);
+                                    continue;
                                 };
                                 if config.cancellation.load(Ordering::Acquire) {
                                     return Err(cancelled());
                                 }
-                                panic_node = key;
-                                current = transform.apply(value);
-                                if current.is_none() {
+                                panic_node = second_key;
+                                if let Some(value) = second.apply(value) {
+                                    produced.push(value);
+                                } else {
                                     filtered_count = filtered_count.saturating_add(1);
                                 }
                             }
-                            if let Some(value) = current {
-                                produced.push(value);
+                        } else {
+                            for value in batch {
+                                let mut current = Some(value);
+                                for (key, transform) in
+                                    route.operations.iter().zip(&typed_transforms)
+                                {
+                                    let Some(value) = current else {
+                                        break;
+                                    };
+                                    if config.cancellation.load(Ordering::Acquire) {
+                                        return Err(cancelled());
+                                    }
+                                    panic_node = key;
+                                    current = transform.apply(value);
+                                    if current.is_none() {
+                                        filtered_count = filtered_count.saturating_add(1);
+                                    }
+                                }
+                                if let Some(value) = current {
+                                    produced.push(value);
+                                }
                             }
                         }
                         output_count = u64::try_from(produced.len()).unwrap_or(u64::MAX);

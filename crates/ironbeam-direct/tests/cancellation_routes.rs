@@ -33,6 +33,40 @@ fn typed_batch_observes_cancellation_before_reading_the_next_batch() {
 }
 
 #[test]
+fn typed_route_observes_cancellation_between_transform_stages() {
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let token = Arc::clone(&cancellation);
+    let output = Pipeline::default()
+        .from_vec("source", vec![1_i32, 2, 3])
+        .unwrap()
+        .map_named("cancel", move |value| {
+            token.store(true, Ordering::Release);
+            value
+        })
+        .unwrap()
+        .map_named("must-not-run", |_| -> i32 {
+            panic!("cancelled typed route continued")
+        })
+        .unwrap()
+        .output("result")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(
+                &output,
+                &JobConfig {
+                    cancellation,
+                    ..JobConfig::default()
+                },
+            )
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Cancelled
+    );
+}
+
+#[test]
 fn envelope_routes_observe_cancellation_between_transform_stages() {
     for parallelism in [1, 3] {
         let cancellation = Arc::new(AtomicBool::new(false));

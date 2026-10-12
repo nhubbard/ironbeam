@@ -137,6 +137,30 @@ fn typed_map_filter_route_preserves_values_and_metrics() {
 }
 
 #[test]
+fn typed_filter_map_route_skips_downstream_side_effects_for_filtered_rows() {
+    let mapped = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&mapped);
+    let output = Pipeline::default()
+        .from_vec("source", vec![1_i32, 2, 3, 4])
+        .unwrap()
+        .filter_named("even", |value| value % 2 == 0)
+        .unwrap()
+        .map_named("times-ten", move |value| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            value * 10
+        })
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (values, job) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(values, [20, 40]);
+    assert_eq!(mapped.load(Ordering::SeqCst), 2);
+    assert_eq!(job.metrics().filtered_elements, 2);
+}
+
+#[test]
 fn typed_source_only_route_preserves_results_and_metrics() {
     let pipeline = Pipeline::default();
     let output = pipeline
