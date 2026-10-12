@@ -315,6 +315,53 @@ fn stream_pair_shares_source_and_recovers_both_branches() {
 }
 
 #[test]
+fn stream_pair_replays_from_verified_history_without_duplicate_sink_commits() {
+    let temporary = tempfile::tempdir().unwrap();
+    let left_values = Arc::new(Mutex::new(Vec::new()));
+    let right_values = Arc::new(Mutex::new(Vec::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let visits = Arc::new(AtomicUsize::new(0));
+    let (left, right) = pair_fixture(
+        Arc::clone(&left_values),
+        Arc::clone(&right_values),
+        Arc::clone(&opens),
+        Arc::clone(&visits),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+        None,
+    );
+    let mut config = config(temporary.path());
+    config.checkpoint.as_mut().unwrap().max_checkpoints = 2;
+    assert_eq!(
+        DirectRunner
+            .start_stream_sink_pair(&left, &right, &config)
+            .unwrap()
+            .wait()
+            .unwrap()
+            .status(),
+        JobStatus::Succeeded
+    );
+    assert_eq!(*left_values.lock().unwrap(), [22, 24]);
+    assert_eq!(*right_values.lock().unwrap(), [111, 112]);
+    assert!(temporary.path().join("stream-history-1.json").exists());
+
+    std::fs::write(temporary.path().join("stream-latest.json"), b"{broken").unwrap();
+    assert_eq!(
+        DirectRunner
+            .start_stream_sink_pair(&left, &right, &config)
+            .unwrap()
+            .wait()
+            .unwrap()
+            .status(),
+        JobStatus::Succeeded
+    );
+    assert_eq!(*left_values.lock().unwrap(), [22, 24]);
+    assert_eq!(*right_values.lock().unwrap(), [111, 112]);
+    assert_eq!(visits.load(Ordering::SeqCst), 3);
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+}
+
+#[test]
 fn stream_pair_rejects_duplicate_foreign_and_spilled_sinks_before_source_open() {
     let opens = Arc::new(Mutex::new(Vec::new()));
     let (left, right) = pair_fixture(

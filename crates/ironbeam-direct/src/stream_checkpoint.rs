@@ -1,11 +1,12 @@
 //! Durable progress for a single resumable source and idempotent sink.
 use crate::CheckpointConfig;
-use ironbeam_core::{Element, Error, ProgressSignal, Version};
+use crate::checkpoint::{MAX_RETAINED_CHECKPOINTS, sync_directory};
+use ironbeam_core::{Element, Error, ErrorKind, ProgressSignal, Version};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const STREAM_CHECKPOINT_VERSION: u32 = 1;
@@ -42,7 +43,7 @@ struct SecondSinkIdentity {
     coder_version: Version,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Manifest {
     version: u32,
     identity: StreamIdentity,
@@ -54,6 +55,7 @@ pub(crate) struct StreamCheckpoint {
     path: PathBuf,
     identity: StreamIdentity,
     recover: bool,
+    max_checkpoints: usize,
 }
 
 impl StreamCheckpoint {
@@ -71,10 +73,10 @@ impl StreamCheckpoint {
                 "streaming requires checkpoint interval of one batch",
             ));
         }
-        if config.max_checkpoints != 1 {
+        if !(1..=MAX_RETAINED_CHECKPOINTS).contains(&config.max_checkpoints) {
             return Err(Error::graph(
                 "checkpoint",
-                "streaming currently requires latest-only checkpoint retention",
+                "checkpoint retention must be between 1 and 128",
             ));
         }
         if config.binary_build_id.is_empty() {
@@ -99,6 +101,7 @@ impl StreamCheckpoint {
                 binary_build_id: config.binary_build_id.clone(),
             },
             recover: config.recover,
+            max_checkpoints: config.max_checkpoints,
         })
     }
 
@@ -131,7 +134,39 @@ impl StreamCheckpoint {
         if !self.recover {
             return Ok(None);
         }
-        let metadata = match fs::symlink_metadata(&self.path) {
+        let mut latest_error = None;
+        for slot in 0..self.max_checkpoints {
+            let path = self.slot_path(slot);
+            match self.load_at(&path) {
+                Ok(Some(manifest)) => return Ok(Some(manifest.progress)),
+                Ok(None) => {}
+                Err(error) if error.kind == ErrorKind::Recovery => {
+                    if latest_error.is_none() {
+                        latest_error = Some(error);
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        if let Some(error) = latest_error {
+            return Err(error);
+        }
+        Ok(None)
+    }
+
+    fn slot_path(&self, slot: usize) -> PathBuf {
+        if slot == 0 {
+            self.path.clone()
+        } else {
+            self.path
+                .parent()
+                .expect("stream checkpoint path has parent")
+                .join(format!("stream-history-{slot}.json"))
+        }
+    }
+
+    fn load_at(&self, path: &Path) -> Result<Option<Manifest>, Error> {
+        let metadata = match fs::symlink_metadata(path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(Error::io("checkpoint", "direct", error.to_string())),
@@ -142,8 +177,8 @@ impl StreamCheckpoint {
                 "stream manifest must be a regular file within the size limit",
             ));
         }
-        let bytes = fs::read(&self.path)
-            .map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
+        let bytes =
+            fs::read(path).map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
         let manifest: Manifest = serde_json::from_slice(&bytes)
             .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
         if manifest.version != STREAM_CHECKPOINT_VERSION || manifest.identity != self.identity {
@@ -159,7 +194,7 @@ impl StreamCheckpoint {
             ));
         }
         self.validate_progress(&manifest.progress)?;
-        Ok(Some(manifest.progress))
+        Ok(Some(manifest))
     }
 
     pub(crate) fn save(&self, progress: &ProgressSignal) -> Result<(), Error> {
@@ -170,9 +205,9 @@ impl StreamCheckpoint {
             progress: progress.clone(),
             checksum: checksum(STREAM_CHECKPOINT_VERSION, &self.identity, progress)?,
         };
-        let bytes = serde_json::to_vec(&manifest)
+        let encoded = serde_json::to_vec(&manifest)
             .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
-        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_MANIFEST_BYTES {
+        if u64::try_from(encoded.len()).unwrap_or(u64::MAX) > MAX_MANIFEST_BYTES {
             return Err(Error::resource(
                 "checkpoint",
                 "stream manifest exceeds size limit",
@@ -190,6 +225,66 @@ impl StreamCheckpoint {
             .path
             .parent()
             .expect("stream checkpoint path has parent");
+        let previous = (0..self.max_checkpoints)
+            .map(|slot| self.load_at(&self.slot_path(slot)).ok().flatten())
+            .collect::<Vec<_>>();
+        let mut stale_history = Vec::new();
+        for entry in fs::read_dir(directory)
+            .map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?
+        {
+            let entry =
+                entry.map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
+            let name = entry.file_name();
+            let Some(slot) = name
+                .to_str()
+                .and_then(|name| name.strip_prefix("stream-history-"))
+                .and_then(|name| name.strip_suffix(".json"))
+                .and_then(|name| name.parse::<usize>().ok())
+            else {
+                continue;
+            };
+            if slot >= self.max_checkpoints
+                && slot < MAX_RETAINED_CHECKPOINTS
+                && self.load_at(&entry.path()).ok().flatten().is_some()
+            {
+                stale_history.push(entry.path());
+            }
+        }
+        for slot in (1..self.max_checkpoints).rev() {
+            let target = self.slot_path(slot);
+            if let Some(old) = &previous[slot - 1] {
+                self.write_manifest(&target, old)?;
+            }
+        }
+        if self.max_checkpoints > 1 {
+            sync_directory(directory)?;
+        }
+        self.write_manifest(&self.path, &manifest)?;
+        sync_directory(directory)?;
+        for path in stale_history {
+            let _ = fs::remove_file(path);
+        }
+        Ok(())
+    }
+
+    fn write_manifest(&self, path: &Path, manifest: &Manifest) -> Result<(), Error> {
+        let bytes = serde_json::to_vec(manifest)
+            .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_MANIFEST_BYTES {
+            return Err(Error::resource(
+                "checkpoint",
+                "stream manifest exceeds size limit",
+            ));
+        }
+        if let Ok(metadata) = fs::symlink_metadata(path)
+            && !metadata.file_type().is_file()
+        {
+            return Err(Error::recovery(
+                "checkpoint",
+                "stream manifest is not a regular file",
+            ));
+        }
+        let directory = path.parent().expect("stream manifest path has parent");
         let mut temporary = tempfile::NamedTempFile::new_in(directory)
             .map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
         temporary
@@ -200,11 +295,8 @@ impl StreamCheckpoint {
             .sync_all()
             .map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
         temporary
-            .persist(&self.path)
+            .persist(path)
             .map_err(|error| Error::io("checkpoint", "direct", error.error.to_string()))?;
-        fs::File::open(directory)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| Error::io("checkpoint", "direct", error.to_string()))?;
         Ok(())
     }
 
@@ -323,7 +415,7 @@ mod tests {
 
         let config = CheckpointConfig {
             interval_batches: 1,
-            max_checkpoints: 2,
+            max_checkpoints: 0,
             binary_build_id: "test-build".into(),
             ..config
         };
@@ -342,6 +434,64 @@ mod tests {
                 .is_err()
         );
         assert!(!temporary.path().join("stream-latest.json").exists());
+    }
+
+    #[test]
+    fn stream_history_falls_back_and_never_crosses_execution_identity() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = CheckpointConfig {
+            directory: temporary.path().into(),
+            max_checkpoints: 3,
+            binary_build_id: "test-build".into(),
+            ..CheckpointConfig::default()
+        };
+        let checkpoint =
+            StreamCheckpoint::new::<i32>(&config, "graph", "source", "sink", "events", "sink")
+                .unwrap();
+        for cursor in 1..=4 {
+            let mut progress = signal();
+            progress.checkpoint_position = Some(vec![cursor]);
+            checkpoint.save(&progress).unwrap();
+        }
+        let history_one: Manifest = serde_json::from_slice(
+            &fs::read(temporary.path().join("stream-history-1.json")).unwrap(),
+        )
+        .unwrap();
+        let history_two: Manifest = serde_json::from_slice(
+            &fs::read(temporary.path().join("stream-history-2.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(history_one.progress.checkpoint_position, Some(vec![3]));
+        assert_eq!(history_two.progress.checkpoint_position, Some(vec![2]));
+        fs::write(&checkpoint.path, b"{broken").unwrap();
+        assert_eq!(
+            checkpoint.load().unwrap().unwrap().checkpoint_position,
+            Some(vec![3])
+        );
+
+        let foreign =
+            StreamCheckpoint::new::<i32>(&config, "other", "source", "sink", "events", "sink")
+                .unwrap();
+        assert_eq!(foreign.load().unwrap_err().kind, ErrorKind::Incompatible);
+
+        let latest_only = StreamCheckpoint::new::<i32>(
+            &CheckpointConfig {
+                max_checkpoints: 1,
+                ..config
+            },
+            "graph",
+            "source",
+            "sink",
+            "events",
+            "sink",
+        )
+        .unwrap();
+        let mut progress = signal();
+        progress.checkpoint_position = Some(vec![5]);
+        latest_only.save(&progress).unwrap();
+        assert!(!temporary.path().join("stream-history-1.json").exists());
+        assert!(!temporary.path().join("stream-history-2.json").exists());
+        assert_eq!(latest_only.load().unwrap(), Some(progress));
     }
 
     #[test]

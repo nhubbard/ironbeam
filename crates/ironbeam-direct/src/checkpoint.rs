@@ -13,9 +13,9 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
-const MAX_RETAINED_CHECKPOINTS: usize = 128;
+pub(crate) const MAX_RETAINED_CHECKPOINTS: usize = 128;
 
-fn sync_directory(path: &Path) -> Result<(), Error> {
+pub(crate) fn sync_directory(path: &Path) -> Result<(), Error> {
     File::open(path)
         .and_then(|directory| directory.sync_all())
         .map_err(|error| io_error("checkpoint", error))
@@ -25,7 +25,7 @@ fn sync_directory(path: &Path) -> Result<(), Error> {
 pub struct CheckpointConfig {
     pub directory: PathBuf,
     pub interval_batches: usize,
-    /// Number of bounded snapshots retained, including the latest (1..=128).
+    /// Number of snapshots retained, including the latest (1..=128).
     pub max_checkpoints: usize,
     pub recover: bool,
     /// Stable identity of the executable transform registry (for example a build hash).
@@ -552,8 +552,6 @@ impl CheckpointManager {
             let source_manifest = previous[slot - 1].as_ref().filter(|old| old.kind == kind);
             if let Some(source_manifest) = source_manifest {
                 self.write_manifest(&target, source_manifest)?;
-            } else if target.exists() {
-                fs::remove_file(&target).map_err(|error| io_error("checkpoint", error))?;
             }
         }
         // The archived manifests must be durable before a new latest manifest
@@ -565,15 +563,18 @@ impl CheckpointManager {
         // Do not remove the previous data file until the new manifest's
         // directory entry is durable. A crash must leave one recoverable pair.
         sync_directory(&self.config.directory)?;
-        let retained = std::iter::once(manifest.data_file.clone())
-            .chain(
-                previous
-                    .iter()
-                    .take(self.config.max_checkpoints.saturating_sub(1))
-                    .filter_map(Option::as_ref)
-                    .filter(|old| old.kind == kind)
-                    .map(|old| old.data_file.clone()),
-            )
+        let retained = (0..self.config.max_checkpoints)
+            .filter_map(|slot| {
+                let path = if slot == 0 {
+                    self.manifest_path()
+                } else {
+                    self.history_path(slot)
+                };
+                self.load_manifest_at(&path, None)
+                    .ok()
+                    .flatten()
+                    .map(|(manifest, _)| manifest.data_file)
+            })
             .collect::<HashSet<_>>();
         let mut pruned_stale = Vec::new();
         for (path, old) in stale_history {
