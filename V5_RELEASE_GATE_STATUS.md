@@ -49,8 +49,10 @@ below is complete.
 ### Current paired performance measurement
 
 On 2026-10-11, the release binaries ran one million rows per case, one warmup
-pair and five alternating sample pairs. V5 used an explicit 1 GiB Direct job
-budget; its 64 MiB default rejects the million-row materialized grouping
+pair and five alternating sample pairs. The two join rows were refreshed from
+the committed typed path with two warmup pairs and eight alternating sample
+pairs. V5 used an explicit 1 GiB Direct job budget; its 64 MiB default rejects
+the million-row materialized grouping
 case. Peak memory is process RSS from macOS `/usr/bin/time -l`. Each pair had
 the same output count and checksum.
 
@@ -60,11 +62,12 @@ the same output count and checksum.
 | Map/filter | 0.949 | 2.832 | 2.98× | 14.17 | 10.52 |
 | Group by key | 5.364 | 10.582 | 1.97× | 29.83 | 21.64 |
 | Latest per key | 6.370 | 10.949 | 1.72× | 48.50 | 10.75 |
-| Inner join | 211.088 | 220.853 | 1.05× | 264.17 | 418.91 |
-| Duplicate-key join | 27.948 | 45.202 | 1.62× | 42.09 | 134.45 |
+| Inner join | 214.979 | 105.175 | 0.49× | 264.17 | 273.56 |
+| Duplicate-key join | 28.474 | 10.156 | 0.36× | 42.09 | 42.73 |
 | JSONL round trip | 41.308 | 49.882 | 1.21× | 16.72 | 19.47 |
 
-Map/filter latency and join memory need work before setting acceptance limits.
+Map/filter latency and join shapes outside the typed Direct path need work
+before setting acceptance limits.
 The million-row JSONL ratio is much smaller than the 100,000-row ratio, so its
 fixed setup and durable publication costs need separate measurement.
 
