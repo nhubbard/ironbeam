@@ -51,7 +51,7 @@
 //!
 //!     fn magic_bytes(&self) -> Option<&[u8]> { Some(&[0xAB, 0xCD]) }
 //!
-//!     fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> Result<Box<dyn Read>> {
+//!     fn wrap_reader_dyn(&self, reader: Box<dyn Read + Send>) -> Result<Box<dyn Read + Send>> {
 //!         // Your decompression logic
 //!         Ok(reader)
 //!     }
@@ -134,7 +134,7 @@ fn get_registry() -> Vec<Arc<dyn CompressionCodec>> {
 ///     fn name(&self) -> &str { "mycodec" }
 ///     fn extensions(&self) -> &[&str] { &[".myext"] }
 ///     fn magic_bytes(&self) -> Option<&[u8]> { None }
-///     fn wrap_reader_dyn(&self, r: Box<dyn Read>) -> std::io::Result<Box<dyn Read>> {
+///     fn wrap_reader_dyn(&self, r: Box<dyn Read + Send>) -> std::io::Result<Box<dyn Read + Send>> {
 ///         Ok(r)
 ///     }
 ///     fn wrap_writer_dyn(&self, w: Box<dyn Write>) -> std::io::Result<Box<dyn Write>> {
@@ -187,7 +187,7 @@ pub trait CompressionCodec: Send + Sync {
     /// # Errors
     ///
     /// You must handle errors appropriately and return an [`std::io::Result`] accordingly.
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>>;
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read + Send>) -> IoResult<Box<dyn Read + Send>>;
 
     /// Wrap a writer with compression.
     ///
@@ -264,10 +264,10 @@ fn detect_from_magic<R: BufRead>(reader: &mut R) -> Option<Arc<dyn CompressionCo
 /// # Errors
 ///
 /// If an error occurs during detection, then a [`Result`] is returned.
-pub fn auto_detect_reader<R: Read + 'static>(
+pub fn auto_detect_reader<R: Read + Send + 'static>(
     reader: R,
     path_hint: impl AsRef<Path>,
-) -> Result<Box<dyn Read>> {
+) -> Result<Box<dyn Read + Send>> {
     if let Some(codec) = detect_from_extension(&path_hint) {
         return codec
             .wrap_reader_dyn(Box::new(reader))
@@ -418,7 +418,7 @@ impl CompressionCodec for GzipCodec {
         Some(&[0x1f, 0x8b])
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>> {
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read + Send>) -> IoResult<Box<dyn Read + Send>> {
         use flate2::read::GzDecoder;
         Ok(Box::new(GzDecoder::new(reader)))
     }
@@ -447,8 +447,8 @@ impl CompressionCodec for ZstdCodec {
         Some(&[0x28, 0xb5, 0x2f, 0xfd])
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>> {
-        Decoder::new(reader).map(|d| Box::new(d) as Box<dyn Read>)
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read + Send>) -> IoResult<Box<dyn Read + Send>> {
+        Decoder::new(reader).map(|d| Box::new(d) as Box<dyn Read + Send>)
     }
 
     fn wrap_writer_dyn(&self, writer: Box<dyn Write>) -> IoResult<Box<dyn Write>> {
@@ -473,7 +473,7 @@ impl CompressionCodec for Bzip2Codec {
         Some(&[0x42, 0x5a])
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>> {
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read + Send>) -> IoResult<Box<dyn Read + Send>> {
         use bzip2::read::BzDecoder;
         Ok(Box::new(BzDecoder::new(reader)))
     }
@@ -502,7 +502,7 @@ impl CompressionCodec for XzCodec {
         Some(&[0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00])
     }
 
-    fn wrap_reader_dyn(&self, reader: Box<dyn Read>) -> IoResult<Box<dyn Read>> {
+    fn wrap_reader_dyn(&self, reader: Box<dyn Read + Send>) -> IoResult<Box<dyn Read + Send>> {
         use xz2::read::XzDecoder;
         Ok(Box::new(XzDecoder::new(reader)))
     }

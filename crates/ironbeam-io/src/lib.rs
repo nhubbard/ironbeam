@@ -54,33 +54,6 @@ fn create_dir_all_durable(path: &Path, key: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn read_decoded_file(path: &Path, key: &str) -> Result<Vec<u8>, Error> {
-    #[cfg(any(
-        feature = "compression-gzip",
-        feature = "compression-zstd",
-        feature = "compression-bzip2",
-        feature = "compression-xz"
-    ))]
-    {
-        use std::io::Read;
-        let file = fs::File::open(path).map_err(|e| io(key, e))?;
-        let mut reader =
-            ironbeam_compression::auto_detect_reader(file, path).map_err(|e| io(key, e))?;
-        let mut bytes = Vec::new();
-        reader.read_to_end(&mut bytes).map_err(|e| io(key, e))?;
-        Ok(bytes)
-    }
-    #[cfg(not(any(
-        feature = "compression-gzip",
-        feature = "compression-zstd",
-        feature = "compression-bzip2",
-        feature = "compression-xz"
-    )))]
-    {
-        fs::read(path).map_err(|e| io(key, e))
-    }
-}
-
 fn decode_source_bytes(bytes: Vec<u8>, path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     #[cfg(any(
         feature = "compression-gzip",
@@ -109,6 +82,12 @@ fn decode_source_bytes(bytes: Vec<u8>, path: &Path, key: &str) -> Result<Vec<u8>
     }
 }
 
+#[cfg(any(
+    feature = "compression-gzip",
+    feature = "compression-zstd",
+    feature = "compression-bzip2",
+    feature = "compression-xz"
+))]
 fn compressed_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
@@ -145,31 +124,17 @@ pub fn open_encoded_output(path: &Path, key: &str) -> Result<Box<dyn std::io::Wr
 
 #[doc(hidden)]
 pub fn open_lazy_input(path: &Path, key: &str) -> Result<Box<dyn std::io::Read + Send>, Error> {
+    let file = fs::File::open(path).map_err(|e| io(key, e))?;
+    #[cfg(any(
+        feature = "compression-gzip",
+        feature = "compression-zstd",
+        feature = "compression-bzip2",
+        feature = "compression-xz"
+    ))]
     if compressed_extension(path) {
-        Ok(Box::new(std::io::Cursor::new(read_decoded_file(
-            path, key,
-        )?)))
-    } else {
-        Ok(Box::new(fs::File::open(path).map_err(|e| io(key, e))?))
+        return ironbeam_compression::auto_detect_reader(file, path).map_err(|e| io(key, e));
     }
-}
-
-#[cfg(feature = "file")]
-pub trait ReadSeek: std::io::Read + std::io::Seek {}
-#[cfg(feature = "file")]
-impl<T: std::io::Read + std::io::Seek> ReadSeek for T {}
-#[cfg(feature = "file")]
-#[doc(hidden)]
-pub fn open_lazy_seek(path: &Path, key: &str) -> Result<(Box<dyn ReadSeek + Send>, u64), Error> {
-    if compressed_extension(path) {
-        let bytes = read_decoded_file(path, key)?;
-        let length = u64::try_from(bytes.len()).map_err(|e| io(key, e))?;
-        Ok((Box::new(std::io::Cursor::new(bytes)), length))
-    } else {
-        let file = fs::File::open(path).map_err(|e| io(key, e))?;
-        let length = file.metadata().map_err(|e| io(key, e))?.len();
-        Ok((Box::new(file), length))
-    }
+    Ok(Box::new(file))
 }
 
 type FileWriter<T> = dyn Fn(&Path, &[T]) -> Result<(), Error> + Send + Sync;
@@ -590,4 +555,30 @@ pub fn parallel_container_writer<T: Sync>(
         merged.extend(read(&bytes)?);
     }
     write(path, &merged)
+}
+
+#[cfg(all(test, feature = "file", feature = "compression-gzip"))]
+mod lazy_input_tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn compressed_lazy_reader_decodes_on_read() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("rows.jsonl.gz");
+        let expected = b"{\"value\":1}\n{\"value\":2}\n";
+        fs::write(
+            &path,
+            ironbeam_compression::compress_bytes_for_path(expected, &path).unwrap(),
+        )
+        .unwrap();
+        let mut reader = open_lazy_input(&path, "rows").unwrap();
+        let mut actual = Vec::new();
+        reader.read_to_end(&mut actual).unwrap();
+        assert_eq!(actual, expected);
+
+        fs::write(&path, b"invalid gzip bytes").unwrap();
+        let mut reader = open_lazy_input(&path, "rows").unwrap();
+        assert!(reader.read_to_end(&mut Vec::new()).is_err());
+    }
 }

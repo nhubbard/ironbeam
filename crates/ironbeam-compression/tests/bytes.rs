@@ -31,8 +31,8 @@ impl CompressionCodec for PassThroughCodec {
     }
     fn wrap_reader_dyn(
         &self,
-        reader: Box<dyn std::io::Read>,
-    ) -> std::io::Result<Box<dyn std::io::Read>> {
+        reader: Box<dyn std::io::Read + Send>,
+    ) -> std::io::Result<Box<dyn std::io::Read + Send>> {
         Ok(reader)
     }
     fn wrap_writer_dyn(

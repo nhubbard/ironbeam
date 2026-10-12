@@ -9,7 +9,7 @@ use ironbeam_io::final_result::{LocalFinalResult, PublishedResult};
 use ironbeam_io::framed_parallel_sink;
 use ironbeam_io::{
     count_lazy_records, file_glob_source, file_sharded_source, io, lazy_source,
-    open_encoded_output, open_lazy_seek, read_lazy_range, sink, source,
+    open_encoded_output, open_lazy_input, read_lazy_range, sink, source,
 };
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -94,9 +94,8 @@ pub fn tfrecord_source(
 }
 #[allow(clippy::needless_pass_by_value)] // Shared lazy-source factory accepts PathBuf.
 fn read_tfrecord_lazy(path: PathBuf) -> Result<TypedSourceIterator<Vec<u8>>, Error> {
-    use std::io::{Read, Seek};
-    let (file, file_length) = open_lazy_seek(&path, "tfrecord")?;
-    let mut reader = std::io::BufReader::new(file);
+    use std::io::Read;
+    let mut reader = std::io::BufReader::new(open_lazy_input(&path, "tfrecord")?);
     let mut done = false;
     Ok(Box::new(std::iter::from_fn(move || {
         if done {
@@ -129,29 +128,22 @@ fn read_tfrecord_lazy(path: PathBuf) -> Result<TypedSourceIterator<Vec<u8>>, Err
                 return Some(Err(io("tfrecord", error)));
             }
         };
-        let position = match reader.stream_position() {
-            Ok(position) => position,
-            Err(error) => {
-                done = true;
-                return Some(Err(io("tfrecord", error)));
-            }
-        };
-        if u64::try_from(length)
-            .ok()
-            .and_then(|length| length.checked_add(4))
-            .is_none_or(|needed| needed > file_length.saturating_sub(position))
-        {
-            done = true;
-            return Some(Err(io("tfrecord", "truncated record")));
-        }
-        let mut payload = vec![0_u8; length];
-        let mut crc = [0_u8; 4];
-        if let Err(error) = reader
-            .read_exact(&mut payload)
-            .and_then(|()| reader.read_exact(&mut crc))
+        let mut payload = Vec::new();
+        if let Err(error) = (&mut reader)
+            .take(u64::try_from(length).expect("decoded length fits u64"))
+            .read_to_end(&mut payload)
         {
             done = true;
             return Some(Err(io("tfrecord", error)));
+        }
+        if payload.len() != length {
+            done = true;
+            return Some(Err(io("tfrecord", "truncated record")));
+        }
+        let mut crc = [0_u8; 4];
+        if let Err(error) = reader.read_exact(&mut crc) {
+            done = true;
+            return Some(Err(io("tfrecord", format!("truncated record: {error}"))));
         }
         if u32::from_le_bytes(crc) != masked_crc(&payload) {
             done = true;

@@ -13,7 +13,7 @@ use ironbeam_io::sequence_final::{
 };
 use ironbeam_io::{
     count_lazy_records, file_glob_source, file_sharded_source, io, lazy_source,
-    open_encoded_output, open_lazy_seek, read_lazy_range, sink, source,
+    open_encoded_output, open_lazy_input, read_lazy_range, sink, source,
 };
 use std::path::{Path, PathBuf};
 
@@ -75,9 +75,8 @@ fn read_protobuf_length(reader: &mut impl std::io::Read) -> Result<Option<usize>
 fn read_protobuf_lazy<T: Element + prost::Message + Default>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
-    use std::io::{Read, Seek};
-    let (file, file_length) = open_lazy_seek(&path, "protobuf")?;
-    let mut reader = std::io::BufReader::new(file);
+    use std::io::Read;
+    let mut reader = std::io::BufReader::new(open_lazy_input(&path, "protobuf")?);
     let mut done = false;
     Ok(Box::new(std::iter::from_fn(move || {
         if done {
@@ -91,24 +90,17 @@ fn read_protobuf_lazy<T: Element + prost::Message + Default>(
                 return Some(Err(error));
             }
         };
-        let position = match reader.stream_position() {
-            Ok(position) => position,
-            Err(error) => {
-                done = true;
-                return Some(Err(io("protobuf", error)));
-            }
-        };
-        if u64::try_from(length)
-            .ok()
-            .is_none_or(|length| length > file_length.saturating_sub(position))
+        let mut bytes = Vec::new();
+        if let Err(error) = (&mut reader)
+            .take(u64::try_from(length).expect("decoded length fits u64"))
+            .read_to_end(&mut bytes)
         {
             done = true;
-            return Some(Err(io("protobuf", "truncated record")));
-        }
-        let mut bytes = vec![0_u8; length];
-        if let Err(error) = reader.read_exact(&mut bytes) {
-            done = true;
             return Some(Err(io("protobuf", error)));
+        }
+        if bytes.len() != length {
+            done = true;
+            return Some(Err(io("protobuf", "truncated record")));
         }
         let item = <T as prost::Message>::decode(&bytes[..]).map_err(|e| io("protobuf", e));
         if item.is_err() {
