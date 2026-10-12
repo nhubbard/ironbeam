@@ -86,33 +86,35 @@ local object providers, URI-level deferred JSONL sink and source adapters,
 and a cross-provider prefix copy. It runs without hosted
 provider SDKs. URI-based JSONL sources bind the scheme and content digest to
 graph identity, and sinks bind the destination URI. The sink still has
-whole-job final-result semantics and remains unsupported by the portable
-worker until it has a runner-wide commit protocol. The old fake cache, queue,
-search, graph, compute, and inference
-families still need a v5 ownership and parity decision before deleting the
-legacy cloud package; this example does not claim those families are complete.
+whole-job final-result semantics. A separate object-backed JSONL fragment sink
+now stages portable bundles and publishes only against the completed attempt
+manifest; the local Prism production proof reopens that result. Provider
+consistency and bounded-memory publication remain release work. The old fake
+cache, queue, search, graph, compute, and inference families now have separate
+provider-neutral contracts, fakes, and operation helpers. Hosted provider
+adapters beyond object storage remain future extension work.
 The `etl_pipeline` example now uses v5 grouping, global TopK, bot counts, and
 the separate CSV and JSONL connectors with checked temporary round trips.
-The v4 checkpoint examples now live in `ironbeam-compat` because v5 does not
-yet implement their barrier, time, and node-based policies. V5 Direct recovers the
+The v4 checkpoint examples now live in `ironbeam-compat`. V5 batch/progress
+checkpoints replace their marker-only barrier, time, and node-based policies,
+as recorded in the migration guide. V5 Direct recovers the
 completed output of a coded aggregate from one bounded built-in vector source.
 The `v5_checkpoint_recovery` example rebuilds the graph after a completed
 aggregate and verifies that the second run reads zero source rows from its
 versioned local checkpoint. It uses a temporary directory and does not claim
-parity with the v4 scheduling policies or recovery after every graph shape.
+recovery after every graph shape.
 For a bounded vector source followed by linear map, filter, flat-map,
 timestamp, or fixed-window stages and then GroupByKey, it also restores
 versioned fold state from the last committed source batch and reads only the
 remaining source rows. Validated stateless stages after GroupByKey, including
 keyed-latest selection and time/window projection, run after restoration;
-a downstream flat-map failure can retry without reopening the source. Other
-in-progress folds, multi-input routes, custom or
-unbounded sources, and the v4 checkpoint policies remain replacement work. The
+a downstream flat-map failure can retry without reopening the source. Fixed-window
+one-source groups and two-unbounded joins/co-groups also checkpoint coded open
+state with source cursors. Broader graph recovery remains replacement work. The
 local manifest schema is 1.2 and rejects older v5 draft checkpoints.
 V4's barrier, node-count, time, and hybrid policies wrote progress markers;
-its runner reopened those markers but re-executed from the start. V5 must retain
-the useful scheduling options only when they govern restorable state, rather
-than presenting metadata-only checkpoints as recovery parity.
+its runner reopened those markers but re-executed from the start. V5 saves
+restorable batch or progress state instead of retaining those schedules.
 Regex helpers live in `ironbeam-transform-regex`; the root v5 prelude exposes
 `RegexExt` when `v5-regex` is enabled. Plain `ironbeam-transforms` builds no
 longer compile the regex engine. Published 4.1.1 remains the reference for
