@@ -2,6 +2,19 @@ use ironbeam::v5::{Pipeline, Version, prelude::*};
 use std::sync::Arc;
 
 #[test]
+fn facade_prelude_exposes_parallel_keyed_sort() {
+    let pairs = Pipeline::default()
+        .from_vec("pairs", vec![("b".to_owned(), 2_i32), ("a".to_owned(), 1)])
+        .unwrap();
+    assert_eq!(
+        pairs
+            .collect_par_sorted_by_key_named("sorted-pairs", 2)
+            .unwrap(),
+        [("a".to_owned(), 1), ("b".to_owned(), 2)]
+    );
+}
+
+#[test]
 fn facade_runs_versioned_semantic_handlers() {
     let values = Pipeline::default()
         .from_vec("source", vec![2_i32, 4])
