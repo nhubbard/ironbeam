@@ -191,7 +191,16 @@ impl LocalFinalResult {
         temp.write_all(&length.to_le_bytes()).map_err(io)?;
         temp.write_all(&digest.finalize()).map_err(io)?;
         temp.as_file().sync_all().map_err(io)?;
-        temp.persist_noclobber(&pending).map_err(io)?;
+        match temp.persist_noclobber(&pending) {
+            Ok(_) => {}
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                self.read_fragment(&pending, Some(bundle_id))?;
+                if !files_equal(error.file.path(), &pending)? {
+                    return Err(invalid("pending fragment conflicts with retry"));
+                }
+            }
+            Err(error) => return Err(io(error)),
+        }
         sync_directory(&self.staging)
     }
 
@@ -209,9 +218,8 @@ impl LocalFinalResult {
                     return Err(invalid("accepted fragment conflicts with pending attempt"));
                 }
                 fs::remove_file(&pending).map_err(io)?;
-                sync_directory(&self.staging)?;
             }
-            return Ok(());
+            return sync_directory(&self.staging);
         }
         self.read_fragment(&pending, Some(bundle_id))?;
         fs::hard_link(&pending, &accepted).map_err(io)?;
@@ -404,6 +412,7 @@ impl LocalFinalResult {
                 if !files_equal(error.file.path(), target)? {
                     return Err(invalid("published result conflicts with this job output"));
                 }
+                sync_directory(parent)?;
             }
             Err(error) => return Err(io(error)),
         }
@@ -503,6 +512,26 @@ mod tests {
         assert!(another_graph.accepted_fragments().is_err());
         let another_sink = LocalFinalResult::new(&stage, "job-1", "graph-1", "sink-2").unwrap();
         assert!(another_sink.accepted_fragments().is_err());
+    }
+
+    #[test]
+    fn identical_pending_attempt_can_be_staged_again_after_restart() {
+        let temp = tempfile::tempdir().unwrap();
+        let stage = temp.path().join("stage");
+        let store = LocalFinalResult::new(&stage, "job", "graph", "sink").unwrap();
+        store.stage("bundle", 1, b"payload").unwrap();
+        let pending = store.path("bundle", "pending").unwrap();
+        let original = fs::read(&pending).unwrap();
+
+        let reopened = LocalFinalResult::new(&stage, "job", "graph", "sink").unwrap();
+        reopened.stage("bundle", 1, b"payload").unwrap();
+        assert_eq!(fs::read(&pending).unwrap(), original);
+        assert!(reopened.stage("bundle", 2, b"payload").is_err());
+        assert!(reopened.stage("bundle", 1, b"different").is_err());
+
+        fs::write(&pending, b"corrupt").unwrap();
+        assert!(reopened.stage("bundle", 1, b"payload").is_err());
+        assert_eq!(fs::read(&pending).unwrap(), b"corrupt");
     }
 
     #[test]
