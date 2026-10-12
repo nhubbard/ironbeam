@@ -13,6 +13,12 @@ use std::sync::atomic::Ordering;
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 
+fn sync_directory(path: &Path) -> Result<(), Error> {
+    File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| io_error("checkpoint", error))
+}
+
 #[derive(Clone, Debug)]
 pub struct CheckpointConfig {
     pub directory: PathBuf,
@@ -439,6 +445,9 @@ impl CheckpointManager {
         data_path: &Path,
         data_hash: String,
     ) -> Result<(), Error> {
+        // Make the new data file's directory entry durable before publishing
+        // a manifest that points to it.
+        sync_directory(&self.config.directory)?;
         let data_file = data_path
             .file_name()
             .ok_or_else(|| Error::recovery("checkpoint", "checkpoint data path lacks file name"))?
@@ -472,6 +481,9 @@ impl CheckpointManager {
         manifest_tmp
             .persist(self.manifest_path())
             .map_err(|e| io_error("checkpoint", e))?;
+        // Do not remove the previous data file until the new manifest's
+        // directory entry is durable. A crash must leave one recoverable pair.
+        sync_directory(&self.config.directory)?;
         if let Some(old) = old
             && old.version == CHECKPOINT_VERSION
             && old.identity == self.identity
