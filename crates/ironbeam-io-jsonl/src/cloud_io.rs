@@ -464,8 +464,9 @@ where
 
 /// Write a deferred JSONL result to a URI through a registered provider.
 ///
-/// The URI participates in the sink identity. Direct commits once per job;
-/// portable runners need a job-wide commit protocol before accepting this sink.
+/// The URI participates in the sink identity. Direct commits once per job.
+/// Portable jobs should use `cloud_jsonl_fragment_sink` and publish the
+/// completed result with `publish_cloud_jsonl_fragments` after runner success.
 ///
 /// # Errors
 /// Returns an invalid URI, missing provider, or graph error.

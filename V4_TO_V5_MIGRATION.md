@@ -116,6 +116,15 @@ finalization journal, and committed row counts, then supplies the IDs through
 including when it has no fragments. Pass an empty manifest for a completed
 zero-attempt output.
 
+For object-backed portable JSONL, build the graph with
+`cloud_jsonl_fragment_sink`, using the same `ObjectIO` location and job,
+graph, and sink IDs on the worker and coordinator. After a `DONE` job, reopen
+the scope with `cloud_jsonl_fragment_store`, bind its completed attempt IDs,
+and call `publish_cloud_jsonl_fragments` with the committed row count. This
+creates an uncompressed `.jsonl` object conditionally; identical publication
+retries succeed. The older `cloud_jsonl_sink` remains a deferred Direct sink.
+The current object API buffers each bundle and the final object in memory.
+
 ## Materialized data handoff
 
 `ironbeam-compat` supports `v4_to_v5(v4_collection, &v5_pipeline, key)` and `v5_to_v4(&v5_collection, &v4_pipeline, output_key, &job_config)`. Both execute the source locally and copy all values into a new bounded in-memory source. The element type must implement both versions' `Element` traits, plus `Clone` and `Sync`; built-in integers and strings work directly. A custom type implements v5 `Element` with stable `TYPE_ID` and `CODER_ID` declarations in addition to the v4 bounds. Errors identify the v4 or v5 side of the bridge.
