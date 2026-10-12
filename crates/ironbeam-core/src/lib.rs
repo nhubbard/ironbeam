@@ -4216,6 +4216,45 @@ impl<T: Element> PCollection<T> {
             Ok(f(value, values))
         })
     }
+    /// Apply a bounded side collection separately within each matching window.
+    /// This composes a keyed co-group, so the runner may shuffle and buffer all
+    /// values in a window. Main element timestamps are restored after the group.
+    /// Use `map_with_side_named` for one global side view across all windows.
+    pub fn map_with_windowed_side_named<S: Element, U: Element>(
+        &self,
+        key: &str,
+        side: &PCollection<S>,
+        f: impl Fn(T, &[S]) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        if !Arc::ptr_eq(&self.pipeline.inner, &side.pipeline.inner) {
+            return Err(Error::graph(
+                key,
+                "side input belongs to a different pipeline",
+            ));
+        }
+        let main = self.parent()?;
+        let other = side.parent()?;
+        if other.boundedness != Boundedness::Bounded {
+            return Err(Error::graph(key, "side input must be bounded"));
+        }
+        if main.time != other.time {
+            return Err(Error::graph(
+                key,
+                "side input time/window declaration mismatch",
+            ));
+        }
+        let main = self
+            .reify_timestamps_named(&format!("{key}/main-time"))?
+            .map_named(&format!("{key}/main-key"), |value| (0_i32, value))?;
+        let side = side.map_named(&format!("{key}/side-key"), |value| (0_i32, value))?;
+        crate::cogroup_by_key_2_named(&format!("{key}/group"), &main, &side)?
+            .flat_map_named(&format!("{key}/apply"), move |(_, (main, side))| {
+                main.into_iter()
+                    .map(|(timestamp_ns, value)| (timestamp_ns, f(value, &side)))
+                    .collect::<Vec<_>>()
+            })?
+            .timestamps_from_pairs_in_window_named(key)
+    }
     /// Build a bounded side view once per execution, then apply it to each main value.
     /// Materialization failures are returned as typed execution errors. The
     /// view must be transferable because portable workers can resume a bundle
@@ -4329,6 +4368,41 @@ impl<T: Element> PCollection<(i64, T)> {
     pub fn timestamps_from_pairs_named(&self, key: &str) -> Result<PCollection<T>, Error> {
         let assigned = self.assign_timestamps_named(&format!("{key}/assign"), |pair| pair.0)?;
         assigned.map_named(key, |(_, value)| value)
+    }
+
+    /// Restore a reified timestamp after grouping, provided it still belongs
+    /// to the element's current window. This cannot move a row between windows.
+    pub fn timestamps_from_pairs_in_window_named(
+        &self,
+        key: &str,
+    ) -> Result<PCollection<T>, Error> {
+        let window = self.parent()?.time.window;
+        if window == Window::Global {
+            return self.timestamps_from_pairs_named(key);
+        }
+        let assign_key = format!("{key}/assign");
+        let error_key = assign_key.clone();
+        let transform = Transform::Single(Arc::new(move |mut event| {
+            let pair = event.value.downcast_ref::<(i64, T)>().ok_or_else(|| {
+                Error::execution(&error_key, "runner", "timestamp pair type mismatch")
+            })?;
+            if window.assign(pair.0)? != event.assigned_window {
+                return Err(Error::execution(
+                    &error_key,
+                    "runner",
+                    "restored timestamp falls outside its window",
+                ));
+            }
+            event.timestamp_ns = pair.0;
+            Ok(Some(event))
+        }));
+        self.next::<(i64, T)>(
+            &assign_key,
+            Operation::AssignTimestamp,
+            Some(transform),
+            None,
+        )?
+        .map_named(key, |(_, value)| value)
     }
 }
 

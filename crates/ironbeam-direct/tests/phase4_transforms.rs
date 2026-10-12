@@ -2108,6 +2108,83 @@ fn bounded_side_input_is_explicit_and_executes() {
 }
 
 #[test]
+fn windowed_side_input_uses_matching_window_and_restores_main_time() {
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .from_vec(
+            "windowed-main",
+            vec![
+                (0_i64, 1_i32),
+                (1_000_000, 2),
+                (2_000_000, 3),
+                (4_000_000, 4),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("windowed-main-time")
+        .unwrap()
+        .fixed_windows("windowed-main-windows", 2_000_000)
+        .unwrap();
+    let side = pipeline
+        .from_vec("windowed-side", vec![(0_i64, 10_i32), (2_000_000, 20)])
+        .unwrap()
+        .timestamps_from_pairs_named("windowed-side-time")
+        .unwrap()
+        .fixed_windows("windowed-side-windows", 2_000_000)
+        .unwrap();
+    let output = main
+        .map_with_windowed_side_named("windowed-add", &side, |value, values| {
+            value + values.iter().sum::<i32>()
+        })
+        .unwrap()
+        .reify_timestamps_named("windowed-result-time")
+        .unwrap()
+        .with_window_named("windowed-result-window")
+        .unwrap()
+        .output("windowed-result")
+        .unwrap();
+    let mut rows = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap()
+        .0
+        .into_iter()
+        .map(|(window, (time, value))| (window.start_ns, window.end_ns, time, value))
+        .collect::<Vec<_>>();
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        [
+            (0, 2_000_000, 0, 11),
+            (0, 2_000_000, 1_000_000, 12),
+            (2_000_000, 4_000_000, 2_000_000, 23),
+            (4_000_000, 6_000_000, 4_000_000, 4),
+        ]
+    );
+}
+
+#[test]
+fn restoring_a_timestamp_cannot_move_an_element_to_another_window() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("restore-input", vec![(0_i64, (2_000_000_i64, 7_i32))])
+        .unwrap()
+        .timestamps_from_pairs_named("restore-event-time")
+        .unwrap()
+        .fixed_windows("restore-window", 2_000_000)
+        .unwrap()
+        .timestamps_from_pairs_in_window_named("restore-invalid")
+        .unwrap()
+        .output("restore-output")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert!(error.message.contains("outside its window"));
+}
+
+#[test]
 fn deferred_sink_commits_only_after_success_and_aborts_on_write_failure() {
     use ironbeam_core::{Error, Replay, SinkMode, SinkSpec, TypedSink};
     use std::sync::{Arc, Mutex};
