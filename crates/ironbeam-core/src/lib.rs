@@ -5723,6 +5723,129 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             None,
         )
     }
+    /// Map fixed-size value batches in a unique order within each key/window.
+    /// The returned batch must contain one value per input. Each output keeps
+    /// the corresponding input event time. Portable runners may shuffle before
+    /// grouping, so order keys must be unique within a key/window.
+    pub fn map_values_batches_ordered_by_named<Q, O>(
+        &self,
+        key: &str,
+        batch_size: usize,
+        order_key: impl Fn(&V) -> Q + Send + Sync + 'static,
+        f: impl Fn(&[V]) -> Vec<O> + Send + Sync + 'static,
+    ) -> Result<PCollection<(K, O)>, Error>
+    where
+        Q: Element + Ord,
+        O: Element,
+    {
+        if batch_size == 0 {
+            return Err(Error::graph(key, "ordered batch size must be positive"));
+        }
+        let parent = self.parent()?;
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
+            return Err(Error::graph(
+                key,
+                "unbounded ordered batches need a finite window",
+            ));
+        }
+        let order_node = format!("{key}/order");
+        let order_error_node = order_node.clone();
+        let order_transform = Transform::Single(Arc::new(move |event| {
+            let Envelope {
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let (row_key, row_value) = *value.downcast::<(K, V)>().map_err(|_| {
+                Error::execution(
+                    &order_error_node,
+                    "runner",
+                    "ordered batch input type mismatch",
+                )
+            })?;
+            let order = order_key(&row_value);
+            Ok(Some(Envelope {
+                value: Box::new((row_key, (order, (timestamp_ns, row_value)))),
+                timestamp_ns,
+                window,
+                assigned_window,
+            }))
+        }));
+        let ordered = self.next::<(K, (Q, (i64, V)))>(
+            &order_node,
+            Operation::Map,
+            Some(order_transform),
+            None,
+        )?;
+        let grouped = ordered.group_by_key_named(&format!("{key}/group"))?;
+        let node_key = key.to_owned();
+        let transform = Transform::Multi(Arc::new(move |event| {
+            let Envelope {
+                value,
+                window,
+                assigned_window,
+                ..
+            } = event;
+            let (group_key, values) =
+                *value.downcast::<(K, Vec<(Q, (i64, V))>)>().map_err(|_| {
+                    Error::execution(&node_key, "runner", "ordered batch group type mismatch")
+                })?;
+            let mut ordered = BTreeMap::new();
+            for (order, row) in values {
+                if ordered.insert(order, row).is_some() {
+                    return Err(Error::execution(
+                        &node_key,
+                        "runner",
+                        "duplicate ordered batch key in key/window",
+                    ));
+                }
+            }
+            let mut output = Vec::new();
+            let mut pending_values = Vec::with_capacity(batch_size);
+            let mut pending_timestamps = Vec::with_capacity(batch_size);
+            let mut flush = |values: &mut Vec<V>, timestamps: &mut Vec<i64>| -> Result<(), Error> {
+                if values.is_empty() {
+                    return Ok(());
+                }
+                let mapped = f(values.as_slice());
+                if mapped.len() != values.len() {
+                    return Err(Error::execution(
+                        &node_key,
+                        "runner",
+                        "ordered batch value map changed length",
+                    ));
+                }
+                for (timestamp_ns, mapped) in timestamps.drain(..).zip(mapped) {
+                    output.push(Envelope {
+                        value: Box::new((group_key.clone(), mapped)),
+                        timestamp_ns,
+                        window: window.clone(),
+                        assigned_window,
+                    });
+                }
+                values.clear();
+                Ok(())
+            };
+            for (_, (timestamp_ns, value)) in ordered {
+                pending_timestamps.push(timestamp_ns);
+                pending_values.push(value);
+                if pending_values.len() == batch_size {
+                    flush(&mut pending_values, &mut pending_timestamps)?;
+                }
+            }
+            flush(&mut pending_values, &mut pending_timestamps)?;
+            Ok(output)
+        }));
+        let semantic_id = format!("ironbeam/map-values-ordered-batches/{batch_size}");
+        grouped.next_with_semantic(
+            key,
+            Operation::FlatMap,
+            Some(transform),
+            None,
+            Some((&semantic_id, BUILTIN_OPERATION_VERSION)),
+        )
+    }
     pub fn group_into_batches_named(
         &self,
         key: &str,
@@ -6670,6 +6793,51 @@ mod internal_tests {
         assert_ne!(
             two_values.fingerprint().unwrap(),
             three_values.fingerprint().unwrap()
+        );
+    }
+
+    #[test]
+    fn ordered_keyed_batch_size_is_part_of_graph_identity() {
+        let build = |size| {
+            let pipeline = Pipeline::default();
+            pipeline
+                .from_vec("source", vec![(1_i32, (1_i32, 2_i32))])
+                .unwrap()
+                .map_values_batches_ordered_by_named(
+                    "batch",
+                    size,
+                    |value| value.0,
+                    |values| values.to_vec(),
+                )
+                .unwrap();
+            pipeline.snapshot().unwrap().0
+        };
+        let two = build(2);
+        let three = build(3);
+        assert_eq!(
+            two.node("batch").unwrap().semantic_id,
+            "ironbeam/map-values-ordered-batches/2"
+        );
+        assert_ne!(two.fingerprint().unwrap(), three.fingerprint().unwrap());
+
+        let unbounded = Pipeline::default()
+            .test_stream_source(
+                "events",
+                vec![TestStreamEvent::Elements(vec![(
+                    (1_i32, (1_i32, 2_i32)),
+                    1,
+                )])],
+            )
+            .unwrap();
+        assert!(
+            unbounded
+                .map_values_batches_ordered_by_named(
+                    "unbounded-global-batch",
+                    2,
+                    |value| value.0,
+                    |values| values.to_vec(),
+                )
+                .is_err()
         );
     }
 

@@ -1471,6 +1471,98 @@ fn keyed_batch_map_preserves_each_event_timestamp() {
 }
 
 #[test]
+fn ordered_keyed_batches_preserve_row_time_and_reject_ambiguous_order() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .from_vec(
+            "ordered-batch-source",
+            vec![
+                (1_i64, (1_i32, (2_i32, 3_i32))),
+                (7, (1, (1, 2))),
+                (8, (1, (3, 4))),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("ordered-batch-time")
+        .unwrap()
+        .fixed_windows("ordered-batch-window", 10)
+        .unwrap();
+    let mapped = source
+        .map_values_batches_ordered_by_named(
+            "ordered-batch-map",
+            2,
+            |value| value.0,
+            |values| {
+                values
+                    .iter()
+                    .map(|value| value.1 * 10 + i32::try_from(values.len()).unwrap())
+                    .collect()
+            },
+        )
+        .unwrap()
+        .reify_timestamps_named("ordered-batch-result-time")
+        .unwrap()
+        .output("ordered-batch-result")
+        .unwrap();
+    let mut values = DirectRunner
+        .run_collect(&mapped, &JobConfig::default())
+        .unwrap()
+        .0;
+    values.sort_unstable();
+    assert_eq!(values, [(1, (1, 32)), (7, (1, 22)), (8, (1, 41))]);
+
+    let wrong_length = source
+        .map_values_batches_ordered_by_named(
+            "ordered-batch-wrong-length",
+            2,
+            |value| value.0,
+            |_| Vec::<i32>::new(),
+        )
+        .unwrap()
+        .output("ordered-batch-wrong-length-out")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&wrong_length, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("ordered-batch-wrong-length"));
+
+    let duplicate = pipeline
+        .from_vec(
+            "ordered-batch-duplicate-source",
+            vec![(1_i32, (1_i32, 2_i32)), (1, (1, 3))],
+        )
+        .unwrap()
+        .map_values_batches_ordered_by_named(
+            "ordered-batch-duplicate",
+            2,
+            |value| value.0,
+            |values| values.to_vec(),
+        )
+        .unwrap()
+        .output("ordered-batch-duplicate-out")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&duplicate, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("ordered-batch-duplicate"));
+    assert!(error.message.contains("duplicate ordered batch key"));
+    assert!(
+        source
+            .map_values_batches_ordered_by_named(
+                "ordered-batch-zero",
+                0,
+                |value| value.0,
+                |values| values.to_vec(),
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn lifted_combines_stream_linear_sources_with_small_memory_budget() {
     use ironbeam_core::CombineFn;
     struct Sum;
