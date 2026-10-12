@@ -160,8 +160,8 @@ loaded as v5 state.
 | `enabled` | `JobConfig::checkpoint: Some(CheckpointConfig)` enables checkpoints; `None` disables them. |
 | `auto_recover` | `CheckpointConfig::recover` controls loading the latest checkpoint. |
 | `AfterEveryBarrier` | `interval_batches: 1` saves at every supported batch boundary, but is not an exact graph-barrier schedule. |
-| `EveryNNodes(n)` | `interval_batches: n` counts processed source batches, not completed graph nodes. There is no exact node-count policy yet. |
-| `TimeInterval(secs)` and `Hybrid` | No elapsed-time checkpoint schedule exists yet. Streaming requires an interval of one batch and saves on source progress or completion. |
+| `EveryNNodes(n)` | `interval_batches: n` counts processed source batches, not completed graph nodes. V5 does not expose a node-count schedule. |
+| `TimeInterval(secs)` and `Hybrid` | V5 does not expose an elapsed-time schedule. Streaming requires an interval of one batch and saves on source progress or completion. |
 | `max_checkpoints` | V5 Direct retains `CheckpointConfig::max_checkpoints` bounded or streaming snapshots (1–128, default 1). Recovery tries older verified snapshots if a newer one is corrupt; version or execution identity mismatches still fail. Streaming fallback can replay a previously committed batch, so its sink must be idempotent. Give independent jobs separate directories. |
 
 For 5.0.0, v5 batch/progress checkpoints are the chosen replacement for
