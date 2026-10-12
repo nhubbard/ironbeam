@@ -394,7 +394,9 @@ python3 -B scripts/compare_v4_v5_benchmarks.py \
 Use the configured Mr Boxington Cargo wrapper for the two builds. The `--rss`
 option uses macOS `/usr/bin/time -l`; omit it on other hosts. The driver
 also accepts `--max-latency-ratio` and `--max-rss-ratio` for a future release
-threshold.
+threshold. For a larger materialized workload, pass
+`--v5-memory-budget-bytes` to raise the v5 Direct job limit explicitly; the
+default 64 MiB limit rejects the million-row grouped fixture.
 
 | Case | v4 ms | v5 ms | v5/v4 | v4 peak MiB | v5 peak MiB |
 | --- | ---: | ---: | ---: | ---: | ---: |

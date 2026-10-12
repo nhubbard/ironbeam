@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import platform
 import re
 import statistics
@@ -25,11 +26,19 @@ HEADER = "case,rows,elapsed_ns,output_rows,checksum"
 RSS_PATTERN = re.compile(r"^\s*(\d+)\s+maximum resident set size\s*$", re.MULTILINE)
 
 
-def run_case(binary: Path, rows: int, case: str, measure_rss: bool) -> tuple[int, int, int, int | None]:
+def run_case(binary: Path, rows: int, case: str, measure_rss: bool, memory_budget: int | None = None) -> tuple[int, int, int, int | None]:
     command = [str(binary), str(rows), case]
     if measure_rss:
         command = ["/usr/bin/time", "-l", *command]
-    completed = subprocess.run(command, capture_output=True, text=True, check=True)
+    environment = os.environ.copy()
+    if memory_budget is not None:
+        environment["IRONBEAM_BENCH_MEMORY_BUDGET_BYTES"] = str(memory_budget)
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, check=True, env=environment)
+    except subprocess.CalledProcessError as error:
+        raise ValueError(
+            f"{binary}: {case} exited {error.returncode}: {error.stderr.strip()}"
+        ) from error
     lines = completed.stdout.strip().splitlines()
     if len(lines) != 2 or lines[0] != HEADER:
         raise ValueError(f"{binary}: unexpected benchmark output for {case}: {lines!r}")
@@ -63,6 +72,7 @@ def main() -> int:
     parser.add_argument("--rss", action="store_true", help="measure macOS peak RSS with /usr/bin/time")
     parser.add_argument("--max-latency-ratio", type=float)
     parser.add_argument("--max-rss-ratio", type=float)
+    parser.add_argument("--v5-memory-budget-bytes", type=int, help="override v5 Direct's default 64 MiB job limit for scaling runs")
     args = parser.parse_args()
     if args.rows <= 0 or args.samples <= 0 or args.warmups < 0:
         parser.error("rows and samples must be positive; warmups cannot be negative")
@@ -74,6 +84,8 @@ def main() -> int:
         parser.error("--max-latency-ratio must be positive")
     if args.max_rss_ratio is not None and args.max_rss_ratio <= 0:
         parser.error("--max-rss-ratio must be positive")
+    if args.v5_memory_budget_bytes is not None and args.v5_memory_budget_bytes <= 0:
+        parser.error("--v5-memory-budget-bytes must be positive")
     binaries = {"v4": args.v4.resolve(), "v5": args.v5.resolve()}
     for binary in binaries.values():
         if not binary.is_file():
@@ -87,7 +99,13 @@ def main() -> int:
         expected_output = None
         for iteration in range(args.warmups + args.samples):
             for version in (("v4", "v5") if iteration % 2 == 0 else ("v5", "v4")):
-                result = run_case(binaries[version], args.rows, case, args.rss)
+                result = run_case(
+                    binaries[version],
+                    args.rows,
+                    case,
+                    args.rss,
+                    args.v5_memory_budget_bytes if version == "v5" else None,
+                )
                 output = result[1:3]
                 if expected_output is None:
                     expected_output = output

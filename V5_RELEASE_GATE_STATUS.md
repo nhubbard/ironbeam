@@ -46,6 +46,28 @@ below is complete.
 | ☐ Performance | Acceptable latency and memory limits are set and pass on the paired v4/v5 corpus. |
 | ☐ Versioning | The packages receive their intended release versions after the other gates pass. |
 
+### Current paired performance measurement
+
+On 2026-10-11, the release binaries ran one million rows per case, one warmup
+pair and five alternating sample pairs. V5 used an explicit 1 GiB Direct job
+budget; its 64 MiB default rejects the million-row materialized grouping
+case. Peak memory is process RSS from macOS `/usr/bin/time -l`. Each pair had
+the same output count and checksum.
+
+| Case | v4 ms | v5 ms | v5/v4 | v4 MiB | v5 MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Source copy | 0.561 | 1.083 | 1.93× | 10.28 | 16.30 |
+| Map/filter | 0.949 | 2.832 | 2.98× | 14.17 | 10.52 |
+| Group by key | 5.364 | 10.582 | 1.97× | 29.83 | 21.64 |
+| Latest per key | 6.370 | 10.949 | 1.72× | 48.50 | 10.75 |
+| Inner join | 211.088 | 220.853 | 1.05× | 264.17 | 418.91 |
+| Duplicate-key join | 27.948 | 45.202 | 1.62× | 42.09 | 134.45 |
+| JSONL round trip | 41.308 | 49.882 | 1.21× | 16.72 | 19.47 |
+
+Map/filter latency and join memory need work before setting acceptance limits.
+The million-row JSONL ratio is much smaller than the 100,000-row ratio, so its
+fixed setup and durable publication costs need separate measurement.
+
 ## Completed gates
 
 | Gate | Evidence |

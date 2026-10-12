@@ -1,8 +1,29 @@
 //! Run with `cargo run --release --example v5_benchmark_corpus -- 100000`.
 //! Emits the same workload names and checksums as the v4 baseline example.
 
-use ironbeam::v5::{DirectRunner, JobConfig, Pipeline, jsonl_sink, jsonl_source, prelude::*};
+use ironbeam::v5::{
+    DirectRunner, Element, Error, JobConfig, Output, Pipeline, jsonl_sink, jsonl_source, prelude::*,
+};
 use std::time::Instant;
+
+fn collect_benchmark<T: Element>(output: &Output<T>) -> Result<Vec<T>, Error> {
+    if let Some(bytes) = std::env::var_os("IRONBEAM_BENCH_MEMORY_BUDGET_BYTES") {
+        let memory_budget_bytes = bytes
+            .to_string_lossy()
+            .parse::<usize>()
+            .map_err(|_| Error::incompatible("invalid benchmark memory budget"))?;
+        let (values, _) = DirectRunner.run_collect(
+            output,
+            &JobConfig {
+                memory_budget_bytes,
+                ..JobConfig::default()
+            },
+        )?;
+        Ok(values)
+    } else {
+        output.collect_seq()
+    }
+}
 
 #[allow(clippy::too_many_lines)] // Keep the seven measured workloads in one driver.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let source_ready = Instant::now();
         let output = input.output("copy-result")?;
         let graph_ready = Instant::now();
-        let copied = output.collect_seq()?;
+        let copied = collect_benchmark(&output)?;
         let run_ready = Instant::now();
         if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
             eprintln!(
@@ -60,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .filter_named("map-even", |n| n % 2 == 0)?
             .output("map-result")?;
         let graph_ready = Instant::now();
-        let mapped = output.collect_seq()?;
+        let mapped = collect_benchmark(&output)?;
         let run_ready = Instant::now();
         if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
             eprintln!(
@@ -87,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .group_by_key_named("group")?
             .output("group-result")?;
         let graph_ready = Instant::now();
-        let groups = group_output.collect_seq()?;
+        let groups = collect_benchmark(&group_output)?;
         let run_ready = Instant::now();
         if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
             eprintln!(
@@ -115,7 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .latest_per_key_named("latest")?
             .output("latest-result")?;
         let graph_ready = Instant::now();
-        let latest = output.collect_seq()?;
+        let latest = collect_benchmark(&output)?;
         let run_ready = Instant::now();
         if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
             eprintln!(
@@ -149,7 +170,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .join_inner_named("join", &right)?
             .output("join-result")?;
         let graph_ready = Instant::now();
-        let joined = join_output.collect_seq()?;
+        let joined = collect_benchmark(&join_output)?;
         let run_ready = Instant::now();
         if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
             eprintln!(
@@ -178,10 +199,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "duplicate-right",
             (0..count.min(100)).map(|n| (n, n + 1)).collect(),
         )?;
-        let joined = left
+        let output = left
             .join_inner_named("duplicate-join", &right)?
-            .output("duplicate-result")?
-            .collect_seq()?;
+            .output("duplicate-result")?;
+        let joined = collect_benchmark(&output)?;
         println!(
             "join_duplicates,{count},{},{},{}",
             start.elapsed().as_nanos(),
@@ -207,7 +228,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let output = jsonl_source::<u32>(&Pipeline::default(), "jsonl-read", &path)?
             .output("jsonl-result")?;
         let read_graph_ready = Instant::now();
-        let read = output.collect_seq()?;
+        let read = collect_benchmark(&output)?;
         let read_ready = Instant::now();
         assert_eq!(read.len(), count as usize);
         if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
