@@ -88,8 +88,8 @@ provider SDKs. URI-based JSONL sources bind the scheme and content digest to
 graph identity, and sinks bind the destination URI. The sink still has
 whole-job final-result semantics. A separate object-backed JSONL fragment sink
 now stages portable bundles and publishes only against the completed attempt
-manifest; the local Prism production proof reopens that result. Provider
-consistency and bounded-memory publication remain release work. The old fake
+manifest; the local Prism production proof reopens that result. Local streaming publication is proved with a 64 MiB worker bundle limit;
+hosted provider streaming and consistency remain extension work. The old fake
 cache, queue, search, graph, compute, and inference families now have separate
 provider-neutral contracts, fakes, and operation helpers. Hosted provider
 adapters beyond object storage remain future extension work.

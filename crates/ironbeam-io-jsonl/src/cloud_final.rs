@@ -1,5 +1,6 @@
 //! Portable JSONL result fragments backed by provider-neutral object storage.
 
+use std::io::{BufRead, BufReader, Write};
 use std::sync::Arc;
 
 use ironbeam_cloud_objects::ObjectIO;
@@ -7,12 +8,71 @@ use ironbeam_core::{Element, Error, PCollection, Replay, Sink, SinkMode, SinkSpe
 use ironbeam_io::object_final::{ObjectFinalResult, ObjectPublishedResult};
 use serde::{Serialize, de::DeserializeOwned};
 
+/// Worker memory is bounded per bundle; the completed result streams through disk.
+const MAX_BUNDLE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_RECORD_BYTES: usize = 64 * 1024 * 1024;
+
+struct BoundedBytes<'a> {
+    bytes: &'a mut Vec<u8>,
+    limit: usize,
+}
+
+impl Write for BoundedBytes<'_> {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if data.len() > self.limit.saturating_sub(self.bytes.len()) {
+            return Err(std::io::Error::other("cloud JSONL bundle exceeds 64 MiB"));
+        }
+        self.bytes.extend_from_slice(data);
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn read_record(reader: &mut impl BufRead, line: &mut Vec<u8>) -> Result<bool, Error> {
+    line.clear();
+    loop {
+        let available = reader
+            .fill_buf()
+            .map_err(|error| Error::io("cloud-jsonl-result", "jsonl", error.to_string()))?;
+        if available.is_empty() {
+            if line.is_empty() {
+                return Ok(false);
+            }
+            return Err(Error::incompatible(
+                "cloud JSONL result lacks final newline",
+            ));
+        }
+        let length = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |at| at + 1);
+        if length
+            > MAX_RECORD_BYTES
+                .saturating_add(1)
+                .saturating_sub(line.len())
+        {
+            return Err(Error::incompatible("cloud JSONL record exceeds 64 MiB"));
+        }
+        let complete = available[length - 1] == b'\n';
+        line.extend_from_slice(&available[..length]);
+        reader.consume(length);
+        if complete {
+            line.pop();
+            return Ok(true);
+        }
+    }
+}
+
 struct CloudJsonlFragmentSink<T> {
     store: ObjectFinalResult,
     bundle_id: Option<String>,
     bytes: Vec<u8>,
     rows: u64,
     staged: bool,
+    failed: bool,
     marker: std::marker::PhantomData<T>,
 }
 
@@ -28,22 +88,52 @@ impl<T: Element + Serialize> TypedSink<T> for CloudJsonlFragmentSink<T> {
     }
 
     fn write(&mut self, value: T) -> Result<(), Error> {
-        if self.bundle_id.is_none() || self.staged {
+        if self.bundle_id.is_none() || self.staged || self.failed {
             return Err(Error::incompatible(
                 "cloud JSONL fragment has no open bundle",
             ));
         }
-        serde_json::to_writer(&mut self.bytes, &value)
-            .map_err(|error| Error::io("cloud-jsonl-fragment", "jsonl", error.to_string()))?;
-        self.bytes.push(b'\n');
-        self.rows = self
+        let next_rows = self
             .rows
             .checked_add(1)
             .ok_or_else(|| Error::incompatible("cloud JSONL fragment row count overflow"))?;
+        if let Err(error) = serde_json::to_writer(
+            BoundedBytes {
+                bytes: &mut self.bytes,
+                limit: MAX_BUNDLE_BYTES,
+            },
+            &value,
+        ) {
+            self.failed = true;
+            return Err(Error::io(
+                "cloud-jsonl-fragment",
+                "jsonl",
+                error.to_string(),
+            ));
+        }
+        if let Err(error) = (BoundedBytes {
+            bytes: &mut self.bytes,
+            limit: MAX_BUNDLE_BYTES,
+        })
+        .write_all(b"\n")
+        {
+            self.failed = true;
+            return Err(Error::io(
+                "cloud-jsonl-fragment",
+                "jsonl",
+                error.to_string(),
+            ));
+        }
+        self.rows = next_rows;
         Ok(())
     }
 
     fn commit(&mut self) -> Result<(), Error> {
+        if self.failed {
+            return Err(Error::incompatible(
+                "cloud JSONL fragment failed before commit",
+            ));
+        }
         let bundle_id = self.bundle_id.as_deref().ok_or_else(|| {
             Error::incompatible("cloud JSONL fragment has no bundle attempt identity")
         })?;
@@ -60,6 +150,7 @@ impl<T: Element + Serialize> TypedSink<T> for CloudJsonlFragmentSink<T> {
         }
         self.bytes.clear();
         self.staged = false;
+        self.failed = false;
         Ok(())
     }
 
@@ -134,6 +225,7 @@ pub fn cloud_jsonl_fragment_sink<T: Element + Serialize>(
                 bytes: Vec::new(),
                 rows: 0,
                 staged: false,
+                failed: false,
                 marker: std::marker::PhantomData,
             }))
         },
@@ -146,31 +238,25 @@ pub fn publish_cloud_jsonl_fragments<T: DeserializeOwned>(
     store: &ObjectFinalResult,
     expected_rows: u64,
 ) -> Result<ObjectPublishedResult, Error> {
-    store.publish_validated_concatenated(expected_rows, |bytes| {
-        if bytes.is_empty() {
-            return Ok(0);
-        }
-        if bytes.last() != Some(&b'\n') {
-            return Err(Error::incompatible(
-                "cloud JSONL result lacks final newline",
-            ));
-        }
+    store.publish_validated_streaming(expected_rows, |reader| {
+        let mut reader = BufReader::new(reader);
         let mut rows = 0_u64;
-        for (index, line) in bytes[..bytes.len() - 1]
-            .split(|byte| *byte == b'\n')
-            .enumerate()
-        {
+        let mut line = Vec::new();
+        loop {
+            if !read_record(&mut reader, &mut line)? {
+                break;
+            }
             if line.is_empty() {
                 return Err(Error::incompatible(format!(
                     "cloud JSONL result has empty line {}",
-                    index + 1
+                    rows + 1
                 )));
             }
-            let _: T = serde_json::from_slice(line).map_err(|error| {
+            let _: T = serde_json::from_slice(&line).map_err(|error| {
                 Error::io(
                     "cloud-jsonl-result",
                     "jsonl",
-                    format!("line {}: {error}", index + 1),
+                    format!("line {}: {error}", rows + 1),
                 )
             })?;
             rows = rows
@@ -185,6 +271,27 @@ pub fn publish_cloud_jsonl_fragments<T: DeserializeOwned>(
 mod tests {
     use super::*;
     use ironbeam_cloud_objects::LocalObjectIO;
+
+    #[test]
+    fn bundle_writer_and_record_reader_enforce_resource_bounds() {
+        let mut bytes = Vec::new();
+        let mut writer = BoundedBytes {
+            bytes: &mut bytes,
+            limit: 4,
+        };
+        writer.write_all(b"1234").unwrap();
+        assert!(writer.write_all(b"5").is_err());
+        assert_eq!(bytes, b"1234");
+        let mut reader = BufReader::new(b"one\ntwo\n".as_slice());
+        let mut line = Vec::new();
+        assert!(read_record(&mut reader, &mut line).unwrap());
+        assert_eq!(line, b"one");
+        assert!(read_record(&mut reader, &mut line).unwrap());
+        assert_eq!(line, b"two");
+        assert!(!read_record(&mut reader, &mut line).unwrap());
+        let mut incomplete = BufReader::new(b"missing newline".as_slice());
+        assert!(read_record(&mut incomplete, &mut line).is_err());
+    }
 
     #[test]
     fn bundle_finalization_and_publication_round_trip() {
@@ -205,6 +312,7 @@ mod tests {
             bytes: Vec::new(),
             rows: 0,
             staged: false,
+            failed: false,
             marker: std::marker::PhantomData,
         };
         sink.begin_bundle("attempt").unwrap();

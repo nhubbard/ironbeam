@@ -27,3 +27,9 @@ copying, but a failed copy can leave a partial destination.
 manifests and finalization records. The local provider and opt-in hosted
 S3, GCS, and Azure adapters implement it. Custom providers must implement
 `ObjectIO::put_object_if_absent` to use it; the default fails closed.
+
+Portable JSONL final results use `open_object` and
+`put_object_if_absent_from` to validate and publish without holding a whole
+result in memory. `LocalObjectIO` implements both methods. Other providers
+must implement them before they can publish streaming final results; their
+defaults fail closed.
