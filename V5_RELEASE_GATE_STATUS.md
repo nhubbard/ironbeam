@@ -27,7 +27,7 @@ below is complete.
 | Gate | Done when |
 | --- | --- |
 | ☐ Public API and v4 behavior | The root API and promised behaviors are audited against the [helper tracker](V5_HELPER_PARITY_TRACKER.md) and [migration guide](V4_TO_V5_MIGRATION.md). |
-| ☐ Custom transform execution | A versioned unary semantic map now executes on Direct and the local Prism worker. Replace the rest of v4's executable local `apply_transform` shapes with registered v5 handlers; `custom_named` remains a marker rejected by Direct. |
+| ☐ Custom transform execution | Versioned map, filter, and flat-map handlers execute on Direct and the local Prism worker. Replace the remaining v4 partition-level `apply_transform` shapes with registered v5 handlers; `custom_named` remains a marker rejected by Direct. |
 | ☐ Portable operation coverage | Every advertised operation has shared Direct/Prism success and failure cases, including multi-input and output paths. |
 | ☐ Runner agreement | Shared cases match on values, grouping, event times, windows, typed failures, and committed output. |
 
