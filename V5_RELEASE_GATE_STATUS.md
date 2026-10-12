@@ -65,6 +65,7 @@ below is complete.
 | Fresh Prism regression | The full 19-test live corpus and separate native Arrow proof passed again on 2026-10-11 against Prism built from the local Beam clone, after the publication-plan guard was added. |
 | Final-result manifest binding | All shared final-result publishers reject an unbound store, including empty output. The live Prism corpus and Arrow proof passed after their stores were bound to the completed job journal's exact attempts. Local format tests and strict lint passed. |
 | Final-result retry durability | The shared local publisher accepts an identical staged fragment after restart, rejects changed or corrupt retries, and syncs its directory on repeated acceptance or byte-identical publication. The separate Dataflow file journal now resyncs identical record and completion-marker retries after reopen. All 13 `ironbeam-io` tests and the full harness suite pass with formatting and strict lint. This verifies retry behavior; it does not yet prove physical power-loss recovery. |
+| Local final-result file sink | The ordinary Direct file sink now syncs the published directory entry after replacing the target. The all-feature JSONL suite, shared I/O suite, and strict lint pass. Newly created parent-directory durability and physical power-loss recovery remain open. |
 | Portable worker restart | Fn Data test passes across three OS processes: pending split, first accepted batch, final batch. A separate final-result proof now checks that the journal refuses publication after staging and a wrong-build restart, then supplies the exact completed attempt after recovery and a duplicate callback. The full harness suite and warning-free lint pass. |
 | Live worker loss | A process wrapper killed the worker as the production unbounded source reopened its residual cursor. Prism reported `FAILED` with active bundles, and the final-result coordinator refused publication. The existing production success fixture still passes. All 20 live Prism tests and strict fixture lint pass. This is a fail-closed result, not a successful in-job restart. |
 | Side-input runner agreement | The existing `map_with_side_named` gives one global side view across fixed-window main and side branches on Direct and live Prism. The new `map_with_windowed_side_named` composes a per-window co-group; both runners match on four rows, including an empty side window, and preserve each main timestamp and window. The co-group may buffer a full window; a bounded side-view memory limit remains open. |
@@ -94,34 +95,27 @@ the latest API and test additions. The earlier reused-target difference remains 
 The coverage gate still requires an uncovered-contract review and a clean full
 CI run.
 
-The last full paired benchmark matched output counts and checksums in all
-seven cases. It is a measurement, **not a performance gate pass**:
+The latest paired 100,000-row release run used two warmup pairs and eight
+measured pairs per case. Output counts and checksums matched throughout.
+These are measurements, **not a performance gate pass**:
 
-| 100,000-row workload | V5/v4 median latency | Peak memory, v4 → v5 |
-| --- | ---: | ---: |
-| Map/filter | 2.94× | 3.83 → 3.58 MiB |
-| JSONL round trip | 2.01× | 4.33 → 4.45 MiB |
-| Duplicate-key join | 2.09× | 5.53 → 21.42 MiB |
+| Workload | v4 ms | v5 ms | v5/v4 | Peak MiB, v4 → v5 |
+| --- | ---: | ---: | ---: | ---: |
+| Source copy | 0.062 | 0.127 | 2.05× | 3.41 → 4.00 |
+| Map/filter | 0.139 | 0.426 | 3.05× | 3.81 → 3.69 |
+| GroupByKey | 0.647 | 1.100 | 1.70× | 5.06 → 4.59 |
+| Latest per key | 0.733 | 1.210 | 1.65× | 7.30 → 3.94 |
+| Equal-size inner join | 11.245 | 10.955 | 0.97× | 21.48 → 37.74 |
+| Duplicate-key join | 2.800 | 4.403 | 1.57× | 5.51 → 16.11 |
+| JSONL round trip | 4.396 | 11.746 | 2.67× | 4.39 → 4.58 |
 
-An adjacent comparison measured JSONL round trip at **10.227 → 8.177 ms**
-and **5.06 → 4.44 MiB** in v5 after the eager reader and source-byte changes.
-Counts and checksums matched. The [full seven-case measurement](V5_PHASE0_BASELINE.md)
-and repeatable command are in the baseline record. Acceptable release limits
-are still unset.
-
-A subsequent compact inner-join path reduced equal-size join memory from
-**45.97 to 39.54 MiB** and latency from **12.810 to 11.385 ms** in an adjacent
-12-sample v5 comparison. The skewed duplicate-key case stayed near baseline
-at **22.20 → 21.52 MiB** and **5.666 → 5.671 ms**. Output matched throughout.
-Reusing the probe input's envelope buffer and removing outer-join bookkeeping
-from smaller-right inner joins reduced peak memory in a 64-sample adjacent
-comparison: equal-size join **39.48 → 36.22 MiB**, duplicate-key join
-**23.00 → 16.11 MiB**. Median latency moved **10.971 → 11.332 ms** and
-**4.985 → 5.019 ms**, respectively. A fresh v4/v5 comparison measured
-equal-size join at **10.973/11.334 ms** and **21.50/36.22 MiB**;
-duplicate-key join at **2.785/5.069 ms** and **5.53/16.12 MiB**. Output
-counts and checksums matched. Join memory and duplicate-key latency remain
-open against v4.
+The JSONL fixture now measures source construction, sink graph construction,
+write, read graph construction, and read separately. V5's local final-result
+sink syncs both the temporary file and published directory entry; v4's write
+does not make that durability promise. The measured v5 writer still takes
+most of its round-trip time. Earlier optimization samples and the repeatable
+command are in the [baseline record](V5_PHASE0_BASELINE.md). Acceptable release
+limits remain unset.
 
 ## Contract decisions
 

@@ -199,14 +199,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let p = Pipeline::default();
         let start = Instant::now();
         let input = p.from_vec("jsonl-input", (0..count).collect())?;
-        DirectRunner.run_sink(
-            &jsonl_sink(&input, "jsonl-write", &path)?,
-            &JobConfig::default(),
-        )?;
-        let read = jsonl_source::<u32>(&Pipeline::default(), "jsonl-read", &path)?
-            .output("jsonl-result")?
-            .collect_seq()?;
+        let source_ready = Instant::now();
+        let sink = jsonl_sink(&input, "jsonl-write", &path)?;
+        let sink_ready = Instant::now();
+        DirectRunner.run_sink(&sink, &JobConfig::default())?;
+        let write_ready = Instant::now();
+        let output = jsonl_source::<u32>(&Pipeline::default(), "jsonl-read", &path)?
+            .output("jsonl-result")?;
+        let read_graph_ready = Instant::now();
+        let read = output.collect_seq()?;
+        let read_ready = Instant::now();
         assert_eq!(read.len(), count as usize);
+        if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
+            eprintln!(
+                "jsonl_phases_ns,source={},sink_graph={},write={},read_graph={},read={}",
+                source_ready.duration_since(start).as_nanos(),
+                sink_ready.duration_since(source_ready).as_nanos(),
+                write_ready.duration_since(sink_ready).as_nanos(),
+                read_graph_ready.duration_since(write_ready).as_nanos(),
+                read_ready.duration_since(read_graph_ready).as_nanos()
+            );
+        }
         println!(
             "jsonl_roundtrip,{count},{},{},{}",
             start.elapsed().as_nanos(),

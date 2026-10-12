@@ -135,15 +135,25 @@ fn main() {
         let path = temp.path().join("rows.jsonl");
         let p = Pipeline::default();
         let start = Instant::now();
-        let written = from_vec(&p, (0..count).collect())
-            .write_jsonl(&path)
-            .unwrap();
+        let input = from_vec(&p, (0..count).collect());
+        let source_ready = Instant::now();
+        let written = input.write_jsonl(&path).unwrap();
+        let write_ready = Instant::now();
         let p = Pipeline::default();
-        let read = ironbeam_v4::read_jsonl::<u32>(&p, &path)
-            .unwrap()
-            .collect_seq()
-            .unwrap();
+        let output = ironbeam_v4::read_jsonl::<u32>(&p, &path).unwrap();
+        let read_graph_ready = Instant::now();
+        let read = output.collect_seq().unwrap();
+        let read_ready = Instant::now();
         assert_eq!(written, read.len());
+        if std::env::var_os("IRONBEAM_BENCH_PHASES").is_some() {
+            eprintln!(
+                "jsonl_phases_ns,source={},write={},read_graph={},read={}",
+                source_ready.duration_since(start).as_nanos(),
+                write_ready.duration_since(source_ready).as_nanos(),
+                read_graph_ready.duration_since(write_ready).as_nanos(),
+                read_ready.duration_since(read_graph_ready).as_nanos()
+            );
+        }
         println!(
             "jsonl_roundtrip,{count},{},{},{}",
             start.elapsed().as_nanos(),
