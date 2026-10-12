@@ -51,6 +51,7 @@ below is complete.
 | --- | --- |
 | Formatting and current suites | Both workspaces pass formatting, workspace tests, and the live Prism suite from their last full runs. |
 | Cloud package cleanup | Contracts, fakes, operations, objects, provider clients, and JSONL readers have separate owners. The unused legacy cloud crate is removed; all 28 packages verify locally. |
+| Local object conditional create | Nested object parents are created component by component and each new directory entry is synced. A symlink escape is rejected before an outside child is created. Reopening a nested root returns the immutable object; the cloud-object package tests, strict lint, and the separate Dataflow object-journal tests pass. Remote final-result staging remains open. |
 
 ## Latest measured results
 
