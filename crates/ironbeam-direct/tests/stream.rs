@@ -194,6 +194,218 @@ fn batch(value: i32, cursor: u8, completed: bool) -> UnboundedPoll<Timestamped<i
     })
 }
 
+#[test]
+fn grouped_stream_closes_fixed_windows_on_watermarks() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let opens = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "grouped-source-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |_| {
+                    opens.fetch_add(1, Ordering::SeqCst);
+                    let ready = |cursor, watermark, completed, values: Vec<(i32, i64)>| {
+                        UnboundedPoll::Ready(UnboundedBatch {
+                            elements: values
+                                .into_iter()
+                                .map(|(value, timestamp_ns)| Timestamped {
+                                    value,
+                                    timestamp_ns,
+                                })
+                                .collect(),
+                            progress: ProgressSignal {
+                                source_key: "events".into(),
+                                split_id: "split-0".into(),
+                                checkpoint_position: Some(vec![cursor]),
+                                event_time_ns: Some(watermark),
+                                completed,
+                            },
+                        })
+                    };
+                    Ok(Box::new(Script {
+                        polls: vec![
+                            ready(1, 10, false, vec![(1, 10), (2, 20)]),
+                            ready(2, 30, false, vec![(3, 30)]),
+                            ready(3, 100, false, vec![]),
+                            ready(4, 110, false, vec![(4, 110)]),
+                            ready(5, 200, true, vec![]),
+                        ]
+                        .into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                }
+            },
+        )
+        .unwrap();
+    let sink = source
+        .fixed_windows("windows", 100)
+        .unwrap()
+        .map_named("key", |value| (value % 2, value))
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .reify_timestamps_named("group-time")
+        .unwrap()
+        .map_named("sum", |(timestamp, (key, values))| {
+            i32::try_from(timestamp).unwrap() * 1_000 + key * 100 + values.iter().sum::<i32>()
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "grouped-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let temporary = tempfile::tempdir().unwrap();
+    let error = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    assert_eq!(opens.load(Ordering::SeqCst), 0);
+    let job = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap();
+    let handle = job.wait().unwrap();
+    assert_eq!(handle.status(), JobStatus::Succeeded);
+    assert_eq!(opens.load(Ordering::SeqCst), 1);
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort_unstable();
+    assert_eq!(rows, [10_104, 20_002, 110_004]);
+}
+
+fn grouped_failure(
+    polls: Vec<UnboundedPoll<Timestamped<i32>>>,
+    budget: usize,
+) -> (Error, Vec<i32>) {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .unbounded_source_with_factory(
+            "events",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "grouped-failure-source-v1".into(),
+            0,
+            move |_| {
+                Ok(Box::new(Script {
+                    polls: polls.clone().into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .fixed_windows("windows", 100)
+        .unwrap()
+        .map_named("key", |value| (value % 2, value))
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .map_named("sum", |(key, values)| {
+            key * 100 + values.iter().sum::<i32>()
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "grouped-failure-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        staged: Vec::new(),
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink(
+            &sink,
+            &JobConfig {
+                buffer_budget_elements: budget,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    let values = committed.lock().unwrap().clone();
+    (error, values)
+}
+
+#[test]
+fn grouped_stream_rejects_late_input_and_excess_state() {
+    let ready = |cursor, watermark, completed, value: i32, timestamp_ns| {
+        UnboundedPoll::Ready(UnboundedBatch {
+            elements: vec![Timestamped {
+                value,
+                timestamp_ns,
+            }],
+            progress: ProgressSignal {
+                source_key: "events".into(),
+                split_id: "split-0".into(),
+                checkpoint_position: Some(vec![cursor]),
+                event_time_ns: Some(watermark),
+                completed,
+            },
+        })
+    };
+    let (error, committed) = grouped_failure(
+        vec![ready(1, 100, false, 1, 10), ready(2, 100, true, 3, 20)],
+        8,
+    );
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("groups"));
+    assert!(error.message.contains("late window element"));
+    assert_eq!(committed, [101]);
+    let (error, committed) = grouped_failure(
+        vec![
+            ready(1, 0, false, 1, 10),
+            ready(2, 0, false, 2, 20),
+            ready(3, 0, true, 3, 30),
+        ],
+        2,
+    );
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert_eq!(error.node.as_deref(), Some("groups"));
+    assert!(committed.is_empty());
+}
+
 fn fixture(
     committed: Arc<Mutex<Vec<i32>>>,
     opens: Arc<Mutex<Vec<Option<Vec<u8>>>>>,

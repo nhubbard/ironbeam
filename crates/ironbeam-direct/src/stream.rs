@@ -5,10 +5,11 @@ use crate::planner::{self, PhysicalPlan};
 use crate::stream_checkpoint::{StreamCheckpoint, hex_bytes};
 use crate::{DirectRunner, JobConfig, JobHandle, JobStatus, cancelled, validate_config};
 use ironbeam_core::{
-    Element, Error, ErrorKind, Operation, ProgressSignal, Registry, Replay, Sink, SinkMode,
-    SinkSession, UnboundedPoll,
+    Element, Envelope, Error, ErrorKind, FoldSession, Graph, Operation, ProgressSignal, Registry,
+    Replay, Sink, SinkMode, SinkSession, UnboundedPoll,
 };
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -21,6 +22,67 @@ pub struct StreamJob {
     handle: JobHandle,
     progress: Arc<Mutex<Option<ProgressSignal>>>,
     worker: Option<JoinHandle<Result<(), Error>>>,
+}
+
+struct GroupedStreamRoute {
+    source_key: String,
+    before_group: Vec<String>,
+    group_key: String,
+    after_group: Vec<String>,
+}
+
+fn grouped_stream_route(
+    graph: &Graph,
+    sink_key: &str,
+) -> Result<Option<GroupedStreamRoute>, Error> {
+    let mut key = sink_key;
+    let mut downstream = Vec::new();
+    let mut group_key = None;
+    let mut upstream = Vec::new();
+    loop {
+        let node = graph
+            .node(key)
+            .ok_or_else(|| Error::graph(key, "stream route node missing"))?;
+        if !node.additional_inputs.is_empty() {
+            return Ok(None);
+        }
+        match &node.operation {
+            Operation::Source { .. } => {
+                let Some(group_key) = group_key else {
+                    return Ok(None);
+                };
+                upstream.reverse();
+                downstream.reverse();
+                return Ok(Some(GroupedStreamRoute {
+                    source_key: key.to_owned(),
+                    before_group: upstream,
+                    group_key,
+                    after_group: downstream,
+                }));
+            }
+            Operation::GroupByKey if group_key.is_none() => group_key = Some(key.to_owned()),
+            Operation::Output
+            | Operation::Sink { .. }
+            | Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::FixedWindow => {
+                if !matches!(node.operation, Operation::Output | Operation::Sink { .. }) {
+                    if group_key.is_some() {
+                        upstream.push(key.to_owned());
+                    } else {
+                        downstream.push(key.to_owned());
+                    }
+                }
+            }
+            _ => return Ok(None),
+        }
+        key = node
+            .input
+            .as_deref()
+            .ok_or_else(|| Error::graph(key, "stream route has no parent"))?;
+    }
 }
 
 impl StreamJob {
@@ -61,9 +123,10 @@ impl Drop for StreamJob {
 }
 
 impl DirectRunner {
-    /// Start one unbounded source feeding a linear transform route and an
-    /// idempotent append sink. Validation and checkpoint recovery finish before
-    /// the worker can open either endpoint.
+    /// Start one unbounded source feeding a linear route or one fixed-window
+    /// GroupByKey route and an idempotent append sink. Grouped routes close on
+    /// source watermarks or completion and currently reject checkpoints.
+    /// Validation and checkpoint recovery finish before opening endpoints.
     #[allow(clippy::too_many_lines)] // Worker setup validates recovery before opening endpoints.
     pub fn start_stream_sink<T: Element>(
         &self,
@@ -93,42 +156,68 @@ impl DirectRunner {
             return Err(Error::unsupported(&sink_key, "direct", "stream-spill"));
         }
         let plan = planner::lower(&graph, &registry, &sink_key, config.buffer_budget_elements)?;
-        if plan.materialized {
+        let grouped = if plan.materialized {
+            grouped_stream_route(&graph, &sink_key)?
+        } else {
+            None
+        };
+        if plan.materialized && grouped.is_none() {
             return Err(Error::unsupported(
                 &sink_key,
                 "direct",
                 "stateful-stream-route",
             ));
         }
-        let [route] = plan.routes.as_slice() else {
+        if grouped.is_some() && config.checkpoint.is_some() {
             return Err(Error::unsupported(
                 &sink_key,
                 "direct",
-                "multi-source-stream",
+                "grouped-stream-checkpoint",
             ));
+        }
+        if let Some(grouped) = &grouped
+            && !registry.has_fold(&grouped.group_key)
+        {
+            return Err(Error::unsupported(
+                &grouped.group_key,
+                "direct",
+                "fold-function",
+            ));
+        }
+        let source_key = if let Some(grouped) = &grouped {
+            grouped.source_key.as_str()
+        } else {
+            let [route] = plan.routes.as_slice() else {
+                return Err(Error::unsupported(
+                    &sink_key,
+                    "direct",
+                    "multi-source-stream",
+                ));
+            };
+            &route.source_key
         };
         let source_node = graph
-            .node(&route.source_key)
-            .ok_or_else(|| Error::graph(&route.source_key, "stream source node missing"))?;
+            .node(source_key)
+            .ok_or_else(|| Error::graph(source_key, "stream source node missing"))?;
         let Operation::Source {
             progress: source_progress,
         } = &source_node.operation
         else {
-            return Err(Error::graph(
-                &route.source_key,
-                "stream route has no source",
-            ));
+            return Err(Error::graph(source_key, "stream route has no source"));
         };
         if source_node.boundedness != ironbeam_core::Boundedness::Unbounded
             || !source_progress.stable_split_id
             || source_progress.replay == Replay::None
-            || !registry.has_unbounded_source(&route.source_key)
+            || !registry.has_unbounded_source(source_key)
         {
             return Err(Error::unsupported(
-                &route.source_key,
+                source_key,
                 "direct",
                 "resumable-stream-source",
             ));
+        }
+        if grouped.is_some() && !source_progress.reports_event_time {
+            return Err(Error::unsupported(source_key, "direct", "stream-watermark"));
         }
         let checkpoint = config
             .checkpoint
@@ -137,15 +226,13 @@ impl DirectRunner {
                 StreamCheckpoint::new::<T>(
                     checkpoint,
                     &plan.summary.graph_fingerprint,
-                    registry
-                        .source_config_digest(&route.source_key)
-                        .ok_or_else(|| {
-                            Error::unsupported(&route.source_key, "direct", "source-config-digest")
-                        })?,
+                    registry.source_config_digest(source_key).ok_or_else(|| {
+                        Error::unsupported(source_key, "direct", "source-config-digest")
+                    })?,
                     registry.sink_config_digest(&sink_key).ok_or_else(|| {
                         Error::unsupported(&sink_key, "direct", "sink-config-digest")
                     })?,
-                    &route.source_key,
+                    source_key,
                     &sink_key,
                 )
             })
@@ -186,16 +273,28 @@ impl DirectRunner {
             .name(format!("ironbeam-stream-{}", handle.id()))
             .spawn(move || {
                 let result = catch_unwind(AssertUnwindSafe(|| {
-                    run_stream(
-                        &registry,
-                        &plan,
-                        &sink_key,
-                        &worker_config,
-                        &worker_handle,
-                        &worker_progress,
-                        checkpoint.as_ref(),
-                        recovered,
-                    )
+                    if let Some(grouped) = &grouped {
+                        run_grouped_stream(
+                            &registry,
+                            grouped,
+                            &plan.summary.graph_fingerprint,
+                            &sink_key,
+                            &worker_config,
+                            &worker_handle,
+                            &worker_progress,
+                        )
+                    } else {
+                        run_stream(
+                            &registry,
+                            &plan,
+                            &sink_key,
+                            &worker_config,
+                            &worker_handle,
+                            &worker_progress,
+                            checkpoint.as_ref(),
+                            recovered,
+                        )
+                    }
                 }))
                 .unwrap_or_else(|_| {
                     Err(Error::execution("job", "direct", "stream worker panicked"))
@@ -441,6 +540,231 @@ fn bundle_id(graph_fingerprint: &str, sink_keys: &[&str], progress: &ProgressSig
         hasher.update(bytes);
     }
     hex_bytes(&hasher.finalize())
+}
+
+fn apply_grouped_stages(
+    registry: &Registry,
+    stages: &[String],
+    input: Envelope,
+    config: &JobConfig,
+    handle: &JobHandle,
+) -> Result<Vec<Envelope>, Error> {
+    let mut events = vec![input];
+    for key in stages {
+        let mut next = Vec::new();
+        for event in events {
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            let produced = catch_unwind(AssertUnwindSafe(|| registry.apply_many(key, event)))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(key, "direct", "user transform panicked"))
+                })?;
+            if produced.is_empty() {
+                handle
+                    .metrics
+                    .filtered_elements
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            if next.len().saturating_add(produced.len()) > config.buffer_budget_elements {
+                return Err(Error::resource(
+                    key,
+                    "stream transform output exceeds buffer budget",
+                ));
+            }
+            next.extend(produced);
+        }
+        events = next;
+    }
+    Ok(events)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // Window state, sink commit, and progress form one execution cycle.
+fn run_grouped_stream(
+    registry: &Registry,
+    route: &GroupedStreamRoute,
+    graph_fingerprint: &str,
+    sink_key: &str,
+    config: &JobConfig,
+    handle: &JobHandle,
+    shared_progress: &Arc<Mutex<Option<ProgressSignal>>>,
+) -> Result<(), Error> {
+    let mut source = catch_unwind(AssertUnwindSafe(|| {
+        registry.open_unbounded_source(&route.source_key, None)
+    }))
+    .unwrap_or_else(|_| {
+        Err(Error::execution(
+            &route.source_key,
+            "direct",
+            "source factory panicked",
+        ))
+    })?;
+    let mut folds: BTreeMap<(i64, i64), (Box<dyn FoldSession>, usize)> = BTreeMap::new();
+    let mut buffered = 0_usize;
+    let mut progress: Option<ProgressSignal> = None;
+    loop {
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        let polled = catch_unwind(AssertUnwindSafe(|| {
+            source.poll(config.buffer_budget_elements)
+        }))
+        .unwrap_or_else(|_| {
+            Err(Error::execution(
+                &route.source_key,
+                "direct",
+                "source poll panicked",
+            ))
+        })?;
+        let UnboundedPoll::Ready(batch) = polled else {
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        };
+        if !batch.elements.is_empty()
+            && progress.as_ref().is_some_and(|previous| {
+                previous.checkpoint_position == batch.progress.checkpoint_position
+            })
+        {
+            return Err(Error::execution(
+                &route.source_key,
+                "source",
+                "data batch did not advance its cursor",
+            ));
+        }
+        let input_count = u64::try_from(batch.elements.len()).unwrap_or(u64::MAX);
+        handle
+            .metrics
+            .source_elements
+            .fetch_add(input_count, Ordering::Relaxed);
+        handle
+            .metrics
+            .peak_batch_elements
+            .fetch_max(input_count, Ordering::Relaxed);
+        handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+        for input in batch.elements {
+            for event in apply_grouped_stages(registry, &route.before_group, input, config, handle)?
+            {
+                let interval = event.assigned_window.ok_or_else(|| {
+                    Error::execution(&route.group_key, "direct", "grouped stream needs a window")
+                })?;
+                if progress
+                    .as_ref()
+                    .and_then(|previous| previous.event_time_ns)
+                    .is_some_and(|watermark| interval.end_ns <= watermark)
+                {
+                    return Err(Error::execution(
+                        &route.group_key,
+                        "direct",
+                        "grouped stream received a late window element",
+                    ));
+                }
+                if buffered >= config.buffer_budget_elements {
+                    return Err(Error::resource(
+                        &route.group_key,
+                        "grouped stream state exceeds buffer budget",
+                    ));
+                }
+                let entry = folds.entry((interval.start_ns, interval.end_ns));
+                let (fold, count) = match entry {
+                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        let fold =
+                            catch_unwind(AssertUnwindSafe(|| registry.open_fold(&route.group_key)))
+                                .unwrap_or_else(|_| {
+                                    Err(Error::execution(
+                                        &route.group_key,
+                                        "direct",
+                                        "group fold factory panicked",
+                                    ))
+                                })?;
+                        entry.insert((fold, 0))
+                    }
+                };
+                catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        &route.group_key,
+                        "direct",
+                        "group fold panicked",
+                    ))
+                })?;
+                *count += 1;
+                buffered += 1;
+            }
+        }
+        let next_progress = merge_progress(progress.as_ref(), batch.progress);
+        let closing = folds
+            .keys()
+            .copied()
+            .filter(|(_, end)| {
+                next_progress.completed
+                    || next_progress
+                        .event_time_ns
+                        .is_some_and(|watermark| *end <= watermark)
+            })
+            .collect::<Vec<_>>();
+        let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &next_progress);
+        let mut session = None;
+        let mut written = 0_u64;
+        let result = (|| {
+            for window in closing {
+                let (fold, count) = folds.remove(&window).expect("closing fold exists");
+                let grouped =
+                    catch_unwind(AssertUnwindSafe(|| fold.finish())).unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            &route.group_key,
+                            "direct",
+                            "group fold panicked",
+                        ))
+                    })?;
+                buffered -= count;
+                for event in grouped {
+                    for output in
+                        apply_grouped_stages(registry, &route.after_group, event, config, handle)?
+                    {
+                        if session.is_none() {
+                            session = Some(begin_sink_bundle(registry, sink_key, &instruction_id)?);
+                        }
+                        catch_unwind(AssertUnwindSafe(|| {
+                            session.as_mut().expect("opened sink").write(output)
+                        }))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(sink_key, "direct", "sink writer panicked"))
+                        })?;
+                        written = written.saturating_add(1);
+                    }
+                }
+            }
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            if let Some(session) = &mut session {
+                catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(|_| {
+                    Err(Error::execution(sink_key, "direct", "sink commit panicked"))
+                })?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            if let Some(session) = &mut session {
+                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+            }
+            return Err(error);
+        }
+        let total = handle
+            .metrics
+            .output_elements
+            .fetch_add(written, Ordering::Relaxed)
+            .saturating_add(written);
+        handle.processed.store(total, Ordering::Relaxed);
+        *shared_progress
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(next_progress.clone());
+        if next_progress.completed {
+            return Ok(());
+        }
+        progress = Some(next_progress);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
