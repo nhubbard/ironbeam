@@ -1,0 +1,402 @@
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Version {
+    pub major: u16,
+    pub minor: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum Boundedness {
+    Bounded,
+    Unbounded,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum Window {
+    Global,
+    Fixed { size_ns: i64 },
+    FixedOffset { size_ns: i64, offset_ns: i64 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct WindowInterval {
+    pub start_ns: i64,
+    pub end_ns: i64,
+}
+
+impl Window {
+    pub fn assign(&self, timestamp_ns: i64) -> Result<Option<WindowInterval>, Error> {
+        match *self {
+            Self::Global => Ok(None),
+            Self::Fixed { size_ns } if size_ns > 0 => {
+                let start_ns = timestamp_ns
+                    .div_euclid(size_ns)
+                    .checked_mul(size_ns)
+                    .ok_or_else(|| {
+                        Error::graph("time", "window start overflows i64 nanoseconds")
+                    })?;
+                let end_ns = start_ns
+                    .checked_add(size_ns)
+                    .ok_or_else(|| Error::graph("time", "window end overflows i64 nanoseconds"))?;
+                Ok(Some(WindowInterval { start_ns, end_ns }))
+            }
+            Self::FixedOffset { size_ns, offset_ns } if size_ns > 0 => {
+                let size = i128::from(size_ns);
+                let offset = i128::from(offset_ns);
+                let start = (i128::from(timestamp_ns) - offset).div_euclid(size) * size + offset;
+                let end = start + size;
+                let start_ns = i64::try_from(start)
+                    .map_err(|_| Error::graph("time", "window start overflows i64 nanoseconds"))?;
+                let end_ns = i64::try_from(end)
+                    .map_err(|_| Error::graph("time", "window end overflows i64 nanoseconds"))?;
+                Ok(Some(WindowInterval { start_ns, end_ns }))
+            }
+            Self::Fixed { .. } => Err(Error::graph("time", "fixed window size must be positive")),
+            Self::FixedOffset { .. } => {
+                Err(Error::graph("time", "fixed window size must be positive"))
+            }
+        }
+    }
+}
+
+impl Element for WindowInterval {
+    const TYPE_ID: &'static str = "ironbeam/window-interval";
+    const CODER_ID: &'static str = "ironbeam/window-interval-i64-le";
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        let mut bytes = self.start_ns.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&self.end_ns.to_le_bytes());
+        Ok(bytes)
+    }
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() != 16 {
+            return Err(Error::incompatible("window interval requires 16 bytes"));
+        }
+        let start_ns = i64::from_le_bytes(
+            bytes[..8]
+                .try_into()
+                .map_err(|_| Error::incompatible("invalid window start"))?,
+        );
+        let end_ns = i64::from_le_bytes(
+            bytes[8..]
+                .try_into()
+                .map_err(|_| Error::incompatible("invalid window end"))?,
+        );
+        if end_ns <= start_ns {
+            return Err(Error::incompatible("window end must follow start"));
+        }
+        Ok(Self { start_ns, end_ns })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Time {
+    pub initial_timestamp_ns: i64,
+    pub window: Window,
+}
+
+impl Default for Time {
+    fn default() -> Self {
+        Self {
+            initial_timestamp_ns: 0,
+            window: Window::Global,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum Replay {
+    None,
+    AtLeastOnce,
+    Idempotent,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SourceProgress {
+    pub stable_split_id: bool,
+    pub replay: Replay,
+    pub reports_event_time: bool,
+}
+
+/// A control signal from one stable source split, separate from data envelopes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ProgressSignal {
+    pub source_key: String,
+    pub split_id: String,
+    pub checkpoint_position: Option<Vec<u8>>,
+    pub event_time_ns: Option<i64>,
+    pub completed: bool,
+}
+
+/// A deterministic, finite script for testing an unbounded source. Time is in
+/// nanoseconds, like the rest of the logical graph.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TestStreamEvent<T> {
+    Elements(Vec<(T, i64)>),
+    AdvanceWatermark(i64),
+    AdvanceProcessingTime(i64),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum EncodedTestStreamEvent {
+    Elements(Vec<(Vec<u8>, i64)>),
+    AdvanceWatermark(i64),
+    AdvanceProcessingTime(i64),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum SinkMode {
+    Append,
+    Update,
+    FinalResult,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SinkSpec {
+    pub mode: SinkMode,
+    pub replay: Replay,
+    pub commit: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum Operation {
+    Source {
+        progress: SourceProgress,
+    },
+    Map,
+    Filter,
+    FlatMap,
+    AssignTimestamp,
+    Flatten,
+    Reshuffle,
+    WaitOn,
+    GroupByKey,
+    CoGroupByKey,
+    JoinInner,
+    JoinLeft,
+    JoinRight,
+    JoinFull,
+    SideInputMap,
+    FixedWindow,
+    GlobalCombine,
+    FoldGlobal,
+    FoldPerKey,
+    FoldOrderedGlobal,
+    FoldOrderedPerKey,
+    BatchMapValues {
+        batch_size: usize,
+    },
+    Custom {
+        semantic_id: String,
+        version: Version,
+    },
+    Output,
+    Sink {
+        spec: SinkSpec,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ElementDescriptor {
+    pub type_id: String,
+    pub coder_id: String,
+    pub coder_version: Version,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct InputEdge {
+    pub key: String,
+    pub element: ElementDescriptor,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Node {
+    pub key: String,
+    pub input: Option<String>,
+    pub input_element: Option<ElementDescriptor>,
+    #[serde(default)]
+    pub additional_inputs: Vec<InputEdge>,
+    pub operation: Operation,
+    pub semantic_id: String,
+    pub semantic_version: Version,
+    pub type_id: String,
+    pub coder_id: String,
+    pub coder_version: Version,
+    pub boundedness: Boundedness,
+    pub time: Time,
+    /// Build-local index; deliberately excluded from the portable descriptor.
+    #[serde(skip)]
+    pub local_id: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct Graph {
+    pub version: Version,
+    pub checkpoint_version: Version,
+    pub nodes: Vec<Node>,
+}
+
+/// Identity checked by a remote worker before any bundle is processed.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionIdentity {
+    pub graph_fingerprint: String,
+    pub binary_build_id: String,
+    pub registry_manifest: String,
+    pub coder_manifest: String,
+    pub source_config_digest: String,
+    pub sink_config_digest: String,
+}
+impl ExecutionIdentity {
+    pub fn verify(&self, worker: &Self) -> Result<(), Error> {
+        if self != worker {
+            return Err(Error::incompatible(
+                "driver/worker execution identity mismatch",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RetryClass {
+    Permanent,
+    Transient,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ErrorKind {
+    Graph,
+    UnsupportedCapability { capability: String },
+    Incompatible,
+    Resource,
+    Execution,
+    Io,
+    Recovery,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Error {
+    pub kind: ErrorKind,
+    pub node: Option<String>,
+    pub backend: Option<String>,
+    pub retry: RetryClass,
+    pub message: String,
+}
+
+impl Error {
+    pub fn graph(node: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Graph,
+            node: Some(node.into()),
+            backend: None,
+            retry: RetryClass::Permanent,
+            message: message.into(),
+        }
+    }
+    pub fn unsupported(
+        node: impl Into<String>,
+        backend: impl Into<String>,
+        capability: impl Into<String>,
+    ) -> Self {
+        let capability = capability.into();
+        Self {
+            kind: ErrorKind::UnsupportedCapability {
+                capability: capability.clone(),
+            },
+            node: Some(node.into()),
+            backend: Some(backend.into()),
+            retry: RetryClass::Permanent,
+            message: format!("missing capability {capability}"),
+        }
+    }
+    pub fn incompatible(message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Incompatible,
+            node: None,
+            backend: None,
+            retry: RetryClass::Permanent,
+            message: message.into(),
+        }
+    }
+    pub fn execution(
+        node: impl Into<String>,
+        backend: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: ErrorKind::Execution,
+            node: Some(node.into()),
+            backend: Some(backend.into()),
+            retry: RetryClass::Unknown,
+            message: message.into(),
+        }
+    }
+    pub fn io(
+        node: impl Into<String>,
+        backend: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: ErrorKind::Io,
+            node: Some(node.into()),
+            backend: Some(backend.into()),
+            retry: RetryClass::Unknown,
+            message: message.into(),
+        }
+    }
+    pub fn recovery(node: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Recovery,
+            node: Some(node.into()),
+            backend: Some("direct".into()),
+            retry: RetryClass::Permanent,
+            message: message.into(),
+        }
+    }
+    pub fn resource(node: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Resource,
+            node: Some(node.into()),
+            backend: Some("direct".into()),
+            retry: RetryClass::Permanent,
+            message: message.into(),
+        }
+    }
+}
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:?} at {:?} on {:?}: {}",
+            self.kind, self.node, self.backend, self.message
+        )
+    }
+}
+impl std::error::Error for Error {}
+
+#[derive(Clone, Debug, Default)]
+pub struct Capabilities {
+    pub external_bounded_source: bool,
+    pub unbounded_source: bool,
+    pub flatten: bool,
+    pub reshuffle: bool,
+    pub wait_on: bool,
+    pub group_by_key: bool,
+    pub co_group_by_key: bool,
+    pub join_inner: bool,
+    pub join_outer: bool,
+    pub side_input_map: bool,
+    pub global_combine: bool,
+    pub incremental_combine: bool,
+    pub ordered_fold: bool,
+    pub batch_map_values: bool,
+    pub fixed_window: bool,
+    pub assign_timestamp: bool,
+    pub append_sink: bool,
+    pub final_result_sink: bool,
+    pub update_sink: bool,
+    pub custom_operations: BTreeSet<String>,
+}

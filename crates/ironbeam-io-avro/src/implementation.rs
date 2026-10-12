@@ -1,0 +1,191 @@
+use ironbeam_core::{Element, Error, PCollection, Pipeline, Sink, TypedSourceIterator};
+#[cfg(feature = "parallel-io")]
+use ironbeam_io::parallel_container_writer;
+use ironbeam_io::{
+    count_lazy_records, file_glob_source, file_sharded_source, io, lazy_source,
+    open_encoded_output, open_lazy_input, read_lazy_range, sink, source,
+};
+use serde::{Serialize, de::DeserializeOwned};
+use std::path::{Path, PathBuf};
+
+fn read_avro<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
+    let reader = apache_avro::Reader::new(bytes).map_err(|e| io("avro", e))?;
+    reader
+        .map(|row| {
+            let value = row.map_err(|e| io("avro", e))?;
+            apache_avro::from_value(&value).map_err(|e| io("avro", e))
+        })
+        .collect()
+}
+
+fn write_avro<T: Serialize>(
+    path: &Path,
+    values: &[T],
+    schema: &apache_avro::Schema,
+) -> Result<(), Error> {
+    let file = open_encoded_output(path, "avro")?;
+    let mut writer = apache_avro::Writer::new(schema, file).map_err(|e| io("avro", e))?;
+    for value in values {
+        let value = apache_avro::to_value(value).map_err(|e| io("avro", e))?;
+        writer.append_value(value).map_err(|e| io("avro", e))?;
+    }
+    writer.flush().map_err(|e| io("avro", e))?;
+    Ok(())
+}
+
+#[derive(Serialize, serde::Deserialize)]
+struct AvroJson {
+    value: String,
+}
+
+fn read_avro_json<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
+    let rows: Vec<AvroJson> = read_avro(bytes)?;
+    rows.into_iter()
+        .map(|row| serde_json::from_str(&row.value).map_err(|e| io("avro", e)))
+        .collect()
+}
+
+/// Read native Avro records from a bounded file.
+pub fn avro_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    source(pipeline, key, path, "avro", read_avro::<T>)
+}
+
+#[allow(clippy::needless_pass_by_value)] // The shared lazy-source factory takes PathBuf.
+fn read_avro_lazy<T: Element + DeserializeOwned>(
+    path: PathBuf,
+) -> Result<TypedSourceIterator<T>, Error> {
+    let file = open_lazy_input(&path, "avro")?;
+    let reader = apache_avro::Reader::new(file).map_err(|e| io("avro", e))?;
+    Ok(Box::new(reader.map(|row| {
+        let value = row.map_err(|e| io("avro", e))?;
+        apache_avro::from_value(&value).map_err(|e| io("avro", e))
+    })))
+}
+
+/// Lazily read a bounded Avro file.
+pub fn avro_streaming_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    lazy_source(pipeline, key, path, "avro-streaming", read_avro_lazy::<T>)
+}
+
+/// Expand a sorted local glob into bounded native Avro sources.
+pub fn avro_glob_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    pattern: &str,
+) -> Result<PCollection<T>, Error> {
+    file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
+        avro_source(pipeline, key, path)
+    })
+}
+
+fn count_avro_records<T: Element + DeserializeOwned>(path: &Path) -> Result<usize, Error> {
+    count_lazy_records(path, read_avro_lazy::<T>)
+}
+
+fn read_avro_range<T: Element + DeserializeOwned>(
+    path: PathBuf,
+    start: usize,
+    end: usize,
+) -> Result<TypedSourceIterator<T>, Error> {
+    read_lazy_range(path, start, end, read_avro_lazy::<T>)
+}
+
+/// Split a bounded Avro file by finite record ranges.
+pub fn avro_sharded_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    records_per_shard: usize,
+) -> Result<PCollection<T>, Error> {
+    file_sharded_source(
+        pipeline,
+        key,
+        path,
+        records_per_shard,
+        "avro",
+        count_avro_records::<T>,
+        read_avro_range::<T>,
+    )
+}
+
+/// Write native Avro records using a caller supplied writer schema.
+/// The schema is validated during graph construction.
+pub fn avro_sink<T: Element + Serialize>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    schema: impl AsRef<str>,
+) -> Result<Sink<T>, Error> {
+    let schema = apache_avro::Schema::parse_str(schema.as_ref()).map_err(|e| io(key, e))?;
+    sink(input, key, path, move |path, values| {
+        write_avro(path, values, &schema)
+    })
+}
+
+/// Write ordered Avro shards, then publish one complete container.
+#[cfg(feature = "parallel-io")]
+pub fn avro_parallel_sink<T: Element + Serialize + DeserializeOwned + Sync>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+    schema: impl AsRef<str>,
+    shards: usize,
+) -> Result<Sink<T>, Error> {
+    if shards == 0 {
+        return Err(Error::graph(
+            key,
+            "parallel writer needs at least one shard",
+        ));
+    }
+    let schema = apache_avro::Schema::parse_str(schema.as_ref()).map_err(|e| io(key, e))?;
+    sink(input, key, path, move |path, values| {
+        parallel_container_writer(
+            path,
+            values,
+            shards,
+            "avro",
+            |part, rows| write_avro(part, rows, &schema),
+            read_avro::<T>,
+        )
+    })
+}
+
+/// Read the earlier preview Avro container with JSON strings in `value`.
+pub fn avro_json_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<PCollection<T>, Error> {
+    source(pipeline, key, path, "avro-json", read_avro_json::<T>)
+}
+
+/// Write the earlier preview Avro container with JSON strings in `value`.
+pub fn avro_json_sink<T: Element + Serialize>(
+    input: &PCollection<T>,
+    key: &str,
+    path: impl AsRef<Path>,
+) -> Result<Sink<T>, Error> {
+    let schema = apache_avro::Schema::parse_str(
+        r#"{"type":"record","name":"IronbeamRecord","fields":[{"name":"value","type":"string"}]}"#,
+    )
+    .map_err(|e| io(key, e))?;
+    sink(input, key, path, move |path, values| {
+        let rows: Vec<AvroJson> = values
+            .iter()
+            .map(|value| {
+                serde_json::to_string(value)
+                    .map(|value| AvroJson { value })
+                    .map_err(|e| io("avro", e))
+            })
+            .collect::<Result<_, _>>()?;
+        write_avro(path, &rows, &schema)
+    })
+}
