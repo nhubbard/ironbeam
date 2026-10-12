@@ -178,16 +178,56 @@ fn versioned_batch_handler_matches_v4_partition_operator() -> Result<()> {
     let expected = old.collect_seq()?;
     let current = V5Pipeline::default()
         .from_vec("source", input)?
-        .map_batches_with_semantic_named(
+        .apply_transform_with_semantic_named(
             "reverse-and-repeat",
             5,
             "compat/reverse-repeat-partition",
             Version { major: 1, minor: 0 },
-            |batch| {
-                let mut values = batch.to_vec();
+            |mut values| {
                 values.reverse();
                 values.push(values[0]);
                 values
+            },
+        )?
+        .collect_seq()?;
+    assert_eq!(current, expected);
+    Ok(())
+}
+
+struct LongWordLengths;
+
+impl DynOp for LongWordLengths {
+    fn apply(&self, input: Partition) -> Partition {
+        let words = *input.downcast::<Vec<String>>().unwrap();
+        Box::new(
+            words
+                .into_iter()
+                .filter(|word| word.len() > 3)
+                .map(|word| i32::try_from(word.len()).unwrap())
+                .collect::<Vec<_>>(),
+        )
+    }
+}
+
+#[test]
+fn versioned_partition_handler_matches_v4_type_change_and_filter() -> Result<()> {
+    let words = vec!["a".to_owned(), "rust".to_owned(), "beam".to_owned()];
+    let old: PCollection<i32> =
+        from_vec(&TestPipeline::new(), words.clone()).apply_transform(Arc::new(LongWordLengths));
+    let expected = old.collect_seq()?;
+    let current = V5Pipeline::default()
+        .from_vec("words", words)?
+        .apply_transform_with_semantic_named(
+            "long-word-lengths",
+            3,
+            "compat/long-word-lengths",
+            Version { major: 1, minor: 0 },
+            |words| {
+                words
+                    .into_iter()
+                    .filter(|word| word.len() > 3)
+                    .map(|word| i32::try_from(word.len()).unwrap())
+                    .collect()
             },
         )?
         .collect_seq()?;

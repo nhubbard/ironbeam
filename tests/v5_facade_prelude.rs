@@ -32,6 +32,27 @@ fn facade_runs_versioned_semantic_handlers() {
 }
 
 #[test]
+fn facade_exposes_owned_partition_transform() {
+    let values = Pipeline::default()
+        .from_vec("source", vec![1_i32, 2, 3])
+        .unwrap()
+        .apply_transform_with_semantic_named(
+            "reverse",
+            3,
+            "user/reverse-partition",
+            Version { major: 1, minor: 0 },
+            |mut values| {
+                values.reverse();
+                values
+            },
+        )
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(values, [3, 2, 1]);
+}
+
+#[test]
 fn facade_prelude_runs_v4_shaped_helper_chain_without_compat() {
     let pipeline = Pipeline::default();
     let result = pipeline

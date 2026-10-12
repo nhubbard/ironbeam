@@ -4281,9 +4281,29 @@ impl<T: Element> PCollection<T> {
         version: Version,
         f: impl Fn(&[T]) -> Vec<U> + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
+        self.apply_transform_with_semantic_named(
+            key,
+            batch_size,
+            semantic_id,
+            version,
+            move |batch| f(&batch),
+        )
+    }
+    /// Apply a versioned partition transform to an owned, explicitly sized
+    /// batch. This is the typed v5 replacement for the executable part of
+    /// v4 `apply_transform`; the runner chooses no implicit partition size.
+    /// A portable shuffle can change encounter order within each batch.
+    pub fn apply_transform_with_semantic_named<U: Element>(
+        &self,
+        key: &str,
+        batch_size: usize,
+        semantic_id: &str,
+        version: Version,
+        f: impl Fn(Vec<T>) -> Vec<U> + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
         Self::validate_semantic_handler(key, semantic_id, version)?;
         self.batch_elements_named(&format!("{key}/batches"), batch_size)?
-            .flat_map_with_semantic_named(key, semantic_id, version, move |batch| f(&batch))
+            .flat_map_with_semantic_named(key, semantic_id, version, f)
     }
     pub fn batch_by_size_named(
         &self,
