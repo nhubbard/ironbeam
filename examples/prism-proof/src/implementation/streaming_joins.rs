@@ -1,0 +1,281 @@
+pub fn dual_unbounded_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_unbounded_cogroup_collection(pipeline)?.sink_named_with_config(
+        "dual-cogroup-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("dual-cogroup-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
+/// Stateless fan-in keeps both sources' values and event-time metadata.
+pub fn dual_unbounded_flatten_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let (main, side) = dual_unbounded_sources(pipeline)?;
+    main.flatten_named("dual-flatten", &[side])?
+        .reify_timestamps_named("dual-flatten-time")?
+        .with_window_named("dual-flatten-window")?
+        .map_named("dual-flatten-row", |(window, (time, (key, value)))| {
+            format!(
+                "{}..{}:{time}:{key}:{value}",
+                window.start_ns, window.end_ns
+            )
+        })
+}
+
+pub fn dual_unbounded_flatten_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_unbounded_flatten_collection(pipeline)?.sink_named_with_config(
+        "dual-flatten-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("dual-flatten-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
+pub fn dual_unbounded_join_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_unbounded_join_collection(pipeline)?.sink_named_with_config(
+        "dual-join-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("dual-join-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
+/// The signal must finish before fixed-window main rows leave the wait node.
+pub fn bounded_wait_on_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    marker: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    let signal = completion_signal(pipeline, marker.clone())?;
+    pipeline
+        .from_vec("wait-main", vec![(0_i64, 1_i32), (2_000_000, 2)])?
+        .timestamps_from_pairs_named("wait-main-time")?
+        .fixed_windows("wait-main-window", 2_000_000)?
+        .wait_on_named("wait-for-completion", &signal)?
+        .map_named("wait-check-completion", move |value| {
+            assert!(
+                marker.exists(),
+                "wait signal did not finish before main data"
+            );
+            value
+        })?
+        .with_window_named("wait-row-window")?
+        .map_named("wait-row-value", |(window, value)| {
+            format!("{}..{}:{value}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "wait-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("wait-contract:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
+/// A partially emitted signal must fail the job before the main sink commits.
+pub fn failing_wait_on_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
+    let sink_path = path.clone();
+    let signal = pipeline.bounded_source_with_semantic(
+        "wait-failing-signal",
+        "tests/prism-failing-wait-signal",
+        SourceProgress {
+            stable_split_id: true,
+            replay: Replay::AtLeastOnce,
+            reports_event_time: false,
+        },
+        "wait-failing-signal/v1".into(),
+        Some(2),
+        || {
+            Ok(Box::new(
+                vec![
+                    Ok(1_i32),
+                    Err(Error::execution(
+                        "wait-failing-signal",
+                        "runner",
+                        "injected signal read failure",
+                    )),
+                ]
+                .into_iter(),
+            ))
+        },
+    )?;
+    pipeline
+        .from_vec("wait-failing-main", vec![1_i32, 2])?
+        .wait_on_named("wait-for-failing-signal", &signal)?
+        .sink_named_with_config(
+            "wait-failing-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("wait-failure-contract:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
+/// Two independent sources meet at Flatten and GroupByKey on both runners.
+pub fn bounded_multi_source_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<i32>, Error> {
+    let sink_path = path.clone();
+    let left = pipeline.from_vec("multi-source-left", vec![(1_i32, 2_i32), (2, 3)])?;
+    let right = pipeline.from_vec("multi-source-right", vec![(1_i32, 5_i32), (3, 7)])?;
+    left.flatten_named("multi-source-flatten", &[right])?
+        .group_by_key_named("multi-source-group")?
+        .map_named("multi-source-result", |(key, values)| {
+            key * 100 + values.into_iter().sum::<i32>()
+        })?
+        .sink_named_with_config(
+            "multi-source-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("multi-source-contract:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
+pub fn group_time_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
+    let sink_path = path.clone();
+    pipeline
+        .from_vec(
+            "group-time-events",
+            vec![
+                (5_000_000_i64, (1_i32, 5_i32)),
+                (2_000_000, (1, 2)),
+                (7_000_000, (1, 7)),
+            ],
+        )?
+        .timestamps_from_pairs_named("group-time-assign")?
+        .fixed_windows("group-time-window", 10_000_000)?
+        .group_by_key_named("group-time-group")?
+        .reify_timestamps_named("group-time-reify")?
+        .with_window_named("group-time-window-context")?
+        .map_named("group-time-result", |(window, (timestamp, (_, values)))| {
+            i32::try_from(window.end_ns + timestamp).unwrap() + values.into_iter().sum::<i32>()
+        })?
+        .sink_named_with_config(
+            "group-time-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("group-time:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
+pub fn global_fold_fixture(
+    pipeline: &Pipeline,
+    nonempty: PathBuf,
+    empty: PathBuf,
+) -> Result<(), Error> {
+    let nonempty_sink = nonempty.clone();
+    pipeline
+        .from_vec("global-numbers", vec![2_i32, 3_i32])?
+        .combine_globally_lifted_named("global-sum", ProductionSum)?
+        .sink_named_with_config(
+            "global-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("global-fold:{}", nonempty.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: nonempty_sink.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )?;
+    let empty_sink = empty.clone();
+    pipeline
+        .from_vec("global-empty", Vec::<i32>::new())?
+        .combine_globally_lifted_named("global-empty-sum", ProductionSum)?
+        .sink_named_with_config(
+            "global-empty-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("global-fold-empty:{}", empty.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: empty_sink.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )?;
+    Ok(())
+}

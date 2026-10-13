@@ -1,7 +1,60 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-metrics", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-compression", "crates/ironbeam-coder-postcard", "crates/ironbeam-cloud-objects", "crates/ironbeam-cloud-service-api", "crates/ironbeam-cloud-fakes", "crates/ironbeam-cloud-ops", "crates/ironbeam-cloud-object-store", "crates/ironbeam-cloud-gcp", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-metrics", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-compression", "crates/ironbeam-coder-postcard", "crates/ironbeam-cloud-objects", "crates/ironbeam-cloud-service-api", "crates/ironbeam-cloud-fakes", "crates/ironbeam-cloud-ops", "crates/ironbeam-cloud-object-store", "crates/ironbeam-cloud-gcp", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests", "crates/beam-proto", "crates/ironbeam-graphx", "crates/ironbeam-harness", "crates/ironbeam-dataflow", "examples/prism-proof", "examples/dataflow-wordcount"]
 default-members = ["."]
 resolver = "3"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/nhubbard/ironbeam"
+rust-version = "1.94"
+
+[workspace.dependencies]
+beam-proto = { version = "5.0.0", path = "crates/beam-proto" }
+ironbeam-graphx = { version = "5.0.0", path = "crates/ironbeam-graphx" }
+ironbeam-harness = { version = "5.0.0", path = "crates/ironbeam-harness" }
+ironbeam-dataflow = { version = "5.0.0", path = "crates/ironbeam-dataflow" }
+ironbeam-core = { version = "5.0.0", path = "crates/ironbeam-core" }
+ironbeam-coder-postcard = { version = "5.0.0", path = "crates/ironbeam-coder-postcard" }
+ironbeam-direct = { version = "5.0.0", path = "crates/ironbeam-direct" }
+ironbeam-transforms = { version = "5.0.0", path = "crates/ironbeam-transforms" }
+ironbeam-cloud-objects = { version = "5.0.0", path = "crates/ironbeam-cloud-objects" }
+ironbeam-io = { version = "5.0.0", path = "crates/ironbeam-io", default-features = false }
+ironbeam-io-jsonl = { version = "5.0.0", path = "crates/ironbeam-io-jsonl", features = ["cloud"] }
+ironbeam-io-avro = { version = "5.0.0", path = "crates/ironbeam-io-avro" }
+ironbeam-io-msgpack = { version = "5.0.0", path = "crates/ironbeam-io-msgpack" }
+ironbeam-io-cbor = { version = "5.0.0", path = "crates/ironbeam-io-cbor" }
+ironbeam-io-csv = { version = "5.0.0", path = "crates/ironbeam-io-csv" }
+ironbeam-io-xml = { version = "5.0.0", path = "crates/ironbeam-io-xml" }
+ironbeam-io-parquet = { version = "5.0.0", path = "crates/ironbeam-io-parquet" }
+ironbeam-io-arrow = { version = "5.0.0", path = "crates/ironbeam-io-arrow" }
+ironbeam-io-protobuf = { version = "5.0.0", path = "crates/ironbeam-io-protobuf" }
+ironbeam-io-tfrecord = { version = "5.0.0", path = "crates/ironbeam-io-tfrecord" }
+ironbeam-io-sql = { version = "5.0.0", path = "crates/ironbeam-io-sql" }
+ironbeam-io-mongodb = { version = "5.0.0", path = "crates/ironbeam-io-mongodb" }
+prost = "0.13"
+prost-types = "0.13"
+prost-build = "0.13"
+tonic = { version = "0.12", features = ["tls", "tls-webpki-roots"] }
+tonic-build = "0.12"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+async-stream = "0.3"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+wiremock = "0.6"
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+url = "2"
+bytes = "1"
+sha2 = "0.10"
+hex = "0.4"
+gcp_auth = "0.12"
 
 [package]
 name = "ironbeam"
@@ -28,6 +81,7 @@ cloud-gcp-bigquery = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/bigquery"]
 cloud-gcp-secrets = ["dep:ironbeam-cloud-gcp", "ironbeam-cloud-gcp/secrets"]
 v5-io-sql = ["dep:ironbeam-io-sql"]
 v5-io-mongodb = ["dep:ironbeam-io-mongodb"]
+v5-dataflow = ["dep:ironbeam-dataflow"]
 v5-io-avro = ["dep:ironbeam-io-avro"]
 v5-io-csv = ["dep:ironbeam-io-csv"]
 v5-io-xml = ["dep:ironbeam-io-xml"]
@@ -85,6 +139,7 @@ spilling = []
 coders = ["dep:ironbeam-coder-postcard"]
 
 [dependencies]
+ironbeam-dataflow = { version = "5.0.0", path = "crates/ironbeam-dataflow", optional = true }
 ironbeam-cloud-gcp = { version = "5.0.0", path = "crates/ironbeam-cloud-gcp", default-features = false, optional = true }
 ironbeam-compression = { version = "5.0.0", path = "crates/ironbeam-compression", optional = true }
 ironbeam-coder-postcard = { version = "5.0.0", path = "crates/ironbeam-coder-postcard", optional = true }

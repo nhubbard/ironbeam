@@ -25,7 +25,7 @@ class ReleaseOrderTests(unittest.TestCase):
 
     def test_current_workspace_has_public_facade_last(self):
         order = release_order()
-        self.assertEqual(len(order), 30)
+        self.assertEqual(len(order), 34)
         self.assertEqual(order[-1], ("ironbeam", "5.0.0"))
 
     def workspace(self, dependency_version="5.0.0", reverse_dependency=False):
@@ -56,6 +56,23 @@ class ReleaseOrderTests(unittest.TestCase):
                 release_order(root),
                 [("ironbeam-core", "5.0.0"), ("ironbeam", "5.0.0")],
             )
+
+    def test_workspace_inherited_local_dependency(self):
+        temporary, root = self.workspace()
+        with temporary:
+            manifest = root / "Cargo.toml"
+            source = manifest.read_text().replace(
+                '[package]\n',
+                '[workspace.dependencies]\n'
+                'ironbeam-core = { path = "crates/ironbeam-core", version = "5.0.0" }\n'
+                '[package]\n',
+                1,
+            ).replace(
+                '[dependencies]\nironbeam-core = { path = "crates/ironbeam-core", version = "5.0.0" }',
+                '[dependencies]\nironbeam-core = { workspace = true }',
+            )
+            manifest.write_text(source)
+            self.assertEqual(release_order(root)[0], ("ironbeam-core", "5.0.0"))
 
     def test_rejects_stale_local_version_requirement(self):
         temporary, root = self.workspace(dependency_version="5.1.0")

@@ -47,6 +47,8 @@ def prepare(root: Path, version: str, update_lock: bool = True) -> None:
                 replacements += count
             elif section in ("dependencies", "build-dependencies", "dev-dependencies") and "path" in line:
                 lines[index], _ = INLINE_VERSION.subn(lambda match: match[1] + version + match[3], line)
+            elif path == root / "Cargo.toml" and section == "workspace.dependencies" and "path" in line:
+                lines[index], _ = INLINE_VERSION.subn(lambda match: match[1] + version + match[3], line)
         if replacements != 1:
             raise ValueError(f"expected one package version in {path}")
         modified = "".join(lines)

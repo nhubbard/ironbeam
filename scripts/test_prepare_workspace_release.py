@@ -13,9 +13,11 @@ class PrepareWorkspaceReleaseTests(unittest.TestCase):
         (root / "crates" / "ironbeam-core").mkdir(parents=True)
         (root / "Cargo.toml").write_text(
             '[workspace]\nmembers = [".", "crates/ironbeam-core"]\n'
+            '[workspace.dependencies]\n'
+            'ironbeam-core = { version = "5.0.0", path = "crates/ironbeam-core" }\n'
             '[package]\nname = "ironbeam"\nversion = "5.0.0"\n'
             '[dependencies]\n'
-            'ironbeam-core = { version = "5.0.0", path = "crates/ironbeam-core" }\n'
+            'ironbeam-core = { workspace = true }\n'
             'serde = { version = "1.0", features = ["derive"] }\n'
         )
         (root / "crates" / "ironbeam-core" / "Cargo.toml").write_text(
@@ -31,6 +33,7 @@ class PrepareWorkspaceReleaseTests(unittest.TestCase):
                 ("ironbeam-core", "5.1.0"), ("ironbeam", "5.1.0")
             ])
             self.assertIn('serde = { version = "1.0"', (root / "Cargo.toml").read_text())
+            self.assertIn('ironbeam-core = { version = "5.1.0", path', (root / "Cargo.toml").read_text())
             prepare(root, "5.1.0", update_lock=False)
 
     def test_rejects_four_x_without_changing_files(self):

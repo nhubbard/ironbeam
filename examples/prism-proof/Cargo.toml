@@ -1,0 +1,50 @@
+[package]
+name = "ironbeam-prism-proof"
+version = "5.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+database-proofs = ["dep:ironbeam-io-sql", "dep:ironbeam-io-mongodb", "dep:sqlx", "dep:mongodb", "dep:bson"]
+
+[dependencies]
+beam-proto = { workspace = true }
+ironbeam-core = { workspace = true }
+ironbeam-transforms = { workspace = true }
+ironbeam-coder-postcard = { workspace = true }
+ironbeam-io = { workspace = true, default-features = false, features = ["file"] }
+ironbeam-dataflow = { workspace = true }
+ironbeam-cloud-objects = { workspace = true }
+ironbeam-io-jsonl = { workspace = true }
+ironbeam-io-avro = { workspace = true }
+ironbeam-io-msgpack = { workspace = true }
+ironbeam-io-cbor = { workspace = true }
+ironbeam-io-csv = { workspace = true }
+ironbeam-io-xml = { workspace = true }
+ironbeam-io-parquet = { workspace = true }
+ironbeam-io-arrow = { workspace = true }
+ironbeam-io-protobuf = { workspace = true }
+ironbeam-io-tfrecord = { workspace = true }
+ironbeam-io-sql = { workspace = true, optional = true }
+ironbeam-io-mongodb = { workspace = true, optional = true }
+prost_beam = { package = "prost", version = "0.13" }
+prost_v5 = { package = "prost", version = "0.14" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+anyhow = { workspace = true }
+tempfile = { workspace = true }
+sqlx = { version = "0.9", features = ["any", "sqlite", "runtime-tokio", "tls-rustls-ring", "derive"], optional = true }
+mongodb = { version = "3", features = ["bson-3"], optional = true }
+bson = { version = "3", optional = true }
+
+[dev-dependencies]
+ironbeam-direct = { workspace = true }
+ironbeam-harness = { workspace = true }
+prost-types = { workspace = true }
+tonic = { workspace = true }

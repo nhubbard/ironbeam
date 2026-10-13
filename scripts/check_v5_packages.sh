@@ -35,6 +35,10 @@ if "$cargo_bin" tree -p ironbeam --no-default-features --edges normal | grep -E 
   echo "V5-only facade unexpectedly depends on the legacy root implementation." >&2
   exit 1
 fi
+if "$cargo_bin" tree -p ironbeam --no-default-features --edges normal | grep -E '(beam-proto|ironbeam-graphx|ironbeam-harness|ironbeam-dataflow) v'; then
+  echo "The minimal facade unexpectedly enables the portable Beam integration." >&2
+  exit 1
+fi
 if "$cargo_bin" tree -p ironbeam --no-default-features --edges normal,dev | grep -E 'testcontainers(-modules)? v'; then
   echo "V5-only root tests unexpectedly depend on the legacy service harness." >&2
   exit 1
@@ -116,6 +120,7 @@ for package in "${packages[@]}"; do
   patches=()
   case "$package" in
     ironbeam-compression|ironbeam-cloud-objects|ironbeam-core|ironbeam-metrics) ;;
+    beam-proto|ironbeam-graphx|ironbeam-harness|ironbeam-dataflow) patches=("${root_patches[@]}") ;;
     ironbeam-coder-postcard) patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-cloud-service-api) patches=("${cloud_objects_patch[@]}") ;;
     ironbeam-cloud-fakes) patches=("${cloud_objects_patch[@]}" "${cloud_service_api_patch[@]}") ;;

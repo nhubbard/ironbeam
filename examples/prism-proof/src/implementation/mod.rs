@@ -1,0 +1,11 @@
+include!("records_and_joins.rs");
+include!("multiway_and_batches.rs");
+include!("dynamic_ops.rs");
+include!("error_cases.rs");
+include!("streaming_side_inputs.rs");
+include!("streaming_joins.rs");
+include!("ordered_folds.rs");
+include!("duplicate_order_cases.rs");
+include!("production_sources.rs");
+include!("production_sinks.rs");
+include!("finalization.rs");

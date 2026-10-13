@@ -3,6 +3,11 @@
 
 /// Ironbeam 5 graph, transforms, I/O, and Direct runner.
 pub mod v5 {
+    /// Apache Beam graph lowering and Dataflow submission, when enabled.
+    #[cfg(feature = "v5-dataflow")]
+    pub mod dataflow {
+        pub use ironbeam_dataflow::*;
+    }
     #[cfg(feature = "coders")]
     pub use ironbeam_coder_postcard::impl_postcard_element;
     #[cfg(feature = "v5-metrics")]

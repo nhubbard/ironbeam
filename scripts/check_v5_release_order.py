@@ -24,6 +24,7 @@ def manifest(path: Path) -> dict:
 
 def release_order(root: Path = ROOT) -> list[tuple[str, str]]:
     workspace = manifest(root / "Cargo.toml")
+    workspace_dependencies = workspace.get("workspace", {}).get("dependencies", {})
     package_paths = [
         (root / member / "Cargo.toml").resolve()
         for member in workspace["workspace"]["members"]
@@ -47,11 +48,16 @@ def release_order(root: Path = ROOT) -> list[tuple[str, str]]:
     for name, (path, data) in publishable.items():
         for section in ("dependencies", "build-dependencies", "dev-dependencies"):
             for alias, specification in data.get(section, {}).items():
+                from_workspace = isinstance(specification, dict) and specification.get("workspace")
+                if from_workspace:
+                    inherited = workspace_dependencies.get(alias)
+                    if inherited is None:
+                        raise ValueError(f"{name}: missing workspace dependency {alias}")
+                    specification = inherited
                 if not isinstance(specification, dict) or "path" not in specification:
                     continue
-                dependency_path = (
-                    path.parent / specification["path"] / "Cargo.toml"
-                ).resolve()
+                base = root if from_workspace else path.parent
+                dependency_path = (base / specification["path"] / "Cargo.toml").resolve()
                 dependency = manifest(dependency_path)["package"]
                 dependency_name = dependency["name"]
                 if specification.get("package", dependency_name) != dependency_name:
