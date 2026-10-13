@@ -181,6 +181,9 @@ impl V5BundleExecutor {
                         Window::FixedOffset { size_ns, offset_ns } => {
                             fixed_window_fn(*size_ns, *offset_ns)
                         }
+                        Window::Sliding { .. } => {
+                            bail!("v5 SDF WindowInto {} does not support unbounded sliding windows", node.key)
+                        }
                         Window::Global => {
                             bail!("v5 SDF WindowInto {} has no fixed window", node.key)
                         }

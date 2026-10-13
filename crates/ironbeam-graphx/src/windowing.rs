@@ -127,6 +127,18 @@ pub(crate) fn fixed_windowing_strategy(
     Ok(strategy)
 }
 
+pub(crate) fn sliding_windowing_strategy(
+    size_ns: i64,
+    period_ns: i64,
+    offset_ns: i64,
+) -> Result<WindowingStrategy, String> {
+    let mut strategy = global_windowing_strategy();
+    strategy.window_fn = Some(sliding_window_fn(size_ns, period_ns, offset_ns)?);
+    strategy.window_coder_id = ids::CODER_INTERVAL_WINDOW.into();
+    strategy.assigns_to_one_window = size_ns <= period_ns;
+    Ok(strategy)
+}
+
 #[cfg(test)]
 #[path = "../tests/unit/windowing__tests.rs"]
 mod tests;

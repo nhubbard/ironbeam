@@ -284,12 +284,19 @@ impl V5BundleExecutor {
                         .ok_or_else(|| anyhow!("missing v5 collection {input_pc}"))?;
                     let produced = input
                         .iter()
-                        .cloned()
-                        .map(|mut value| {
-                            value.window = node.time.window.assign(value.timestamp_ns)?;
-                            Ok(value)
+                        .map(|value| {
+                            node.time.window.assign_all(value.timestamp_ns).map(|windows| {
+                                windows.into_iter().map(|window| {
+                                    let mut value = value.clone();
+                                    value.window = window;
+                                    value
+                                }).collect::<Vec<_>>()
+                            }).map_err(anyhow::Error::from)
                         })
-                        .collect::<Result<Vec<_>>>()?;
+                        .collect::<Result<Vec<Vec<_>>>>()?
+                        .into_iter()
+                        .flatten()
+                        .collect();
                     collections.insert(output_pc, produced);
                 }
                 Step::Sink {
@@ -339,7 +346,7 @@ impl V5BundleExecutor {
                                 }
                                 encode_windowed_value(timestamp_millis, &body, &mut output)?;
                             }
-                            Window::Fixed { .. } | Window::FixedOffset { .. } => {
+                            Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. } => {
                                 let interval = value.window.ok_or_else(|| {
                                     anyhow!("fixed v5 output is missing its interval window")
                                 })?;

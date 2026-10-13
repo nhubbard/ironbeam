@@ -328,7 +328,7 @@ impl V5BundleExecutor {
                         .ok_or_else(|| {
                             anyhow!("v5 WindowInto output {output_pc} is absent from worker")
                         })?;
-                    if !matches!(node.operation, Operation::FixedWindow)
+                    if !matches!(node.operation, Operation::FixedWindow | Operation::SlidingWindow)
                         || node
                             .input
                             .as_ref()
@@ -344,6 +344,9 @@ impl V5BundleExecutor {
                         Window::Fixed { size_ns } => fixed_window_fn(*size_ns, 0),
                         Window::FixedOffset { size_ns, offset_ns } => {
                             fixed_window_fn(*size_ns, *offset_ns)
+                        }
+                        Window::Sliding { size_ns, period_ns, offset_ns } => {
+                            sliding_window_fn(*size_ns, *period_ns, *offset_ns)
                         }
                         Window::Global => bail!("v5 WindowInto {} has no fixed window", node.key),
                     }

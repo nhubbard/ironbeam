@@ -58,6 +58,7 @@ impl Pipeline {
                 ("ironbeam/side-input-map".into(), BUILTIN_OPERATION_VERSION)
             }
             Operation::FixedWindow => ("ironbeam/fixed-window".into(), BUILTIN_OPERATION_VERSION),
+            Operation::SlidingWindow => ("ironbeam/sliding-window".into(), BUILTIN_OPERATION_VERSION),
             Operation::GlobalCombine => {
                 ("ironbeam/global-combine".into(), BUILTIN_OPERATION_VERSION)
             }

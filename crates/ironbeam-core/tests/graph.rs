@@ -506,6 +506,53 @@ fn offset_windows_and_interval_coder_handle_signed_time() {
 }
 
 #[test]
+fn sliding_windows_assign_overlapping_intervals_across_zero() {
+    let window = Window::Sliding {
+        size_ns: 4,
+        period_ns: 2,
+        offset_ns: -1,
+    };
+    assert_eq!(
+        window.assign_all(0).unwrap(),
+        vec![
+            Some(WindowInterval {
+                start_ns: -3,
+                end_ns: 1
+            }),
+            Some(WindowInterval {
+                start_ns: -1,
+                end_ns: 3
+            }),
+        ]
+    );
+    assert_eq!(window.assign(0).unwrap_err().kind, ErrorKind::Graph);
+    assert!(Window::Sliding {
+        size_ns: 1,
+        period_ns: 2,
+        offset_ns: 0,
+    }
+    .assign_all(1)
+    .unwrap()
+    .is_empty());
+    assert!(Window::Sliding {
+        size_ns: 2,
+        period_ns: 1,
+        offset_ns: 0,
+    }
+    .assign_all(i64::MAX)
+    .is_err());
+    assert!(
+        Window::Sliding {
+            size_ns: 2_049,
+            period_ns: 2,
+            offset_ns: 0,
+        }
+        .assign_all(0)
+        .is_err()
+    );
+}
+
+#[test]
 fn filter_registry_and_duplicate_sink_failures_are_explicit() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

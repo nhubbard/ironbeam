@@ -327,7 +327,8 @@ fn grouped_stream_route(
             | Operation::Filter
             | Operation::FlatMap
             | Operation::AssignTimestamp
-            | Operation::FixedWindow => {
+            | Operation::FixedWindow
+            | Operation::SlidingWindow => {
                 if !matches!(node.operation, Operation::Output | Operation::Sink { .. }) {
                     if group_key.is_some() {
                         upstream.push(key.to_owned());
@@ -362,7 +363,8 @@ fn linear_stream_input(graph: &Graph, input_key: &str) -> Option<(String, Vec<St
             | Operation::Filter
             | Operation::FlatMap
             | Operation::AssignTimestamp
-            | Operation::FixedWindow => stages.push(key.to_owned()),
+            | Operation::FixedWindow
+            | Operation::SlidingWindow => stages.push(key.to_owned()),
             _ => return None,
         }
         key = node.input.as_deref()?;
@@ -425,7 +427,8 @@ fn side_stream_route(
             | Operation::Filter
             | Operation::FlatMap
             | Operation::AssignTimestamp
-            | Operation::FixedWindow => downstream.push(key.to_owned()),
+            | Operation::FixedWindow
+            | Operation::SlidingWindow => downstream.push(key.to_owned()),
             _ => return None,
         }
         key = node.input.as_deref()?;
@@ -449,7 +452,8 @@ fn stateful_fanout_route(graph: &Graph, sink_key: &str) -> Option<BoundedSideStr
             | Operation::Filter
             | Operation::FlatMap
             | Operation::AssignTimestamp
-            | Operation::FixedWindow => after_fanout.push(key.to_owned()),
+            | Operation::FixedWindow
+            | Operation::SlidingWindow => after_fanout.push(key.to_owned()),
             _ => return None,
         }
         key = node.input.as_deref()?;

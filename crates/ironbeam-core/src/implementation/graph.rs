@@ -61,6 +61,9 @@ impl Graph {
                     "fixed window size must be positive",
                 ));
             }
+            if matches!(node.time.window, Window::Sliding { size_ns, period_ns, .. } if size_ns <= 0 || period_ns <= 0) {
+                return Err(Error::graph(&node.key, "sliding size and period must be positive"));
+            }
             if matches!(node.operation, Operation::FixedWindow)
                 && !matches!(
                     node.time.window,
@@ -71,6 +74,11 @@ impl Graph {
                     &node.key,
                     "fixed-window operation requires a fixed window descriptor",
                 ));
+            }
+            if matches!(node.operation, Operation::SlidingWindow)
+                && !matches!(node.time.window, Window::Sliding { .. })
+            {
+                return Err(Error::graph(&node.key, "sliding-window operation requires a sliding descriptor"));
             }
             if matches!(node.operation, Operation::BatchMapValues { batch_size: 0 }) {
                 return Err(Error::graph(&node.key, "batch size must be positive"));
@@ -162,6 +170,7 @@ impl Graph {
                             | Operation::Reshuffle
                             | Operation::WaitOn
                             | Operation::FixedWindow
+                            | Operation::SlidingWindow
                             | Operation::Output
                             | Operation::Sink { .. }
                     ) && (node.type_id != upstream.type_id
@@ -364,7 +373,7 @@ impl Graph {
                 {
                     Some(node.semantic_id.clone())
                 }
-                Operation::FixedWindow if !capabilities.fixed_window => {
+                Operation::FixedWindow | Operation::SlidingWindow if !capabilities.fixed_window => {
                     Some("fixed-window".to_string())
                 }
                 Operation::AssignTimestamp if !capabilities.assign_timestamp => {

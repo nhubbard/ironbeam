@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     environment::docker_environment,
     ids, urns,
-    windowing::{fixed_window_fn, fixed_windowing_strategy, global_windowing_strategy},
+    windowing::{fixed_window_fn, fixed_windowing_strategy, global_windowing_strategy, sliding_window_fn, sliding_windowing_strategy},
 };
 
 pub const IDENTITY_URN: &str = "ironbeam:execution-identity:v5";
@@ -53,6 +53,9 @@ fn windowing_id(window: &Window) -> String {
         Window::FixedOffset { size_ns, offset_ns } => {
             id("v5_ws", &format!("fixed:{size_ns}:{offset_ns}"))
         }
+        Window::Sliding { size_ns, period_ns, offset_ns } => {
+            id("v5_ws", &format!("sliding:{size_ns}:{period_ns}:{offset_ns}"))
+        }
     }
 }
 
@@ -65,6 +68,9 @@ fn window_fn(window: &Window) -> Result<FunctionSpec, V5Error> {
         Window::Fixed { size_ns } => fixed_window_fn(*size_ns, 0).map_err(V5Error::Wire),
         Window::FixedOffset { size_ns, offset_ns } => {
             fixed_window_fn(*size_ns, *offset_ns).map_err(V5Error::Wire)
+        }
+        Window::Sliding { size_ns, period_ns, offset_ns } => {
+            sliding_window_fn(*size_ns, *period_ns, *offset_ns).map_err(V5Error::Wire)
         }
     }
 }

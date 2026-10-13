@@ -182,6 +182,7 @@ fn checkpointed_group_route(
                 | Operation::FlatMap
                 | Operation::AssignTimestamp
                 | Operation::FixedWindow
+                | Operation::SlidingWindow
         ) || !node.additional_inputs.is_empty()
         {
             return None;
@@ -485,7 +486,8 @@ pub(crate) fn eval(
         | Operation::Filter
         | Operation::FlatMap
         | Operation::AssignTimestamp
-        | Operation::FixedWindow => {
+        | Operation::FixedWindow
+        | Operation::SlidingWindow => {
             let results: Vec<_> = pool.install(|| {
                 first
                     .into_par_iter()
@@ -568,6 +570,7 @@ pub(crate) fn try_drain_fold_sink(
                 | Operation::FlatMap
                 | Operation::AssignTimestamp
                 | Operation::FixedWindow
+                | Operation::SlidingWindow
         ) {
             break;
         }
@@ -655,6 +658,7 @@ pub(crate) fn try_wait_sink_route(
                 | Operation::FlatMap
                 | Operation::AssignTimestamp
                 | Operation::FixedWindow
+                | Operation::SlidingWindow
         ) {
             break;
         }
@@ -757,7 +761,8 @@ fn linear_fold_route(graph: &Graph, from: &str) -> Option<(String, Vec<String>)>
             | Operation::Filter
             | Operation::FlatMap
             | Operation::AssignTimestamp
-            | Operation::FixedWindow => {
+            | Operation::FixedWindow
+            | Operation::SlidingWindow => {
                 stages.push(key.to_owned());
                 key = node.input.as_deref()?;
             }

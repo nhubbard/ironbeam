@@ -39,6 +39,9 @@ pub fn portable_order(graph: &Graph) -> Result<Vec<String>, V5Error> {
             Window::FixedOffset { size_ns, offset_ns } => {
                 fixed_window_fn(size_ns, offset_ns).map(|_| ())
             }
+            Window::Sliding { size_ns, period_ns, offset_ns } => {
+                sliding_window_fn(size_ns, period_ns, offset_ns).map(|_| ())
+            }
         } {
             return Err(V5Error::Unsupported {
                 key: node.key.clone(),
@@ -88,6 +91,7 @@ pub fn portable_order(graph: &Graph) -> Result<Vec<String>, V5Error> {
             | Operation::JoinRight
             | Operation::JoinFull
             | Operation::FixedWindow
+            | Operation::SlidingWindow
             | Operation::Reshuffle
             | Operation::SideInputMap
             | Operation::WaitOn

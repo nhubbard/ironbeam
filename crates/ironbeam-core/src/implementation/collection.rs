@@ -436,6 +436,45 @@ impl<T: Element> PCollection<T> {
         }));
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
+    /// Assign an element to each overlapping sliding interval. Bounded
+    /// collections are supported; streaming window state requires a separate
+    /// runner contract.
+    pub fn sliding_windows(
+        &self,
+        key: &str,
+        size_ns: i64,
+        period_ns: i64,
+        offset_ns: i64,
+    ) -> Result<Self, Error>
+    where
+        T: Clone,
+    {
+        if size_ns <= 0 || period_ns <= 0 {
+            return Err(Error::graph(key, "sliding size and period must be positive"));
+        }
+        if self.parent()?.boundedness == Boundedness::Unbounded {
+            return Err(Error::unsupported(key, "direct", "unbounded-sliding-window"));
+        }
+        let window = Window::Sliding { size_ns, period_ns, offset_ns };
+        let runtime_window = window.clone();
+        let key_owned = key.to_owned();
+        let transform = Transform::Multi(Arc::new(move |event| {
+            let value = event.value.downcast::<T>().map_err(|_| {
+                Error::execution(&key_owned, "direct", "sliding window input type mismatch")
+            })?;
+            Ok(runtime_window
+                .assign_all(event.timestamp_ns)?
+                .into_iter()
+                .map(|assigned_window| Envelope {
+                    value: Box::new((*value).clone()),
+                    timestamp_ns: event.timestamp_ns,
+                    window: runtime_window.clone(),
+                    assigned_window,
+                })
+                .collect())
+        }));
+        self.next(key, Operation::SlidingWindow, Some(transform), Some(window))
+    }
     pub fn with_window_named(&self, key: &str) -> Result<PCollection<(WindowInterval, T)>, Error> {
         if self.parent()?.time.window == Window::Global {
             return Err(Error::graph(
@@ -1374,7 +1413,7 @@ impl<T: Element> PCollection<(i64, T)> {
             let pair = event.value.downcast_ref::<(i64, T)>().ok_or_else(|| {
                 Error::execution(&error_key, "runner", "timestamp pair type mismatch")
             })?;
-            if window.assign(pair.0)? != event.assigned_window {
+            if !window.assign_all(pair.0)?.contains(&event.assigned_window) {
                 return Err(Error::execution(
                     &error_key,
                     "runner",

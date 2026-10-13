@@ -24,7 +24,7 @@ use ironbeam_graphx::v5::{
     fold_flatten_collection_id, fold_group_collection_id, fold_seed_collection_id,
     fold_tag_collection_id, side_global_collection_id,
 };
-use ironbeam_graphx::windowing::fixed_window_fn;
+use ironbeam_graphx::windowing::{fixed_window_fn, sliding_window_fn};
 
 use crate::bundle::{BundlePlan, SdfStage, SinkWire, SourceWire, Step};
 use crate::coders::{

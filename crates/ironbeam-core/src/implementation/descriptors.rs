@@ -15,6 +15,7 @@ pub enum Window {
     Global,
     Fixed { size_ns: i64 },
     FixedOffset { size_ns: i64, offset_ns: i64 },
+    Sliding { size_ns: i64, period_ns: i64, offset_ns: i64 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -54,7 +55,47 @@ impl Window {
             Self::FixedOffset { .. } => {
                 Err(Error::graph("time", "fixed window size must be positive"))
             }
+            Self::Sliding { .. } => Err(Error::graph(
+                "time",
+                "sliding windows may assign several intervals; use assign_all",
+            )),
         }
+    }
+
+    /// Return every interval containing this event timestamp. The result is
+    /// ordered by window start and capped to avoid unbounded fanout.
+    pub fn assign_all(&self, timestamp_ns: i64) -> Result<Vec<Option<WindowInterval>>, Error> {
+        let Self::Sliding { size_ns, period_ns, offset_ns } = *self else {
+            return Ok(vec![self.assign(timestamp_ns)?]);
+        };
+        if size_ns <= 0 || period_ns <= 0 {
+            return Err(Error::graph("time", "sliding size and period must be positive"));
+        }
+        let size = i128::from(size_ns);
+        let period = i128::from(period_ns);
+        let offset = i128::from(offset_ns.rem_euclid(period_ns));
+        let timestamp = i128::from(timestamp_ns);
+        let earliest = timestamp - size + 1 - offset;
+        let first = earliest.div_euclid(period) + i128::from(earliest.rem_euclid(period) != 0);
+        let last = (timestamp - offset).div_euclid(period);
+        let count = last - first + 1;
+        if count > 1_024 {
+            return Err(Error::resource("time", "sliding window fanout exceeds 1024"));
+        }
+        (first..=last)
+            .map(|index| {
+                let start = offset + index * period;
+                let end = start + size;
+                Ok(Some(WindowInterval {
+                    start_ns: i64::try_from(start).map_err(|_| {
+                        Error::graph("time", "window start overflows i64 nanoseconds")
+                    })?,
+                    end_ns: i64::try_from(end).map_err(|_| {
+                        Error::graph("time", "window end overflows i64 nanoseconds")
+                    })?,
+                }))
+            })
+            .collect()
     }
 }
 
@@ -179,6 +220,7 @@ pub enum Operation {
     JoinFull,
     SideInputMap,
     FixedWindow,
+    SlidingWindow,
     GlobalCombine,
     FoldGlobal,
     FoldPerKey,

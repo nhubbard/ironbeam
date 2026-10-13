@@ -79,6 +79,12 @@ fn lower(
                     fixed_windowing_strategy(*size_ns, *offset_ns).map_err(V5Error::Wire)?,
                 );
             }
+            Window::Sliding { size_ns, period_ns, offset_ns } => {
+                windowing_strategies.insert(
+                    windowing_id(&node.time.window),
+                    sliding_windowing_strategy(*size_ns, *period_ns, *offset_ns).map_err(V5Error::Wire)?,
+                );
+            }
         }
     }
     coders.insert(
@@ -522,7 +528,7 @@ fn lower(
                 urn: urns::TRANSFORM_TEST_STREAM.into(),
                 payload: payload.encode_to_vec(),
             }
-        } else if matches!(node.operation, Operation::FixedWindow) {
+        } else if matches!(node.operation, Operation::FixedWindow | Operation::SlidingWindow) {
             FunctionSpec {
                 urn: urns::TRANSFORM_WINDOW_INTO.into(),
                 payload: WindowIntoPayload {

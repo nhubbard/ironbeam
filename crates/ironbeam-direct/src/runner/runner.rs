@@ -38,7 +38,7 @@ impl DirectRunner {
                 | Operation::Filter
                 | Operation::FlatMap
                 | Operation::AssignTimestamp
-                | Operation::FixedWindow
+                | Operation::FixedWindow | Operation::SlidingWindow
                 | Operation::Flatten
                 | Operation::Reshuffle
                 | Operation::WaitOn
