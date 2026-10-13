@@ -292,7 +292,7 @@ impl V5BundleExecutor {
                     sized.pair.restriction.clone(),
                 )?;
                 let result = loop {
-                    if split_requested.load(Ordering::Acquire) {
+                    if split_requested.load(Ordering::Acquire) || crate::supervision::split_requested() {
                         break None;
                     }
                     match poller.poll(128)? {

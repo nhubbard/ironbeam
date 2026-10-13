@@ -565,20 +565,29 @@ async fn prism_abandons_fragment_when_bundle_fails_after_staging() {
 
 #[tokio::test]
 async fn prism_runs_production_unbounded_source_with_residual_resume() {
-    run_production_unbounded_source(false, false).await;
+    run_production_unbounded_source(false, false, false).await;
 }
 
 #[tokio::test]
 async fn prism_fails_closed_on_supervised_worker_loss_with_active_bundles() {
-    run_production_unbounded_source(true, false).await;
+    run_production_unbounded_source(true, false, false).await;
+}
+
+#[tokio::test]
+async fn prism_recovers_killed_execution_child_in_same_job() {
+    run_production_unbounded_source(true, false, true).await;
 }
 
 #[tokio::test]
 async fn prism_rejects_worker_semantic_version_drift() {
-    run_production_unbounded_source(false, true).await;
+    run_production_unbounded_source(false, true, false).await;
 }
 
-async fn run_production_unbounded_source(restart_worker: bool, semantic_version_drift: bool) {
+async fn run_production_unbounded_source(
+    restart_worker: bool,
+    semantic_version_drift: bool,
+    supervised: bool,
+) {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
@@ -706,7 +715,7 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
     let mut process = ProcessPayload {
         os: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),
-        command: if restart_worker {
+        command: if restart_worker && !supervised {
             env!("CARGO_BIN_EXE_v5_prism_worker_killer").into()
         } else {
             worker.into()
@@ -724,9 +733,15 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
         .into(),
     };
     if restart_worker {
-        process
-            .env
-            .insert("IRONBEAM_V5_SUPERVISOR_WORKER".into(), worker.into());
+        if supervised {
+            process
+                .env
+                .insert("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into());
+        } else {
+            process
+                .env
+                .insert("IRONBEAM_V5_SUPERVISOR_WORKER".into(), worker.into());
+        }
         process.env.insert(
             "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
             restart_trigger.to_string_lossy().into_owned(),
@@ -784,7 +799,7 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    if restart_worker || semantic_version_drift {
+    if (restart_worker && !supervised) || semantic_version_drift {
         if restart_worker {
             let trigger_pid = std::fs::read_to_string(&restart_trigger).unwrap();
             assert_eq!(std::fs::read_to_string(&kill_witness).unwrap(), trigger_pid);
@@ -854,6 +869,13 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
         Some(3),
         "Prism production source job did not reach DONE: {terminal:?}"
     );
+    if supervised {
+        assert_eq!(
+            std::fs::read_to_string(&kill_witness).unwrap(),
+            std::fs::read_to_string(&restart_trigger).unwrap(),
+            "the failed child must be replaced inside this Prism job"
+        );
+    }
     assert_eq!(
         std::fs::read_to_string(capture.path().join("value-14")).unwrap(),
         "1000000:14:0:2000000\n"
@@ -4096,6 +4118,59 @@ async fn prism_matches_direct_unbounded_sliding_windows_and_late_drop() {
     .await;
     assert_eq!(terminal.0, 3, "Prism streaming slide state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+async fn prism_supervisor_discards_output_from_a_crashed_attempt() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct");
+    let portable_path = directory.path().join("portable");
+    let witness = directory.path().join("killed-after-output");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        streaming_sliding_group_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable_pipeline = Pipeline::default();
+    streaming_sliding_group_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "supervised-output-replay",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_STREAM_SLIDE".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_TEST_KILL_AFTER_REPLAY_OUTPUT".into(),
+                witness.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism output replay failed: {terminal:?}");
+    assert!(
+        witness.exists(),
+        "the first execution child did not exit after output"
+    );
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    assert_eq!(read_rows(&portable_path), read_rows(&direct_path));
 }
 
 #[tokio::test]

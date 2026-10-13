@@ -33,6 +33,7 @@ pub mod portable_publication;
 pub mod provision;
 pub mod sdf_wire;
 pub mod state;
+mod supervision;
 pub mod unbounded;
 pub mod v5;
 pub mod v5_executor;
@@ -56,7 +57,7 @@ use tracing::info;
 /// rebuilt inside this process; the Dispatcher (M2b) will cross-check it
 /// against the driver's fingerprint embedded in pipeline display data.
 pub async fn serve(endpoints: Endpoints, local_fingerprint: u64) -> Result<()> {
-    serve_inner(endpoints, local_fingerprint, None, false).await
+    serve_inner(endpoints, local_fingerprint, None, false, PbdCache::new()).await
 }
 
 /// Harness entry that wires an element-level [`executor::BundleRunner`] into the
@@ -67,7 +68,14 @@ pub async fn serve_with_runner(
     local_fingerprint: u64,
     runner: Arc<dyn executor::BundleRunner>,
 ) -> Result<()> {
-    serve_inner(endpoints, local_fingerprint, Some(runner), false).await
+    serve_inner(
+        endpoints,
+        local_fingerprint,
+        Some(runner),
+        false,
+        PbdCache::new(),
+    )
+    .await
 }
 
 /// Start a v5 worker built from the same application pipeline as the driver.
@@ -77,11 +85,23 @@ pub async fn serve_v5(
     pipeline: &ironbeam_core::Pipeline,
     binary_build_id: &str,
 ) -> Result<()> {
+    if let Some((request, response)) = supervision::child_paths() {
+        return supervision::run_child(&endpoints, pipeline, binary_build_id, &request, &response)
+            .await;
+    }
     let worker_id = endpoints.id.clone();
+    let cache = PbdCache::new();
+    if std::env::var_os("IRONBEAM_V5_SUPERVISE_EXECUTION").is_some() {
+        supervision::validate_pipeline(pipeline)?;
+        let runner: Arc<dyn executor::BundleRunner> = Arc::new(
+            supervision::SupervisedV5Runner::new(cache.clone(), worker_id)?,
+        );
+        return serve_inner(endpoints, 0, Some(runner), true, cache).await;
+    }
     let runner: Arc<dyn executor::BundleRunner> = Arc::new(
         v5_executor::V5BundleExecutor::new_for_worker(pipeline, binary_build_id, Some(&worker_id))?,
     );
-    serve_inner(endpoints, 0, Some(runner), true).await
+    serve_inner(endpoints, 0, Some(runner), true, cache).await
 }
 
 async fn serve_inner(
@@ -89,6 +109,7 @@ async fn serve_inner(
     local_fingerprint: u64,
     runner: Option<Arc<dyn executor::BundleRunner>>,
     with_worker_id: bool,
+    cache: PbdCache,
 ) -> Result<()> {
     logging::init_tracing();
     logging::enable_log_buffering();
@@ -131,7 +152,7 @@ async fn serve_inner(
         }
     }
 
-    let dispatcher = Arc::new(Dispatcher::new(PbdCache::new(), local_fingerprint));
+    let dispatcher = Arc::new(Dispatcher::new(cache, local_fingerprint));
 
     let session = control::start_for_worker(
         &endpoints.control_endpoint,

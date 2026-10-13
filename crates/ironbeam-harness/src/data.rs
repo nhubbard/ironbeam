@@ -87,9 +87,36 @@ pub struct DataClient {
     /// Readers and early chunks share one lock so registration cannot race
     /// with routing a runner chunk into the pending buffer.
     inbound: Arc<Mutex<InboundState>>,
+    replay: bool,
 }
 
 impl DataClient {
+    /// Construct an isolated Fn Data client for one replayable bundle attempt.
+    /// Outbound chunks remain local until the supervisor accepts the attempt.
+    pub(crate) fn for_replay(
+        instruction_id: &str,
+        source_id: &str,
+        chunks: Vec<Vec<u8>>,
+    ) -> (Self, mpsc::UnboundedReceiver<Elements>) {
+        let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
+        let mut inbound = InboundState::default();
+        inbound.pending.insert(
+            (instruction_id.to_owned(), source_id.to_owned()),
+            PendingBuffer {
+                chunks,
+                is_last: true,
+            },
+        );
+        (
+            Self {
+                outbound_tx,
+                inbound: Arc::new(Mutex::new(inbound)),
+                replay: true,
+            },
+            outbound_rx,
+        )
+    }
+
     /// Dial the Data endpoint and open a bidi stream.
     pub async fn connect(endpoint: &str) -> Result<Self> {
         Self::connect_for_worker(endpoint, None).await
@@ -121,6 +148,7 @@ impl DataClient {
         Ok(Self {
             outbound_tx,
             inbound: state,
+            replay: false,
         })
     }
 
@@ -171,7 +199,22 @@ impl DataClient {
             transform_id: transform_id.to_string(),
             data,
             is_last: false,
-        })
+        })?;
+        if self.replay && cfg!(debug_assertions) {
+            if let Some(path) = std::env::var_os("IRONBEAM_TEST_KILL_AFTER_REPLAY_OUTPUT") {
+                use std::io::Write;
+                if let Ok(mut witness) = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(path)
+                {
+                    let _ = writeln!(witness, "{}", std::process::id());
+                    let _ = witness.sync_all();
+                    std::process::exit(87);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Send the terminal `is_last=true` message for `(instruction_id, transform_id)`.

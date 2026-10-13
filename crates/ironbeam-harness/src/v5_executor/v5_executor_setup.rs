@@ -247,6 +247,27 @@ impl V5BundleExecutor {
         self
     }
 
+    /// Route every port of a supervised attempt through an isolated replay
+    /// client. Its outbound stream is published only after the attempt exits
+    /// successfully.
+    pub(crate) async fn use_replay_client(&self, plan: &BundlePlan, client: DataClient) -> Result<()> {
+        let mut clients = self.data_clients.lock().await;
+        for step in &plan.steps {
+            let port = match step {
+                Step::Source { port, .. } | Step::Sink { port, .. } => port,
+                _ => continue,
+            };
+            let endpoint = port
+                .api_service_descriptor
+                .as_ref()
+                .ok_or_else(|| anyhow!("missing Fn API data endpoint"))?
+                .url
+                .as_str();
+            clients.insert(normalize_endpoint(endpoint)?, client.clone());
+        }
+        Ok(())
+    }
+
     fn register_sdf_bundle(
         &self,
         instruction_id: &str,

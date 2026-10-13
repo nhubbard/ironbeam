@@ -93,10 +93,19 @@ pub fn production_stream_fixture(
                     ) {
                         if !Path::new(&killed).exists() {
                             let trigger = Path::new(&trigger);
-                            let pending = trigger.with_extension("pending");
-                            std::fs::write(&pending, std::process::id().to_string())
-                                .and_then(|()| std::fs::rename(&pending, trigger))
+                            use std::io::Write;
+                            let mut pending = tempfile::NamedTempFile::new_in(
+                                trigger.parent().unwrap_or_else(|| Path::new(".")),
+                            )
+                            .map_err(|error| Error::incompatible(error.to_string()))?;
+                            write!(pending, "{}", std::process::id())
+                                .and_then(|()| pending.as_file().sync_all())
                                 .map_err(|error| Error::incompatible(error.to_string()))?;
+                            if let Err(error) = pending.persist_noclobber(trigger) {
+                                if error.error.kind() != std::io::ErrorKind::AlreadyExists {
+                                    return Err(Error::incompatible(error.error.to_string()));
+                                }
+                            }
                             let deadline =
                                 std::time::Instant::now() + std::time::Duration::from_secs(30);
                             while !Path::new(&killed).exists() {
