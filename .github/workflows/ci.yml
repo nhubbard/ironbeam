@@ -75,7 +75,7 @@ jobs:
 
       - name: Run Clippy with pedantic and nursery
         run: |
-          cargo clippy -p ironbeam --all-targets --all-features -- \
+          cargo clippy --no-deps -p ironbeam --all-targets --all-features -- \
             -W clippy::pedantic \
             -W clippy::nursery \
             -D warnings
