@@ -145,7 +145,10 @@ fn restore_window_rows(
                     start_ns: interval.0,
                     end_ns: interval.1,
                 })
-                || event.window.assign(event.timestamp_ns)? != event.assigned_window
+                || !event
+                    .window
+                    .assign_all(event.timestamp_ns)?
+                    .contains(&event.assigned_window)
             {
                 return Err(Error::recovery("checkpoint", "invalid stream event window"));
             }
@@ -399,7 +402,9 @@ fn side_stream_route(
                 || graph.node(&side_source_key)?.boundedness != side_boundedness
                 || !matches!(
                     node.time.window,
-                    ironbeam_core::Window::Fixed { .. } | ironbeam_core::Window::FixedOffset { .. }
+                    ironbeam_core::Window::Fixed { .. }
+                        | ironbeam_core::Window::FixedOffset { .. }
+                        | ironbeam_core::Window::Sliding { .. }
                 )
             {
                 return None;

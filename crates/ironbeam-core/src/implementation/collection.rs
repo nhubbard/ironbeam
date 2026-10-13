@@ -436,9 +436,7 @@ impl<T: Element> PCollection<T> {
         }));
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
-    /// Assign an element to each overlapping sliding interval. Bounded
-    /// collections are supported; streaming window state requires a separate
-    /// runner contract.
+    /// Assign an element to each overlapping sliding interval.
     pub fn sliding_windows(
         &self,
         key: &str,
@@ -451,9 +449,6 @@ impl<T: Element> PCollection<T> {
     {
         if size_ns <= 0 || period_ns <= 0 {
             return Err(Error::graph(key, "sliding size and period must be positive"));
-        }
-        if self.parent()?.boundedness == Boundedness::Unbounded {
-            return Err(Error::unsupported(key, "direct", "unbounded-sliding-window"));
         }
         let window = Window::Sliding { size_ns, period_ns, offset_ns };
         let runtime_window = window.clone();

@@ -9,8 +9,9 @@ impl UnboundedSource<Timestamped<i32>> for ProductionSource {
 fn streaming_window_source(
     pipeline: &Pipeline,
     include_late_row: bool,
+    sliding: bool,
 ) -> Result<PCollection<i32>, Error> {
-    pipeline
+    let source = pipeline
         .unbounded_source_with_factory(
             "stream-group-events",
             SourceProgress {
@@ -60,8 +61,12 @@ fn streaming_window_source(
                 .collect();
                 Ok(Box::new(ProductionSource(polls)) as TypedUnboundedSourceReader<i32>)
             },
-        )?
-        .fixed_windows("stream-group-window", 100_000_000)
+        )?;
+    if sliding {
+        source.sliding_windows("stream-slide-window", 100_000_000, 50_000_000, 0)
+    } else {
+        source.fixed_windows("stream-group-window", 100_000_000)
+    }
 }
 
 /// One unbounded fixed-window group exercised by both Direct and Prism.
@@ -70,7 +75,7 @@ pub fn streaming_group_fixture(
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
     let sink_directory = directory.clone();
-    streaming_window_source(pipeline, true)?
+    streaming_window_source(pipeline, true, false)?
         .map_named("stream-group-key", |value| (value % 2, value))?
         .group_by_key_named("stream-group-group")?
         .map_named("stream-group-sum", |(key, values)| {
@@ -94,13 +99,45 @@ pub fn streaming_group_fixture(
         )
 }
 
+/// A resumable sliding-window group with a late row after both old windows close.
+pub fn streaming_sliding_group_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    streaming_window_source(pipeline, true, true)?
+        .map_named("stream-slide-key", |value| (value % 2, value))?
+        .group_by_key_named("stream-slide-group")?
+        .reify_timestamps_named("stream-slide-time")?
+        .with_window_named("stream-slide-interval")?
+        .map_named("stream-slide-row", |(window, (time, (key, mut values)))| {
+            values.sort_unstable();
+            format!("{key}|{values:?}|{time}|{}|{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "stream-slide-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("stream-slide-capture:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Explicitly ordered multi-row keyed batches on the same unbounded source.
 pub fn streaming_ordered_batch_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
     let sink_directory = directory.clone();
-    streaming_window_source(pipeline, false)?
+    streaming_window_source(pipeline, false, false)?
         .map_named("stream-batch-key", |value| (value % 2, (value, value)))?
         .map_values_batches_ordered_by_named(
             "stream-batch-ordered",

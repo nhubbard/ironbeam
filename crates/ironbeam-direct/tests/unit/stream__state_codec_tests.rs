@@ -77,6 +77,48 @@ fn window_state_roundtrip_preserves_metadata_and_rejects_tampering() {
 }
 
 #[test]
+fn sliding_window_checkpoint_restores_each_overlapping_assignment() {
+    let pipeline = Pipeline::default();
+    pipeline.from_vec("main", vec![7_i32]).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let window = Window::Sliding {
+        size_ns: 4,
+        period_ns: 2,
+        offset_ns: 0,
+    };
+    let intervals = window
+        .assign_all(1)
+        .unwrap()
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    let rows = intervals
+        .iter()
+        .map(|interval| {
+            (
+                (interval.start_ns, interval.end_ns),
+                vec![Envelope {
+                    value: Box::new(7_i32),
+                    timestamp_ns: 1,
+                    window: window.clone(),
+                    assigned_window: Some(*interval),
+                }],
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let encoded = encode_window_rows(&registry, "main", &rows, 1024).unwrap();
+    let (restored, buffered) = restore_window_rows(&registry, "main", &encoded, 2).unwrap();
+    assert_eq!(buffered, 2);
+    assert_eq!(restored.len(), 2);
+    for interval in intervals {
+        assert_eq!(
+            restored[&(interval.start_ns, interval.end_ns)][0].assigned_window,
+            Some(interval)
+        );
+    }
+}
+
+#[test]
 fn window_state_rejects_invalid_version_windows_and_element_budget() {
     let registry = Registry::default();
     let encoded =

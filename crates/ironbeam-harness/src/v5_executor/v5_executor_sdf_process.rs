@@ -170,7 +170,7 @@ impl V5BundleExecutor {
                         .find(|node| collection_id(&node.key) == *output_pc)
                         .ok_or_else(|| anyhow!("v5 SDF WindowInto output {output_pc} is absent"))?;
                     if collections.get(input_pc).map(String::as_str) != node.input.as_deref()
-                        || !matches!(node.operation, Operation::FixedWindow)
+                        || !matches!(node.operation, Operation::FixedWindow | Operation::SlidingWindow)
                         || !self.registry.has_coder(&node.key)
                         || !seen_nodes.insert(node.key.clone())
                     {
@@ -181,8 +181,8 @@ impl V5BundleExecutor {
                         Window::FixedOffset { size_ns, offset_ns } => {
                             fixed_window_fn(*size_ns, *offset_ns)
                         }
-                        Window::Sliding { .. } => {
-                            bail!("v5 SDF WindowInto {} does not support unbounded sliding windows", node.key)
+                        Window::Sliding { size_ns, period_ns, offset_ns } => {
+                            sliding_window_fn(*size_ns, *period_ns, *offset_ns)
                         }
                         Window::Global => {
                             bail!("v5 SDF WindowInto {} has no fixed window", node.key)

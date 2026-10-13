@@ -526,21 +526,25 @@ fn sliding_windows_assign_overlapping_intervals_across_zero() {
         ]
     );
     assert_eq!(window.assign(0).unwrap_err().kind, ErrorKind::Graph);
-    assert!(Window::Sliding {
-        size_ns: 1,
-        period_ns: 2,
-        offset_ns: 0,
-    }
-    .assign_all(1)
-    .unwrap()
-    .is_empty());
-    assert!(Window::Sliding {
-        size_ns: 2,
-        period_ns: 1,
-        offset_ns: 0,
-    }
-    .assign_all(i64::MAX)
-    .is_err());
+    assert!(
+        Window::Sliding {
+            size_ns: 1,
+            period_ns: 2,
+            offset_ns: 0,
+        }
+        .assign_all(1)
+        .unwrap()
+        .is_empty()
+    );
+    assert!(
+        Window::Sliding {
+            size_ns: 2,
+            period_ns: 1,
+            offset_ns: 0,
+        }
+        .assign_all(i64::MAX)
+        .is_err()
+    );
     assert!(
         Window::Sliding {
             size_ns: 2_049,
