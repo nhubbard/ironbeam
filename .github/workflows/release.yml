@@ -17,7 +17,6 @@ jobs:
       contents: write       # create GitHub releases and push changelog commits
       issues: write         # comment on issues closed by a release
       pull-requests: write  # comment on PRs included in a release
-      id-token: write       # request OIDC token for crates.io trusted publishing
 
     steps:
       - name: Generate GitHub App token
@@ -33,17 +32,10 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: false
 
-      - name: Keep v5 publication in the multi-crate release path
+      - name: Require main and validate the workspace release order
         run: |
-          python3 - <<'PY'
-          import sys
-          import tomllib
-          with open('Cargo.toml', 'rb') as source:
-              manifest = tomllib.load(source)
-          version = manifest['package']['version']
-          if int(version.split('.', 1)[0]) >= 5 or 'ironbeam-core' in manifest.get('dependencies', {}):
-              sys.exit('This root-only release workflow cannot publish v5 workspace dependencies.')
-          PY
+          test "$GITHUB_REF" = refs/heads/main
+          python3 scripts/check_v5_release_order.py --release
 
       - name: Install Rust nightly
         run: |
@@ -58,12 +50,8 @@ jobs:
       - name: Install semantic-release and plugins
         run: npm ci
 
-      - name: Authenticate with crates.io (trusted publishing)
-        id: crates-auth
-        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18  # v1.0.5
-
       - name: Semantic Release
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: npx semantic-release

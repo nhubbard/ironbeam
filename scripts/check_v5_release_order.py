@@ -92,12 +92,17 @@ def release_order(root: Path = ROOT) -> list[tuple[str, str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--order-only", action="store_true", help="print package names only")
-    parser.add_argument("--release", action="store_true", help="require root version 5.0.0")
+    parser.add_argument("--release", action="store_true", help="require initial root version 5.0.0")
+    parser.add_argument("--expected-version", help="require every publishable package at this version")
     args = parser.parse_args()
     try:
         order = release_order()
         if args.release and order[-1] != ("ironbeam", "5.0.0"):
             raise ValueError("the public ironbeam package must be version 5.0.0")
+        if args.expected_version:
+            mismatches = [(name, version) for name, version in order if version != args.expected_version]
+            if mismatches:
+                raise ValueError(f"packages do not match {args.expected_version}: {mismatches}")
     except (OSError, KeyError, ValueError, tomllib.TOMLDecodeError) as error:
         print(f"release order invalid: {error}", file=sys.stderr)
         return 1
