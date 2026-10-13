@@ -8,7 +8,7 @@ function run(command, args, options = {}) {
 module.exports = {
   verifyConditions() {
     if (!process.env.CARGO_REGISTRY_TOKEN) {
-      throw new Error('Configure CRATES_IO_TOKEN in the protected release environment.');
+      throw new Error('crates.io Trusted Publishing did not provide CARGO_REGISTRY_TOKEN.');
     }
   },
   prepare(_config, context) {
