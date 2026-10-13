@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -65,6 +66,44 @@ class ReleaseOrderTests(unittest.TestCase):
         temporary, root = self.workspace(reverse_dependency=True)
         with temporary, self.assertRaisesRegex(ValueError, "cycle"):
             release_order(root)
+
+    def test_publish_resumes_after_a_package_reaches_registry(self):
+        temporary, root = self.workspace()
+        with temporary:
+            source = Path(__file__).resolve().parent
+            scripts = root / "scripts"
+            scripts.mkdir()
+            for name in ("check_v5_release_order.py", "publish_v5_packages.sh"):
+                shutil.copyfile(source / name, scripts / name)
+            commands = root / "bin"
+            commands.mkdir()
+            stubs = {
+                "git": '#!/bin/sh\nif [ "$1" = branch ]; then echo main; fi\n',
+                "curl": '#!/bin/bash\ncase "${!#}" in *ironbeam-core*) echo 200;; *) echo 404;; esac\n',
+                "cargo": '#!/bin/sh\necho "$*" >> "$CALLS_FILE"\n',
+            }
+            for name, body in stubs.items():
+                path = commands / name
+                path.write_text(body)
+                path.chmod(0o755)
+            calls = root / "calls.txt"
+            environment = dict(os.environ)
+            environment.update({
+                "PATH": f"{commands}:{environment['PATH']}",
+                "CALLS_FILE": str(calls),
+                "CARGO_REGISTRY_TOKEN": "fixture-token",
+                "IRONBEAM_RELEASE_CONFIRM": "publish-5.0.0",
+            })
+            result = subprocess.run(
+                ["bash", str(scripts / "publish_v5_packages.sh"), "publish"],
+                cwd=root, env=environment, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(calls.read_text().splitlines(), [
+                "info ironbeam-core@5.0.0",
+                "publish -p ironbeam --locked",
+                "info ironbeam@5.0.0",
+            ])
 
 
 if __name__ == "__main__":
