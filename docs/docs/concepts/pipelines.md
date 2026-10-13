@@ -1,23 +1,32 @@
 # Pipelines and collections
 
-A `Pipeline` owns a logical graph. A `PCollection<T>` refers to a typed collection produced by a graph node; it does not contain the resulting rows. Source and transform calls extend the graph and return new collection handles. A named `Output<T>` identifies a terminal result for execution.
+A `Pipeline` owns a logical graph. A `PCollection<T>` is a typed handle to a graph node; it is not a container of completed rows. Source and transform calls extend the graph and return handles for later operations. A named `Output<T>` identifies a terminal result that a runner can execute.
 
-## Graph keys
+## Graph construction
 
-Every source, transform, and output has a key supplied by the application. Keys must be unique in the graph. Keep them stable across runs when using checkpoints or portable jobs. A duplicate or invalid graph operation returns an `Error` during construction.
+Each node records its operation, input relationships, element type, and stable key. Construction checks the validity of the proposed node before a job starts. A repeated key or invalid connection therefore returns an `Error` at the call that adds it.
 
 ```rust
 use ironbeam::{Pipeline, prelude::*};
 
-let pipeline = Pipeline::default();
-let words = pipeline.from_vec("input-words", vec!["a".to_string(), "bb".to_string()])?;
-let lengths = words.map_named("word-length", |word| word.len())?;
-let output = lengths.output("lengths")?;
-# Ok::<(), ironbeam::Error>(())
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let words = pipeline.from_vec("input-words", vec!["a".to_string(), "bb".to_string()])?;
+    let lengths = words.map_named("word-length", |word| word.len())?;
+    let output = lengths.output("lengths")?;
+    let _ = output;
+    Ok(())
+}
 ```
 
-For callbacks that may change between deployments, use the versioned transform APIs and advance the semantic version when behavior changes. The graph descriptor contains stable metadata; executable Rust closures remain in the local registry.
+The source key `input-words` and transform key `word-length` name distinct nodes. `lengths` names the output. These keys are part of graph identity; a pipeline that resumes from a checkpoint or is lowered to another runner relies on stable names.
 
-## Outputs
+## Handles and execution
 
-`collect_seq` and related Direct helpers add a private terminal to a snapshot of the graph. An explicit `output("key")` is preferred when a runner, checkpoint, or external system needs the same terminal identity on subsequent runs. Recollecting a collection does not mutate the source pipeline with another terminal.
+Building a graph does not read its source or invoke a transform callback. Execution begins when a runner receives an output or sink. The Direct helper `collect_seq` takes a snapshot, adds a private terminal, and returns values from that execution. It does not add a permanent terminal to the original pipeline.
+
+A collection handle can feed more than one branch. Each branch receives its own node key, and a runner selects the nodes needed for its requested terminal. The [planning example](https://github.com/nhubbard/ironbeam/blob/main/examples/explain_pipeline.rs) shows a fused elementwise route and a grouping route that needs materialization.
+
+## Handler identity
+
+The graph descriptor stores stable metadata. Executable Rust closures remain in a local handler registry. A changed callback can therefore require a new semantic version even if its node key stays the same. Versioned transform APIs make that change explicit. Portable execution also requires the corresponding handler and coder to be present in the worker; see [portable execution](../guides/portable.md).

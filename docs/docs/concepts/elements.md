@@ -14,6 +14,6 @@ impl Element for Record {
 }
 ```
 
-The direct implementation above is suitable for local processing when no portable encoding is required. A portable worker must know the same element type and coder. With the root `coders` feature, Serde records can use `impl_postcard_element!(Record, "example/record/v1")`. Change the coder ID when the wire representation changes; retain stable IDs for compatible restarts.
+The direct implementation above is suitable for local processing when no portable encoding is required. A portable worker must know the same element type and coder. With the root `coders` feature, Serde records can use `impl_postcard_element!(Record, "example/record/v1")`. The coder ID changes when the wire representation changes and remains stable for compatible restarts.
 
 Event time and window assignment are metadata on values, rather than fields automatically inferred from a record. See [windowing](../guides/windowing.md).

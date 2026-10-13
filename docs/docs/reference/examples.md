@@ -1,6 +1,6 @@
 # Example programs
 
-The repository contains runnable examples. From its root, use `cargo run --example NAME` and enable the noted feature when needed.
+The repository contains runnable examples. Commands in the table are run from the repository root. Some examples require the feature shown in their command.
 
 | Example | Demonstrates | Command |
 | --- | --- | --- |

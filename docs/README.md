@@ -13,6 +13,9 @@ python3 -m venv .venv
 .venv/bin/zensical serve
 ```
 
-The root CI workflow builds the site for pull requests and deploys it to
-GitHub Pages on pushes to `main`. The generated standalone workflow was
-integrated into the existing CI workflow.
+The root CI workflow builds the site for pull requests. A push to `main`, or
+a manual CI run on `main`, builds and deploys the same site to
+https://nhubbard.github.io/ironbeam/. GitHub Pages is configured to use
+GitHub Actions as its source. The workflow verifies that `docs/site/index.html`
+exists before it uploads the generated artifact. The generated standalone
+workflow was integrated into the existing CI workflow.

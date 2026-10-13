@@ -1,24 +1,31 @@
 # Runners
 
-A runner executes the graph built by a `Pipeline`. Ironbeam 5 has a local Direct runner in `ironbeam-direct`. The separate `ironbeam-dataflow` project lowers supported graphs to Apache Beam protobuf and has been checked with local Prism and a separately launched worker. These are different execution environments for the same logical graph, subject to each runner's capability checks.
+A runner turns a selected logical graph into executable work. Ironbeam 5 includes the local Direct runner in `ironbeam-direct`. The separate `ironbeam-dataflow` project lowers supported graphs to Apache Beam protobuf for execution through a Beam job service and worker.
 
 ## Direct execution
 
-```rust
-use ironbeam::{DirectRunner, JobConfig, Pipeline};
+Direct runs in the application process. A named output and `JobConfig` provide the graph selection and per-job settings:
 
-let output = Pipeline::default()
-    .from_vec("numbers", vec![1_i32, 2, 3])?
-    .map_named("double", |n| n * 2)?
-    .output("result")?;
-let (values, job) = DirectRunner.run_collect(&output, &JobConfig::default())?;
-assert_eq!(values, vec![2, 4, 6]);
-println!("Processed {} elements", job.metrics().source_elements);
-# Ok::<(), ironbeam::Error>(())
+```rust
+use ironbeam::{DirectRunner, JobConfig, Pipeline, prelude::*};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("numbers", vec![1_i32, 2, 3])?
+        .map_named("double", |value| value * 2)?
+        .output("result")?;
+    let (values, job) = DirectRunner.run_collect(&output, &JobConfig::default())?;
+    assert_eq!(values, vec![2, 4, 6]);
+    println!("processed {} source elements", job.metrics().source_elements);
+    Ok(())
+}
 ```
 
-`JobConfig` owns per-job settings such as parallelism, memory budgets, checkpointing, and spilling. A runner may reject a graph before opening a source or sink if an operation is unsupported. Consult the [portable execution guide](../guides/portable.md) before moving a pipeline to Prism.
+`JobConfig` contains settings for parallelism, memory budgets, spilling, and [checkpoints](../guides/checkpoints.md). A runner can reject an unsupported graph before it opens a source or sink. `DirectRunner.explain` reports its physical planning choices without executing a source; the [planning example](https://github.com/nhubbard/ironbeam/blob/main/examples/explain_pipeline.rs) demonstrates that report.
 
-## Local Prism proof
+## Beam portability
 
-The portable integration lives in a sibling repository, `ironbeam-dataflow`. Its [Prism proof instructions](https://github.com/vgough/ironbeam-dataflow/blob/main/examples/prism-proof/README.md) cover the local worker and fixture. The present release proof does not claim hosted cloud execution.
+The portable integration translates supported nodes into Beam protobuf and supplies a separate Rust worker. Local Apache Beam Prism has been used to verify the translation and worker. The same logical graph is compared with Direct for cases supported by both runners. Its [proof fixture](https://github.com/vgough/ironbeam-dataflow/blob/main/examples/prism-proof/README.md) covers bounded and unbounded input, event time, windowing, and final results.
+
+A successful local Prism job does not establish hosted Dataflow operation. Hosted deployment also requires artifact distribution, credentials, remote resource access, and worker lifecycle handling. The [portable execution guide](../guides/portable.md) states the local requirements and scope.
