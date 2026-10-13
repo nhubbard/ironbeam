@@ -26,10 +26,11 @@ fixed-window group.
 
 Beam also defines sliding windows, which can assign an element to several
 intervals, and session windows, which merge intervals when elements are close
-enough in event time. Ironbeam's graph translator can encode the Beam sliding
-and session window function payloads. The public collection API and Direct
-runner still expose fixed windows only. Encoding a window function does not
-by itself implement multi-window assignment or session merging.
+enough in event time. Ironbeam supports bounded sliding windows on Direct and
+local Prism. The graph translator encodes both sliding and session window
+function payloads, but there is no public session-window operation. Encoding
+the session payload does not by itself implement session merging. Unbounded
+sliding windows still need a streaming state and recovery contract.
 
 ## Keys, grouping, and order
 
@@ -97,7 +98,8 @@ successful same-job replacement proof.
 | Bounded and unbounded collections | Supported in the documented source contracts; the unbounded path requires stable split and progress behavior. |
 | Event timestamps and watermarks | Timestamp assignment and source progress are available; Direct and Prism compare tested fixed-window results. |
 | Global and fixed windows | Supported on the established Direct and local Prism corpus. |
-| Sliding and session windows | Beam payload encoding exists; collection operations and runner behavior are pending. |
+| Sliding windows | Supported for bounded collections on Direct and local Prism, including negative event time and overlapping intervals. |
+| Session windows | Beam payload encoding exists; keyed merge behavior and collection operations are pending. |
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
 | Custom triggers and pane metadata | Pending. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
