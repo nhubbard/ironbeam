@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use beam_proto::job_management_v1::{
-    job_messages_response, job_service_client::JobServiceClient, job_state, GetJobMetricsRequest,
-    GetJobStateRequest, JobMessagesRequest, PrepareJobRequest, RunJobRequest,
+    job_messages_response, job_service_client::JobServiceClient, job_state, CancelJobRequest,
+    GetJobMetricsRequest, GetJobStateRequest, JobMessagesRequest, PrepareJobRequest, RunJobRequest,
 };
 use beam_proto::pipeline_v1::ProcessPayload;
 use ironbeam_cloud_objects::{LocalObjectIO, ObjectIO, ObjectStores};
@@ -766,6 +766,7 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
         .unwrap()
         .into_inner();
     let mut terminal = None;
+    let mut last_state = job_state::Enum::Unspecified as i32;
     for _ in 0..300 {
         let state = client
             .get_state(GetJobStateRequest {
@@ -775,6 +776,7 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
             .unwrap()
             .into_inner()
             .state;
+        last_state = state;
         if matches!(state, 3..=6) {
             terminal = Some(state);
             break;
@@ -782,14 +784,18 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     if restart_worker || semantic_version_drift {
-        assert_eq!(
-            terminal,
-            Some(4),
-            "worker loss or semantic version drift must fail the active Prism job"
-        );
         if restart_worker {
             let trigger_pid = std::fs::read_to_string(&restart_trigger).unwrap();
             assert_eq!(std::fs::read_to_string(&kill_witness).unwrap(), trigger_pid);
+            // Prism may report FAILED or leave a disconnected worker's job
+            // RUNNING. Neither state authorizes coordinator publication.
+            assert_ne!(terminal, Some(job_state::Enum::Done as i32));
+        } else {
+            assert_eq!(
+                terminal,
+                Some(job_state::Enum::Failed as i32),
+                "semantic version drift must fail the active Prism job"
+            );
         }
         if semantic_version_drift {
             let mut messages = client
@@ -821,7 +827,7 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
         }
         assert!(publication_plan
             .complete_local(
-                job_state::Enum::Failed,
+                job_state::Enum::try_from(last_state).unwrap(),
                 &beam_proto::job_management_v1::MetricResults::default(),
                 &journal_dir,
             )
@@ -831,6 +837,15 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
             .path()
             .join("object-results/output/production.jsonl")
             .exists());
+        if terminal.is_none() {
+            let _ = tokio::time::timeout(
+                Duration::from_secs(3),
+                client.cancel(CancelJobRequest {
+                    job_id: running.job_id,
+                }),
+            )
+            .await;
+        }
         return;
     }
     assert_eq!(

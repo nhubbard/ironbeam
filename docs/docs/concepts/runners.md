@@ -34,4 +34,4 @@ The portable integration translates supported nodes into Beam protobuf and suppl
 
 A successful local Prism job does not establish hosted Dataflow operation. Hosted deployment also requires artifact distribution, credentials, remote resource access, and worker lifecycle handling. The [portable execution guide](../guides/portable.md) states the local requirements and scope.
 
-Prism owns the worker process environment and the active bundle schedule. If its active worker disconnects, the current local job fails and Ironbeam's final result is not published. Ironbeam can reopen checkpointed source and finalization state in a new worker process, but replacing a failed worker inside the same Prism job has not been demonstrated.
+Prism owns the worker process environment and the active bundle schedule. If its active worker disconnects, Prism may report `FAILED` or leave the job `RUNNING` without progress. Ironbeam does not publish the final result in either state. Ironbeam can reopen checkpointed source and finalization state in a new worker process, but replacing a failed worker inside the same Prism job has not been demonstrated.
