@@ -92,13 +92,16 @@ def release_order(root: Path = ROOT) -> list[tuple[str, str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--order-only", action="store_true", help="print package names only")
-    parser.add_argument("--release", action="store_true", help="require initial root version 5.0.0")
+    parser.add_argument("--release", action="store_true", help="require a uniform v5 or later release version")
     parser.add_argument("--expected-version", help="require every publishable package at this version")
     args = parser.parse_args()
     try:
         order = release_order()
-        if args.release and order[-1] != ("ironbeam", "5.0.0"):
-            raise ValueError("the public ironbeam package must be version 5.0.0")
+        if args.release:
+            if order[-1][0] != "ironbeam" or int(order[-1][1].split(".", 1)[0]) < 5:
+                raise ValueError("the public ironbeam package must be v5 or later")
+            if any(version != order[-1][1] for _, version in order):
+                raise ValueError("all publishable packages must share the release version")
         if args.expected_version:
             mismatches = [(name, version) for name, version in order if version != args.expected_version]
             if mismatches:

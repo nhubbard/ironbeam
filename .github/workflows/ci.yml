@@ -28,7 +28,7 @@ jobs:
       - name: Validate workspace publication configuration
         run: |
           python3 -m unittest discover -s scripts -p 'test_*release*.py'
-          python3 scripts/check_v5_release_order.py --expected-version 5.0.0
+          python3 scripts/check_v5_release_order.py --release
           node --check scripts/semantic_release_workspace.cjs
           npm ci
 
