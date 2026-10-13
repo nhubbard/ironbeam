@@ -47,12 +47,14 @@ fn main() -> Result<(), ironbeam::Error> {
 }
 ```
 
-`sliding_windows` currently accepts bounded collections with cloneable
-elements. An element may produce up to 1,024 interval assignments. Portable
-lowering requires whole-millisecond size, period, and offset values. The
-Direct and Prism regression fixture compares grouped values, timestamps, and
-all six intervals across negative and positive event times. Session windows
-and unbounded sliding windows are outside the current collection contract.
+`sliding_windows` requires cloneable elements. An element may produce up to
+1,024 interval assignments. Portable lowering requires whole-millisecond size,
+period, and offset values. Direct and Prism fixtures compare grouped values,
+timestamps, and intervals across negative and positive event times. The
+unbounded fixture also checks that both runners close overlapping windows and
+discard a row that arrives after their watermarks. Direct checkpoints coded
+open-window rows with each source cursor. Session windows remain outside the
+current collection contract.
 
 ## Migration of timestamps
 
