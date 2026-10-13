@@ -26,7 +26,7 @@ fn run() -> anyhow::Result<()> {
             std::fs::write(&pending, first_pid.to_string())?;
             std::fs::rename(pending, &killed)?;
             first.wait()?;
-            return Ok(());
+            anyhow::bail!("worker {first_pid} terminated after residual source cursor");
         }
         if let Some(status) = first.try_wait()? {
             anyhow::bail!("first worker exited before restart trigger: {status}");
