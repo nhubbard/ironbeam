@@ -51,6 +51,17 @@ handlers expand into those variants before lowering.
 | Gate | Done when |
 | --- | --- |
 | ☑ Unbounded state recovery; ☐ active Prism worker replacement | Direct checkpoints source cursors with coded open-window state and survives OS-process restart for a two-source join, four-join fanout, grouped stream, and stateless multi-source route. A failed sink commit on the fanout retries without duplicate output. Fn Data passes the pending split, first accepted batch, and residual batch through three separate worker processes, with a second fixture proving two-output fanout. The file journal reopens accepted attempts and exact final-result state after process exit. Local Prism still fails closed when its active worker dies; replacement within the same Prism job has not been demonstrated. Hosted runners require a separate proof before they are supported. |
+
+The 2026-10-13 same-ID respawn experiment started another worker process after
+killing the active child. Prism reported `FAILED` for that job. In the pinned
+Beam checkout, Prism's Fn Control handler responds to every active instruction
+with an error when its stream disconnects (`worker.go`, `W.Control`), and a
+bundle error closes its response (`bundle.go`, `B.Respond`). A correct same-job
+recovery path therefore needs a stable Control owner, replayable input for an
+interrupted execution attempt, and output isolation until that attempt is
+accepted. Merely respawning a process with the same worker ID cannot close
+this gate. The experiment's temporary code changes were reverted; the existing
+fail-closed proof remains the checked-in test.
 | ☑ Local output durability | Direct checkpoint and final-result files are synced before publication, and their directory entries are synced before dependent state is removed. The current Rust 1.101 nightly implements `File::sync_all()` using `F_FULLFSYNC` on macOS. Process-exit and simulated lost-directory-entry faults cover checkpoint data, manifests, fragment staging, acceptance, and final publication; recovery verifies an old or new valid state and exact completed attempts. Direct retains verified fallback checkpoints. V5 batch/progress checkpoints replace v4's node, barrier, and time schedules. This is the local filesystem contract; a literal power-cut experiment and remote object-store guarantees are outside this release proof. |
 | ☑ Local object result memory bound | Portable JSONL publication streams accepted fragments through a disk scratch file, validates each fragment and the complete result, then conditionally creates the final local object from a reader. The worker caps each in-memory bundle and decoded JSONL record at 64 MiB; the completed result has no in-memory size cap. Local adapter tests cross read buffers, reopen the object, retry idempotently, and reject conflicting bytes; the production unbounded Prism job passes. Providers without streaming methods fail closed. Hosted provider streaming and consistency proofs remain a later extension. |
 
