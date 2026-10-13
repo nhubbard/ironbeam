@@ -62,7 +62,7 @@ pub(super) fn start_dual_side_stream<T: Element>(
     for key in [&route.source_key, &route.side_source_key] {
         validate_dual_source(graph, &registry, key)?;
     }
-    if config.checkpoint.is_some() {
+    if config.checkpoint.is_some() || !route.other_aggregates.is_empty() {
         for key in [&route.main_input_key, &route.side_input_key] {
             if !registry.has_coder(key) {
                 return Err(Error::unsupported(
@@ -583,6 +583,44 @@ fn dual_watermark(progress: &[Option<ProgressSignal>; 2]) -> Option<i64> {
     Some(watermark)
 }
 
+fn copy_window_events(
+    registry: &Registry,
+    input_key: &str,
+    events: &[Envelope],
+) -> Result<Vec<Envelope>, Error> {
+    events
+        .iter()
+        .map(|event| {
+            let bytes = catch_unwind(AssertUnwindSafe(|| {
+                registry.encode_element(input_key, event.value.as_ref())
+            }))
+            .unwrap_or_else(|_| {
+                Err(Error::execution(
+                    input_key,
+                    "direct",
+                    "fanout coder panicked",
+                ))
+            })?;
+            let value = catch_unwind(AssertUnwindSafe(|| {
+                registry.decode_element(input_key, &bytes)
+            }))
+            .unwrap_or_else(|_| {
+                Err(Error::execution(
+                    input_key,
+                    "direct",
+                    "fanout coder panicked",
+                ))
+            })?;
+            Ok(Envelope {
+                value,
+                timestamp_ns: event.timestamp_ns,
+                window: event.window.clone(),
+                assigned_window: event.assigned_window,
+            })
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn run_dual_side_stream(
     registry: &Registry,
@@ -719,53 +757,90 @@ fn run_dual_side_stream(
             let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &combined);
             let mut session = None;
             let mut written = 0_u64;
-            let result = (|| {
-                for window in closing {
-                    let main = main_windows.remove(&window).unwrap_or_default();
-                    let side = side_windows.remove(&window).unwrap_or_default();
-                    buffered -= main.len() + side.len();
-                    let grouped = catch_unwind(AssertUnwindSafe(|| {
-                        registry.apply_aggregate(&route.aggregate_key, vec![main, side])
-                    }))
-                    .unwrap_or_else(|_| {
-                        Err(Error::execution(
-                            &route.aggregate_key,
-                            "direct",
-                            "user aggregate panicked",
+            let result =
+                (|| {
+                    for window in closing {
+                        let mut main = main_windows.remove(&window).unwrap_or_default();
+                        let mut side = side_windows.remove(&window).unwrap_or_default();
+                        buffered -= main.len() + side.len();
+                        let branches = std::iter::once((
+                            route.aggregate_key.as_str(),
+                            route.after_aggregate.as_slice(),
                         ))
-                    })?;
-                    for event in grouped {
-                        for output in apply_grouped_stages(
-                            registry,
-                            &route.after_aggregate,
-                            event,
-                            config,
-                            handle,
-                        )? {
-                            if session.is_none() {
-                                session =
-                                    Some(begin_sink_bundle(registry, sink_key, &instruction_id)?);
-                            }
-                            catch_unwind(AssertUnwindSafe(|| {
-                                session.as_mut().expect("opened sink").write(output)
+                        .chain(
+                            route
+                                .other_aggregates
+                                .iter()
+                                .map(|(key, stages)| (key.as_str(), stages.as_slice())),
+                        )
+                        .collect::<Vec<_>>();
+                        for (index, (aggregate_key, branch_stages)) in branches.iter().enumerate() {
+                            let inputs = if index + 1 == branches.len() {
+                                vec![std::mem::take(&mut main), std::mem::take(&mut side)]
+                            } else {
+                                vec![
+                                    copy_window_events(registry, &route.main_input_key, &main)?,
+                                    copy_window_events(registry, &route.side_input_key, &side)?,
+                                ]
+                            };
+                            let grouped = catch_unwind(AssertUnwindSafe(|| {
+                                registry.apply_aggregate(aggregate_key, inputs)
                             }))
                             .unwrap_or_else(|_| {
-                                Err(Error::execution(sink_key, "direct", "sink writer panicked"))
+                                Err(Error::execution(
+                                    *aggregate_key,
+                                    "direct",
+                                    "user aggregate panicked",
+                                ))
                             })?;
-                            written = written.saturating_add(1);
+                            for event in grouped {
+                                for branch_output in apply_grouped_stages(
+                                    registry,
+                                    branch_stages,
+                                    event,
+                                    config,
+                                    handle,
+                                )? {
+                                    for output in apply_grouped_stages(
+                                        registry,
+                                        &route.after_fanout,
+                                        branch_output,
+                                        config,
+                                        handle,
+                                    )? {
+                                        if session.is_none() {
+                                            session = Some(begin_sink_bundle(
+                                                registry,
+                                                sink_key,
+                                                &instruction_id,
+                                            )?);
+                                        }
+                                        catch_unwind(AssertUnwindSafe(|| {
+                                            session.as_mut().expect("opened sink").write(output)
+                                        }))
+                                        .unwrap_or_else(|_| {
+                                            Err(Error::execution(
+                                                sink_key,
+                                                "direct",
+                                                "sink writer panicked",
+                                            ))
+                                        })?;
+                                        written = written.saturating_add(1);
+                                    }
+                                }
+                            }
                         }
                     }
-                }
-                if config.cancellation.load(Ordering::Acquire) {
-                    return Err(cancelled());
-                }
-                if let Some(session) = &mut session {
-                    catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(|_| {
-                        Err(Error::execution(sink_key, "direct", "sink commit panicked"))
-                    })?;
-                }
-                Ok::<(), Error>(())
-            })();
+                    if config.cancellation.load(Ordering::Acquire) {
+                        return Err(cancelled());
+                    }
+                    if let Some(session) = &mut session {
+                        catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(
+                            |_| Err(Error::execution(sink_key, "direct", "sink commit panicked")),
+                        )?;
+                    }
+                    Ok::<(), Error>(())
+                })();
             if let Err(error) = result {
                 if let Some(session) = &mut session {
                     let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));

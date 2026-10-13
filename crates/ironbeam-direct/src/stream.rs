@@ -47,6 +47,8 @@ struct BoundedSideStreamRoute {
     side_input_key: String,
     aggregate_key: String,
     after_aggregate: Vec<String>,
+    other_aggregates: Vec<(String, Vec<String>)>,
+    after_fanout: Vec<String>,
 }
 
 type WindowFolds = BTreeMap<(i64, i64), (Box<dyn FoldSession>, usize)>;
@@ -410,6 +412,8 @@ fn side_stream_route(
                 side_input_key: side.key.clone(),
                 aggregate_key: key.to_owned(),
                 after_aggregate: downstream,
+                other_aggregates: Vec::new(),
+                after_fanout: Vec::new(),
             });
         }
         if !node.additional_inputs.is_empty() {
@@ -426,6 +430,64 @@ fn side_stream_route(
         }
         key = node.input.as_deref()?;
     }
+}
+
+fn stateful_fanout_route(graph: &Graph, sink_key: &str) -> Option<BoundedSideStreamRoute> {
+    let mut key = sink_key;
+    let mut after_fanout = Vec::new();
+    let flatten = loop {
+        let node = graph.node(key)?;
+        if matches!(node.operation, Operation::Flatten) {
+            break node;
+        }
+        if !node.additional_inputs.is_empty() {
+            return None;
+        }
+        match node.operation {
+            Operation::Output | Operation::Sink { .. } => {}
+            Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::FixedWindow => after_fanout.push(key.to_owned()),
+            _ => return None,
+        }
+        key = node.input.as_deref()?;
+    };
+    after_fanout.reverse();
+    let inputs = std::iter::once(flatten.input.as_deref()?).chain(
+        flatten
+            .additional_inputs
+            .iter()
+            .map(|input| input.key.as_str()),
+    );
+    let mut routes = inputs
+        .map(|key| side_stream_route(graph, key, ironbeam_core::Boundedness::Unbounded))
+        .collect::<Option<Vec<_>>>()?;
+    if routes.len() < 2 {
+        return None;
+    }
+    let mut primary = routes.remove(0);
+    let window = &graph.node(&primary.aggregate_key)?.time.window;
+    if routes.iter().any(|route| {
+        route.source_key != primary.source_key
+            || route.side_source_key != primary.side_source_key
+            || route.main_input_key != primary.main_input_key
+            || route.side_input_key != primary.side_input_key
+            || route.main_stages != primary.main_stages
+            || route.side_stages != primary.side_stages
+            || graph
+                .node(&route.aggregate_key)
+                .is_none_or(|node| &node.time.window != window)
+    }) {
+        return None;
+    }
+    primary.other_aggregates = routes
+        .into_iter()
+        .map(|route| (route.aggregate_key, route.after_aggregate))
+        .collect();
+    primary.after_fanout = after_fanout;
+    Some(primary)
 }
 
 impl StreamJob {
@@ -514,6 +576,11 @@ impl DirectRunner {
             None
         };
         if plan.materialized && grouped.is_none() && bounded_side.is_none() {
+            if let Some(fanout) = stateful_fanout_route(&graph, &sink_key) {
+                return start_dual_side_stream::<T>(
+                    &graph, registry, plan, sink_key, config, fanout,
+                );
+            }
             if let Some(dual) =
                 side_stream_route(&graph, &sink_key, ironbeam_core::Boundedness::Unbounded)
             {

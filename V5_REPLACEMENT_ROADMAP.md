@@ -110,7 +110,9 @@ remaining source rows. Validated stateless stages after GroupByKey, including
 keyed-latest selection and time/window projection, run after restoration;
 a downstream flat-map failure can retry without reopening the source. Fixed-window
 one-source groups and two-unbounded joins/co-groups also checkpoint coded open
-state with source cursors. Broader graph recovery remains replacement work. The
+state with source cursors. A shared two-unbounded route may now fan into four
+stateful joins and one `Flatten` sink; its unfinished window resumes in a new
+OS process. Broader graph recovery remains replacement work. The
 local manifest schema is 1.2 and rejects older v5 draft checkpoints.
 V4's barrier, node-count, time, and hybrid policies wrote progress markers;
 its runner reopened those markers but re-executed from the start. V5 saves
@@ -217,8 +219,10 @@ the remaining behavior corpus before closing this gate.
    shared stateless stages, and nested fan-out; it opens each source once,
    runs each shared stage once, and copies branch values through registered
    coders. Sink commits remain sequential, with explicit retry semantics if a
-   later commit fails. Stateful branches, non-`Flatten` fan-in, atomic
-   multi-sink commit, and bounded sink checkpointing remain open.
+   later commit fails. A shared two-source, four-join stateful fanout now runs
+   through one `Flatten` sink and restores an open window after process exit.
+   Stateful branches with different source routes, non-`Flatten` fan-in,
+   atomic multi-sink commit, and bounded sink checkpointing remain open.
 4. **Dataflow contract:** The separate integration builds against the v5 core
    and lowers the full v4 feature corpus. A local Beam Prism `Run` must reach
    `DONE` through a separately launched v5 Fn API worker and verify values for

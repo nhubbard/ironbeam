@@ -949,12 +949,19 @@ fn two_unbounded_join_drops_late_rows_after_both_watermarks_close_window() {
 }
 
 #[test]
-fn stateful_two_source_fanout_fails_preflight_before_opening_endpoints() {
+fn stateful_two_source_fanout_recovers_open_window_and_completed_checkpoint() {
+    let temporary = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
     let source_opens = Arc::new(AtomicUsize::new(0));
     let sink_opens = Arc::new(AtomicUsize::new(0));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let fail_commit = Arc::new(AtomicBool::new(false));
+    let finish_side = Arc::new(AtomicBool::new(false));
     let source = |key: &str| {
         let opens = Arc::clone(&source_opens);
+        let source_key = key.to_owned();
+        let finish_side = Arc::clone(&finish_side);
         pipeline
             .unbounded_source_with_factory(
                 key,
@@ -965,9 +972,30 @@ fn stateful_two_source_fanout_fails_preflight_before_opening_endpoints() {
                 },
                 format!("{key}-fanout-v1"),
                 0,
-                move |_| -> Result<TypedUnboundedSourceReader<i32>, Error> {
+                move |cursor| -> Result<TypedUnboundedSourceReader<i32>, Error> {
+                    assert!(cursor.is_none());
                     opens.fetch_add(1, Ordering::SeqCst);
-                    Err(Error::incompatible("unexpected source open"))
+                    let polls =
+                        if source_key == "fanout-side" && !finish_side.load(Ordering::SeqCst) {
+                            Vec::new()
+                        } else {
+                            vec![UnboundedPoll::Ready(UnboundedBatch {
+                                elements: vec![Timestamped {
+                                    value: if source_key == "fanout-main" { 2 } else { 3 },
+                                    timestamp_ns: 1,
+                                }],
+                                progress: ProgressSignal {
+                                    source_key: source_key.clone(),
+                                    split_id: "split-0".into(),
+                                    checkpoint_position: Some(vec![1]),
+                                    event_time_ns: Some(10),
+                                    completed: true,
+                                },
+                            })]
+                        };
+                    Ok(Box::new(Script {
+                        polls: polls.into(),
+                    }))
                 },
             )
             .unwrap()
@@ -981,32 +1009,36 @@ fn stateful_two_source_fanout_fails_preflight_before_opening_endpoints() {
     let inner = main
         .join_inner_named("fanout-inner", &side)
         .unwrap()
-        .map_named("inner-value", |(key, (left, right))| key + left + right)
+        .map_named("inner-value", |(key, (left, right))| {
+            10 + key + left + right
+        })
         .unwrap();
     let left = main
         .join_left_named("fanout-left", &side)
         .unwrap()
         .map_named("left-value", |(key, (left, right))| {
-            key + left + right.unwrap_or_default()
+            20 + key + left + right.unwrap_or_default()
         })
         .unwrap();
     let right = main
         .join_right_named("fanout-right", &side)
         .unwrap()
         .map_named("right-value", |(key, (left, right))| {
-            key + left.unwrap_or_default() + right
+            30 + key + left.unwrap_or_default() + right
         })
         .unwrap();
     let full = main
         .join_full_named("fanout-full", &side)
         .unwrap()
         .map_named("full-value", |(key, (left, right))| {
-            key + left.unwrap_or_default() + right.unwrap_or_default()
+            40 + key + left.unwrap_or_default() + right.unwrap_or_default()
         })
         .unwrap();
     let observed_sink_opens = Arc::clone(&sink_opens);
     let sink = inner
         .flatten_named("fanout-merge", &[left, right, full])
+        .unwrap()
+        .map_named("after-fanout", |value| value + 1)
         .unwrap()
         .sink_named_with_config(
             "fanout-sink",
@@ -1016,26 +1048,62 @@ fn stateful_two_source_fanout_fails_preflight_before_opening_endpoints() {
                 commit: true,
             },
             "fanout-sink-v1".into(),
-            move || {
-                observed_sink_opens.fetch_add(1, Ordering::SeqCst);
-                Err(Error::incompatible("unexpected sink open"))
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                let fail_commit = Arc::clone(&fail_commit);
+                move || {
+                    observed_sink_opens.fetch_add(1, Ordering::SeqCst);
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::clone(&fail_commit),
+                        cancel_on_write: None,
+                    }))
+                }
             },
         )
         .unwrap();
-    let error = DirectRunner
-        .start_stream_sink(&sink, &JobConfig::default())
-        .err()
+    let job = DirectRunner
+        .start_stream_sink(&sink, &config(temporary.path()))
         .unwrap();
-    assert_eq!(
-        error.kind,
-        ErrorKind::UnsupportedCapability {
-            capability: "stateful-stream-route".into(),
-        }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while job.progress().is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(job.progress().is_some());
+    assert!(committed.lock().unwrap().is_empty());
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    finish_side.store(true, Ordering::SeqCst);
+    fail_commit.store(true, Ordering::SeqCst);
+    assert!(
+        DirectRunner
+            .start_stream_sink(&sink, &config(temporary.path()))
+            .unwrap()
+            .wait()
+            .is_err()
     );
-    assert_eq!(error.node.as_deref(), Some("fanout-sink"));
-    assert!(error.message.contains("stateful-stream-route"));
-    assert_eq!(source_opens.load(Ordering::SeqCst), 0);
-    assert_eq!(sink_opens.load(Ordering::SeqCst), 0);
+    assert!(committed.lock().unwrap().is_empty());
+    fail_commit.store(false, Ordering::SeqCst);
+    for _ in 0..2 {
+        assert_eq!(
+            DirectRunner
+                .start_stream_sink(&sink, &config(temporary.path()))
+                .unwrap()
+                .wait()
+                .unwrap()
+                .status(),
+            JobStatus::Succeeded
+        );
+    }
+    let mut values = committed.lock().unwrap().clone();
+    values.sort_unstable();
+    assert_eq!(values, [17, 27, 37, 47]);
+    assert_eq!(source_opens.load(Ordering::SeqCst), 4);
+    assert_eq!(sink_opens.load(Ordering::SeqCst), 2);
 }
 
 #[test]

@@ -98,7 +98,8 @@ impl TypedSink<i32> for OneResultSink {
     }
 }
 
-fn pipeline(directory: &Path, stage: &str) -> ironbeam_core::Sink<i32> {
+#[allow(clippy::too_many_lines)] // Both graph variants share one durable source and sink fixture.
+fn pipeline(directory: &Path, stage: &str, fanout: bool) -> ironbeam_core::Sink<i32> {
     let pipeline = Pipeline::default();
     let source = |key: &str, value: i32| {
         let source_key = key.to_owned();
@@ -154,10 +155,38 @@ fn pipeline(directory: &Path, stage: &str) -> ironbeam_core::Sink<i32> {
     let main = source("main", 10);
     let side = source("side", 20);
     let path = directory.join("result.txt");
-    main.join_inner_named("join", &side)
+    let inner = main
+        .join_inner_named("join", &side)
         .unwrap()
         .map_named("sum", |(key, (left, right))| key * 100 + left + right)
-        .unwrap()
+        .unwrap();
+    let output = if fanout {
+        let left = main
+            .join_left_named("left", &side)
+            .unwrap()
+            .map_named("left-sum", |(key, (left, right))| {
+                100 + key * 100 + left + right.unwrap_or_default()
+            })
+            .unwrap();
+        let right = main
+            .join_right_named("right", &side)
+            .unwrap()
+            .map_named("right-sum", |(key, (left, right))| {
+                200 + key * 100 + left.unwrap_or_default() + right
+            })
+            .unwrap();
+        let full = main
+            .join_full_named("full", &side)
+            .unwrap()
+            .map_named("full-sum", |(key, (left, right))| {
+                300 + key * 100 + left.unwrap_or_default() + right.unwrap_or_default()
+            })
+            .unwrap();
+        inner.flatten_named("merge", &[left, right, full]).unwrap()
+    } else {
+        inner
+    };
+    output
         .sink_named_with_config(
             "sink",
             SinkSpec {
@@ -196,7 +225,8 @@ fn two_source_join_child() {
     };
     let stage = std::env::var("IRONBEAM_DUAL_PROCESS_STAGE").unwrap();
     let directory = Path::new(&directory);
-    let sink = pipeline(directory, &stage);
+    let fanout = std::env::var_os("IRONBEAM_DUAL_PROCESS_FANOUT").is_some();
+    let sink = pipeline(directory, &stage, fanout);
     let job = DirectRunner
         .start_stream_sink(&sink, &config(directory))
         .unwrap();
@@ -225,17 +255,29 @@ fn two_source_join_child() {
 
 #[test]
 fn two_source_join_recovers_across_worker_processes() {
+    run_process_restart(false);
+}
+
+#[test]
+fn stateful_fanout_recovers_across_worker_processes() {
+    run_process_restart(true);
+}
+
+fn run_process_restart(fanout: bool) {
     let directory = tempfile::tempdir().unwrap();
     let mut pids = Vec::new();
     for stage in ["checkpoint", "resume", "completed"] {
-        let child = Command::new(std::env::current_exe().unwrap())
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
             .args(["--exact", "two_source_join_child", "--nocapture"])
             .env("IRONBEAM_DUAL_PROCESS_DIR", directory.path())
             .env("IRONBEAM_DUAL_PROCESS_STAGE", stage)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+        if fanout {
+            command.env("IRONBEAM_DUAL_PROCESS_FANOUT", "1");
+        }
+        let child = command.spawn().unwrap();
         pids.push(child.id());
         let output = child.wait_with_output().unwrap();
         assert!(
@@ -247,7 +289,11 @@ fn two_source_join_recovers_across_worker_processes() {
     }
     assert_eq!(
         std::fs::read_to_string(directory.path().join("result.txt")).unwrap(),
-        "130\n"
+        if fanout {
+            "130\n230\n330\n430\n"
+        } else {
+            "130\n"
+        }
     );
     let mut opens = std::fs::read_to_string(directory.path().join("opens.txt"))
         .unwrap()
