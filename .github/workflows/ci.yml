@@ -49,6 +49,8 @@ jobs:
         run: |
           rustup toolchain install nightly --component clippy --component rustfmt --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Check workspace formatting
         run: cargo fmt --all --check
@@ -103,6 +105,8 @@ jobs:
         run: |
           rustup toolchain install nightly --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -144,6 +148,7 @@ jobs:
           cargo build -p ironbeam --no-default-features --features v5-io-cbor
           cargo build -p ironbeam --no-default-features --features v5-io-protobuf
           cargo build -p ironbeam --no-default-features --features v5-io-tfrecord
+          cargo build -p ironbeam --no-default-features --features v5-dataflow
           cargo build -p ironbeam
           cargo build -p ironbeam
           cargo build -p ironbeam --all-features
@@ -242,6 +247,8 @@ jobs:
         run: |
           rustup toolchain install nightly --component llvm-tools-preview --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -377,6 +384,8 @@ jobs:
         run: |
           rustup toolchain install nightly --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -416,6 +425,8 @@ jobs:
         run: |
           rustup toolchain install nightly --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo registry
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0

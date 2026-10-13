@@ -82,11 +82,14 @@ required access.
 
 ## Execution and compatibility
 
-`DirectRunner` executes bounded and supported unbounded pipelines locally. The separate
-[`ironbeam-dataflow`](https://github.com/vgough/ironbeam-dataflow) integration
-lowers v5 graphs to Beam protobuf and runs bounded and unbounded feature cases through a
-separately launched v5 worker with local Prism. Its release gaps and the root
-cutover gates are tracked in [V5_RELEASE_GATE_STATUS.md](V5_RELEASE_GATE_STATUS.md).
+`DirectRunner` executes bounded and supported unbounded pipelines locally. The
+workspace's `beam-proto`, `ironbeam-graphx`, `ironbeam-harness`, and
+`ironbeam-dataflow` crates lower v5 graphs to Beam protobuf and run bounded
+and unbounded feature cases through a separately launched worker with local
+Prism. The root's optional `v5-dataflow` feature exposes the Dataflow driver.
+The [portable execution guide](docs/docs/guides/portable.md) describes the
+worker and local proof. Its release gaps and the root cutover gates are tracked
+in [V5_RELEASE_GATE_STATUS.md](V5_RELEASE_GATE_STATUS.md).
 
 The root implementation is v5-only. The published 4.1.1 package remains the
 reference for the separate `ironbeam-compat` test corpus, and the

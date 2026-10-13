@@ -2,7 +2,7 @@
 
 Ironbeam is a Rust library for data pipelines. An application builds a typed graph of sources, transforms, and outputs; a runner executes that graph. Version 5 places the graph, Direct runner, format adapters, transforms, and cloud interfaces in separate crates.
 
-The 5.0.0 source is a release candidate. Local Direct execution and a separate Apache Beam Prism integration have been tested. The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md) records the evidence and limits of those tests. Hosted Dataflow execution has not been established by the local Prism proof.
+The 5.0.0 source is a release candidate. Local Direct execution and the workspace's Apache Beam integration have been tested with Prism. The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md) records the evidence and limits of those tests. Hosted Dataflow execution has not been established by the local Prism proof.
 
 ## Documentation
 

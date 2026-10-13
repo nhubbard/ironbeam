@@ -12,5 +12,6 @@ The repository contains runnable examples. Commands in the table are run from th
 | [Testing pipeline](https://github.com/nhubbard/ironbeam/blob/main/examples/testing_pipeline.rs) | Builders and assertions | `cargo run --example testing_pipeline --features v5-testing` |
 | [Cloud I/O](https://github.com/nhubbard/ironbeam/blob/main/examples/cloud_io_demo.rs) | Object storage | `cargo run --example cloud_io_demo` |
 | [Compressed I/O](https://github.com/nhubbard/ironbeam/blob/main/examples/compressed_io.rs) | Pluggable codecs | `cargo run --example compressed_io --features compression-gzip` |
+| [Dataflow WordCount](https://github.com/nhubbard/ironbeam/tree/main/examples/dataflow-wordcount) | Portable graph and worker entry point | `cargo run -p ironbeam-dataflow-wordcount` |
 
-The separate integration's [Prism proof](https://github.com/vgough/ironbeam-dataflow/blob/main/examples/prism-proof/README.md) exercises the portable runner and worker.
+The [Prism proof](https://github.com/nhubbard/ironbeam/blob/main/examples/prism-proof/README.md) exercises the portable runner and worker.

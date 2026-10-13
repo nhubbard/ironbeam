@@ -1,0 +1,62 @@
+name: Portable Prism
+
+on:
+  pull_request: {}
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  prism:
+    name: Beam worker and Prism
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: apache/beam
+          ref: 7d93ef8e76aa3fd7874e760010f6479fba40721a
+          path: beam
+          sparse-checkout: sdks
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7
+        with:
+          go-version-file: beam/sdks/go.mod
+      - name: Install Rust and protobuf compiler
+        run: |
+          rustup toolchain install nightly --component clippy --no-self-update
+          rustup default nightly
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+      - name: Build Prism
+        working-directory: beam/sdks
+        run: go build -o "$RUNNER_TEMP/prism" ./go/cmd/prism
+      - name: Start Prism
+        run: |
+          "$RUNNER_TEMP/prism" -job_port=8073 -serve_http=false > "$RUNNER_TEMP/prism.log" 2>&1 &
+          for attempt in {1..60}; do
+            if nc -z 127.0.0.1 8073; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/prism.log"
+          exit 1
+      - name: Test portable crates and live Prism jobs
+        env:
+          IRONBEAM_PRISM_ENDPOINT: localhost:8073
+        run: |
+          cargo test -p beam-proto -p ironbeam-graphx -p ironbeam-harness -p ironbeam-dataflow --locked
+          cargo test -p ironbeam-prism-proof --test prism_v5_run --locked -- --test-threads=1
+          cargo test -p ironbeam-prism-proof --test prism_arrow --locked
+      - name: Lint portable crates and fixture
+        run: |
+          cargo clippy -p beam-proto -p ironbeam-graphx -p ironbeam-harness -p ironbeam-dataflow -p ironbeam-prism-proof -p ironbeam-dataflow-wordcount --all-targets --locked -- -D warnings
+      - name: Show Prism log on failure
+        if: failure()
+        run: cat "$RUNNER_TEMP/prism.log" || true

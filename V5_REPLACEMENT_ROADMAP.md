@@ -52,7 +52,7 @@ direction without creating a crate for every source file.
 | File formats | Avro, Parquet, Arrow IPC, CSV, XML, MessagePack, CBOR, JSONL, Protobuf, and TFRecord have independent crates; `ironbeam-io` holds shared file lifecycle helpers; `ironbeam-compression` owns the codec boundary | Continue connector parity and move shared file helpers to a small lifecycle crate when a concrete split improves dependency or test isolation. No reexport-only aggregator is needed. |
 | Databases | SQL and MongoDB already have independent crates and live-service tests | Keep them direct extensions of core. Do not pull their dependencies into a default facade build. |
 | Cloud/object storage | `ironbeam-cloud-objects` owns the URI object contract and local adapter; `ironbeam-compression` owns codec streams; `ironbeam-cloud-service-api`, `ironbeam-cloud-fakes`, and `ironbeam-cloud-ops` own service contracts, in-memory services, and operation helpers; opt-in `ironbeam-cloud-object-store` supplies S3, GCS, and Azure Blob clients; `ironbeam-io-jsonl` owns eager and graph object JSONL. The legacy cloud package is retired. | Test provider authentication against local emulators, then add remote staging and bundle-safe output commits. Provider SDKs stay out of the object contract. |
-| Coders and portable protocol | Core owns coder identity and registers each node's typed `Element` coder for worker access; Beam lowering remains in the separate Dataflow integration | Extend the protobuf path to all v4 graph shapes and I/O boundaries. Keep Beam protocol and harness dependencies in the separate Dataflow integration; test user-defined element types over actual Fn API streams. |
+| Coders and portable protocol | Core owns coder identity and registers each node's typed `Element` coder for worker access; `beam-proto`, `ironbeam-graphx`, `ironbeam-harness`, and `ironbeam-dataflow` now live in this workspace | Keep Beam protocol and harness dependencies in their own opt-in crates. The local Prism corpus tests user-defined element types over actual Fn API streams; hosted Dataflow deployment remains unverified. |
 | Testing and compatibility | `ironbeam-testing` and `ironbeam-compat` are already leaf crates | Keep package-scoped fixtures and differential tests. Compatibility must remain optional and must never be a dependency of core, Direct, or the root v5 facade. |
 
 CSV's v5 public path is now `ironbeam_io_csv::{csv_source, csv_sink, ...}` or
@@ -223,7 +223,7 @@ the remaining behavior corpus before closing this gate.
    through one `Flatten` sink and restores an open window after process exit.
    Stateful branches with different source routes, non-`Flatten` fan-in,
    atomic multi-sink commit, and bounded sink checkpointing remain open.
-4. **Dataflow contract:** The separate integration builds against the v5 core
+4. **Dataflow contract:** The workspace integration builds against the v5 core
    and lowers the full v4 feature corpus. A local Beam Prism `Run` must reach
    `DONE` through a separately launched v5 Fn API worker and verify values for
    user-defined types, source and sink formats, branches, grouping, side

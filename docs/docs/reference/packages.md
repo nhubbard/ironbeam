@@ -19,7 +19,9 @@ Ironbeam 5 is a workspace of small crates. Applications can depend on the root f
 | `ironbeam-cloud-gcp` | Official Google Cloud Storage, Pub/Sub, BigQuery, and Secret Manager clients |
 | `ironbeam-testing`, `ironbeam-metrics` | Test helpers and metrics |
 | `ironbeam-coder-postcard`, `ironbeam-compression` | Optional coding and compression |
+| `beam-proto`, `ironbeam-graphx` | Beam protocol types and portable graph lowering |
+| `ironbeam-harness`, `ironbeam-dataflow` | Fn API worker and Dataflow job driver |
 
-The separate `ironbeam-dataflow` workspace contains graph lowering, Beam protobuf definitions, the worker harness, and a local Prism proof. See [portable execution](../guides/portable.md).
+The nonpublishable `ironbeam-prism-proof` package exercises these crates against a local Prism job service. See [portable execution](../guides/portable.md).
 
 The GCP crate has one feature per service. See the [Google Cloud guide](../guides/gcp.md) for authentication and examples.

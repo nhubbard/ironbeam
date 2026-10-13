@@ -19,5 +19,7 @@ jobs:
         run: |
           rustup toolchain install nightly --no-self-update
           rustup default nightly
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Verify v5 packages with local dependencies
         run: bash scripts/check_v5_packages.sh
