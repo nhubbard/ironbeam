@@ -4,6 +4,15 @@ This Zensical project was initialized independently, then added under `docs/`.
 The site sources are in `docs/docs/` and the project configuration is
 `docs/zensical.toml`.
 
+## Editorial style
+
+Articles open with a definition or summary, then explain behavior and limits
+before giving examples. Prose uses a formal, impersonal tone, defines technical
+terms when first needed, and avoids direct address or evaluative claims. This
+follows the relevant [Wikipedia Manual of Style](https://en.wikipedia.org/wiki/Wikipedia:Manual_of_Style)
+guidance. Task guides retain complete code examples and commands because the
+site also serves as software documentation.
+
 Install Zensical in an isolated environment and run from this folder:
 
 ```sh

@@ -24,6 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `JobConfig` contains settings for parallelism, memory budgets, spilling, and [checkpoints](../guides/checkpoints.md). A runner can reject an unsupported graph before it opens a source or sink. `DirectRunner.explain` reports its physical planning choices without executing a source; the [planning example](https://github.com/nhubbard/ironbeam/blob/main/examples/explain_pipeline.rs) demonstrates that report.
 
+## Job lifecycle
+
+A Direct job has a `JobHandle` with an identifier, status, processed-element count, and metrics snapshot. Its status values are `Submitted`, `Running`, `Draining`, `Succeeded`, `Failed`, and `Cancelled`. The `cancel` method signals cancellation; a running operation observes that signal at supported boundaries. A completed `run_collect` call returns the values and the handle, while an execution error is returned as `Error`. The exact status transition depends on the selected graph and whether the work completes, fails, or is cancelled.
+
 ## Beam portability
 
 The portable integration translates supported nodes into Beam protobuf and supplies a separate Rust worker. Local Apache Beam Prism has been used to verify the translation and worker. The same logical graph is compared with Direct for cases supported by both runners. Its [proof fixture](https://github.com/vgough/ironbeam-dataflow/blob/main/examples/prism-proof/README.md) covers bounded and unbounded input, event time, windowing, and final results.
