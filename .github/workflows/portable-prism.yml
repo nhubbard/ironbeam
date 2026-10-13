@@ -41,6 +41,7 @@ jobs:
       - name: Start Prism
         run: |
           "$RUNNER_TEMP/prism" -job_port=8073 -serve_http=false > "$RUNNER_TEMP/prism.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/prism.pid"
           for attempt in {1..60}; do
             if nc -z 127.0.0.1 8073; then exit 0; fi
             sleep 1
@@ -52,11 +53,37 @@ jobs:
           IRONBEAM_PRISM_ENDPOINT: localhost:8073
         run: |
           cargo test -p beam-proto -p ironbeam-graphx -p ironbeam-harness -p ironbeam-dataflow --locked
-          cargo test -p ironbeam-prism-proof --test prism_v5_run --locked -- --test-threads=1
+          cargo test -p ironbeam-prism-proof --test prism_v5_run --locked -- --test-threads=1 --skip prism_fails_closed_on_supervised_worker_loss_with_active_bundles
           cargo test -p ironbeam-prism-proof --test prism_arrow --locked
+      - name: Test worker loss against fresh Prism
+        env:
+          IRONBEAM_PRISM_ENDPOINT: localhost:8073
+        run: |
+          kill "$(cat "$RUNNER_TEMP/prism.pid")"
+          for attempt in {1..60}; do
+            if ! nc -z 127.0.0.1 8073; then break; fi
+            sleep 1
+          done
+          if nc -z 127.0.0.1 8073; then
+            echo "Prism did not stop before the worker-loss proof"
+            exit 1
+          fi
+          "$RUNNER_TEMP/prism" -job_port=8073 -serve_http=false > "$RUNNER_TEMP/prism-loss.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/prism.pid"
+          for attempt in {1..60}; do
+            if nc -z 127.0.0.1 8073; then break; fi
+            sleep 1
+          done
+          if ! nc -z 127.0.0.1 8073; then
+            cat "$RUNNER_TEMP/prism-loss.log"
+            exit 1
+          fi
+          cargo test -p ironbeam-prism-proof --test prism_v5_run --locked prism_fails_closed_on_supervised_worker_loss_with_active_bundles -- --exact
       - name: Lint portable crates and fixture
         run: |
           cargo clippy -p beam-proto -p ironbeam-graphx -p ironbeam-harness -p ironbeam-dataflow -p ironbeam-prism-proof -p ironbeam-dataflow-wordcount --all-targets --locked -- -D warnings
       - name: Show Prism log on failure
         if: failure()
-        run: cat "$RUNNER_TEMP/prism.log" || true
+        run: |
+          cat "$RUNNER_TEMP/prism.log" || true
+          cat "$RUNNER_TEMP/prism-loss.log" || true

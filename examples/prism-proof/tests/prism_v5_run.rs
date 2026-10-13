@@ -1263,7 +1263,19 @@ async fn run_production_unbounded_source(restart_worker: bool, semantic_version_
         &tfrecord_transform,
     )
     .unwrap();
-    assert_eq!(tfrecord_committed, 3);
+    assert_eq!(
+        tfrecord_committed,
+        3,
+        "committed sink counts: {:?}",
+        expected_sink_counts
+            .iter()
+            .map(|(id, expected)| (
+                id.as_str(),
+                *expected,
+                ironbeam_dataflow::portable_metrics::committed_sink_input_count(&metrics, id)
+            ))
+            .collect::<Vec<_>>()
+    );
     let tfrecord_staging = capture.path().join("tfrecord-fragments");
     let tfrecord_store = ironbeam_io_tfrecord::tfrecord_fragment_store(
         &tfrecord_staging,
