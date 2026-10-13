@@ -3,7 +3,8 @@
 use beam_proto::pipeline_v1::{
     accumulation_mode, closing_behavior, merge_status, on_time_behavior, output_time,
     trigger::{self, Default as DefaultTrigger},
-    FixedWindowsPayload, FunctionSpec, Trigger, WindowingStrategy,
+    FixedWindowsPayload, FunctionSpec, SessionWindowsPayload, SlidingWindowsPayload, Trigger,
+    WindowingStrategy,
 };
 use prost::Message;
 
@@ -54,6 +55,65 @@ pub fn fixed_window_fn(size_ns: i64, offset_ns: i64) -> Result<FunctionSpec, Str
     Ok(FunctionSpec {
         urn: urns::WINDOW_FN_FIXED.into(),
         payload: payload.encode_to_vec(),
+    })
+}
+
+/// Encode a Beam sliding-window function. The period controls how often a
+/// window starts; one element may belong to several windows.
+pub fn sliding_window_fn(
+    size_ns: i64,
+    period_ns: i64,
+    offset_ns: i64,
+) -> Result<FunctionSpec, String> {
+    const NANOS_PER_MILLI: i64 = 1_000_000;
+    const NANOS_PER_SECOND: i64 = 1_000_000_000;
+    if size_ns <= 0 || size_ns % NANOS_PER_MILLI != 0 {
+        return Err("sliding window size must be a positive whole millisecond".into());
+    }
+    if period_ns <= 0 || period_ns % NANOS_PER_MILLI != 0 {
+        return Err("sliding window period must be a positive whole millisecond".into());
+    }
+    if offset_ns % NANOS_PER_MILLI != 0 {
+        return Err("sliding window offset must be a whole millisecond".into());
+    }
+    let offset_ns = offset_ns.rem_euclid(period_ns);
+    let payload = SlidingWindowsPayload {
+        size: Some(prost_types::Duration {
+            seconds: size_ns / NANOS_PER_SECOND,
+            nanos: (size_ns % NANOS_PER_SECOND) as i32,
+        }),
+        offset: Some(prost_types::Timestamp {
+            seconds: offset_ns / NANOS_PER_SECOND,
+            nanos: (offset_ns % NANOS_PER_SECOND) as i32,
+        }),
+        period: Some(prost_types::Duration {
+            seconds: period_ns / NANOS_PER_SECOND,
+            nanos: (period_ns % NANOS_PER_SECOND) as i32,
+        }),
+    };
+    Ok(FunctionSpec {
+        urn: urns::WINDOW_FN_SLIDING.into(),
+        payload: payload.encode_to_vec(),
+    })
+}
+
+/// Encode a Beam session-window function. Session merging is runner-owned and
+/// requires keyed grouping; encoding the function alone does not merge panes.
+pub fn session_window_fn(gap_ns: i64) -> Result<FunctionSpec, String> {
+    const NANOS_PER_MILLI: i64 = 1_000_000;
+    const NANOS_PER_SECOND: i64 = 1_000_000_000;
+    if gap_ns <= 0 || gap_ns % NANOS_PER_MILLI != 0 {
+        return Err("session gap must be a positive whole millisecond".into());
+    }
+    Ok(FunctionSpec {
+        urn: urns::WINDOW_FN_SESSIONS.into(),
+        payload: SessionWindowsPayload {
+            gap_size: Some(prost_types::Duration {
+                seconds: gap_ns / NANOS_PER_SECOND,
+                nanos: (gap_ns % NANOS_PER_SECOND) as i32,
+            }),
+        }
+        .encode_to_vec(),
     })
 }
 

@@ -43,3 +43,35 @@ fn fixed_strategy_rejects_submillisecond_and_nonpositive_windows() {
     assert!(fixed_windowing_strategy(1_000_001, 0).is_err());
     assert!(fixed_windowing_strategy(1_000_000, 1).is_err());
 }
+
+#[test]
+fn sliding_function_encodes_overlap_and_normalized_negative_offset() {
+    let spec = sliding_window_fn(5_000_000_000, 2_000_000_000, -500_000_000).unwrap();
+    assert_eq!(spec.urn, urns::WINDOW_FN_SLIDING);
+    let payload = SlidingWindowsPayload::decode(spec.payload.as_slice()).unwrap();
+    assert_eq!(payload.size.unwrap().seconds, 5);
+    assert_eq!(payload.period.unwrap().seconds, 2);
+    assert_eq!(payload.offset.unwrap().seconds, 1);
+    assert_eq!(
+        sliding_window_fn(1_000_000, 0, 0).unwrap_err(),
+        "sliding window period must be a positive whole millisecond"
+    );
+    assert!(sliding_window_fn(1_000_001, 1_000_000, 0).is_err());
+    assert!(sliding_window_fn(1_000_000, 1_000_000, 1).is_err());
+}
+
+#[test]
+fn session_function_encodes_gap_and_rejects_submillisecond_gap() {
+    let spec = session_window_fn(2_500_000_000).unwrap();
+    assert_eq!(spec.urn, urns::WINDOW_FN_SESSIONS);
+    let payload = SessionWindowsPayload::decode(spec.payload.as_slice()).unwrap();
+    assert_eq!(
+        payload.gap_size.unwrap(),
+        (prost_types::Duration {
+            seconds: 2,
+            nanos: 500_000_000,
+        })
+    );
+    assert!(session_window_fn(0).is_err());
+    assert!(session_window_fn(1_000_001).is_err());
+}
