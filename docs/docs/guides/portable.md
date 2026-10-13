@@ -23,3 +23,21 @@ That command runs from the Ironbeam repository root. The fixture includes bounde
 A graph intended for this path needs coders available to the worker, supported source and sink adapters, stable keys, and registered custom handlers with semantic versions. Preflight rejects an unsupported operation before opening its source or sink. The [runner concepts](../concepts/runners.md) page describes local execution; the [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md) records the verified Prism cases.
 
 The local Prism proof does not establish a hosted Dataflow deployment. Cloud credentials, artifact staging, worker replacement, and remote object storage have separate operational requirements. The [GCP client guide](gcp.md) covers resource access from application or worker code; it does not configure a hosted runner.
+
+## Supervised worker recovery
+
+A worker process can keep its Fn Control connection in a stable parent while
+running each bundle in an isolated child. Set
+`IRONBEAM_V5_SUPERVISE_EXECUTION=1` in the worker process environment. The
+parent buffers a bundle's Fn Data input, runs the child, and forwards output
+only after that child succeeds. If the child exits unexpectedly, the parent
+can replay the input once. The current implementation limits buffered input
+to 64 MiB per bundle and reports an error when it is exceeded.
+
+This mode checks the graph before opening sources. Each source needs a replay
+contract. Each sink must be idempotent or implement bundle finalization. A
+finalizing sink also needs `IRONBEAM_V5_FINALIZATION_JOURNAL_DIR` pointing to a
+durable directory shared by replacement children. The production Prism fixture
+uses those settings and verifies same-job recovery across a killed child,
+source residual, multiple sinks, and finalized formats. If the parent process
+itself disconnects from Prism, the active job still fails closed.

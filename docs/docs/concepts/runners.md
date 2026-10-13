@@ -34,4 +34,15 @@ The portable integration translates supported nodes into Beam protobuf and suppl
 
 A successful local Prism job does not establish hosted Dataflow operation. Hosted deployment also requires artifact distribution, credentials, remote resource access, and worker lifecycle handling. The [portable execution guide](../guides/portable.md) states the local requirements and scope.
 
-Prism owns the worker process environment and the active bundle schedule. If its active worker disconnects, Prism may report `FAILED` or leave the job `RUNNING` without progress. Ironbeam does not publish the final result in either state. Ironbeam can reopen checkpointed source and finalization state in a new worker process, but replacing a failed worker inside the same Prism job has not been demonstrated.
+Prism owns the worker process environment and the active bundle schedule. If its
+Fn Control connection disconnects, Prism may report `FAILED` or leave the job
+`RUNNING` without progress. Ironbeam does not publish a final result in either
+state. For replay-safe graphs, the worker can instead run with
+`IRONBEAM_V5_SUPERVISE_EXECUTION=1`. A stable parent keeps Fn Control connected,
+buffers each bundle's input, and starts an isolated execution child. It sends
+the child's output to Prism only after that attempt succeeds. A local Prism
+proof kills a child during an active residual source poll; its replacement
+finishes the same job and passes the production output checks. A second proof
+kills a child after it has produced local output and verifies that the failed
+attempt's output is absent. Loss of the Control-owning parent process still
+fails the active Prism job.

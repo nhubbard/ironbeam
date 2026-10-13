@@ -83,14 +83,17 @@ Residual work can resume in a new process after an accepted split. Final-result
 sinks keep a durable record of accepted bundle attempts so publication can be
 checked after worker restart.
 
-That durable state does not replace a failed worker inside an active Prism job.
 Prism treats a disconnected Fn Control stream with active instructions as a
 bundle failure. Starting another process under the same worker ID does not
-resend the failed instruction. Same-job replacement requires the Control stream
-to remain connected while execution is retried, with input replay and output
-commit boundaries that prevent partial attempts from escaping. The current
-worker-loss fixture verifies that publication fails closed; it is not a
-successful same-job replacement proof.
+resend the failed instruction. Ironbeam's optional supervised worker keeps the
+Fn Control stream in a stable parent process. It replays buffered Fn Data input
+to an isolated child and publishes that child's output only after the child
+succeeds. The local Prism fixture kills a child during an active residual
+source poll and completes the same job after replacement. Another fixture
+kills a child after it has written local output and checks that the failed
+attempt's output does not reach Prism. Graphs using this mode need replayable
+sources and idempotent or durably finalized sinks. The Control-owning process
+remains a failure boundary.
 
 ## Current scope
 
@@ -105,7 +108,8 @@ successful same-job replacement proof.
 | Custom triggers and pane metadata | Pending. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
 | Splittable source residuals | Supported by local process-restart fixtures. |
-| Active worker replacement in one Prism job | Pending; disconnected jobs fail closed. |
+| Active execution-child replacement in one Prism job | Supported for replay-safe graphs with supervised execution; a killed child and a failed partial-output attempt have live Prism proofs. |
+| Control-owner process replacement | Pending; Prism fails active instructions when that connection disconnects. |
 
 The [portable execution guide](../guides/portable.md) describes how to run the
 local proof. The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)
