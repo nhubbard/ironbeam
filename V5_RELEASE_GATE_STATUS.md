@@ -31,7 +31,9 @@ below is complete.
 
 This ledger uses the pinned Apache Beam checkout at
 `7d93ef8e76aa3fd7874e760010f6479fba40721a` as the reference for
-portable semantics. The Beam pipeline model defines triggers, allowed
+portable semantics and Rust-relevant I/O. The 99% target does not count
+language-specific SDKs, runners, or connectors from that checkout. The Beam
+pipeline model defines triggers, allowed
 lateness, state, and timer families separately. Passing the current default
 window and side-view corpus therefore does not imply general streaming parity.
 No percentage is assigned to this ledger until each family has an explicit
@@ -43,7 +45,7 @@ test inventory and weighting.
 | User state and timers | Direct retains internal keyed grouping state. The portable worker handles runner-owned state-backed grouped iterables. No public state/timer transform contract exists. | Add typed keyed value, bag, map, and combining state plus event-time and processing-time timer families; verify Fn State/Timer protocol, restart, and runner agreement. |
 | Streaming side inputs | Global bounded and window-closure iterable/singleton/map/multimap views run. A two-unbounded-source iterable view agrees after both watermarks close. | Materialize side-input panes before closure, support updates and late panes, and prove a changing side view without duplicate committed output. |
 | Splittable processing | Production resumable sources and residual restrictions run through Fn Data; the Prism corpus covers worker-child replacement. | Expose general user splittable processing, restriction trackers, progress/watermark estimators, and dynamic split for transforms beyond source adapters. |
-| Window merging and fanout | Fixed, sliding, and keyed sessions run. Direct and Prism match two- and three-source stateless Flatten with exact windows and event times. Direct restores three independent stateless source cursors, two-source session state, and four-join fanout; pinned Prism has independent-source session and intermediate-watermark discrepancies. | Resolve those discrepancies and prove at least three independent unbounded inputs with merged sessions, recovery, and exact panes. |
+| Window merging and fanout | Fixed, sliding, and keyed sessions run. Direct and Prism match one-input Flatten, plus two- and three-source stateless Flatten with exact windows and event times. Direct restores three independent stateless source cursors, two-source session state, and four-join fanout; pinned Prism has independent-source session and intermediate-watermark discrepancies. | Resolve those discrepancies and prove at least three independent unbounded inputs with merged sessions, recovery, and exact panes. |
 | Rust I/O and cloud resources | Format crates cover CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord; SQL and MongoDB are opt-in. Provider-neutral objects and opt-in GCP clients exist. | Prove portable worker binding and replay for provider-backed objects and service I/O, including Pub/Sub and BigQuery transforms, using local emulators or controlled service jobs where available. |
 
 ## Release gates

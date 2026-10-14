@@ -110,17 +110,20 @@ impl Graph {
                     "custom operation requires a namespaced ID and major version",
                 ));
             }
-            if matches!(
+            let requires_additional = matches!(
                 node.operation,
-                Operation::Flatten
-                    | Operation::WaitOn
+                Operation::WaitOn
                     | Operation::CoGroupByKey
                     | Operation::JoinInner
                     | Operation::JoinLeft
                     | Operation::JoinRight
                     | Operation::JoinFull
                     | Operation::SideInputMap
-            ) == node.additional_inputs.is_empty()
+            );
+            let allows_additional =
+                requires_additional || matches!(node.operation, Operation::Flatten);
+            if (requires_additional && node.additional_inputs.is_empty())
+                || (!allows_additional && !node.additional_inputs.is_empty())
             {
                 return Err(Error::graph(
                     &node.key,

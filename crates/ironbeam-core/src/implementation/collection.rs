@@ -311,9 +311,6 @@ impl<T: Element> PCollection<T> {
         self.next_with_semantic(key, Operation::FlatMap, Some(transform), None, semantic)
     }
     pub fn flatten_named(&self, key: &str, others: &[Self]) -> Result<Self, Error> {
-        if others.is_empty() {
-            return Err(Error::graph(key, "flatten requires at least two inputs"));
-        }
         let parent = self.parent()?;
         let mut additional_inputs = Vec::with_capacity(others.len());
         let mut unbounded = parent.boundedness == Boundedness::Unbounded;

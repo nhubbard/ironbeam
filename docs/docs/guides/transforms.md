@@ -119,6 +119,13 @@ transform that emits zero or more values per input and can fail, use
 `flat_map_fallible_named`. Its errors fail execution on Direct and the portable
 worker.
 
+## Flatten
+
+`flatten_named` combines collections with the same element type and window
+declaration. An empty `others` slice creates a one-input Flatten. For example,
+`rows.flatten_named("one-input", &[])?` leaves the rows intact while retaining
+a portable Flatten transform in the graph.
+
 ## Completion barriers
 
 `wait_on_named` holds a main collection until a bounded signal collection

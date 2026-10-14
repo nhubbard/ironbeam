@@ -93,7 +93,8 @@ pub fn dual_unbounded_flatten_collection(
     pipeline: &Pipeline,
 ) -> Result<PCollection<String>, Error> {
     let (main, side) = dual_unbounded_sources(pipeline)?;
-    main.flatten_named("dual-flatten", &[side])?
+    main.flatten_named("single-stream-flatten", &[])?
+        .flatten_named("dual-flatten", &[side])?
         .reify_timestamps_named("dual-flatten-time")?
         .with_window_named("dual-flatten-window")?
         .map_named("dual-flatten-row", |(window, (time, (key, value)))| {
@@ -252,6 +253,7 @@ pub fn bounded_multi_wait_fixture(
     let sink_path = path.clone();
     pipeline
         .from_vec("multi-wait-main", vec![1_i32, 2])?
+        .flatten_named("multi-wait-single-flatten", &[])?
         .wait_on_all_named("multi-wait", &[first, second])?
         .map_named("multi-wait-check", move |value| {
             assert!(first_marker.exists(), "first signal did not finish");

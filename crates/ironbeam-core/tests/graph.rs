@@ -2236,13 +2236,7 @@ fn multi_input_validation_rejects_descriptor_and_topology_corruption() {
     let (graph, _) = pipeline.snapshot().unwrap();
     let mut altered = graph.clone();
     altered.node_mut_for_test("flat").additional_inputs.clear();
-    assert!(
-        altered
-            .validate()
-            .unwrap_err()
-            .message
-            .contains("multi-input")
-    );
+    altered.validate().unwrap();
     let mut altered = graph.clone();
     let duplicated = altered.node("join").unwrap().additional_inputs[0].clone();
     altered
@@ -2360,7 +2354,7 @@ fn phase4_builder_rejects_incompatible_inputs() {
     let other = Pipeline::default();
     let a = first.from_vec("a", vec![1_i32]).unwrap();
     let b = other.from_vec("b", vec![2_i32]).unwrap();
-    assert!(a.flatten_named("empty", &[]).is_err());
+    assert!(a.flatten_named("single", &[]).is_ok());
     assert!(
         a.flatten_named("different", std::slice::from_ref(&b))
             .is_err()
