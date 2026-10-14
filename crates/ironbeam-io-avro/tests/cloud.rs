@@ -140,6 +140,29 @@ fn object_uri_prefix_uses_sorted_stable_children() {
             name: "Ada".into()
         }]
     );
+}
+
+#[test]
+fn object_uri_prefix_freezes_its_set_and_validates_matches() {
+    let (dir, stores) = object_store();
+    put_avro_row(&stores, dir.path(), "file://bucket/input/a.avro", 1, "Ada");
+    let pipeline = Pipeline::default();
+    let output =
+        cloud_avro_uri_prefix_source::<Row>(&pipeline, "files", &stores, "file://bucket/input/")
+            .unwrap()
+            .output("output")
+            .unwrap();
+    put_avro_row(&stores, dir.path(), "file://bucket/input/b.avro", 2, "New");
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![Row {
+            id: 1,
+            name: "Ada".into()
+        }]
+    );
     assert!(
         cloud_avro_uri_prefix_source_with_reader_schema::<EvolvedRow>(
             &Pipeline::default(),
@@ -147,6 +170,15 @@ fn object_uri_prefix_uses_sorted_stable_children() {
             &stores,
             "file://bucket/none/",
             READER_SCHEMA
+        )
+        .is_err()
+    );
+    assert!(
+        cloud_avro_uri_prefix_source::<Row>(
+            &Pipeline::default(),
+            "bad-prefix",
+            &stores,
+            "invalid-uri"
         )
         .is_err()
     );
