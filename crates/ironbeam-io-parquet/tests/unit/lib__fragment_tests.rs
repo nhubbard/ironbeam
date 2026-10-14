@@ -90,6 +90,7 @@ fn rejects_corrupt_frames_and_wrong_counts_without_publication() {
         parquet_fragment_store::<Row>(dir.path().join("broken"), "job", "graph", "sink").unwrap();
     broken.local.stage("a", 1, &100_u64.to_le_bytes()).unwrap();
     broken.local.accept("a").unwrap();
+    let broken = broken.require_bundle_attempts(["a"]).unwrap();
     assert!(publish_parquet_fragments::<Row>(&broken, 1, &output).is_err());
     assert!(!output.exists());
     let wrong =
@@ -105,6 +106,7 @@ fn rejects_corrupt_frames_and_wrong_counts_without_publication() {
     .unwrap();
     wrong.local.stage("a", 2, &frame).unwrap();
     wrong.local.accept("a").unwrap();
+    let wrong = wrong.require_bundle_attempts(["a"]).unwrap();
     assert!(publish_parquet_fragments::<Row>(&wrong, 2, &output).is_err());
     assert!(!output.exists());
     assert!(parquet_fragment_store::<Row>("relative", "job", "graph", "sink").is_err());
@@ -187,6 +189,7 @@ fn rejects_uncoded_types_and_incomplete_frames_before_publishing() {
     assert!(store.accepted_fragments().unwrap().is_empty());
     store.local.stage("short", 1, b"abc").unwrap();
     store.local.accept("short").unwrap();
+    let store = store.require_bundle_attempts(["short"]).unwrap();
     assert_eq!(store.accepted_fragments().unwrap().len(), 1);
     let output = dir.path().join("out.parquet");
     assert!(publish_parquet_fragments::<Row>(&store, 1, &output).is_err());

@@ -198,6 +198,7 @@ fn malformed_datum_and_row_metadata_never_publish() {
         .stage("bad-length", 1, &100_u64.to_le_bytes())
         .unwrap();
     store.local.accept("bad-length").unwrap();
+    let store = store.require_bundle_attempts(["bad-length"]).unwrap();
     let output = temp.path().join("result.avro");
     assert!(publish_avro_fragments(&store, 1, &output).is_err());
     assert!(!output.exists());
@@ -216,6 +217,7 @@ fn malformed_datum_and_row_metadata_never_publish() {
     framed.extend_from_slice(&datum);
     other.local.stage("wrong-count", 2, &framed).unwrap();
     other.local.accept("wrong-count").unwrap();
+    let other = other.require_bundle_attempts(["wrong-count"]).unwrap();
     assert!(publish_avro_fragments(&other, 2, &output).is_err());
     assert!(!output.exists());
     assert!(publish_avro_fragments(&other, 2, temp.path().join("result.avro.gz")).is_err());
@@ -229,6 +231,7 @@ fn malformed_datum_and_row_metadata_never_publish() {
     .unwrap();
     truncated.local.stage("truncated", 1, &[1, 2, 3]).unwrap();
     truncated.local.accept("truncated").unwrap();
+    let truncated = truncated.require_bundle_attempts(["truncated"]).unwrap();
     assert!(publish_avro_fragments(&truncated, 1, temp.path().join("truncated.avro")).is_err());
     let trailing =
         avro_fragment_store(temp.path().join("trailing"), "job", "graph", "sink", SCHEMA).unwrap();
@@ -237,6 +240,7 @@ fn malformed_datum_and_row_metadata_never_publish() {
     framed.push(0);
     trailing.local.stage("trailing", 1, &framed).unwrap();
     trailing.local.accept("trailing").unwrap();
+    let trailing = trailing.require_bundle_attempts(["trailing"]).unwrap();
     assert!(publish_avro_fragments(&trailing, 1, temp.path().join("trailing.avro")).is_err());
     let invalid =
         avro_fragment_store(temp.path().join("invalid"), "job", "graph", "sink", SCHEMA).unwrap();
@@ -244,5 +248,6 @@ fn malformed_datum_and_row_metadata_never_publish() {
     framed.push(0xff);
     invalid.local.stage("invalid", 1, &framed).unwrap();
     invalid.local.accept("invalid").unwrap();
+    let invalid = invalid.require_bundle_attempts(["invalid"]).unwrap();
     assert!(publish_avro_fragments(&invalid, 1, temp.path().join("invalid.avro")).is_err());
 }

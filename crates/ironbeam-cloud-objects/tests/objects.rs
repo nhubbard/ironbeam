@@ -167,8 +167,11 @@ fn invalid_locations_and_error_context_remain_explicit() {
     for uri in [
         "missing-scheme",
         "://bucket/key",
+        "3s://bucket/key",
+        "s_://bucket/key",
         "S3://bucket/key",
         "s3:///key",
+        "s3://./key",
         "s3://../key",
         "s3://bucket?query/key",
     ] {
@@ -214,6 +217,94 @@ fn local_object_errors_distinguish_absence_from_invalid_paths() {
         store.get_metadata("bucket", "directory").unwrap_err().kind,
         ErrorKind::InvalidInput
     );
+}
+
+#[test]
+fn failed_streaming_create_leaves_no_visible_object_or_temporary_file() {
+    struct FailedReader;
+    impl std::io::Read for FailedReader {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("source read failed"))
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = LocalObjectIO::new(dir.path()).unwrap();
+    let error = store
+        .put_object_if_absent_from("bucket", "nested/result", &mut FailedReader)
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Other);
+    assert!(!store.object_exists("bucket", "nested/result").unwrap());
+    assert!(store.list_objects("bucket", None).unwrap().is_empty());
+}
+
+#[test]
+fn local_store_rejects_file_as_parent_and_invalid_bucket_spellings() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = LocalObjectIO::new(dir.path()).unwrap();
+    store.put_object("bucket", "file", b"existing").unwrap();
+    for key in ["file/child", "file/grandchild/child"] {
+        assert_eq!(
+            store.put_object("bucket", key, b"new").unwrap_err().kind,
+            ErrorKind::InvalidInput,
+        );
+    }
+    for bucket in ["", ".", "..", "nested/bucket", "nested\\bucket"] {
+        assert_eq!(
+            store.put_object(bucket, "key", b"new").unwrap_err().kind,
+            ErrorKind::InvalidInput,
+        );
+    }
+    assert_eq!(store.get_object("bucket", "file").unwrap(), b"existing");
+}
+
+#[cfg(unix)]
+#[test]
+fn reading_symlink_outside_storage_root_is_rejected() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret"), b"private").unwrap();
+    let store = LocalObjectIO::new(dir.path()).unwrap();
+    std::fs::create_dir(dir.path().join("bucket")).unwrap();
+    symlink(
+        outside.path().join("secret"),
+        dir.path().join("bucket/link"),
+    )
+    .unwrap();
+    assert_eq!(
+        store.get_object("bucket", "link").unwrap_err().kind,
+        ErrorKind::InvalidInput,
+    );
+    assert_eq!(
+        store.open_object("bucket", "link").err().unwrap().kind,
+        ErrorKind::InvalidInput,
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn listing_skips_symlinked_objects_and_directories() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let store = LocalObjectIO::new(dir.path()).unwrap();
+    store
+        .put_object("bucket", "real/object", b"visible")
+        .unwrap();
+    symlink(
+        dir.path().join("bucket/real/object"),
+        dir.path().join("bucket/link"),
+    )
+    .unwrap();
+    symlink(
+        dir.path().join("bucket/real"),
+        dir.path().join("bucket/linked-directory"),
+    )
+    .unwrap();
+    let _socket = std::os::unix::net::UnixListener::bind(dir.path().join("bucket/socket")).unwrap();
+    let listed = store.list_objects("bucket", None).unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].key, "real/object");
 }
 
 #[test]

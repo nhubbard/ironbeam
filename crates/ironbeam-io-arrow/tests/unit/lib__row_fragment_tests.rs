@@ -90,6 +90,7 @@ fn rejects_malformed_rows_and_wrong_counts_without_publication() {
         .unwrap();
     store.local.stage("short", 1, b"abc").unwrap();
     store.local.accept("short").unwrap();
+    let store = store.require_bundle_attempts(["short"]).unwrap();
     assert!(publish_arrow_ipc_row_fragments(&store, 1, &target).is_err());
     assert!(!target.exists());
     let store =
@@ -106,6 +107,7 @@ fn rejects_malformed_rows_and_wrong_counts_without_publication() {
     .unwrap();
     store.local.stage("wrong", 2, &frame).unwrap();
     store.local.accept("wrong").unwrap();
+    let store = store.require_bundle_attempts(["wrong"]).unwrap();
     assert!(publish_arrow_ipc_row_fragments(&store, 2, &target).is_err());
     assert!(!target.exists());
     let store =
@@ -116,6 +118,7 @@ fn rejects_malformed_rows_and_wrong_counts_without_publication() {
         .stage("length", 1, &100_u64.to_le_bytes())
         .unwrap();
     store.local.accept("length").unwrap();
+    let store = store.require_bundle_attempts(["length"]).unwrap();
     assert!(publish_arrow_ipc_row_fragments(&store, 1, &target).is_err());
     assert!(!target.exists());
 }

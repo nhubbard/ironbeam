@@ -78,6 +78,7 @@ fn rejects_bad_frames_counts_and_schemas_before_publication() {
         .stage("bad", 1, &100_u64.to_le_bytes())
         .unwrap();
     corrupt.local.accept("bad").unwrap();
+    let corrupt = corrupt.require_bundle_attempts(["bad"]).unwrap();
     assert!(publish_arrow_ipc_batch_fragments(&corrupt, 1, &target).is_err());
     assert!(!target.exists());
     let wrong =
@@ -86,6 +87,7 @@ fn rejects_bad_frames_counts_and_schemas_before_publication() {
     encode_fragment_row(&batch("value", &[1]), &mut frame).unwrap();
     wrong.local.stage("wrong", 2, &frame).unwrap();
     wrong.local.accept("wrong").unwrap();
+    let wrong = wrong.require_bundle_attempts(["wrong"]).unwrap();
     assert!(publish_arrow_ipc_batch_fragments(&wrong, 2, &target).is_err());
     assert!(!target.exists());
     let mismatch =
@@ -97,6 +99,7 @@ fn rejects_bad_frames_counts_and_schemas_before_publication() {
     encode_fragment_row(&batch("other", &[2]), &mut second).unwrap();
     mismatch.local.stage("b", 1, &second).unwrap();
     mismatch.local.accept("b").unwrap();
+    let mismatch = mismatch.require_bundle_attempts(["a", "b"]).unwrap();
     assert!(publish_arrow_ipc_batch_fragments(&mismatch, 2, &target).is_err());
     assert!(!target.exists());
 }

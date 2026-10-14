@@ -103,6 +103,7 @@ fn publication_validates_decoded_count_and_crc() {
     write_frames(&mut frame, &[b"one".to_vec()]).unwrap();
     store.stage("wrong-count", 2, &frame).unwrap();
     store.accept("wrong-count").unwrap();
+    let store = store.require_bundle_attempts(["wrong-count"]).unwrap();
     let output = temp.path().join("result.tfrecord");
     assert!(publish_tfrecord_fragments(&store, 2, temp.path().join("result.tfrecord.gz")).is_err());
     assert!(publish_tfrecord_fragments(&store, 2, &output).is_err());
@@ -112,6 +113,7 @@ fn publication_validates_decoded_count_and_crc() {
     frame[last] ^= 1;
     other.stage("bad-crc", 1, &frame).unwrap();
     other.accept("bad-crc").unwrap();
+    let other = other.require_bundle_attempts(["bad-crc"]).unwrap();
     assert!(publish_tfrecord_fragments(&other, 1, &output).is_err());
     assert!(!output.exists());
 }

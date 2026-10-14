@@ -92,7 +92,10 @@ fn malformed_jsonl_fragment_cannot_replace_an_existing_result() {
         .unwrap();
         raw.stage("bundle", 1, malformed).unwrap();
         raw.accept("bundle").unwrap();
-        let store = jsonl_fragment_store(&staging, "job", "graph", "final").unwrap();
+        let store = jsonl_fragment_store(&staging, "job", "graph", "final")
+            .unwrap()
+            .require_bundle_attempts(["bundle"])
+            .unwrap();
         assert!(publish_jsonl_fragments::<Row>(&store, 1, &target).is_err());
         assert_eq!(fs::read(&target).unwrap(), b"previous result");
     }
