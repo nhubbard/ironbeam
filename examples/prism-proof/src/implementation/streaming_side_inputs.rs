@@ -436,6 +436,66 @@ pub fn dual_unbounded_late_join_fixture(
     )
 }
 
+/// A typed full join retains its window for a main-only late pane.
+pub fn dual_positive_late_full_join_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let main = pipeline
+        .test_stream_source(
+            "positive-late-main",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+                TestStreamEvent::Elements(vec![((1, 5), 5_000_000)]),
+            ],
+        )?
+        .fixed_windows("positive-late-main-window", 10_000_000)?
+        .allowed_lateness_named("positive-late-main-policy", 5_000_000)?;
+    let side = pipeline
+        .test_stream_source(
+            "positive-late-side",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )?
+        .fixed_windows("positive-late-side-window", 10_000_000)?
+        .allowed_lateness_named("positive-late-side-policy", 5_000_000)?;
+    main.join_full_named("positive-late-join", &side)?
+        .reify_panes_named("positive-late-pane")?
+        .map_named("positive-late-row", |(pane, (key, pair))| {
+            format!(
+                "{key}:{pair:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn dual_positive_late_full_join_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_positive_late_full_join_collection(pipeline)?.sink_named_with_config(
+        "positive-late-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("positive-late-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 /// The same two unbounded sources also exercise portable co-group tags.
 pub fn dual_unbounded_cogroup_collection(
     pipeline: &Pipeline,

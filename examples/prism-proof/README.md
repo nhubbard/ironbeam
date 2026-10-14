@@ -76,6 +76,9 @@ three exact windowed rows. Direct closes these windows on source watermarks or
 completion and checkpoints coded open-window state with the source cursor.
 Two unbounded TestStream inputs now lower to one tagged Beam TestStream and
 feed fixed-window full join and co-group fixtures plus stateless Flatten.
+An additional positive-lateness full-join fixture emits an on-time matched row
+and a late main-only row on pinned Prism, checking pane timing and index and
+the drop after window expiry. Direct currently rejects this graph at preflight.
 Live Prism jobs match Direct on values, windows, and event times in all three
 operations. Prism still accepts only one TestStream transform per job; tagged
 streams use one element coder and exclude processing time advances.
