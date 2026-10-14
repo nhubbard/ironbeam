@@ -22,6 +22,30 @@ pub struct PCollection<T> {
     key: String,
     marker: PhantomData<T>,
 }
+
+/// A typed collection's completion dependency without its element type.
+/// The signal's values are ignored by wait transforms.
+#[derive(Clone)]
+pub struct WaitSignal {
+    pipeline: Pipeline,
+    key: String,
+    element: ElementDescriptor,
+}
+
+impl WaitSignal {
+    fn parent(&self) -> Result<Node, Error> {
+        let inner = self
+            .pipeline
+            .inner
+            .lock()
+            .map_err(|_| Error::graph(&self.key, "builder lock poisoned"))?;
+        inner
+            .graph
+            .node(&self.key)
+            .cloned()
+            .ok_or_else(|| Error::graph(&self.key, "collection missing"))
+    }
+}
 impl<T> Clone for PCollection<T> {
     fn clone(&self) -> Self {
         Self {

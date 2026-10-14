@@ -249,12 +249,13 @@ pub fn bounded_multi_wait_fixture(
     second_marker: PathBuf,
 ) -> Result<Sink<i32>, Error> {
     let first = completion_signal_named(pipeline, "multi-wait-first", first_marker.clone())?;
-    let second = completion_signal_named(pipeline, "multi-wait-second", second_marker.clone())?;
+    let second = completion_signal_named(pipeline, "multi-wait-second", second_marker.clone())?
+        .map_named("multi-wait-second-text", |value| value.to_string())?;
     let sink_path = path.clone();
     pipeline
         .from_vec("multi-wait-main", vec![1_i32, 2])?
         .flatten_named("multi-wait-single-flatten", &[])?
-        .wait_on_all_named("multi-wait", &[first, second])?
+        .wait_on_signals_named("multi-wait", &[first.wait_signal(), second.wait_signal()])?
         .map_named("multi-wait-check", move |value| {
             assert!(first_marker.exists(), "first signal did not finish");
             assert!(second_marker.exists(), "second signal did not finish");

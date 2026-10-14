@@ -373,11 +373,27 @@ impl<T: Element> PCollection<T> {
     pub fn reshuffle_named(&self, key: &str) -> Result<Self, Error> {
         self.next(key, Operation::Reshuffle, None, None)
     }
+    /// Erase a signal's element type for a heterogeneous completion barrier.
+    #[must_use]
+    pub fn wait_signal(&self) -> WaitSignal {
+        WaitSignal {
+            pipeline: self.pipeline.clone(),
+            key: self.key.clone(),
+            element: ElementDescriptor {
+                type_id: T::type_identity(),
+                coder_id: T::coder_identity(),
+                coder_version: T::CODER_VERSION,
+            },
+        }
+    }
     pub fn wait_on_named<S: Element>(
         &self,
         key: &str,
         signal: &PCollection<S>,
     ) -> Result<Self, Error> {
+        self.wait_on_signal_named(key, &signal.wait_signal())
+    }
+    fn wait_on_signal_named(&self, key: &str, signal: &WaitSignal) -> Result<Self, Error> {
         if !Arc::ptr_eq(&self.pipeline.inner, &signal.pipeline.inner) {
             return Err(Error::graph(
                 key,
@@ -400,11 +416,7 @@ impl<T: Element> PCollection<T> {
             }),
             additional_inputs: vec![InputEdge {
                 key: signal.key.clone(),
-                element: ElementDescriptor {
-                    type_id: S::type_identity(),
-                    coder_id: S::coder_identity(),
-                    coder_version: S::CODER_VERSION,
-                },
+                element: signal.element.clone(),
             }],
             operation,
             semantic_id,
@@ -431,6 +443,12 @@ impl<T: Element> PCollection<T> {
         key: &str,
         signals: &[PCollection<S>],
     ) -> Result<Self, Error> {
+        let signals = signals.iter().map(PCollection::wait_signal).collect::<Vec<_>>();
+        self.wait_on_signals_named(key, &signals)
+    }
+    /// Wait for bounded signals of different element types to finish.
+    /// Convert each signal with `PCollection::wait_signal`; values are ignored.
+    pub fn wait_on_signals_named(&self, key: &str, signals: &[WaitSignal]) -> Result<Self, Error> {
         if signals.is_empty() {
             return Err(Error::graph(key, "wait requires at least one signal"));
         }
@@ -452,7 +470,7 @@ impl<T: Element> PCollection<T> {
             } else {
                 format!("{key}/signal-{index}")
             };
-            current = current.wait_on_named(&node_key, signal)?;
+            current = current.wait_on_signal_named(&node_key, signal)?;
         }
         Ok(current)
     }

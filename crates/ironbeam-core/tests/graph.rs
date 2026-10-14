@@ -2592,6 +2592,21 @@ fn wait_on_all_rejects_missing_or_invalid_signals_without_partial_nodes() {
         .unwrap();
     let before = pipeline.snapshot().unwrap().0.nodes.len();
     assert!(main.wait_on_all_named::<i32>("empty", &[]).is_err());
+    assert!(main.wait_on_signals_named("empty-erased", &[]).is_err());
+    assert!(
+        main.wait_on_signals_named(
+            "foreign-erased",
+            &[signal.wait_signal(), foreign.wait_signal()]
+        )
+        .is_err()
+    );
+    assert!(
+        main.wait_on_signals_named(
+            "unbounded-erased",
+            &[signal.wait_signal(), unbounded.wait_signal()]
+        )
+        .is_err()
+    );
     assert!(
         main.wait_on_all_named("foreign-wait", &[signal.clone(), foreign])
             .is_err()
