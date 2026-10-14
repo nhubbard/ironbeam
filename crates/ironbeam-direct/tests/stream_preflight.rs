@@ -130,6 +130,63 @@ fn grouped_stream_rejects_spill_before_source_open() {
     assert!(error.message.contains("stream-spill"));
 }
 
+#[test]
+fn dual_source_join_rejects_lateness_before_source_open() {
+    let pipeline = Pipeline::default();
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: true,
+    };
+    let left = pipeline
+        .unbounded_source_with_factory("left", progress.clone(), "late-left-v1".into(), 0, |_| {
+            panic!("late join source must not open")
+        })
+        .unwrap()
+        .fixed_windows("left-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("left-lateness", 5_000_000)
+        .unwrap()
+        .map_named("left-key", |value: i32| (value, value))
+        .unwrap();
+    let right = pipeline
+        .unbounded_source_with_factory("right", progress, "late-right-v1".into(), 0, |_| {
+            panic!("late join source must not open")
+        })
+        .unwrap()
+        .fixed_windows("right-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("right-lateness", 5_000_000)
+        .unwrap()
+        .map_named("right-key", |value: i32| (value, value))
+        .unwrap();
+    let sink = left
+        .join_inner_named("join", &right)
+        .unwrap()
+        .map_named("sum", |(_, (left, right))| left + right)
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "late-join-preflight-v1".into(),
+            || Ok(Box::new(NoopSink)),
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    assert!(error.message.contains("allowed-lateness"), "{error:?}");
+}
+
 #[derive(Clone, Copy)]
 enum GroupFault {
     SourceFactory,
