@@ -106,3 +106,47 @@ pub fn pane_metadata_fixture_for(
             },
         )
 }
+
+/// Characterize repeated count firings across separate TestStream advances.
+pub fn count_trigger_stream_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let values = pipeline
+        .test_stream_source(
+            "count-events",
+            vec![
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 3_i32), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("count-windows", 10_000_000)?;
+    let rows = values
+        .group_by_key_named("count-group")?
+        .reify_panes_named("count-pane")?
+        .map_named("count-row", |(pane, (key, mut values))| {
+            values.sort_unstable();
+            format!(
+                "group:{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })?;
+    let sink_path = path.clone();
+    rows.sink_named_with_config(
+        "count-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("count-result:{}", path.display()),
+        move || {
+            Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })))
+        },
+    )
+}
