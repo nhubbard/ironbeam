@@ -15,3 +15,4 @@ pub use fragment::{
 
 mod implementation;
 pub use implementation::*;
+mod schema_resolution;

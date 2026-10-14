@@ -1,3 +1,4 @@
+use crate::schema_resolution;
 use ironbeam_core::{Element, Error, PCollection, Pipeline, Sink, TypedSourceIterator};
 #[cfg(feature = "parallel-io")]
 use ironbeam_io::parallel_container_writer;
@@ -85,13 +86,11 @@ pub fn avro_source_with_reader_schema<T: Element + DeserializeOwned>(
     let schema = apache_avro::Schema::parse_str(raw_schema).map_err(|error| io(key, error))?;
     let format = reader_schema_format(raw_schema);
     source(pipeline, key, path, &format, move |bytes| {
-        let reader = apache_avro::Reader::builder(bytes)
-            .reader_schema(&schema)
-            .build()
-            .map_err(|error| io("avro", error))?;
+        let reader = apache_avro::Reader::new(bytes).map_err(|error| io("avro", error))?;
         reader
             .map(|row| {
                 let value = row.map_err(|error| io("avro", error))?;
+                let value = schema_resolution::resolve(value, &schema)?;
                 apache_avro::from_value(&value).map_err(|error| io("avro", error))
             })
             .collect()
@@ -138,7 +137,7 @@ fn read_avro_lazy_with_schema<T: Element + DeserializeOwned>(
     let reader = apache_avro::Reader::new(file).map_err(|error| io("avro", error))?;
     Ok(Box::new(reader.map(move |row| {
         let value = row.map_err(|error| io("avro", error))?;
-        let value = value.resolve(&schema).map_err(|error| io("avro", error))?;
+        let value = schema_resolution::resolve(value, &schema)?;
         apache_avro::from_value(&value).map_err(|error| io("avro", error))
     })))
 }

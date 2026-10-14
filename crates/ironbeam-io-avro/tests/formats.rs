@@ -19,11 +19,32 @@ struct EvolvedRow {
     name: String,
     active: bool,
 }
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+struct PromotedRow {
+    id: i64,
+    name: String,
+    active: Option<bool>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+struct AliasedRow {
+    id: i32,
+    display_name: String,
+}
+impl Element for AliasedRow {
+    const TYPE_ID: &'static str = "tests/aliased-row";
+    const CODER_ID: &'static str = "tests/aliased-row-json";
+}
+impl Element for PromotedRow {
+    const TYPE_ID: &'static str = "tests/promoted-row";
+    const CODER_ID: &'static str = "tests/promoted-row-json";
+}
 impl Element for EvolvedRow {
     const TYPE_ID: &'static str = "tests/evolved-row";
     const CODER_ID: &'static str = "tests/evolved-row-json";
 }
 const EVOLVED_AVRO_SCHEMA: &str = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"active","type":"boolean","default":true}]}"#;
+const PROMOTED_AVRO_SCHEMA: &str = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"long"},{"name":"name","type":"string"},{"name":"active","type":["null","boolean"],"default":null}]}"#;
+const ALIASED_AVRO_SCHEMA: &str = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"},{"name":"display_name","type":"string","aliases":["name"]}]}"#;
 fn rows() -> Vec<Row> {
     vec![
         Row {
@@ -269,6 +290,92 @@ fn native_avro_reader_schema_resolves_added_and_projected_fields() {
             .0,
         vec![ProjectedRow { id: 1 }, ProjectedRow { id: 2 }]
     );
+}
+
+#[test]
+fn native_avro_reader_schema_promotes_ints_and_defaults_nullable_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("writer-v1.avro");
+    write_native_rows(&path);
+    for streaming in [false, true] {
+        let pipeline = Pipeline::default();
+        let source = if streaming {
+            avro_streaming_source_with_reader_schema::<PromotedRow>(
+                &pipeline,
+                "promoted",
+                &path,
+                PROMOTED_AVRO_SCHEMA,
+            )
+        } else {
+            avro_source_with_reader_schema::<PromotedRow>(
+                &pipeline,
+                "promoted",
+                &path,
+                PROMOTED_AVRO_SCHEMA,
+            )
+        };
+        let output = source.unwrap().output("promoted-output").unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &JobConfig::default())
+                .unwrap()
+                .0,
+            vec![
+                PromotedRow {
+                    id: 1,
+                    name: "Ada".into(),
+                    active: None
+                },
+                PromotedRow {
+                    id: 2,
+                    name: "Lin".into(),
+                    active: None
+                },
+            ]
+        );
+    }
+}
+
+#[test]
+fn native_avro_reader_schema_resolves_field_aliases() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("writer-v1.avro");
+    write_native_rows(&path);
+    for streaming in [false, true] {
+        let pipeline = Pipeline::default();
+        let source = if streaming {
+            avro_streaming_source_with_reader_schema::<AliasedRow>(
+                &pipeline,
+                "aliased",
+                &path,
+                ALIASED_AVRO_SCHEMA,
+            )
+        } else {
+            avro_source_with_reader_schema::<AliasedRow>(
+                &pipeline,
+                "aliased",
+                &path,
+                ALIASED_AVRO_SCHEMA,
+            )
+        };
+        let output = source.unwrap().output("aliased-output").unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &JobConfig::default())
+                .unwrap()
+                .0,
+            vec![
+                AliasedRow {
+                    id: 1,
+                    display_name: "Ada".into()
+                },
+                AliasedRow {
+                    id: 2,
+                    display_name: "Lin".into()
+                },
+            ]
+        );
+    }
 }
 
 #[test]

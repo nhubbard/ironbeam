@@ -69,6 +69,15 @@ struct EvolvedRow {
     name: String,
     active: bool,
 }
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+struct AliasedRow {
+    id: i32,
+    display_name: String,
+}
+impl Element for AliasedRow {
+    const TYPE_ID: &'static str = "tests/cloud-avro-aliased-row";
+    const CODER_ID: &'static str = "tests/cloud-avro-aliased-row-json";
+}
 impl Element for EvolvedRow {
     const TYPE_ID: &'static str = "tests/cloud-avro-evolved-row";
     const CODER_ID: &'static str = "tests/cloud-avro-evolved-row-json";
@@ -76,6 +85,7 @@ impl Element for EvolvedRow {
 
 const WRITER_SCHEMA: &str = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}"#;
 const READER_SCHEMA: &str = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"active","type":"boolean","default":true}]}"#;
+const ALIASED_READER_SCHEMA: &str = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"},{"name":"display_name","type":"string","aliases":["name"]}]}"#;
 
 fn object_store() -> (tempfile::TempDir, ObjectStores) {
     let dir = tempfile::tempdir().unwrap();
@@ -300,6 +310,33 @@ fn object_uri_resolves_avro_schema_and_rejects_drift() {
             .unwrap()
             .kind,
         ErrorKind::Recovery
+    );
+}
+
+#[test]
+fn object_uri_resolves_reader_field_alias() {
+    let (dir, stores) = object_store();
+    put_avro(&stores, dir.path());
+    let pipeline = Pipeline::default();
+    let output = cloud_avro_uri_source_with_reader_schema::<AliasedRow>(
+        &pipeline,
+        "aliased",
+        &stores,
+        "file://bucket/rows.avro",
+        ALIASED_READER_SCHEMA,
+    )
+    .unwrap()
+    .output("output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![AliasedRow {
+            id: 1,
+            display_name: "Ada".into()
+        }]
     );
 }
 

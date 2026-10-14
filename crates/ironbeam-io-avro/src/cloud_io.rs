@@ -1,6 +1,7 @@
 //! Native Avro containers stored behind a provider-neutral object URI.
 
 use crate::implementation::reader_schema_format;
+use crate::schema_resolution;
 use ironbeam_cloud_objects::{ObjectLocation, ObjectStores};
 use ironbeam_core::{
     Element, Error, PCollection, Pipeline, Replay, SourceProgress, TypedSourceIterator,
@@ -32,18 +33,16 @@ fn decode<T: DeserializeOwned>(
     bytes: &[u8],
     reader_schema: Option<&apache_avro::Schema>,
 ) -> Result<Vec<T>, Error> {
-    let reader = if let Some(schema) = reader_schema {
-        apache_avro::Reader::builder(bytes)
-            .reader_schema(schema)
-            .build()
-            .map_err(|error| Error::io("avro", "cloud", error.to_string()))?
-    } else {
-        apache_avro::Reader::new(bytes)
-            .map_err(|error| Error::io("avro", "cloud", error.to_string()))?
-    };
+    let reader = apache_avro::Reader::new(bytes)
+        .map_err(|error| Error::io("avro", "cloud", error.to_string()))?;
     reader
         .map(|row| {
             let value = row.map_err(|error| Error::io("avro", "cloud", error.to_string()))?;
+            let value = if let Some(schema) = reader_schema {
+                schema_resolution::resolve(value, schema)?
+            } else {
+                value
+            };
             apache_avro::from_value(&value)
                 .map_err(|error| Error::io("avro", "cloud", error.to_string()))
         })
