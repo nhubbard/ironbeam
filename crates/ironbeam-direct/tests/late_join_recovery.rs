@@ -11,6 +11,100 @@ use std::time::{Duration, Instant};
 type Row = (i32, i32);
 
 #[test]
+fn typed_late_join_fires_at_count_and_flushes_partial_at_expiry() {
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .test_stream_source(
+            "main",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 3_000_000)]),
+                TestStreamEvent::Elements(vec![((1, 5), 5_000_000)]),
+                TestStreamEvent::Elements(vec![((1, 7), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+                TestStreamEvent::Elements(vec![((1, 9), 9_000_000)]),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("main-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("main-lateness", 5_000_000)
+        .unwrap()
+        .late_count_trigger_named("main-trigger", 2)
+        .unwrap();
+    let side = pipeline
+        .test_stream_source(
+            "side",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::AdvanceWatermark(11_000_000),
+                TestStreamEvent::AdvanceWatermark(12_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("side-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("side-lateness", 5_000_000)
+        .unwrap()
+        .late_count_trigger_named("side-trigger", 2)
+        .unwrap();
+    let sink = main
+        .join_full_named("join", &side)
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (key, pair))| {
+            format!(
+                "{key}:{pair:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "late-count-join-v1".into(),
+            {
+                let rows = Arc::clone(&rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut actual = rows.lock().unwrap().clone();
+    actual.sort_unstable();
+    let mut expected = vec![
+        "1:(Some(2), Some(4)):OnTime:true:false:0:0",
+        "1:(Some(3), None):Late:false:false:1:1",
+        "1:(Some(5), None):Late:false:false:1:1",
+        "1:(Some(7), None):Late:false:true:2:2",
+    ];
+    expected.sort_unstable();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn sliding_late_join_keeps_overlapping_panes_independent() {
     let rows = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
@@ -542,6 +636,160 @@ fn typed_late_join_restores_each_key_pane_and_both_source_cursors() {
         "1:(Some(3), None):Late:false:false:1:1",
         "2:(Some(21), None):Late:false:false:1:1",
         "3:(Some(30), None):Late:true:false:0:0",
+    ];
+    expected.sort_unstable();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn typed_late_count_join_restores_partial_pane_and_source_cursors() {
+    let main_opens = Arc::new(Mutex::new(Vec::new()));
+    let side_opens = Arc::new(Mutex::new(Vec::new()));
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: true,
+    };
+    let main = pipeline
+        .unbounded_source_with_factory("main", progress.clone(), "late-count-main-v1".into(), 0, {
+            let opens = Arc::clone(&main_opens);
+            move |position| {
+                opens.lock().unwrap().push(position.clone());
+                let polls = match position.as_deref() {
+                    None => vec![
+                        batch("main", 1, 4_000_000, false, &[(1, 2, 2_000_000)]),
+                        batch("main", 2, 10_000_000, false, &[]),
+                        batch("main", 3, 10_000_000, false, &[(1, 3, 3_000_000)]),
+                    ],
+                    Some([3]) => vec![
+                        batch("main", 4, 10_000_000, false, &[(1, 5, 5_000_000)]),
+                        batch("main", 5, 10_000_000, false, &[(1, 7, 7_000_000)]),
+                        batch("main", 6, 15_000_000, false, &[]),
+                        batch("main", 7, 15_000_000, true, &[(1, 9, 9_000_000)]),
+                    ],
+                    _ => return Err(Error::incompatible("unexpected main cursor")),
+                };
+                Ok(Box::new(Script(polls.into())) as TypedUnboundedSourceReader<Row>)
+            }
+        })
+        .unwrap()
+        .fixed_windows("main-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("main-lateness", 5_000_000)
+        .unwrap()
+        .late_count_trigger_named("main-trigger", 2)
+        .unwrap();
+    let side = pipeline
+        .unbounded_source_with_factory("side", progress, "late-count-side-v1".into(), 0, {
+            let opens = Arc::clone(&side_opens);
+            move |position| {
+                opens.lock().unwrap().push(position.clone());
+                let polls = match position.as_deref() {
+                    None => vec![
+                        batch("side", 1, 4_000_000, false, &[(1, 4, 4_000_000)]),
+                        batch("side", 2, 10_000_000, false, &[]),
+                    ],
+                    Some([2]) => vec![
+                        batch("side", 3, 11_000_000, false, &[]),
+                        batch("side", 4, 12_000_000, false, &[]),
+                        batch("side", 5, 15_000_000, true, &[]),
+                    ],
+                    _ => return Err(Error::incompatible("unexpected side cursor")),
+                };
+                Ok(Box::new(Script(polls.into())) as TypedUnboundedSourceReader<Row>)
+            }
+        })
+        .unwrap()
+        .fixed_windows("side-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("side-lateness", 5_000_000)
+        .unwrap()
+        .late_count_trigger_named("side-trigger", 2)
+        .unwrap();
+    let sink = main
+        .join_full_named("join", &side)
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (key, pair))| {
+            format!(
+                "{key}:{pair:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "late-count-recovery-sink-v1".into(),
+            {
+                let rows = Arc::clone(&rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 1,
+            recover: true,
+            binary_build_id: "late-count-recovery-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !job
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        .is_some_and(|position| position == 5_u64.to_le_bytes())
+    {
+        assert!(
+            Instant::now() < deadline,
+            "partial late pane was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(rows.lock().unwrap().len(), 1);
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        main_opens.lock().unwrap().as_slice(),
+        &[None, Some(vec![3])]
+    );
+    assert_eq!(
+        side_opens.lock().unwrap().as_slice(),
+        &[None, Some(vec![2])]
+    );
+    let mut actual = rows.lock().unwrap().clone();
+    actual.sort_unstable();
+    let mut expected = vec![
+        "1:(Some(2), Some(4)):OnTime:true:false:0:0",
+        "1:(Some(3), None):Late:false:false:1:1",
+        "1:(Some(5), None):Late:false:false:1:1",
+        "1:(Some(7), None):Late:false:true:2:2",
     ];
     expected.sort_unstable();
     assert_eq!(actual, expected);

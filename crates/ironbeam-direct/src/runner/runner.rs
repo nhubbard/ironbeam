@@ -1,12 +1,16 @@
-fn validate_lateness(node: &ironbeam_core::Node, unbounded_source: bool) -> Result<(), Error> {
-    let stateful_fanin = matches!(
-        node.operation,
+fn stateful_fanin_operation(operation: &Operation) -> bool {
+    matches!(
+        operation,
         Operation::CoGroupByKey
             | Operation::JoinInner
             | Operation::JoinLeft
             | Operation::JoinRight
             | Operation::JoinFull
-    );
+    )
+}
+
+fn validate_lateness(node: &ironbeam_core::Node, unbounded_source: bool) -> Result<(), Error> {
+    let stateful_fanin = stateful_fanin_operation(&node.operation);
     if node.time.allowed_lateness_ns > 0
         && ((node.time.trigger != WindowTrigger::Default
             && node.time.trigger.late_count().is_none())
@@ -76,7 +80,10 @@ impl DirectRunner {
                     && (!unbounded_source
                         || (node.time.allowed_lateness_ns > 0
                             && node.time.trigger.late_count().is_some()
-                            && node.time.trigger.early_count().is_none())));
+                            && node.time.trigger.early_count().is_none())))
+                || (unbounded_source
+                    && stateful_fanin_operation(&node.operation)
+                    && matches!(node.time.trigger, WindowTrigger::LateElementCount { .. }));
             if node.time.trigger != WindowTrigger::Default && !trigger_supported {
                 return Err(Error::unsupported(&node.key, "direct", "early-count-trigger"));
             }

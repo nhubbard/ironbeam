@@ -25,6 +25,7 @@ pub(super) struct FiringClock {
     pub watermark: Option<i64>,
     pub lateness_ns: i64,
     pub budget_elements: usize,
+    pub late_count: Option<u64>,
 }
 
 pub(super) fn restore_closed(
@@ -143,6 +144,20 @@ pub(super) fn drain_ready(
                 PaneTiming::OnTime
             };
             let final_firing = end.saturating_add(clock.lateness_ns) <= watermark;
+            if timing == PaneTiming::Late
+                && !final_firing
+                && clock.late_count.is_some_and(|count| {
+                    u64::try_from(main.len().saturating_add(side.len())).unwrap_or(u64::MAX) < count
+                })
+            {
+                if !main.is_empty() {
+                    main_windows.entry((start, end)).or_default().extend(main);
+                }
+                if !side.is_empty() {
+                    side_windows.entry((start, end)).or_default().extend(side);
+                }
+                continue;
+            }
             let pane = PaneInfo {
                 is_first: index == 0,
                 is_last: final_firing,

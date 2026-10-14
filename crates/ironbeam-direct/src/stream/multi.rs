@@ -157,6 +157,17 @@ pub(super) fn start_dual_side_stream<T: Element>(
         .node(&route.aggregate_key)
         .ok_or_else(|| Error::graph(&route.aggregate_key, "dual-source aggregate missing"))?;
     let lateness_ns = aggregate.time.allowed_lateness_ns;
+    let late_count = match aggregate.time.trigger {
+        WindowTrigger::Default => None,
+        WindowTrigger::LateElementCount { count } if lateness_ns > 0 => Some(count),
+        _ => {
+            return Err(Error::unsupported(
+                &route.aggregate_key,
+                "direct",
+                "dual-source-trigger",
+            ));
+        }
+    };
     if lateness_ns > 0
         && !registry.has_join_coder(&route.aggregate_key)
         && !registry.has_cogroup_coder(&route.aggregate_key)
@@ -342,6 +353,7 @@ pub(super) fn start_dual_side_stream<T: Element>(
                     buffered,
                     closed,
                     lateness_ns,
+                    late_count,
                 )
             }))
             .unwrap_or_else(|_| Err(Error::execution("job", "direct", "stream worker panicked")));
@@ -796,6 +808,7 @@ fn run_dual_side_stream(
     mut buffered: usize,
     mut closed: ClosedPanes,
     lateness_ns: i64,
+    late_count: Option<u64>,
 ) -> Result<(), Error> {
     let source_keys = [&route.source_key, &route.side_source_key];
     let stages = [&route.main_stages, &route.side_stages];
@@ -920,6 +933,7 @@ fn run_dual_side_stream(
                         watermark: dual_watermark(&progress),
                         lateness_ns,
                         budget_elements: config.buffer_budget_elements,
+                        late_count,
                     },
                 )?
             } else if matches!(route.window, Window::Session { .. }) {
