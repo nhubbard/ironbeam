@@ -23,6 +23,36 @@ fn main() -> Result<(), ironbeam::Error> {
 
 Elementwise operations can often be executed as a fused Direct route. Grouping and similar operations require a materialization boundary; `DirectRunner.explain` identifies those choices.
 
+## Partitioning
+
+`partition_named` routes each input element to one of a fixed number of
+outputs. The classifier returns an index starting at zero. The resulting
+collections have stable keys formed from the output prefix and index:
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("numbers", vec![0_i32, 1, 2, 3, 4, 5])?;
+    let parts = source.partition_named("classify", "part", 2, |value| {
+        value.rem_euclid(2) as usize
+    })?;
+    assert_eq!(parts[0].collect_seq()?, vec![0, 2, 4]);
+    assert_eq!(parts[1].collect_seq()?, vec![1, 3, 5]);
+    Ok(())
+}
+```
+
+An index outside the declared range fails execution. Direct may evaluate the
+classifier separately for downstream branches, and any runner may retry an
+element. The classifier must return the same index on each evaluation and
+should have no observable side effects. Use
+`partition_with_semantic_named` to include an application semantic ID and
+version in graph identity; change that version when routing behavior changes.
+The local Prism fixture checks all three outputs, their event timestamps, and
+their fixed windows against Direct.
+
 ## Grouping by key
 
 Pairs can be grouped by their first component:
