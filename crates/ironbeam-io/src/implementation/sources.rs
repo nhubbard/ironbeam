@@ -204,7 +204,7 @@ pub fn lazy_source<T: Element>(
     key: &str,
     path: impl AsRef<Path>,
     format: &str,
-    read: fn(PathBuf) -> Result<TypedSourceIterator<T>, Error>,
+    read: impl Fn(PathBuf) -> Result<TypedSourceIterator<T>, Error> + Send + Sync + 'static,
 ) -> Result<PCollection<T>, Error> {
     let path = path.as_ref().to_path_buf();
     let expected = file_hash(&path, key)?;

@@ -8,6 +8,17 @@ use ironbeam_io::{
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+fn reader_schema_format(raw_schema: &str) -> String {
+    let schema_digest = Sha256::digest(raw_schema.as_bytes());
+    let mut format = String::from("avro-reader-");
+    for byte in schema_digest {
+        use std::fmt::Write as _;
+        write!(format, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    format
+}
 
 fn read_avro<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     let reader = apache_avro::Reader::new(bytes).map_err(|e| io("avro", e))?;
@@ -71,12 +82,7 @@ pub fn avro_source_with_reader_schema<T: Element + DeserializeOwned>(
 ) -> Result<PCollection<T>, Error> {
     let raw_schema = reader_schema.as_ref();
     let schema = apache_avro::Schema::parse_str(raw_schema).map_err(|error| io(key, error))?;
-    let schema_digest = Sha256::digest(raw_schema.as_bytes());
-    let mut format = String::from("avro-reader-");
-    for byte in schema_digest {
-        use std::fmt::Write as _;
-        write!(format, "{byte:02x}").expect("writing to String cannot fail");
-    }
+    let format = reader_schema_format(raw_schema);
     source(pipeline, key, path, &format, move |bytes| {
         let reader = apache_avro::Reader::builder(bytes)
             .reader_schema(&schema)
@@ -88,6 +94,32 @@ pub fn avro_source_with_reader_schema<T: Element + DeserializeOwned>(
                 apache_avro::from_value(&value).map_err(|error| io("avro", error))
             })
             .collect()
+    })
+}
+
+/// Lazily read a bounded Avro file through a declared reader schema.
+///
+/// Each record is resolved against the file's embedded writer schema and the
+/// supplied reader schema before it is deserialized to `T`. This keeps the
+/// source incremental rather than loading the container into memory.
+pub fn avro_streaming_source_with_reader_schema<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    reader_schema: impl AsRef<str>,
+) -> Result<PCollection<T>, Error> {
+    let raw_schema = reader_schema.as_ref();
+    let schema = Arc::new(apache_avro::Schema::parse_str(raw_schema).map_err(|e| io(key, e))?);
+    let format = format!("{}-streaming", reader_schema_format(raw_schema));
+    lazy_source(pipeline, key, path, &format, move |path| {
+        let file = open_lazy_input(&path, "avro")?;
+        let reader = apache_avro::Reader::new(file).map_err(|error| io("avro", error))?;
+        let schema = Arc::clone(&schema);
+        Ok(Box::new(reader.map(move |row| {
+            let value = row.map_err(|error| io("avro", error))?;
+            let value = value.resolve(&schema).map_err(|error| io("avro", error))?;
+            apache_avro::from_value(&value).map_err(|error| io("avro", error))
+        })))
     })
 }
 
