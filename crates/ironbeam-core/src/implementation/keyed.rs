@@ -427,7 +427,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     if !current.is_empty() {
                         batches.push((group_key, current));
                     }
-                    batches
+                    Ok(batches)
                 },
             )
     }

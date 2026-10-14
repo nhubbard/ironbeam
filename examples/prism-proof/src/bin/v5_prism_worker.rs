@@ -27,7 +27,8 @@ use ironbeam_prism_proof::{
     sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
     streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
     streaming_sliding_group_fixture, streaming_windowed_side_input_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_side_input_fixture, ExpandSingleton,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
     PaneFixtureWindow,
 };
 #[cfg(feature = "database-proofs")]
@@ -251,6 +252,16 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SIDE_VIEW_SHAPES") {
         return side_view_shapes_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_WINDOWED_SIDE_VIEW_SHAPES") {
+        return windowed_side_view_shapes_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_WINDOWED_DUPLICATE_MAP") {
+        return windowed_duplicate_map_side_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

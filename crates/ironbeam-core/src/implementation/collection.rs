@@ -246,6 +246,14 @@ impl<T: Element> PCollection<T> {
         key: &str,
         f: impl Fn(T) -> Vec<U> + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
+        self.flat_map_registered(key, None, move |value| Ok(f(value)))
+    }
+    /// Run a zero-or-many-output handler that can return a typed execution error.
+    pub fn flat_map_fallible_named<U: Element>(
+        &self,
+        key: &str,
+        f: impl Fn(T) -> Result<Vec<U>, Error> + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
         self.flat_map_registered(key, None, f)
     }
     /// Register a versioned zero-or-many-output handler under an application
@@ -258,13 +266,24 @@ impl<T: Element> PCollection<T> {
         f: impl Fn(T) -> Vec<U> + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
         Self::validate_semantic_handler(key, semantic_id, version)?;
+        self.flat_map_registered(key, Some((semantic_id, version)), move |value| Ok(f(value)))
+    }
+    /// Register a versioned fallible zero-or-many-output handler.
+    pub fn flat_map_fallible_with_semantic_named<U: Element>(
+        &self,
+        key: &str,
+        semantic_id: &str,
+        version: Version,
+        f: impl Fn(T) -> Result<Vec<U>, Error> + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        Self::validate_semantic_handler(key, semantic_id, version)?;
         self.flat_map_registered(key, Some((semantic_id, version)), f)
     }
     fn flat_map_registered<U: Element>(
         &self,
         key: &str,
         semantic: Option<(&str, Version)>,
-        f: impl Fn(T) -> Vec<U> + Send + Sync + 'static,
+        f: impl Fn(T) -> Result<Vec<U>, Error> + Send + Sync + 'static,
     ) -> Result<PCollection<U>, Error> {
         let key_owned = key.to_owned();
         let transform = Transform::Multi(Arc::new(move |e| {
@@ -278,7 +297,7 @@ impl<T: Element> PCollection<T> {
             let value = value
                 .downcast::<T>()
                 .map_err(|_| Error::execution(&key_owned, "direct", "input type mismatch"))?;
-            Ok(f(*value)
+            Ok(f(*value)?
                 .into_iter()
                 .map(|value| Envelope {
                     pane,
@@ -1118,7 +1137,7 @@ impl<T: Element> PCollection<T> {
                     if !current.is_empty() {
                         batches.push(current);
                     }
-                    batches
+                    Ok(batches)
                 },
             )
     }
@@ -1279,245 +1298,11 @@ impl<T: Element> PCollection<T> {
                     if !current.is_empty() {
                         batches.push(current);
                     }
-                    batches
+                    Ok(batches)
                 },
             )
     }
-    pub fn map_with_side_named<S: Element, U: Element>(
-        &self,
-        key: &str,
-        side: &PCollection<S>,
-        f: impl Fn(T, &[S]) -> U + Send + Sync + 'static,
-    ) -> Result<PCollection<U>, Error> {
-        self.map_with_materialized_side_named(key, side, Ok, move |value, values: &Vec<S>| {
-            Ok(f(value, values))
-        })
-    }
-    /// Materialize exactly one bounded side value for the whole collection.
-    /// An empty side collection or more than one value fails execution.
-    pub fn map_with_singleton_side_named<S: Element, U: Element>(
-        &self,
-        key: &str,
-        side: &PCollection<S>,
-        f: impl Fn(T, &S) -> U + Send + Sync + 'static,
-    ) -> Result<PCollection<U>, Error> {
-        let key_owned = key.to_owned();
-        self.map_with_materialized_side_named(
-            key,
-            side,
-            move |mut values| {
-                if values.len() != 1 {
-                    return Err(Error::execution(
-                        &key_owned,
-                        "side-input",
-                        "singleton side view requires exactly one value",
-                    ));
-                }
-                values.pop().ok_or_else(|| {
-                    Error::execution(
-                        &key_owned,
-                        "side-input",
-                        "singleton side view requires exactly one value",
-                    )
-                })
-            },
-            move |value, view| Ok(f(value, view)),
-        )
-    }
-    /// Materialize a bounded keyed side collection as one lookup map.
-    /// Duplicate keys fail execution because shuffle order is unspecified.
-    pub fn map_with_map_side_named<K: Element + Eq + Hash, V: Element, U: Element>(
-        &self,
-        key: &str,
-        side: &PCollection<(K, V)>,
-        f: impl Fn(T, &HashMap<K, V>) -> U + Send + Sync + 'static,
-    ) -> Result<PCollection<U>, Error> {
-        let key_owned = key.to_owned();
-        self.map_with_materialized_side_named(
-            key,
-            side,
-            move |values| {
-                let mut view = HashMap::with_capacity(values.len());
-                for (row_key, row_value) in values {
-                    if view.insert(row_key, row_value).is_some() {
-                        return Err(Error::execution(
-                            &key_owned,
-                            "side-input",
-                            "map side view has a duplicate key",
-                        ));
-                    }
-                }
-                Ok(view)
-            },
-            move |value, view| Ok(f(value, view)),
-        )
-    }
-    /// Materialize a bounded keyed side collection as a lookup multimap.
-    /// Values for one key have no runner-independent order.
-    pub fn map_with_multimap_side_named<K: Element + Eq + Hash, V: Element, U: Element>(
-        &self,
-        key: &str,
-        side: &PCollection<(K, V)>,
-        f: impl Fn(T, &HashMap<K, Vec<V>>) -> U + Send + Sync + 'static,
-    ) -> Result<PCollection<U>, Error> {
-        self.map_with_materialized_side_named(
-            key,
-            side,
-            move |values| {
-                let mut view: HashMap<K, Vec<V>> = HashMap::new();
-                for (row_key, row_value) in values {
-                    view.entry(row_key).or_default().push(row_value);
-                }
-                Ok(view)
-            },
-            move |value, view| Ok(f(value, view)),
-        )
-    }
-    /// Apply side values separately within each matching window.
-    /// This composes a keyed co-group, so the runner may shuffle and buffer all
-    /// values until both input watermarks close the window. An unbounded side
-    /// collection therefore supplies one view at window closure, rather than
-    /// updates to main elements already emitted from that window. Main element
-    /// timestamps are restored after the group.
-    /// Use `map_with_side_named` for one global side view across all windows.
-    pub fn map_with_windowed_side_named<S: Element, U: Element>(
-        &self,
-        key: &str,
-        side: &PCollection<S>,
-        f: impl Fn(T, &[S]) -> U + Send + Sync + 'static,
-    ) -> Result<PCollection<U>, Error> {
-        if !Arc::ptr_eq(&self.pipeline.inner, &side.pipeline.inner) {
-            return Err(Error::graph(
-                key,
-                "side input belongs to a different pipeline",
-            ));
-        }
-        let main = self.parent()?;
-        let other = side.parent()?;
-        if main.time != other.time {
-            return Err(Error::graph(
-                key,
-                "side input time/window declaration mismatch",
-            ));
-        }
-        let main = self
-            .reify_timestamps_named(&format!("{key}/main-time"))?
-            .map_named(&format!("{key}/main-key"), |value| (0_i32, value))?;
-        let side = side.map_named(&format!("{key}/side-key"), |value| (0_i32, value))?;
-        crate::cogroup_by_key_2_named(&format!("{key}/group"), &main, &side)?
-            .flat_map_named(&format!("{key}/apply"), move |(_, (main, side))| {
-                main.into_iter()
-                    .map(|(timestamp_ns, value)| (timestamp_ns, f(value, &side)))
-                    .collect::<Vec<_>>()
-            })?
-            .timestamps_from_pairs_in_window_named(key)
-    }
-    /// Build a bounded side view once per execution, then apply it to each main value.
-    /// Materialization failures are returned as typed execution errors. The
-    /// view must be transferable because portable workers can resume a bundle
-    /// on another executor thread.
-    pub fn map_with_materialized_side_named<S: Element, M: Send + 'static, U: Element>(
-        &self,
-        key: &str,
-        side: &PCollection<S>,
-        materialize: impl Fn(Vec<S>) -> Result<M, Error> + Send + Sync + 'static,
-        f: impl Fn(T, &M) -> Result<U, Error> + Send + Sync + 'static,
-    ) -> Result<PCollection<U>, Error> {
-        if !Arc::ptr_eq(&self.pipeline.inner, &side.pipeline.inner) {
-            return Err(Error::graph(
-                key,
-                "side input belongs to a different pipeline",
-            ));
-        }
-        let main = self.parent()?;
-        let other = side.parent()?;
-        if other.boundedness != Boundedness::Bounded {
-            return Err(Error::graph(key, "side input must be bounded"));
-        }
-        if main.time != other.time {
-            return Err(Error::graph(
-                key,
-                "side input time/window declaration mismatch",
-            ));
-        }
-        let key_owned = key.to_owned();
-        let materialize = Arc::new(materialize);
-        let f = Arc::new(f);
-        let side_key = key_owned.clone();
-        let main_key = key_owned.clone();
-        let registration = SideInputRegistration {
-            materialize: Arc::new(move |values| {
-                let mut typed = Vec::with_capacity(values.len());
-                for value in values {
-                    typed.push(*value.downcast::<S>().map_err(|_| {
-                        Error::execution(&side_key, "direct", "side input type mismatch")
-                    })?);
-                }
-                Ok(Box::new(materialize(typed)?) as Payload)
-            }),
-            apply: Arc::new(move |event, view| {
-                let Envelope {
-                    pane,
-                    value,
-                    timestamp_ns,
-                    window,
-                    assigned_window,
-                } = event;
-                let value = *value.downcast::<T>().map_err(|_| {
-                    Error::execution(&main_key, "direct", "main input type mismatch")
-                })?;
-                let view = view.downcast_ref::<M>().ok_or_else(|| {
-                    Error::execution(&main_key, "direct", "side input view type mismatch")
-                })?;
-                Ok(Envelope {
-                    pane,
-                    value: Box::new(f(value, view)?),
-                    timestamp_ns,
-                    window,
-                    assigned_window,
-                })
-            }),
-        };
-        let direct_registration = registration.clone();
-        let aggregate: Aggregate = Arc::new(move |inputs| {
-            let [main_values, side_values]: [Vec<Envelope>; 2] =
-                inputs.try_into().map_err(|_| {
-                    Error::execution(&key_owned, "direct", "side input requires two inputs")
-                })?;
-            let side_view = (direct_registration.materialize)(
-                side_values.into_iter().map(|event| event.value).collect(),
-            )?;
-            let mut output = Vec::with_capacity(main_values.len());
-            for event in main_values {
-                output.push((direct_registration.apply)(event, side_view.as_ref())?);
-            }
-            Ok(output)
-        });
-        let collection = self.next_aggregate(
-            key,
-            Operation::SideInputMap,
-            vec![InputEdge {
-                key: side.key.clone(),
-                element: ElementDescriptor {
-                    type_id: S::type_identity(),
-                    coder_id: S::coder_identity(),
-                    coder_version: S::CODER_VERSION,
-                },
-            }],
-            main.boundedness,
-            aggregate,
-            None,
-        )?;
-        collection
-            .pipeline
-            .inner
-            .lock()
-            .map_err(|_| Error::graph(key, "builder lock poisoned"))?
-            .registry
-            .side_inputs
-            .insert(key.to_owned(), registration);
-        Ok(collection)
-    }
+
 }
 
 impl<T: Element> PCollection<(i64, T)> {

@@ -18,6 +18,7 @@ include!("runtime.rs");
 include!("registry.rs");
 include!("pipeline.rs");
 include!("collection.rs");
+include!("side_views.rs");
 include!("grouping.rs");
 include!("session_join.rs");
 include!("keyed.rs");
