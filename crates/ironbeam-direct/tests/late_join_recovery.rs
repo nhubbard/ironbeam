@@ -11,6 +11,101 @@ use std::time::{Duration, Instant};
 type Row = (i32, i32);
 
 #[test]
+fn sliding_late_join_keeps_overlapping_panes_independent() {
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .test_stream_source(
+            "main",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 8_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )
+        .unwrap()
+        .sliding_windows("main-window", 10_000_000, 5_000_000, 0)
+        .unwrap()
+        .allowed_lateness_named("main-lateness", 5_000_000)
+        .unwrap();
+    let side = pipeline
+        .test_stream_source(
+            "side",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )
+        .unwrap()
+        .sliding_windows("side-window", 10_000_000, 5_000_000, 0)
+        .unwrap()
+        .allowed_lateness_named("side-lateness", 5_000_000)
+        .unwrap();
+    let sink = main
+        .join_full_named("join", &side)
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .with_window_named("window")
+        .unwrap()
+        .map_named("row", |(window, (pane, (key, pair)))| {
+            format!(
+                "{}..{}:{key}:{pair:?}:{:?}:{}:{}:{}:{}",
+                window.start_ns,
+                window.end_ns,
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+                pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "sliding-late-join-v1".into(),
+            {
+                let rows = Arc::clone(&rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut actual = rows.lock().unwrap().clone();
+    actual.sort_unstable();
+    let mut expected = vec![
+        "0..10000000:1:(Some(2), Some(4)):OnTime:true:false:0:0",
+        "0..10000000:1:(Some(3), None):Late:false:false:1:1",
+        "5000000..15000000:1:(Some(2), Some(4)):OnTime:true:false:0:0",
+        "5000000..15000000:1:(Some(3), Some(4)):OnTime:true:false:0:0",
+    ];
+    expected.sort_unstable();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn typed_late_join_uses_each_panes_output_time_policy() {
     for (policy, on_time, late) in [
         (WindowOutputTime::EndOfWindow, 9_000_000, 9_000_000),
