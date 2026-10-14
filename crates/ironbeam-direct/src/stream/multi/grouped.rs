@@ -86,7 +86,9 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
     let mut source_digest = String::new();
     for source in &route.sources {
         let source_key = &source.key;
-        validate_dual_source(graph, &registry, source_key)?;
+        if !source.bounded {
+            validate_dual_source(graph, &registry, source_key)?;
+        }
         if config.checkpoint.is_some() {
             let digest = registry
                 .source_config_digest(source_key)
@@ -258,13 +260,94 @@ fn run_multi_grouped_stream(
     mut windows: WindowRows,
     mut buffered: usize,
 ) -> Result<(), Error> {
+    let mut materialized_bounded = false;
+    for (index, source) in route.sources.iter().enumerate() {
+        if !source.bounded
+            || sources[index]
+                .as_ref()
+                .is_some_and(|signal| signal.completed)
+        {
+            continue;
+        }
+        let mut reader = open_source_safe(registry, &source.key)?;
+        loop {
+            if config.cancellation.load(Ordering::Acquire) {
+                return Err(cancelled());
+            }
+            let batch = read_source_batch(&mut reader, config.buffer_budget_elements, &source.key)?;
+            if batch.is_empty() {
+                break;
+            }
+            let count = u64::try_from(batch.len()).unwrap_or(u64::MAX);
+            handle
+                .metrics
+                .source_elements
+                .fetch_add(count, Ordering::Relaxed);
+            handle
+                .metrics
+                .peak_batch_elements
+                .fetch_max(count, Ordering::Relaxed);
+            handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+            for input in batch {
+                for event in apply_branch_paths(
+                    registry,
+                    &source.key,
+                    &source.branches,
+                    input,
+                    config,
+                    handle,
+                )? {
+                    let window = stream_window(&event, &route.group_key)?;
+                    if buffered >= config.buffer_budget_elements {
+                        return Err(Error::resource(
+                            &route.group_key,
+                            "stateful stream input exceeds buffer budget",
+                        ));
+                    }
+                    windows.entry(window).or_default().push(event);
+                    buffered += 1;
+                }
+            }
+        }
+        sources[index] = Some(ProgressSignal {
+            source_key: source.key.clone(),
+            split_id: "bounded".into(),
+            checkpoint_position: None,
+            event_time_ns: None,
+            completed: true,
+        });
+        sequence = sequence
+            .checked_add(1)
+            .ok_or_else(|| Error::resource("checkpoint", "multi-group sequence exhausted"))?;
+        materialized_bounded = true;
+    }
+    if materialized_bounded {
+        let combined = multi_progress(sequence, &sources);
+        if let Some(checkpoint) = checkpoint {
+            let state = serde_json::to_vec(&MultiGroupedState {
+                version: 1,
+                sources: sources.clone(),
+                windows: encode_window_rows(
+                    registry,
+                    &route.group_input_key,
+                    &windows,
+                    config.memory_budget_bytes,
+                )?,
+            })
+            .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+            checkpoint.save_state(&combined, &state, config.memory_budget_bytes)?;
+        }
+        *shared_progress
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(combined);
+    }
     let mut readers = route
         .sources
         .iter()
         .zip(&sources)
         .map(|(source, progress)| {
             let source_key = &source.key;
-            if progress.as_ref().is_some_and(|progress| progress.completed) {
+            if source.bounded || progress.as_ref().is_some_and(|progress| progress.completed) {
                 Ok(None)
             } else {
                 catch_unwind(AssertUnwindSafe(|| {

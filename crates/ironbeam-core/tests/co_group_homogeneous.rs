@@ -49,7 +49,7 @@ fn homogeneous_cogroup_rejects_mismatched_inputs_before_adding_nodes() {
 }
 
 #[test]
-fn homogeneous_cogroup_accepts_finite_unbounded_inputs_but_rejects_mixed_sources() {
+fn homogeneous_cogroup_accepts_finite_unbounded_and_mixed_inputs() {
     let pipeline = Pipeline::default();
     let progress = SourceProgress {
         stable_split_id: true,
@@ -109,11 +109,15 @@ fn homogeneous_cogroup_accepts_finite_unbounded_inputs_but_rejects_mixed_sources
         .unwrap()
         .fixed_windows("bounded-window", 10_000_000)
         .unwrap();
-    let before = pipeline.snapshot().unwrap().0.nodes.len();
-    assert!(
-        first
-            .co_group_homogeneous_named("mixed-group", &[bounded])
-            .is_err()
-    );
-    assert_eq!(pipeline.snapshot().unwrap().0.nodes.len(), before);
+    first
+        .co_group_homogeneous_named("mixed-group", std::slice::from_ref(&bounded))
+        .unwrap()
+        .output("mixed-result")
+        .unwrap();
+    bounded
+        .co_group_homogeneous_named("mixed-reverse", &[first])
+        .unwrap()
+        .output("mixed-reverse-result")
+        .unwrap();
+    pipeline.snapshot().unwrap().0.validate().unwrap();
 }

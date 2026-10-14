@@ -41,12 +41,13 @@ use ironbeam_prism_proof::{
     group_time_fixture, homogeneous_twelve_way_cogroup_fixture,
     homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
     large_group_rows, large_group_summary, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
-    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, offset_window_group_fixture,
-    ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
-    ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
-    panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
-    panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
-    production_stream_fixture, session_group_fixture,
+    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture,
+    mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
+    offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
+    ordered_global_fixture, ordered_keyed_duplicate_fixture, ordered_keyed_fixture,
+    pane_metadata_fixture_for, panicking_global_combine_fixture, panicking_keyed_fold_fixture,
+    panicking_map_fixture, panicking_side_input_fixture, partition_fixture,
+    production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
     shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
     side_view_shapes_fixture, sliding_window_group_fixture, streaming_group_fixture,
     streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
@@ -3453,6 +3454,102 @@ async fn prism_matches_direct_three_unbounded_merged_sessions() {
     .await;
     assert_eq!(terminal.0, 3, "Prism triple session state: {terminal:?}");
     let mut rows = std::fs::read_to_string(&portable_path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(rows, expected);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_mixed_homogeneous_cogroup() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        accepted: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.accepted.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
+    let expected = [
+        "0..10000000:a:[[1], [10], []]".to_owned(),
+        "0..10000000:b:[[], [20], []]".to_owned(),
+    ];
+    let direct_pipeline = Pipeline::default();
+    let direct_rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let direct_sink = mixed_homogeneous_cogroup_collection(&direct_pipeline)
+        .unwrap()
+        .sink_named_with_config(
+            "mixed-group-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "mixed-group-direct-v1".into(),
+            {
+                let rows = Arc::clone(&direct_rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(DirectRows {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut direct = direct_rows.lock().unwrap().clone();
+    direct.sort();
+    assert_eq!(direct, expected);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("mixed-homogeneous.txt");
+    let portable = Pipeline::default();
+    mixed_homogeneous_cogroup_fixture(&portable, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "mixed-homogeneous",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_MIXED_HOMOGENEOUS".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism mixed group state: {terminal:?}");
+    let mut rows = std::fs::read_to_string(path)
         .unwrap()
         .lines()
         .map(str::to_owned)

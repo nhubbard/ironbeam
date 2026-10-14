@@ -5,6 +5,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     /// Co-group collections with the same key and value types.
     /// Bucket indices follow input order: `self` is zero, then `others`.
     /// Values within a bucket have no runner-independent order.
+    /// Bounded and unbounded inputs may be mixed when their window declarations match.
     pub fn co_group_homogeneous_named(
         &self,
         key: &str,
@@ -16,7 +17,21 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             .and_then(|count| u32::try_from(count).ok())
             .ok_or_else(|| Error::resource(key, "too many co-group inputs"))?;
         let main = self.parent()?;
-        if main.boundedness == Boundedness::Unbounded
+        let mut unbounded = main.boundedness == Boundedness::Unbounded;
+        for other in others {
+            if !Arc::ptr_eq(&self.pipeline.inner, &other.pipeline.inner) {
+                return Err(Error::graph(key, "co-group inputs belong to different pipelines"));
+            }
+            let node = other.parent()?;
+            unbounded |= node.boundedness == Boundedness::Unbounded;
+            if node.time != main.time {
+                return Err(Error::graph(
+                    key,
+                    "co-group inputs must share time/window declarations",
+                ));
+            }
+        }
+        if unbounded
             && !matches!(
                 main.time.window,
                 Window::Fixed { .. }
@@ -29,18 +44,6 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 key,
                 "unbounded homogeneous co-group requires a finite window",
             ));
-        }
-        for other in others {
-            if !Arc::ptr_eq(&self.pipeline.inner, &other.pipeline.inner) {
-                return Err(Error::graph(key, "co-group inputs belong to different pipelines"));
-            }
-            let node = other.parent()?;
-            if node.boundedness != main.boundedness || node.time != main.time {
-                return Err(Error::graph(
-                    key,
-                    "co-group inputs must share boundedness and time/window declarations",
-                ));
-            }
         }
         let tagged = std::iter::once(self)
             .chain(others.iter())

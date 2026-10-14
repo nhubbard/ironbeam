@@ -15,6 +15,64 @@ fn dual_unbounded_session_sources(pipeline: &Pipeline) -> Result<(KeyedStream, K
     Ok((main, side))
 }
 
+/// One unbounded and two bounded keyed inputs share a fixed window.
+pub fn mixed_homogeneous_cogroup_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let main = pipeline
+        .test_stream_source(
+            "mixed-group-main",
+            vec![
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 1_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("mixed-group-main-window", 10_000_000)?;
+    let side = pipeline
+        .from_vec(
+            "mixed-group-side",
+            vec![
+                (2_000_000_i64, ('a'.to_string(), 10_i32)),
+                (3_000_000, ('b'.to_string(), 20)),
+            ],
+        )?
+        .timestamps_from_pairs_named("mixed-group-side-time")?
+        .fixed_windows("mixed-group-side-window", 10_000_000)?;
+    let empty = pipeline
+        .from_vec("mixed-group-empty", Vec::<(String, i32)>::new())?
+        .fixed_windows("mixed-group-empty-window", 10_000_000)?;
+    main.co_group_homogeneous_named("mixed-group", &[side, empty])?
+        .with_window_named("mixed-group-with-window")?
+        .map_named("mixed-group-row", |(window, (key, mut buckets))| {
+            for bucket in &mut buckets {
+                bucket.sort_unstable();
+            }
+            format!("{}..{}:{key}:{buckets:?}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn mixed_homogeneous_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    mixed_homogeneous_cogroup_collection(pipeline)?.sink_named_with_config(
+        "mixed-group-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("mixed-group-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 /// A side event bridges two unbounded keyed session intervals across inputs.
 pub fn dual_unbounded_session_join_collection(
     pipeline: &Pipeline,

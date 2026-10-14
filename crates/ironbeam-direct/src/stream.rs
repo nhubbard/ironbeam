@@ -64,6 +64,7 @@ struct MultiGroupedStreamRoute {
 struct MultiGroupedSource {
     key: String,
     branches: Vec<Vec<String>>,
+    bounded: bool,
 }
 
 type WindowFolds = BTreeMap<(i64, i64), (Box<dyn FoldSession>, usize)>;
@@ -591,9 +592,12 @@ fn multi_grouped_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiGrou
         if let Some(source) = sources.iter_mut().find(|source| source.key == source_key) {
             source.branches.push(stages);
         } else {
+            let bounded =
+                graph.node(&source_key)?.boundedness == ironbeam_core::Boundedness::Bounded;
             sources.push(MultiGroupedSource {
                 key: source_key,
                 branches: vec![stages],
+                bounded,
             });
         }
     }

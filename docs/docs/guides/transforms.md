@@ -77,9 +77,10 @@ A grouped result contains a key and its values. A shuffle may change value order
 the same types. The result is a key and one value vector
 per input. The first vector belongs to the collection on which the method is
 called; the remaining vectors follow the order of `others`. A missing key in
-one input produces an empty vector. Inputs must share boundedness, time, and
-window declarations. Unbounded inputs require fixed, sliding, or session
-windows. The method uses Flatten and GroupByKey in the portable graph, so
+one input produces an empty vector. Inputs must share time and window
+declarations; bounded and unbounded inputs may be mixed. Any unbounded input
+requires fixed, sliding, or session windows. The method uses Flatten and
+GroupByKey in the portable graph, so
 value order within each vector is unspecified. A twelve-input
 fixed-window job and a twelve-branch merged-session job pass on Direct and
 local Prism. The session job derives its branches from one bounded source so
@@ -92,6 +93,12 @@ inputs also merge a keyed session when their watermarks advance after the
 bridging record. Direct can restore its open intervals and source cursors
 before that bridge arrives. Intermediate-watermark session schedules still
 need runner agreement.
+
+A shared three-input fixed-window job combines one unbounded input, one bounded
+input, and an empty bounded input. Direct and local Prism produce the same two
+keyed groups, including a key found only in the bounded input. Direct stores
+the bounded rows with the open group; after a checkpoint restart, it resumes
+the stream without reading those bounded rows again.
 
 ## Side views
 

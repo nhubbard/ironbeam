@@ -372,6 +372,160 @@ fn three_unbounded_sources_merge_a_keyed_session_across_inputs() {
 }
 
 #[test]
+fn bounded_side_is_materialized_once_and_restored_with_unbounded_group() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let hold = Arc::new(AtomicBool::new(true));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let side_visits = Arc::new(AtomicUsize::new(0));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "main",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "mixed-main-v1".into(),
+            0,
+            {
+                let hold = Arc::clone(&hold);
+                let opens = Arc::clone(&opens);
+                move |cursor| {
+                    opens.lock().unwrap().push(cursor.clone());
+                    let polls = match cursor.as_deref() {
+                        None => vec![UnboundedPoll::Ready(UnboundedBatch {
+                            elements: vec![Timestamped {
+                                value: (1_i32, 5_i32),
+                                timestamp_ns: 1_000_000,
+                            }],
+                            progress: ProgressSignal {
+                                source_key: "main".into(),
+                                split_id: "split-0".into(),
+                                checkpoint_position: Some(vec![1]),
+                                event_time_ns: Some(0),
+                                completed: false,
+                            },
+                        })],
+                        Some([1]) if !hold.load(Ordering::SeqCst) => {
+                            vec![UnboundedPoll::Ready(UnboundedBatch {
+                                elements: Vec::new(),
+                                progress: ProgressSignal {
+                                    source_key: "main".into(),
+                                    split_id: "split-0".into(),
+                                    checkpoint_position: Some(vec![2]),
+                                    event_time_ns: Some(10_000_000),
+                                    completed: true,
+                                },
+                            })]
+                        }
+                        Some([1]) => Vec::new(),
+                        _ => return Err(Error::incompatible("unexpected mixed source cursor")),
+                    };
+                    Ok(Box::new(Script {
+                        polls: polls.into(),
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap()
+        .fixed_windows("main-window", 10_000_000)
+        .unwrap();
+    let side = pipeline
+        .from_vec(
+            "side",
+            vec![(2_000_000_i64, (1_i32, 10_i32)), (3_000_000, (2, 20))],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("side-time")
+        .unwrap()
+        .fixed_windows("side-window", 10_000_000)
+        .unwrap()
+        .map_named("side-count", {
+            let visits = Arc::clone(&side_visits);
+            move |row| {
+                visits.fetch_add(1, Ordering::SeqCst);
+                row
+            }
+        })
+        .unwrap();
+    let sink = main
+        .co_group_homogeneous_named("group", &[side])
+        .unwrap()
+        .map_named("format", |(key, mut buckets)| {
+            for bucket in &mut buckets {
+                bucket.sort_unstable();
+            }
+            format!("{key}:{buckets:?}")
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "mixed-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        staged: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            binary_build_id: "mixed-group-test-v1".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let expected_progress = 2_u64.to_le_bytes().to_vec();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while job.progress().and_then(|signal| signal.checkpoint_position)
+        != Some(expected_progress.clone())
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        job.progress().and_then(|signal| signal.checkpoint_position),
+        Some(expected_progress)
+    );
+    assert_eq!(side_visits.load(Ordering::SeqCst), 2);
+    assert!(committed.lock().unwrap().is_empty());
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    hold.store(false, Ordering::SeqCst);
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort();
+    assert_eq!(
+        rows,
+        ["1:[[5], [10]]".to_owned(), "2:[[], [20]]".to_owned()]
+    );
+    assert_eq!(side_visits.load(Ordering::SeqCst), 2);
+    assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
+}
+
+#[test]
 fn three_source_session_bridge_arrives_after_checkpoint_restart() {
     let directory = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
