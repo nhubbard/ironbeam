@@ -298,6 +298,7 @@ jobs:
 
       - name: Test and measure contract package independently
         run: |
+          set -o pipefail
           cargo test -p ironbeam-runner-contract-tests
           cargo llvm-cov -p ironbeam-runner-contract-tests --branch --json --summary-only \
             --output-path coverage-contract.json
@@ -309,6 +310,7 @@ jobs:
     permissions:
       contents: read
     strategy:
+      fail-fast: false
       matrix:
         package: [ironbeam-compression, ironbeam-coder-postcard, ironbeam-cloud-objects, ironbeam-cloud-service-api, ironbeam-cloud-ops, ironbeam-core, ironbeam-direct, ironbeam-metrics, ironbeam-testing, ironbeam-transforms, ironbeam-transform-regex, ironbeam-transform-approx, ironbeam-io, ironbeam-io-jsonl, ironbeam-io-protobuf, ironbeam-io-tfrecord, ironbeam-io-csv, ironbeam-io-xml, ironbeam-io-msgpack, ironbeam-io-cbor, ironbeam-io-avro, ironbeam-io-parquet, ironbeam-io-arrow, ironbeam-compat]
     steps:
