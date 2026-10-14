@@ -1293,9 +1293,12 @@ impl<T: Element> PCollection<T> {
             Ok(f(value, values))
         })
     }
-    /// Apply a bounded side collection separately within each matching window.
+    /// Apply side values separately within each matching window.
     /// This composes a keyed co-group, so the runner may shuffle and buffer all
-    /// values in a window. Main element timestamps are restored after the group.
+    /// values until both input watermarks close the window. An unbounded side
+    /// collection therefore supplies one view at window closure, rather than
+    /// updates to main elements already emitted from that window. Main element
+    /// timestamps are restored after the group.
     /// Use `map_with_side_named` for one global side view across all windows.
     pub fn map_with_windowed_side_named<S: Element, U: Element>(
         &self,
@@ -1311,9 +1314,6 @@ impl<T: Element> PCollection<T> {
         }
         let main = self.parent()?;
         let other = side.parent()?;
-        if other.boundedness != Boundedness::Bounded {
-            return Err(Error::graph(key, "side input must be bounded"));
-        }
         if main.time != other.time {
             return Err(Error::graph(
                 key,

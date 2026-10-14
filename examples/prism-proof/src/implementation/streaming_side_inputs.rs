@@ -54,6 +54,64 @@ pub fn streaming_windowed_side_input_fixture(
     )
 }
 
+/// Two watermarked streams produce one side view when each fixed window closes.
+pub fn dual_stream_windowed_side_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let main = pipeline
+        .test_stream_source(
+            "dual-window-side-main",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 1_000_000), (2, 3_000_000), (3, 5_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+            ],
+        )?
+        .fixed_windows("dual-window-side-main-window", 2_000_000)?;
+    let side = pipeline
+        .test_stream_source(
+            "dual-window-side-values",
+            vec![
+                TestStreamEvent::Elements(vec![(10_i32, 0), (20, 2_000_000), (21, 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+            ],
+        )?
+        .fixed_windows("dual-window-side-values-window", 2_000_000)?;
+    main.map_with_windowed_side_named("dual-window-side-add", &side, |value, values| {
+        value + values.iter().sum::<i32>()
+    })?
+    .reify_timestamps_named("dual-window-side-result-time")?
+    .with_window_named("dual-window-side-result-window")?
+    .map_named("dual-window-side-row", |(window, (time, value))| {
+        format!("{}..{}:{time}:{value}", window.start_ns, window.end_ns)
+    })
+}
+
+pub fn dual_stream_windowed_side_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_stream_windowed_side_collection(pipeline)?.sink_named_with_config(
+        "dual-window-side-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("dual-window-side-contract:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 type KeyedStream = PCollection<(String, i32)>;
 
 fn dual_unbounded_sources(pipeline: &Pipeline) -> Result<(KeyedStream, KeyedStream), Error> {
