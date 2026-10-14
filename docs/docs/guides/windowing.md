@@ -123,8 +123,9 @@ to co-groups and joins when every input has the same windowing declaration.
 For a join, the latest-in-pane timestamp is the latest event timestamp for
 the entire key and window, including input rows that have no match. The default
 join timestamp remains the earlier timestamp of each matched pair; an unmatched
-row retains its own timestamp. Global combines and folds do not yet support
-these output-time policies.
+row retains its own timestamp. Vector and lifted global combines, and lifted
+keyed combines, follow the same policies. Ordered folds retain their explicit
+ordering and timestamp rules.
 
 ### Late elements
 

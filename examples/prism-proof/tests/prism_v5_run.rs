@@ -28,8 +28,8 @@ use ironbeam_prism_proof::{
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
-    bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combined_count_fixture,
-    completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
+    bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
+    combined_count_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
     dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
     dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
     dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
@@ -6039,6 +6039,68 @@ async fn prism_matches_direct_unbounded_fanin_output_time_policies() {
                 format!("J:a:{first_time}:(Some(1), Some(10))"),
                 format!("J:b:{second_time}:(None, Some(20))"),
                 format!("J:c:{second_time}:(Some(3), None)"),
+            ]
+        );
+        assert_eq!(read_rows(&portable_path), direct, "policy: {policy:?}");
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_combine_output_time_policies() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    for (policy, variable, expected) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            "IRONBEAM_V5_PRISM_COMBINE_END_TIME",
+            9_000_000,
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            "IRONBEAM_V5_PRISM_COMBINE_LATEST_TIME",
+            7_000_000,
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let direct_path = directory.path().join("direct.txt");
+        let portable_path = directory.path().join("portable.txt");
+        let direct_pipeline = Pipeline::default();
+        let direct_sink =
+            combine_output_time_fixture(&direct_pipeline, direct_path.clone(), policy).unwrap();
+        DirectRunner
+            .run_sink(&direct_sink, &JobConfig::default())
+            .unwrap();
+        let pipeline = Pipeline::default();
+        combine_output_time_fixture(&pipeline, portable_path.clone(), policy).unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &pipeline,
+            "combine-output-time",
+            HashMap::from([(
+                variable.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "combine output-time job state: {terminal:?}");
+        let read_rows = |path: &Path| {
+            let mut rows = std::fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            rows.sort_unstable();
+            rows
+        };
+        let direct = read_rows(&direct_path);
+        assert_eq!(
+            direct,
+            vec![
+                format!("G:{expected}:9"),
+                format!("K:{expected}:1:9"),
+                format!("V:{expected}:9")
             ]
         );
         assert_eq!(read_rows(&portable_path), direct, "policy: {policy:?}");

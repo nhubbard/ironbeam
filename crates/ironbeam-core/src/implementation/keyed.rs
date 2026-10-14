@@ -61,11 +61,13 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             ));
         }
         let node_key = key.to_owned();
+        let output_time = parent.time.output_time;
         let combiner = Arc::new(MergeableAdapter(combiner));
         let factory: FoldFactory = Arc::new(move || {
             Box::new(KeyedFoldState::<K, V, A, O, MergeableAdapter<C>> {
                 key: node_key.clone(),
                 combiner: Arc::clone(&combiner),
+                output_time,
                 indices: HashMap::new(),
                 rows: Vec::new(),
                 marker: PhantomData,
@@ -96,11 +98,13 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             ));
         }
         let node_key = key.to_owned();
+        let output_time = parent.time.output_time;
         let fold = Arc::new(OrderedAdapter(fold));
         let factory: FoldFactory = Arc::new(move || {
             Box::new(KeyedFoldState::<K, V, A, O, OrderedAdapter<C>> {
                 key: node_key.clone(),
                 combiner: Arc::clone(&fold),
+                output_time,
                 indices: HashMap::new(),
                 rows: Vec::new(),
                 marker: PhantomData,

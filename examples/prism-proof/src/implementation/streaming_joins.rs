@@ -569,6 +569,41 @@ pub fn group_latest_time_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<S
     group_time_fixture_with_policy(pipeline, path, Some(ironbeam_core::WindowOutputTime::LatestInPane))
 }
 
+/// Compare vector, lifted global, and lifted keyed combines in one window.
+pub fn combine_output_time_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    let keyed = pipeline
+        .from_vec("combine-time-events", vec![(7_000_000_i64, (1_i32, 7_i32)), (2_000_000, (1, 2))])?
+        .timestamps_from_pairs_named("combine-time-assign")?
+        .fixed_windows("combine-time-window", 10_000_000)?;
+    let keyed = match policy {
+        ironbeam_core::WindowOutputTime::EndOfWindow => keyed.end_of_window_output_time_named("combine-time-policy")?,
+        ironbeam_core::WindowOutputTime::LatestInPane => keyed.latest_in_pane_output_time_named("combine-time-policy")?,
+        ironbeam_core::WindowOutputTime::EarliestInPane => keyed,
+    };
+    let values = keyed.map_named("combine-time-values", |(_, value)| value)?;
+    let vector = values.combine_globally_named("combine-time-vector", |rows| rows.into_iter().sum::<i32>())?
+        .reify_timestamps_named("combine-time-vector-stamp")?
+        .map_named("combine-time-vector-row", |(time, value)| format!("V:{time}:{value}"))?;
+    let lifted = values.combine_globally_lifted_named("combine-time-lifted", ProductionSum)?
+        .reify_timestamps_named("combine-time-lifted-stamp")?
+        .map_named("combine-time-lifted-row", |(time, value)| format!("G:{time}:{value}"))?;
+    let keyed = keyed.combine_values_lifted_named("combine-time-keyed", ProductionSum)?
+        .reify_timestamps_named("combine-time-keyed-stamp")?
+        .map_named("combine-time-keyed-row", |(time, (key, value))| format!("K:{time}:{key}:{value}"))?;
+    let sink_path = path.clone();
+    vector.flatten_named("combine-time-merge", &[lifted, keyed])?
+        .sink_named_with_config(
+            "combine-time-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+            format!("combine-time:{}", path.display()),
+            move || Ok(Box::new(GlobalFoldSink { path: sink_path.clone(), values: Vec::new() })),
+        )
+}
+
 fn group_time_fixture_with_policy(
     pipeline: &Pipeline,
     path: PathBuf,

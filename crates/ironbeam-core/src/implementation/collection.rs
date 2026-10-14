@@ -1,3 +1,5 @@
+type VectorCombineEntry<T> = (Vec<T>, i64, i64, Option<WindowInterval>);
+
 #[derive(Clone, Copy, Default)]
 struct TimePolicyOverride {
     trigger: Option<WindowTrigger>,
@@ -1043,32 +1045,34 @@ impl<T: Element> PCollection<T> {
         }
         let key_owned = key.to_owned();
         let output_window = parent.time.window.clone();
+        let output_time = parent.time.output_time;
         let aggregate: Aggregate = Arc::new(move |inputs| {
             let [values]: [Vec<Envelope>; 1] = inputs.try_into().map_err(|_| {
                 Error::execution(&key_owned, "direct", "combine requires exactly one input")
             })?;
-            let mut groups: BTreeMap<Option<i64>, (Vec<T>, i64, Option<WindowInterval>)> =
+            let mut groups: BTreeMap<Option<i64>, VectorCombineEntry<T>> =
                 BTreeMap::new();
             for event in values {
                 let typed = *event.value.downcast::<T>().map_err(|_| {
                     Error::execution(&key_owned, "direct", "combine input type mismatch")
                 })?;
                 let scope = event.assigned_window.map(|interval| interval.start_ns);
-                groups
+                let entry = groups
                     .entry(scope)
-                    .or_insert_with(|| (Vec::new(), event.timestamp_ns, event.assigned_window))
-                    .0
-                    .push(typed);
+                    .or_insert_with(|| (Vec::new(), event.timestamp_ns, event.timestamp_ns, event.assigned_window));
+                entry.0.push(typed);
+                entry.1 = entry.1.min(event.timestamp_ns);
+                entry.2 = entry.2.max(event.timestamp_ns);
             }
             if groups.is_empty() && output_window == Window::Global {
-                groups.insert(None, (Vec::new(), 0, None));
+                groups.insert(None, (Vec::new(), 0, 0, None));
             }
             Ok(groups
                 .into_values()
-                .map(|(values, timestamp_ns, assigned_window)| Envelope {
+                .map(|(values, earliest_ns, latest_ns, assigned_window)| Envelope {
                     pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new(f(values)),
-                    timestamp_ns,
+                    timestamp_ns: grouped_output_timestamp(output_time, earliest_ns, Some(latest_ns), assigned_window),
                     window: output_window.clone(),
                     assigned_window,
                 })
@@ -1101,6 +1105,7 @@ impl<T: Element> PCollection<T> {
             ));
         }
         let window = parent.time.window;
+        let output_time = parent.time.output_time;
         let node_key = key.to_owned();
         let combiner = Arc::new(MergeableAdapter(combiner));
         let factory: FoldFactory = Arc::new(move || {
@@ -1108,6 +1113,7 @@ impl<T: Element> PCollection<T> {
                 key: node_key.clone(),
                 combiner: Arc::clone(&combiner),
                 window: window.clone(),
+                output_time,
                 entries: BTreeMap::new(),
                 marker: PhantomData,
             })
@@ -1137,6 +1143,7 @@ impl<T: Element> PCollection<T> {
             ));
         }
         let window = parent.time.window;
+        let output_time = parent.time.output_time;
         let node_key = key.to_owned();
         let fold = Arc::new(OrderedAdapter(fold));
         let factory: FoldFactory = Arc::new(move || {
@@ -1144,6 +1151,7 @@ impl<T: Element> PCollection<T> {
                 key: node_key.clone(),
                 combiner: Arc::clone(&fold),
                 window: window.clone(),
+                output_time,
                 entries: BTreeMap::new(),
                 marker: PhantomData,
             })

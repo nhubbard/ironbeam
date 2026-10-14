@@ -205,12 +205,13 @@ pub trait FoldSession: Send {
     }
 }
 type FoldFactory = Arc<dyn Fn() -> Box<dyn FoldSession> + Send + Sync>;
-type FoldEntry<A> = (A, i64, Window, Option<WindowInterval>);
+type FoldEntry<A> = (A, i64, i64, Window, Option<WindowInterval>);
 
 struct GlobalFoldState<T, A, O, C> {
     key: String,
     combiner: Arc<C>,
     window: Window,
+    output_time: WindowOutputTime,
     entries: BTreeMap<Option<i64>, FoldEntry<A>>,
     marker: PhantomData<(T, O)>,
 }
@@ -233,25 +234,28 @@ impl<T: Element, A: Send + 'static, O: Element, C: FoldLogic<T, A, O>> FoldSessi
             (
                 self.combiner.create(),
                 timestamp_ns,
+                timestamp_ns,
                 window,
                 assigned_window,
             )
         });
+        entry.1 = entry.1.min(timestamp_ns);
+        entry.2 = entry.2.max(timestamp_ns);
         self.combiner.add_input(&mut entry.0, value);
         Ok(())
     }
     fn finish(mut self: Box<Self>) -> Result<Vec<Envelope>, Error> {
         if self.entries.is_empty() && self.window == Window::Global {
             self.entries
-                .insert(None, (self.combiner.create(), 0, Window::Global, None));
+                .insert(None, (self.combiner.create(), 0, 0, Window::Global, None));
         }
         Ok(std::mem::take(&mut self.entries)
             .into_values()
             .map(
-                |(accumulator, timestamp_ns, window, assigned_window)| Envelope {
+                |(accumulator, earliest_ns, latest_ns, window, assigned_window)| Envelope {
                     pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new(self.combiner.finish(accumulator)),
-                    timestamp_ns,
+                    timestamp_ns: grouped_output_timestamp(self.output_time, earliest_ns, Some(latest_ns), assigned_window),
                     window,
                     assigned_window,
                 },
@@ -264,15 +268,15 @@ impl<T: Element, A: Send + 'static, O: Element, C: FoldLogic<T, A, O>> FoldSessi
     ) -> Result<(), Error> {
         if self.entries.is_empty() && self.window == Window::Global {
             self.entries
-                .insert(None, (self.combiner.create(), 0, Window::Global, None));
+                .insert(None, (self.combiner.create(), 0, 0, Window::Global, None));
         }
-        for (accumulator, timestamp_ns, window, assigned_window) in
+        for (accumulator, earliest_ns, latest_ns, window, assigned_window) in
             std::mem::take(&mut self.entries).into_values()
         {
             emit(Envelope {
                 pane: PaneInfo::FIRST_LAST_ON_TIME,
                 value: Box::new(self.combiner.finish(accumulator)),
-                timestamp_ns,
+                timestamp_ns: grouped_output_timestamp(self.output_time, earliest_ns, Some(latest_ns), assigned_window),
                 window,
                 assigned_window,
             })?;
@@ -284,6 +288,7 @@ impl<T: Element, A: Send + 'static, O: Element, C: FoldLogic<T, A, O>> FoldSessi
 struct KeyedFoldState<K, V, A, O, C> {
     key: String,
     combiner: Arc<C>,
+    output_time: WindowOutputTime,
     indices: HashMap<(K, Option<WindowInterval>), usize>,
     rows: Vec<(K, FoldEntry<A>)>,
     marker: PhantomData<(V, O)>,
@@ -318,12 +323,15 @@ impl<
                 (
                     self.combiner.create(),
                     timestamp_ns,
+                    timestamp_ns,
                     window,
                     assigned_window,
                 ),
             ));
             next
         };
+        self.rows[position].1.1 = self.rows[position].1.1.min(timestamp_ns);
+        self.rows[position].1.2 = self.rows[position].1.2.max(timestamp_ns);
         self.combiner.add_input(&mut self.rows[position].1.0, value);
         Ok(())
     }
@@ -331,10 +339,10 @@ impl<
         Ok(std::mem::take(&mut self.rows)
             .into_iter()
             .map(
-                |(key, (accumulator, timestamp_ns, window, assigned_window))| Envelope {
+                |(key, (accumulator, earliest_ns, latest_ns, window, assigned_window))| Envelope {
                     pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new((key, self.combiner.finish(accumulator))),
-                    timestamp_ns,
+                    timestamp_ns: grouped_output_timestamp(self.output_time, earliest_ns, Some(latest_ns), assigned_window),
                     window,
                     assigned_window,
                 },
@@ -345,13 +353,13 @@ impl<
         mut self: Box<Self>,
         emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
     ) -> Result<(), Error> {
-        for (key, (accumulator, timestamp_ns, window, assigned_window)) in
+        for (key, (accumulator, earliest_ns, latest_ns, window, assigned_window)) in
             std::mem::take(&mut self.rows)
         {
             emit(Envelope {
                 pane: PaneInfo::FIRST_LAST_ON_TIME,
                 value: Box::new((key, self.combiner.finish(accumulator))),
-                timestamp_ns,
+                timestamp_ns: grouped_output_timestamp(self.output_time, earliest_ns, Some(latest_ns), assigned_window),
                 window,
                 assigned_window,
             })?;

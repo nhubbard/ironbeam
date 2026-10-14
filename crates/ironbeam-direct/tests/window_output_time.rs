@@ -230,3 +230,92 @@ fn join_output_time_uses_the_whole_key_window() {
         assert_eq!(rows, vec![(expected, (1, (2, 7))), (expected, (1, (4, 7)))]);
     }
 }
+
+#[test]
+fn global_and_keyed_combines_follow_window_output_time() {
+    use ironbeam_core::CombineFn;
+    struct Sum;
+    impl CombineFn<i32, i32, i32> for Sum {
+        fn create(&self) -> i32 {
+            0
+        }
+        fn add_input(&self, total: &mut i32, value: i32) {
+            *total += value;
+        }
+        fn merge(&self, total: &mut i32, other: i32) {
+            *total += other;
+        }
+        fn finish(&self, total: i32) -> i32 {
+            total
+        }
+    }
+    for (policy, expected) in [
+        (WindowOutputTime::EarliestInPane, 2_000_000),
+        (WindowOutputTime::EndOfWindow, 9_000_000),
+        (WindowOutputTime::LatestInPane, 7_000_000),
+    ] {
+        let pipeline = Pipeline::default();
+        let keyed = pipeline
+            .from_vec(
+                "values",
+                vec![(7_000_000_i64, (1_i32, 7_i32)), (2_000_000, (1, 2))],
+            )
+            .unwrap()
+            .timestamps_from_pairs_named("timestamps")
+            .unwrap()
+            .fixed_windows("windows", 10_000_000)
+            .unwrap();
+        let keyed = match policy {
+            WindowOutputTime::EarliestInPane => keyed,
+            WindowOutputTime::EndOfWindow => {
+                keyed.end_of_window_output_time_named("policy").unwrap()
+            }
+            WindowOutputTime::LatestInPane => {
+                keyed.latest_in_pane_output_time_named("policy").unwrap()
+            }
+        };
+        let values = keyed.map_named("strip-key", |(_, value)| value).unwrap();
+        let vector = values
+            .combine_globally_named("vector", |rows| rows.into_iter().sum::<i32>())
+            .unwrap()
+            .reify_timestamps_named("vector-time")
+            .unwrap()
+            .output("vector-out")
+            .unwrap();
+        let lifted = values
+            .combine_globally_lifted_named("lifted", Sum)
+            .unwrap()
+            .reify_timestamps_named("lifted-time")
+            .unwrap()
+            .output("lifted-out")
+            .unwrap();
+        let keyed = keyed
+            .combine_values_lifted_named("keyed", Sum)
+            .unwrap()
+            .reify_timestamps_named("keyed-time")
+            .unwrap()
+            .output("keyed-out")
+            .unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&vector, &JobConfig::default())
+                .unwrap()
+                .0,
+            vec![(expected, 9)]
+        );
+        assert_eq!(
+            DirectRunner
+                .run_collect(&lifted, &JobConfig::default())
+                .unwrap()
+                .0,
+            vec![(expected, 9)]
+        );
+        assert_eq!(
+            DirectRunner
+                .run_collect(&keyed, &JobConfig::default())
+                .unwrap()
+                .0,
+            vec![(expected, (1, 9))]
+        );
+    }
+}
