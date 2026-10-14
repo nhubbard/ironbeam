@@ -119,6 +119,16 @@ transform that emits zero or more values per input and can fail, use
 `flat_map_fallible_named`. Its errors fail execution on Direct and the portable
 worker.
 
+## Completion barriers
+
+`wait_on_named` holds a main collection until a bounded signal collection
+completes. For matching event-time windows on watermarked streams,
+`wait_on_windowed_named` releases main values after both sources close
+their matching window. Signal values are ignored, and a window with no signal
+elements still closes when the signal watermark passes it. The windowed method
+requires matching time and window declarations. It may buffer a full window;
+it does not release early when the signal closes before the main watermark.
+
 ## Batches and custom handlers
 
 Version 5 batch transforms use an explicit size rather than an implicit physical partition boundary. Registered custom handlers have semantic identifiers and versions; those values contribute to graph identity. The [migration guide](../migration/operations.md) describes the effect on v4 programs. Runner-specific capability checks determine whether a stateful graph can execute on Direct or the portable worker.
