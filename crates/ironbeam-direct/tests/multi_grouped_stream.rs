@@ -283,6 +283,261 @@ fn shared_unbounded_source_restores_one_cursor_and_open_group() {
 }
 
 #[test]
+fn three_unbounded_sources_merge_a_keyed_session_across_inputs() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let first = pipeline
+        .test_stream_source(
+            "first",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("a".to_owned(), 1_i32), 0),
+                    (("a".to_owned(), 2), 8_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )
+        .unwrap()
+        .session_windows_named("first-window", 5_000_000)
+        .unwrap();
+    let second = pipeline
+        .test_stream_source(
+            "second",
+            vec![
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 10_i32), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )
+        .unwrap()
+        .session_windows_named("second-window", 5_000_000)
+        .unwrap();
+    let third = pipeline
+        .test_stream_source(
+            "third",
+            vec![
+                TestStreamEvent::Elements(vec![(('b'.to_string(), 99_i32), 0)]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )
+        .unwrap()
+        .session_windows_named("third-window", 5_000_000)
+        .unwrap();
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
+    let sink = first
+        .co_group_homogeneous_named("group", &[second, third])
+        .unwrap()
+        .with_window_named("with-window")
+        .unwrap()
+        .map_named("format", |(window, (key, mut buckets))| {
+            for bucket in &mut buckets {
+                bucket.sort_unstable();
+            }
+            format!("{}..{}:{key}:{buckets:?}", window.start_ns, window.end_ns)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "session-group-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort();
+    assert_eq!(
+        rows,
+        [
+            "0..13000000:a:[[1, 2], [10], []]".to_owned(),
+            "0..5000000:b:[[], [], [99]]".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn three_source_session_bridge_arrives_after_checkpoint_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let hold = Arc::new(AtomicBool::new(true));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let make_source = |index: i32| {
+        let source_key = format!("source-{index}");
+        let factory_key = source_key.clone();
+        let hold = Arc::clone(&hold);
+        let opens = Arc::clone(&opens);
+        pipeline
+            .unbounded_source_with_factory(
+                &source_key,
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                format!("session-source-{index}-v1"),
+                0,
+                move |cursor| {
+                    opens.lock().unwrap().push((index, cursor.clone()));
+                    let (rows, position, watermark, completed) = match cursor.as_deref() {
+                        None => {
+                            let rows = match index {
+                                0 => vec![(1, 1, 0), (1, 2, 8_000_000)],
+                                1 => Vec::new(),
+                                _ => vec![(2, 99, 0)],
+                            };
+                            (rows, 1, 0, false)
+                        }
+                        Some([1]) if !hold.load(Ordering::SeqCst) => {
+                            let rows = if index == 1 {
+                                vec![(1, 10, 4_000_000)]
+                            } else {
+                                Vec::new()
+                            };
+                            (rows, 2, 20_000_000, true)
+                        }
+                        Some([1]) => {
+                            return Ok(Box::new(Script {
+                                polls: VecDeque::new(),
+                            })
+                                as TypedUnboundedSourceReader<(i32, i32)>);
+                        }
+                        _ => return Err(Error::incompatible("unexpected session source cursor")),
+                    };
+                    let elements = rows
+                        .into_iter()
+                        .map(|(key, value, timestamp_ns)| Timestamped {
+                            value: (key, value),
+                            timestamp_ns,
+                        })
+                        .collect();
+                    Ok(Box::new(Script {
+                        polls: vec![UnboundedPoll::Ready(UnboundedBatch {
+                            elements,
+                            progress: ProgressSignal {
+                                source_key: factory_key.clone(),
+                                split_id: "split-0".into(),
+                                checkpoint_position: Some(vec![position]),
+                                event_time_ns: Some(watermark),
+                                completed,
+                            },
+                        })]
+                        .into(),
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                },
+            )
+            .unwrap()
+            .session_windows_named(&format!("session-{index}"), 5_000_000)
+            .unwrap()
+    };
+    let first = make_source(0);
+    let second = make_source(1);
+    let third = make_source(2);
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
+    let sink = first
+        .co_group_homogeneous_named("group", &[second, third])
+        .unwrap()
+        .with_window_named("with-window")
+        .unwrap()
+        .map_named("format", |(window, (key, mut buckets))| {
+            for bucket in &mut buckets {
+                bucket.sort_unstable();
+            }
+            format!("{}..{}:{key}:{buckets:?}", window.start_ns, window.end_ns)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "session-recovery-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            binary_build_id: "session-recovery-test-build".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let expected_progress = 3_u64.to_le_bytes().to_vec();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while job.progress().and_then(|signal| signal.checkpoint_position)
+        != Some(expected_progress.clone())
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        job.progress().and_then(|signal| signal.checkpoint_position),
+        Some(expected_progress)
+    );
+    assert!(committed.lock().unwrap().is_empty());
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    hold.store(false, Ordering::SeqCst);
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort();
+    assert_eq!(
+        rows,
+        [
+            "0..13000000:1:[[1, 2], [10], []]".to_owned(),
+            "0..5000000:2:[[], [], [99]]".to_owned(),
+        ]
+    );
+    let opens = opens.lock().unwrap();
+    assert_eq!(opens.len(), 6);
+    assert_eq!(
+        opens.iter().filter(|(_, cursor)| cursor.is_none()).count(),
+        3
+    );
+    assert_eq!(
+        opens
+            .iter()
+            .filter(|(_, cursor)| cursor.as_deref() == Some([1].as_slice()))
+            .count(),
+        3
+    );
+}
+
+#[test]
 fn grouped_stream_rejects_wrong_source_identity_and_regressing_watermark() {
     for wrong_identity in [true, false] {
         let pipeline = Pipeline::default();

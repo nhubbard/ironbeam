@@ -78,17 +78,20 @@ the same types. The result is a key and one value vector
 per input. The first vector belongs to the collection on which the method is
 called; the remaining vectors follow the order of `others`. A missing key in
 one input produces an empty vector. Inputs must share boundedness, time, and
-window declarations. Unbounded inputs require fixed or sliding windows. The
-method uses Flatten and GroupByKey in the portable
-graph, so value order within each vector is unspecified. A twelve-input
+window declarations. Unbounded inputs require fixed, sliding, or session
+windows. The method uses Flatten and GroupByKey in the portable graph, so
+value order within each vector is unspecified. A twelve-input
 fixed-window job and a twelve-branch merged-session job pass on Direct and
 local Prism. The session job derives its branches from one bounded source so
 the bridge record precedes source completion on both runners. Three independent
 unbounded sources and three branches from one unbounded source also pass on
 both runners in fixed windows. Direct checkpoints their open groups and source
 cursors; late records after window closure are dropped. A common transform
-before the branches runs once per input element. The Direct route does not yet
-support merging sessions for unbounded inputs in this form.
+before the branches runs once per input element. Three independent unbounded
+inputs also merge a keyed session when their watermarks advance after the
+bridging record. Direct can restore its open intervals and source cursors
+before that bridge arrives. Intermediate-watermark session schedules still
+need runner agreement.
 
 ## Side views
 

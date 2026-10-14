@@ -57,6 +57,7 @@ struct MultiGroupedStreamRoute {
     sources: Vec<MultiGroupedSource>,
     group_input_key: String,
     group_key: String,
+    window: Window,
     after_group: Vec<String>,
 }
 
@@ -560,7 +561,10 @@ fn multi_grouped_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiGrou
     if !matches!(flatten.operation, Operation::Flatten)
         || !matches!(
             group.time.window,
-            Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. }
+            Window::Fixed { .. }
+                | Window::FixedOffset { .. }
+                | Window::Sliding { .. }
+                | Window::Session { .. }
         )
     {
         return None;
@@ -598,6 +602,7 @@ fn multi_grouped_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiGrou
         sources,
         group_input_key: flatten.key.clone(),
         group_key: group.key.clone(),
+        window: group.time.window.clone(),
         after_group,
     })
 }

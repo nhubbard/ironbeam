@@ -398,17 +398,33 @@ fn run_multi_grouped_stream(
             } else {
                 combined.event_time_ns
             };
-            let closing = windows
-                .keys()
-                .copied()
-                .filter(|(_, end)| closing_watermark.is_some_and(|watermark| *end <= watermark))
-                .collect::<Vec<_>>();
+            let closing = if let Some(watermark) = closing_watermark {
+                if matches!(route.window, Window::Session { .. }) {
+                    session::close_ready_group_sessions(
+                        registry,
+                        &route.group_input_key,
+                        &route.group_key,
+                        &mut windows,
+                        watermark,
+                    )?
+                } else {
+                    windows
+                        .keys()
+                        .copied()
+                        .filter(|(_, end)| *end <= watermark)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .map(|window| windows.remove(&window).expect("selected open window"))
+                        .collect()
+                }
+            } else {
+                Vec::new()
+            };
             let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &combined);
             let mut session = None;
             let mut written = 0_u64;
             let result = (|| {
-                for window in closing {
-                    let events = windows.remove(&window).expect("selected open window");
+                for events in closing {
                     buffered -= events.len();
                     let grouped = catch_unwind(AssertUnwindSafe(|| {
                         registry.apply_aggregate(&route.group_key, vec![events])

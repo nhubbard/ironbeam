@@ -19,12 +19,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         if main.boundedness == Boundedness::Unbounded
             && !matches!(
                 main.time.window,
-                Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. }
+                Window::Fixed { .. }
+                    | Window::FixedOffset { .. }
+                    | Window::Sliding { .. }
+                    | Window::Session { .. }
             )
         {
             return Err(Error::graph(
                 key,
-                "unbounded homogeneous co-group requires a finite nonmerging window",
+                "unbounded homogeneous co-group requires a finite window",
             ));
         }
         for other in others {

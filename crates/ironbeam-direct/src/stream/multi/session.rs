@@ -119,3 +119,66 @@ fn settle(
         }
     }
 }
+
+struct GroupSessionRow {
+    interval: (i64, i64),
+    event: Envelope,
+}
+
+/// Close connected sessions from one flattened keyed input only after the
+/// minimum active source watermark has passed each merged interval.
+pub(super) fn close_ready_group_sessions(
+    registry: &Registry,
+    input_key: &str,
+    group_key: &str,
+    windows: &mut WindowRows,
+    watermark: i64,
+) -> Result<Vec<Vec<Envelope>>, Error> {
+    let mut keyed: BTreeMap<Vec<u8>, Vec<GroupSessionRow>> = BTreeMap::new();
+    for (interval, events) in std::mem::take(windows) {
+        for event in events {
+            let encoded = registry.encode_element(input_key, event.value.as_ref())?;
+            let key = registry.split_group_input(group_key, &encoded)?.0;
+            keyed
+                .entry(key)
+                .or_default()
+                .push(GroupSessionRow { interval, event });
+        }
+    }
+    let mut open = BTreeMap::new();
+    let mut closed = Vec::new();
+    for rows in keyed.values_mut() {
+        rows.sort_by_key(|row| row.interval);
+        let mut component = Vec::new();
+        let mut end = i64::MIN;
+        for row in rows.drain(..) {
+            if !component.is_empty() && row.interval.0 > end {
+                settle_group(component, end, watermark, &mut open, &mut closed);
+                component = Vec::new();
+            }
+            end = end.max(row.interval.1);
+            component.push(row);
+        }
+        if !component.is_empty() {
+            settle_group(component, end, watermark, &mut open, &mut closed);
+        }
+    }
+    *windows = open;
+    Ok(closed)
+}
+
+fn settle_group(
+    rows: Vec<GroupSessionRow>,
+    end: i64,
+    watermark: i64,
+    open: &mut WindowRows,
+    closed: &mut Vec<Vec<Envelope>>,
+) {
+    if end <= watermark {
+        closed.push(rows.into_iter().map(|row| row.event).collect());
+    } else {
+        for row in rows {
+            open.entry(row.interval).or_default().push(row.event);
+        }
+    }
+}

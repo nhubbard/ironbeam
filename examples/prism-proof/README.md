@@ -30,7 +30,8 @@ and fixed-window GroupByKey, keyed latest with restored event time, two-,
 three- and ten-input typed CoGroupByKey, twelve-input homogeneous co-group
 in fixed and merged-session windows, and two unbounded homogeneous co-groups:
 one with three independent sources and one with three branches from a shared
-source. Both cover window closure and late-row drop. The corpus also covers all
+source. Both cover window closure and late-row drop. A third unbounded job
+merges one keyed session across three independent sources. The corpus also covers all
 four joins with
 duplicate and unmatched keys, a fixed-window join with preserved input
 timestamps, a bounded side input fetched through Beam Fn State, native

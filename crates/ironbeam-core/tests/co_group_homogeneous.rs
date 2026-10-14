@@ -71,6 +71,37 @@ fn homogeneous_cogroup_accepts_finite_unbounded_inputs_but_rejects_mixed_sources
         .unwrap()
         .output("result")
         .unwrap();
+    let session_a = pipeline
+        .unbounded_source::<(i32, i32)>(
+            "session-a",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            0,
+        )
+        .unwrap()
+        .session_windows_named("session-a-window", 5_000_000)
+        .unwrap();
+    let session_b = pipeline
+        .unbounded_source::<(i32, i32)>(
+            "session-b",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            0,
+        )
+        .unwrap()
+        .session_windows_named("session-b-window", 5_000_000)
+        .unwrap();
+    session_a
+        .co_group_homogeneous_named("session-group", &[session_b])
+        .unwrap()
+        .output("session-result")
+        .unwrap();
     pipeline.snapshot().unwrap().0.validate().unwrap();
 
     let bounded = pipeline

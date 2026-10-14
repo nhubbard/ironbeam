@@ -40,6 +40,52 @@ pub fn dual_unbounded_session_cogroup_collection(
         })
 }
 
+/// Three independent unbounded sources bridge a keyed session across inputs.
+pub fn triple_unbounded_session_homogeneous_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let (main, side) = dual_unbounded_session_sources(pipeline)?;
+    let third = pipeline
+        .test_stream_source(
+            "triple-session-third",
+            vec![
+                TestStreamEvent::Elements(vec![(('c'.to_string(), 77_i32), 0)]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )?
+        .session_windows_named("triple-session-third-window", 5_000_000)?;
+    main.co_group_homogeneous_named("triple-session-group", &[side, third])?
+        .with_window_named("triple-session-window")?
+        .map_named("triple-session-row", |(window, (key, mut buckets))| {
+            for bucket in &mut buckets {
+                bucket.sort_unstable();
+            }
+            format!("{}..{}:{key}:{buckets:?}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn triple_unbounded_session_homogeneous_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    triple_unbounded_session_homogeneous_collection(pipeline)?.sink_named_with_config(
+        "triple-session-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("triple-session-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 pub fn dual_unbounded_session_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
