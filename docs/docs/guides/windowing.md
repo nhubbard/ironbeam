@@ -91,11 +91,12 @@ key. Single-source unbounded keyed groups also merge in Direct and local
 Prism. Direct restores their open sessions and source cursor from a checkpoint;
 the shared fixture closes one negative-time session, then bridges two open
 sessions and discards a row after its session closes. Bounded session joins
-merge intervals across both inputs before matching keyed values. Direct and
-local Prism agree when a right-side event bridges two left-side sessions;
-Direct also checks inner, left, right, and full join results. Unbounded session
-joins and session co-groups remain unsupported because their cross-input
-watermark and recovery rules are not yet implemented.
+and co-groups merge intervals across their inputs before matching keyed
+values. Direct and local Prism agree when another input bridges two sessions;
+Direct also checks inner, left, right, and full join results. A three-input
+co-group fixture verifies an empty side and an isolated session on both
+runners. Unbounded session joins and co-groups remain unsupported because
+their cross-input watermark and recovery rules are not yet implemented.
 Portable session gaps must be positive whole milliseconds.
 
 `group_by_session_named` assigns sessions and then groups the keyed elements.

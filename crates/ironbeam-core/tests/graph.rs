@@ -594,7 +594,7 @@ fn session_windows_validate_gap_and_time_bounds() {
     grouped
         .join_inner_named("bounded-session-join", &grouped)
         .unwrap();
-    assert!(cogroup_by_key_2_named("unsupported-session-cogroup", &grouped, &grouped).is_err());
+    cogroup_by_key_2_named("bounded-session-cogroup", &grouped, &grouped).unwrap();
     let fixed = bounded.fixed_windows("fixed-before-session", 10).unwrap();
     assert!(fixed.group_by_session_named("nested-session", 5).is_err());
     assert!(
@@ -620,6 +620,14 @@ fn session_windows_validate_gap_and_time_bounds() {
         unbounded_grouped
             .join_inner_named("unsupported-unbounded-session-join", &unbounded_grouped)
             .is_err()
+    );
+    assert!(
+        cogroup_by_key_2_named(
+            "unsupported-unbounded-session-cogroup",
+            &unbounded_grouped,
+            &unbounded_grouped
+        )
+        .is_err()
     );
     let (graph, _) = pipeline.snapshot().unwrap();
     graph.validate().unwrap();
@@ -722,6 +730,69 @@ fn bounded_session_join_registry_merges_intervals_from_both_inputs() {
     let mut malformed = input();
     malformed[1][0].value = Box::new("wrong type");
     assert!(registry.apply_aggregate("inner", malformed).is_err());
+}
+
+#[test]
+fn bounded_session_cogroup_registry_merges_and_rejects_bad_input_metadata() {
+    fn event<T: Element>(key: i32, value: T, timestamp_ns: i64) -> Envelope {
+        let window = Window::Session { gap_ns: 5 };
+        Envelope {
+            value: Box::new((key, value)),
+            timestamp_ns,
+            assigned_window: window.assign(timestamp_ns).unwrap(),
+            window,
+        }
+    }
+    let pipeline = Pipeline::default();
+    let first = pipeline
+        .from_vec("first", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .session_windows_named("first-session", 5)
+        .unwrap();
+    let second = pipeline
+        .from_vec("second", vec![(1_i32, "bridge".to_owned())])
+        .unwrap()
+        .session_windows_named("second-session", 5)
+        .unwrap();
+    let third = pipeline
+        .from_vec("third", vec![(1_i32, true)])
+        .unwrap()
+        .session_windows_named("third-session", 5)
+        .unwrap();
+    cogroup_by_key_3_named("session-cogroup", &first, &second, &third).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let inputs = || {
+        vec![
+            vec![event(1, 1_i32, 0), event(1, 2_i32, 8)],
+            vec![event(1, "bridge".to_owned(), 4)],
+            vec![event(1, true, 12)],
+        ]
+    };
+    let output = registry
+        .apply_aggregate("session-cogroup", inputs())
+        .unwrap();
+    assert_eq!(output.len(), 1);
+    assert_eq!(
+        output[0].assigned_window,
+        Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 17
+        })
+    );
+    let mut malformed = inputs();
+    malformed[1][0].value = Box::new((1_i32, 99_i32));
+    assert!(
+        registry
+            .apply_aggregate("session-cogroup", malformed)
+            .is_err()
+    );
+    let mut malformed = inputs();
+    malformed[2][0].assigned_window = None;
+    assert!(
+        registry
+            .apply_aggregate("session-cogroup", malformed)
+            .is_err()
+    );
 }
 
 #[test]

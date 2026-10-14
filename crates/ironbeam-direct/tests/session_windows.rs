@@ -1,4 +1,4 @@
-use ironbeam_core::Pipeline;
+use ironbeam_core::{Pipeline, cogroup_by_key_3_named};
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
 
 #[test]
@@ -155,6 +155,78 @@ fn bounded_join_merges_session_intervals_across_both_inputs() {
     full_rows.sort_unstable();
     assert_eq!(full_rows.len(), 4);
     assert!(full_rows.contains(&"a:None:Some(11):20000000..25000000".to_owned()));
+}
+
+#[test]
+fn bounded_three_input_cogroup_merges_sessions_across_inputs() {
+    let pipeline = Pipeline::default();
+    let first = pipeline
+        .from_vec(
+            "first",
+            vec![(0_i64, ("a".to_owned(), 1_i32)), (8, ("a".to_owned(), 2))],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("first-time")
+        .unwrap()
+        .session_windows_named("first-session", 5)
+        .unwrap();
+    let second = pipeline
+        .from_vec(
+            "second",
+            vec![
+                (4_i64, ("a".to_owned(), "bridge".to_owned())),
+                (20, ("a".to_owned(), "isolated".to_owned())),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("second-time")
+        .unwrap()
+        .session_windows_named("second-session", 5)
+        .unwrap();
+    let third = pipeline
+        .from_vec(
+            "third",
+            vec![
+                (12_i64, ("a".to_owned(), true)),
+                (30, ("b".to_owned(), true)),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("third-time")
+        .unwrap()
+        .session_windows_named("third-session", 5)
+        .unwrap();
+    let output = cogroup_by_key_3_named("session-cogroup", &first, &second, &third)
+        .unwrap()
+        .with_window_named("bounds")
+        .unwrap()
+        .map_named(
+            "rows",
+            |(window, (key, (mut first, mut second, mut third)))| {
+                first.sort_unstable();
+                second.sort_unstable();
+                third.sort_unstable();
+                format!(
+                    "{key}:{first:?}:{second:?}:{third:?}:{}..{}",
+                    window.start_ns, window.end_ns
+                )
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (mut rows, _) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        [
+            "a:[1, 2]:[\"bridge\"]:[true]:0..17",
+            "a:[]:[\"isolated\"]:[]:20..25",
+            "b:[]:[]:[true]:30..35",
+        ]
+    );
 }
 
 #[test]

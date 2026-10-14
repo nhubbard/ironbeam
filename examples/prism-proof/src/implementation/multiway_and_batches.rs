@@ -140,6 +140,40 @@ pub fn bounded_session_join_fixture(
         )
 }
 
+/// Three keyed inputs contribute to one merged session window.
+pub fn bounded_session_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    let first = pipeline
+        .from_vec("session-cogroup-first", vec![(0_i64, ("a".to_owned(), 1_i32)), (8_000_000, ("a".to_owned(), 2))])?
+        .timestamps_from_pairs_named("session-cogroup-first-time")?
+        .session_windows_named("session-cogroup-first-window", 5_000_000)?;
+    let second = pipeline
+        .from_vec("session-cogroup-second", vec![(4_000_000_i64, ("a".to_owned(), "bridge".to_owned())), (20_000_000, ("a".to_owned(), "isolated".to_owned()))])?
+        .timestamps_from_pairs_named("session-cogroup-second-time")?
+        .session_windows_named("session-cogroup-second-window", 5_000_000)?;
+    let third = pipeline
+        .from_vec("session-cogroup-third", vec![(12_000_000_i64, ("a".to_owned(), true)), (30_000_000, ("b".to_owned(), true))])?
+        .timestamps_from_pairs_named("session-cogroup-third-time")?
+        .session_windows_named("session-cogroup-third-window", 5_000_000)?;
+    ironbeam_core::cogroup_by_key_3_named("session-cogroup", &first, &second, &third)?
+        .with_window_named("session-cogroup-bounds")?
+        .map_named("session-cogroup-row", |(window, (key, (mut first, mut second, mut third)))| {
+            first.sort_unstable();
+            second.sort_unstable();
+            third.sort_unstable();
+            format!("{key}:{first:?}:{second:?}:{third:?}:{}..{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "session-cogroup-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+            format!("session-cogroup-contract:{}", path.display()),
+            move || Ok(Box::new(GlobalFoldSink { path: sink_path.clone(), values: Vec::new() })),
+        )
+}
+
 /// A late-arriving bridge joins two prior sessions for one key.
 pub fn session_group_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();

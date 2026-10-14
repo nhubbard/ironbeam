@@ -776,9 +776,7 @@ macro_rules! define_cogroup {
             $($other_ty: Element),+
         {
             let first_node = $first.parent()?;
-            if matches!(first_node.time.window, Window::Session { .. }) {
-                return Err(Error::graph(key, "session co-groups require cross-input merge support"));
-            }
+            let session_cogroup = matches!(first_node.time.window, Window::Session { .. });
             let mut unbounded = first_node.boundedness == Boundedness::Unbounded;
             $(
                 if !Arc::ptr_eq(&$first.pipeline.inner, &$other.pipeline.inner) {
@@ -790,14 +788,28 @@ macro_rules! define_cogroup {
                 }
                 unbounded |= other_node.boundedness == Boundedness::Unbounded;
             )+
+            if session_cogroup && unbounded {
+                return Err(Error::graph(key, "unbounded session co-groups require cross-input watermark and recovery support"));
+            }
             if unbounded && first_node.time.window == Window::Global {
                 return Err(Error::graph(key, "unbounded global co-group requires a finite window"));
             }
             let node_key = key.to_owned();
-            let aggregate: Aggregate = Arc::new(move |inputs| {
+            let aggregate: Aggregate = Arc::new(move |mut inputs| {
                 let expected = 1 $(+ { let _ = stringify!($other); 1 })+;
                 if inputs.len() != expected {
                     return Err(Error::execution(&node_key, "direct", "co-group input count mismatch"));
+                }
+                if session_cogroup {
+                    let extractors: &[SessionKeyExtractor<K>] = &[
+                        |value| value.downcast_ref::<(K, $first_ty)>()
+                            .map(|(key, _)| key.clone())
+                            .ok_or_else(|| Error::incompatible("co-group input type mismatch")),
+                        $(|value| value.downcast_ref::<(K, $other_ty)>()
+                            .map(|(key, _)| key.clone())
+                            .ok_or_else(|| Error::incompatible("co-group input type mismatch"))),+
+                    ];
+                    merge_bounded_cogroup_sessions(&mut inputs, extractors, &node_key)?;
                 }
                 let mut inputs = inputs.into_iter();
                 let mut indices: HashMap<(K, Option<WindowInterval>), usize> = HashMap::new();
