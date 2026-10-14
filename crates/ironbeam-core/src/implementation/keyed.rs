@@ -451,7 +451,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     pub fn latest_per_key_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.time.output_time != WindowOutputTime::EarliestInPane {
-            return Err(Error::graph(key, "latest_per_key does not yet support end-of-window output time"));
+            return Err(Error::graph(key, "latest_per_key does not yet support a custom output time policy"));
         }
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
             return Err(Error::graph(
@@ -668,6 +668,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 session_indices: HashMap::new(),
                 fired_panes: HashMap::new(),
                 fired_value_counts: HashMap::new(),
+                latest_timestamps: HashMap::new(),
                 groups: Vec::new(),
             })
         });
@@ -684,6 +685,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 session_indices: HashMap::new(),
                 fired_panes: HashMap::new(),
                 fired_value_counts: HashMap::new(),
+                latest_timestamps: HashMap::new(),
                 groups: Vec::new(),
             });
             for event in events {

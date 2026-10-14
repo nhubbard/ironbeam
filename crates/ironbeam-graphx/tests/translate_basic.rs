@@ -193,6 +193,33 @@ fn end_of_window_timestamp_policy_has_a_distinct_beam_strategy() {
 }
 
 #[test]
+fn latest_in_pane_timestamp_policy_lowers_to_beam_strategy() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .latest_in_pane_output_time_named("output-policy")
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let policy_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "output-policy")
+        .unwrap();
+    let strategy = &components.windowing_strategies[&policy_pc.windowing_strategy_id];
+    assert_eq!(strategy.output_time, output_time::Enum::LatestInPane as i32);
+}
+
+#[test]
 fn bounded_multi_signal_wait_lowers_two_portable_side_dependencies() {
     let pipeline = Pipeline::default();
     let first = pipeline.from_vec("first", vec![1_i32]).unwrap();

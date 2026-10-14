@@ -559,6 +559,15 @@ impl<T: Element> PCollection<T> {
     /// Timestamp grouped output at the final millisecond in each fixed or
     /// sliding window. The window dimensions must be whole milliseconds.
     pub fn end_of_window_output_time_named(&self, key: &str) -> Result<Self, Error> {
+        self.set_output_time_named(key, WindowOutputTime::EndOfWindow)
+    }
+
+    /// Timestamp each grouped pane at the latest event time it contains.
+    pub fn latest_in_pane_output_time_named(&self, key: &str) -> Result<Self, Error> {
+        self.set_output_time_named(key, WindowOutputTime::LatestInPane)
+    }
+
+    fn set_output_time_named(&self, key: &str, policy: WindowOutputTime) -> Result<Self, Error> {
         let window = self.parent()?.time.window;
         let aligned = match &window {
             Window::Fixed { size_ns } => *size_ns > 0 && size_ns % 1_000_000 == 0,
@@ -575,7 +584,7 @@ impl<T: Element> PCollection<T> {
             _ => false,
         };
         if !aligned {
-            return Err(Error::graph(key, "end-of-window output time requires millisecond-aligned fixed or sliding windows"));
+            return Err(Error::graph(key, "output time policy requires millisecond-aligned fixed or sliding windows"));
         }
         self.next_with_time_policy(
             key,
@@ -585,7 +594,7 @@ impl<T: Element> PCollection<T> {
             None,
             TimePolicyOverride {
                 trigger: None,
-                output_time: Some(WindowOutputTime::EndOfWindow),
+                output_time: Some(policy),
             },
         )
     }

@@ -47,7 +47,7 @@ impl DirectRunner {
             if node.time.trigger != WindowTrigger::Default && !trigger_supported {
                 return Err(Error::unsupported(&node.key, "direct", "early-count-trigger"));
             }
-            if node.time.output_time == WindowOutputTime::EndOfWindow
+            if node.time.output_time != WindowOutputTime::EarliestInPane
                 && matches!(
                     node.operation,
                     Operation::CoGroupByKey
@@ -62,7 +62,7 @@ impl DirectRunner {
                         | Operation::FoldOrderedPerKey
                 )
             {
-                return Err(Error::unsupported(&node.key, "direct", "end-of-window-output-time"));
+                return Err(Error::unsupported(&node.key, "direct", "group-output-time-policy"));
             }
             let capability = match &node.operation {
                 Operation::Source { .. }

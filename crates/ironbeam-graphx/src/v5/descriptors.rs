@@ -70,6 +70,7 @@ fn windowing_id(time: &Time) -> String {
     match time.output_time {
         WindowOutputTime::EarliestInPane => triggered,
         WindowOutputTime::EndOfWindow => id("v5_ws", &format!("{triggered}:end-of-window")),
+        WindowOutputTime::LatestInPane => id("v5_ws", &format!("{triggered}:latest-in-pane")),
     }
 }
 

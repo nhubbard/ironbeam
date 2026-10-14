@@ -58,6 +58,7 @@ pub enum WindowOutputTime {
     #[default]
     EarliestInPane,
     EndOfWindow,
+    LatestInPane,
 }
 
 impl WindowOutputTime {

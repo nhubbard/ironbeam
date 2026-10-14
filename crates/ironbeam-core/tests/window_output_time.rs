@@ -68,8 +68,13 @@ fn grouped_output_time_survives_fold_checkpoint_restore() {
         pane: PaneInfo::NO_FIRING,
         value: Box::new((1_i32, 2_i32)),
         timestamp_ns: 2_000_000,
-        window: Window::Fixed { size_ns: 10_000_000 },
-        assigned_window: Some(WindowInterval { start_ns: 0, end_ns: 10_000_000 }),
+        window: Window::Fixed {
+            size_ns: 10_000_000,
+        },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10_000_000,
+        }),
     })
     .unwrap();
     let saved = fold.checkpoint_state().unwrap().unwrap();
@@ -79,4 +84,53 @@ fn grouped_output_time_survives_fold_checkpoint_restore() {
     assert_eq!(released, 1);
     assert_eq!(output.len(), 1);
     assert_eq!(output[0].timestamp_ns, 9_000_000);
+}
+
+#[test]
+fn latest_in_pane_policy_tracks_maximum_event_time_across_checkpoint_restore() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .latest_in_pane_output_time_named("output-policy")
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut fold = registry.open_fold("groups").unwrap();
+    for timestamp_ns in [7_000_000, 2_000_000] {
+        fold.add(Envelope {
+            pane: PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, 2_i32)),
+            timestamp_ns,
+            window: Window::Fixed {
+                size_ns: 10_000_000,
+            },
+            assigned_window: Some(WindowInterval {
+                start_ns: 0,
+                end_ns: 10_000_000,
+            }),
+        })
+        .unwrap();
+    }
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut corrupt: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+    corrupt["groups"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("latest_timestamp_ns");
+    let mut rejected = registry.open_fold("groups").unwrap();
+    assert!(
+        rejected
+            .restore_checkpoint_state(&serde_json::to_vec(&corrupt).unwrap())
+            .is_err()
+    );
+    let mut restored = registry.open_fold("groups").unwrap();
+    restored.restore_checkpoint_state(&saved).unwrap();
+    let (output, released) = restored.drain_closed(10_000_000).unwrap();
+    assert_eq!(released, 2);
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0].timestamp_ns, 7_000_000);
 }

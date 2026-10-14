@@ -77,10 +77,10 @@ impl Graph {
                     "early count trigger requires fixed or sliding windows and a positive count",
                 ));
             }
-            if node.time.output_time == WindowOutputTime::EndOfWindow
+            if node.time.output_time != WindowOutputTime::EarliestInPane
                 && !matches!(node.time.window, Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. })
             {
-                return Err(Error::graph(&node.key, "end-of-window output time requires fixed or sliding windows"));
+                return Err(Error::graph(&node.key, "output time policy requires fixed or sliding windows"));
             }
             if matches!(node.operation, Operation::FixedWindow)
                 && !matches!(
@@ -251,7 +251,7 @@ impl Graph {
                             && ((node.time.output_time == upstream.time.output_time
                                 && node.time.trigger.early_count().is_some())
                                 || (node.time.trigger == upstream.time.trigger
-                                    && node.time.output_time == WindowOutputTime::EndOfWindow)))
+                                    && node.time.output_time != WindowOutputTime::EarliestInPane)))
                     {
                         return Err(Error::graph(&node.key, "event time/window must propagate"));
                     }

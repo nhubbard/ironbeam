@@ -109,10 +109,17 @@ fn main() -> Result<(), ironbeam::Error> {
 }
 ```
 
-The interval `[0, 10 ms)` produces a grouped timestamp of 9 ms. The policy
-is part of the graph identity and Beam windowing strategy. Window sizes,
-periods, and offsets must be whole milliseconds. Direct currently applies
-this choice to GroupByKey; other keyed aggregates do not yet share it.
+The interval `[0, 10 ms)` produces a grouped timestamp of 9 ms. To use the
+latest event timestamp in each pane instead, call
+`latest_in_pane_output_time_named("output-time")` in place of
+`end_of_window_output_time_named`. For events at 2 ms and 7 ms, the grouped
+output is stamped 7 ms, regardless of arrival order. An accumulating pane
+retains the latest timestamp of all values it contains.
+
+Both policies are part of the graph identity and Beam windowing strategy.
+Window sizes, periods, and offsets must be whole milliseconds. Direct currently
+applies these choices to GroupByKey; other keyed aggregates do not yet share
+them.
 
 ## Sliding windows
 

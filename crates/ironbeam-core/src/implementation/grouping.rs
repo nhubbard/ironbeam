@@ -238,16 +238,22 @@ struct GroupByKeyFoldState<K, V> {
     session_indices: HashMap<K, Vec<usize>>,
     fired_panes: HashMap<(K, WindowInterval), i64>,
     fired_value_counts: HashMap<(K, WindowInterval), usize>,
+    latest_timestamps: HashMap<(K, WindowInterval), i64>,
     groups: GroupBuffer<K, V>,
 }
 
 const fn grouped_output_timestamp(
     policy: WindowOutputTime,
     earliest_ns: i64,
+    latest_ns: Option<i64>,
     interval: Option<WindowInterval>,
 ) -> i64 {
     match (policy, interval) {
         (WindowOutputTime::EndOfWindow, Some(interval)) => interval.end_ns.saturating_sub(1_000_000),
+        (WindowOutputTime::LatestInPane, _) => match latest_ns {
+            Some(latest_ns) => latest_ns,
+            None => earliest_ns,
+        },
         _ => earliest_ns,
     }
 }
@@ -276,6 +282,8 @@ struct GroupFoldCheckpointRow {
     key: Vec<u8>,
     values: Vec<u8>,
     timestamp_ns: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    latest_timestamp_ns: Option<i64>,
     window: Window,
     assigned_window: Option<WindowInterval>,
 }
@@ -410,7 +418,16 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let (group_key, value) = *value
             .downcast::<(K, V)>()
             .map_err(|_| Error::execution(&self.key, "direct", "group input type mismatch"))?;
+        let scope = assigned_window.map(|interval| (group_key.clone(), interval));
         self.add_row(group_key, value, timestamp_ns, window, assigned_window);
+        if self.output_time == WindowOutputTime::LatestInPane
+            && let Some(scope) = scope
+        {
+            self.latest_timestamps
+                .entry(scope)
+                .and_modify(|latest| *latest = (*latest).max(timestamp_ns))
+                .or_insert(timestamp_ns);
+        }
         Ok(())
     }
 
@@ -436,7 +453,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 *next_index = next_index
                     .checked_add(1)
                     .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
-                self.fired_value_counts.insert(scope, values.len());
+                self.fired_value_counts.insert(scope.clone(), values.len());
                 fired.push(Envelope {
                     pane: PaneInfo {
                         is_first: index == 0,
@@ -447,7 +464,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         contains_element_metadata: false,
                     },
                     value: Box::new((key.clone(), copied)),
-                    timestamp_ns: grouped_output_timestamp(self.output_time, *timestamp_ns, Some(interval)),
+                    timestamp_ns: grouped_output_timestamp(
+                        self.output_time,
+                        *timestamp_ns,
+                        self.latest_timestamps.get(&scope).copied(),
+                        Some(interval),
+                    ),
                     window: window.clone(),
                     assigned_window: Some(interval),
                 });
@@ -465,6 +487,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             let interval = assigned_window.ok_or_else(|| {
                 Error::incompatible("early count trigger requires a finite window")
             })?;
+            let latest = self.latest_timestamps.remove(&(key.clone(), interval));
             let next_index = self.fired_panes.entry((key.clone(), interval)).or_insert(0);
             let index = *next_index;
             *next_index = next_index
@@ -481,7 +504,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     contains_element_metadata: false,
                 },
                 value: Box::new((key, values)),
-                timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, Some(interval)),
+                timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, Some(interval)),
                 window,
                 assigned_window: Some(interval),
             });
@@ -500,6 +523,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 released = released.saturating_add(values.len());
                 let index = self.fired_panes.remove(&(key.clone(), assigned_window.unwrap())).unwrap_or(0);
                 self.fired_value_counts.remove(&(key.clone(), assigned_window.unwrap()));
+                let latest = self.latest_timestamps.remove(&(key.clone(), assigned_window.unwrap()));
                 closed.push(Envelope {
                     pane: PaneInfo {
                         is_first: index == 0,
@@ -510,7 +534,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         contains_element_metadata: false,
                     },
                     value: Box::new((key, values)),
-                    timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, assigned_window),
+                    timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, assigned_window),
                     window,
                     assigned_window,
                 });
@@ -521,6 +545,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         self.groups = remaining;
         self.fired_panes.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         self.fired_value_counts.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        self.latest_timestamps.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         self.rebuild_indices();
         Ok((closed, released))
     }
@@ -541,6 +566,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     key: key.encode()?,
                     values: values.encode()?,
                     timestamp_ns: *timestamp_ns,
+                    latest_timestamp_ns: assigned_window.and_then(|interval| {
+                        self.latest_timestamps.get(&(key.clone(), interval)).copied()
+                    }),
                     window: window.clone(),
                     assigned_window: *assigned_window,
                 })
@@ -598,6 +626,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             session_indices: HashMap::new(),
             fired_panes: HashMap::new(),
             fired_value_counts: HashMap::new(),
+            latest_timestamps: HashMap::new(),
             groups: Vec::with_capacity(checkpoint.groups.len()),
         };
         for pane in checkpoint.fired_panes {
@@ -638,6 +667,20 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             let values = Vec::<V>::decode(&row.values)?;
             if values.is_empty() {
                 return Err(Error::recovery(&self.key, "empty group in fold checkpoint"));
+            }
+            if self.output_time == WindowOutputTime::LatestInPane {
+                let Some(interval) = row.assigned_window else {
+                    return Err(Error::recovery(&self.key, "latest-in-pane group lacks a window"));
+                };
+                let Some(latest) = row.latest_timestamp_ns else {
+                    return Err(Error::recovery(&self.key, "latest-in-pane group lacks its latest timestamp"));
+                };
+                if latest < row.timestamp_ns {
+                    return Err(Error::recovery(&self.key, "latest-in-pane timestamp precedes earliest input"));
+                }
+                restored.latest_timestamps.insert((key.clone(), interval), latest);
+            } else if row.latest_timestamp_ns.is_some() {
+                return Err(Error::recovery(&self.key, "unexpected latest timestamp in group checkpoint"));
             }
             let position = restored.groups.len();
             if let Some(interval) = row.assigned_window {
@@ -706,6 +749,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         };
         let fired_panes = self.fired_panes;
         let output_time = self.output_time;
+        let latest_timestamps = self.latest_timestamps;
         early.extend(self
             .groups
             .into_iter()
@@ -714,6 +758,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     let index = assigned_window
                         .and_then(|interval| fired_panes.get(&(key.clone(), interval)).copied())
                         .unwrap_or(0);
+                    let latest_ns = assigned_window.and_then(|interval| {
+                        latest_timestamps.get(&(key.clone(), interval)).copied()
+                    });
                     Envelope {
                     pane: PaneInfo {
                         is_first: index == 0,
@@ -724,7 +771,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         contains_element_metadata: false,
                     },
                     value: Box::new((key, values)),
-                    timestamp_ns: grouped_output_timestamp(output_time, timestamp_ns, assigned_window),
+                    timestamp_ns: grouped_output_timestamp(
+                        output_time,
+                        timestamp_ns,
+                        latest_ns,
+                        assigned_window,
+                    ),
                     window,
                     assigned_window,
                 }
@@ -746,10 +798,13 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         }
         let fired_panes = self.fired_panes;
         let output_time = self.output_time;
+        let latest_timestamps = self.latest_timestamps;
         for (key, values, timestamp_ns, window, assigned_window) in self.groups {
             let index = assigned_window
                 .and_then(|interval| fired_panes.get(&(key.clone(), interval)).copied())
                 .unwrap_or(0);
+            let latest_ns = assigned_window
+                .and_then(|interval| latest_timestamps.get(&(key.clone(), interval)).copied());
             emit(Envelope {
                 pane: PaneInfo {
                     is_first: index == 0,
@@ -760,7 +815,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     contains_element_metadata: false,
                 },
                 value: Box::new((key, values)),
-                timestamp_ns: grouped_output_timestamp(output_time, timestamp_ns, assigned_window),
+                timestamp_ns: grouped_output_timestamp(
+                    output_time,
+                    timestamp_ns,
+                    latest_ns,
+                    assigned_window,
+                ),
                 window,
                 assigned_window,
             })?;
@@ -864,6 +924,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFol
                     key: key.encode()?,
                     values: value.encode()?,
                     timestamp_ns: *timestamp_ns,
+                    latest_timestamp_ns: None,
                     window: window.clone(),
                     assigned_window: *assigned_window,
                 })

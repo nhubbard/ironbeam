@@ -558,17 +558,21 @@ pub fn bounded_multi_source_fixture(
 }
 
 pub fn group_time_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
-    group_time_fixture_with_policy(pipeline, path, false)
+    group_time_fixture_with_policy(pipeline, path, None)
 }
 
 pub fn group_end_time_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
-    group_time_fixture_with_policy(pipeline, path, true)
+    group_time_fixture_with_policy(pipeline, path, Some(ironbeam_core::WindowOutputTime::EndOfWindow))
+}
+
+pub fn group_latest_time_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
+    group_time_fixture_with_policy(pipeline, path, Some(ironbeam_core::WindowOutputTime::LatestInPane))
 }
 
 fn group_time_fixture_with_policy(
     pipeline: &Pipeline,
     path: PathBuf,
-    end_of_window: bool,
+    output_time: Option<ironbeam_core::WindowOutputTime>,
 ) -> Result<Sink<i32>, Error> {
     let sink_path = path.clone();
     let values = pipeline
@@ -582,10 +586,14 @@ fn group_time_fixture_with_policy(
         )?
         .timestamps_from_pairs_named("group-time-assign")?
         .fixed_windows("group-time-window", 10_000_000)?;
-    let values = if end_of_window {
-        values.end_of_window_output_time_named("group-time-output-policy")?
-    } else {
-        values
+    let values = match output_time {
+        Some(ironbeam_core::WindowOutputTime::EndOfWindow) => {
+            values.end_of_window_output_time_named("group-time-output-policy")?
+        }
+        Some(ironbeam_core::WindowOutputTime::LatestInPane) => {
+            values.latest_in_pane_output_time_named("group-time-output-policy")?
+        }
+        _ => values,
     };
     values
         .group_by_key_named("group-time-group")?

@@ -59,3 +59,66 @@ fn sliding_window_groups_use_each_interval_end() {
     assert_eq!((rows[0].0.start_ns, rows[0].1.0), (0, 9_000_000));
     assert_eq!((rows[1].0.start_ns, rows[1].1.0), (5_000_000, 14_000_000));
 }
+
+#[test]
+fn latest_in_pane_uses_maximum_event_time_independent_of_arrival_order() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec(
+            "values",
+            vec![
+                (7_000_000_i64, ("a".to_owned(), 7_i32)),
+                (2_000_000, ("a".to_owned(), 2)),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("timestamps")
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .latest_in_pane_output_time_named("output-policy")
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .reify_timestamps_named("reify")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (rows, _) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(rows, vec![(7_000_000, ("a".to_owned(), vec![7, 2]))]);
+}
+
+#[test]
+fn latest_in_pane_is_retained_by_accumulating_early_and_on_time_panes() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec(
+            "values",
+            vec![
+                (7_000_000_i64, ("a".to_owned(), 7_i32)),
+                (2_000_000, ("a".to_owned(), 2)),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("timestamps")
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .latest_in_pane_output_time_named("output-policy")
+        .unwrap()
+        .accumulating_count_trigger_named("trigger", 1)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .reify_timestamps_named("reify")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (rows, _) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row.0 == 7_000_000));
+}

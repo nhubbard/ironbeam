@@ -76,6 +76,7 @@ fn lower(
         strategy.output_time = match node.time.output_time {
             WindowOutputTime::EarliestInPane => output_time::Enum::EarliestInPane as i32,
             WindowOutputTime::EndOfWindow => output_time::Enum::EndOfWindow as i32,
+            WindowOutputTime::LatestInPane => output_time::Enum::LatestInPane as i32,
         };
         windowing_strategies.insert(windowing_id(&node.time), strategy);
     }
