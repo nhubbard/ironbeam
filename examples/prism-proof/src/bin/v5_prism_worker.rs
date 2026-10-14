@@ -25,17 +25,18 @@ use ironbeam_prism_proof::{
     mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
-    pane_metadata_fixture_with_trigger, panicking_global_combine_fixture,
-    panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
-    partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
-    session_group_fixture, shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_fixture,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_side_input_fixture,
-    windowed_side_view_shapes_fixture, ExpandSingleton, PaneFixtureWindow,
+    pane_metadata_fixture_with_accumulating_count, pane_metadata_fixture_with_trigger,
+    panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
+    panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
+    production_stream_fixture, session_group_fixture, shared_unbounded_homogeneous_cogroup_fixture,
+    side_view_shapes_fixture, sliding_window_group_fixture, streaming_group_fixture,
+    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
+    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_fixture, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture};
@@ -459,6 +460,15 @@ async fn main() -> anyhow::Result<()> {
         return accumulating_count_trigger_stream_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_COUNT_ACCUMULATING_BOUNDED") {
+        return pane_metadata_fixture_with_accumulating_count(
+            pipeline,
+            path.into(),
+            PaneFixtureWindow::Sliding,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_COUNT_BOUNDED") {
         let window = if std::env::var("IRONBEAM_V5_PRISM_COUNT_WINDOW").as_deref() == Ok("sliding") {

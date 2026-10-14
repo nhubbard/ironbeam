@@ -223,7 +223,7 @@ cases. Its keyed fold stores the next pane index with the source checkpoint,
 so a resumed stream does not repeat an earlier firing. For sliding windows,
 an identity transform carries the new trigger policy after window assignment;
 another `WindowInto` would assign overlapping windows twice. A bounded
-overlapping-window proof matches Direct and pinned Prism. The accumulating count
+overlapping-window proof matches Direct and pinned Prism in both accumulation modes. The accumulating count
 policy retains earlier values in later panes. In the tested two-advance stream,
 Direct and pinned Prism both emit `[2]` in the first early pane, `[2, 3]` in
 the second, and `[2, 3]` again in the on-time pane. Direct checkpoints the

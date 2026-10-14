@@ -46,21 +46,22 @@ use ironbeam_prism_proof::{
     mixed_flatten_fixture, mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
     offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
     ordered_global_fixture, ordered_keyed_duplicate_fixture, ordered_keyed_fixture,
-    pane_metadata_fixture_for, pane_metadata_fixture_with_trigger,
-    panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
-    panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
-    production_stream_fixture, session_group_fixture,
-    shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
-    side_view_shapes_fixture, sliding_window_group_fixture, streaming_group_fixture,
-    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
-    streaming_session_group_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
-    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
-    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    pane_metadata_fixture_for, pane_metadata_fixture_with_accumulating_count,
+    pane_metadata_fixture_with_trigger, panicking_global_combine_fixture,
+    panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
+    partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
+    session_group_fixture, shared_unbounded_homogeneous_cogroup_collection,
+    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
+    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
+    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
+    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
+    streaming_windowed_side_input_fixture, triple_unbounded_flatten_collection,
+    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
+    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
+    windowed_duplicate_map_side_fixture, windowed_side_input_fixture,
+    windowed_side_view_shapes_fixture, ExpandSingleton, PaneFixtureWindow, ProductionAvroRow,
+    ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -5162,49 +5163,88 @@ async fn prism_and_direct_count_trigger_match_overlapping_sliding_windows() {
     };
     let _prism_job = prism_job_lock().lock().await;
     let directory = tempfile::tempdir().unwrap();
-    let direct_path = directory.path().join("direct-sliding-count.txt");
-    let direct_pipeline = Pipeline::default();
-    let direct_sink = pane_metadata_fixture_with_trigger(
-        &direct_pipeline,
-        direct_path.clone(),
-        PaneFixtureWindow::Sliding,
-        true,
-    )
-    .unwrap();
-    DirectRunner
-        .run_sink(&direct_sink, &JobConfig::default())
+    for accumulating in [false, true] {
+        let mode = if accumulating {
+            "accumulating"
+        } else {
+            "discarding"
+        };
+        let direct_path = directory.path().join(format!("direct-sliding-{mode}.txt"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = if accumulating {
+            pane_metadata_fixture_with_accumulating_count(
+                &direct_pipeline,
+                direct_path.clone(),
+                PaneFixtureWindow::Sliding,
+            )
+        } else {
+            pane_metadata_fixture_with_trigger(
+                &direct_pipeline,
+                direct_path.clone(),
+                PaneFixtureWindow::Sliding,
+                true,
+            )
+        }
         .unwrap();
-    let path = directory.path().join("sliding-count.txt");
-    let pipeline = Pipeline::default();
-    pane_metadata_fixture_with_trigger(&pipeline, path.clone(), PaneFixtureWindow::Sliding, true)
+        DirectRunner
+            .run_sink(&direct_sink, &JobConfig::default())
+            .unwrap();
+        let path = directory.path().join(format!("sliding-{mode}.txt"));
+        let pipeline = Pipeline::default();
+        if accumulating {
+            pane_metadata_fixture_with_accumulating_count(
+                &pipeline,
+                path.clone(),
+                PaneFixtureWindow::Sliding,
+            )
+        } else {
+            pane_metadata_fixture_with_trigger(
+                &pipeline,
+                path.clone(),
+                PaneFixtureWindow::Sliding,
+                true,
+            )
+        }
         .unwrap();
-    let terminal = run_shared_fixture(
-        &endpoint,
-        &pipeline,
-        "sliding-count-trigger-probe",
-        HashMap::from([
-            (
-                "IRONBEAM_V5_PRISM_COUNT_BOUNDED".into(),
+        let environment = if accumulating {
+            HashMap::from([(
+                "IRONBEAM_V5_PRISM_COUNT_ACCUMULATING_BOUNDED".into(),
                 path.to_string_lossy().into_owned(),
-            ),
-            ("IRONBEAM_V5_PRISM_COUNT_WINDOW".into(), "sliding".into()),
-        ]),
-    )
-    .await;
-    assert_eq!(terminal.0, 3, "sliding count job state: {terminal:?}");
-    let mut rows = std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    rows.sort();
-    let mut direct_rows = std::fs::read_to_string(direct_path)
-        .unwrap()
-        .lines()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    direct_rows.sort();
-    assert_eq!(direct_rows, rows);
+            )])
+        } else {
+            HashMap::from([
+                (
+                    "IRONBEAM_V5_PRISM_COUNT_BOUNDED".into(),
+                    path.to_string_lossy().into_owned(),
+                ),
+                ("IRONBEAM_V5_PRISM_COUNT_WINDOW".into(), "sliding".into()),
+            ])
+        };
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &pipeline,
+            &format!("sliding-{mode}-count-trigger-probe"),
+            environment,
+        )
+        .await;
+        assert_eq!(
+            terminal.0, 3,
+            "sliding {mode} count job state: {terminal:?}"
+        );
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort();
+        let mut direct_rows = std::fs::read_to_string(direct_path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        direct_rows.sort();
+        assert_eq!(direct_rows, rows, "sliding {mode} panes differ");
+    }
 }
 
 #[tokio::test]
