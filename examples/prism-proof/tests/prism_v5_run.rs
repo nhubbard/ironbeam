@@ -43,7 +43,7 @@ use ironbeam_prism_proof::{
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
     partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
     session_group_fixture, sliding_window_group_fixture, streaming_group_fixture,
-    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
     streaming_session_group_fixture, streaming_sliding_group_fixture,
     streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
     validation_fail_fixture, validation_skip_fixture, windowed_side_input_fixture, ExpandSingleton,
@@ -4443,6 +4443,62 @@ async fn prism_matches_direct_ordered_keyed_fold_values_and_metadata() {
     };
     assert_eq!(read_rows(&direct_path), [52_010, 71_045, 10_111_067]);
     assert_eq!(read_rows(&portable_path), read_rows(&direct_path));
+}
+
+#[tokio::test]
+async fn prism_matches_direct_unbounded_partition_fanout() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-partition");
+    let portable_path = directory.path().join("portable-partition");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = streaming_partition_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .flat_map(|entry| {
+                std::fs::read_to_string(entry.unwrap().path())
+                    .unwrap()
+                    .lines()
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let direct_rows = read_rows(&direct_path);
+    assert_eq!(
+        direct_rows,
+        [
+            "0:2:20000000:0..100000000",
+            "0:4:110000000:100000000..200000000",
+            "1:1:10000000:0..100000000",
+            "1:3:30000000:0..100000000",
+        ]
+    );
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    streaming_partition_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "stream-partition",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAM_PARTITION".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism stream partition state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), direct_rows);
 }
 
 #[tokio::test]

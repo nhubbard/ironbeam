@@ -69,6 +69,55 @@ fn streaming_window_source(
     }
 }
 
+/// Two numbered Partition branches from one resumable unbounded source.
+pub fn streaming_partition_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    let source = streaming_window_source(pipeline, false, false)?;
+    let branches = source.partition_with_semantic_named(
+        "stream-partition-classify",
+        "stream-partition-branch",
+        2,
+        "tests/prism-stream-partition",
+        Version { major: 1, minor: 0 },
+        |value| value.rem_euclid(2) as usize,
+    )?;
+    let mut rows = Vec::new();
+    for (index, branch) in branches.into_iter().enumerate() {
+        rows.push(
+            branch
+                .with_window_named(&format!("stream-partition-bounds-{index}"))?
+                .reify_timestamps_named(&format!("stream-partition-stamp-{index}"))?
+                .map_named(&format!("stream-partition-row-{index}"), move |(stamp, (window, value))| {
+                    format!(
+                        "{index}:{value}:{stamp}:{}..{}",
+                        window.start_ns, window.end_ns
+                    )
+                })?,
+        );
+    }
+    let first = rows.remove(0);
+    first
+        .flatten_named("stream-partition-merge", &rows)?
+        .sink_named_with_config(
+            "stream-partition-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("stream-partition-capture:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// One unbounded fixed-window group exercised by both Direct and Prism.
 pub fn streaming_group_fixture(
     pipeline: &Pipeline,

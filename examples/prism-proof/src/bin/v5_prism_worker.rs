@@ -24,7 +24,7 @@ use ironbeam_prism_proof::{
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
     partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
     session_group_fixture, sliding_window_group_fixture, streaming_group_fixture,
-    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
     streaming_session_group_fixture, streaming_sliding_group_fixture,
     streaming_windowed_side_input_fixture, validation_fail_fixture, validation_skip_fixture,
     windowed_side_input_fixture, ExpandSingleton,
@@ -430,6 +430,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_STREAM_GROUP") {
         return streaming_group_fixture(pipeline, directory.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_STREAM_PARTITION") {
+        return streaming_partition_fixture(pipeline, directory.into())
             .map(|_| ())
             .map_err(Into::into);
     }
