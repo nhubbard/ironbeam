@@ -158,6 +158,15 @@ fn plain_object_uri_reads_native_avro_and_checks_inputs() {
     assert!(
         cloud_avro_uri_source::<Row>(
             &Pipeline::default(),
+            "unregistered",
+            &stores,
+            "gs://bucket/rows.avro",
+        )
+        .is_err()
+    );
+    assert!(
+        cloud_avro_uri_source::<Row>(
+            &Pipeline::default(),
             "missing",
             &stores,
             "file://bucket/missing.avro",
@@ -174,6 +183,12 @@ fn plain_object_uri_reads_native_avro_and_checks_inputs() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn object_uri_reports_decode_errors_and_disappearing_objects() {
+    let (dir, stores) = object_store();
+    put_avro(&stores, dir.path());
     let incompatible = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"string"}]}"#;
     let invalid_schema = Pipeline::default();
     let output = cloud_avro_uri_source_with_reader_schema::<Row>(
@@ -189,6 +204,70 @@ fn plain_object_uri_reads_native_avro_and_checks_inputs() {
     assert_eq!(
         DirectRunner
             .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    let missing_field = Pipeline::default();
+    let output = cloud_avro_uri_source::<EvolvedRow>(
+        &missing_field,
+        "missing-field",
+        &stores,
+        "file://bucket/rows.avro",
+    )
+    .unwrap()
+    .output("missing-field-output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    stores
+        .write("file://bucket/corrupt.avro", b"not an Avro container")
+        .unwrap();
+    for with_schema in [false, true] {
+        let pipeline = Pipeline::default();
+        let source = if with_schema {
+            cloud_avro_uri_source_with_reader_schema::<EvolvedRow>(
+                &pipeline,
+                "corrupt",
+                &stores,
+                "file://bucket/corrupt.avro",
+                READER_SCHEMA,
+            )
+        } else {
+            cloud_avro_uri_source::<EvolvedRow>(
+                &pipeline,
+                "corrupt",
+                &stores,
+                "file://bucket/corrupt.avro",
+            )
+        };
+        let output = source.unwrap().output("corrupt-output").unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &JobConfig::default())
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Io
+        );
+    }
+    let late = Pipeline::default();
+    let late_output =
+        cloud_avro_uri_source::<Row>(&late, "missing-at-run", &stores, "file://bucket/rows.avro")
+            .unwrap()
+            .output("missing-at-run-output")
+            .unwrap();
+    stores.delete("file://bucket/rows.avro").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&late_output, &JobConfig::default())
             .err()
             .unwrap()
             .kind,
