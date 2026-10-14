@@ -12,6 +12,7 @@ fn concurrent_reader_registration_keeps_the_complete_runner_chunk() {
             inbound: Arc::clone(&inbound),
             replay: false,
             replay_output_budget: None,
+            outbound_progress: None,
         };
         let barrier = Arc::new(Barrier::new(2));
         let producer_barrier = Arc::clone(&barrier);
@@ -34,6 +35,33 @@ fn concurrent_reader_registration_keeps_the_complete_runner_chunk() {
             Err(mpsc::error::TryRecvError::Disconnected)
         ));
     }
+}
+
+#[tokio::test]
+async fn outbound_flush_waits_for_queued_data_and_terminal_marker() {
+    let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel();
+    let progress = Arc::new(OutboundProgress::default());
+    let client = DataClient {
+        outbound_tx,
+        inbound: Arc::new(Mutex::new(InboundState::default())),
+        replay: false,
+        replay_output_budget: None,
+        outbound_progress: Some(Arc::clone(&progress)),
+    };
+    client.write_chunk("bundle", "sink", vec![7]).unwrap();
+    client.close_write("bundle", "sink").unwrap();
+    let flush = tokio::spawn(async move { client.flush_outbound().await });
+    tokio::task::yield_now().await;
+    assert!(!flush.is_finished());
+    assert_eq!(outbound_rx.recv().await.unwrap().data[0].data, vec![7]);
+    progress.consumed.fetch_add(1, Ordering::Release);
+    progress.changed.notify_waiters();
+    tokio::task::yield_now().await;
+    assert!(!flush.is_finished());
+    assert!(outbound_rx.recv().await.unwrap().data[0].is_last);
+    progress.consumed.fetch_add(1, Ordering::Release);
+    progress.changed.notify_waiters();
+    flush.await.unwrap().unwrap();
 }
 
 #[test]

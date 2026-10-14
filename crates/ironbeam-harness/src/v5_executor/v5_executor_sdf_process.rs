@@ -381,6 +381,9 @@ impl V5BundleExecutor {
                     .close_write(instruction_id, transform_id)?;
             }
         }
+        for client in sink_clients.values() {
+            client.flush_outbound().await?;
+        }
         for sink in user_sinks.values_mut() {
             sink.commit()?;
         }

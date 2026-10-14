@@ -20,15 +20,16 @@
 //! with inbound routing because Prism can run source bundles concurrently.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use beam_proto::fn_execution_v1::beam_fn_data_client::BeamFnDataClient;
 use beam_proto::fn_execution_v1::{elements::Data as ElemData, Elements};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use futures_util::StreamExt;
 use tonic::transport::Channel;
 use tracing::{debug, warn};
 
@@ -58,6 +59,24 @@ struct PendingBuffer {
 struct InboundState {
     readers: HashMap<Key, ReadSlot>,
     pending: HashMap<Key, PendingBuffer>,
+}
+
+/// Count messages handed to the Fn Data transport before acknowledging a
+/// ProcessBundle on the separate Control stream.
+struct OutboundProgress {
+    enqueued: Mutex<u64>,
+    consumed: AtomicU64,
+    changed: Notify,
+}
+
+impl Default for OutboundProgress {
+    fn default() -> Self {
+        Self {
+            enqueued: Mutex::new(0),
+            consumed: AtomicU64::new(0),
+            changed: Notify::new(),
+        }
+    }
 }
 
 impl InboundState {
@@ -91,6 +110,7 @@ pub struct DataClient {
     inbound: Arc<Mutex<InboundState>>,
     replay: bool,
     replay_output_budget: Option<(Arc<AtomicUsize>, usize)>,
+    outbound_progress: Option<Arc<OutboundProgress>>,
 }
 
 impl DataClient {
@@ -125,6 +145,7 @@ impl DataClient {
                 inbound: Arc::new(Mutex::new(inbound)),
                 replay: true,
                 replay_output_budget: Some((Arc::new(AtomicUsize::new(0)), output_limit)),
+                outbound_progress: None,
             },
             outbound_rx,
         )
@@ -145,7 +166,12 @@ impl DataClient {
             .with_context(|| format!("data connect to {url}"))?;
 
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Elements>();
-        let request_stream = UnboundedReceiverStream::new(outbound_rx);
+        let progress = Arc::new(OutboundProgress::default());
+        let transport_progress = Arc::clone(&progress);
+        let request_stream = UnboundedReceiverStream::new(outbound_rx).inspect(move |_| {
+            transport_progress.consumed.fetch_add(1, Ordering::Release);
+            transport_progress.changed.notify_waiters();
+        });
 
         let mut client = BeamFnDataClient::new(channel);
         let inbound = client
@@ -163,6 +189,7 @@ impl DataClient {
             inbound: state,
             replay: false,
             replay_output_budget: None,
+            outbound_progress: Some(progress),
         })
     }
 
@@ -241,6 +268,26 @@ impl DataClient {
         })
     }
 
+    /// Wait until the outbound transport has consumed every message queued
+    /// before this call. Replay clients are drained by their supervisor.
+    pub async fn flush_outbound(&self) -> Result<()> {
+        let Some(progress) = &self.outbound_progress else {
+            return Ok(());
+        };
+        let target = *progress.enqueued.lock().unwrap();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while progress.consumed.load(Ordering::Acquire) < target {
+                // A notification can race with subscription. The short
+                // timeout rechecks the count without relying on that wakeup.
+                let _ =
+                    tokio::time::timeout(Duration::from_millis(10), progress.changed.notified())
+                        .await;
+            }
+        })
+        .await
+        .context("Fn Data outbound stream did not drain before bundle completion")
+    }
+
     fn send_data(&self, d: ElemData) -> Result<()> {
         if let Some((used, limit)) = &self.replay_output_budget {
             let mut prior = used.load(Ordering::Relaxed);
@@ -256,12 +303,20 @@ impl DataClient {
                 }
             }
         }
+        let mut enqueued = self
+            .outbound_progress
+            .as_ref()
+            .map(|progress| progress.enqueued.lock().unwrap());
         self.outbound_tx
             .send(Elements {
                 data: vec![d],
                 timers: Vec::new(),
             })
-            .map_err(|_| anyhow!("data outbound channel closed"))
+            .map_err(|_| anyhow!("data outbound channel closed"))?;
+        if let Some(count) = &mut enqueued {
+            **count += 1;
+        }
+        Ok(())
     }
 }
 

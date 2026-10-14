@@ -456,6 +456,7 @@ impl V5BundleExecutor {
             bail!("v5 SDF preparation ended with a truncated runner record");
         }
         sink_client.close_write(instruction_id, sink_id)?;
+        sink_client.flush_outbound().await?;
         Ok(ProcessBundleResponse {
             monitoring_infos: vec![
                 element_count_info(source_pc, source_count)?,

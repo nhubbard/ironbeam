@@ -154,6 +154,9 @@ impl BundleRunner for V5BundleExecutor {
                             .close_write(instruction_id, transform_id)?;
                     }
                 }
+                for client in sink_clients.values() {
+                    client.flush_outbound().await?;
+                }
                 return Ok(ProcessBundleResponse {
                     monitoring_infos: vec![element_count_info(source_pc, 0)?],
                     ..Default::default()
@@ -363,6 +366,9 @@ impl BundleRunner for V5BundleExecutor {
                     .expect("opened above")
                     .close_write(instruction_id, transform_id)?;
             }
+        }
+        for client in sink_clients.values() {
+            client.flush_outbound().await?;
         }
         for sink in user_sinks.values_mut() {
             sink.commit()?;
