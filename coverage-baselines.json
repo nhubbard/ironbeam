@@ -57,23 +57,23 @@
   "ironbeam-io": {
     "source": "crates/ironbeam-io/src",
     "lines": {
-      "covered": 265,
-      "count": 276
+      "covered": 953,
+      "count": 1062
     },
     "branches": {
-      "covered": 25,
-      "count": 26
+      "covered": 190,
+      "count": 256
     }
   },
   "ironbeam-io-jsonl": {
     "source": "crates/ironbeam-io-jsonl/src",
     "lines": {
-      "covered": 407,
-      "count": 435
+      "covered": 477,
+      "count": 562
     },
     "branches": {
-      "covered": 38,
-      "count": 40
+      "covered": 60,
+      "count": 78
     }
   },
   "ironbeam-io-protobuf": {
@@ -145,19 +145,19 @@
   "ironbeam-io-avro": {
     "source": "crates/ironbeam-io-avro/src",
     "lines": {
-      "covered": 367,
-      "count": 387
+      "covered": 462,
+      "count": 491
     },
     "branches": {
-      "covered": 27,
-      "count": 28
+      "covered": 51,
+      "count": 56
     }
   },
   "ironbeam-io-parquet": {
     "source": "crates/ironbeam-io-parquet/src",
     "lines": {
-      "covered": 124,
-      "count": 136
+      "covered": 213,
+      "count": 241
     },
     "branches": {
       "covered": 7,
@@ -167,8 +167,8 @@
   "ironbeam-io-arrow": {
     "source": "crates/ironbeam-io-arrow/src",
     "lines": {
-      "covered": 222,
-      "count": 248
+      "covered": 389,
+      "count": 448
     },
     "branches": {
       "covered": 10,
@@ -222,8 +222,8 @@
   "ironbeam-cloud-objects": {
     "source": "crates/ironbeam-cloud-objects/src",
     "lines": {
-      "covered": 234,
-      "count": 243
+      "covered": 370,
+      "count": 420
     },
     "branches": {
       "covered": 46,
@@ -248,8 +248,8 @@
       "count": 240
     },
     "branches": {
-      "covered": 30,
-      "count": 38
+      "covered": 34,
+      "count": 50
     }
   },
   "ironbeam-coder-postcard": {
