@@ -6,6 +6,7 @@ use ironbeam_io::{
     open_encoded_output, open_lazy_input, read_lazy_range, sink, source,
 };
 use serde::{Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 fn read_avro<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
@@ -52,6 +53,42 @@ pub fn avro_source<T: Element + DeserializeOwned>(
     path: impl AsRef<Path>,
 ) -> Result<PCollection<T>, Error> {
     source(pipeline, key, path, "avro", read_avro::<T>)
+}
+
+/// Read a native Avro container through a declared reader schema.
+///
+/// Avro uses the file's embedded writer schema to resolve changes such as
+/// added fields with defaults or a narrower projection, before deserializing
+/// each record to `T`.
+///
+/// The reader schema is parsed when the graph is built and contributes to
+/// source identity, so a resumed job cannot silently change its projection.
+pub fn avro_source_with_reader_schema<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    reader_schema: impl AsRef<str>,
+) -> Result<PCollection<T>, Error> {
+    let raw_schema = reader_schema.as_ref();
+    let schema = apache_avro::Schema::parse_str(raw_schema).map_err(|error| io(key, error))?;
+    let schema_digest = Sha256::digest(raw_schema.as_bytes());
+    let mut format = String::from("avro-reader-");
+    for byte in schema_digest {
+        use std::fmt::Write as _;
+        write!(format, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    source(pipeline, key, path, &format, move |bytes| {
+        let reader = apache_avro::Reader::builder(bytes)
+            .reader_schema(&schema)
+            .build()
+            .map_err(|error| io("avro", error))?;
+        reader
+            .map(|row| {
+                let value = row.map_err(|error| io("avro", error))?;
+                apache_avro::from_value(&value).map_err(|error| io("avro", error))
+            })
+            .collect()
+    })
 }
 
 #[allow(clippy::needless_pass_by_value)] // The shared lazy-source factory takes PathBuf.

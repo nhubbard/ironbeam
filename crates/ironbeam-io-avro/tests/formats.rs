@@ -106,6 +106,14 @@ fn round_trip(extension: &str, make_sink: MakeSink, make_source: MakeSource) {
     );
 }
 const ROW_AVRO_SCHEMA: &str = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}"#;
+fn write_native_rows(path: &std::path::Path) {
+    let schema = apache_avro::Schema::parse_str(ROW_AVRO_SCHEMA).unwrap();
+    let mut writer = apache_avro::Writer::new(&schema, fs::File::create(path).unwrap()).unwrap();
+    for row in rows() {
+        writer.append_ser(row).unwrap();
+    }
+    writer.flush().unwrap();
+}
 #[test]
 fn avro_contract() {
     round_trip(
@@ -178,6 +186,114 @@ fn native_avro_interoperates_with_external_records_and_validates_schema() {
         ErrorKind::Io
     );
     assert_eq!(fs::read(&old_path).unwrap(), b"old output");
+}
+
+#[test]
+fn native_avro_reader_schema_resolves_added_and_projected_fields() {
+    #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+    struct EvolvedRow {
+        id: i32,
+        name: String,
+        active: bool,
+    }
+    impl Element for EvolvedRow {
+        const TYPE_ID: &'static str = "tests/evolved-row";
+        const CODER_ID: &'static str = "tests/evolved-row-json";
+    }
+    #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+    struct ProjectedRow {
+        id: i32,
+    }
+    impl Element for ProjectedRow {
+        const TYPE_ID: &'static str = "tests/projected-row";
+        const CODER_ID: &'static str = "tests/projected-row-json";
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("writer-v1.avro");
+    write_native_rows(&path);
+    let evolved_schema = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"active","type":"boolean","default":true}]}"#;
+    let evolved = Pipeline::default();
+    let output =
+        avro_source_with_reader_schema::<EvolvedRow>(&evolved, "evolved", &path, evolved_schema)
+            .unwrap()
+            .output("evolved-output")
+            .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![
+            EvolvedRow {
+                id: 1,
+                name: "Ada".into(),
+                active: true
+            },
+            EvolvedRow {
+                id: 2,
+                name: "Lin".into(),
+                active: true
+            },
+        ]
+    );
+    let alternate = Pipeline::default();
+    let alternate_schema = evolved_schema.replace("\"default\":true", "\"default\":false");
+    avro_source_with_reader_schema::<EvolvedRow>(&alternate, "evolved", &path, &alternate_schema)
+        .unwrap()
+        .output("evolved-output")
+        .unwrap();
+    assert_ne!(
+        evolved.snapshot().unwrap().0.fingerprint().unwrap(),
+        alternate.snapshot().unwrap().0.fingerprint().unwrap()
+    );
+    let projected = Pipeline::default();
+    let projected_schema =
+        r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"int"}]}"#;
+    let output = avro_source_with_reader_schema::<ProjectedRow>(
+        &projected,
+        "projected",
+        &path,
+        projected_schema,
+    )
+    .unwrap()
+    .output("projected-output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![ProjectedRow { id: 1 }, ProjectedRow { id: 2 }]
+    );
+}
+
+#[test]
+fn native_avro_reader_schema_rejects_invalid_and_incompatible_requests() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("writer-v1.avro");
+    write_native_rows(&path);
+    assert_eq!(
+        avro_source_with_reader_schema::<Row>(&Pipeline::default(), "invalid", &path, "{",)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    let incompatible = r#"{"type":"record","name":"Row","fields":[{"name":"id","type":"string"},{"name":"name","type":"string"}]}"#;
+    let pipeline = Pipeline::default();
+    let output =
+        avro_source_with_reader_schema::<Row>(&pipeline, "incompatible", &path, incompatible)
+            .unwrap()
+            .output("incompatible-output")
+            .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
 }
 #[test]
 fn avro_json_preview_files_remain_readable() {

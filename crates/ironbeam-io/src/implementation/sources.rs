@@ -144,7 +144,7 @@ pub fn source<T: Element>(
     key: &str,
     path: impl AsRef<Path>,
     format: &str,
-    read: fn(&[u8]) -> Result<Vec<T>, Error>,
+    read: impl Fn(&[u8]) -> Result<Vec<T>, Error> + Send + Sync + 'static,
 ) -> Result<PCollection<T>, Error> {
     let path = path.as_ref().to_path_buf();
     let bytes = fs::read(&path).map_err(|e| io(key, e))?;
