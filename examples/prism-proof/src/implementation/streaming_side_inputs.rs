@@ -496,6 +496,54 @@ pub fn dual_positive_late_full_join_fixture(
     )
 }
 
+/// A heterogeneous co-group emits the matching side only in the on-time pane.
+pub fn dual_positive_late_cogroup_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let source = pipeline
+        .test_stream_source(
+            "heterogeneous-late-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, 0_u8, 2_i32), 2_000_000),
+                    ((1, 1, 4), 4_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 0, 3), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )?
+        .fixed_windows("heterogeneous-late-window", 10_000_000)?
+        .allowed_lateness_named("heterogeneous-late-policy", 5_000_000)?;
+    let main = source
+        .filter_named("heterogeneous-main-filter", |(_, tag, _)| *tag == 0)?
+        .map_named("heterogeneous-main", |(key, _, value)| (key, value))?;
+    let side = source
+        .filter_named("heterogeneous-side-filter", |(_, tag, _)| *tag == 1)?
+        .map_named("heterogeneous-side", |(key, _, _)| (key, "right".to_owned()))?;
+    ironbeam_core::cogroup_by_key_2_named("heterogeneous-late-group", &main, &side)?
+        .reify_panes_named("heterogeneous-late-pane")?
+        .map_named("heterogeneous-late-row", |(pane, (key, buckets))| {
+            format!(
+                "{key}:{buckets:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn dual_positive_late_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_positive_late_cogroup_collection(pipeline)?.sink_named_with_config(
+        "heterogeneous-late-result",
+        SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+        format!("heterogeneous-late-result:{}", path.display()),
+        move || Ok(Box::new(GlobalFoldSink { path: sink_path.clone(), values: Vec::new() })),
+    )
+}
+
 /// The same two unbounded sources also exercise portable co-group tags.
 pub fn dual_unbounded_cogroup_collection(
     pipeline: &Pipeline,

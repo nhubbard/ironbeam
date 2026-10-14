@@ -31,13 +31,13 @@ use ironbeam_prism_proof::{
     bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
     dual_late_cogroup_collection, dual_late_cogroup_fixture, dual_late_count_cogroup_collection,
-    dual_late_count_cogroup_fixture, dual_positive_late_full_join_fixture,
-    dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
-    dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
-    dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
-    dual_unbounded_fanin_output_time_collection, dual_unbounded_fanin_output_time_fixture,
-    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
-    dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    dual_late_count_cogroup_fixture, dual_positive_late_cogroup_fixture,
+    dual_positive_late_full_join_fixture, dual_stream_windowed_side_collection,
+    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_collection,
+    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
+    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_collection,
+    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_collection,
+    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -2925,6 +2925,45 @@ async fn prism_matches_direct_late_two_unbounded_join() {
     assert_eq!(terminal.0, 3, "Prism late join state: {terminal:?}");
     assert_eq!(*direct_rows.lock().unwrap(), ["1:10:20"]);
     assert_eq!(std::fs::read_to_string(path).unwrap(), "1:10:20\n");
+}
+
+#[tokio::test]
+async fn prism_heterogeneous_cogroup_retains_late_pane() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("heterogeneous-late.txt");
+    let pipeline = Pipeline::default();
+    dual_positive_late_cogroup_fixture(&pipeline, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "heterogeneous-late-cogroup",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_DUAL_POSITIVE_LATE_COGROUP".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "heterogeneous late co-group state: {terminal:?}"
+    );
+    let mut rows = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        [
+            "1:([2], [\"right\"]):OnTime:true:false:0:0",
+            "1:([3], []):Late:false:false:1:1",
+        ]
+    );
 }
 
 #[tokio::test]

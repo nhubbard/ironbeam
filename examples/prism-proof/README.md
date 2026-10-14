@@ -77,11 +77,15 @@ completion and checkpoints coded open-window state with the source cursor.
 Two unbounded TestStream inputs now lower to one tagged Beam TestStream and
 feed fixed-window full join and co-group fixtures plus stateless Flatten.
 An additional positive-lateness full-join fixture emits an on-time matched row
-and a late main-only row on pinned Prism, checking pane timing and index and
-the drop after window expiry. Direct currently rejects this graph at preflight.
+and a late main-only row on both runners, checking pane timing and index and
+the drop after window expiry. A heterogeneous co-group fixture checks typed
+main and side values with the same on-time and late pane transition. Direct
+also checkpoints the two source cursors and retained per-key pane indices.
 Live Prism jobs match Direct on values, windows, and event times in all three
 operations. Prism still accepts only one TestStream transform per job; tagged
-streams use one element coder and exclude processing time advances.
+streams use one element coder and exclude processing time advances. The
+heterogeneous co-group's portable fixture therefore branches a single tagged
+TestStream into its two typed inputs; its Direct fixture uses two sources.
 A fixed-window group fixture sends one key values out of timestamp order and
 checks that Direct and Prism both emit the earliest input event timestamp and
 the same window end. The production unbounded fixture now asserts that exact
