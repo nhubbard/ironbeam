@@ -24,6 +24,45 @@ fn runner_key() -> StateKey {
     }
 }
 
+#[test]
+fn user_state_scope_builds_each_beam_fn_state_key_shape() {
+    let scope = UserStateScope::new("transform", "cell", Vec::new(), vec![7]).unwrap();
+    let Some(state_key::Type::BagUserState(bag)) = scope.bag().r#type else {
+        panic!("expected bag user state key");
+    };
+    assert_eq!(bag.transform_id, "transform");
+    assert_eq!(bag.user_state_id, "cell");
+    assert!(bag.window.is_empty()); // GlobalWindow has a zero-byte encoding.
+    assert_eq!(bag.key, vec![7]);
+    let Some(state_key::Type::MultimapKeysUserState(keys)) = scope.multimap_keys().r#type else {
+        panic!("expected multimap keys user state key");
+    };
+    assert_eq!(keys.user_state_id, "cell");
+    assert_eq!(keys.key, vec![7]);
+    let Some(state_key::Type::MultimapEntriesUserState(entries)) = scope.multimap_entries().r#type
+    else {
+        panic!("expected multimap entries user state key");
+    };
+    assert_eq!(entries.transform_id, "transform");
+    let Some(state_key::Type::MultimapUserState(value)) = scope.multimap_value(vec![9]).r#type
+    else {
+        panic!("expected multimap value user state key");
+    };
+    assert_eq!(value.key, vec![7]);
+    assert_eq!(value.map_key, vec![9]);
+    let Some(state_key::Type::OrderedListUserState(ordered)) =
+        scope.ordered_list(-5, 10).unwrap().r#type
+    else {
+        panic!("expected ordered list user state key");
+    };
+    let range = ordered.range.unwrap();
+    assert_eq!((range.start, range.end), (-5, 10));
+    assert!(scope.ordered_list(10, 10).is_err());
+    assert!(scope.ordered_list(11, 10).is_err());
+    assert!(UserStateScope::new("", "cell", Vec::new(), Vec::new()).is_err());
+    assert!(UserStateScope::new("transform", "", Vec::new(), Vec::new()).is_err());
+}
+
 #[tokio::test]
 async fn appends_and_clears_state_with_matching_runner_acknowledgements() {
     let (client, mut requests) = test_client();

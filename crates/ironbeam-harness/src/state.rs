@@ -16,6 +16,9 @@ use tonic::transport::Channel;
 
 use crate::endpoints::{normalize_endpoint, worker_request};
 
+mod user;
+pub use user::UserStateScope;
+
 #[derive(Clone)]
 pub struct StateClient {
     outbound: mpsc::UnboundedSender<StateRequest>,
