@@ -16,6 +16,51 @@ const IMAGE: &str = "example.test/ironbeam:v5";
 const BUILD: &str = "graphx-test-build";
 
 #[test]
+fn unbounded_group_into_batches_adds_portable_count_trigger() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![(
+                ("a".to_owned(), 2_i32),
+                2_000_000,
+            )])],
+        )
+        .unwrap()
+        .group_into_batches_named("batches", 2)
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let trigger_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "batches/count-trigger")
+        .unwrap();
+    let strategy = &components.windowing_strategies[&trigger_pc.windowing_strategy_id];
+    let Some(trigger::Trigger::AfterEndOfWindow(end)) = strategy
+        .trigger
+        .as_ref()
+        .and_then(|trigger| trigger.trigger.as_ref())
+    else {
+        panic!("expected end-of-window trigger");
+    };
+    let Some(trigger::Trigger::Repeat(repeat)) = end
+        .early_firings
+        .as_ref()
+        .and_then(|early| early.trigger.as_ref())
+    else {
+        panic!("expected repeated early trigger");
+    };
+    assert!(
+        matches!(repeat.subtrigger.as_ref().and_then(|sub| sub.trigger.as_ref()), Some(trigger::Trigger::ElementCount(count)) if count.element_count == 2)
+    );
+}
+
+#[test]
 fn v5_contract_rejects_unimplemented_state_and_timer_payloads() {
     let pipeline = Pipeline::default();
     pipeline

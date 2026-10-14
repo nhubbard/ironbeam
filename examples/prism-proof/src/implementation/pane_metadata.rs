@@ -123,6 +123,45 @@ fn global_count_values(pipeline: &Pipeline) -> Result<PCollection<(String, i32)>
     )
 }
 
+/// An unbounded keyed batch emits at the count threshold and flushes its tail.
+pub fn global_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
+    global_count_values(pipeline)?
+        .group_into_batches_named("global-batches", 2)?
+        .reify_panes_named("global-batches-pane")?
+        .map_named("global-batches-row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+                pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn global_keyed_batches_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    global_keyed_batches_collection(pipeline)?.sink_named_with_config(
+        "global-batches-capture",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("global-batches:{}", path.display()),
+        move || {
+            Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })))
+        },
+    )
+}
+
 /// Repeated count firings in the global window, followed by a final pane.
 pub fn global_count_collection(
     pipeline: &Pipeline,

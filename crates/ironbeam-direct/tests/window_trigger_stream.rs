@@ -10,6 +10,70 @@ use std::time::{Duration, Instant};
 
 type Row = (String, i32);
 
+#[test]
+fn unbounded_global_group_into_batches_fires_full_and_final_partial_batches() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "values",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("a".to_owned(), 2_i32), 2_000_000),
+                    (("a".to_owned(), 3), 3_000_000),
+                ]),
+                TestStreamEvent::Elements(vec![(("a".to_owned(), 4), 4_000_000)]),
+            ],
+        )
+        .unwrap()
+        .group_into_batches_named("batches", 2)
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "group-batches-global-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "a:[2, 3]:Early:true:false:0:-1",
+            "a:[4]:OnTime:false:true:1:0",
+        ]
+    );
+}
+
 struct Sum;
 
 impl CombineFn<i32, i32, i32> for Sum {

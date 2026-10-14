@@ -455,7 +455,22 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
         let limit = batch_size.max(1);
         let batch_semantic_id = format!("ironbeam/group-into-batches/{limit}");
-        self.group_by_key_named(&format!("{key}/group"))?
+        // A streaming GroupByKey must fire before its global window closes.
+        // Use a count firing when the caller has not already selected one;
+        // the final pane still flushes a partially filled batch.
+        let parent = self.parent()?;
+        let grouped = if parent.boundedness == Boundedness::Unbounded
+            && parent.time.trigger.early_count().is_none()
+        {
+            self.early_count_trigger_named(
+                &format!("{key}/count-trigger"),
+                u64::try_from(limit).map_err(|_| Error::graph(key, "batch size exceeds count trigger range"))?,
+            )?
+            .group_by_key_named(&format!("{key}/group"))?
+        } else {
+            self.group_by_key_named(&format!("{key}/group"))?
+        };
+        grouped
             .flat_map_registered(
                 key,
                 Some((&batch_semantic_id, BUILTIN_OPERATION_VERSION)),

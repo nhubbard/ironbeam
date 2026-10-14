@@ -57,6 +57,9 @@ fixture against published v4 Direct. The shared batch-helper job compares
 byte-limited and keyed batch outputs on Direct and Prism using repeated values,
 so shuffle order cannot change the expected batch contents. The explicit
 limits are included in graph identity.
+An unbounded global keyed batching job checks that a full batch fires before
+source completion and a smaller final batch is flushed. Direct and pinned
+Prism agree on both values and pane metadata for this fixture.
 A one-row `DynOp` also expands each row of an unbounded TestStream on Prism;
 the Direct streaming suite exercises the same incremental contract.
 The unbounded ordered-keyed job also applies a size-one keyed value batch
