@@ -200,9 +200,9 @@ fn committed_metric_metadata_is_registered_and_unknown_ids_fail_closed() {
         monitoring_infos: vec![crate::executor::element_count_info("pc-one", 128).unwrap()],
         ..Default::default()
     };
-    d.register_bundle_metrics(&mut bundle).unwrap();
+    d.register_bundle_metrics("bundle-1", &mut bundle).unwrap();
     assert_eq!(bundle.monitoring_data.len(), 1);
-    let metric_id = "ironbeam-element-count:pc-one";
+    let metric_id = "ironbeam-element-count:6:pc-one:bundle-1";
     assert_eq!(bundle.monitoring_data[metric_id], vec![0x80, 0x01]);
     let response = d.handle(req(
         "metric-request",
@@ -230,7 +230,7 @@ fn committed_metric_metadata_is_registered_and_unknown_ids_fail_closed() {
         .labels
         .insert("EXTRA".into(), "changed".into());
     assert!(d
-        .register_bundle_metrics(&mut bundle)
+        .register_bundle_metrics("bundle-1", &mut bundle)
         .unwrap_err()
         .contains("metadata changed"));
 
@@ -249,9 +249,30 @@ fn committed_metric_metadata_is_registered_and_unknown_ids_fail_closed() {
         }],
         ..Default::default()
     };
-    d.register_bundle_metrics(&mut user).unwrap();
-    let user_id = "ironbeam-user-sum:sink-transform:ironbeam.sink:input_elements";
+    d.register_bundle_metrics("bundle-1", &mut user).unwrap();
+    let user_id = "ironbeam-user-sum:14:sink-transform:bundle-1";
     assert_eq!(user.monitoring_data[user_id], vec![3]);
+
+    let mut second_bundle = ProcessBundleResponse {
+        monitoring_infos: vec![crate::executor::element_count_info("pc-one", 2).unwrap()],
+        ..Default::default()
+    };
+    d.register_bundle_metrics("bundle-2", &mut second_bundle)
+        .unwrap();
+    assert_ne!(
+        bundle.monitoring_data.keys().next(),
+        second_bundle.monitoring_data.keys().next()
+    );
+    let response = d.handle(req(
+        "metric-request-2",
+        InstrReq::MonitoringInfos(MonitoringInfosMetadataRequest {
+            monitoring_info_id: vec!["ironbeam-element-count:6:pc-one:bundle-2".into()],
+        }),
+    ));
+    assert!(matches!(
+        response.response,
+        Some(InstrResp::MonitoringInfos(_))
+    ));
 }
 
 #[test]

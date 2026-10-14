@@ -65,7 +65,50 @@ pub struct Dispatcher {
     /// handler (M2b) will cross-check this against the one the driver embedded
     /// in pipeline display data — if they disagree, fail fast.
     pub local_fingerprint: u64,
-    monitoring_metadata: Mutex<HashMap<String, MonitoringInfo>>,
+}
+
+// Prism buffers unknown metric payloads in a map indexed by short ID. A
+// transform-wide ID can therefore overwrite an earlier bundle's count while
+// Prism is fetching its metadata. Include the bundle instruction ID. The
+// metadata is reconstructible, so a long-running stream does not retain one
+// registry entry per completed bundle.
+fn bundle_metric_id(prefix: &str, label: &str, instruction_id: &str) -> String {
+    format!("{prefix}:{}:{label}:{instruction_id}", label.len())
+}
+
+fn metric_label<'a>(id: &'a str, prefix: &str) -> Option<&'a str> {
+    let rest = id.strip_prefix(prefix)?.strip_prefix(':')?;
+    let (length, rest) = rest.split_once(':')?;
+    let length = length.parse::<usize>().ok()?;
+    let label = rest.get(..length)?;
+    let instruction = rest.get(length..)?.strip_prefix(':')?;
+    (!label.is_empty() && !instruction.is_empty()).then_some(label)
+}
+
+fn metric_metadata(id: &str) -> Option<MonitoringInfo> {
+    let (urn, labels) = if let Some(pc) = metric_label(id, "ironbeam-element-count") {
+        (
+            "beam:metric:element_count:v1",
+            [("PCOLLECTION".into(), pc.into())].into(),
+        )
+    } else {
+        let transform = metric_label(id, "ironbeam-user-sum")?;
+        (
+            "beam:metric:user:sum_int64:v1",
+            [
+                ("PTRANSFORM".into(), transform.into()),
+                ("NAMESPACE".into(), "ironbeam.sink".into()),
+                ("NAME".into(), "input_elements".into()),
+            ]
+            .into(),
+        )
+    };
+    Some(MonitoringInfo {
+        urn: urn.into(),
+        r#type: "beam:metrics:sum_int64:v1".into(),
+        labels,
+        ..Default::default()
+    })
 }
 
 impl Dispatcher {
@@ -73,20 +116,18 @@ impl Dispatcher {
         Self {
             pbd_cache,
             local_fingerprint,
-            monitoring_metadata: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Publish stable metadata IDs for the element-count payloads in a bundle.
-    /// Prism consumes this compact field and requests unknown IDs separately.
+    /// Publish bundle-scoped metadata IDs for committed count payloads.
     pub fn register_bundle_metrics(
         &self,
+        instruction_id: &str,
         response: &mut ProcessBundleResponse,
     ) -> Result<(), String> {
-        let mut metadata = self
-            .monitoring_metadata
-            .lock()
-            .map_err(|_| "monitoring metadata registry poisoned".to_owned())?;
+        if instruction_id.is_empty() {
+            return Err("bundle metric instruction ID is empty".into());
+        }
         for info in &response.monitoring_infos {
             if info.r#type != "beam:metrics:sum_int64:v1" {
                 return Err(format!("unsupported v5 monitoring info {}", info.urn));
@@ -97,7 +138,7 @@ impl Dispatcher {
                         .labels
                         .get("PCOLLECTION")
                         .ok_or_else(|| "element count lacks PCOLLECTION label".to_owned())?;
-                    format!("ironbeam-element-count:{pc}")
+                    bundle_metric_id("ironbeam-element-count", pc, instruction_id)
                 }
                 "beam:metric:user:sum_int64:v1" => {
                     let transform = info
@@ -112,13 +153,16 @@ impl Dispatcher {
                         .labels
                         .get("NAME")
                         .ok_or_else(|| "user count lacks NAME label".to_owned())?;
-                    format!("ironbeam-user-sum:{transform}:{namespace}:{name}")
+                    if namespace != "ironbeam.sink" || name != "input_elements" {
+                        return Err("unsupported v5 user count labels".into());
+                    }
+                    bundle_metric_id("ironbeam-user-sum", transform, instruction_id)
                 }
                 _ => return Err(format!("unsupported v5 monitoring info {}", info.urn)),
             };
             let mut descriptor = info.clone();
             descriptor.payload.clear();
-            if metadata.get(&id).is_some_and(|old| old != &descriptor) {
+            if metric_metadata(&id).as_ref() != Some(&descriptor) {
                 return Err(format!("monitoring metadata changed for {id}"));
             }
             if response
@@ -128,7 +172,6 @@ impl Dispatcher {
             {
                 return Err(format!("duplicate monitoring data disagrees for {id}"));
             }
-            metadata.insert(id, descriptor);
         }
         Ok(())
     }
@@ -185,16 +228,12 @@ impl Dispatcher {
                 ),
             ),
             Some(InstrReq::MonitoringInfos(request)) => {
-                let metadata = match self.monitoring_metadata.lock() {
-                    Ok(metadata) => metadata,
-                    Err(_) => return error(id, "monitoring metadata registry poisoned"),
-                };
                 let mut monitoring_info = HashMap::new();
                 for metric_id in request.monitoring_info_id {
-                    let Some(info) = metadata.get(&metric_id) else {
+                    let Some(info) = metric_metadata(&metric_id) else {
                         return error(id, format!("unknown monitoring info id {metric_id}"));
                     };
-                    monitoring_info.insert(metric_id, info.clone());
+                    monitoring_info.insert(metric_id, info);
                 }
                 ok(
                     id,

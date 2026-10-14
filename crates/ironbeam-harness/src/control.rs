@@ -104,18 +104,20 @@ async fn process_bundle_response(
         .catch_unwind()
         .await;
     match result {
-        Ok(Ok(mut response)) => match dispatcher.register_bundle_metrics(&mut response) {
-            Ok(()) => InstructionResponse {
-                instruction_id,
-                error: String::new(),
-                response: Some(InstrResp::ProcessBundle(response)),
-            },
-            Err(error) => InstructionResponse {
-                instruction_id,
-                error: format!("bundle monitoring metadata failed: {error}"),
-                response: None,
-            },
-        },
+        Ok(Ok(mut response)) => {
+            match dispatcher.register_bundle_metrics(&instruction_id, &mut response) {
+                Ok(()) => InstructionResponse {
+                    instruction_id,
+                    error: String::new(),
+                    response: Some(InstrResp::ProcessBundle(response)),
+                },
+                Err(error) => InstructionResponse {
+                    instruction_id,
+                    error: format!("bundle monitoring metadata failed: {error}"),
+                    response: None,
+                },
+            }
+        }
         Ok(Err(error)) => InstructionResponse {
             instruction_id,
             error: format!("executor failed: {error:#}"),
