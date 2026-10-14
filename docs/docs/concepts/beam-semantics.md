@@ -24,7 +24,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Bounded and unbounded sources | Vector, file, and resumable source fixtures; residuals cross processes | General source connector contracts and more split shapes |
 | Elementwise transforms and branching | Map, filter, flat-map, Flatten, and shared fanout jobs | Broader multi-output and fusion cases |
 | Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases | General stateful fanout and hot-key behavior |
-| Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two-source unbounded session joins and co-groups merge across inputs; tested late rows drop at zero lateness | More than two unbounded session inputs, nonzero allowed lateness, and broader merging cases |
+| Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two-source unbounded session joins and co-groups merge across inputs when their source watermarks advance after the connecting records; tested late rows drop at zero lateness | Intermediate-watermark agreement for cross-input sessions, more than two unbounded session inputs, nonzero allowed lateness, and broader merging cases |
 | Triggers and panes | Default trigger only. The Fn API boundary preserves pane timing, indices, and the optional opaque element metadata payload in the worker | Public pane metadata, early and late triggers, accumulation, and Direct/Prism agreement |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
 | Side inputs | Bounded global and per-window side-view cases | Streaming side-input updates and broader view types |
@@ -116,6 +116,19 @@ merged bounds, and a row dropped after closure for a join and co-group. More
 than two unbounded inputs and
 nonzero allowed lateness remain outside this tested contract. The [windowing guide](../guides/windowing.md#keyed-sessions)
 contains a working example.
+
+An intermediate-watermark case remains unresolved. With an `a` event at zero
+on the main input, an `a` event at four milliseconds on the side input, and a
+second main `a` event at eight milliseconds, Direct forms `[0, 13)`
+milliseconds when both source watermarks first reach six milliseconds and
+later reach twenty. In the same local Prism job, the `a` event at zero is
+emitted in `[0, 5)` before the other two are grouped in `[4, 13)`. The
+tagged TestStream protobuf places the side event before either six-millisecond
+watermark. This observation is limited to the pinned local Prism runner and
+the tested portable graph; the cause has not been isolated. Applications
+that need identical cross-runner session results should keep source
+watermarks behind all records that may connect an open session until this
+boundary is resolved.
 
 ## Keys, grouping, and order
 

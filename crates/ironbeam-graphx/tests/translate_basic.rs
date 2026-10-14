@@ -213,6 +213,62 @@ fn unbounded_test_stream_lowers_with_time_and_payload_validation() {
 }
 
 #[test]
+fn tagged_test_stream_preserves_each_source_event_before_its_watermark() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "main",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 0)]),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+                TestStreamEvent::Elements(vec![(2_i32, 8_000_000)]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )
+        .unwrap()
+        .output("main-output")
+        .unwrap();
+    pipeline
+        .test_stream_source(
+            "side",
+            vec![
+                TestStreamEvent::Elements(vec![(3_i32, 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )
+        .unwrap()
+        .output("side-output")
+        .unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    let events = &translated.test_stream_payloads["main"].events;
+    let sequence = events
+        .iter()
+        .map(|event| match event.event.as_ref().unwrap() {
+            StreamEvent::ElementEvent(row) => {
+                format!("{}:element:{}", row.tag, row.elements[0].timestamp)
+            }
+            StreamEvent::WatermarkEvent(watermark) => {
+                format!("{}:watermark:{}", watermark.tag, watermark.new_watermark)
+            }
+            StreamEvent::ProcessingTimeEvent(_) => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sequence,
+        [
+            "main:element:0",
+            "side:element:4",
+            "main:watermark:6",
+            "side:watermark:6",
+            "main:element:8",
+            "side:watermark:20",
+            "main:watermark:20",
+        ]
+    );
+}
+
+#[test]
 fn elementwise_graph_lowers_with_stable_identity_and_declared_coders() {
     let pipeline = Pipeline::default();
     pipeline
