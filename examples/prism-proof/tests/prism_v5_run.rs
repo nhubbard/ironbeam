@@ -1191,7 +1191,6 @@ async fn run_production_unbounded_source(
         &protobuf_transform,
     )
     .unwrap();
-    assert_eq!(protobuf_committed, 3);
     let protobuf_staging = capture.path().join("protobuf-fragments");
     let protobuf_store = ironbeam_io_protobuf::protobuf_fragment_store(
         &protobuf_staging,
@@ -1203,6 +1202,10 @@ async fn run_production_unbounded_source(
     .require_bundle_attempts(ready.bundle_attempts("production-protobuf-final").unwrap())
     .unwrap();
     let protobuf_fragments = protobuf_store.accepted_fragments().unwrap();
+    assert_eq!(
+        protobuf_committed, 3,
+        "sink and input counts: {sink_count_diagnostics:?}; accepted protobuf fragments: {protobuf_fragments:?}"
+    );
     // Prism may coalesce downstream format writes after the source residual
     // bundles. The source and primary sink above retain the split witness;
     // each format must still publish the exact committed rows.

@@ -291,6 +291,9 @@ impl SupervisedV5Runner {
                 client.write_chunk(instruction_id, &output.transform_id, output.data)?;
             }
         }
+        for client in clients.values() {
+            client.flush_outbound().await?;
+        }
         Ok(response)
     }
 
