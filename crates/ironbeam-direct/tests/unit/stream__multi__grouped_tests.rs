@@ -331,6 +331,24 @@ fn grouped_start_rejects_early_trigger_before_opening_sources() {
 }
 
 #[test]
+fn grouped_session_lateness_is_rejected_at_graph_construction() {
+    let pipeline = Pipeline::default();
+    let error = pipeline
+        .test_stream_source(
+            "first",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)])],
+        )
+        .unwrap()
+        .session_windows_named("first-sessions", 5_000_000)
+        .unwrap()
+        .allowed_lateness_named("first-lateness", 5_000_000)
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Graph);
+    assert!(error.message.contains("fixed or sliding windows"));
+}
+
+#[test]
 fn grouped_start_reports_missing_group_and_sink_registration() {
     let (mut graph, registry, plan, route, sink_key) = fixture();
     graph.nodes.retain(|node| node.key != route.group_key);
