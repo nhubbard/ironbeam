@@ -25,6 +25,46 @@ pub struct WindowInterval {
     pub end_ns: i64,
 }
 
+/// Timing assigned by a runner to one firing of a window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum PaneTiming {
+    Early,
+    OnTime,
+    Late,
+    Unknown,
+}
+
+/// Metadata for one window firing. Early firings have no non-speculative index.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PaneInfo {
+    pub is_first: bool,
+    pub is_last: bool,
+    pub timing: PaneTiming,
+    pub index: i64,
+    pub nonspeculative_index: i64,
+    pub contains_element_metadata: bool,
+}
+
+impl PaneInfo {
+    pub const NO_FIRING: Self = Self {
+        is_first: true,
+        is_last: true,
+        timing: PaneTiming::Unknown,
+        index: 0,
+        nonspeculative_index: 0,
+        contains_element_metadata: false,
+    };
+
+    pub const FIRST_LAST_ON_TIME: Self = Self {
+        is_first: true,
+        is_last: true,
+        timing: PaneTiming::OnTime,
+        index: 0,
+        nonspeculative_index: 0,
+        contains_element_metadata: false,
+    };
+}
+
 impl Window {
     pub fn assign(&self, timestamp_ns: i64) -> Result<Option<WindowInterval>, Error> {
         match *self {

@@ -19,6 +19,7 @@
 use std::io::{Read, Write};
 
 use anyhow::{anyhow, Context, Result};
+pub use ironbeam_core::{PaneInfo, PaneTiming};
 
 // ---- VarInt ---------------------------------------------------------------
 
@@ -121,46 +122,6 @@ pub fn decode_interval_window(buf: &[u8]) -> Result<((i64, i64), usize)> {
 pub const PANE_INFO_NO_FIRING: u8 = 0x0F;
 /// Prism emits one on-time pane after a bounded native GroupByKey.
 pub const PANE_INFO_FIRST_LAST_ON_TIME: u8 = 0x07;
-
-/// Timing assigned by the runner to one window firing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaneTiming {
-    Early,
-    OnTime,
-    Late,
-    Unknown,
-}
-
-/// Beam pane metadata. An early firing has no non-speculative index.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PaneInfo {
-    pub is_first: bool,
-    pub is_last: bool,
-    pub timing: PaneTiming,
-    pub index: i64,
-    pub nonspeculative_index: i64,
-    pub contains_element_metadata: bool,
-}
-
-impl PaneInfo {
-    pub const NO_FIRING: Self = Self {
-        is_first: true,
-        is_last: true,
-        timing: PaneTiming::Unknown,
-        index: 0,
-        nonspeculative_index: 0,
-        contains_element_metadata: false,
-    };
-
-    pub const FIRST_LAST_ON_TIME: Self = Self {
-        is_first: true,
-        is_last: true,
-        timing: PaneTiming::OnTime,
-        index: 0,
-        nonspeculative_index: 0,
-        contains_element_metadata: false,
-    };
-}
 
 fn pane_timing(bits: u8) -> PaneTiming {
     match bits {
