@@ -1179,10 +1179,11 @@ macro_rules! collect_cogroup_input {
             } else {
                 let next = $rows.len();
                 $indices.insert(scope, next);
-                $rows.push((row_key, $empty, timestamp_ns, window, assigned_window));
+                $rows.push((row_key, $empty, timestamp_ns, timestamp_ns, window, assigned_window));
                 next
             };
             $rows[group_index].2 = $rows[group_index].2.min(timestamp_ns);
+            $rows[group_index].3 = $rows[group_index].3.max(timestamp_ns);
             $rows[group_index].1.$position.push(value);
         }
     };
@@ -1202,6 +1203,7 @@ macro_rules! define_cogroup {
             $($other_ty: Element),+
         {
             let first_node = $first.parent()?;
+            let output_time = first_node.time.output_time;
             let session_cogroup = matches!(first_node.time.window, Window::Session { .. });
             let mut unbounded = first_node.boundedness == Boundedness::Unbounded;
             $(
@@ -1236,7 +1238,7 @@ macro_rules! define_cogroup {
                 }
                 let mut inputs = inputs.into_iter();
                 let mut indices: HashMap<(K, Option<WindowInterval>), usize> = HashMap::new();
-                let mut rows: Vec<(K, (Vec<$first_ty>, $(Vec<$other_ty>),+), i64, Window, Option<WindowInterval>)> = Vec::new();
+                let mut rows: Vec<(K, (Vec<$first_ty>, $(Vec<$other_ty>),+), i64, i64, Window, Option<WindowInterval>)> = Vec::new();
                 macro_rules! empty_values {
                     () => { (Vec::<$first_ty>::new(), $(Vec::<$other_ty>::new()),+) };
                 }
@@ -1244,9 +1246,11 @@ macro_rules! define_cogroup {
                     empty_values!(), node_key);
                 $(collect_cogroup_input!(inputs, rows, indices, $other_ty, $position,
                     empty_values!(), node_key);)+
-                Ok(rows.into_iter().map(|(key, values, timestamp_ns, window, assigned_window)| Envelope {
+                Ok(rows.into_iter().map(|(key, values, earliest_ns, latest_ns, window, assigned_window)| Envelope {
                     pane: PaneInfo::FIRST_LAST_ON_TIME,
-                    value: Box::new((key, values)), timestamp_ns, window, assigned_window
+                    value: Box::new((key, values)),
+                    timestamp_ns: grouped_output_timestamp(output_time, earliest_ns, Some(latest_ns), assigned_window),
+                    window, assigned_window
                 }).collect())
             });
             let collection = $first.next_aggregate(

@@ -9,7 +9,8 @@ use ironbeam_core::{
 use ironbeam_prism_proof::{
     accumulating_count_trigger_stream_fixture, accumulating_late_count_fixture,
     accumulating_latest_count_trigger_stream_fixture, allowed_lateness_fixture,
-    bounded_batch_helpers_fixture, bounded_join_cogroup_fixture, bounded_map_filter_fixture,
+    bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
+    bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
     bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combined_count_fixture,
@@ -413,6 +414,16 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_JOIN_COGROUP_CONTRACT") {
         return bounded_join_cogroup_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_JOIN_COGROUP_END_TIME") {
+        return bounded_join_cogroup_output_time_fixture(
+            pipeline, path.into(), Some(ironbeam_core::WindowOutputTime::EndOfWindow),
+        ).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_JOIN_COGROUP_LATEST_TIME") {
+        return bounded_join_cogroup_output_time_fixture(
+            pipeline, path.into(), Some(ironbeam_core::WindowOutputTime::LatestInPane),
+        ).map(|_| ()).map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_OFFSET_WINDOW") {
         return offset_window_group_fixture(pipeline, path.into())

@@ -1,5 +1,35 @@
 type KeyedBatchRow<K, V> = (K, V, i64, Window, Option<WindowInterval>, PaneInfo);
 
+fn retime_join_outputs<K: Element + Eq + Hash + Clone, O: Element>(
+    output: &mut [Envelope],
+    policy: WindowOutputTime,
+    latest: &HashMap<(K, Option<WindowInterval>), i64>,
+    node_key: &str,
+) -> Result<(), Error> {
+    if policy == WindowOutputTime::EarliestInPane {
+        return Ok(());
+    }
+    for event in output {
+        let (key, _) = event.value.downcast_ref::<(K, O)>().ok_or_else(|| {
+            Error::execution(node_key, "direct", "join output type mismatch")
+        })?;
+        let latest_ns = if policy == WindowOutputTime::LatestInPane {
+            Some(*latest.get(&(key.clone(), event.assigned_window)).ok_or_else(|| {
+                Error::execution(node_key, "direct", "join output has no input timestamp")
+            })?)
+        } else {
+            None
+        };
+        event.timestamp_ns = grouped_output_timestamp(
+            policy,
+            event.timestamp_ns,
+            latest_ns,
+            event.assigned_window,
+        );
+    }
+    Ok(())
+}
+
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     /// Group keyed events into merging event-time sessions.
     /// Intervals merge when they overlap or touch; the output
@@ -804,6 +834,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let unbounded = left.boundedness == Boundedness::Unbounded
             || other.boundedness == Boundedness::Unbounded;
         let session_join = matches!(left.time.window, Window::Session { .. });
+        let output_time = left.time.output_time;
         if unbounded && left.time.window == Window::Global {
             return Err(Error::graph(
                 key,
@@ -821,21 +852,44 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             if session_join {
                 merge_bounded_join_sessions::<K, V, W>(&mut left, &mut right, &key_owned)?;
             }
+            let mut latest = HashMap::new();
+            if output_time == WindowOutputTime::LatestInPane {
+                for event in &left {
+                    let (key, _) = event.value.downcast_ref::<(K, V)>().ok_or_else(|| {
+                        Error::execution(&key_owned, "direct", "left join type mismatch")
+                    })?;
+                    latest.entry((key.clone(), event.assigned_window))
+                        .and_modify(|time: &mut i64| *time = (*time).max(event.timestamp_ns))
+                        .or_insert(event.timestamp_ns);
+                }
+                for event in &right {
+                    let (key, _) = event.value.downcast_ref::<(K, W)>().ok_or_else(|| {
+                        Error::execution(&key_owned, "direct", "right join type mismatch")
+                    })?;
+                    latest.entry((key.clone(), event.assigned_window))
+                        .and_modify(|time: &mut i64| *time = (*time).max(event.timestamp_ns))
+                        .or_insert(event.timestamp_ns);
+                }
+            }
             if inner_join && left.len() <= right.len() {
-                return inner_join_reusing_right::<K, V, W, O>(
+                let mut output = inner_join_reusing_right::<K, V, W, O>(
                     left,
                     right,
                     &key_owned,
                     emit.as_ref(),
-                );
+                )?;
+                retime_join_outputs::<K, O>(&mut output, output_time, &latest, &key_owned)?;
+                return Ok(output);
             }
             if inner_join && right.len() < left.len() {
-                return inner_join_indexed_right::<K, V, W, O>(
+                let mut output = inner_join_indexed_right::<K, V, W, O>(
                     left,
                     right,
                     &key_owned,
                     emit.as_ref(),
-                );
+                )?;
+                retime_join_outputs::<K, O>(&mut output, output_time, &latest, &key_owned)?;
+                return Ok(output);
             }
             // Join output order is unspecified; indexing the smaller side
             // avoids retaining one position per row of a highly skewed input.
@@ -913,6 +967,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                         });
                     }
                 }
+                retime_join_outputs::<K, O>(&mut output, output_time, &latest, &key_owned)?;
                 return Ok(output);
             }
             let mut index: HashMap<(K, Option<WindowInterval>), JoinPositions> = HashMap::new();
@@ -986,6 +1041,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     });
                 }
             }
+            retime_join_outputs::<K, O>(&mut output, output_time, &latest, &key_owned)?;
             Ok(output)
         });
         let collection = self.next_aggregate(

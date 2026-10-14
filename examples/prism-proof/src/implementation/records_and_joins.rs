@@ -221,6 +221,15 @@ pub fn bounded_join_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
+    bounded_join_cogroup_output_time_fixture(pipeline, path, None)
+}
+
+/// All join kinds and a heterogeneous co-group under one output-time policy.
+pub fn bounded_join_cogroup_output_time_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    policy: Option<ironbeam_core::WindowOutputTime>,
+) -> Result<Sink<String>, Error> {
     let left = pipeline
         .from_vec(
             "join-cogroup-left",
@@ -244,6 +253,17 @@ pub fn bounded_join_cogroup_fixture(
         )?
         .timestamps_from_pairs_named("join-cogroup-right-time")?
         .fixed_windows("join-cogroup-right-window", 4_000_000)?;
+    let (left, right) = match policy {
+        Some(ironbeam_core::WindowOutputTime::EndOfWindow) => (
+            left.end_of_window_output_time_named("join-cogroup-left-policy")?,
+            right.end_of_window_output_time_named("join-cogroup-right-policy")?,
+        ),
+        Some(ironbeam_core::WindowOutputTime::LatestInPane) => (
+            left.latest_in_pane_output_time_named("join-cogroup-left-policy")?,
+            right.latest_in_pane_output_time_named("join-cogroup-right-policy")?,
+        ),
+        _ => (left, right),
+    };
     let joined = left
         .join_full_named("join-cogroup-full-join", &right)?
         .reify_timestamps_named("join-cogroup-join-time")?

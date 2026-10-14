@@ -118,9 +118,13 @@ output is stamped 7 ms, regardless of arrival order. An accumulating pane
 retains the latest timestamp of all values it contains.
 
 Both policies are part of the graph identity and Beam windowing strategy.
-Window sizes, periods, and offsets must be whole milliseconds. Direct currently
-applies these choices to GroupByKey; other keyed aggregates do not yet share
-them.
+Window sizes, periods, and offsets must be whole milliseconds. They also apply
+to co-groups and joins when every input has the same windowing declaration.
+For a join, the latest-in-pane timestamp is the latest event timestamp for
+the entire key and window, including input rows that have no match. The default
+join timestamp remains the earlier timestamp of each matched pair; an unmatched
+row retains its own timestamp. Global combines and folds do not yet support
+these output-time policies.
 
 ### Late elements
 

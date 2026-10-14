@@ -1,4 +1,4 @@
-use ironbeam_core::Pipeline;
+use ironbeam_core::{Pipeline, WindowOutputTime, cogroup_by_key_2_named};
 use ironbeam_direct::{DirectRunner, JobConfig};
 
 #[test]
@@ -121,4 +121,112 @@ fn latest_in_pane_is_retained_by_accumulating_early_and_on_time_panes() {
         .unwrap();
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().all(|row| row.0 == 7_000_000));
+}
+
+#[test]
+fn heterogeneous_cogroup_uses_the_declared_output_timestamp() {
+    for (policy, expected) in [
+        (WindowOutputTime::EndOfWindow, 9_000_000),
+        (WindowOutputTime::LatestInPane, 7_000_000),
+    ] {
+        let pipeline = Pipeline::default();
+        let left = pipeline
+            .from_vec("left", vec![(2_000_000_i64, (1_i32, 2_i32))])
+            .unwrap()
+            .timestamps_from_pairs_named("left-time")
+            .unwrap()
+            .fixed_windows("left-window", 10_000_000)
+            .unwrap();
+        let right = pipeline
+            .from_vec("right", vec![(7_000_000_i64, (1_i32, "right".to_owned()))])
+            .unwrap()
+            .timestamps_from_pairs_named("right-time")
+            .unwrap()
+            .fixed_windows("right-window", 10_000_000)
+            .unwrap();
+        let (left, right) = match policy {
+            WindowOutputTime::EndOfWindow => (
+                left.end_of_window_output_time_named("left-policy").unwrap(),
+                right
+                    .end_of_window_output_time_named("right-policy")
+                    .unwrap(),
+            ),
+            WindowOutputTime::LatestInPane => (
+                left.latest_in_pane_output_time_named("left-policy")
+                    .unwrap(),
+                right
+                    .latest_in_pane_output_time_named("right-policy")
+                    .unwrap(),
+            ),
+            WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let output = cogroup_by_key_2_named("group", &left, &right)
+            .unwrap()
+            .reify_timestamps_named("reify")
+            .unwrap()
+            .output("result")
+            .unwrap();
+        let (rows, _) = DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![(expected, (1, (vec![2], vec!["right".to_owned()])))]
+        );
+    }
+}
+
+#[test]
+fn join_output_time_uses_the_whole_key_window() {
+    for (policy, expected) in [
+        (WindowOutputTime::EndOfWindow, 9_000_000),
+        (WindowOutputTime::LatestInPane, 7_000_000),
+    ] {
+        let pipeline = Pipeline::default();
+        let left = pipeline
+            .from_vec(
+                "left",
+                vec![(2_000_000_i64, (1_i32, 2_i32)), (4_000_000, (1, 4))],
+            )
+            .unwrap()
+            .timestamps_from_pairs_named("left-time")
+            .unwrap()
+            .fixed_windows("left-window", 10_000_000)
+            .unwrap();
+        let right = pipeline
+            .from_vec("right", vec![(7_000_000_i64, (1_i32, 7_i32))])
+            .unwrap()
+            .timestamps_from_pairs_named("right-time")
+            .unwrap()
+            .fixed_windows("right-window", 10_000_000)
+            .unwrap();
+        let (left, right) = match policy {
+            WindowOutputTime::EndOfWindow => (
+                left.end_of_window_output_time_named("left-policy").unwrap(),
+                right
+                    .end_of_window_output_time_named("right-policy")
+                    .unwrap(),
+            ),
+            WindowOutputTime::LatestInPane => (
+                left.latest_in_pane_output_time_named("left-policy")
+                    .unwrap(),
+                right
+                    .latest_in_pane_output_time_named("right-policy")
+                    .unwrap(),
+            ),
+            WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let output = left
+            .join_inner_named("join", &right)
+            .unwrap()
+            .reify_timestamps_named("reify")
+            .unwrap()
+            .output("result")
+            .unwrap();
+        let (mut rows, _) = DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap();
+        rows.sort_unstable();
+        assert_eq!(rows, vec![(expected, (1, (2, 7))), (expected, (1, (4, 7)))]);
+    }
 }

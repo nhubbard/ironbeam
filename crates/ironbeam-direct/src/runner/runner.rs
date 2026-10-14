@@ -74,12 +74,7 @@ impl DirectRunner {
             if node.time.output_time != WindowOutputTime::EarliestInPane
                 && matches!(
                     node.operation,
-                    Operation::CoGroupByKey
-                        | Operation::JoinInner
-                        | Operation::JoinLeft
-                        | Operation::JoinRight
-                        | Operation::JoinFull
-                        | Operation::GlobalCombine
+                    Operation::GlobalCombine
                         | Operation::FoldGlobal
                         | Operation::FoldPerKey
                         | Operation::FoldOrderedGlobal
