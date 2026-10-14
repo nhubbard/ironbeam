@@ -323,6 +323,7 @@ jobs:
         run: cargo install cargo-llvm-cov
       - name: Test and measure package independently
         run: |
+          set -o pipefail
           cargo test -p "${{ matrix.package }}"
           features=()
           if [ "${{ matrix.package }}" = "ironbeam-compression" ] || [ "${{ matrix.package }}" = "ironbeam-testing" ] || [ "${{ matrix.package }}" = "ironbeam-io-jsonl" ] || [ "${{ matrix.package }}" = "ironbeam-io-protobuf" ] || [ "${{ matrix.package }}" = "ironbeam-io-tfrecord" ] || [ "${{ matrix.package }}" = "ironbeam-io-csv" ] || [ "${{ matrix.package }}" = "ironbeam-io-xml" ] || [ "${{ matrix.package }}" = "ironbeam-io-msgpack" ] || [ "${{ matrix.package }}" = "ironbeam-io-cbor" ] || [ "${{ matrix.package }}" = "ironbeam-io-avro" ] || [ "${{ matrix.package }}" = "ironbeam-io-parquet" ] || [ "${{ matrix.package }}" = "ironbeam-io-arrow" ]; then features=(--all-features); fi
