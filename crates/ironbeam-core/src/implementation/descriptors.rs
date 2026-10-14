@@ -26,12 +26,29 @@ pub enum WindowTrigger {
     Default,
     /// Repeated early firings after at least `count` elements arrive.
     EarlyElementCount { count: u64 },
+    /// Repeated early firings that retain prior values in subsequent panes.
+    EarlyElementCountAccumulating { count: u64 },
 }
 
 impl WindowTrigger {
     #[must_use]
     pub const fn is_default(&self) -> bool {
         matches!(self, Self::Default)
+    }
+
+    #[must_use]
+    pub const fn early_count(&self) -> Option<u64> {
+        match self {
+            Self::Default => None,
+            Self::EarlyElementCount { count } | Self::EarlyElementCountAccumulating { count } => {
+                Some(*count)
+            }
+        }
+    }
+
+    #[must_use]
+    pub const fn is_accumulating(&self) -> bool {
+        matches!(self, Self::EarlyElementCountAccumulating { .. })
     }
 }
 

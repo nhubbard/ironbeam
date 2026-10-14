@@ -236,6 +236,7 @@ struct GroupByKeyFoldState<K, V> {
     window_indices: HashMap<(K, WindowInterval), usize>,
     session_indices: HashMap<K, Vec<usize>>,
     fired_panes: HashMap<(K, WindowInterval), i64>,
+    fired_value_counts: HashMap<(K, WindowInterval), usize>,
     groups: GroupBuffer<K, V>,
 }
 
@@ -254,6 +255,8 @@ struct GroupFoldCheckpointPane {
     key: Vec<u8>,
     interval: WindowInterval,
     next_index: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fired_value_count: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -404,6 +407,41 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             return Err(Error::incompatible("early count trigger requires a positive count"));
         }
         let threshold = usize::try_from(count).unwrap_or(usize::MAX);
+        if self.trigger.is_accumulating() {
+            let mut fired = Vec::new();
+            for (key, values, timestamp_ns, window, assigned_window) in &self.groups {
+                let interval = assigned_window.ok_or_else(|| {
+                    Error::incompatible("early count trigger requires a finite window")
+                })?;
+                let scope = (key.clone(), interval);
+                let prior = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
+                if values.len().saturating_sub(prior) < threshold {
+                    continue;
+                }
+                let copied = Vec::<V>::decode(&values.encode()?)?;
+                let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
+                let index = *next_index;
+                *next_index = next_index
+                    .checked_add(1)
+                    .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+                self.fired_value_counts.insert(scope, values.len());
+                fired.push(Envelope {
+                    pane: PaneInfo {
+                        is_first: index == 0,
+                        is_last: false,
+                        timing: PaneTiming::Early,
+                        index,
+                        nonspeculative_index: -1,
+                        contains_element_metadata: false,
+                    },
+                    value: Box::new((key.clone(), copied)),
+                    timestamp_ns: *timestamp_ns,
+                    window: window.clone(),
+                    assigned_window: Some(interval),
+                });
+            }
+            return Ok((fired, 0));
+        }
         let mut remaining = Vec::new();
         let mut fired = Vec::new();
         let mut released = 0_usize;
@@ -449,6 +487,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             if assigned_window.is_some_and(|interval| interval.end_ns <= watermark_ns) {
                 released = released.saturating_add(values.len());
                 let index = self.fired_panes.remove(&(key.clone(), assigned_window.unwrap())).unwrap_or(0);
+                self.fired_value_counts.remove(&(key.clone(), assigned_window.unwrap()));
                 closed.push(Envelope {
                     pane: PaneInfo {
                         is_first: index == 0,
@@ -469,6 +508,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         }
         self.groups = remaining;
         self.fired_panes.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        self.fired_value_counts.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         self.rebuild_indices();
         Ok((closed, released))
     }
@@ -502,6 +542,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     key: key.encode()?,
                     interval: *interval,
                     next_index,
+                    fired_value_count: self.fired_value_counts.get(&(key.clone(), *interval)).copied(),
                 })
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -543,6 +584,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             window_indices: HashMap::new(),
             session_indices: HashMap::new(),
             fired_panes: HashMap::new(),
+            fired_value_counts: HashMap::new(),
             groups: Vec::with_capacity(checkpoint.groups.len()),
         };
         for pane in checkpoint.fired_panes {
@@ -555,6 +597,27 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 .is_some()
             {
                 return Err(Error::recovery(&self.key, "duplicate pane in fold checkpoint"));
+            }
+            match (self.trigger.is_accumulating(), pane.fired_value_count) {
+                (true, Some(fired_value_count)) if fired_value_count > 0 => {
+                    restored.fired_value_counts.insert(
+                        (K::decode(&pane.key)?, pane.interval),
+                        fired_value_count,
+                    );
+                }
+                (true, _) => {
+                    return Err(Error::recovery(
+                        &self.key,
+                        "accumulating pane lacks a positive fired value count",
+                    ));
+                }
+                (false, Some(_)) => {
+                    return Err(Error::recovery(
+                        &self.key,
+                        "accumulating pane in discarding fold checkpoint",
+                    ));
+                }
+                (false, None) => {}
             }
         }
         for row in checkpoint.groups {
@@ -600,6 +663,14 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 row.assigned_window,
             ));
         }
+        for (scope, &count) in &restored.fired_value_counts {
+            let Some(&position) = restored.window_indices.get(scope) else {
+                return Err(Error::recovery(&self.key, "accumulating pane has no group"));
+            };
+            if count > restored.groups[position].1.len() {
+                return Err(Error::recovery(&self.key, "accumulating pane exceeds group length"));
+            }
+        }
         *self = restored;
         Ok(())
     }
@@ -615,7 +686,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
     }
 
     fn finish(mut self: Box<Self>) -> Result<Vec<Envelope>, Error> {
-        let mut early = if let WindowTrigger::EarlyElementCount { count } = self.trigger {
+        let mut early = if let Some(count) = self.trigger.early_count() {
             self.drain_ready_count(count)?.0
         } else {
             Vec::new()

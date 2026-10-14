@@ -79,8 +79,13 @@ separate advances emits panes numbered 0 and 1. Bundle scheduling can affect
 which elements share a pane. Direct produces the same panes for the tested
 bounded bundle and separate streaming polls. Its streaming path checkpoints
 the next pane index with the source cursor and restores it after restart.
-This support covers single-input keyed grouping in fixed windows; late
-firings, accumulation, and allowed lateness remain unavailable.
+`accumulating_count_trigger_named` uses the same threshold but retains prior
+values. With separate values `2` and `3`, the first early pane contains `[2]`,
+the second contains `[2, 3]`, and the on-time pane contains `[2, 3]` again.
+Direct checkpoints both the retained values and the count at the last firing.
+Its accumulating keyed fold requires a value coder. This support covers
+single-input keyed grouping in fixed windows; late firings and allowed
+lateness remain unavailable.
 
 ## Sliding windows
 

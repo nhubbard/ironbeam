@@ -503,6 +503,16 @@ impl<T: Element> PCollection<T> {
     /// Beam may combine several threshold crossings into one pane within a
     /// bundle. Direct supports this policy for single-input keyed grouping.
     pub fn early_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
+        self.count_trigger_named(key, count, false)
+    }
+
+    /// Fire repeated early panes that each contain all values seen in the window.
+    /// This requires a registered value coder when Direct runs the keyed fold.
+    pub fn accumulating_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
+        self.count_trigger_named(key, count, true)
+    }
+
+    fn count_trigger_named(&self, key: &str, count: u64, accumulating: bool) -> Result<Self, Error> {
         if count == 0 || count > i32::MAX as u64 {
             return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));
         }
@@ -516,7 +526,11 @@ impl<T: Element> PCollection<T> {
             Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
             Some(window),
             None,
-            Some(WindowTrigger::EarlyElementCount { count }),
+            Some(if accumulating {
+                WindowTrigger::EarlyElementCountAccumulating { count }
+            } else {
+                WindowTrigger::EarlyElementCount { count }
+            }),
         )
     }
     pub fn fixed_windows_with_offset(

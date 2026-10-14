@@ -1665,7 +1665,7 @@ fn run_grouped_stream(
         }
         let next_progress = merge_progress(progress.as_ref(), batch.progress);
         let mut early_panes = Vec::new();
-        if let WindowTrigger::EarlyElementCount { count } = route.trigger {
+        if let Some(count) = route.trigger.early_count() {
             for (fold, rows) in folds.values_mut() {
                 let (mut fired, released) =
                     catch_unwind(AssertUnwindSafe(|| fold.drain_ready_count(count)))

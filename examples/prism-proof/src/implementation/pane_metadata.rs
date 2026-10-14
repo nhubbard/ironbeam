@@ -126,6 +126,21 @@ pub fn count_trigger_stream_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
+    count_trigger_stream_fixture_with_mode(pipeline, path, false)
+}
+
+pub fn accumulating_count_trigger_stream_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    count_trigger_stream_fixture_with_mode(pipeline, path, true)
+}
+
+fn count_trigger_stream_fixture_with_mode(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
     let values = pipeline
         .test_stream_source(
             "count-events",
@@ -136,8 +151,12 @@ pub fn count_trigger_stream_fixture(
                 TestStreamEvent::AdvanceWatermark(10_000_000),
             ],
         )?
-        .fixed_windows("count-windows", 10_000_000)?
-        .early_count_trigger_named("count-trigger", 1)?;
+        .fixed_windows("count-windows", 10_000_000)?;
+    let values = if accumulating {
+        values.accumulating_count_trigger_named("count-trigger", 1)?
+    } else {
+        values.early_count_trigger_named("count-trigger", 1)?
+    };
     let rows = values
         .group_by_key_named("count-group")?
         .reify_panes_named("count-pane")?

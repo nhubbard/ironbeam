@@ -662,6 +662,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 window_indices: HashMap::new(),
                 session_indices: HashMap::new(),
                 fired_panes: HashMap::new(),
+                fired_value_counts: HashMap::new(),
                 groups: Vec::new(),
             })
         });
@@ -676,12 +677,13 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 window_indices: HashMap::new(),
                 session_indices: HashMap::new(),
                 fired_panes: HashMap::new(),
+                fired_value_counts: HashMap::new(),
                 groups: Vec::new(),
             });
             for event in events {
                 fold.add(event)?;
             }
-            if let WindowTrigger::EarlyElementCount { count } = trigger {
+            if let Some(count) = trigger.early_count() {
                 let (mut early, _) = fold.drain_ready_count(count)?;
                 early.extend(fold.finish()?);
                 Ok(early)

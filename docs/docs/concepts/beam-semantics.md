@@ -202,7 +202,7 @@ the runner keeps a window available after its watermark passes the window end.
 
 Ironbeam emits the Beam default trigger with discarding accumulation and zero
 allowed lateness unless a fixed-window collection calls
-`early_count_trigger_named`. `reify_panes_named` exposes each element as
+`early_count_trigger_named` or `accumulating_count_trigger_named`. `reify_panes_named` exposes each element as
 `(PaneInfo, value)`, and a typed sink receives the same pane through
 `ElementMetadata`. A source element has `Unknown` timing before a firing;
 the tested grouped output is a first-and-last `OnTime` pane with index zero.
@@ -220,9 +220,13 @@ firings. A bounded two-row bundle produced one early pane containing both
 rows on pinned Prism; two TestStream advances produced panes with indices 0
 and 1. Direct emits the same panes in the corresponding bounded and streaming
 cases. Its keyed fold stores the next pane index with the source checkpoint,
-so a resumed stream does not repeat an earlier firing. Other stateful fan-in,
-other trigger forms, accumulating mode, and configurable allowed lateness
-remain unavailable.
+so a resumed stream does not repeat an earlier firing. The accumulating count
+policy retains earlier values in later panes. In the tested two-advance stream,
+Direct and pinned Prism both emit `[2]` in the first early pane, `[2, 3]` in
+the second, and `[2, 3]` again in the on-time pane. Direct checkpoints the
+retained group and count since the previous firing. Its accumulating fold
+requires a value coder. Other stateful fan-in, other trigger forms, and
+configurable allowed lateness remain unavailable.
 
 The default strategy fires once when a nonempty window is ready, uses the
 earliest event timestamp in that firing for grouped output, and discards
@@ -324,7 +328,7 @@ commit decision or the sink's durable finalization record.
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
 | Pane metadata | `reify_panes_named` makes `PaneInfo` available to elementwise callbacks, and typed sinks receive it in `ElementMetadata`. Direct and Prism agree for fixed and sliding grouped windows. The pinned Prism runner marks the tested merged-session group as `Early` while Direct marks it `OnTime`. |
 | Early count trigger | Public fixed-window repeated count policy lowers to Beam and passes bounded and TestStream pane proofs on local Prism. Direct supports single-input keyed grouping in bounded and resumable unbounded jobs, including pane-index recovery. |
-| Other triggers | Processing-time, composite, and late firings, accumulation, and allowed lateness remain pending. |
+| Other triggers | Processing-time, composite, and late firings and allowed lateness remain pending. Accumulating repeated count firings run for fixed-window single-input keyed grouping. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
 | Splittable source residuals | Supported by local process-restart fixtures. |
 | Active execution-child replacement in one Prism job | Supported for replay-safe graphs with supervised execution; a killed child and a failed partial-output attempt have live Prism proofs. |

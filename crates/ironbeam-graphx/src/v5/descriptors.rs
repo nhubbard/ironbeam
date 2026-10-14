@@ -63,6 +63,9 @@ fn windowing_id(time: &Time) -> String {
         WindowTrigger::EarlyElementCount { count } => {
             id("v5_ws", &format!("{base}:early-count:{count}"))
         }
+        WindowTrigger::EarlyElementCountAccumulating { count } => {
+            id("v5_ws", &format!("{base}:early-count:{count}:accumulating"))
+        }
     }
 }
 

@@ -34,7 +34,10 @@ pub fn global_windowing_strategy() -> WindowingStrategy {
 }
 
 pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrigger) {
-    if let WindowTrigger::EarlyElementCount { count } = policy {
+    if let Some(count) = policy.early_count() {
+        if policy.is_accumulating() {
+            strategy.accumulation_mode = accumulation_mode::Enum::Accumulating as i32;
+        }
         strategy.trigger = Some(Trigger {
             trigger: Some(trigger::Trigger::AfterEndOfWindow(Box::new(
                 trigger::AfterEndOfWindow {

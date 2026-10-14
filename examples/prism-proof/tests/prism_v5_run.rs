@@ -22,15 +22,16 @@ use ironbeam_dataflow::prepare_v5;
 use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_harness::finalization_journal::FileFinalizationJournal;
 use ironbeam_prism_proof::{
-    bounded_batch_helpers_fixture, bounded_join_cogroup_fixture, bounded_map_filter_fixture,
-    bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
-    bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
-    bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, completion_signal,
-    count_trigger_stream_fixture, dead_letter_fixture, dual_stream_windowed_side_collection,
-    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_collection,
-    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
-    dual_unbounded_cogroup_fixture, dual_unbounded_flatten_collection,
-    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    accumulating_count_trigger_stream_fixture, bounded_batch_helpers_fixture,
+    bounded_join_cogroup_fixture, bounded_map_filter_fixture, bounded_multi_source_fixture,
+    bounded_multi_wait_fixture, bounded_session_cogroup_fixture, bounded_session_join_fixture,
+    bounded_side_input_fixture, bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture,
+    bounded_wait_on_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
+    dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
+    dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
+    dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
+    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
+    dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -5185,6 +5186,45 @@ async fn prism_count_trigger_stream_advances_early_pane_indices() {
         [
             "group:a:[2]:Early:true:false:0:-1".to_owned(),
             "group:a:[3]:Early:false:false:1:-1".to_owned(),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn prism_accumulating_count_stream_retains_prior_values() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("accumulating-count-stream.txt");
+    let pipeline = Pipeline::default();
+    accumulating_count_trigger_stream_fixture(&pipeline, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "accumulating-count-stream-probe",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_COUNT_ACCUMULATING".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "accumulating count stream job state: {terminal:?}"
+    );
+    let rows = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            "group:a:[2]:Early:true:false:0:-1".to_owned(),
+            "group:a:[2, 3]:Early:false:false:1:-1".to_owned(),
+            "group:a:[2, 3]:OnTime:false:true:2:0".to_owned(),
         ]
     );
 }

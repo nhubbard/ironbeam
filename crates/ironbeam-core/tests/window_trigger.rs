@@ -46,3 +46,23 @@ fn default_trigger_keeps_legacy_time_json_shape() {
         time
     );
 }
+
+#[test]
+fn accumulating_count_has_distinct_graph_identity() {
+    let pipeline = Pipeline::default();
+    let grouped = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .accumulating_count_trigger_named("count-trigger", 1)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node(grouped.key()).unwrap().time.trigger,
+        WindowTrigger::EarlyElementCountAccumulating { count: 1 }
+    );
+    assert_ne!(graph.fingerprint().unwrap(), triggered_fingerprint(1));
+}

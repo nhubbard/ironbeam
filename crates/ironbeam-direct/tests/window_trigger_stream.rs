@@ -99,8 +99,17 @@ fn batch(
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // The source, sink, restart, and pane assertions form one scenario.
 fn early_count_pane_indices_survive_checkpoint_recovery() {
+    run_count_pane_recovery(false);
+}
+
+#[test]
+fn accumulating_count_values_survive_checkpoint_recovery() {
+    run_count_pane_recovery(true);
+}
+
+#[allow(clippy::too_many_lines)] // The source, sink, restart, and pane assertions form one scenario.
+fn run_count_pane_recovery(accumulating: bool) {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let opens = Arc::new(Mutex::new(Vec::new()));
@@ -134,11 +143,14 @@ fn early_count_pane_indices_survive_checkpoint_recovery() {
             },
         )
         .unwrap();
+    let values = values.fixed_windows("windows", 10_000_000).unwrap();
+    let values = if accumulating {
+        values.accumulating_count_trigger_named("count-trigger", 1)
+    } else {
+        values.early_count_trigger_named("count-trigger", 1)
+    }
+    .unwrap();
     let sink = values
-        .fixed_windows("windows", 10_000_000)
-        .unwrap()
-        .early_count_trigger_named("count-trigger", 1)
-        .unwrap()
         .group_by_key_named("groups")
         .unwrap()
         .reify_panes_named("pane")
@@ -208,11 +220,17 @@ fn early_count_pane_indices_survive_checkpoint_recovery() {
         .wait()
         .unwrap();
     assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
-    assert_eq!(
-        committed.lock().unwrap().as_slice(),
-        [
+    let expected = if accumulating {
+        vec![
             "a:[2]:Early:true:false:0:-1",
-            "a:[3]:Early:false:false:1:-1"
+            "a:[2, 3]:Early:false:false:1:-1",
+            "a:[2, 3]:OnTime:false:true:2:0",
         ]
-    );
+    } else {
+        vec![
+            "a:[2]:Early:true:false:0:-1",
+            "a:[3]:Early:false:false:1:-1",
+        ]
+    };
+    assert_eq!(committed.lock().unwrap().as_slice(), expected);
 }

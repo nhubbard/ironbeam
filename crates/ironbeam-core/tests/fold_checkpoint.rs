@@ -60,6 +60,108 @@ fn count_trigger_fold_restores_next_pane_and_rejects_tampered_index() {
 }
 
 #[test]
+fn accumulating_count_fold_restores_values_and_threshold_progress() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 10_i32)])
+        .unwrap()
+        .fixed_windows("window", 10)
+        .unwrap()
+        .accumulating_count_trigger_named("trigger", 2)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let add = |fold: &mut Box<dyn ironbeam_core::FoldSession>, value| {
+        fold.add(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, value)),
+            timestamp_ns: 1,
+            window: Window::Fixed { size_ns: 10 },
+            assigned_window: Some(WindowInterval {
+                start_ns: 0,
+                end_ns: 10,
+            }),
+        })
+        .unwrap();
+    };
+    let mut fold = registry.open_fold("group").unwrap();
+    add(&mut fold, 10_i32);
+    add(&mut fold, 20_i32);
+    let (first, released) = fold.drain_ready_count(2).unwrap();
+    assert_eq!(released, 0);
+    assert_eq!(first[0].pane.index, 0);
+    assert_eq!(
+        *first
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<(i32, Vec<i32>)>()
+            .unwrap(),
+        (1, vec![10, 20])
+    );
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut invalid: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+    invalid["fired_panes"][0]["fired_value_count"] = 3.into();
+    assert_eq!(
+        registry
+            .open_fold("group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&invalid).unwrap())
+            .unwrap_err()
+            .kind,
+        ErrorKind::Recovery
+    );
+    invalid["fired_panes"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("fired_value_count");
+    assert_eq!(
+        registry
+            .open_fold("group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&invalid).unwrap())
+            .unwrap_err()
+            .kind,
+        ErrorKind::Recovery
+    );
+    let mut restored = registry.open_fold("group").unwrap();
+    restored.restore_checkpoint_state(&saved).unwrap();
+    assert!(restored.drain_ready_count(2).unwrap().0.is_empty());
+    add(&mut restored, 30_i32);
+    assert!(restored.drain_ready_count(2).unwrap().0.is_empty());
+    add(&mut restored, 40_i32);
+    let (second, released) = restored.drain_ready_count(2).unwrap();
+    assert_eq!(released, 0);
+    assert_eq!(second[0].pane.index, 1);
+    assert_eq!(
+        *second
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<(i32, Vec<i32>)>()
+            .unwrap(),
+        (1, vec![10, 20, 30, 40])
+    );
+    let (closed, released) = restored.drain_closed(10).unwrap();
+    assert_eq!(released, 4);
+    assert_eq!(closed[0].pane.timing, PaneTiming::OnTime);
+    assert_eq!(closed[0].pane.index, 2);
+    assert_eq!(
+        *closed
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<(i32, Vec<i32>)>()
+            .unwrap(),
+        (1, vec![10, 20, 30, 40])
+    );
+}
+
+#[test]
 fn count_two_trigger_preserves_partial_group_across_checkpoint() {
     let pipeline = Pipeline::default();
     pipeline
