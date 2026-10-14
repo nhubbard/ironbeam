@@ -2757,6 +2757,8 @@ enum Fault {
     SinkWrite,
     SinkCommit,
     SinkFinalization,
+    ChangedSplit,
+    RepeatedCursor,
 }
 
 struct FaultReader(Fault);
@@ -2861,6 +2863,127 @@ fn stream_attributes_user_panics_and_rejects_finalization() {
         fault_job(Fault::SinkFinalization),
         ErrorKind::UnsupportedCapability { .. }
     ));
+}
+
+struct MultiFaultReader {
+    fault: Fault,
+    source_key: &'static str,
+    completed: bool,
+}
+
+impl UnboundedSource<Timestamped<i32>> for MultiFaultReader {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+        if matches!(self.fault, Fault::SourcePoll) {
+            panic!("multi-source poll panic");
+        }
+        let second_poll = self.completed;
+        if second_poll && !matches!(self.fault, Fault::ChangedSplit | Fault::RepeatedCursor) {
+            return Ok(UnboundedPoll::Pending);
+        }
+        self.completed = true;
+        Ok(UnboundedPoll::Ready(UnboundedBatch {
+            elements: vec![Timestamped {
+                value: 7,
+                timestamp_ns: 100,
+            }],
+            progress: ProgressSignal {
+                source_key: self.source_key.into(),
+                split_id: if second_poll && matches!(self.fault, Fault::ChangedSplit) {
+                    "split-1".into()
+                } else {
+                    "split-0".into()
+                },
+                checkpoint_position: Some(vec![1]),
+                event_time_ns: Some(100),
+                completed: !matches!(self.fault, Fault::ChangedSplit | Fault::RepeatedCursor),
+            },
+        }))
+    }
+}
+
+fn multi_source_fault_job(fault: Fault) -> ErrorKind {
+    let pipeline = Pipeline::default();
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: true,
+    };
+    let first = pipeline
+        .unbounded_source_with_factory(
+            "first",
+            progress.clone(),
+            "first-config".into(),
+            0,
+            move |_| {
+                if matches!(fault, Fault::SourceFactory) {
+                    panic!("multi-source factory panic");
+                }
+                Ok(Box::new(MultiFaultReader {
+                    fault,
+                    source_key: "first",
+                    completed: false,
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let second = pipeline
+        .unbounded_source_with_factory("second", progress, "second-config".into(), 0, |_| {
+            Ok(Box::new(MultiFaultReader {
+                fault: Fault::Transform,
+                source_key: "second",
+                completed: false,
+            }) as TypedUnboundedSourceReader<i32>)
+        })
+        .unwrap();
+    let sink = first
+        .flatten_named("merge", &[second])
+        .unwrap()
+        .map_named("map", move |value| {
+            if matches!(fault, Fault::Transform) {
+                panic!("multi-source transform panic");
+            }
+            value
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "multi-fault-sink".into(),
+            move || {
+                if matches!(fault, Fault::SinkFactory) {
+                    panic!("multi-source sink factory panic");
+                }
+                Ok(Box::new(FaultWriter(fault)))
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap()
+        .kind
+}
+
+#[test]
+fn multi_source_stream_attributes_factory_poll_transform_and_sink_panics() {
+    for fault in [
+        Fault::SourceFactory,
+        Fault::SourcePoll,
+        Fault::Transform,
+        Fault::SinkWrite,
+        Fault::SinkCommit,
+        Fault::SinkFactory,
+        Fault::ChangedSplit,
+        Fault::RepeatedCursor,
+    ] {
+        assert_eq!(multi_source_fault_job(fault), ErrorKind::Execution);
+    }
 }
 
 #[test]

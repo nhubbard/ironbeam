@@ -3,6 +3,26 @@ use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_transforms::{KeyedSamplingExt, SamplingExt};
 
 #[test]
+fn reservoir_assigns_a_nonzero_priority_when_splitmix_returns_zero() {
+    // The fourth state of this seed is zero modulo 2^64. SplitMix64 then
+    // returns zero, exercising the smallest-positive-priority fallback.
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("zero-priority-input", vec![1_i32, 2, 3, 4])
+        .unwrap()
+        .sample_reservoir_vec_named("zero-priority-sample", 4, 0x2f02_d85c_abab_71f5)
+        .unwrap()
+        .output("zero-priority-output")
+        .unwrap();
+    let (rows, _) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    let mut values = rows.into_iter().next().unwrap();
+    values.sort_unstable();
+    assert_eq!(values, [1, 2, 3, 4]);
+}
+
+#[test]
 fn seeded_samples_are_stable_and_have_v4_shape() {
     let p = Pipeline::default();
     let input = p.from_vec("input", (0_i32..20).collect()).unwrap();

@@ -1,11 +1,59 @@
 use ironbeam_core::{
-    Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, SourceProgress, TypedSink,
+    Element, Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, SourceProgress, TypedSink,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+
+#[test]
+fn checkpointed_group_attributes_source_batch_clone_panic() {
+    struct PanicClone(i32);
+    impl Clone for PanicClone {
+        fn clone(&self) -> Self {
+            panic!("source batch clone failed")
+        }
+    }
+    impl Element for PanicClone {
+        const TYPE_ID: &'static str = "test/checkpoint-source-clone";
+        const CODER_ID: &'static str = "test/checkpoint-source-clone-i32";
+        fn supports_coder() -> bool {
+            true
+        }
+        fn encode(&self) -> Result<Vec<u8>, Error> {
+            Ok(self.0.to_le_bytes().to_vec())
+        }
+        fn decode(bytes: &[u8]) -> Result<Self, Error> {
+            Ok(Self(i32::decode(bytes)?))
+        }
+    }
+    let output = Pipeline::default()
+        .from_vec("source", vec![(1_i32, PanicClone(2))])
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let error = DirectRunner
+        .run_collect(
+            &output,
+            &JobConfig {
+                checkpoint: Some(CheckpointConfig {
+                    directory: directory.path().to_path_buf(),
+                    binary_build_id: "source-batch-clone-v1".into(),
+                    ..CheckpointConfig::default()
+                }),
+                ..JobConfig::default()
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("source"));
+    assert!(error.message.contains("clone panicked"));
+}
 
 #[test]
 fn checkpointed_group_can_retry_after_downstream_cancellation() {

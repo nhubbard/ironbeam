@@ -588,6 +588,34 @@ fn session_windows_validate_gap_and_time_bounds() {
             .is_err()
     );
     assert!(cogroup_by_key_2_named("unsupported-session-cogroup", &grouped, &grouped).is_err());
+    let fixed = bounded.fixed_windows("fixed-before-session", 10).unwrap();
+    assert!(fixed.group_by_session_named("nested-session", 5).is_err());
+    let unbounded = pipeline
+        .unbounded_source::<(i32, i32)>(
+            "stream-for-session",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            0,
+        )
+        .unwrap();
+    assert!(
+        unbounded
+            .group_by_session_named("unbounded-session", 5)
+            .is_err()
+    );
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let mut malformed = graph.clone();
+    malformed.node_mut_for_test("session/session").time.window = Window::Session { gap_ns: 0 };
+    assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);
+    let mut malformed = graph.clone();
+    malformed.node_mut_for_test("session/session").time.window = Window::Global;
+    assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);
+    let mut malformed = graph.clone();
+    malformed.node_mut_for_test("session/session").boundedness = Boundedness::Unbounded;
+    assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);
 }
 
 #[test]
@@ -3044,4 +3072,34 @@ fn external_bounded_source_requires_backend_capability() {
         .unwrap();
     graph.node_mut_for_test("file").semantic_id = "invalid".into();
     assert!(graph.validate().unwrap_err().message.contains("namespaced"));
+}
+
+#[test]
+fn reusable_transform_requires_a_positive_semantic_batch_size() {
+    struct Identity;
+    impl DynOp for Identity {
+        fn apply(&self, input: Partition) -> Partition {
+            input
+        }
+    }
+    let source = Pipeline::default().from_vec("source", vec![1_i32]).unwrap();
+    let error = source
+        .apply_dyn_transform_with_semantic_named::<i32>(
+            "operator",
+            0,
+            "ironbeam/tests/identity",
+            Version { major: 1, minor: 0 },
+            std::sync::Arc::new(Identity),
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Graph);
+    assert!(error.message.contains("batch size"));
+}
+
+#[test]
+fn sliding_windows_reject_nonpositive_size_and_period() {
+    let source = Pipeline::default().from_vec("source", vec![1_i32]).unwrap();
+    assert!(source.sliding_windows("size", 0, 1, 0).is_err());
+    assert!(source.sliding_windows("period", 1, -1, 0).is_err());
 }
