@@ -80,6 +80,13 @@ fn main() -> Result<(), ironbeam::Error> {
 
 A grouped result contains a key and its values. A shuffle may change value order, so an application that depends on order must provide an explicit order key through the corresponding ordered operation. The transform crates also include keyed reductions, joins, sampling, selection, validation, and side inputs. The [ETL example](https://github.com/nhubbard/ironbeam/blob/main/examples/etl_pipeline.rs) applies several of these operations in one pipeline.
 
+`group_into_batches_named` emits vectors of values under each key. Its size
+must be greater than zero and smaller than `i64::MAX`; invalid sizes fail
+while the graph is built. For an unbounded input without an existing early
+count trigger, Ironbeam installs one so a full batch can fire before the
+window closes. A final pane can contain fewer values than the requested size.
+Batch membership can depend on arrival and firing order after a shuffle.
+
 `co_group_homogeneous_named` groups collections whose keys and values have
 the same types. The result is a key and one value vector
 per input. The first vector belongs to the collection on which the method is
