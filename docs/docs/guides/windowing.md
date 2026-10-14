@@ -95,8 +95,11 @@ and co-groups merge intervals across their inputs before matching keyed
 values. Direct and local Prism agree when another input bridges two sessions;
 Direct also checks inner, left, right, and full join results. A three-input
 co-group fixture verifies an empty side and an isolated session on both
-runners. Unbounded session joins and co-groups remain unsupported because
-their cross-input watermark and recovery rules are not yet implemented.
+runners. For two unbounded inputs, session joins and co-groups wait for both
+source watermarks before closing a keyed session. Direct and local Prism agree
+on a bridge formed by the other input and on the merged interval. Direct can
+restore the open rows and both source cursors from a checkpoint. Sessions
+across more than two unbounded inputs have not been tested.
 Portable session gaps must be positive whole milliseconds.
 
 `group_by_session_named` assigns sessions and then groups the keyed elements.

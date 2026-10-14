@@ -24,7 +24,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Bounded and unbounded sources | Vector, file, and resumable source fixtures; residuals cross processes | General source connector contracts and more split shapes |
 | Elementwise transforms and branching | Map, filter, flat-map, Flatten, and shared fanout jobs | Broader multi-output and fusion cases |
 | Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases | General stateful fanout and hot-key behavior |
-| Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded session joins and co-groups merge across inputs; tested late rows drop at zero lateness | Unbounded session joins and co-groups, nonzero allowed lateness, and broader merging cases |
+| Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two-source unbounded session joins and co-groups merge across inputs; tested late rows drop at zero lateness | More than two unbounded session inputs, nonzero allowed lateness, and broader merging cases |
 | Triggers and panes | Default trigger only. The Fn API boundary preserves pane timing, indices, and the optional opaque element metadata payload in the worker | Public pane metadata, early and late triggers, accumulation, and Direct/Prism agreement |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
 | Side inputs | Bounded global and per-window side-view cases | Streaming side-input updates and broader view types |
@@ -108,8 +108,12 @@ open sessions and the source cursor from one coded checkpoint before the
 bridge arrives. Bounded joins and co-groups merge session intervals across
 their keyed inputs before matching or grouping rows. Shared Direct and Prism
 fixtures check bridges formed by other inputs, isolated sessions, empty sides,
-values, and merged bounds. Unbounded session joins and co-groups need cross-input watermark
-and recovery rules. The [windowing guide](../guides/windowing.md#keyed-sessions)
+values, and merged bounds. Two-source unbounded session joins and co-groups
+also merge intervals across inputs. Direct waits for both watermarks before
+closing a keyed session and restores the open rows with both source cursors
+from a checkpoint. Shared Direct and local Prism jobs check the bridge and
+merged bounds for a join and co-group. More than two unbounded inputs and
+nonzero allowed lateness remain outside this tested contract. The [windowing guide](../guides/windowing.md#keyed-sessions)
 contains a working example.
 
 ## Keys, grouping, and order
