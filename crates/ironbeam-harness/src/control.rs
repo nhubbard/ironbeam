@@ -18,7 +18,7 @@ use beam_proto::fn_execution_v1::{
     FinalizeBundleResponse, GetProcessBundleDescriptorRequest, InstructionResponse,
     ProcessBundleDescriptor, ProcessBundleSplitRequest,
 };
-use futures_util::{FutureExt, StreamExt};
+use futures_util::FutureExt;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -175,10 +175,7 @@ pub async fn start_for_worker(
         .with_context(|| format!("control connect to {url}"))?;
 
     let (tx, rx) = mpsc::unbounded_channel::<InstructionResponse>();
-    let metadata_dispatcher = Arc::clone(&dispatcher);
-    let request_stream = UnboundedReceiverStream::new(rx).inspect(move |response| {
-        metadata_dispatcher.mark_metric_metadata_sent(response);
-    });
+    let request_stream = UnboundedReceiverStream::new(rx);
 
     let client = BeamFnControlClient::new(channel);
     // One clone drives the Control bidi stream; another survives for unary
