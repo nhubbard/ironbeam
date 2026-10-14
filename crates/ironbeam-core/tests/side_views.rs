@@ -1,4 +1,4 @@
-use ironbeam_core::Pipeline;
+use ironbeam_core::{Envelope, PaneInfo, Pipeline, Window};
 use std::collections::HashMap;
 
 #[test]
@@ -71,4 +71,110 @@ fn multimap_side_view_retains_all_values_for_a_key() {
     let mut values = view["a"].clone();
     values.sort_unstable();
     assert_eq!(values, [1, 2]);
+}
+
+#[test]
+fn windowed_side_helpers_build_distinct_valid_views() {
+    let pipeline = Pipeline::default();
+    let main = pipeline.from_vec("main", vec![1_i32]).unwrap();
+    let values = pipeline.from_vec("values", vec![10_i32]).unwrap();
+    let pairs = pipeline
+        .from_vec("pairs", vec![("a".to_owned(), 10_i32)])
+        .unwrap();
+
+    let mapped = main
+        .map_with_windowed_side_named("window-list", &values, |value, side| {
+            value + side.iter().sum::<i32>()
+        })
+        .unwrap();
+    let singleton = main
+        .map_with_windowed_singleton_side_named("window-single", &values, |value, side| {
+            value + side
+        })
+        .unwrap();
+    let map = main
+        .map_with_windowed_map_side_named("window-map", &pairs, |value, side| value + side["a"])
+        .unwrap();
+    let multimap = main
+        .map_with_windowed_multimap_side_named("window-multi", &pairs, |value, side| {
+            value + side["a"].iter().sum::<i32>()
+        })
+        .unwrap();
+    let waited = main.wait_on_windowed_named("window-wait", &values).unwrap();
+    for (key, collection) in [
+        ("window-list", mapped),
+        ("window-single", singleton),
+        ("window-map", map),
+        ("window-multi", multimap),
+        ("window-wait", waited),
+    ] {
+        assert_eq!(collection.key(), key);
+    }
+    let (graph, _) = pipeline.snapshot().unwrap();
+    graph.validate().unwrap();
+    for key in [
+        "window-list",
+        "window-single",
+        "window-map",
+        "window-multi",
+        "window-wait",
+    ] {
+        assert!(graph.node(key).is_some());
+    }
+}
+
+#[test]
+fn windowed_and_global_side_views_reject_foreign_or_incompatible_inputs() {
+    let pipeline = Pipeline::default();
+    let main = pipeline.from_vec("main", vec![1_i32]).unwrap();
+    let foreign = Pipeline::default()
+        .from_vec("foreign", vec![2_i32])
+        .unwrap();
+    assert!(
+        main.map_with_windowed_side_named("foreign-window", &foreign, |value, _| value)
+            .is_err()
+    );
+    assert!(
+        main.map_with_side_named("foreign-global", &foreign, |value, _| value)
+            .is_err()
+    );
+
+    let mismatched = pipeline
+        .from_vec("side", vec![2_i32])
+        .unwrap()
+        .fixed_windows("side-window", 5)
+        .unwrap();
+    assert!(
+        main.map_with_windowed_side_named("mismatch-window", &mismatched, |value, _| value)
+            .is_err()
+    );
+    assert!(
+        main.map_with_side_named("mismatch-global", &mismatched, |value, _| value)
+            .is_err()
+    );
+}
+
+#[test]
+fn global_side_view_preserves_main_event_metadata_and_applies_value() {
+    let pipeline = Pipeline::default();
+    let main = pipeline.from_vec("main", vec![2_i32]).unwrap();
+    let side = pipeline.from_vec("side", vec![10_i32]).unwrap();
+    main.map_with_singleton_side_named("sum", &side, |value, side| value + side)
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let event = |value| Envelope {
+        pane: PaneInfo::FIRST_LAST_ON_TIME,
+        value: Box::new(value),
+        timestamp_ns: 7,
+        window: Window::Global,
+        assigned_window: None,
+    };
+    let output = registry
+        .apply_aggregate("sum", vec![vec![event(2)], vec![event(10)]])
+        .unwrap();
+    assert_eq!(output.len(), 1);
+    let result = &output[0];
+    assert_eq!(result.value.downcast_ref::<i32>(), Some(&12));
+    assert_eq!(result.timestamp_ns, 7);
+    assert_eq!(result.pane, PaneInfo::FIRST_LAST_ON_TIME);
 }

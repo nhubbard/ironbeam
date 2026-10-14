@@ -1,4 +1,4 @@
-use ironbeam_core::{Pipeline, Replay, SourceProgress};
+use ironbeam_core::{Envelope, ErrorKind, PaneInfo, Pipeline, Replay, SourceProgress, Window};
 
 #[test]
 fn homogeneous_cogroup_accepts_twelve_inputs_and_validates_the_graph() {
@@ -120,4 +120,23 @@ fn homogeneous_cogroup_accepts_finite_unbounded_and_mixed_inputs() {
         .output("mixed-reverse-result")
         .unwrap();
     pipeline.snapshot().unwrap().0.validate().unwrap();
+}
+
+#[test]
+fn homogeneous_cogroup_rejects_an_undeclared_input_tag() {
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![(1_i32, 2_i32)]).unwrap();
+    input.co_group_homogeneous_named("group", &[]).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let malformed = Envelope {
+        pane: PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, vec![(1_u32, 2_i32)])),
+        timestamp_ns: 0,
+        window: Window::Global,
+        assigned_window: None,
+    };
+    assert_eq!(
+        registry.apply_many("group", malformed).err().unwrap().kind,
+        ErrorKind::Execution
+    );
 }

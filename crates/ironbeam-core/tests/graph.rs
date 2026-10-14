@@ -941,6 +941,93 @@ fn validates_versions_edges_cycles_and_coders() {
 }
 
 #[test]
+fn graph_rejects_invalid_window_trigger_lateness_and_output_time_contracts() {
+    let invalid_times = [
+        Time {
+            window: Window::Sliding {
+                size_ns: 0,
+                period_ns: 1_000_000,
+                offset_ns: 0,
+            },
+            ..Time::default()
+        },
+        Time {
+            window: Window::Sliding {
+                size_ns: 1_000_000,
+                period_ns: 0,
+                offset_ns: 0,
+            },
+            ..Time::default()
+        },
+        Time {
+            window: Window::Session { gap_ns: 0 },
+            ..Time::default()
+        },
+        Time {
+            trigger: WindowTrigger::EarlyElementCount { count: 0 },
+            ..Time::default()
+        },
+        Time {
+            trigger: WindowTrigger::EarlyElementCount {
+                count: i32::MAX as u64 + 1,
+            },
+            ..Time::default()
+        },
+        Time {
+            window: Window::Session { gap_ns: 1_000_000 },
+            trigger: WindowTrigger::EarlyElementCount { count: 1 },
+            ..Time::default()
+        },
+        Time {
+            trigger: WindowTrigger::LateElementCount { count: 1 },
+            ..Time::default()
+        },
+        Time {
+            window: Window::Fixed { size_ns: 1_000_000 },
+            allowed_lateness_ns: 1_000_000,
+            trigger: WindowTrigger::LateElementCount { count: 0 },
+            ..Time::default()
+        },
+        Time {
+            window: Window::Fixed { size_ns: 1_000_000 },
+            allowed_lateness_ns: 1_000_000,
+            trigger: WindowTrigger::LateElementCount {
+                count: i32::MAX as u64 + 1,
+            },
+            ..Time::default()
+        },
+        Time {
+            window: Window::Fixed { size_ns: 1 },
+            allowed_lateness_ns: 1_000_000,
+            trigger: WindowTrigger::LateElementCount { count: 1 },
+            ..Time::default()
+        },
+        Time {
+            output_time: WindowOutputTime::EndOfWindow,
+            ..Time::default()
+        },
+        Time {
+            allowed_lateness_ns: -1,
+            ..Time::default()
+        },
+        Time {
+            allowed_lateness_ns: 1,
+            ..Time::default()
+        },
+        Time {
+            allowed_lateness_ns: 1_000_000,
+            ..Time::default()
+        },
+    ];
+    let (valid, _) = small();
+    for time in invalid_times {
+        let mut graph = valid.clone();
+        graph.node_mut_for_test("input").time = time;
+        assert_eq!(graph.validate().unwrap_err().kind, ErrorKind::Graph);
+    }
+}
+
+#[test]
 fn unbounded_metadata_and_capability_are_explicit() {
     let p = Pipeline::default();
     let events = p
@@ -2629,6 +2716,54 @@ impl OrderedFoldFn<i32, i32, i32> for SumI32 {
     fn finish(&self, accumulator: i32) -> i32 {
         accumulator
     }
+}
+
+#[test]
+fn unbounded_global_ordered_folds_require_finite_windows() {
+    let pipeline = Pipeline::default();
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: true,
+    };
+    let values = pipeline
+        .unbounded_source::<i32>("values", progress.clone(), 0)
+        .unwrap();
+    assert_eq!(
+        values
+            .fold_globally_ordered_named("global-fold", SumI32)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+    assert_eq!(
+        values
+            .fold_globally_ordered_by_named("global-ordered", |value| *value, SumI32)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+    let keyed = pipeline
+        .unbounded_source::<(i32, i32)>("keyed", progress, 0)
+        .unwrap();
+    assert_eq!(
+        keyed
+            .fold_values_ordered_named("keyed-fold", SumI32)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+    assert_eq!(
+        keyed
+            .fold_values_ordered_by_named("keyed-ordered", |value| *value, SumI32)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
 }
 
 #[test]

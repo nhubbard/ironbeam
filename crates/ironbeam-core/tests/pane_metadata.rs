@@ -48,3 +48,44 @@ fn pane_metadata_coder_rejects_invalid_indices_and_bytes() {
         ErrorKind::Incompatible
     );
 }
+
+#[test]
+fn pane_metadata_rejects_inconsistent_timing_and_first_pane_indices() {
+    let invalid = [
+        PaneInfo {
+            index: -1,
+            ..PaneInfo::NO_FIRING
+        },
+        PaneInfo {
+            nonspeculative_index: -2,
+            ..PaneInfo::NO_FIRING
+        },
+        PaneInfo {
+            timing: PaneTiming::Early,
+            ..PaneInfo::NO_FIRING
+        },
+        PaneInfo {
+            nonspeculative_index: -1,
+            ..PaneInfo::FIRST_LAST_ON_TIME
+        },
+        PaneInfo {
+            index: 1,
+            ..PaneInfo::FIRST_LAST_ON_TIME
+        },
+        PaneInfo {
+            is_first: false,
+            index: 1,
+            nonspeculative_index: 1,
+            ..PaneInfo::NO_FIRING
+        },
+    ];
+    for pane in invalid {
+        assert_eq!(pane.encode().unwrap_err().kind, ErrorKind::Incompatible);
+    }
+    let mut invalid_flags = PaneInfo::NO_FIRING.encode().unwrap();
+    invalid_flags[0] = 0b1000;
+    assert_eq!(
+        PaneInfo::decode(&invalid_flags).unwrap_err().kind,
+        ErrorKind::Incompatible
+    );
+}

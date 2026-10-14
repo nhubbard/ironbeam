@@ -2,6 +2,12 @@ use ironbeam_core::{Element, OrdF64};
 use std::collections::HashSet;
 
 #[test]
+fn ordered_f64_advertises_a_portable_coder() {
+    assert!(OrdF64::supports_coder());
+    assert_eq!(OrdF64(1.0).encoded_len().unwrap(), 8);
+}
+
+#[test]
 fn ordered_f64_has_consistent_total_order_equality_hash_and_coder() {
     let negative_zero = OrdF64(-0.0);
     let positive_zero = OrdF64(0.0);
