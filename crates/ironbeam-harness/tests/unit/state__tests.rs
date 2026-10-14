@@ -1,6 +1,8 @@
 // Unit tests for src/state.rs.
 use super::*;
-use beam_proto::fn_execution_v1::{state_key, StateGetResponse};
+use beam_proto::fn_execution_v1::{
+    state_key, StateAppendResponse, StateClearResponse, StateGetResponse,
+};
 
 fn test_client() -> (StateClient, mpsc::UnboundedReceiver<StateRequest>) {
     let (outbound, receiver) = mpsc::unbounded_channel();
@@ -20,6 +22,101 @@ fn runner_key() -> StateKey {
             key: b"ref".to_vec(),
         })),
     }
+}
+
+#[tokio::test]
+async fn appends_and_clears_state_with_matching_runner_acknowledgements() {
+    let (client, mut requests) = test_client();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        let append = requests.recv().await.unwrap();
+        assert_eq!(append.instruction_id, "bundle-1");
+        assert_eq!(append.state_key, Some(runner_key()));
+        let Some(state_request::Request::Append(write)) = append.request else {
+            panic!("expected StateAppendRequest");
+        };
+        assert_eq!(write.data, b"value");
+        pending
+            .lock()
+            .unwrap()
+            .remove(&append.id)
+            .unwrap()
+            .send(StateResponse {
+                id: append.id,
+                error: String::new(),
+                response: Some(state_response::Response::Append(StateAppendResponse {})),
+            })
+            .unwrap();
+        let clear = requests.recv().await.unwrap();
+        assert_eq!(clear.instruction_id, "bundle-1");
+        assert_eq!(clear.state_key, Some(runner_key()));
+        assert!(matches!(
+            clear.request,
+            Some(state_request::Request::Clear(_))
+        ));
+        pending
+            .lock()
+            .unwrap()
+            .remove(&clear.id)
+            .unwrap()
+            .send(StateResponse {
+                id: clear.id,
+                error: String::new(),
+                response: Some(state_response::Response::Clear(StateClearResponse {})),
+            })
+            .unwrap();
+    });
+    client
+        .append("bundle-1", runner_key(), b"value".to_vec())
+        .await
+        .unwrap();
+    client.clear("bundle-1", runner_key()).await.unwrap();
+    responder.await.unwrap();
+}
+
+#[tokio::test]
+async fn state_mutations_reject_wrong_response_and_runner_error() {
+    let (client, mut requests) = test_client();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        let append = requests.recv().await.unwrap();
+        pending
+            .lock()
+            .unwrap()
+            .remove(&append.id)
+            .unwrap()
+            .send(StateResponse {
+                id: append.id,
+                error: String::new(),
+                response: Some(state_response::Response::Clear(StateClearResponse {})),
+            })
+            .unwrap();
+        let clear = requests.recv().await.unwrap();
+        pending
+            .lock()
+            .unwrap()
+            .remove(&clear.id)
+            .unwrap()
+            .send(StateResponse {
+                id: clear.id,
+                error: "state denied".into(),
+                response: None,
+            })
+            .unwrap();
+    });
+    assert!(client
+        .append("bundle-1", runner_key(), vec![1])
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("non-Append"));
+    assert!(client
+        .clear("bundle-1", runner_key())
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("state denied"));
+    responder.await.unwrap();
 }
 
 #[tokio::test]

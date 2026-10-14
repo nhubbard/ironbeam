@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use beam_proto::fn_execution_v1::{
-    beam_fn_state_client::BeamFnStateClient, state_request, state_response, StateGetRequest,
-    StateKey, StateRequest, StateResponse,
+    beam_fn_state_client::BeamFnStateClient, state_request, state_response, StateAppendRequest,
+    StateClearRequest, StateGetRequest, StateKey, StateRequest, StateResponse,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -74,6 +74,74 @@ impl StateClient {
         self.get_pages(instruction_id, state_key, |_| Ok(())).await
     }
 
+    /// Append encoded values to a runner-owned state cell in the active bundle.
+    pub async fn append(
+        &self,
+        instruction_id: &str,
+        state_key: StateKey,
+        data: Vec<u8>,
+    ) -> Result<()> {
+        let response = self
+            .request(
+                instruction_id,
+                state_key,
+                state_request::Request::Append(StateAppendRequest { data }),
+            )
+            .await?;
+        if !matches!(response.response, Some(state_response::Response::Append(_))) {
+            bail!("Beam state append returned a non-Append response");
+        }
+        Ok(())
+    }
+
+    /// Clear a runner-owned state cell in the active bundle.
+    pub async fn clear(&self, instruction_id: &str, state_key: StateKey) -> Result<()> {
+        let response = self
+            .request(
+                instruction_id,
+                state_key,
+                state_request::Request::Clear(StateClearRequest {}),
+            )
+            .await?;
+        if !matches!(response.response, Some(state_response::Response::Clear(_))) {
+            bail!("Beam state clear returned a non-Clear response");
+        }
+        Ok(())
+    }
+
+    async fn request(
+        &self,
+        instruction_id: &str,
+        state_key: StateKey,
+        request: state_request::Request,
+    ) -> Result<StateResponse> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed).to_string();
+        let (sender, receiver) = oneshot::channel();
+        self.pending.lock().unwrap().insert(id.clone(), sender);
+        let request = StateRequest {
+            id: id.clone(),
+            instruction_id: instruction_id.into(),
+            state_key: Some(state_key),
+            request: Some(request),
+        };
+        if self.outbound.send(request).is_err() {
+            self.pending.lock().unwrap().remove(&id);
+            bail!("Beam state stream closed before request {id}");
+        }
+        let response = match tokio::time::timeout(Duration::from_secs(60), receiver).await {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) => bail!("Beam state stream closed before response {id}"),
+            Err(_) => {
+                self.pending.lock().unwrap().remove(&id);
+                bail!("Beam state request {id} timed out");
+            }
+        };
+        if !response.error.is_empty() {
+            bail!("Beam state request {id} failed: {}", response.error);
+        }
+        Ok(response)
+    }
+
     async fn get_pages(
         &self,
         instruction_id: &str,
@@ -83,34 +151,15 @@ impl StateClient {
         let mut continuation_token = Vec::new();
         let mut seen = HashSet::new();
         loop {
-            let id = self.next_id.fetch_add(1, Ordering::Relaxed).to_string();
-            let (sender, receiver) = oneshot::channel();
-            self.pending.lock().unwrap().insert(id.clone(), sender);
-            let request = StateRequest {
-                id: id.clone(),
-                instruction_id: instruction_id.into(),
-                state_key: Some(state_key.clone()),
-                request: Some(state_request::Request::Get(StateGetRequest {
-                    continuation_token,
-                })),
-            };
-            if self.outbound.send(request).is_err() {
-                self.pending.lock().unwrap().remove(&id);
-                bail!("Beam state stream closed before request {id}");
-            }
-            let response = match tokio::time::timeout(Duration::from_secs(60), receiver).await {
-                Ok(Ok(response)) => response,
-                Ok(Err(_)) => bail!("Beam state stream closed before response {id}"),
-                Err(_) => {
-                    self.pending.lock().unwrap().remove(&id);
-                    bail!("Beam state request {id} timed out");
-                }
-            };
-            if !response.error.is_empty() {
-                bail!("Beam state request {id} failed: {}", response.error);
-            }
+            let response = self
+                .request(
+                    instruction_id,
+                    state_key.clone(),
+                    state_request::Request::Get(StateGetRequest { continuation_token }),
+                )
+                .await?;
             let Some(state_response::Response::Get(get)) = response.response else {
-                bail!("Beam state request {id} returned a non-Get response");
+                bail!("Beam state request returned a non-Get response");
             };
             visit(&get.data)?;
             continuation_token = get.continuation_token;
