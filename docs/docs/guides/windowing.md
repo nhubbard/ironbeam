@@ -87,11 +87,13 @@ The three rows for `a` form one interval `[0, 13_000_000)` ns. The event at
 `4_000_000` ns joins the intervals initially assigned at zero and eight
 milliseconds. The grouped result keeps the earliest input event time. Direct
 and local Prism agree on that result, on a touching boundary, and on a second
-key. Direct also restores open coded session groups from a checkpoint. The
-current API accepts bounded input only. Session joins, co-groups, and
-unbounded session grouping are rejected because their cross-input and
-watermark merge contracts have not been implemented. Portable session gaps
-must be positive whole milliseconds.
+key. Single-source unbounded keyed groups also merge in Direct and local
+Prism. Direct restores their open sessions and source cursor from a checkpoint;
+the shared fixture closes one negative-time session, then bridges two open
+sessions and discards a row after its session closes. Session joins and
+co-groups remain unsupported because they require merging across inputs.
+Portable session gaps must be
+positive whole milliseconds.
 
 ## Migration of timestamps
 

@@ -24,7 +24,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Bounded and unbounded sources | Vector, file, and resumable source fixtures; residuals cross processes | General source connector contracts and more split shapes |
 | Elementwise transforms and branching | Map, filter, flat-map, Flatten, and shared fanout jobs | Broader multi-output and fusion cases |
 | Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases | General stateful fanout and hot-key behavior |
-| Event time and watermarks | Fixed, offset, sliding, and bounded session cases; late rows drop at zero lateness | Unbounded merging sessions and nonzero allowed lateness |
+| Event time and watermarks | Fixed, offset, sliding, and keyed session cases; tested late rows drop at zero lateness | Session joins, nonzero allowed lateness, and broader merging cases |
 | Triggers and panes | Default trigger only. The Fn API boundary now decodes and preserves pane timing and indices in the worker | Public pane metadata, early and late triggers, accumulation, and Direct/Prism agreement |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
 | Side inputs | Bounded global and per-window side-view cases | Streaming side-input updates and broader view types |
@@ -93,11 +93,14 @@ Session windows start at each event's timestamp and extend by a configured
 gap. Keyed sessions merge when their intervals overlap or touch. The arrival
 order does not determine the final interval: a later bridge event can join two
 existing groups. `group_by_session_named` implements this behavior for bounded
-keyed input. Direct and local Prism agree on a bridge, a touching boundary,
-independent keys, the earliest group event time, and merged interval bounds.
-The Direct group fold restores a partially built session from coded checkpoint state.
-The unbounded, join, and co-group variants require additional watermark and
-cross-input merge rules and are rejected. The [windowing guide](../guides/windowing.md#keyed-sessions)
+and single-source unbounded keyed input. Direct and local Prism agree on a
+bridge, independent keys, the earliest group event time, and merged interval
+bounds. An unbounded test advances the watermark, merges two still-open
+sessions, closes them, and drops a row for a closed window. It also closes one
+negative-time session while the others remain open. Direct restores
+open sessions and the source cursor from one coded checkpoint before the
+bridge arrives. Session joins and co-groups need cross-input merge rules and
+remain unsupported. The [windowing guide](../guides/windowing.md#keyed-sessions)
 contains a working example.
 
 ## Keys, grouping, and order
@@ -244,7 +247,7 @@ commit decision or the sink's durable finalization record.
 | Event timestamps and watermarks | Timestamp assignment and source progress are available; Direct and Prism compare tested fixed-window results. |
 | Global and fixed windows | Supported on the established Direct and local Prism corpus. |
 | Sliding windows | Supported on bounded and unbounded collections on Direct and local Prism, including overlap, negative event time, watermark closure, and late-row discard. |
-| Session windows | Bounded keyed grouping merges overlapping or touching intervals on Direct and local Prism. Unbounded groups and session joins or co-groups are rejected. |
+| Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Direct checkpoints open unbounded sessions. Session joins and co-groups remain unsupported. |
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
 | Custom triggers and pane metadata | The worker preserves pane headers. A public pane API and custom trigger contract remain pending. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
