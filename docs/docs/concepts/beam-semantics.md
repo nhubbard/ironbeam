@@ -25,7 +25,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Elementwise transforms and branching | Map, filter, flat-map, Flatten, typed Partition, and shared fanout jobs; bounded and unbounded Partition fixtures match Direct and local Prism values, timestamps, and fixed windows; stateless Flatten matches across two and three independent unbounded sources and a mixed bounded/unbounded pair | Broader multi-output and fusion cases |
 | Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases; homogeneous co-group is proved with twelve bounded inputs, three independent unbounded inputs, three branches from one unbounded source, and mixed bounded/unbounded inputs in fixed windows; three independent unbounded inputs also merge a keyed session after the bridge arrives | General stateful DAG fanout, broader multi-source session schedules, and hot-key behavior |
 | Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two- or three-source unbounded co-groups merge sessions across inputs when source watermarks advance after the connecting records; tested late rows drop at zero lateness | Independent bounded-source and intermediate-watermark agreement for cross-input sessions, nonzero allowed lateness, and broader merging cases |
-| Triggers and panes | Default trigger on Direct and Prism. A public fixed-window repeated early count trigger runs on local Prism; Direct rejects it until its pane state is implemented. `reify_panes_named` and sink metadata expose pane timing and indices. A merged-session fixture exposes a Prism pane-timing difference. The Fn API boundary preserves the optional opaque element metadata payload | Add Direct count-trigger recovery, processing-time and composite triggers, late firings, accumulation, and allowed lateness; resolve merged-session pane agreement |
+| Triggers and panes | Default trigger on Direct and Prism. A public fixed-window repeated early count trigger runs for single-input keyed grouping on both; Direct restores early pane indices from a checkpoint. `reify_panes_named` and sink metadata expose pane timing and indices. A merged-session fixture exposes a Prism pane-timing difference. The Fn API boundary preserves the optional opaque element metadata payload | Extend count firings across stateful fan-in, then add processing-time and composite triggers, late firings, accumulation, and allowed lateness; resolve merged-session pane agreement |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
 | Side inputs | Bounded iterable, singleton, map, and multimap global views; per-window iterable, singleton, map, and multimap views; two unbounded sources match Direct and Prism after both watermarks close each window, including a typed map lookup | Streaming side-input updates before closure |
 | Completion signals | Bounded `wait_on_named`, `wait_on_all_named`, and heterogeneous `wait_on_signals_named`, plus windowed `wait_on_windowed_named`; a two-stream fixed-window barrier matches Direct and Prism, including an empty signal window | Release when the signal window closes before the main watermark and support several independently watermarked signals in one windowed barrier |
@@ -218,8 +218,11 @@ The repeated early count trigger is part of the graph descriptor and lowers
 to Beam's `AfterEndOfWindow` trigger with repeated `ElementCount` early
 firings. A bounded two-row bundle produced one early pane containing both
 rows on pinned Prism; two TestStream advances produced panes with indices 0
-and 1. Direct rejects this mode before execution. Other trigger forms,
-accumulating mode, and configurable allowed lateness remain unavailable.
+and 1. Direct emits the same panes in the corresponding bounded and streaming
+cases. Its keyed fold stores the next pane index with the source checkpoint,
+so a resumed stream does not repeat an earlier firing. Other stateful fan-in,
+other trigger forms, accumulating mode, and configurable allowed lateness
+remain unavailable.
 
 The default strategy fires once when a nonempty window is ready, uses the
 earliest event timestamp in that firing for grouped output, and discards
@@ -320,7 +323,7 @@ commit decision or the sink's durable finalization record.
 | Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Bounded joins and co-groups, including a three-input shared-source co-group, merge keyed intervals. Two-source unbounded joins and co-groups also run on both. Direct checkpoints open unbounded sessions and source cursors. Independent-source and intermediate-watermark session cases can differ on local Prism; more than two unbounded inputs and nonzero allowed lateness remain unproved. |
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
 | Pane metadata | `reify_panes_named` makes `PaneInfo` available to elementwise callbacks, and typed sinks receive it in `ElementMetadata`. Direct and Prism agree for fixed and sliding grouped windows. The pinned Prism runner marks the tested merged-session group as `Early` while Direct marks it `OnTime`. |
-| Early count trigger | Public fixed-window repeated count policy lowers to Beam and passes bounded and TestStream pane proofs on local Prism. Direct currently rejects it. |
+| Early count trigger | Public fixed-window repeated count policy lowers to Beam and passes bounded and TestStream pane proofs on local Prism. Direct supports single-input keyed grouping in bounded and resumable unbounded jobs, including pane-index recovery. |
 | Other triggers | Processing-time, composite, and late firings, accumulation, and allowed lateness remain pending. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
 | Splittable source residuals | Supported by local process-restart fixtures. |

@@ -45,8 +45,9 @@ collection API through the separately launched worker. With a repeated
 count-one early trigger, pinned Prism emits one early pane for two values in
 one bounded bundle. Values separated by TestStream watermark advances appear
 in early panes numbered 0 and 1. Both tests passed five consecutive local
-Prism runs during characterization. Direct currently rejects this trigger
-before execution; its pane state and checkpoint path are still being added.
+Prism runs during characterization. Direct's single-input keyed grouping path
+emits the corresponding bounded and streaming panes and restores pane indices
+from a checkpoint.
 
 A separate small job runs versioned `DynOp` partition transforms, including a
 row-type change, followed by map/filter/flat-map on Direct and the local Prism

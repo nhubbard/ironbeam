@@ -5098,13 +5098,24 @@ async fn prism_reports_early_default_pane_for_merged_session() {
 
 #[tokio::test]
 async fn prism_count_trigger_fires_one_early_pane_for_a_bounded_bundle() {
-    // Characterize pinned Prism before exposing trigger configuration in the
-    // Ironbeam graph. The portable strategy is changed only in this test.
+    // The same public graph runs through Direct and the pinned Prism runner.
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
     let _prism_job = prism_job_lock().lock().await;
     let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-count-trigger.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = pane_metadata_fixture_with_trigger(
+        &direct_pipeline,
+        direct_path.clone(),
+        PaneFixtureWindow::Fixed,
+        true,
+    )
+    .unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
     let path = directory.path().join("count-trigger.txt");
     let pipeline = Pipeline::default();
     pane_metadata_fixture_with_trigger(&pipeline, path.clone(), PaneFixtureWindow::Fixed, true)
@@ -5126,6 +5137,13 @@ async fn prism_count_trigger_fires_one_early_pane_for_a_bounded_bundle() {
         .map(str::to_owned)
         .collect::<Vec<_>>();
     rows.sort();
+    let mut direct_rows = std::fs::read_to_string(direct_path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    direct_rows.sort();
+    assert_eq!(direct_rows, rows);
     assert_eq!(
         rows,
         [

@@ -29,6 +29,7 @@ pub enum WindowTrigger {
 }
 
 impl WindowTrigger {
+    #[must_use]
     pub const fn is_default(&self) -> bool {
         matches!(self, Self::Default)
     }

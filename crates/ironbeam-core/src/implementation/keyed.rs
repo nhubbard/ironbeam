@@ -653,12 +653,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         }
         let key_owned = key.to_owned();
         let fold_key = key_owned.clone();
+        let trigger = parent.time.trigger;
         let fold_factory: FoldFactory = Arc::new(move || {
             Box::new(GroupByKeyFoldState::<K, V> {
                 key: fold_key.clone(),
+                trigger,
                 global_indices: HashMap::new(),
                 window_indices: HashMap::new(),
                 session_indices: HashMap::new(),
+                fired_panes: HashMap::new(),
                 groups: Vec::new(),
             })
         });
@@ -668,15 +671,23 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             })?;
             let mut fold: Box<dyn FoldSession> = Box::new(GroupByKeyFoldState::<K, V> {
                 key: key_owned.clone(),
+                trigger,
                 global_indices: HashMap::new(),
                 window_indices: HashMap::new(),
                 session_indices: HashMap::new(),
+                fired_panes: HashMap::new(),
                 groups: Vec::new(),
             });
             for event in events {
                 fold.add(event)?;
             }
-            fold.finish()
+            if let WindowTrigger::EarlyElementCount { count } = trigger {
+                let (mut early, _) = fold.drain_ready_count(count)?;
+                early.extend(fold.finish()?);
+                Ok(early)
+            } else {
+                fold.finish()
+            }
         });
         let result = self.next_aggregate(
             key,

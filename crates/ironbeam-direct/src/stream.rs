@@ -9,7 +9,7 @@ use crate::{
 };
 use ironbeam_core::{
     Element, Envelope, Error, ErrorKind, FoldSession, Graph, Operation, ProgressSignal, Registry,
-    Replay, Sink, SinkMode, SinkSession, UnboundedPoll, Window, WindowInterval,
+    Replay, Sink, SinkMode, SinkSession, UnboundedPoll, Window, WindowInterval, WindowTrigger,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -36,6 +36,7 @@ struct GroupedStreamRoute {
     before_group: Vec<String>,
     group_key: String,
     window: Window,
+    trigger: WindowTrigger,
     after_group: Vec<String>,
 }
 
@@ -240,6 +241,7 @@ fn restore_grouped_folds(
     group_key: &str,
     bytes: &[u8],
     budget_elements: usize,
+    allow_empty: bool,
 ) -> Result<(WindowFolds, usize), Error> {
     let mut remaining = bytes;
     if take_state_bytes(&mut remaining, GROUPED_STATE_MAGIC.len())? != GROUPED_STATE_MAGIC {
@@ -277,7 +279,10 @@ fn restore_grouped_folds(
                 .expect("eight bytes"),
         ))
         .map_err(|_| Error::recovery("checkpoint", "invalid grouped stream fold size"))?;
-        if end <= start || rows == 0 || rows > budget_elements.saturating_sub(buffered) {
+        if end <= start
+            || (rows == 0 && !allow_empty)
+            || rows > budget_elements.saturating_sub(buffered)
+        {
             return Err(Error::recovery(
                 "checkpoint",
                 "invalid grouped stream window or row count",
@@ -349,6 +354,11 @@ fn grouped_stream_route(
                         .time
                         .window
                         .clone(),
+                    trigger: graph
+                        .node(group_key.as_str())
+                        .expect("group node exists")
+                        .time
+                        .trigger,
                     group_key,
                     after_group: downstream,
                 }));
@@ -871,6 +881,7 @@ impl DirectRunner {
                     &grouped.group_key,
                     &state,
                     config.buffer_budget_elements,
+                    grouped.trigger != WindowTrigger::Default,
                 )?;
                 if progress.completed && !folds.is_empty() {
                     return Err(Error::recovery(
@@ -1506,6 +1517,35 @@ fn run_bounded_side_stream(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn write_grouped_panes(
+    registry: &Registry,
+    route: &GroupedStreamRoute,
+    sink_key: &str,
+    instruction_id: &str,
+    config: &JobConfig,
+    handle: &JobHandle,
+    panes: Vec<Envelope>,
+    session: &mut Option<Box<dyn SinkSession>>,
+    written: &mut u64,
+) -> Result<(), Error> {
+    for event in panes {
+        for output in apply_grouped_stages(registry, &route.after_group, event, config, handle)? {
+            if session.is_none() {
+                *session = Some(begin_sink_bundle(registry, sink_key, instruction_id)?);
+            }
+            catch_unwind(AssertUnwindSafe(|| {
+                session.as_mut().expect("opened sink").write(output)
+            }))
+            .unwrap_or_else(|_| {
+                Err(Error::execution(sink_key, "direct", "sink writer panicked"))
+            })?;
+            *written = written.saturating_add(1);
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)] // Window state, sink commit, and progress form one execution cycle.
 fn run_grouped_stream(
     registry: &Registry,
@@ -1624,6 +1664,27 @@ fn run_grouped_stream(
             }
         }
         let next_progress = merge_progress(progress.as_ref(), batch.progress);
+        let mut early_panes = Vec::new();
+        if let WindowTrigger::EarlyElementCount { count } = route.trigger {
+            for (fold, rows) in folds.values_mut() {
+                let (mut fired, released) =
+                    catch_unwind(AssertUnwindSafe(|| fold.drain_ready_count(count)))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(
+                                &route.group_key,
+                                "direct",
+                                "group count trigger panicked",
+                            ))
+                        })?;
+                *rows = rows.checked_sub(released).ok_or_else(|| {
+                    Error::recovery(&route.group_key, "count trigger released too many rows")
+                })?;
+                buffered = buffered.checked_sub(released).ok_or_else(|| {
+                    Error::recovery(&route.group_key, "group buffer count underflow")
+                })?;
+                early_panes.append(&mut fired);
+            }
+        }
         let closing = if matches!(route.window, Window::Session { .. }) {
             if next_progress.completed || next_progress.event_time_ns.is_some() {
                 folds.keys().copied().collect::<Vec<_>>()
@@ -1646,6 +1707,17 @@ fn run_grouped_stream(
         let mut session = None;
         let mut written = 0_u64;
         let result = (|| {
+            write_grouped_panes(
+                registry,
+                route,
+                sink_key,
+                &instruction_id,
+                config,
+                handle,
+                early_panes,
+                &mut session,
+                &mut written,
+            )?;
             for window in closing {
                 let grouped =
                     if matches!(route.window, Window::Session { .. }) && !next_progress.completed {
@@ -1683,22 +1755,17 @@ fn run_grouped_stream(
                         buffered -= count;
                         grouped
                     };
-                for event in grouped {
-                    for output in
-                        apply_grouped_stages(registry, &route.after_group, event, config, handle)?
-                    {
-                        if session.is_none() {
-                            session = Some(begin_sink_bundle(registry, sink_key, &instruction_id)?);
-                        }
-                        catch_unwind(AssertUnwindSafe(|| {
-                            session.as_mut().expect("opened sink").write(output)
-                        }))
-                        .unwrap_or_else(|_| {
-                            Err(Error::execution(sink_key, "direct", "sink writer panicked"))
-                        })?;
-                        written = written.saturating_add(1);
-                    }
-                }
+                write_grouped_panes(
+                    registry,
+                    route,
+                    sink_key,
+                    &instruction_id,
+                    config,
+                    handle,
+                    grouped,
+                    &mut session,
+                    &mut written,
+                )?;
             }
             if config.cancellation.load(Ordering::Acquire) {
                 return Err(cancelled());

@@ -209,7 +209,7 @@ fn grouped_state_rejects_corrupt_header_window_and_trailing_bytes() {
         b"IBGS1\0\0\0".as_slice(),
         b"IBGS1\0\0\0\0trailing".as_slice(),
     ] {
-        assert!(restore_grouped_folds(&registry, "group", bytes, 1).is_err());
+        assert!(restore_grouped_folds(&registry, "group", bytes, 1, false).is_err());
     }
     let mut invalid_window = b"IBGS1".to_vec();
     invalid_window.extend_from_slice(&1_u32.to_le_bytes());
@@ -218,7 +218,7 @@ fn grouped_state_rejects_corrupt_header_window_and_trailing_bytes() {
     invalid_window.extend_from_slice(&1_u64.to_le_bytes());
     invalid_window.extend_from_slice(&0_u64.to_le_bytes());
     assert_eq!(
-        restore_grouped_folds(&registry, "group", &invalid_window, 1)
+        restore_grouped_folds(&registry, "group", &invalid_window, 1, false)
             .err()
             .unwrap()
             .kind,
@@ -257,14 +257,15 @@ fn grouped_state_roundtrip_rejects_budget_and_duplicate_open_window() {
             .kind,
         ErrorKind::Resource
     );
-    let (restored, buffered) = restore_grouped_folds(&registry, "groups", &encoded, 1).unwrap();
+    let (restored, buffered) =
+        restore_grouped_folds(&registry, "groups", &encoded, 1, false).unwrap();
     assert_eq!(buffered, 1);
     assert_eq!(restored.len(), 1);
 
     let mut over_budget = encoded.clone();
     over_budget[25..33].copy_from_slice(&2_u64.to_le_bytes());
     assert_eq!(
-        restore_grouped_folds(&registry, "groups", &over_budget, 1)
+        restore_grouped_folds(&registry, "groups", &over_budget, 1, false)
             .err()
             .unwrap()
             .kind,
@@ -273,7 +274,7 @@ fn grouped_state_roundtrip_rejects_budget_and_duplicate_open_window() {
     let mut empty_window = encoded.clone();
     empty_window[25..33].copy_from_slice(&0_u64.to_le_bytes());
     assert_eq!(
-        restore_grouped_folds(&registry, "groups", &empty_window, 1)
+        restore_grouped_folds(&registry, "groups", &empty_window, 1, false)
             .err()
             .unwrap()
             .kind,
@@ -283,7 +284,7 @@ fn grouped_state_roundtrip_rejects_budget_and_duplicate_open_window() {
     duplicate[5..9].copy_from_slice(&2_u32.to_le_bytes());
     duplicate.extend_from_slice(&encoded[9..]);
     assert_eq!(
-        restore_grouped_folds(&registry, "groups", &duplicate, 2)
+        restore_grouped_folds(&registry, "groups", &duplicate, 2, false)
             .err()
             .unwrap()
             .kind,

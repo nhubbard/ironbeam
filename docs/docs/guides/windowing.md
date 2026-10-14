@@ -76,8 +76,11 @@ The setting is part of the graph fingerprint and lowers to Beam's repeated
 early element-count trigger. The local Prism proof emits one early pane for
 two values in one bounded bundle. A TestStream proof with the values in
 separate advances emits panes numbered 0 and 1. Bundle scheduling can affect
-which elements share a pane. Direct rejects this trigger before execution;
-late firings, accumulation, and allowed lateness remain unavailable.
+which elements share a pane. Direct produces the same panes for the tested
+bounded bundle and separate streaming polls. Its streaming path checkpoints
+the next pane index with the source cursor and restores it after restart.
+This support covers single-input keyed grouping in fixed windows; late
+firings, accumulation, and allowed lateness remain unavailable.
 
 ## Sliding windows
 

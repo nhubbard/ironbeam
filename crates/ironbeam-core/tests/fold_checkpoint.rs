@@ -1,4 +1,113 @@
-use ironbeam_core::{CombineFn, Element, Envelope, ErrorKind, Pipeline, Window, WindowInterval};
+use ironbeam_core::{
+    CombineFn, Element, Envelope, ErrorKind, PaneTiming, Pipeline, Window, WindowInterval,
+};
+
+#[test]
+fn count_trigger_fold_restores_next_pane_and_rejects_tampered_index() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 10_i32)])
+        .unwrap()
+        .fixed_windows("window", 10)
+        .unwrap()
+        .early_count_trigger_named("trigger", 1)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let interval = WindowInterval {
+        start_ns: 0,
+        end_ns: 10,
+    };
+    let add = |fold: &mut Box<dyn ironbeam_core::FoldSession>, value, timestamp_ns| {
+        fold.add(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, value)),
+            timestamp_ns,
+            window: Window::Fixed { size_ns: 10 },
+            assigned_window: Some(interval),
+        })
+        .unwrap();
+    };
+    let mut fold = registry.open_fold("group").unwrap();
+    add(&mut fold, 10_i32, 1);
+    let (first, released) = fold.drain_ready_count(1).unwrap();
+    assert_eq!(released, 1);
+    assert_eq!(first[0].pane.timing, PaneTiming::Early);
+    assert_eq!(first[0].pane.index, 0);
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("group").unwrap();
+    restored.restore_checkpoint_state(&saved).unwrap();
+    assert_eq!(restored.checkpoint_state().unwrap().unwrap(), saved);
+    add(&mut restored, 20_i32, 2);
+    let (second, released) = restored.drain_ready_count(1).unwrap();
+    assert_eq!(released, 1);
+    assert_eq!(second[0].pane.timing, PaneTiming::Early);
+    assert_eq!(second[0].pane.index, 1);
+    assert!(!second[0].pane.is_first);
+
+    let mut invalid: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+    invalid["fired_panes"][0]["next_index"] = 0.into();
+    assert_eq!(
+        registry
+            .open_fold("group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&invalid).unwrap())
+            .unwrap_err()
+            .kind,
+        ErrorKind::Recovery
+    );
+}
+
+#[test]
+fn count_two_trigger_preserves_partial_group_across_checkpoint() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 10_i32)])
+        .unwrap()
+        .fixed_windows("window", 10)
+        .unwrap()
+        .early_count_trigger_named("trigger", 2)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let add = |fold: &mut Box<dyn ironbeam_core::FoldSession>, value| {
+        fold.add(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, value)),
+            timestamp_ns: i64::from(value),
+            window: Window::Fixed { size_ns: 10 },
+            assigned_window: Some(WindowInterval {
+                start_ns: 0,
+                end_ns: 10,
+            }),
+        })
+        .unwrap();
+    };
+    let mut fold = registry.open_fold("group").unwrap();
+    add(&mut fold, 1_i32);
+    assert!(fold.drain_ready_count(2).unwrap().0.is_empty());
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("group").unwrap();
+    restored.restore_checkpoint_state(&saved).unwrap();
+    add(&mut restored, 2_i32);
+    let (panes, released) = restored.drain_ready_count(2).unwrap();
+    assert_eq!(released, 2);
+    assert_eq!(panes.len(), 1);
+    assert_eq!(panes[0].pane.timing, PaneTiming::Early);
+    assert_eq!(panes[0].pane.index, 0);
+    assert_eq!(
+        *panes
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<(i32, Vec<i32>)>()
+            .unwrap(),
+        (1, vec![1, 2])
+    );
+}
 
 #[test]
 fn session_group_checkpoint_merges_bridge_after_restore() {

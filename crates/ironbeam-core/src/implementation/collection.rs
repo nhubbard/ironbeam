@@ -501,7 +501,7 @@ impl<T: Element> PCollection<T> {
     }
     /// Fire a fixed window early when its element count reaches `count`.
     /// Beam may combine several threshold crossings into one pane within a
-    /// bundle. Direct execution does not yet support this policy.
+    /// bundle. Direct supports this policy for single-input keyed grouping.
     pub fn early_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
         if count == 0 || count > i32::MAX as u64 {
             return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));

@@ -1,11 +1,11 @@
-use ironbeam_core::Pipeline;
-use ironbeam_direct::DirectRunner;
+use ironbeam_core::{PaneInfo, PaneTiming, Pipeline};
+use ironbeam_direct::{DirectRunner, JobConfig};
 
 #[test]
-fn direct_rejects_unimplemented_early_count_before_execution() {
+fn bounded_count_trigger_emits_one_early_pane_for_a_bundle() {
     let pipeline = Pipeline::default();
-    pipeline
-        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+    let grouped = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32), ("a".to_owned(), 3)])
         .unwrap()
         .fixed_windows("windows", 10_000_000)
         .unwrap()
@@ -13,9 +13,50 @@ fn direct_rejects_unimplemented_early_count_before_execution() {
         .unwrap()
         .group_by_key_named("groups")
         .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
         .output("result")
         .unwrap();
-    let (graph, _) = pipeline.snapshot().unwrap();
-    let error = DirectRunner.validate(&graph).unwrap_err();
-    assert_eq!(error.node.as_deref(), Some("count-trigger"));
+    let (rows, _) = DirectRunner
+        .run_collect(&grouped, &JobConfig::default())
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![(
+            PaneInfo {
+                is_first: true,
+                is_last: false,
+                timing: PaneTiming::Early,
+                index: 0,
+                nonspeculative_index: -1,
+                contains_element_metadata: false,
+            },
+            ("a".to_owned(), vec![2, 3]),
+        )]
+    );
+}
+
+#[test]
+fn bounded_count_trigger_keeps_unreached_group_on_time() {
+    let pipeline = Pipeline::default();
+    let grouped = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .early_count_trigger_named("count-trigger", 2)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (rows, _) = DirectRunner
+        .run_collect(&grouped, &JobConfig::default())
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![(PaneInfo::FIRST_LAST_ON_TIME, ("a".into(), vec![2]))]
+    );
 }

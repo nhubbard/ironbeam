@@ -140,6 +140,11 @@ impl<V, A, O, C: OrderedFoldFn<V, A, O>> FoldLogic<V, A, O> for OrderedAdapter<C
 }
 pub trait FoldSession: Send {
     fn add(&mut self, event: Envelope) -> Result<(), Error>;
+    /// Fire ready keyed groups for a repeated early element-count trigger.
+    /// Returns emitted panes and the number of buffered inputs released.
+    fn drain_ready_count(&mut self, _count: u64) -> Result<(Vec<Envelope>, usize), Error> {
+        Err(Error::unsupported("fold", "runner", "early-count-trigger"))
+    }
     /// Remove groups whose windows end at or before the watermark. Returns
     /// their output and the number of buffered source elements released.
     fn drain_closed(&mut self, _watermark_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
