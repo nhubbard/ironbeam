@@ -125,7 +125,31 @@ fn global_count_values(pipeline: &Pipeline) -> Result<PCollection<(String, i32)>
 
 /// An unbounded keyed batch emits at the count threshold and flushes its tail.
 pub fn global_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
-    global_count_values(pipeline)?
+    keyed_batches_collection(pipeline, false)
+}
+
+pub fn windowed_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
+    keyed_batches_collection(pipeline, true)
+}
+
+fn keyed_batches_collection(pipeline: &Pipeline, windowed: bool) -> Result<PCollection<String>, Error> {
+    let source = if windowed {
+        pipeline.test_stream_source(
+            "global-count-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("a".to_owned(), 2_i32), 2_000_000),
+                    (("a".to_owned(), 3), 3_000_000),
+                ]),
+                TestStreamEvent::AdvanceProcessingTime(1_000_000),
+                TestStreamEvent::Elements(vec![(("a".to_owned(), 4), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?.fixed_windows("global-batches-window", 10_000_000)?
+    } else {
+        global_count_values(pipeline)?
+    };
+    source
         .group_into_batches_named("global-batches", 2)?
         .reify_panes_named("global-batches-pane")?
         .map_named("global-batches-row", |(pane, (key, values))| {
@@ -144,8 +168,19 @@ pub fn global_keyed_batches_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
+    keyed_batches_fixture(pipeline, path, false)
+}
+
+pub fn windowed_keyed_batches_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    keyed_batches_fixture(pipeline, path, true)
+}
+
+fn keyed_batches_fixture(pipeline: &Pipeline, path: PathBuf, windowed: bool) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
-    global_keyed_batches_collection(pipeline)?.sink_named_with_config(
+    keyed_batches_collection(pipeline, windowed)?.sink_named_with_config(
         "global-batches-capture",
         SinkSpec {
             mode: SinkMode::Append,

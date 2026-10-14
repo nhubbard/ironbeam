@@ -68,8 +68,9 @@ use ironbeam_prism_proof::{
     triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
     triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
     validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
+    PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -6251,34 +6252,41 @@ async fn prism_emits_full_and_final_partial_unbounded_keyed_batches() {
         return;
     };
     let _prism_job = prism_job_lock().lock().await;
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("batches.txt");
-    let pipeline = Pipeline::default();
-    global_keyed_batches_fixture(&pipeline, path.clone()).unwrap();
-    let terminal = run_shared_fixture(
-        &endpoint,
-        &pipeline,
-        "global-keyed-batches",
-        HashMap::from([(
-            "IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES".into(),
-            path.to_string_lossy().into_owned(),
-        )]),
-    )
-    .await;
-    assert_eq!(terminal.0, 3, "global keyed batch job state: {terminal:?}");
-    let mut rows = std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    rows.sort_unstable();
-    assert_eq!(
-        rows,
-        [
-            "a:[2, 3]:Early:true:false:0:-1",
-            "a:[4]:OnTime:false:true:1:0",
-        ]
-    );
+    for (windowed, variable) in [
+        (false, "IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES"),
+        (true, "IRONBEAM_V5_PRISM_WINDOWED_KEYED_BATCHES"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("batches.txt");
+        let pipeline = Pipeline::default();
+        if windowed {
+            windowed_keyed_batches_fixture(&pipeline, path.clone()).unwrap();
+        } else {
+            global_keyed_batches_fixture(&pipeline, path.clone()).unwrap();
+        }
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &pipeline,
+            "keyed-batches",
+            HashMap::from([(variable.into(), path.to_string_lossy().into_owned())]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "keyed batch job state: {terminal:?}");
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        assert_eq!(
+            rows,
+            [
+                "a:[2, 3]:Early:true:false:0:-1",
+                "a:[4]:OnTime:false:true:1:0",
+            ],
+            "windowed: {windowed}"
+        );
+    }
 }
 
 #[tokio::test]

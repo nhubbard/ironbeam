@@ -12,10 +12,31 @@ type Row = (String, i32);
 
 #[test]
 fn unbounded_global_group_into_batches_fires_full_and_final_partial_batches() {
+    assert_eq!(
+        run_unbounded_keyed_batches(false),
+        [
+            "a:[2, 3]:Early:true:false:0:-1",
+            "a:[4]:OnTime:false:true:1:0",
+        ]
+    );
+}
+
+#[test]
+fn unbounded_fixed_window_group_into_batches_flushes_partial_batch_at_watermark() {
+    assert_eq!(
+        run_unbounded_keyed_batches(true),
+        [
+            "a:[2, 3]:Early:true:false:0:-1",
+            "a:[4]:OnTime:false:true:1:0",
+        ]
+    );
+}
+
+fn run_unbounded_keyed_batches(windowed: bool) -> Vec<String> {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let pipeline = Pipeline::default();
-    let sink = pipeline
+    let source = pipeline
         .test_stream_source(
             "values",
             vec![
@@ -24,9 +45,16 @@ fn unbounded_global_group_into_batches_fires_full_and_final_partial_batches() {
                     (("a".to_owned(), 3), 3_000_000),
                 ]),
                 TestStreamEvent::Elements(vec![(("a".to_owned(), 4), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
             ],
         )
-        .unwrap()
+        .unwrap();
+    let source = if windowed {
+        source.fixed_windows("window", 10_000_000).unwrap()
+    } else {
+        source
+    };
+    let sink = source
         .group_into_batches_named("batches", 2)
         .unwrap()
         .reify_panes_named("pane")
@@ -65,11 +93,116 @@ fn unbounded_global_group_into_batches_fires_full_and_final_partial_batches() {
         .unwrap()
         .wait()
         .unwrap();
+    committed.lock().unwrap().clone()
+}
+
+#[test]
+fn keyed_batch_restores_a_partial_group_and_source_cursor() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "values",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "keyed-batch-source-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |position| {
+                    opens.lock().unwrap().push(position.clone());
+                    let polls = match position.as_deref() {
+                        None => vec![batch(1, 2_000_000, false, Some((2, 1_000_000)))],
+                        Some([1]) => vec![
+                            batch(2, 4_000_000, false, Some((3, 3_000_000))),
+                            batch(3, 10_000_000, true, Some((4, 4_000_000))),
+                        ],
+                        _ => return Err(Error::incompatible("unexpected keyed batch cursor")),
+                    };
+                    Ok(Box::new(Script {
+                        polls: polls.into(),
+                    }) as TypedUnboundedSourceReader<Row>)
+                }
+            },
+        )
+        .unwrap();
+    let sink = source
+        .group_into_batches_named("batches", 2)
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "keyed-batch-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 1,
+            recover: true,
+            binary_build_id: "keyed-batch-test-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        != Some(vec![1])
+    {
+        assert!(
+            Instant::now() < deadline,
+            "partial batch was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(committed.lock().unwrap().is_empty());
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
     assert_eq!(
         committed.lock().unwrap().as_slice(),
         [
             "a:[2, 3]:Early:true:false:0:-1",
-            "a:[4]:OnTime:false:true:1:0",
+            "a:[4]:OnTime:false:true:1:0"
         ]
     );
 }
