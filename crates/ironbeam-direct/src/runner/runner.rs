@@ -1,4 +1,4 @@
-fn stateful_fanin_operation(operation: &Operation) -> bool {
+const fn stateful_fanin_operation(operation: &Operation) -> bool {
     matches!(
         operation,
         Operation::CoGroupByKey

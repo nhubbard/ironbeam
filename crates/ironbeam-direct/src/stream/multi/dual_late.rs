@@ -20,6 +20,7 @@ pub(super) struct DualFiring {
     pub pane: Option<PaneInfo>,
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct FiringClock {
     pub prior_watermark: Option<i64>,
     pub watermark: Option<i64>,
