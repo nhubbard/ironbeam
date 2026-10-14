@@ -130,6 +130,14 @@ that need identical cross-runner session results should keep source
 watermarks behind all records that may connect an open session until this
 boundary is resolved.
 
+The bounded three-input co-group fixture uses three branches from one source.
+With three independent bounded sources, local Prism sometimes closes
+`[0, 9)` milliseconds before the third branch's eight-millisecond record
+joins it; Direct merges the complete connected interval. The shared-source
+fixture proves the three-input merge without depending on that scheduling
+choice. An independent-source Direct test continues to assert the complete
+merge. The independent-source Prism result remains an open agreement boundary.
+
 ## Keys, grouping, and order
 
 A grouping transform collects elements with the same key and window. A portable
@@ -276,7 +284,7 @@ commit decision or the sink's durable finalization record.
 | Event timestamps and watermarks | Timestamp assignment and source progress are available; Direct and Prism compare tested fixed-window results. |
 | Global and fixed windows | Supported on the established Direct and local Prism corpus. |
 | Sliding windows | Supported on bounded and unbounded collections on Direct and local Prism, including overlap, negative event time, watermark closure, and late-row discard. |
-| Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Direct checkpoints open unbounded sessions. Session joins and co-groups remain unsupported. |
+| Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Bounded joins and co-groups, including a three-input shared-source co-group, merge keyed intervals. Two-source unbounded joins and co-groups also run on both. Direct checkpoints open unbounded sessions and source cursors. Independent-source and intermediate-watermark session cases can differ on local Prism; more than two unbounded inputs and nonzero allowed lateness remain unproved. |
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
 | Custom triggers and pane metadata | The worker preserves pane headers. A public pane API and custom trigger contract remain pending. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |

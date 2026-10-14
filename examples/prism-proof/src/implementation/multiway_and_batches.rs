@@ -140,23 +140,40 @@ pub fn bounded_session_join_fixture(
         )
 }
 
-/// Three keyed inputs contribute to one merged session window.
+/// Three keyed branches of one source contribute to one merged session.
+/// A shared source keeps the bounded Prism fixture's watermark behind every
+/// connecting record; independent-source scheduling is tracked separately.
 pub fn bounded_session_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
-    let first = pipeline
-        .from_vec("session-cogroup-first", vec![(0_i64, ("a".to_owned(), 1_i32)), (8_000_000, ("a".to_owned(), 2))])?
-        .timestamps_from_pairs_named("session-cogroup-first-time")?
+    let source = pipeline
+        .from_vec(
+            "session-cogroup-source",
+            vec![
+                (0_i64, ("a".to_owned(), 0_u8, 1_i32)),
+                (4_000_000, ("a".to_owned(), 1, 1)),
+                (8_000_000, ("a".to_owned(), 0, 2)),
+                (12_000_000, ("a".to_owned(), 2, 1)),
+                (20_000_000, ("a".to_owned(), 1, 2)),
+                (30_000_000, ("b".to_owned(), 2, 1)),
+            ],
+        )?
+        .timestamps_from_pairs_named("session-cogroup-time")?;
+    let first = source
+        .filter_named("session-cogroup-first-filter", |(_, tag, _)| *tag == 0)?
+        .map_named("session-cogroup-first-value", |(key, _, value)| (key, value))?
         .session_windows_named("session-cogroup-first-window", 5_000_000)?;
-    let second = pipeline
-        .from_vec("session-cogroup-second", vec![(4_000_000_i64, ("a".to_owned(), "bridge".to_owned())), (20_000_000, ("a".to_owned(), "isolated".to_owned()))])?
-        .timestamps_from_pairs_named("session-cogroup-second-time")?
+    let second = source
+        .filter_named("session-cogroup-second-filter", |(_, tag, _)| *tag == 1)?
+        .map_named("session-cogroup-second-value", |(key, _, value)| {
+            (key, if value == 1 { "bridge" } else { "isolated" }.to_owned())
+        })?
         .session_windows_named("session-cogroup-second-window", 5_000_000)?;
-    let third = pipeline
-        .from_vec("session-cogroup-third", vec![(12_000_000_i64, ("a".to_owned(), true)), (30_000_000, ("b".to_owned(), true))])?
-        .timestamps_from_pairs_named("session-cogroup-third-time")?
+    let third = source
+        .filter_named("session-cogroup-third-filter", |(_, tag, _)| *tag == 2)?
+        .map_named("session-cogroup-third-value", |(key, _, _)| (key, true))?
         .session_windows_named("session-cogroup-third-window", 5_000_000)?;
     ironbeam_core::cogroup_by_key_3_named("session-cogroup", &first, &second, &third)?
         .with_window_named("session-cogroup-bounds")?
