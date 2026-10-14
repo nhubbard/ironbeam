@@ -22,6 +22,14 @@ A coder describes the bytes exchanged at a runner boundary. A type that works
 in Direct memory may still be unusable in a portable job if it has no stable
 coder. Portable preflight reports that mismatch before the worker reads input.
 
+Beam also separates a logical transform from an execution stage. A runner may
+fuse adjacent transforms into one stage, divide a stage into bundles, or execute
+bundles in a different order from the source records. `reshuffle_named` adds a
+shuffle boundary where downstream work must be independently schedulable. It
+does not sort elements. Application callbacks should use the element value and
+metadata, rather than a bundle number or the order in which workers happen to
+receive bundles.
+
 ## Elements and time
 
 An Ironbeam element has a value, an event timestamp in nanoseconds, and window
@@ -82,6 +90,20 @@ that can process inputs incrementally; users should choose one when they do
 not need the entire grouped value list. An explicit order key is still
 required when the reducer's result depends on sequence.
 
+## Side inputs and completion signals
+
+A side input supplies a view of another collection to a transform. Its values
+must be available for the main element's window before that element can run.
+Ironbeam supports a global side view and a per-window side view. The latter
+uses a co-group, so an empty side window still has a defined result when the
+main side has values. The live shared fixture checks both runners with an
+unbounded main collection, including an empty side window.
+
+`wait_on` delays main output until its required signal is available. It is a
+dependency between collections, not a source of ordering among the main
+elements. If the signal fails, the dependent output fails and is not
+committed. Neither side inputs nor `wait_on` provide mutable user state.
+
 ## Triggers, panes, and late data
 
 A trigger determines when a window produces a pane. A pane is one firing's
@@ -129,6 +151,25 @@ cell with a timer callback. The Beam Fn State API is used internally for
 side inputs and state-backed grouped iterables; application transforms cannot
 register a state specification or event-time timer through the current v5
 builder.
+
+## Bundles and committed output
+
+A Beam bundle is a runner-selected unit of work. A successful callback alone
+does not make its output a completed job result. The worker sends element bytes
+on Fn Data and reports bundle completion on Fn Control. Prism waits for each
+declared Fn Data output to close before committing that bundle. A sink that
+requires finalization stages fragments under the bundle attempt identity;
+the runner later accepts an attempt through `FinalizeBundle`. Ironbeam's local
+publication plan requires a `DONE` job, a complete finalization journal, and
+committed sink counts before it exposes the final file or object.
+
+Retries can execute a transform more than once. An append to an external
+system can therefore duplicate an effect even if the final PCollection has
+the expected values. Supervised execution accepts idempotent sinks or sinks
+whose fragments are bound to a durable finalization journal. It rejects a
+graph that cannot meet that replay contract before opening its sources or
+sinks. A source checkpoint records where reading can resume; it does not
+retroactively make an external append idempotent.
 
 ## Splitting and recovery
 
