@@ -25,7 +25,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Elementwise transforms and branching | Map, filter, flat-map, Flatten, and shared fanout jobs | Broader multi-output and fusion cases |
 | Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases | General stateful fanout and hot-key behavior |
 | Event time and watermarks | Fixed, offset, sliding, and keyed session cases; tested late rows drop at zero lateness | Session joins, nonzero allowed lateness, and broader merging cases |
-| Triggers and panes | Default trigger only. The Fn API boundary now decodes and preserves pane timing and indices in the worker | Public pane metadata, early and late triggers, accumulation, and Direct/Prism agreement |
+| Triggers and panes | Default trigger only. The Fn API boundary preserves pane timing, indices, and the optional opaque element metadata payload in the worker | Public pane metadata, early and late triggers, accumulation, and Direct/Prism agreement |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
 | Side inputs | Bounded global and per-window side-view cases | Streaming side-input updates and broader view types |
 | Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
@@ -154,8 +154,10 @@ elements would make sinks and folds ambiguous.
 The default strategy fires once when a nonempty window is ready, uses the
 earliest event timestamp in that firing for grouped output, and discards
 accumulated values afterward. Ironbeam's Fn Data coder decodes Beam pane
-timing, first and last flags, and indices. The worker retains those fields
-across its supported transform boundaries and writes them to outgoing Fn Data.
+timing, first and last flags, and indices. When Beam sets the element metadata
+flag, a length-prefixed protobuf payload follows the pane header; the worker
+keeps that payload separate from the user element and carries it across its
+supported transform boundaries. It writes both to outgoing Fn Data.
 The public element metadata still does not expose them to application
 callbacks or sinks. A trigger configured externally in a modified Beam graph
 would therefore not give the application a complete pane contract. Such a

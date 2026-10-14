@@ -44,6 +44,7 @@ impl V5BundleExecutor {
                     timestamp_ns: value.timestamp_ns,
                     window: value.assigned_window,
                     pane: input.pane,
+                    element_metadata: input.element_metadata.clone(),
                 })
             })
             .collect()
@@ -143,6 +144,7 @@ impl V5BundleExecutor {
                     timestamp_ns: event.timestamp_ns,
                     window: event.assigned_window,
                     pane: input.pane,
+                    element_metadata: input.element_metadata.clone(),
                 })
             })
             .collect()

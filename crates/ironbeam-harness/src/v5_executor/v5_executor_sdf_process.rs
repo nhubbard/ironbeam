@@ -328,6 +328,7 @@ impl V5BundleExecutor {
                             timestamp_ns: element.timestamp_ns,
                             window: None,
                             pane: PaneInfo::NO_FIRING,
+                            element_metadata: None,
                         },
                         &HashMap::new(),
                         &mut outputs,

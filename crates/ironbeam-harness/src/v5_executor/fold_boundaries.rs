@@ -19,6 +19,7 @@ fn assemble_fold_boundary_row(group: GroupBoundary) -> Result<WireValue> {
         timestamp_ns,
         window: assigned_window,
         pane: group.pane,
+        element_metadata: group.element_metadata,
     })
 }
 

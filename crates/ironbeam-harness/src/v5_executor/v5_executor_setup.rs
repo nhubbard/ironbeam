@@ -436,9 +436,10 @@ impl V5BundleExecutor {
                     };
                 }
                 let mut encoded = Vec::new();
-                encode_windowed_value_with_pane(
+                encode_windowed_value_with_metadata(
                     windowed.timestamp_millis,
                     windowed.pane,
+                    windowed.element_metadata,
                     &output,
                     &mut encoded,
                 )?;

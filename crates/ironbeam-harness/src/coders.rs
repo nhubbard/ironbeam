@@ -142,6 +142,7 @@ pub struct PaneInfo {
     pub timing: PaneTiming,
     pub index: i64,
     pub nonspeculative_index: i64,
+    pub contains_element_metadata: bool,
 }
 
 impl PaneInfo {
@@ -151,6 +152,7 @@ impl PaneInfo {
         timing: PaneTiming::Unknown,
         index: 0,
         nonspeculative_index: 0,
+        contains_element_metadata: false,
     };
 
     pub const FIRST_LAST_ON_TIME: Self = Self {
@@ -159,6 +161,7 @@ impl PaneInfo {
         timing: PaneTiming::OnTime,
         index: 0,
         nonspeculative_index: 0,
+        contains_element_metadata: false,
     };
 }
 
@@ -220,7 +223,13 @@ pub fn encode_pane_info<W: Write>(pane: PaneInfo, out: &mut W) -> Result<()> {
     } else {
         2
     };
-    out.write_all(&[base | (encoding << 4)])?;
+    out.write_all(&[base
+        | (encoding << 4)
+        | if pane.contains_element_metadata {
+            0x80
+        } else {
+            0
+        }])?;
     if encoding >= 1 {
         encode_varint(pane.index as u64, out)?;
     }
@@ -258,6 +267,22 @@ pub fn encode_windowed_value_with_pane<W: Write>(
     element: &[u8],
     out: &mut W,
 ) -> Result<()> {
+    encode_windowed_value_with_metadata(timestamp_millis, pane, None, element, out)
+}
+
+/// Encode a global-window value and its optional Beam Fn element metadata.
+pub fn encode_windowed_value_with_metadata<W: Write>(
+    timestamp_millis: i64,
+    pane: PaneInfo,
+    element_metadata: Option<&[u8]>,
+    element: &[u8],
+    out: &mut W,
+) -> Result<()> {
+    if pane.contains_element_metadata != element_metadata.is_some() {
+        return Err(anyhow!(
+            "windowed_value: pane metadata flag and payload differ"
+        ));
+    }
     // InstantCoder: write the value XOR'd with MIN_LONG as unsigned big-endian.
     let shifted = (timestamp_millis as i128) - (i64::MIN as i128); // = unsigned shifted value
     let shifted_u64 = shifted as u64;
@@ -266,6 +291,9 @@ pub fn encode_windowed_value_with_pane<W: Write>(
     out.write_all(&1i32.to_be_bytes())?;
     // Pane info.
     encode_pane_info(pane, out)?;
+    if let Some(metadata) = element_metadata {
+        encode_length_prefix(metadata, out)?;
+    }
     // Element body.
     out.write_all(element)?;
     Ok(())
@@ -299,10 +327,39 @@ pub fn encode_interval_windowed_value_with_pane<W: Write>(
     element: &[u8],
     out: &mut W,
 ) -> Result<()> {
+    encode_interval_windowed_value_with_metadata(
+        timestamp_millis,
+        start_millis,
+        end_millis,
+        pane,
+        None,
+        element,
+        out,
+    )
+}
+
+/// Encode an interval-window value and its optional Beam Fn element metadata.
+pub fn encode_interval_windowed_value_with_metadata<W: Write>(
+    timestamp_millis: i64,
+    start_millis: i64,
+    end_millis: i64,
+    pane: PaneInfo,
+    element_metadata: Option<&[u8]>,
+    element: &[u8],
+    out: &mut W,
+) -> Result<()> {
+    if pane.contains_element_metadata != element_metadata.is_some() {
+        return Err(anyhow!(
+            "windowed_value: pane metadata flag and payload differ"
+        ));
+    }
     out.write_all(&((timestamp_millis as u64) ^ (1_u64 << 63)).to_be_bytes())?;
     out.write_all(&1_i32.to_be_bytes())?;
     encode_interval_window(start_millis, end_millis, out)?;
     encode_pane_info(pane, out)?;
+    if let Some(metadata) = element_metadata {
+        encode_length_prefix(metadata, out)?;
+    }
     out.write_all(element)?;
     Ok(())
 }
@@ -312,6 +369,7 @@ pub struct WindowedValue<'a> {
     pub timestamp_millis: i64,
     pub interval_millis: Option<(i64, i64)>,
     pub pane: PaneInfo,
+    pub element_metadata: Option<&'a [u8]>,
     pub element: &'a [u8],
 }
 
@@ -365,13 +423,8 @@ pub fn try_decode_windowed_value(
     let Some(&pane_byte) = buf.get(pane_index) else {
         return Ok(None);
     };
-    if pane_byte & 0x80 != 0 {
-        return Err(anyhow!(
-            "windowed_value: unsupported element-metadata pane {pane_byte:#04x}"
-        ));
-    }
     let mut header_len = pane_index + 1;
-    let index_count = match pane_byte >> 4 {
+    let index_count = match (pane_byte & 0x70) >> 4 {
         0 => 0,
         1 => 1,
         2 => 2,
@@ -425,20 +478,56 @@ pub fn try_decode_windowed_value(
         } else {
             indices[0]
         },
+        contains_element_metadata: pane_byte & 0x80 != 0,
+    };
+    let element_metadata = if pane.contains_element_metadata {
+        let mut length = 0_u64;
+        let mut payload = None;
+        for index in 0..10 {
+            let Some(&byte) = buf.get(header_len + index) else {
+                return Ok(None);
+            };
+            if index == 9 && byte > 1 {
+                return Err(anyhow!("windowed_value: metadata length overflows varint"));
+            }
+            length |= u64::from(byte & 0x7f) << (index * 7);
+            if byte & 0x80 == 0 {
+                let length = usize::try_from(length).map_err(|_| {
+                    anyhow!("windowed_value: metadata length exceeds platform range")
+                })?;
+                if length > 64 * 1024 * 1024 {
+                    return Err(anyhow!("windowed_value: element metadata exceeds 64 MiB"));
+                }
+                let start = header_len + index + 1;
+                let end = start
+                    .checked_add(length)
+                    .ok_or_else(|| anyhow!("windowed_value: metadata length overflows"))?;
+                if buf.len() < end {
+                    return Ok(None);
+                }
+                payload = Some(&buf[start..end]);
+                header_len = end;
+                break;
+            }
+        }
+        Some(payload.ok_or_else(|| anyhow!("windowed_value: metadata length varint is too long"))?)
+    } else {
+        None
     };
     Ok(Some((
         WindowedValue {
             timestamp_millis,
             interval_millis,
             pane,
+            element_metadata,
             element: &buf[header_len..],
         },
         header_len,
     )))
 }
 
-/// Decode one global-window value and return its body offset. Pane timing and
-/// indices are consumed but not exposed in the v5 element model. If the
+/// Decode one global-window value and return its body offset. The returned
+/// value includes the pane and any opaque Beam Fn element metadata. If the
 /// element coder embedded in `element` is length-prefixed, the caller unwraps
 /// it separately.
 pub fn decode_windowed_value(buf: &[u8]) -> Result<(WindowedValue<'_>, usize)> {

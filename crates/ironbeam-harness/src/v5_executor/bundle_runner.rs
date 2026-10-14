@@ -218,6 +218,7 @@ impl BundleRunner for V5BundleExecutor {
                         timestamp_ns: value.timestamp_ns,
                         window: None,
                         pane: PaneInfo::NO_FIRING,
+                        element_metadata: None,
                     };
                     self.process_record(
                         instruction_id,

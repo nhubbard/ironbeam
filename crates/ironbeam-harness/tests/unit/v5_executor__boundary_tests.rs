@@ -8,12 +8,35 @@ use super::{
 };
 use crate::coders::{
     decode_windowed_value, encode_interval_windowed_value, encode_length_prefix, encode_varint, encode_windowed_value,
-    encode_windowed_value_with_pane, PaneInfo, PaneTiming,
+    encode_windowed_value_with_metadata, PaneInfo, PaneTiming,
 };
 use ironbeam_core::{CombineFn, Element, Pipeline, Window};
 use ironbeam_graphx::v5::collection_id;
 
 struct Sum;
+
+#[test]
+fn fragmented_fn_data_metadata_stays_out_of_user_element() {
+    let pane = PaneInfo {
+        contains_element_metadata: true,
+        ..PaneInfo::NO_FIRING
+    };
+    let mut body = Vec::new();
+    encode_length_prefix(b"row", &mut body).unwrap();
+    let mut encoded = Vec::new();
+    encode_windowed_value_with_metadata(12, pane, Some(b"\x08\x01"), &body, &mut encoded)
+        .unwrap();
+    for prefix in 0..encoded.len() {
+        assert!(decode_boundary_record(&encoded[..prefix], false)
+            .unwrap()
+            .is_none());
+    }
+    let (decoded, used) = decode_boundary_record(&encoded, false).unwrap().unwrap();
+    assert_eq!(used, encoded.len());
+    assert_eq!(decoded.bytes, b"row");
+    assert_eq!(decoded.element_metadata.as_deref(), Some(b"\x08\x01".as_slice()));
+    assert_eq!(decoded.pane, pane);
+}
 
 #[test]
 fn elementwise_portable_step_preserves_runner_pane() {
@@ -29,21 +52,28 @@ fn elementwise_portable_step_preserves_runner_pane() {
         timing: PaneTiming::Late,
         index: 2,
         nonspeculative_index: 1,
+        contains_element_metadata: true,
     };
     let produced = executor.apply("mapped", WireValue {
         bytes: 1_i32.encode().unwrap(),
         timestamp_ns: 0,
         window: None,
         pane,
+        element_metadata: Some(vec![0x08, 0x01]),
     }).unwrap();
     assert_eq!(produced.len(), 1);
     assert_eq!(produced[0].pane, pane);
+    assert_eq!(produced[0].element_metadata.as_deref(), Some([0x08, 0x01].as_slice()));
     assert_eq!(*registry.decode_element("mapped", &produced[0].bytes)
         .unwrap().downcast::<i32>().unwrap(), 2);
     let mut encoded = Vec::new();
-    encode_windowed_value_with_pane(0, produced[0].pane, &produced[0].bytes, &mut encoded).unwrap();
+    encode_windowed_value_with_metadata(
+        0, produced[0].pane, produced[0].element_metadata.as_deref(),
+        &produced[0].bytes, &mut encoded,
+    ).unwrap();
     let (decoded, _) = decode_windowed_value(&encoded).unwrap();
     assert_eq!(decoded.pane, pane);
+    assert_eq!(decoded.element_metadata, Some([0x08, 0x01].as_slice()));
 }
 
 impl CombineFn<i32, i32, i32> for Sum {
@@ -90,6 +120,7 @@ fn keyed_fold_boundary_keeps_input_time_and_rejects_short_value() {
         timestamp_ns: i64::MAX,
         assigned_window: None,
         pane: PaneInfo::NO_FIRING,
+        element_metadata: None,
     };
     let executor = V5BundleExecutor::new(&pipeline, "keyed-fold-test").unwrap();
     let wire = assemble_fold_boundary_row(group).unwrap();
@@ -109,6 +140,7 @@ fn keyed_fold_boundary_keeps_input_time_and_rejects_short_value() {
         timestamp_ns: i64::MAX,
         assigned_window: None,
         pane: PaneInfo::NO_FIRING,
+        element_metadata: None,
     })
     .unwrap();
     assert!(executor.apply_fold_group("sum", &malformed).is_err());
@@ -133,6 +165,7 @@ fn global_fold_boundary_emits_identity_for_seed_only() {
         timestamp_ns: 0,
         assigned_window: None,
         pane: PaneInfo::NO_FIRING,
+        element_metadata: None,
     })
     .unwrap();
     let result = executor.apply_fold_group("sum", &seed).unwrap();
@@ -151,6 +184,7 @@ fn global_fold_boundary_emits_identity_for_seed_only() {
         timestamp_ns: 0,
         assigned_window: None,
         pane: PaneInfo::NO_FIRING,
+        element_metadata: None,
     })
     .unwrap();
     assert!(executor.apply_fold_group("sum", &bad_key).is_err());
@@ -186,6 +220,7 @@ fn vector_global_combine_groups_values_and_emits_empty_identity() {
         timestamp_ns: i64::MAX,
         assigned_window: None,
         pane: PaneInfo::NO_FIRING,
+        element_metadata: None,
     })
     .unwrap();
     let result = executor.apply_fold_group("sum", &grouped).unwrap();
@@ -205,6 +240,7 @@ fn vector_global_combine_groups_values_and_emits_empty_identity() {
         timestamp_ns: 0,
         assigned_window: None,
         pane: PaneInfo::NO_FIRING,
+        element_metadata: None,
     })
     .unwrap();
     let empty = executor.apply_fold_group("sum", &seed).unwrap();

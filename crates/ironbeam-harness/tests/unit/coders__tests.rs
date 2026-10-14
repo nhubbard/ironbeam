@@ -133,7 +133,9 @@ fn interval_windowed_value_roundtrips_across_fragmented_headers() {
     assert_eq!(value.timestamp_millis, 12);
     assert_eq!(value.interval_millis, Some((10, 20)));
     assert_eq!(value.element, b"row");
-    assert!(decode_windowed_value(&encoded).is_err());
+    // The window coder is supplied by the collection descriptor. An interval
+    // header can resemble a flagged global pane, so wrong-coder detection is
+    // not a property of this byte-level decoder.
 }
 
 #[test]
@@ -209,6 +211,7 @@ fn beam_pane_headers_round_trip_all_timings_and_index_forms() {
             timing: PaneTiming::Early,
             index: 0,
             nonspeculative_index: -1,
+            contains_element_metadata: false,
         },
         PaneInfo {
             is_first: false,
@@ -216,6 +219,7 @@ fn beam_pane_headers_round_trip_all_timings_and_index_forms() {
             timing: PaneTiming::OnTime,
             index: 7,
             nonspeculative_index: 7,
+            contains_element_metadata: false,
         },
         PaneInfo {
             is_first: false,
@@ -223,6 +227,7 @@ fn beam_pane_headers_round_trip_all_timings_and_index_forms() {
             timing: PaneTiming::Late,
             index: 128,
             nonspeculative_index: 3,
+            contains_element_metadata: false,
         },
     ];
     for pane in panes {
@@ -266,6 +271,7 @@ fn pane_header_matches_beam_standard_coder_example() {
         timing: PaneTiming::OnTime,
         index: 30,
         nonspeculative_index: 40,
+        contains_element_metadata: false,
     };
     let mut encoded = Vec::new();
     encode_pane_info(pane, &mut encoded).unwrap();
@@ -281,6 +287,69 @@ fn pane_header_matches_beam_standard_coder_example() {
             .pane,
         pane
     );
+    let flagged = PaneInfo {
+        contains_element_metadata: true,
+        ..pane
+    };
+    encoded.clear();
+    encode_pane_info(flagged, &mut encoded).unwrap();
+    assert_eq!(encoded, [0xa6, 0x1e, 0x28]);
+    windowed.clear();
+    encode_interval_windowed_value_with_metadata(
+        1_000,
+        10,
+        20,
+        flagged,
+        Some(b"\x08\x01"),
+        b"\x02",
+        &mut windowed,
+    )
+    .unwrap();
+    assert_eq!(
+        try_decode_windowed_value(&windowed, true)
+            .unwrap()
+            .unwrap()
+            .0
+            .pane,
+        flagged
+    );
+    let (decoded, header_len) = try_decode_windowed_value(&windowed, true).unwrap().unwrap();
+    assert_eq!(decoded.element_metadata, Some(b"\x08\x01".as_slice()));
+    assert_eq!(decoded.element, b"\x02");
+    assert_eq!(header_len, 27);
+    assert!(encode_interval_windowed_value_with_pane(
+        1_000,
+        10,
+        20,
+        flagged,
+        b"\x02",
+        &mut Vec::new(),
+    )
+    .is_err());
+}
+
+#[test]
+fn element_metadata_header_waits_for_payload_and_caps_length() {
+    let flagged = PaneInfo {
+        contains_element_metadata: true,
+        ..PaneInfo::NO_FIRING
+    };
+    let mut encoded = Vec::new();
+    encode_windowed_value_with_metadata(0, flagged, Some(b"\x08\x01"), b"row", &mut encoded)
+        .unwrap();
+    assert!(try_decode_windowed_value(&encoded[..15], false)
+        .unwrap()
+        .is_none());
+    let (decoded, header_len) = try_decode_windowed_value(&encoded, false).unwrap().unwrap();
+    assert_eq!(header_len, 16);
+    assert_eq!(decoded.element_metadata, Some(b"\x08\x01".as_slice()));
+    assert_eq!(decoded.element, b"row");
+
+    let mut oversized = Vec::new();
+    encode_windowed_value(0, b"", &mut oversized).unwrap();
+    oversized[12] = 0x8f;
+    encode_varint(64 * 1024 * 1024 + 1, &mut oversized).unwrap();
+    assert!(try_decode_windowed_value(&oversized, false).is_err());
 }
 
 #[test]
