@@ -7,3 +7,4 @@ include!("v5/descriptors.rs");
 include!("v5/contract.rs");
 include!("v5/ids.rs");
 include!("v5/lowering.rs");
+include!("v5/stateful.rs");
