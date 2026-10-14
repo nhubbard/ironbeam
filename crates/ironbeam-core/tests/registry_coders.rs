@@ -116,6 +116,34 @@ fn registry_distinguishes_single_and_multi_result_dispatch() {
     );
 }
 
+#[test]
+fn fallible_flat_map_propagates_a_typed_error_without_partial_output() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![1_i32, 2])
+        .unwrap()
+        .flat_map_fallible_named("expand", |value| {
+            if value == 2 {
+                Err(Error::execution("expand", "user", "rejected element"))
+            } else {
+                Ok(vec![value, value + 10])
+            }
+        })
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let good = registry.apply_many("expand", scalar_event(1)).unwrap();
+    assert_eq!(good.len(), 2);
+    assert_eq!(*good[0].value.downcast_ref::<i32>().unwrap(), 1);
+    assert_eq!(*good[1].value.downcast_ref::<i32>().unwrap(), 11);
+    let error = registry
+        .apply_many("expand", scalar_event(2))
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("expand"));
+    assert_eq!(error.message, "rejected element");
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct UserRow(u32);
 
