@@ -112,8 +112,8 @@
   "ironbeam-io-xml": {
     "source": "crates/ironbeam-io-xml/src",
     "lines": {
-      "covered": 160,
-      "count": 169
+      "covered": 98,
+      "count": 105
     },
     "branches": {
       "covered": 2,

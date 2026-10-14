@@ -74,6 +74,7 @@ fn malformed_fragment_and_empty_result_are_atomic() {
         .stage("a", 1, b"<item><id>bad</id></item>")
         .unwrap();
     invalid.local.accept("a").unwrap();
+    let invalid = invalid.require_bundle_attempts(["a"]).unwrap();
     assert!(publish_xml_fragments::<Row>(&invalid, 1, &output).is_err());
     assert!(!output.exists());
     let empty = xml_fragment_store(dir.path().join("empty"), "job", "graph", "sink")
@@ -118,7 +119,30 @@ fn fragment_sink_registration_and_row_count_validation() {
         .unwrap();
     store.local.accept("bundle").unwrap();
     assert_eq!(store.accepted_fragments().unwrap().len(), 1);
+    let store = store.require_bundle_attempts(["bundle"]).unwrap();
     let output = dir.path().join("wrong-count.xml");
-    assert!(publish_xml_fragments::<Row>(&store, 2, &output).is_err());
+    assert!(publish_xml_fragments::<Row>(&store, 2, &output)
+        .err().unwrap().to_string().contains("decoded row count disagrees"));
     assert!(!output.exists());
+}
+
+#[test]
+fn fragment_item_encoding_reports_serializer_and_writer_failures() {
+    struct Invalid;
+    impl serde::Serialize for Invalid {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("invalid XML value"))
+        }
+    }
+    struct RejectWrites;
+    impl std::io::Write for RejectWrites {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("output failed"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    assert!(encode_xml_item(&Invalid, &mut Vec::new()).is_err());
+    assert!(encode_xml_item(&Row { id: 1, name: "Ada".into() }, &mut RejectWrites).is_err());
 }
