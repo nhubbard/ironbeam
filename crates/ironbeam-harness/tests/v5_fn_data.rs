@@ -1736,7 +1736,13 @@ async fn state_backed_group_fetches_runner_suffix_before_mapping() {
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
-    drop(listener);
+    listener.set_nonblocking(true).unwrap();
+    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+    let incoming = async_stream::stream! {
+        loop {
+            yield listener.accept().await.map(|(stream, _)| stream);
+        }
+    };
     let received = Arc::new(Mutex::new(Vec::new()));
     let requests = Arc::new(Mutex::new(Vec::new()));
     let server = tokio::spawn(
@@ -1749,9 +1755,8 @@ async fn state_backed_group_fetches_runner_suffix_before_mapping() {
                 suffix,
                 requests: Arc::clone(&requests),
             }))
-            .serve(addr),
+            .serve_with_incoming(incoming),
     );
-    tokio::time::sleep(Duration::from_millis(50)).await;
     let port = RemoteGrpcPort {
         api_service_descriptor: Some(ApiServiceDescriptor {
             url: format!("http://{addr}"),
