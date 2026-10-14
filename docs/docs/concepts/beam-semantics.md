@@ -29,7 +29,7 @@ This page does not assign a percentage while those tests are incomplete.
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
 | Side inputs | Bounded global and per-window side-view cases | Streaming side-input updates and broader view types |
 | Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
-| I/O formats | Separate CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord crates | Expand protocol fixtures, schema evolution, and portable production cases |
+| I/O formats | Separate CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord crates; native Avro reader schemas resolve added defaults and projected fields with graph-bound identity | Expand schema evolution beyond the tested Avro cases and portable production cases |
 | External services | SQL, MongoDB, object storage, and opt-in GCP clients | Provider emulator and hosted service behavior, authentication, and streaming commit guarantees |
 
 The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)

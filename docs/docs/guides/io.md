@@ -48,6 +48,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The source key identifies the graph node; the file path identifies the data. A relative path is resolved from the program's working directory.
 
+## Reading Avro with a reader schema
+
+An Avro container stores its writer schema. A reader schema can select fields
+or supply defaults for fields added after the file was written. The following
+reader accepts a file written with `id` and `name` fields and supplies
+`active: true` for older records:
+
+```rust
+use ironbeam::{Element, Pipeline, avro_source_with_reader_schema, prelude::*};
+use serde::Deserialize;
+
+#[derive(Clone, Deserialize)]
+struct Account {
+    id: i32,
+    name: String,
+    active: bool,
+}
+
+impl Element for Account {
+    const TYPE_ID: &'static str = "example/account-v2";
+    const CODER_ID: &'static str = "example/account-v2";
+}
+
+fn main() -> Result<(), ironbeam::Error> {
+    let schema = r#"{"type":"record","name":"Account","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"active","type":"boolean","default":true}]}"#;
+    let pipeline = Pipeline::default();
+    let accounts = avro_source_with_reader_schema::<Account>(
+        &pipeline, "accounts", "accounts.avro", schema,
+    )?.collect_seq()?;
+    println!("{} accounts", accounts.len());
+    Ok(())
+}
+```
+
+The schema is validated while building the pipeline and included in source
+identity. A resumed job rejects a different schema or changed file bytes.
+The file source reads local paths on Direct; a portable job needs an
+accessible storage source and a stable element coder.
+
 ## Writing a result
 
 A sink is a terminal operation. It is run with `DirectRunner.run_sink` rather than collected into a vector:
