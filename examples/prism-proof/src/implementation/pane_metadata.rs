@@ -1,5 +1,67 @@
 struct PaneCheckingSink(GlobalFoldSink<String>);
 
+/// Repeated count firings in the global window, followed by a final pane.
+pub fn global_count_collection(
+    pipeline: &Pipeline,
+    accumulating: bool,
+) -> Result<PCollection<String>, Error> {
+    let values = pipeline.test_stream_source(
+        "global-count-source",
+        vec![
+            TestStreamEvent::Elements(vec![
+                (("a".to_owned(), 2_i32), 2_000_000),
+                (("a".to_owned(), 3), 3_000_000),
+            ]),
+            TestStreamEvent::AdvanceProcessingTime(1_000_000),
+            TestStreamEvent::Elements(vec![(
+                ("a".to_owned(), 4),
+                4_000_000,
+            )]),
+        ],
+    )?;
+    let values = if accumulating {
+        values.accumulating_count_trigger_named("global-count-trigger", 2)?
+    } else {
+        values.early_count_trigger_named("global-count-trigger", 2)?
+    };
+    values
+        .group_by_key_named("global-count-group")?
+        .reify_panes_named("global-count-pane")?
+        .map_named("global-count-row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+                pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn global_count_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    global_count_collection(pipeline, accumulating)?.sink_named_with_config(
+        "global-count-capture",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("global-count:{}", path.display()),
+        move || {
+            Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })))
+        },
+    )
+}
+
 impl TypedSink<String> for PaneCheckingSink {
     fn write(&mut self, value: String) -> Result<(), Error> {
         self.0.write(value)

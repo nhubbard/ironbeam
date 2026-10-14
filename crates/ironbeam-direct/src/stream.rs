@@ -1619,9 +1619,20 @@ fn run_grouped_stream(
         for input in batch.elements {
             for event in apply_grouped_stages(registry, &route.before_group, input, config, handle)?
             {
-                let interval = event.assigned_window.ok_or_else(|| {
-                    Error::execution(&route.group_key, "direct", "grouped stream needs a window")
-                })?;
+                let interval = match (route.window == Window::Global, event.assigned_window) {
+                    (true, None) => WindowInterval {
+                        start_ns: i64::MIN,
+                        end_ns: i64::MAX,
+                    },
+                    (false, Some(interval)) => interval,
+                    _ => {
+                        return Err(Error::execution(
+                            &route.group_key,
+                            "direct",
+                            "grouped stream window metadata does not match its declaration",
+                        ));
+                    }
+                };
                 let prior_watermark = progress
                     .as_ref()
                     .and_then(|previous| previous.event_time_ns);

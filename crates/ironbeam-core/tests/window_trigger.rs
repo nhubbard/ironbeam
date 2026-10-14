@@ -25,7 +25,7 @@ fn triggered_fingerprint(count: u64) -> String {
 fn early_count_is_validated_and_changes_graph_identity() {
     let pipeline = Pipeline::default();
     let values = pipeline.from_vec("source", vec![1_i32]).unwrap();
-    assert!(values.early_count_trigger_named("global", 1).is_err());
+    assert!(values.early_count_trigger_named("global", 1).is_ok());
     let windowed = values.fixed_windows("window", 10_000_000).unwrap();
     assert!(windowed.early_count_trigger_named("zero", 0).is_err());
     assert!(
@@ -34,6 +34,35 @@ fn early_count_is_validated_and_changes_graph_identity() {
             .is_err()
     );
     assert_ne!(triggered_fingerprint(1), triggered_fingerprint(2));
+}
+
+#[test]
+fn unbounded_global_group_requires_a_finite_count_trigger() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .test_stream_source(
+            "values",
+            vec![ironbeam_core::TestStreamEvent::Elements(vec![(
+                ("a".to_owned(), 2_i32),
+                0,
+            )])],
+        )
+        .unwrap();
+    assert!(values.group_by_key_named("untriggered").is_err());
+    let grouped = values
+        .early_count_trigger_named("trigger", 2)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node(grouped.key()).unwrap().time.window,
+        ironbeam_core::Window::Global
+    );
+    assert_eq!(
+        graph.node(grouped.key()).unwrap().time.trigger,
+        WindowTrigger::EarlyElementCount { count: 2 }
+    );
 }
 
 #[test]

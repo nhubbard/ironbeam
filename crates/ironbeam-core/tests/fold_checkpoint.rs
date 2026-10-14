@@ -3,6 +3,68 @@ use ironbeam_core::{
 };
 
 #[test]
+fn global_count_fold_restores_pane_index_and_accumulated_values() {
+    for accumulating in [false, true] {
+        let pipeline = Pipeline::default();
+        let values = pipeline
+            .test_stream_source(
+                "source",
+                vec![ironbeam_core::TestStreamEvent::Elements(vec![(
+                    (1_i32, 2_i32),
+                    2,
+                )])],
+            )
+            .unwrap();
+        let triggered = if accumulating {
+            values
+                .accumulating_count_trigger_named("trigger", 2)
+                .unwrap()
+        } else {
+            values.early_count_trigger_named("trigger", 2).unwrap()
+        };
+        triggered.group_by_key_named("group").unwrap();
+        let (_, registry) = pipeline.snapshot().unwrap();
+        let add = |fold: &mut Box<dyn ironbeam_core::FoldSession>, value| {
+            fold.add(Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
+                value: Box::new((1_i32, value)),
+                timestamp_ns: i64::from(value),
+                window: Window::Global,
+                assigned_window: None,
+            })
+            .unwrap();
+        };
+        let mut fold = registry.open_fold("group").unwrap();
+        add(&mut fold, 2_i32);
+        add(&mut fold, 3_i32);
+        let (first, released) = fold.drain_ready_count(2).unwrap();
+        assert_eq!(released, if accumulating { 0 } else { 2 });
+        assert_eq!(first[0].pane.index, 0);
+        assert_eq!(first[0].assigned_window, None);
+        let saved = fold.checkpoint_state().unwrap().unwrap();
+        let mut restored = registry.open_fold("group").unwrap();
+        restored.restore_checkpoint_state(&saved).unwrap();
+        assert_eq!(restored.checkpoint_state().unwrap().unwrap(), saved);
+        add(&mut restored, 4_i32);
+        let final_panes = restored.finish().unwrap();
+        assert_eq!(final_panes.len(), 1);
+        assert_eq!(final_panes[0].pane.index, 1);
+        assert_eq!(final_panes[0].pane.timing, PaneTiming::OnTime);
+        assert_eq!(final_panes[0].assigned_window, None);
+        assert_eq!(
+            *final_panes
+                .into_iter()
+                .next()
+                .unwrap()
+                .value
+                .downcast::<(i32, Vec<i32>)>()
+                .unwrap(),
+            (1, if accumulating { vec![2, 3, 4] } else { vec![4] })
+        );
+    }
+}
+
+#[test]
 fn count_trigger_fold_restores_next_pane_and_rejects_tampered_index() {
     let pipeline = Pipeline::default();
     pipeline

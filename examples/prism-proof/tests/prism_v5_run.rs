@@ -42,24 +42,24 @@ use ironbeam_prism_proof::{
     dual_unbounded_session_cogroup_collection, dual_unbounded_session_cogroup_fixture,
     dual_unbounded_session_join_collection, dual_unbounded_session_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
-    finalization_probe_sink, finalization_probe_store, global_fold_fixture, global_vector_fixture,
-    group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
-    homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
-    invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
-    late_count_fixture, latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
-    mixed_boundedness_join_cogroup_fixture, mixed_flatten_collection, mixed_flatten_fixture,
-    mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
-    offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
-    ordered_global_fixture, ordered_keyed_duplicate_fixture, ordered_keyed_fixture,
-    pane_metadata_fixture_for, pane_metadata_fixture_with_accumulating_count,
-    pane_metadata_fixture_with_trigger, panicking_global_combine_fixture,
-    panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
-    partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
-    session_group_fixture, shared_unbounded_homogeneous_cogroup_collection,
-    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
-    sliding_allowed_lateness_fixture, sliding_window_group_fixture, streaming_group_fixture,
-    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
-    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    finalization_probe_sink, finalization_probe_store, global_count_collection,
+    global_count_fixture, global_fold_fixture, global_vector_fixture, group_end_time_fixture,
+    group_latest_time_fixture, group_time_fixture, homogeneous_twelve_way_cogroup_fixture,
+    homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
+    large_group_rows, large_group_summary, late_count_fixture, latest_tie_duplicate_fixture,
+    latest_tie_empty_fixture, latest_tie_fixture, mixed_boundedness_join_cogroup_fixture,
+    mixed_flatten_collection, mixed_flatten_fixture, mixed_homogeneous_cogroup_collection,
+    mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
+    ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
+    ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
+    pane_metadata_fixture_with_accumulating_count, pane_metadata_fixture_with_trigger,
+    panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
+    panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
+    production_stream_fixture, session_group_fixture,
+    shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
+    side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_window_group_fixture,
+    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
     streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
     triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
     triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
@@ -6104,6 +6104,101 @@ async fn prism_matches_direct_combine_output_time_policies() {
             ]
         );
         assert_eq!(read_rows(&portable_path), direct, "policy: {policy:?}");
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_global_count_trigger_panes() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        committed: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.committed.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    for (accumulating, variable) in [
+        (false, "IRONBEAM_V5_PRISM_GLOBAL_COUNT_DISCARDING"),
+        (true, "IRONBEAM_V5_PRISM_GLOBAL_COUNT_ACCUMULATING"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let portable_path = directory.path().join("portable.txt");
+        let rows = Arc::new(Mutex::new(Vec::new()));
+        let committed = Arc::new(Mutex::new(HashSet::new()));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = global_count_collection(&direct_pipeline, accumulating)
+            .unwrap()
+            .sink_named_with_config(
+                "global-count-capture",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "global-count-direct-v1".into(),
+                {
+                    let rows = Arc::clone(&rows);
+                    let committed = Arc::clone(&committed);
+                    move || {
+                        Ok(Box::new(DirectRows {
+                            rows: Arc::clone(&rows),
+                            committed: Arc::clone(&committed),
+                            staged: Vec::new(),
+                            bundle: String::new(),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let pipeline = Pipeline::default();
+        global_count_fixture(&pipeline, portable_path.clone(), accumulating).unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &pipeline,
+            "global-count",
+            HashMap::from([(
+                variable.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "global count job state: {terminal:?}");
+        let mut direct = rows.lock().unwrap().clone();
+        direct.sort_unstable();
+        let mut portable = std::fs::read_to_string(portable_path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        portable.sort_unstable();
+        assert_eq!(portable, direct, "accumulating: {accumulating}");
     }
 }
 

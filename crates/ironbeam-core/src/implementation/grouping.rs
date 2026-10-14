@@ -1,6 +1,10 @@
 type GroupBuffer<K, V> = Vec<(K, Vec<V>, i64, Window, Option<WindowInterval>)>;
 type ReifiedKeyedValue<K, V> = (K, (i64, V));
 type LatestGroupBuffer<K, V> = Vec<(K, (i64, V), i64, Window, Option<WindowInterval>)>;
+const GLOBAL_TRIGGER_SCOPE: WindowInterval = WindowInterval {
+    start_ns: i64::MIN,
+    end_ns: i64::MAX,
+};
 enum JoinPositions {
     One(usize),
     Many(Vec<usize>),
@@ -443,9 +447,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         if self.trigger.is_accumulating() {
             let mut fired = Vec::new();
             for (key, values, timestamp_ns, window, assigned_window) in &self.groups {
-                let interval = assigned_window.ok_or_else(|| {
-                    Error::incompatible("early count trigger requires a finite window")
-                })?;
+                let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
                 let scope = (key.clone(), interval);
                 let prior = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
                 if values.len().saturating_sub(prior) < threshold {
@@ -475,7 +477,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         Some(interval),
                     ),
                     window: window.clone(),
-                    assigned_window: Some(interval),
+                    assigned_window: *assigned_window,
                 });
             }
             return Ok((fired, 0));
@@ -488,9 +490,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 remaining.push((key, values, timestamp_ns, window, assigned_window));
                 continue;
             }
-            let interval = assigned_window.ok_or_else(|| {
-                Error::incompatible("early count trigger requires a finite window")
-            })?;
+            let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
             let latest = self.latest_timestamps.remove(&(key.clone(), interval));
             let next_index = self.fired_panes.entry((key.clone(), interval)).or_insert(0);
             let index = *next_index;
@@ -510,7 +510,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 value: Box::new((key, values)),
                 timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, Some(interval)),
                 window,
-                assigned_window: Some(interval),
+                assigned_window,
             });
         }
         self.groups = remaining;
@@ -856,7 +856,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             ));
         }
         for (scope, &count) in &restored.fired_value_counts {
-            let Some(&position) = restored.window_indices.get(scope) else {
+            let position = if scope.1 == GLOBAL_TRIGGER_SCOPE {
+                restored.global_indices.get(&scope.0)
+            } else {
+                restored.window_indices.get(scope)
+            };
+            let Some(&position) = position else {
                 return Err(Error::recovery(&self.key, "accumulating pane has no group"));
             };
             if count > restored.groups[position].1.len() {
@@ -891,8 +896,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             .into_iter()
             .map(
                 |(key, values, timestamp_ns, window, assigned_window)| {
-                    let index = assigned_window
-                        .and_then(|interval| fired_panes.get(&(key.clone(), interval)).copied())
+                    let index = fired_panes
+                        .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
+                        .copied()
                         .unwrap_or(0);
                     let latest_ns = assigned_window.and_then(|interval| {
                         latest_timestamps.get(&(key.clone(), interval)).copied()
@@ -936,8 +942,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let output_time = self.output_time;
         let latest_timestamps = self.latest_timestamps;
         for (key, values, timestamp_ns, window, assigned_window) in self.groups {
-            let index = assigned_window
-                .and_then(|interval| fired_panes.get(&(key.clone(), interval)).copied())
+            let index = fired_panes
+                .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
+                .copied()
                 .unwrap_or(0);
             let latest_ns = assigned_window
                 .and_then(|interval| latest_timestamps.get(&(key.clone(), interval)).copied());

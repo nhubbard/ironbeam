@@ -70,11 +70,11 @@ impl Graph {
             if let Some(count) = node.time.trigger.early_count()
                 && (count == 0
                     || count > i32::MAX as u64
-                    || !matches!(node.time.window, Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. }))
+                    || !matches!(node.time.window, Window::Global | Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. }))
             {
                 return Err(Error::graph(
                     &node.key,
-                    "early count trigger requires fixed or sliding windows and a positive count",
+                    "early count trigger requires global, fixed, or sliding windows and a positive count",
                 ));
             }
             if let Some(count) = node.time.trigger.late_count()
@@ -290,6 +290,8 @@ impl Graph {
                             | Operation::CoGroupByKey
                     ) && node.boundedness == Boundedness::Unbounded
                         && node.time.window == Window::Global
+                        && !(matches!(node.operation, Operation::GroupByKey)
+                            && node.time.trigger.early_count().is_some())
                     {
                         return Err(Error::graph(
                             &node.key,

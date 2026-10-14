@@ -54,8 +54,9 @@ Source elements have `Unknown` timing before a window fires.
 
 ### Early count firings on Prism
 
-`early_count_trigger_named` configures repeated early firings for fixed or
-sliding windows. The count must be positive and fit in a signed 32-bit integer:
+`early_count_trigger_named` configures repeated early firings for global,
+fixed, or sliding windows. The count must be positive and fit in a signed
+32-bit integer:
 
 ```rust
 use ironbeam::{Pipeline, prelude::*};
@@ -85,7 +86,15 @@ the second contains `[2, 3]`, and the on-time pane contains `[2, 3]` again.
 Direct checkpoints both the retained values and the count at the last firing.
 Its accumulating keyed fold requires a value coder. A bounded overlapping
 sliding-window proof matches Direct and pinned Prism in both accumulation modes. This support covers
-single-input keyed grouping in fixed and sliding windows. To combine early
+single-input keyed grouping in global, fixed, and sliding windows. An unbounded
+global group needs a count trigger: without one, its only normal firing is at
+source completion, which may never occur. For example, a test stream can apply
+`early_count_trigger_named("early", 2)` directly to its global keyed elements,
+then call `group_by_key_named("group")`. Direct and Prism both emit an early
+pane after the second element and a final pane when the finite test stream
+completes. For a continuing source, the trigger supplies regular output while
+the key remains live; retained state grows when accumulation is enabled.
+To combine early
 and late count firings, set allowed lateness and use the combined policy
 described below.
 

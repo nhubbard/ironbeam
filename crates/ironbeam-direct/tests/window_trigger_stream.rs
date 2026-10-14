@@ -10,6 +10,83 @@ use std::time::{Duration, Instant};
 
 type Row = (String, i32);
 
+#[test]
+fn unbounded_global_count_trigger_emits_early_and_final_panes() {
+    for accumulating in [false, true] {
+        let committed = Arc::new(Mutex::new(Vec::new()));
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let pipeline = Pipeline::default();
+        let source = pipeline
+            .test_stream_source(
+                "values",
+                vec![
+                    TestStreamEvent::Elements(vec![
+                        (("a".to_owned(), 2_i32), 2_000_000),
+                        (("a".to_owned(), 3), 3_000_000),
+                    ]),
+                    TestStreamEvent::Elements(vec![(("a".to_owned(), 4), 4_000_000)]),
+                ],
+            )
+            .unwrap();
+        let source = if accumulating {
+            source
+                .accumulating_count_trigger_named("trigger", 2)
+                .unwrap()
+        } else {
+            source.early_count_trigger_named("trigger", 2).unwrap()
+        };
+        let sink = source
+            .group_by_key_named("group")
+            .unwrap()
+            .reify_panes_named("pane")
+            .unwrap()
+            .map_named("row", |(pane, (key, values))| {
+                format!(
+                    "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                    pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+                )
+            })
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "global-count-v1".into(),
+                {
+                    let committed = Arc::clone(&committed);
+                    let accepted = Arc::clone(&accepted);
+                    move || {
+                        Ok(Box::new(Capture {
+                            committed: Arc::clone(&committed),
+                            accepted: Arc::clone(&accepted),
+                            staged: Vec::new(),
+                            bundle: None,
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let rows = committed.lock().unwrap().clone();
+        assert_eq!(rows[0], "a:[2, 3]:Early:true:false:0:-1");
+        assert_eq!(
+            rows[1],
+            if accumulating {
+                "a:[2, 3, 4]:OnTime:false:true:1:0"
+            } else {
+                "a:[4]:OnTime:false:true:1:0"
+            }
+        );
+    }
+}
+
 struct Script {
     polls: VecDeque<UnboundedPoll<Timestamped<Row>>>,
 }
