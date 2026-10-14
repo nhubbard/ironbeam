@@ -6,12 +6,19 @@ use beam_proto::pipeline_v1::{
 };
 use ironbeam_core::{StatefulParDoContract, UserStateKind, UserTimerDomain};
 
-/// Add the state and timer declarations of a versioned function to a ParDo.
-/// The caller must also declare Beam's stateful ParDo requirement and provide
-/// executable function registration; this function only constructs the wire
-/// contract and does not make user state executable on a runner.
+/// Add the state and timer declarations of a versioned function to a `ParDo`.
+///
+/// The caller must provide executable function registration; this function
+/// constructs the wire contract and its pipeline requirements, but does not
+/// make user state executable on a runner.
+///
+/// # Errors
+///
+/// Returns an error if the declaration is invalid or the payload already has
+/// user-state or timer fields.
 pub fn attach_stateful_contract(
     payload: &mut ParDoPayload,
+    requirements: &mut Vec<String>,
     contract: &StatefulParDoContract,
 ) -> Result<(), V5Error> {
     contract.validate()?;
@@ -100,5 +107,23 @@ pub fn attach_stateful_contract(
         .on_window_expiration_timer
         .clone()
         .unwrap_or_default();
+    append_requirements(requirements, contract);
     Ok(())
+}
+
+fn append_requirements(requirements: &mut Vec<String>, contract: &StatefulParDoContract) {
+    for requirement in [
+        Some(urns::REQUIREMENT_STATEFUL),
+        contract
+            .on_window_expiration_timer
+            .as_ref()
+            .map(|_| urns::REQUIREMENT_ON_WINDOW_EXPIRATION),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !requirements.iter().any(|existing| existing == requirement) {
+            requirements.push(requirement.into());
+        }
+    }
 }

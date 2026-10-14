@@ -66,7 +66,7 @@ pub struct UserTimerFamily {
 }
 
 /// Stable declaration of one keyed, windowed stateful function. The map keys
-/// become Beam user-state and timer-family IDs in a future ParDo payload.
+/// become Beam user-state and timer-family IDs in a `ParDo` payload.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct StatefulParDoContract {
     pub semantic_id: String,

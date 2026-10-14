@@ -82,7 +82,16 @@ fn contract() -> StatefulParDoContract {
 #[test]
 fn lowers_each_beam_user_state_family_and_timer_domain() {
     let mut payload = ParDoPayload::default();
-    attach_stateful_contract(&mut payload, &contract()).unwrap();
+    let mut requirements = vec!["beam:requirement:pardo:splittable_dofn:v1".into()];
+    attach_stateful_contract(&mut payload, &mut requirements, &contract()).unwrap();
+    assert_eq!(
+        requirements,
+        [
+            "beam:requirement:pardo:splittable_dofn:v1",
+            "beam:requirement:pardo:stateful:v1",
+            "beam:requirement:pardo:on_window_expiration:v1",
+        ]
+    );
     assert_eq!(payload.state_specs.len(), 7);
     assert!(matches!(
         payload.state_specs["value"].spec,
@@ -147,6 +156,7 @@ fn lowers_each_beam_user_state_family_and_timer_domain() {
 #[test]
 fn rejects_invalid_or_prepopulated_payload_without_mutating_it() {
     let mut payload = ParDoPayload::default();
+    let mut requirements = Vec::new();
     let mut invalid = contract();
     invalid.states.insert(
         "bad".into(),
@@ -154,10 +164,24 @@ fn rejects_invalid_or_prepopulated_payload_without_mutating_it() {
             element_coder_id: String::new(),
         },
     );
-    assert!(attach_stateful_contract(&mut payload, &invalid).is_err());
+    assert!(attach_stateful_contract(&mut payload, &mut requirements, &invalid).is_err());
     assert!(payload.state_specs.is_empty());
-    attach_stateful_contract(&mut payload, &contract()).unwrap();
+    assert!(requirements.is_empty());
+    attach_stateful_contract(&mut payload, &mut requirements, &contract()).unwrap();
     let previous = payload.clone();
-    assert!(attach_stateful_contract(&mut payload, &contract()).is_err());
+    let previous_requirements = requirements.clone();
+    assert!(attach_stateful_contract(&mut payload, &mut requirements, &contract()).is_err());
     assert_eq!(payload, previous);
+    assert_eq!(requirements, previous_requirements);
+}
+
+#[test]
+fn stateful_requirement_is_deduplicated_without_expiration_timer() {
+    let mut contract = contract();
+    contract.on_window_expiration_timer = None;
+    let mut payload = ParDoPayload::default();
+    let mut requirements = vec!["beam:requirement:pardo:stateful:v1".into()];
+    attach_stateful_contract(&mut payload, &mut requirements, &contract).unwrap();
+    assert_eq!(requirements, ["beam:requirement:pardo:stateful:v1"]);
+    assert!(payload.on_window_expiration_timer_family_spec.is_empty());
 }
