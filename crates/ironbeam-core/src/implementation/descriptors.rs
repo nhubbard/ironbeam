@@ -63,6 +63,86 @@ impl PaneInfo {
         nonspeculative_index: 0,
         contains_element_metadata: false,
     };
+
+    fn validate(self) -> Result<(), Error> {
+        if self.index < 0
+            || self.nonspeculative_index < -1
+            || (self.timing == PaneTiming::Early && self.nonspeculative_index != -1)
+            || (self.timing != PaneTiming::Early && self.nonspeculative_index < 0)
+            || (self.is_first
+                && (self.index != 0
+                    || self.nonspeculative_index
+                        != if self.timing == PaneTiming::Early {
+                            -1
+                        } else {
+                            0
+                        }))
+            || (self.timing == PaneTiming::Unknown
+                && (self.index != 0 || self.nonspeculative_index != 0))
+        {
+            return Err(Error::incompatible("invalid pane indices for timing"));
+        }
+        Ok(())
+    }
+}
+
+impl Element for PaneInfo {
+    const TYPE_ID: &'static str = "ironbeam/pane-info";
+    const CODER_ID: &'static str = "ironbeam/pane-info-v1";
+
+    fn supports_coder() -> bool {
+        true
+    }
+
+    fn fixed_encoded_len() -> Option<usize> {
+        Some(18)
+    }
+
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        self.validate()?;
+        let flags = u8::from(self.is_first)
+            | (u8::from(self.is_last) << 1)
+            | (u8::from(self.contains_element_metadata) << 2);
+        let timing = match self.timing {
+            PaneTiming::Early => 0,
+            PaneTiming::OnTime => 1,
+            PaneTiming::Late => 2,
+            PaneTiming::Unknown => 3,
+        };
+        let mut bytes = Vec::with_capacity(18);
+        bytes.extend_from_slice(&[flags, timing]);
+        bytes.extend_from_slice(&self.index.to_le_bytes());
+        bytes.extend_from_slice(&self.nonspeculative_index.to_le_bytes());
+        Ok(bytes)
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        let [flags, timing, index @ ..] = bytes else {
+            return Err(Error::incompatible("pane info requires 18 bytes"));
+        };
+        if index.len() != 16 || flags & !0b111 != 0 {
+            return Err(Error::incompatible("invalid pane info bytes"));
+        }
+        let timing = match timing {
+            0 => PaneTiming::Early,
+            1 => PaneTiming::OnTime,
+            2 => PaneTiming::Late,
+            3 => PaneTiming::Unknown,
+            _ => return Err(Error::incompatible("invalid pane timing")),
+        };
+        let pane = Self {
+            is_first: flags & 1 != 0,
+            is_last: flags & 2 != 0,
+            contains_element_metadata: flags & 4 != 0,
+            timing,
+            index: i64::from_le_bytes(index[..8].try_into().expect("eight bytes")),
+            nonspeculative_index: i64::from_le_bytes(
+                index[8..].try_into().expect("eight bytes"),
+            ),
+        };
+        pane.validate()?;
+        Ok(pane)
+    }
 }
 
 impl Window {
