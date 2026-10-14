@@ -177,22 +177,32 @@ fn batch(
 
 #[test]
 fn early_count_pane_indices_survive_checkpoint_recovery() {
-    run_count_pane_recovery(false, false);
+    run_count_pane_recovery(false, false, false);
 }
 
 #[test]
 fn accumulating_count_values_survive_checkpoint_recovery() {
-    run_count_pane_recovery(true, false);
+    run_count_pane_recovery(true, false, false);
+}
+
+#[test]
+fn global_count_pane_indices_survive_checkpoint_recovery() {
+    run_count_pane_recovery(false, false, true);
+}
+
+#[test]
+fn accumulating_global_count_values_survive_checkpoint_recovery() {
+    run_count_pane_recovery(true, false, true);
 }
 
 #[test]
 fn latest_in_pane_discarding_times_survive_checkpoint_recovery() {
-    run_count_pane_recovery(false, true);
+    run_count_pane_recovery(false, true, false);
 }
 
 #[test]
 fn latest_in_pane_accumulating_times_survive_checkpoint_recovery() {
-    run_count_pane_recovery(true, true);
+    run_count_pane_recovery(true, true, false);
 }
 
 #[test]
@@ -673,7 +683,7 @@ fn sliding_windows_keep_independent_late_pane_indices() {
 }
 
 #[allow(clippy::too_many_lines)] // The source, sink, restart, and pane assertions form one scenario.
-fn run_count_pane_recovery(accumulating: bool, latest_time: bool) {
+fn run_count_pane_recovery(accumulating: bool, latest_time: bool, global: bool) {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let opens = Arc::new(Mutex::new(Vec::new()));
@@ -707,7 +717,11 @@ fn run_count_pane_recovery(accumulating: bool, latest_time: bool) {
             },
         )
         .unwrap();
-    let values = values.fixed_windows("windows", 10_000_000).unwrap();
+    let values = if global {
+        values
+    } else {
+        values.fixed_windows("windows", 10_000_000).unwrap()
+    };
     let values = if latest_time {
         values
             .latest_in_pane_output_time_named("output-time")
