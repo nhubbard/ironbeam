@@ -27,7 +27,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two-source unbounded session joins and co-groups merge across inputs when their source watermarks advance after the connecting records; tested late rows drop at zero lateness | Independent-source bounded and intermediate-watermark agreement for cross-input sessions, more than two unbounded session inputs, nonzero allowed lateness, and broader merging cases |
 | Triggers and panes | Default trigger only. `reify_panes_named` and sink metadata expose pane timing and indices. Fixed and overlapping sliding windows agree on source and grouped panes. A merged-session fixture exposes a Prism pane-timing difference. The Fn API boundary preserves the optional opaque element metadata payload | Resolve the merged-session pane difference; add custom early and late triggers, accumulation, allowed lateness, and agreement for multiple firings |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
-| Side inputs | Bounded iterable, singleton, map, and multimap global views; per-window iterable, singleton, map, and multimap views; two unbounded sources match Direct and Prism after both watermarks close each window | Streaming side-input updates before closure |
+| Side inputs | Bounded iterable, singleton, map, and multimap global views; per-window iterable, singleton, map, and multimap views; two unbounded sources match Direct and Prism after both watermarks close each window, including a typed map lookup | Streaming side-input updates before closure |
 | Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
 | I/O formats | Separate CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord crates; native Avro reader schemas resolve defaults, projections, numeric promotion, and field aliases through nested and named schemas across local files, globs, shards, and provider-neutral object URIs | Expand schema evolution beyond the tested Avro cases and bind object providers in portable workers |
 | External services | SQL, MongoDB, object storage, and opt-in GCP clients | Provider emulator and hosted service behavior, authentication, and streaming commit guarantees |
@@ -167,13 +167,15 @@ Direct/Prism job checks all three typed views and an empty lookup. The same
 four view shapes are available per window. A shared job checks the typed
 windowed shapes on both runners and verifies that duplicate map keys in a
 window fail before an output is committed. The per-window views
-uses a co-group, so an empty side window still has a defined result when the
+use a co-group, so an empty side window still has a defined result when the
 main side has values. The live shared fixture checks both runners with an
 unbounded main collection, including an empty side window. The windowed API
 also accepts an unbounded side collection. A second shared job supplies both
 inputs from watermarked streams and checks three exact windows on Direct and
-local Prism. It waits for each window to close on both inputs, then applies
-the side values to every main value in that window. This is a view at window
+local Prism. Another uses the typed map view with two independent watermarked
+sources and checks a matching key and an empty lookup. Each job waits for its
+window to close on both inputs, then applies the side values to every main
+value in that window. This is a view at window
 closure; it does not revise a result that was already emitted when the side
 stream later changes.
 
