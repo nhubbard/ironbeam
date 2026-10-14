@@ -526,15 +526,15 @@ fn sliding_windows_assign_overlapping_intervals_across_zero() {
         ]
     );
     assert_eq!(window.assign(0).unwrap_err().kind, ErrorKind::Graph);
-    assert!(
+    assert_eq!(
         Window::Sliding {
             size_ns: 1,
             period_ns: 2,
             offset_ns: 0,
         }
         .assign_all(1)
-        .unwrap()
-        .is_empty()
+        .unwrap(),
+        Vec::<Option<WindowInterval>>::new()
     );
     assert!(
         Window::Sliding {
@@ -613,7 +613,7 @@ fn session_windows_validate_gap_and_time_bounds() {
     let mut malformed = graph.clone();
     malformed.node_mut_for_test("session/session").time.window = Window::Global;
     assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);
-    let mut malformed = graph.clone();
+    let mut malformed = graph;
     malformed.node_mut_for_test("session/session").boundedness = Boundedness::Unbounded;
     assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);
 }

@@ -24,7 +24,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             event.window = runtime_window.clone();
             Ok(Some(event))
         }));
-        let windowed: PCollection<(K, V)> = self.next(
+        let windowed: Self = self.next(
             &format!("{key}/session"),
             Operation::SessionWindow,
             Some(transform),
