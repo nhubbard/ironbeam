@@ -5,7 +5,7 @@
 //! - `beam:coder:length_prefix:v1` — varint length + N bytes
 //! - `beam:coder:interval_window:v1` — shifted end millis + duration varint
 //! - `beam:coder:windowed_value:v1` over global or interval windows, accepting
-//!   Beam pane headers while leaving pane timing out of the v5 element model
+//!   Beam pane headers, including timing and firing indices
 //! - `beam:coder:kv:v1` — concatenation of two inner coder outputs
 //!
 //! The structure of these is defined in Beam's `standard_coders.yaml`
@@ -126,6 +126,101 @@ pub const PANE_INFO_NO_FIRING: u8 = 0x0F;
 /// Prism emits one on-time pane after a bounded native GroupByKey.
 pub const PANE_INFO_FIRST_LAST_ON_TIME: u8 = 0x07;
 
+/// Timing assigned by the runner to one window firing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneTiming {
+    Early,
+    OnTime,
+    Late,
+    Unknown,
+}
+
+/// Beam pane metadata. An early firing has no non-speculative index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaneInfo {
+    pub is_first: bool,
+    pub is_last: bool,
+    pub timing: PaneTiming,
+    pub index: i64,
+    pub nonspeculative_index: i64,
+}
+
+impl PaneInfo {
+    pub const NO_FIRING: Self = Self {
+        is_first: true,
+        is_last: true,
+        timing: PaneTiming::Unknown,
+        index: 0,
+        nonspeculative_index: 0,
+    };
+
+    pub const FIRST_LAST_ON_TIME: Self = Self {
+        is_first: true,
+        is_last: true,
+        timing: PaneTiming::OnTime,
+        index: 0,
+        nonspeculative_index: 0,
+    };
+}
+
+fn pane_timing(bits: u8) -> PaneTiming {
+    match bits {
+        0 => PaneTiming::Early,
+        1 => PaneTiming::OnTime,
+        2 => PaneTiming::Late,
+        _ => PaneTiming::Unknown,
+    }
+}
+
+fn pane_timing_bits(timing: PaneTiming) -> u8 {
+    match timing {
+        PaneTiming::Early => 0,
+        PaneTiming::OnTime => 1,
+        PaneTiming::Late => 2,
+        PaneTiming::Unknown => 3,
+    }
+}
+
+/// Encode Beam's compact pane header. The two index forms follow the Beam
+/// `PaneInfoCoder` contract in the pinned upstream checkout.
+pub fn encode_pane_info<W: Write>(pane: PaneInfo, out: &mut W) -> Result<()> {
+    if pane.index < 0 || pane.nonspeculative_index < -1 {
+        return Err(anyhow!("pane_info: negative index"));
+    }
+    if pane.timing == PaneTiming::Early && pane.nonspeculative_index != -1 {
+        return Err(anyhow!(
+            "pane_info: early firing needs nonspeculative index -1"
+        ));
+    }
+    if pane.timing != PaneTiming::Early && pane.nonspeculative_index < 0 {
+        return Err(anyhow!("pane_info: negative nonspeculative index"));
+    }
+    if pane.timing == PaneTiming::Unknown && (pane.index != 0 || pane.nonspeculative_index != 0) {
+        return Err(anyhow!("pane_info: unknown timing cannot encode indices"));
+    }
+    let base = u8::from(pane.is_first)
+        | (u8::from(pane.is_last) << 1)
+        | (pane_timing_bits(pane.timing) << 2);
+    let encoding = if (pane.index == 0 && pane.nonspeculative_index == 0)
+        || pane.timing == PaneTiming::Unknown
+    {
+        0
+    } else if pane.index == pane.nonspeculative_index || pane.timing == PaneTiming::Early {
+        1
+    } else {
+        2
+    };
+    out.write_all(&[base | (encoding << 4)])?;
+    if encoding >= 1 {
+        encode_varint(pane.index as u64, out)?;
+    }
+    if encoding == 2 {
+        // Beam's signed VarInt represents -1 as ten two's-complement bytes.
+        encode_varint(pane.nonspeculative_index as u64, out)?;
+    }
+    Ok(())
+}
+
 // ---- Windowed value (global window, NO_FIRING pane) -----------------------
 
 /// `beam:coder:windowed_value:v1` with `beam:coder:global_window:v1` and
@@ -143,6 +238,16 @@ pub fn encode_windowed_value<W: Write>(
     element: &[u8],
     out: &mut W,
 ) -> Result<()> {
+    encode_windowed_value_with_pane(timestamp_millis, PaneInfo::NO_FIRING, element, out)
+}
+
+/// Encode a global-window value with explicit Beam pane metadata.
+pub fn encode_windowed_value_with_pane<W: Write>(
+    timestamp_millis: i64,
+    pane: PaneInfo,
+    element: &[u8],
+    out: &mut W,
+) -> Result<()> {
     // InstantCoder: write the value XOR'd with MIN_LONG as unsigned big-endian.
     let shifted = (timestamp_millis as i128) - (i64::MIN as i128); // = unsigned shifted value
     let shifted_u64 = shifted as u64;
@@ -150,7 +255,7 @@ pub fn encode_windowed_value<W: Write>(
     // Window count = 1; body = empty (global window encodes to nothing).
     out.write_all(&1i32.to_be_bytes())?;
     // Pane info.
-    out.write_all(&[PANE_INFO_NO_FIRING])?;
+    encode_pane_info(pane, out)?;
     // Element body.
     out.write_all(element)?;
     Ok(())
@@ -165,10 +270,29 @@ pub fn encode_interval_windowed_value<W: Write>(
     element: &[u8],
     out: &mut W,
 ) -> Result<()> {
+    encode_interval_windowed_value_with_pane(
+        timestamp_millis,
+        start_millis,
+        end_millis,
+        PaneInfo::NO_FIRING,
+        element,
+        out,
+    )
+}
+
+/// Encode an interval-window value with explicit Beam pane metadata.
+pub fn encode_interval_windowed_value_with_pane<W: Write>(
+    timestamp_millis: i64,
+    start_millis: i64,
+    end_millis: i64,
+    pane: PaneInfo,
+    element: &[u8],
+    out: &mut W,
+) -> Result<()> {
     out.write_all(&((timestamp_millis as u64) ^ (1_u64 << 63)).to_be_bytes())?;
     out.write_all(&1_i32.to_be_bytes())?;
     encode_interval_window(start_millis, end_millis, out)?;
-    out.write_all(&[PANE_INFO_NO_FIRING])?;
+    encode_pane_info(pane, out)?;
     out.write_all(element)?;
     Ok(())
 }
@@ -177,6 +301,7 @@ pub fn encode_interval_windowed_value<W: Write>(
 pub struct WindowedValue<'a> {
     pub timestamp_millis: i64,
     pub interval_millis: Option<(i64, i64)>,
+    pub pane: PaneInfo,
     pub element: &'a [u8],
 }
 
@@ -246,8 +371,10 @@ pub fn try_decode_windowed_value(
             ))
         }
     };
-    for _ in 0..index_count {
+    let mut indices = [0_i64; 2];
+    for (index, slot) in indices.iter_mut().take(index_count).enumerate() {
         let mut complete = false;
+        let mut encoded = 0_u64;
         for offset in 0..10 {
             let Some(&byte) = buf.get(header_len + offset) else {
                 return Ok(None);
@@ -255,8 +382,13 @@ pub fn try_decode_windowed_value(
             if offset == 9 && byte > 1 {
                 return Err(anyhow!("windowed_value: pane index overflows varint"));
             }
+            encoded |= u64::from(byte & 0x7f) << (offset * 7);
             if byte & 0x80 == 0 {
                 header_len += offset + 1;
+                if encoded > i64::MAX as u64 && index == 0 {
+                    return Err(anyhow!("windowed_value: negative pane index"));
+                }
+                *slot = encoded as i64;
                 complete = true;
                 break;
             }
@@ -265,10 +397,30 @@ pub fn try_decode_windowed_value(
             return Err(anyhow!("windowed_value: pane index is too long"));
         }
     }
+    let timing = pane_timing((pane_byte >> 2) & 3);
+    if index_count == 2 && timing != PaneTiming::Early && indices[1] < 0 {
+        return Err(anyhow!(
+            "windowed_value: negative nonspeculative pane index"
+        ));
+    }
+    let pane = PaneInfo {
+        is_first: pane_byte & 1 != 0,
+        is_last: pane_byte & 2 != 0,
+        timing,
+        index: indices[0],
+        nonspeculative_index: if timing == PaneTiming::Early {
+            -1
+        } else if index_count == 2 {
+            indices[1]
+        } else {
+            indices[0]
+        },
+    };
     Ok(Some((
         WindowedValue {
             timestamp_millis,
             interval_millis,
+            pane,
             element: &buf[header_len..],
         },
         header_len,

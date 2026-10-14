@@ -43,6 +43,7 @@ impl V5BundleExecutor {
                     bytes: self.registry.encode_element(key, value.value.as_ref())?,
                     timestamp_ns: value.timestamp_ns,
                     window: value.assigned_window,
+                    pane: input.pane,
                 })
             })
             .collect()
@@ -141,6 +142,7 @@ impl V5BundleExecutor {
                     bytes: self.registry.encode_element(key, event.value.as_ref())?,
                     timestamp_ns: event.timestamp_ns,
                     window: event.assigned_window,
+                    pane: input.pane,
                 })
             })
             .collect()

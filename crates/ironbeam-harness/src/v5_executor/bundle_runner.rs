@@ -217,6 +217,7 @@ impl BundleRunner for V5BundleExecutor {
                             .encode_element(source_key, value.value.as_ref())?,
                         timestamp_ns: value.timestamp_ns,
                         window: None,
+                        pane: PaneInfo::NO_FIRING,
                     };
                     self.process_record(
                         instruction_id,

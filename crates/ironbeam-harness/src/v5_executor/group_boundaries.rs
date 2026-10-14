@@ -28,6 +28,7 @@ fn decode_keyed_boundary_record(
             bytes: typed,
             timestamp_ns: decode_timestamp_ns(windowed.timestamp_millis)?,
             window: decode_interval_ns(windowed.interval_millis)?,
+            pane: windowed.pane,
         },
         header_len + key_len + value_len,
     )))
@@ -55,6 +56,7 @@ fn decode_tagged_boundary_record(
             bytes: tagged,
             timestamp_ns: decode_timestamp_ns(windowed.timestamp_millis)?,
             window: decode_interval_ns(windowed.interval_millis)?,
+            pane: windowed.pane,
         },
         header_len + key_len + value_len,
     )))
@@ -130,6 +132,7 @@ struct GroupBoundary {
     state_token: Option<Vec<u8>>,
     timestamp_ns: i64,
     assigned_window: Option<WindowInterval>,
+    pane: PaneInfo,
 }
 
 fn decode_group_boundary_parts(
@@ -205,6 +208,7 @@ fn decode_group_boundary_parts(
             state_token,
             timestamp_ns: decode_timestamp_ns(windowed.timestamp_millis)?,
             assigned_window: decode_interval_ns(windowed.interval_millis)?,
+            pane: windowed.pane,
         },
         header_len + consumed,
     )))
@@ -222,6 +226,7 @@ fn assemble_group_boundary_rows(
         values,
         timestamp_ns,
         assigned_window,
+        pane,
         ..
     } = group;
     let rows = if registry.has_join_coder(group_key) {
@@ -232,6 +237,7 @@ fn assemble_group_boundary_rows(
                 bytes,
                 timestamp_ns,
                 window: assigned_window,
+                pane,
             })
             .collect()
     } else {
@@ -251,6 +257,7 @@ fn assemble_group_boundary_rows(
             },
             timestamp_ns,
             window: assigned_window,
+            pane,
         }]
     };
     Ok(rows)

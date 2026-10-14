@@ -4,15 +4,47 @@ use super::{
     decode_boundary_record, decode_group_boundary_parts, decode_group_boundary_record,
     decode_group_boundary_rows, decode_keyed_boundary_record, decode_tagged_boundary_record,
     decode_timestamp_ns, encode_timestamp_millis, matching_reshuffle_ancestor, GroupBoundary,
-    V5BundleExecutor, BEAM_GLOBAL_WINDOW_END_MS,
+    V5BundleExecutor, WireValue, BEAM_GLOBAL_WINDOW_END_MS,
 };
 use crate::coders::{
-    encode_interval_windowed_value, encode_length_prefix, encode_varint, encode_windowed_value,
+    decode_windowed_value, encode_interval_windowed_value, encode_length_prefix, encode_varint, encode_windowed_value,
+    encode_windowed_value_with_pane, PaneInfo, PaneTiming,
 };
 use ironbeam_core::{CombineFn, Element, Pipeline, Window};
 use ironbeam_graphx::v5::collection_id;
 
 struct Sum;
+
+#[test]
+fn elementwise_portable_step_preserves_runner_pane() {
+    let pipeline = Pipeline::default();
+    pipeline.from_vec("source", vec![1_i32]).unwrap()
+        .map_named("mapped", |value| value + 1).unwrap()
+        .output("result").unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let executor = V5BundleExecutor::new(&pipeline, "pane-test").unwrap();
+    let pane = PaneInfo {
+        is_first: false,
+        is_last: true,
+        timing: PaneTiming::Late,
+        index: 2,
+        nonspeculative_index: 1,
+    };
+    let produced = executor.apply("mapped", WireValue {
+        bytes: 1_i32.encode().unwrap(),
+        timestamp_ns: 0,
+        window: None,
+        pane,
+    }).unwrap();
+    assert_eq!(produced.len(), 1);
+    assert_eq!(produced[0].pane, pane);
+    assert_eq!(*registry.decode_element("mapped", &produced[0].bytes)
+        .unwrap().downcast::<i32>().unwrap(), 2);
+    let mut encoded = Vec::new();
+    encode_windowed_value_with_pane(0, produced[0].pane, &produced[0].bytes, &mut encoded).unwrap();
+    let (decoded, _) = decode_windowed_value(&encoded).unwrap();
+    assert_eq!(decoded.pane, pane);
+}
 
 impl CombineFn<i32, i32, i32> for Sum {
     fn create(&self) -> i32 {
@@ -57,6 +89,7 @@ fn keyed_fold_boundary_keeps_input_time_and_rejects_short_value() {
         state_token: None,
         timestamp_ns: i64::MAX,
         assigned_window: None,
+        pane: PaneInfo::NO_FIRING,
     };
     let executor = V5BundleExecutor::new(&pipeline, "keyed-fold-test").unwrap();
     let wire = assemble_fold_boundary_row(group).unwrap();
@@ -75,6 +108,7 @@ fn keyed_fold_boundary_keeps_input_time_and_rejects_short_value() {
         state_token: None,
         timestamp_ns: i64::MAX,
         assigned_window: None,
+        pane: PaneInfo::NO_FIRING,
     })
     .unwrap();
     assert!(executor.apply_fold_group("sum", &malformed).is_err());
@@ -98,6 +132,7 @@ fn global_fold_boundary_emits_identity_for_seed_only() {
         state_token: None,
         timestamp_ns: 0,
         assigned_window: None,
+        pane: PaneInfo::NO_FIRING,
     })
     .unwrap();
     let result = executor.apply_fold_group("sum", &seed).unwrap();
@@ -115,6 +150,7 @@ fn global_fold_boundary_emits_identity_for_seed_only() {
         state_token: None,
         timestamp_ns: 0,
         assigned_window: None,
+        pane: PaneInfo::NO_FIRING,
     })
     .unwrap();
     assert!(executor.apply_fold_group("sum", &bad_key).is_err());
@@ -149,6 +185,7 @@ fn vector_global_combine_groups_values_and_emits_empty_identity() {
         state_token: None,
         timestamp_ns: i64::MAX,
         assigned_window: None,
+        pane: PaneInfo::NO_FIRING,
     })
     .unwrap();
     let result = executor.apply_fold_group("sum", &grouped).unwrap();
@@ -167,6 +204,7 @@ fn vector_global_combine_groups_values_and_emits_empty_identity() {
         state_token: None,
         timestamp_ns: 0,
         assigned_window: None,
+        pane: PaneInfo::NO_FIRING,
     })
     .unwrap();
     let empty = executor.apply_fold_group("sum", &seed).unwrap();

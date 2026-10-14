@@ -28,8 +28,9 @@ use ironbeam_graphx::windowing::{fixed_window_fn, session_window_fn, sliding_win
 
 use crate::bundle::{BundlePlan, SdfStage, SinkWire, SourceWire, Step};
 use crate::coders::{
-    decode_length_prefix, decode_windowed_value, encode_interval_windowed_value,
-    encode_length_prefix, encode_varint, encode_windowed_value, try_decode_windowed_value,
+    decode_length_prefix, decode_windowed_value, encode_interval_windowed_value_with_pane,
+    encode_length_prefix, encode_varint, encode_windowed_value, encode_windowed_value_with_pane,
+    try_decode_windowed_value, PaneInfo,
 };
 use crate::data::DataClient;
 use crate::endpoints::normalize_endpoint;
@@ -47,6 +48,7 @@ struct WireValue {
     bytes: Vec<u8>,
     timestamp_ns: i64,
     window: Option<WindowInterval>,
+    pane: PaneInfo,
 }
 
 fn user_panic_error(key: &str, operation: &str, panic: Box<dyn Any + Send>) -> CoreError {
@@ -190,6 +192,7 @@ fn decode_boundary_record(
                     bytes: bytes[body_start..end].to_vec(),
                     timestamp_ns,
                     window: decode_interval_ns(windowed.interval_millis)?,
+                    pane: windowed.pane,
                 },
                 end,
             )));
@@ -216,6 +219,7 @@ fn decode_impulse_boundary_record(bytes: &[u8]) -> Result<Option<(WireValue, usi
             bytes: Vec::new(),
             timestamp_ns: 0,
             window: None,
+            pane: windowed.pane,
         },
         header_len + used,
     )))

@@ -436,7 +436,12 @@ impl V5BundleExecutor {
                     };
                 }
                 let mut encoded = Vec::new();
-                encode_windowed_value(windowed.timestamp_millis, &output, &mut encoded)?;
+                encode_windowed_value_with_pane(
+                    windowed.timestamp_millis,
+                    windowed.pane,
+                    &output,
+                    &mut encoded,
+                )?;
                 sink_client.write_chunk(instruction_id, sink_id, encoded)?;
                 consumed += header_len + body_len;
                 source_count += 1;

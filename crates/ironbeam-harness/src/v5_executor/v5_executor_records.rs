@@ -74,7 +74,7 @@ impl V5BundleExecutor {
                                     let mut bytes = Vec::new();
                                     encode_length_prefix(&[], &mut bytes)?;
                                     encode_length_prefix(&[], &mut bytes)?;
-                                    Ok(WireValue { bytes, timestamp_ns: 0, window: None })
+                                    Ok(WireValue { bytes, timestamp_ns: 0, window: None, pane: value.pane })
                                 }).collect::<Result<Vec<_>>>()?;
                                 collections.insert(output_pc, produced);
                                 continue;
@@ -100,6 +100,7 @@ impl V5BundleExecutor {
                                         bytes,
                                         timestamp_ns: value.timestamp_ns,
                                         window: value.window,
+                                        pane: value.pane,
                                     })
                                 })
                                 .collect::<Result<Vec<_>>>()?;
@@ -133,6 +134,7 @@ impl V5BundleExecutor {
                                     bytes,
                                     timestamp_ns: value.timestamp_ns,
                                     window: value.window,
+                                    pane: value.pane,
                                 })
                             })
                             .collect::<Result<Vec<_>>>()?;
@@ -211,6 +213,7 @@ impl V5BundleExecutor {
                                             .encode_element(&node.key, output.value.as_ref())?,
                                         timestamp_ns: output.timestamp_ns,
                                         window: output.assigned_window,
+                                        pane: wire.pane,
                                     })
                                 })
                                 .collect::<Result<Vec<_>>>()?
@@ -344,7 +347,7 @@ impl V5BundleExecutor {
                                 if value.window.is_some() {
                                     bail!("global v5 output has an interval window");
                                 }
-                                encode_windowed_value(timestamp_millis, &body, &mut output)?;
+                                encode_windowed_value_with_pane(timestamp_millis, value.pane, &body, &mut output)?;
                             }
                             Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. } | Window::Session { .. } => {
                                 let interval = value.window.ok_or_else(|| {
@@ -352,10 +355,11 @@ impl V5BundleExecutor {
                                 })?;
                                 let start_ms = encode_timestamp_millis(interval.start_ns)?;
                                 let end_ms = encode_timestamp_millis(interval.end_ns)?;
-                                encode_interval_windowed_value(
+                                encode_interval_windowed_value_with_pane(
                                     timestamp_millis,
                                     start_ms,
                                     end_ms,
+                                    value.pane,
                                     &body,
                                     &mut output,
                                 )?;

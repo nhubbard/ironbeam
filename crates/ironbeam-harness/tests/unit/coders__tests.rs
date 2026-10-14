@@ -195,6 +195,65 @@ fn windowed_value_accepts_single_on_time_grouped_pane() {
     let (decoded, consumed) = decode_windowed_value(&out).unwrap();
     assert_eq!(decoded.element, b"grouped");
     assert_eq!(consumed, 13);
+    assert_eq!(decoded.pane, PaneInfo::FIRST_LAST_ON_TIME);
+}
+
+#[test]
+fn beam_pane_headers_round_trip_all_timings_and_index_forms() {
+    let panes = [
+        PaneInfo::NO_FIRING,
+        PaneInfo::FIRST_LAST_ON_TIME,
+        PaneInfo {
+            is_first: true,
+            is_last: false,
+            timing: PaneTiming::Early,
+            index: 0,
+            nonspeculative_index: -1,
+        },
+        PaneInfo {
+            is_first: false,
+            is_last: false,
+            timing: PaneTiming::OnTime,
+            index: 7,
+            nonspeculative_index: 7,
+        },
+        PaneInfo {
+            is_first: false,
+            is_last: true,
+            timing: PaneTiming::Late,
+            index: 128,
+            nonspeculative_index: 3,
+        },
+    ];
+    for pane in panes {
+        let mut encoded = Vec::new();
+        encode_interval_windowed_value_with_pane(2, 0, 10, pane, b"row", &mut encoded).unwrap();
+        for prefix in 0..encoded.len() - 3 {
+            assert!(try_decode_windowed_value(&encoded[..prefix], true)
+                .unwrap()
+                .is_none_or(|(_, header)| prefix >= header));
+        }
+        let (decoded, _) = try_decode_windowed_value(&encoded, true).unwrap().unwrap();
+        assert_eq!(decoded.pane, pane);
+        assert_eq!(decoded.element, b"row");
+    }
+    assert!(encode_pane_info(
+        PaneInfo {
+            index: 3,
+            ..PaneInfo::NO_FIRING
+        },
+        &mut Vec::new()
+    )
+    .is_err());
+    assert!(encode_pane_info(
+        PaneInfo {
+            nonspeculative_index: 0,
+            timing: PaneTiming::Early,
+            ..PaneInfo::NO_FIRING
+        },
+        &mut Vec::new()
+    )
+    .is_err());
 }
 
 #[test]

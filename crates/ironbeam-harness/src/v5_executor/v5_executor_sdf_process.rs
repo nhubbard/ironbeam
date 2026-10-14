@@ -327,6 +327,7 @@ impl V5BundleExecutor {
                             bytes: element.bytes,
                             timestamp_ns: element.timestamp_ns,
                             window: None,
+                            pane: PaneInfo::NO_FIRING,
                         },
                         &HashMap::new(),
                         &mut outputs,
