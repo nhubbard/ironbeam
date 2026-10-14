@@ -110,6 +110,17 @@ impl<T: Element> PCollection<T> {
             move |value, values: &Vec<S>| Ok(f(value, values)),
         )
     }
+    /// Release each main value after its matching window closes on both inputs.
+    /// The signal may be unbounded; its values are ignored. This barrier uses
+    /// a co-group and therefore waits for the main watermark as well as the
+    /// signal watermark. It does not provide early per-window release.
+    pub fn wait_on_windowed_named<S: Element>(
+        &self,
+        key: &str,
+        signal: &PCollection<S>,
+    ) -> Result<Self, Error> {
+        self.map_with_windowed_side_named(key, signal, |value, _| value)
+    }
     /// Materialize one side view for each closed window. The side collection
     /// may be unbounded if both source watermarks can close the window.
     pub fn map_with_windowed_materialized_side_named<S: Element, M: Send + 'static, U: Element>(

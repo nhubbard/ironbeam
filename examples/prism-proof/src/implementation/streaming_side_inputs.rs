@@ -112,6 +112,62 @@ pub fn dual_stream_windowed_side_fixture(
     )
 }
 
+/// A two-stream completion barrier releases each main window at closure.
+pub fn dual_stream_windowed_wait_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let main = pipeline
+        .test_stream_source(
+            "stream-wait-main",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 1_000_000), (2, 3_000_000), (3, 5_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+            ],
+        )?
+        .fixed_windows("stream-wait-main-window", 2_000_000)?;
+    let signal = pipeline
+        .test_stream_source(
+            "stream-wait-signal",
+            vec![
+                TestStreamEvent::Elements(vec![(10_i32, 0), (20, 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+            ],
+        )?
+        .fixed_windows("stream-wait-signal-window", 2_000_000)?;
+    main.wait_on_windowed_named("stream-wait-barrier", &signal)?
+        .reify_timestamps_named("stream-wait-time")?
+        .with_window_named("stream-wait-window")?
+        .map_named("stream-wait-row", |(window, (time, value))| {
+            format!("{}..{}:{time}:{value}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn dual_stream_windowed_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_stream_windowed_wait_collection(pipeline)?.sink_named_with_config(
+        "stream-wait-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("stream-wait-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 type KeyedStream = PCollection<(String, i32)>;
 
 fn dual_unbounded_sources(pipeline: &Pipeline) -> Result<(KeyedStream, KeyedStream), Error> {
