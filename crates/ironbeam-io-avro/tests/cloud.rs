@@ -3,16 +3,60 @@ use ironbeam_cloud_objects::{LocalObjectIO, ObjectStores};
 use ironbeam_core::{Element, ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_io_avro::{
-    cloud_avro_uri_prefix_source, cloud_avro_uri_prefix_source_with_reader_schema,
+    avro_sink, cloud_avro_uri_prefix_source, cloud_avro_uri_prefix_source_with_reader_schema,
     cloud_avro_uri_source, cloud_avro_uri_source_with_reader_schema,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 struct Row {
     id: i32,
     name: String,
+}
+
+#[cfg(feature = "compression-gzip")]
+#[test]
+fn gzip_object_uri_decodes_native_avro() {
+    let (dir, stores) = object_store();
+    let path = dir.path().join("rows.avro.gz");
+    let writer = Pipeline::default();
+    let input = writer
+        .from_vec(
+            "rows",
+            vec![Row {
+                id: 7,
+                name: "Gzip".into(),
+            }],
+        )
+        .unwrap();
+    let sink = avro_sink(&input, "gzip-write", &path, WRITER_SCHEMA).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    stores
+        .write("file://bucket/rows.avro.gz", &fs::read(path).unwrap())
+        .unwrap();
+    let pipeline = Pipeline::default();
+    let output = cloud_avro_uri_source_with_reader_schema::<EvolvedRow>(
+        &pipeline,
+        "gzip-read",
+        &stores,
+        "file://bucket/rows.avro.gz",
+        READER_SCHEMA,
+    )
+    .unwrap()
+    .output("gzip-output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![EvolvedRow {
+            id: 7,
+            name: "Gzip".into(),
+            active: true
+        }]
+    );
 }
 impl Element for Row {
     const TYPE_ID: &'static str = "tests/cloud-avro-row";

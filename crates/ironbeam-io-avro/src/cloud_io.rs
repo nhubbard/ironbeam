@@ -8,6 +8,7 @@ use ironbeam_core::{
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
+use std::path::Path;
 use std::sync::Arc;
 
 fn identity(uri: &str, bytes: &[u8], reader_schema: Option<&str>) -> String {
@@ -97,7 +98,9 @@ fn source<T: Element + DeserializeOwned>(
                     "cloud Avro object changed after graph construction",
                 ));
             }
-            let values = decode::<T>(&current, schema.as_ref().as_ref())?;
+            let decoded =
+                ironbeam_io::decode_source_bytes(current, Path::new(&location.key), &source_key)?;
+            let values = decode::<T>(&decoded, schema.as_ref().as_ref())?;
             Ok(Box::new(values.into_iter().map(Ok)) as TypedSourceIterator<T>)
         },
     )

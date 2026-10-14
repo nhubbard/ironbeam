@@ -115,7 +115,8 @@ local. GCP's official storage client has a separate asynchronous API and does
 not yet implement this registry's `ObjectIO` contract. Portable worker access also
 needs an execution binding. Enable the Avro crate's `cloud` feature for these
 functions; the root `cloud` feature forwards to it when `v5-io-avro` is also
-enabled.
+enabled. With an enabled compression feature, object names such as
+`records.avro.gz` are decoded before Avro schema resolution.
 
 ## Writing a result
 

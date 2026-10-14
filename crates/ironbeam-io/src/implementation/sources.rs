@@ -44,9 +44,10 @@ pub(super) fn create_dir_all_durable(path: &Path, key: &str) -> Result<(), Error
     Ok(())
 }
 
+#[doc(hidden)]
 #[allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
 // Without compression this is an identity transform; keep the same fallible API for all builds.
-fn decode_source_bytes(bytes: Vec<u8>, path: &Path, key: &str) -> Result<Vec<u8>, Error> {
+pub fn decode_source_bytes(bytes: Vec<u8>, path: &Path, key: &str) -> Result<Vec<u8>, Error> {
     #[cfg(any(
         feature = "compression-gzip",
         feature = "compression-zstd",
