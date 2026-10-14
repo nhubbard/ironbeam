@@ -27,7 +27,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two-source unbounded session joins and co-groups merge across inputs when their source watermarks advance after the connecting records; tested late rows drop at zero lateness | Independent-source bounded and intermediate-watermark agreement for cross-input sessions, more than two unbounded session inputs, nonzero allowed lateness, and broader merging cases |
 | Triggers and panes | Default trigger only. `reify_panes_named` and sink metadata expose pane timing and indices. Fixed and overlapping sliding windows agree on source and grouped panes. A merged-session fixture exposes a Prism pane-timing difference. The Fn API boundary preserves the optional opaque element metadata payload | Resolve the merged-session pane difference; add custom early and late triggers, accumulation, allowed lateness, and agreement for multiple firings |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
-| Side inputs | Bounded global and per-window side-view cases | Streaming side-input updates and broader view types |
+| Side inputs | Bounded global and per-window views; a two-unbounded-source windowed view matches Direct and Prism after both source watermarks close each window | Streaming side-input updates before closure and broader view types |
 | Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
 | I/O formats | Separate CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord crates; native Avro reader schemas resolve defaults, projections, numeric promotion, and field aliases through nested and named schemas across local files, globs, shards, and provider-neutral object URIs | Expand schema evolution beyond the tested Avro cases and bind object providers in portable workers |
 | External services | SQL, MongoDB, object storage, and opt-in GCP clients | Provider emulator and hosted service behavior, authentication, and streaming commit guarantees |
@@ -164,7 +164,13 @@ must be available for the main element's window before that element can run.
 Ironbeam supports a global side view and a per-window side view. The latter
 uses a co-group, so an empty side window still has a defined result when the
 main side has values. The live shared fixture checks both runners with an
-unbounded main collection, including an empty side window.
+unbounded main collection, including an empty side window. The windowed API
+also accepts an unbounded side collection. A second shared job supplies both
+inputs from watermarked streams and checks three exact windows on Direct and
+local Prism. It waits for each window to close on both inputs, then applies
+the side values to every main value in that window. This is a view at window
+closure; it does not revise a result that was already emitted when the side
+stream later changes.
 
 `wait_on` delays main output until its required signal is available. It is a
 dependency between collections, not a source of ordering among the main
