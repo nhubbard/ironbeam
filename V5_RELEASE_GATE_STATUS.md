@@ -27,6 +27,25 @@ portable runner proof for this release; hosted Dataflow is a later extension.
 Passing a current check does not close a release gate unless its full proof
 below is complete.
 
+## Portable parity work still open
+
+This ledger uses the pinned Apache Beam checkout at
+`7d93ef8e76aa3fd7874e760010f6479fba40721a` as the reference for
+portable semantics. The Beam pipeline model defines triggers, allowed
+lateness, state, and timer families separately. Passing the current default
+window and side-view corpus therefore does not imply general streaming parity.
+No percentage is assigned to this ledger until each family has an explicit
+test inventory and weighting.
+
+| Family | Current evidence | Next completion proof |
+| --- | --- | --- |
+| Triggers, panes, and late data | Default trigger and zero allowed lateness run on Direct and Prism. Fixed and sliding pane metadata agree; one merged-session pane differs. | Specify and run count, processing-time, repeated, and composite triggers with discarding and accumulating panes; test allowed lateness, pane indices, and checkpoint recovery on both runners. Resolve or document the merged-session runner difference against Beam's model. |
+| User state and timers | Direct retains internal keyed grouping state. The portable worker handles runner-owned state-backed grouped iterables. No public state/timer transform contract exists. | Add typed keyed value, bag, map, and combining state plus event-time and processing-time timer families; verify Fn State/Timer protocol, restart, and runner agreement. |
+| Streaming side inputs | Global bounded and window-closure iterable/singleton/map/multimap views run. A two-unbounded-source iterable view agrees after both watermarks close. | Materialize side-input panes before closure, support updates and late panes, and prove a changing side view without duplicate committed output. |
+| Splittable processing | Production resumable sources and residual restrictions run through Fn Data; the Prism corpus covers worker-child replacement. | Expose general user splittable processing, restriction trackers, progress/watermark estimators, and dynamic split for transforms beyond source adapters. |
+| Window merging and fanout | Fixed, sliding, and keyed sessions run. Direct restores two-source session state and four-join fanout; pinned Prism has independent-source session and intermediate-watermark discrepancies. | Resolve those discrepancies and prove at least three independent unbounded inputs with merged sessions, recovery, and exact panes. |
+| Rust I/O and cloud resources | Format crates cover CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord; SQL and MongoDB are opt-in. Provider-neutral objects and opt-in GCP clients exist. | Prove portable worker binding and replay for provider-backed objects and service I/O, including Pub/Sub and BigQuery transforms, using local emulators or controlled service jobs where available. |
+
 ## Release gates
 
 ### Behavior and API
