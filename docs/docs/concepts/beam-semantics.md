@@ -25,7 +25,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Elementwise transforms and branching | Map, filter, flat-map, Flatten, typed Partition, and shared fanout jobs; bounded and unbounded Partition fixtures match Direct and local Prism values, timestamps, and fixed windows | Broader multi-output and fusion cases |
 | Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases | General stateful fanout and hot-key behavior |
 | Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two-source unbounded session joins and co-groups merge across inputs when their source watermarks advance after the connecting records; tested late rows drop at zero lateness | Independent-source bounded and intermediate-watermark agreement for cross-input sessions, more than two unbounded session inputs, nonzero allowed lateness, and broader merging cases |
-| Triggers and panes | Default trigger only. `reify_panes_named` and sink metadata expose pane timing and indices; a shared Direct/Prism job checks source and native grouped panes. The Fn API boundary preserves the optional opaque element metadata payload | Custom early and late triggers, accumulation, allowed lateness, and agreement for multiple firings |
+| Triggers and panes | Default trigger only. `reify_panes_named` and sink metadata expose pane timing and indices. Fixed and overlapping sliding windows agree on source and grouped panes. A merged-session fixture exposes a Prism pane-timing difference. The Fn API boundary preserves the optional opaque element metadata payload | Resolve the merged-session pane difference; add custom early and late triggers, accumulation, allowed lateness, and agreement for multiple firings |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
 | Side inputs | Bounded global and per-window side-view cases | Streaming side-input updates and broader view types |
 | Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
@@ -183,8 +183,15 @@ and zero allowed lateness. `reify_panes_named` exposes each element as
 `(PaneInfo, value)`, and a typed sink receives the same pane through
 `ElementMetadata`. A source element has `Unknown` timing before a firing;
 the tested grouped output is a first-and-last `OnTime` pane with index zero.
-Direct and local Prism agree on those values after native GroupByKey. Ironbeam
-does not yet offer a trigger builder, accumulating mode, or configurable
+Direct and local Prism agree on those values after native GroupByKey for fixed
+and overlapping sliding windows. In a merged-session fixture, both runners
+emit one group with the same values, but Direct marks it first-and-last
+`OnTime` while the pinned local Prism marks it nonfinal `Early` with
+non-speculative index −1. The fixture checks that Prism passes this pane to
+both the reified value and the typed sink. Beam's default trigger fires when
+the watermark reaches the window end, so this difference requires further
+runner-level investigation before session pane parity can be claimed.
+Ironbeam does not yet offer a trigger builder, accumulating mode, or configurable
 allowed lateness. Jobs requiring early results, late corrections, or multiple
 panes remain outside the supported trigger contract.
 
@@ -287,7 +294,7 @@ commit decision or the sink's durable finalization record.
 | Sliding windows | Supported on bounded and unbounded collections on Direct and local Prism, including overlap, negative event time, watermark closure, and late-row discard. |
 | Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Bounded joins and co-groups, including a three-input shared-source co-group, merge keyed intervals. Two-source unbounded joins and co-groups also run on both. Direct checkpoints open unbounded sessions and source cursors. Independent-source and intermediate-watermark session cases can differ on local Prism; more than two unbounded inputs and nonzero allowed lateness remain unproved. |
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
-| Pane metadata | `reify_panes_named` makes `PaneInfo` available to elementwise callbacks, and typed sinks receive it in `ElementMetadata`. Direct and Prism agree on the default source and grouped panes. |
+| Pane metadata | `reify_panes_named` makes `PaneInfo` available to elementwise callbacks, and typed sinks receive it in `ElementMetadata`. Direct and Prism agree for fixed and sliding grouped windows. The pinned Prism runner marks the tested merged-session group as `Early` while Direct marks it `OnTime`. |
 | Custom triggers | Early and late firings, accumulation, and allowed lateness remain pending. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
 | Splittable source residuals | Supported by local process-restart fixtures. |
