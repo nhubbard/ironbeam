@@ -163,4 +163,14 @@ fn typed_partition_terminals_open_shared_source_once_per_job() {
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Execution);
     assert_eq!(error.node.as_deref(), Some("panicking-classifier"));
+
+    let error = source
+        .collect_partitioned4_named("panicking-four", &JobConfig::default(), |value| {
+            assert!(value != 2, "bad classifier");
+            Partition4::<i32, i32, i32, i32>::First(value)
+        })
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("panicking-four"));
 }

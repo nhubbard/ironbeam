@@ -90,13 +90,42 @@ and local Prism agree on that result, on a touching boundary, and on a second
 key. Single-source unbounded keyed groups also merge in Direct and local
 Prism. Direct restores their open sessions and source cursor from a checkpoint;
 the shared fixture closes one negative-time session, then bridges two open
-sessions and discards a row after its session closes. Session joins and
-co-groups remain unsupported because they require merging across inputs.
+sessions and discards a row after its session closes. Bounded session joins
+merge intervals across both inputs before matching keyed values. Direct and
+local Prism agree when a right-side event bridges two left-side sessions;
+Direct also checks inner, left, right, and full join results. Unbounded session
+joins and session co-groups remain unsupported because their cross-input
+watermark and recovery rules are not yet implemented.
 Portable session gaps must be positive whole milliseconds.
 
 `group_by_session_named` assigns sessions and then groups the keyed elements.
 Use `session_windows_named` to assign intervals separately when another
 transform needs to run before `group_by_key_named`.
+
+For a bounded join, assign the same session gap to both inputs before joining:
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("left", vec![(0_i64, ("a".to_owned(), 1_i32))])?
+        .timestamps_from_pairs_named("left-time")?
+        .session_windows_named("left-sessions", 5_000_000)?;
+    let right = pipeline
+        .from_vec("right", vec![(4_000_000_i64, ("a".to_owned(), 10_i32))])?
+        .timestamps_from_pairs_named("right-time")?
+        .session_windows_named("right-sessions", 5_000_000)?;
+    let joined = left.join_inner_named("session-join", &right)?.collect_seq()?;
+    assert_eq!(joined, vec![("a".to_owned(), (1, 10))]);
+    Ok(())
+}
+```
+
+Both rows belong to the merged interval `[0, 9_000_000)` ns. The join uses
+the key and merged interval, so an event from either input can connect two
+sessions. The same bounded rule applies to left, right, and full joins.
 
 ## Migration of timestamps
 

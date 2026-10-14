@@ -23,11 +23,11 @@ use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_harness::finalization_journal::FileFinalizationJournal;
 use ironbeam_prism_proof::{
     bounded_batch_helpers_fixture, bounded_join_cogroup_fixture, bounded_map_filter_fixture,
-    bounded_multi_source_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
-    bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, completion_signal,
-    dead_letter_fixture, dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
-    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
-    dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    bounded_multi_source_fixture, bounded_session_join_fixture, bounded_side_input_fixture,
+    bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture, bounded_wait_on_fixture,
+    completion_signal, dead_letter_fixture, dual_unbounded_cogroup_collection,
+    dual_unbounded_cogroup_fixture, dual_unbounded_flatten_collection,
+    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
@@ -3561,6 +3561,54 @@ async fn prism_matches_direct_merging_keyed_sessions() {
     )
     .await;
     assert_eq!(terminal.0, 3, "Prism session state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_bounded_join_of_merged_sessions() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-session-join.txt");
+    let portable_path = directory.path().join("portable-session-join.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = bounded_session_join_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let direct_rows = read_rows(&direct_path);
+    assert_eq!(
+        direct_rows,
+        [
+            "a:1:10:0..13000000",
+            "a:2:10:0..13000000",
+            "b:3:12:30000000..36000000",
+        ]
+    );
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    bounded_session_join_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "session-join",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_SESSION_JOIN".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism session join state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct_rows);
 }
 

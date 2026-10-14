@@ -36,6 +36,128 @@ fn explicit_session_assignment_merges_when_grouped_later() {
 }
 
 #[test]
+fn bounded_join_merges_session_intervals_across_both_inputs() {
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec(
+            "left-events",
+            vec![
+                (0_i64, ("a".to_owned(), 1_i32)),
+                (8_000_000, ("a".to_owned(), 2)),
+                (30_000_000, ("b".to_owned(), 3)),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("left-time")
+        .unwrap()
+        .session_windows_named("left-sessions", 5_000_000)
+        .unwrap();
+    let right = pipeline
+        .from_vec(
+            "right-events",
+            vec![
+                (4_000_000_i64, ("a".to_owned(), 10_i32)),
+                (20_000_000, ("a".to_owned(), 11)),
+                (31_000_000, ("b".to_owned(), 12)),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("right-time")
+        .unwrap()
+        .session_windows_named("right-sessions", 5_000_000)
+        .unwrap();
+    let output = left
+        .join_inner_named("session-join", &right)
+        .unwrap()
+        .with_window_named("bounds")
+        .unwrap()
+        .map_named("rows", |(window, (key, (left, right)))| {
+            format!(
+                "{key}:{left}:{right}:{}..{}",
+                window.start_ns, window.end_ns
+            )
+        })
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (mut rows, _) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        [
+            "a:1:10:0..13000000",
+            "a:2:10:0..13000000",
+            "b:3:12:30000000..36000000",
+        ]
+    );
+
+    let left_output = left
+        .join_left_named("session-left-join", &right)
+        .unwrap()
+        .with_window_named("left-bounds")
+        .unwrap()
+        .map_named("left-rows", |(window, (key, (left, right)))| {
+            format!(
+                "{key}:{left}:{right:?}:{}..{}",
+                window.start_ns, window.end_ns
+            )
+        })
+        .unwrap()
+        .output("left-result")
+        .unwrap();
+    let (mut left_rows, _) = DirectRunner
+        .run_collect(&left_output, &JobConfig::default())
+        .unwrap();
+    left_rows.sort_unstable();
+    assert_eq!(left_rows.len(), 3);
+    assert!(left_rows.iter().all(|row| row.contains(":Some(")));
+
+    let right_output = left
+        .join_right_named("session-right-join", &right)
+        .unwrap()
+        .with_window_named("right-bounds")
+        .unwrap()
+        .map_named("right-rows", |(window, (key, (left, right)))| {
+            format!(
+                "{key}:{left:?}:{right}:{}..{}",
+                window.start_ns, window.end_ns
+            )
+        })
+        .unwrap()
+        .output("right-result")
+        .unwrap();
+    let (mut right_rows, _) = DirectRunner
+        .run_collect(&right_output, &JobConfig::default())
+        .unwrap();
+    right_rows.sort_unstable();
+    assert_eq!(right_rows.len(), 4);
+    assert!(right_rows.contains(&"a:None:11:20000000..25000000".to_owned()));
+
+    let full_output = left
+        .join_full_named("session-full-join", &right)
+        .unwrap()
+        .with_window_named("full-bounds")
+        .unwrap()
+        .map_named("full-rows", |(window, (key, (left, right)))| {
+            format!(
+                "{key}:{left:?}:{right:?}:{}..{}",
+                window.start_ns, window.end_ns
+            )
+        })
+        .unwrap()
+        .output("full-result")
+        .unwrap();
+    let (mut full_rows, _) = DirectRunner
+        .run_collect(&full_output, &JobConfig::default())
+        .unwrap();
+    full_rows.sort_unstable();
+    assert_eq!(full_rows.len(), 4);
+    assert!(full_rows.contains(&"a:None:Some(11):20000000..25000000".to_owned()));
+}
+
+#[test]
 fn keyed_sessions_merge_bridge_and_restore_completed_checkpoint() {
     let pipeline = Pipeline::default();
     let output = pipeline

@@ -90,6 +90,56 @@ pub fn sliding_window_group_fixture(
         )
 }
 
+/// Rows on different inputs bridge a bounded keyed session before the join.
+pub fn bounded_session_join_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    let left = pipeline
+        .from_vec(
+            "session-join-left-source",
+            vec![
+                (0_i64, ("a".to_owned(), 1_i32)),
+                (8_000_000, ("a".to_owned(), 2)),
+                (30_000_000, ("b".to_owned(), 3)),
+            ],
+        )?
+        .timestamps_from_pairs_named("session-join-left-time")?
+        .session_windows_named("session-join-left-window", 5_000_000)?;
+    let right = pipeline
+        .from_vec(
+            "session-join-right-source",
+            vec![
+                (4_000_000_i64, ("a".to_owned(), 10_i32)),
+                (20_000_000, ("a".to_owned(), 11)),
+                (31_000_000, ("b".to_owned(), 12)),
+            ],
+        )?
+        .timestamps_from_pairs_named("session-join-right-time")?
+        .session_windows_named("session-join-right-window", 5_000_000)?;
+    left.join_inner_named("session-join", &right)?
+        .with_window_named("session-join-bounds")?
+        .map_named("session-join-row", |(window, (key, (left, right)))| {
+            format!("{key}:{left}:{right}:{}..{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "session-join-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("session-join-contract:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// A late-arriving bridge joins two prior sessions for one key.
 pub fn session_group_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();

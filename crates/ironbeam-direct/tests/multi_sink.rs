@@ -864,3 +864,38 @@ fn fan_out_respects_the_configured_buffer_limit() {
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Resource);
 }
+
+#[test]
+fn sink_route_attributes_flat_map_panic_and_aborts_session() {
+    let aborts = Arc::new(AtomicUsize::new(0));
+    let commits = Arc::new(AtomicUsize::new(0));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .from_vec("source", vec![1_i32])
+        .unwrap()
+        .flat_map_named("explode", |_| -> Vec<i32> {
+            panic!("expected transform panic")
+        })
+        .unwrap()
+        .sink_named("result", spec(), {
+            let aborts = Arc::clone(&aborts);
+            let commits = Arc::clone(&commits);
+            move || {
+                Ok(Box::new(Probe {
+                    aborts: Arc::clone(&aborts),
+                    commits: Arc::clone(&commits),
+                    fail_write: false,
+                    fail_commit: false,
+                }))
+            }
+        })
+        .unwrap();
+    let error = DirectRunner
+        .run_sink(&sink, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.node.as_deref(), Some("explode"));
+    assert_eq!(commits.load(Ordering::SeqCst), 0);
+    assert_eq!(aborts.load(Ordering::SeqCst), 1);
+}

@@ -591,11 +591,9 @@ fn session_windows_validate_gap_and_time_bounds() {
         .unwrap();
     explicit.group_by_key_named("explicit-group").unwrap();
     let grouped = bounded.group_by_session_named("session", 5).unwrap();
-    assert!(
-        grouped
-            .join_inner_named("unsupported-session-join", &grouped)
-            .is_err()
-    );
+    grouped
+        .join_inner_named("bounded-session-join", &grouped)
+        .unwrap();
     assert!(cogroup_by_key_2_named("unsupported-session-cogroup", &grouped, &grouped).is_err());
     let fixed = bounded.fixed_windows("fixed-before-session", 10).unwrap();
     assert!(fixed.group_by_session_named("nested-session", 5).is_err());
@@ -615,9 +613,14 @@ fn session_windows_validate_gap_and_time_bounds() {
             0,
         )
         .unwrap();
-    unbounded
+    let unbounded_grouped = unbounded
         .group_by_session_named("unbounded-session", 5)
         .unwrap();
+    assert!(
+        unbounded_grouped
+            .join_inner_named("unsupported-unbounded-session-join", &unbounded_grouped)
+            .is_err()
+    );
     let (graph, _) = pipeline.snapshot().unwrap();
     graph.validate().unwrap();
     let mut malformed = graph.clone();
@@ -629,6 +632,96 @@ fn session_windows_validate_gap_and_time_bounds() {
     let mut malformed = graph;
     malformed.node_mut_for_test("session/session").boundedness = Boundedness::Unbounded;
     assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);
+}
+
+#[test]
+fn bounded_session_join_registry_merges_intervals_from_both_inputs() {
+    fn session_events(rows: &[(i64, i32, i32)]) -> Vec<Envelope> {
+        let window = Window::Session { gap_ns: 5 };
+        rows.iter()
+            .map(|&(timestamp_ns, key, value)| Envelope {
+                value: Box::new((key, value)),
+                timestamp_ns,
+                assigned_window: window.assign(timestamp_ns).unwrap(),
+                window: window.clone(),
+            })
+            .collect()
+    }
+    let pipeline = Pipeline::default();
+    let left = pipeline
+        .from_vec("left", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .session_windows_named("left-session", 5)
+        .unwrap();
+    let right = pipeline
+        .from_vec("right", vec![(1_i32, 10_i32)])
+        .unwrap()
+        .session_windows_named("right-session", 5)
+        .unwrap();
+    left.join_inner_named("inner", &right).unwrap();
+    left.join_left_named("left-join", &right).unwrap();
+    left.join_right_named("right-join", &right).unwrap();
+    left.join_full_named("full", &right).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let input = || {
+        vec![
+            session_events(&[(0, 1, 1), (8, 1, 2), (30, 2, 3)]),
+            session_events(&[(4, 1, 10), (20, 1, 11), (31, 2, 12)]),
+        ]
+    };
+    let inner = registry.apply_aggregate("inner", input()).unwrap();
+    assert_eq!(inner.len(), 3);
+    assert_eq!(
+        inner
+            .iter()
+            .filter(|event| event.assigned_window
+                == Some(WindowInterval {
+                    start_ns: 0,
+                    end_ns: 13
+                }))
+            .count(),
+        2
+    );
+    assert_eq!(
+        registry
+            .apply_aggregate("left-join", input())
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(
+        registry
+            .apply_aggregate("right-join", input())
+            .unwrap()
+            .len(),
+        4
+    );
+    let full = registry.apply_aggregate("full", input()).unwrap();
+    assert_eq!(full.len(), 4);
+    assert!(full.into_iter().any(|event| {
+        event.assigned_window
+            == Some(WindowInterval {
+                start_ns: 20,
+                end_ns: 25,
+            })
+            && *event
+                .value
+                .downcast::<(i32, (Option<i32>, Option<i32>))>()
+                .unwrap()
+                == (1, (None, Some(11)))
+    }));
+    let mut malformed = input();
+    malformed[0][0].assigned_window = None;
+    assert!(registry.apply_aggregate("inner", malformed).is_err());
+    let mut malformed = input();
+    malformed[1][0].assigned_window = None;
+    assert!(registry.apply_aggregate("inner", malformed).is_err());
+    let mut malformed = input();
+    malformed[0][0].value = Box::new("wrong type");
+    assert!(registry.apply_aggregate("inner", malformed).is_err());
+    let mut malformed = input();
+    malformed[1][0].value = Box::new("wrong type");
+    assert!(registry.apply_aggregate("inner", malformed).is_err());
 }
 
 #[test]

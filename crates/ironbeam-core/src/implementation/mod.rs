@@ -19,6 +19,7 @@ include!("registry.rs");
 include!("pipeline.rs");
 include!("collection.rs");
 include!("grouping.rs");
+include!("session_join.rs");
 include!("keyed.rs");
 include!("output.rs");
 

@@ -750,14 +750,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 "join inputs must have equal time/window declarations",
             ));
         }
-        if matches!(left.time.window, Window::Session { .. }) {
-            return Err(Error::graph(
-                key,
-                "session joins require cross-input merge support",
-            ));
-        }
         let unbounded = left.boundedness == Boundedness::Unbounded
             || other.boundedness == Boundedness::Unbounded;
+        let session_join = matches!(left.time.window, Window::Session { .. });
+        if session_join && unbounded {
+            return Err(Error::graph(
+                key,
+                "unbounded session joins require cross-input watermark and recovery support",
+            ));
+        }
         if unbounded && left.time.window == Window::Global {
             return Err(Error::graph(
                 key,
@@ -769,9 +770,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let emit = Arc::new(emit);
         let typed_emit = Arc::clone(&emit);
         let aggregate: Aggregate = Arc::new(move |inputs| {
-            let [left, right]: [Vec<Envelope>; 2] = inputs
+            let [mut left, mut right]: [Vec<Envelope>; 2] = inputs
                 .try_into()
                 .map_err(|_| Error::execution(&key_owned, "direct", "join requires two inputs"))?;
+            if session_join {
+                merge_bounded_join_sessions::<K, V, W>(&mut left, &mut right, &key_owned)?;
+            }
             if inner_join && left.len() <= right.len() {
                 return inner_join_reusing_right::<K, V, W, O>(
                     left,
