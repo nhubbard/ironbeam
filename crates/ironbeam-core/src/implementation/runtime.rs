@@ -150,6 +150,11 @@ pub trait FoldSession: Send {
     fn drain_closed(&mut self, _watermark_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
         Err(Error::unsupported("fold", "runner", "drain-closed-windows"))
     }
+    /// Fire buffered late input without expiring the window. The runner calls
+    /// this after a source poll whose prior watermark passed the window end.
+    fn drain_late(&mut self) -> Result<(Vec<Envelope>, usize), Error> {
+        Err(Error::unsupported("fold", "runner", "late-window-firing"))
+    }
     /// Return a versioned snapshot when this fold supports in-progress recovery.
     fn checkpoint_state(&self) -> Result<Option<Vec<u8>>, Error> {
         Ok(None)

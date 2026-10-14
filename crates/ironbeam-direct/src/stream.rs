@@ -37,6 +37,7 @@ struct GroupedStreamRoute {
     group_key: String,
     window: Window,
     trigger: WindowTrigger,
+    allowed_lateness_ns: i64,
     after_group: Vec<String>,
 }
 
@@ -359,6 +360,11 @@ fn grouped_stream_route(
                         .expect("group node exists")
                         .time
                         .trigger,
+                    allowed_lateness_ns: graph
+                        .node(group_key.as_str())
+                        .expect("group node exists")
+                        .time
+                        .allowed_lateness_ns,
                     group_key,
                     after_group: downstream,
                 }));
@@ -881,7 +887,7 @@ impl DirectRunner {
                     &grouped.group_key,
                     &state,
                     config.buffer_budget_elements,
-                    grouped.trigger != WindowTrigger::Default,
+                    grouped.trigger != WindowTrigger::Default || grouped.allowed_lateness_ns > 0,
                 )?;
                 if progress.completed && !folds.is_empty() {
                     return Err(Error::recovery(
@@ -1609,17 +1615,18 @@ fn run_grouped_stream(
             .peak_batch_elements
             .fetch_max(input_count, Ordering::Relaxed);
         handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
+        let mut late_windows = BTreeSet::new();
         for input in batch.elements {
             for event in apply_grouped_stages(registry, &route.before_group, input, config, handle)?
             {
                 let interval = event.assigned_window.ok_or_else(|| {
                     Error::execution(&route.group_key, "direct", "grouped stream needs a window")
                 })?;
-                if progress
+                let prior_watermark = progress
                     .as_ref()
-                    .and_then(|previous| previous.event_time_ns)
-                    .is_some_and(|watermark| interval.end_ns <= watermark)
-                {
+                    .and_then(|previous| previous.event_time_ns);
+                let expired_at = interval.end_ns.saturating_add(route.allowed_lateness_ns);
+                if prior_watermark.is_some_and(|watermark| expired_at <= watermark) {
                     continue;
                 }
                 if buffered >= config.buffer_budget_elements {
@@ -1636,6 +1643,9 @@ fn run_grouped_stream(
                 } else {
                     (interval.start_ns, interval.end_ns)
                 };
+                if prior_watermark.is_some_and(|watermark| interval.end_ns <= watermark) {
+                    late_windows.insert(scope);
+                }
                 let entry = folds.entry(scope);
                 let (fold, count) = match entry {
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -1696,10 +1706,16 @@ fn run_grouped_stream(
                 .keys()
                 .copied()
                 .filter(|(_, end)| {
-                    next_progress.completed
-                        || next_progress
-                            .event_time_ns
-                            .is_some_and(|watermark| *end <= watermark)
+                    let not_previously_closed = route.allowed_lateness_ns == 0
+                        || progress
+                            .as_ref()
+                            .and_then(|previous| previous.event_time_ns)
+                            .is_none_or(|watermark| watermark < *end);
+                    not_previously_closed
+                        && (next_progress.completed
+                            || next_progress
+                                .event_time_ns
+                                .is_some_and(|watermark| *end <= watermark))
                 })
                 .collect::<Vec<_>>()
         };
@@ -1719,32 +1735,27 @@ fn run_grouped_stream(
                 &mut written,
             )?;
             for window in closing {
-                let grouped =
-                    if matches!(route.window, Window::Session { .. }) && !next_progress.completed {
-                        let (fold, count) = folds.get_mut(&window).expect("session fold exists");
-                        let watermark = next_progress.event_time_ns.expect("watermark checked");
-                        let (grouped, released) =
-                            catch_unwind(AssertUnwindSafe(|| fold.drain_closed(watermark)))
-                                .unwrap_or_else(|_| {
-                                    Err(Error::execution(
-                                        &route.group_key,
-                                        "direct",
-                                        "group fold panicked",
-                                    ))
-                                })?;
-                        *count = count.checked_sub(released).ok_or_else(|| {
-                            Error::recovery(&route.group_key, "session fold released too many rows")
+                let grouped = if route.allowed_lateness_ns > 0 && next_progress.completed {
+                    let (fold, count) =
+                        folds.remove(&window).expect("completed window fold exists");
+                    let grouped =
+                        catch_unwind(AssertUnwindSafe(|| fold.finish())).unwrap_or_else(|_| {
+                            Err(Error::execution(
+                                &route.group_key,
+                                "direct",
+                                "group fold panicked",
+                            ))
                         })?;
-                        buffered = buffered.checked_sub(released).ok_or_else(|| {
-                            Error::recovery(&route.group_key, "session buffer count underflow")
-                        })?;
-                        if *count == 0 {
-                            folds.remove(&window);
-                        }
-                        grouped
-                    } else {
-                        let (fold, count) = folds.remove(&window).expect("closing fold exists");
-                        let grouped = catch_unwind(AssertUnwindSafe(|| fold.finish()))
+                    buffered = buffered.checked_sub(count).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    grouped
+                } else if route.allowed_lateness_ns > 0 {
+                    let (fold, count) =
+                        folds.get_mut(&window).expect("retained window fold exists");
+                    let watermark = next_progress.event_time_ns.unwrap_or(i64::MAX);
+                    let (grouped, released) =
+                        catch_unwind(AssertUnwindSafe(|| fold.drain_closed(watermark)))
                             .unwrap_or_else(|_| {
                                 Err(Error::execution(
                                     &route.group_key,
@@ -1752,9 +1763,49 @@ fn run_grouped_stream(
                                     "group fold panicked",
                                 ))
                             })?;
-                        buffered -= count;
-                        grouped
-                    };
+                    *count = count.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "on-time fold released too many rows")
+                    })?;
+                    buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    grouped
+                } else if matches!(route.window, Window::Session { .. }) && !next_progress.completed
+                {
+                    let (fold, count) = folds.get_mut(&window).expect("session fold exists");
+                    let watermark = next_progress.event_time_ns.expect("watermark checked");
+                    let (grouped, released) =
+                        catch_unwind(AssertUnwindSafe(|| fold.drain_closed(watermark)))
+                            .unwrap_or_else(|_| {
+                                Err(Error::execution(
+                                    &route.group_key,
+                                    "direct",
+                                    "group fold panicked",
+                                ))
+                            })?;
+                    *count = count.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "session fold released too many rows")
+                    })?;
+                    buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "session buffer count underflow")
+                    })?;
+                    if *count == 0 {
+                        folds.remove(&window);
+                    }
+                    grouped
+                } else {
+                    let (fold, count) = folds.remove(&window).expect("closing fold exists");
+                    let grouped =
+                        catch_unwind(AssertUnwindSafe(|| fold.finish())).unwrap_or_else(|_| {
+                            Err(Error::execution(
+                                &route.group_key,
+                                "direct",
+                                "group fold panicked",
+                            ))
+                        })?;
+                    buffered -= count;
+                    grouped
+                };
                 write_grouped_panes(
                     registry,
                     route,
@@ -1763,6 +1814,34 @@ fn run_grouped_stream(
                     config,
                     handle,
                     grouped,
+                    &mut session,
+                    &mut written,
+                )?;
+            }
+            for window in late_windows {
+                let (fold, count) = folds.get_mut(&window).expect("late window fold exists");
+                let (late, released) = catch_unwind(AssertUnwindSafe(|| fold.drain_late()))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            &route.group_key,
+                            "direct",
+                            "late group fold panicked",
+                        ))
+                    })?;
+                *count = count.checked_sub(released).ok_or_else(|| {
+                    Error::recovery(&route.group_key, "late fold released too many rows")
+                })?;
+                buffered = buffered.checked_sub(released).ok_or_else(|| {
+                    Error::recovery(&route.group_key, "group buffer count underflow")
+                })?;
+                write_grouped_panes(
+                    registry,
+                    route,
+                    sink_key,
+                    &instruction_id,
+                    config,
+                    handle,
+                    late,
                     &mut session,
                     &mut written,
                 )?;
@@ -1782,6 +1861,14 @@ fn run_grouped_stream(
                 let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
             }
             return Err(error);
+        }
+        if route.allowed_lateness_ns > 0 {
+            folds.retain(|(_, end), _| {
+                !next_progress.completed
+                    && next_progress.event_time_ns.is_none_or(|watermark| {
+                        end.saturating_add(route.allowed_lateness_ns) > watermark
+                    })
+            });
         }
         if let Some(checkpoint) = checkpoint
             && (next_progress.checkpoint_position.is_some() || next_progress.completed)

@@ -593,8 +593,8 @@ impl<T: Element> PCollection<T> {
 
     /// Retain fixed or sliding windows after their end for late elements.
     /// The duration must be a nonnegative whole number of milliseconds.
-    /// Portable runners can emit late panes; Direct currently rejects a
-    /// positive duration during preflight.
+    /// Direct and portable runners emit default-trigger late panes for
+    /// single-input keyed grouping. Direct rejects unsupported stateful fan-in.
     pub fn allowed_lateness_named(&self, key: &str, duration_ns: i64) -> Result<Self, Error> {
         if duration_ns < 0 || duration_ns % 1_000_000 != 0 {
             return Err(Error::graph(key, "allowed lateness must be nonnegative whole milliseconds"));

@@ -233,6 +233,7 @@ struct GroupByKeyFoldState<K, V> {
     key: String,
     trigger: WindowTrigger,
     output_time: WindowOutputTime,
+    allowed_lateness_ns: i64,
     global_indices: HashMap<K, usize>,
     window_indices: HashMap<(K, WindowInterval), usize>,
     session_indices: HashMap<K, Vec<usize>>,
@@ -521,13 +522,23 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
             if assigned_window.is_some_and(|interval| interval.end_ns <= watermark_ns) {
                 released = released.saturating_add(values.len());
-                let index = self.fired_panes.remove(&(key.clone(), assigned_window.unwrap())).unwrap_or(0);
+                let scope = (key.clone(), assigned_window.unwrap());
+                let index = if self.allowed_lateness_ns > 0 {
+                    let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
+                    let index = *next_index;
+                    *next_index = next_index
+                        .checked_add(1)
+                        .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+                    index
+                } else {
+                    self.fired_panes.remove(&scope).unwrap_or(0)
+                };
                 self.fired_value_counts.remove(&(key.clone(), assigned_window.unwrap()));
                 let latest = self.latest_timestamps.remove(&(key.clone(), assigned_window.unwrap()));
                 closed.push(Envelope {
                     pane: PaneInfo {
                         is_first: index == 0,
-                        is_last: true,
+                        is_last: self.allowed_lateness_ns == 0,
                         timing: PaneTiming::OnTime,
                         index,
                         nonspeculative_index: 0,
@@ -543,11 +554,48 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             }
         }
         self.groups = remaining;
-        self.fired_panes.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        if self.allowed_lateness_ns == 0 {
+            self.fired_panes.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        }
         self.fired_value_counts.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         self.latest_timestamps.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         self.rebuild_indices();
         Ok((closed, released))
+    }
+
+    fn drain_late(&mut self) -> Result<(Vec<Envelope>, usize), Error> {
+        if self.allowed_lateness_ns == 0 || self.trigger != WindowTrigger::Default {
+            return Err(Error::unsupported(&self.key, "direct", "late-window-firing"));
+        }
+        let mut panes = Vec::new();
+        let mut released = 0_usize;
+        for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
+            let interval = assigned_window.ok_or_else(|| Error::incompatible("late pane lacks a window"))?;
+            let scope = (key.clone(), interval);
+            let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
+            let index = *next_index;
+            *next_index = next_index
+                .checked_add(1)
+                .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+            let latest = self.latest_timestamps.remove(&scope);
+            released = released.saturating_add(values.len());
+            panes.push(Envelope {
+                pane: PaneInfo {
+                    is_first: index == 0,
+                    is_last: false,
+                    timing: PaneTiming::Late,
+                    index,
+                    nonspeculative_index: index,
+                    contains_element_metadata: false,
+                },
+                value: Box::new((key, values)),
+                timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, Some(interval)),
+                window,
+                assigned_window,
+            });
+        }
+        self.rebuild_indices();
+        Ok((panes, released))
     }
 
     fn accepts_vec_batch(&self, batch_type: TypeId) -> bool {
@@ -621,6 +669,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             key: self.key.clone(),
             trigger: self.trigger,
             output_time: self.output_time,
+            allowed_lateness_ns: self.allowed_lateness_ns,
             global_indices: HashMap::new(),
             window_indices: HashMap::new(),
             session_indices: HashMap::new(),

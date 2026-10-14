@@ -1,3 +1,25 @@
+fn validate_lateness(node: &ironbeam_core::Node) -> Result<(), Error> {
+    if node.time.allowed_lateness_ns > 0
+        && (node.time.trigger != WindowTrigger::Default
+            || matches!(
+                node.operation,
+                Operation::CoGroupByKey
+                    | Operation::JoinInner
+                    | Operation::JoinLeft
+                    | Operation::JoinRight
+                    | Operation::JoinFull
+                    | Operation::GlobalCombine
+                    | Operation::FoldGlobal
+                    | Operation::FoldPerKey
+                    | Operation::FoldOrderedGlobal
+                    | Operation::FoldOrderedPerKey
+            ))
+    {
+        return Err(Error::unsupported(&node.key, "direct", "allowed-lateness"));
+    }
+    Ok(())
+}
+
 impl DirectRunner {
     /// Validates every node before any source is opened.
     ///
@@ -32,9 +54,7 @@ impl DirectRunner {
             },
         )?;
         for node in &graph.nodes {
-            if node.time.allowed_lateness_ns > 0 {
-                return Err(Error::unsupported(&node.key, "direct", "allowed-lateness"));
-            }
+            validate_lateness(node)?;
             let trigger_supported = matches!(
                     node.operation,
                     Operation::FixedWindow

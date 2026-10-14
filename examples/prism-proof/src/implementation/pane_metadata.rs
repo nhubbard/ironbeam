@@ -203,6 +203,60 @@ pub fn allowed_lateness_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Si
     )
 }
 
+pub fn sliding_allowed_lateness_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let rows = pipeline
+        .test_stream_source(
+            "sliding-late-events",
+            vec![
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 6_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 3_i32), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(12_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 4_i32), 8_000_000)]),
+                TestStreamEvent::AdvanceWatermark(17_000_000),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )?
+        .sliding_windows("sliding-late-windows", 10_000_000, 5_000_000, 0)?
+        .allowed_lateness_named("sliding-late-policy", 5_000_000)?
+        .group_by_key_named("sliding-late-group")?
+        .reify_timestamps_named("sliding-late-timestamp")?
+        .reify_panes_named("sliding-late-pane")?
+        .with_window_named("sliding-late-interval")?
+        .map_named("sliding-late-row", |(interval, (pane, (timestamp, (key, values))))| {
+            format!(
+                "{}..{}:{key}:{values:?}:{timestamp}:{:?}:{}:{}:{}:{}",
+                interval.start_ns,
+                interval.end_ns,
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+                pane.nonspeculative_index
+            )
+        })?;
+    let sink_path = path.clone();
+    rows.sink_named_with_config(
+        "sliding-late-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("sliding-late-result:{}", path.display()),
+        move || {
+            Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })))
+        },
+    )
+}
+
 fn count_trigger_stream_fixture_with_mode(
     pipeline: &Pipeline,
     path: PathBuf,

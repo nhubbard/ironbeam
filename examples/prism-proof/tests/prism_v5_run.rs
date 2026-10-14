@@ -54,16 +54,16 @@ use ironbeam_prism_proof::{
     partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
     session_group_fixture, shared_unbounded_homogeneous_cogroup_collection,
     shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, triple_unbounded_flatten_collection,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
-    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
-    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_side_input_fixture,
-    windowed_side_view_shapes_fixture, ExpandSingleton, PaneFixtureWindow, ProductionAvroRow,
-    ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    sliding_allowed_lateness_fixture, sliding_window_group_fixture, streaming_group_fixture,
+    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
+    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
+    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
+    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -5385,21 +5385,50 @@ async fn prism_emits_late_pane_before_allowed_lateness_expires() {
         .lines()
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    assert_eq!(rows.len(), 2, "unexpected late pane rows: {rows:?}");
-    assert!(
-        rows.iter()
-            .any(|row| row.starts_with("a:[2]:2000000:OnTime:")),
-        "missing on-time pane: {rows:?}"
+    assert_eq!(
+        rows,
+        [
+            "a:[2]:2000000:OnTime:true:false:0:0",
+            "a:[3]:3000000:Late:false:false:1:1",
+        ]
     );
-    assert!(
-        rows.iter()
-            .any(|row| row.starts_with("a:[3]:3000000:Late:")),
-        "missing late pane: {rows:?}"
-    );
-    assert!(
-        !rows.iter().any(|row| row.contains("[4]")),
-        "expired row emitted: {rows:?}"
-    );
+}
+
+#[tokio::test]
+async fn prism_sliding_windows_keep_independent_late_pane_indices() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("sliding-lateness.txt");
+    let pipeline = Pipeline::default();
+    sliding_allowed_lateness_fixture(&pipeline, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "sliding-lateness-probe",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_SLIDING_LATENESS".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "sliding late job state: {terminal:?}");
+    let mut rows = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    rows.sort();
+    let mut expected = vec![
+        "0..10000000:a:[2]:6000000:OnTime:true:false:0:0",
+        "0..10000000:a:[3]:7000000:Late:false:true:1:1",
+        "5000000..15000000:a:[2, 3]:6000000:OnTime:true:false:0:0",
+        "5000000..15000000:a:[4]:8000000:Late:false:false:1:1",
+    ];
+    expected.sort();
+    assert_eq!(rows, expected);
 }
 
 #[tokio::test]

@@ -166,6 +166,7 @@ fn allowed_lateness_changes_time_identity_and_requires_finite_millisecond_window
     let late = windowed
         .allowed_lateness_named("lateness", 5_000_000)
         .unwrap();
+    assert!(late.latest_per_key_named("unsupported-latest").is_err());
     let (graph, _) = pipeline.snapshot().unwrap();
     assert_eq!(
         graph.node(late.key()).unwrap().time.allowed_lateness_ns,
