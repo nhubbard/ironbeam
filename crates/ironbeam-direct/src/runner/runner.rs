@@ -32,6 +32,9 @@ impl DirectRunner {
             },
         )?;
         for node in &graph.nodes {
+            if node.time.allowed_lateness_ns > 0 {
+                return Err(Error::unsupported(&node.key, "direct", "allowed-lateness"));
+            }
             let trigger_supported = matches!(
                     node.operation,
                     Operation::FixedWindow

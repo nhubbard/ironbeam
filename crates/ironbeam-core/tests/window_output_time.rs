@@ -134,3 +134,47 @@ fn latest_in_pane_policy_tracks_maximum_event_time_across_checkpoint_restore() {
     assert_eq!(output.len(), 1);
     assert_eq!(output[0].timestamp_ns, 7_000_000);
 }
+
+#[test]
+fn allowed_lateness_changes_time_identity_and_requires_finite_millisecond_windows() {
+    let pipeline = Pipeline::default();
+    let values = pipeline.from_vec("values", vec![(1_i32, 2_i32)]).unwrap();
+    assert!(
+        values
+            .allowed_lateness_named("global-lateness", 5_000_000)
+            .is_err()
+    );
+    let windowed = values.fixed_windows("windows", 10_000_000).unwrap();
+    assert!(
+        windowed
+            .allowed_lateness_named("negative", -1_000_000)
+            .is_err()
+    );
+    assert!(
+        windowed
+            .allowed_lateness_named("submillisecond", 1)
+            .is_err()
+    );
+    assert!(
+        values
+            .fixed_windows("misaligned-window", 1_000_001)
+            .unwrap()
+            .allowed_lateness_named("misaligned-lateness", 5_000_000)
+            .is_err()
+    );
+    let baseline_id = pipeline.snapshot().unwrap().0.fingerprint().unwrap();
+    let late = windowed
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node(late.key()).unwrap().time.allowed_lateness_ns,
+        5_000_000
+    );
+    assert_ne!(graph.fingerprint().unwrap(), baseline_id);
+    assert!(
+        !serde_json::to_string(&ironbeam_core::Time::default())
+            .unwrap()
+            .contains("allowed_lateness_ns")
+    );
+}

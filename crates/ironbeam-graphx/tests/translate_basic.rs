@@ -220,6 +220,44 @@ fn latest_in_pane_timestamp_policy_lowers_to_beam_strategy() {
 }
 
 #[test]
+fn allowed_lateness_lowers_to_beam_windowing_strategy() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let window_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "windows")
+        .unwrap();
+    let late_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "lateness")
+        .unwrap();
+    assert_ne!(
+        window_pc.windowing_strategy_id,
+        late_pc.windowing_strategy_id
+    );
+    assert_eq!(
+        components.windowing_strategies[&late_pc.windowing_strategy_id].allowed_lateness,
+        5
+    );
+}
+
+#[test]
 fn bounded_multi_signal_wait_lowers_two_portable_side_dependencies() {
     let pipeline = Pipeline::default();
     let first = pipeline.from_vec("first", vec![1_i32]).unwrap();

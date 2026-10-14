@@ -121,6 +121,21 @@ Window sizes, periods, and offsets must be whole milliseconds. Direct currently
 applies these choices to GroupByKey; other keyed aggregates do not yet share
 them.
 
+### Late elements
+
+The portable runner can retain a fixed or sliding window after its end. Set
+`allowed_lateness_named("lateness", 5_000_000)` after assigning windows to
+retain it for five milliseconds. The duration must be a nonnegative whole
+number of milliseconds and becomes part of the graph identity.
+
+With the default trigger, a late element received before expiry produces a
+`Late` pane. The pinned Prism fixture closes `[0, 10 ms)` at a 10 ms
+watermark, emits an element arriving afterward at 3 ms in a late pane, and
+drops another element after the 15 ms expiry watermark. Direct currently
+rejects a positive allowed-lateness policy at preflight. This policy is
+therefore available for portable execution while Direct's retained-window
+state and checkpoint handling are being implemented.
+
 ## Sliding windows
 
 Sliding windows have a size and a period. The size determines each interval's

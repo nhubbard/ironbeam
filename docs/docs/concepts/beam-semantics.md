@@ -248,6 +248,14 @@ pinned Prism; Direct restores the corresponding discarding and accumulating
 unbounded folds after a checkpoint. Both policies currently apply to
 single-input GroupByKey.
 
+The portable graph can set nonzero allowed lateness for fixed and sliding
+windows with `allowed_lateness_named`. Beam records the duration in whole
+milliseconds. On pinned Prism, a TestStream job emitted an on-time pane at
+2 ms, a late pane at 3 ms, and no output from an element sent after window
+expiry. Direct rejects the policy before execution because its current
+streaming fold discards a window at the end watermark. Retained state, late
+pane indices, and expiry-aware checkpoint recovery are still required there.
+
 Ironbeam's Fn Data coder decodes Beam pane
 timing, first and last flags, and indices. When Beam sets the element metadata
 flag, a length-prefixed protobuf payload follows the pane header; the worker
@@ -343,11 +351,11 @@ commit decision or the sink's durable finalization record.
 | Global and fixed windows | Supported on the established Direct and local Prism corpus. |
 | Sliding windows | Supported on bounded and unbounded collections on Direct and local Prism, including overlap, negative event time, watermark closure, and late-row discard. |
 | Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Bounded joins and co-groups, including a three-input shared-source co-group, merge keyed intervals. Two-source unbounded joins and co-groups also run on both. Direct checkpoints open unbounded sessions and source cursors. Independent-source and intermediate-watermark session cases can differ on local Prism; more than two unbounded inputs and nonzero allowed lateness remain unproved. |
-| Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
+| Default trigger | Used by portable lowering, with discarding accumulation. Zero lateness runs on Direct and Prism; a nonzero fixed-window late-pane fixture runs on Prism. |
 | Group output timestamp | Earliest-in-pane is the default. End-of-window and latest-in-pane are available for fixed and sliding windows on GroupByKey; bounded fixed-window jobs agree on Direct and pinned Prism. |
 | Pane metadata | `reify_panes_named` makes `PaneInfo` available to elementwise callbacks, and typed sinks receive it in `ElementMetadata`. Direct and Prism agree for fixed and sliding grouped windows. The pinned Prism runner marks the tested merged-session group as `Early` while Direct marks it `OnTime`. |
 | Early count trigger | Public fixed- and sliding-window repeated count policy lowers to Beam. Bounded overlapping sliding windows and fixed-window TestStream panes pass on local Prism. Direct supports single-input keyed grouping in bounded and resumable unbounded jobs, including pane-index recovery. |
-| Other triggers | Processing-time, composite, and late firings and allowed lateness remain pending. Accumulating repeated count firings run for fixed-window single-input keyed grouping. |
+| Other triggers | Explicit processing-time, composite, and late firing policies remain pending. Default-trigger late panes with nonzero allowed lateness are proved on Prism and rejected by Direct. Accumulating repeated count firings run for fixed-window single-input keyed grouping. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
 | Splittable source residuals | Supported by local process-restart fixtures. |
 | Active execution-child replacement in one Prism job | Supported for replay-safe graphs with supervised execution; a killed child and a failed partial-output attempt have live Prism proofs. |

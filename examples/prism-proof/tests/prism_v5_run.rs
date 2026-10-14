@@ -23,15 +23,16 @@ use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_harness::finalization_journal::FileFinalizationJournal;
 use ironbeam_prism_proof::{
     accumulating_count_trigger_stream_fixture, accumulating_latest_count_trigger_stream_fixture,
-    bounded_batch_helpers_fixture, bounded_join_cogroup_fixture, bounded_map_filter_fixture,
-    bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
-    bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
-    bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, completion_signal,
-    count_trigger_stream_fixture, dead_letter_fixture, dual_stream_windowed_side_collection,
-    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_collection,
-    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
-    dual_unbounded_cogroup_fixture, dual_unbounded_flatten_collection,
-    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    allowed_lateness_fixture, bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
+    bounded_map_filter_fixture, bounded_multi_source_fixture, bounded_multi_wait_fixture,
+    bounded_session_cogroup_fixture, bounded_session_join_fixture, bounded_side_input_fixture,
+    bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture, bounded_wait_on_fixture,
+    completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
+    dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
+    dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
+    dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
+    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
+    dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -5355,6 +5356,49 @@ async fn prism_accumulating_count_stream_uses_latest_output_time() {
             "group:a:[2, 3]:3000000:Early:false:false:1:-1".to_owned(),
             "group:a:[2, 3]:3000000:OnTime:false:true:2:0".to_owned(),
         ]
+    );
+}
+
+#[tokio::test]
+async fn prism_emits_late_pane_before_allowed_lateness_expires() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("allowed-lateness.txt");
+    let pipeline = Pipeline::default();
+    allowed_lateness_fixture(&pipeline, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "allowed-lateness-probe",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_ALLOWED_LATENESS".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "late pane job state: {terminal:?}");
+    let rows = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(rows.len(), 2, "unexpected late pane rows: {rows:?}");
+    assert!(
+        rows.iter()
+            .any(|row| row.starts_with("a:[2]:2000000:OnTime:")),
+        "missing on-time pane: {rows:?}"
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.starts_with("a:[3]:3000000:Late:")),
+        "missing late pane: {rows:?}"
+    );
+    assert!(
+        !rows.iter().any(|row| row.contains("[4]")),
+        "expired row emitted: {rows:?}"
     );
 }
 

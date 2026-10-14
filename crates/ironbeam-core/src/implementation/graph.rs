@@ -78,9 +78,16 @@ impl Graph {
                 ));
             }
             if node.time.output_time != WindowOutputTime::EarliestInPane
-                && !matches!(node.time.window, Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. })
+                && !node.time.window.is_millisecond_aligned_fixed_or_sliding()
             {
                 return Err(Error::graph(&node.key, "output time policy requires fixed or sliding windows"));
+            }
+            if node.time.allowed_lateness_ns < 0
+                || node.time.allowed_lateness_ns % 1_000_000 != 0
+                || (node.time.allowed_lateness_ns > 0
+                    && !node.time.window.is_millisecond_aligned_fixed_or_sliding())
+            {
+                return Err(Error::graph(&node.key, "allowed lateness requires finite millisecond-aligned windows"));
             }
             if matches!(node.operation, Operation::FixedWindow)
                 && !matches!(
@@ -249,9 +256,14 @@ impl Graph {
                             && node.time.initial_timestamp_ns == upstream.time.initial_timestamp_ns
                             && node.time.window == upstream.time.window
                             && ((node.time.output_time == upstream.time.output_time
+                                && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
                                 && node.time.trigger.early_count().is_some())
                                 || (node.time.trigger == upstream.time.trigger
-                                    && node.time.output_time != WindowOutputTime::EarliestInPane)))
+                                    && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
+                                    && node.time.output_time != WindowOutputTime::EarliestInPane)
+                                || (node.time.trigger == upstream.time.trigger
+                                    && node.time.output_time == upstream.time.output_time
+                                    && node.time.allowed_lateness_ns != upstream.time.allowed_lateness_ns)))
                     {
                         return Err(Error::graph(&node.key, "event time/window must propagate"));
                     }

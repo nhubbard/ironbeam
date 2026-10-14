@@ -2,6 +2,7 @@
 struct TimePolicyOverride {
     trigger: Option<WindowTrigger>,
     output_time: Option<WindowOutputTime>,
+    allowed_lateness_ns: Option<i64>,
 }
 
 impl<T: Element> PCollection<T> {
@@ -82,6 +83,9 @@ impl<T: Element> PCollection<T> {
                 window: window.unwrap_or(parent.time.window),
                 trigger: policy.trigger.unwrap_or(parent.time.trigger),
                 output_time: policy.output_time.unwrap_or(parent.time.output_time),
+                allowed_lateness_ns: policy
+                    .allowed_lateness_ns
+                    .unwrap_or(parent.time.allowed_lateness_ns),
             },
             local_id: 0,
         };
@@ -552,6 +556,7 @@ impl<T: Element> PCollection<T> {
                     WindowTrigger::EarlyElementCount { count }
                 }),
                 output_time: None,
+                allowed_lateness_ns: None,
             },
         )
     }
@@ -569,21 +574,7 @@ impl<T: Element> PCollection<T> {
 
     fn set_output_time_named(&self, key: &str, policy: WindowOutputTime) -> Result<Self, Error> {
         let window = self.parent()?.time.window;
-        let aligned = match &window {
-            Window::Fixed { size_ns } => *size_ns > 0 && size_ns % 1_000_000 == 0,
-            Window::FixedOffset { size_ns, offset_ns } => {
-                *size_ns > 0 && size_ns % 1_000_000 == 0 && offset_ns % 1_000_000 == 0
-            }
-            Window::Sliding { size_ns, period_ns, offset_ns } => {
-                *size_ns > 0
-                    && *period_ns > 0
-                    && size_ns % 1_000_000 == 0
-                    && period_ns % 1_000_000 == 0
-                    && offset_ns % 1_000_000 == 0
-            }
-            _ => false,
-        };
-        if !aligned {
+        if !window.is_millisecond_aligned_fixed_or_sliding() {
             return Err(Error::graph(key, "output time policy requires millisecond-aligned fixed or sliding windows"));
         }
         self.next_with_time_policy(
@@ -595,6 +586,33 @@ impl<T: Element> PCollection<T> {
             TimePolicyOverride {
                 trigger: None,
                 output_time: Some(policy),
+                allowed_lateness_ns: None,
+            },
+        )
+    }
+
+    /// Retain fixed or sliding windows after their end for late elements.
+    /// The duration must be a nonnegative whole number of milliseconds.
+    /// Portable runners can emit late panes; Direct currently rejects a
+    /// positive duration during preflight.
+    pub fn allowed_lateness_named(&self, key: &str, duration_ns: i64) -> Result<Self, Error> {
+        if duration_ns < 0 || duration_ns % 1_000_000 != 0 {
+            return Err(Error::graph(key, "allowed lateness must be nonnegative whole milliseconds"));
+        }
+        let window = self.parent()?.time.window;
+        if !window.is_millisecond_aligned_fixed_or_sliding() {
+            return Err(Error::graph(key, "allowed lateness requires millisecond-aligned fixed or sliding windows"));
+        }
+        self.next_with_time_policy(
+            key,
+            Operation::Map,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(window),
+            None,
+            TimePolicyOverride {
+                trigger: None,
+                output_time: None,
+                allowed_lateness_ns: Some(duration_ns),
             },
         )
     }

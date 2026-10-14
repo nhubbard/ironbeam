@@ -874,6 +874,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             WindowOutputTime::EndOfWindow => output_time::Enum::EndOfWindow as i32,
             WindowOutputTime::LatestInPane => output_time::Enum::LatestInPane as i32,
         };
+        expected_strategy.allowed_lateness = node.time.allowed_lateness_ns / 1_000_000;
         if components
             .windowing_strategies
             .get(&pc.windowing_strategy_id)

@@ -195,6 +195,23 @@ impl Element for PaneInfo {
 }
 
 impl Window {
+    pub(crate) const fn is_millisecond_aligned_fixed_or_sliding(&self) -> bool {
+        match *self {
+            Self::Fixed { size_ns } => size_ns > 0 && size_ns % 1_000_000 == 0,
+            Self::FixedOffset { size_ns, offset_ns } => {
+                size_ns > 0 && size_ns % 1_000_000 == 0 && offset_ns % 1_000_000 == 0
+            }
+            Self::Sliding { size_ns, period_ns, offset_ns } => {
+                size_ns > 0
+                    && period_ns > 0
+                    && size_ns % 1_000_000 == 0
+                    && period_ns % 1_000_000 == 0
+                    && offset_ns % 1_000_000 == 0
+            }
+            Self::Global | Self::Session { .. } => false,
+        }
+    }
+
     pub fn assign(&self, timestamp_ns: i64) -> Result<Option<WindowInterval>, Error> {
         match *self {
             Self::Global => Ok(None),
@@ -316,6 +333,13 @@ pub struct Time {
     pub trigger: WindowTrigger,
     #[serde(default, skip_serializing_if = "WindowOutputTime::is_default")]
     pub output_time: WindowOutputTime,
+    #[serde(default, skip_serializing_if = "is_zero_i64")]
+    pub allowed_lateness_ns: i64,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // Serde skip_serializing_if passes a field reference.
+const fn is_zero_i64(value: &i64) -> bool {
+    *value == 0
 }
 
 impl Default for Time {
@@ -325,6 +349,7 @@ impl Default for Time {
             window: Window::Global,
             trigger: WindowTrigger::Default,
             output_time: WindowOutputTime::EarliestInPane,
+            allowed_lateness_ns: 0,
         }
     }
 }
