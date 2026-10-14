@@ -119,6 +119,9 @@ fn stateful_contract_rejects_missing_identity_coders_and_timer_references() {
     let mut invalid = contract();
     invalid.on_window_expiration_timer = Some("missing".into());
     assert!(invalid.validate().is_err());
+    let mut invalid = contract();
+    invalid.on_window_expiration_timer = Some("process".into());
+    assert!(invalid.validate().is_err());
 }
 
 #[test]

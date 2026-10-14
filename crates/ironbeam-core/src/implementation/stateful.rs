@@ -102,10 +102,16 @@ impl StatefulParDoContract {
                 return Err(Error::graph(&self.semantic_id, "timer family requires an ID and coder"));
             }
         }
-        if let Some(id) = &self.on_window_expiration_timer
-            && !self.timers.contains_key(id)
-        {
-            return Err(Error::graph(&self.semantic_id, "window-expiration timer family is not declared"));
+        if let Some(id) = &self.on_window_expiration_timer {
+            match self.timers.get(id) {
+                None => {
+                    return Err(Error::graph(&self.semantic_id, "window-expiration timer family is not declared"));
+                }
+                Some(family) if family.domain != UserTimerDomain::EventTime => {
+                    return Err(Error::graph(&self.semantic_id, "window-expiration timer must use event time"));
+                }
+                Some(_) => {}
+            }
         }
         Ok(())
     }
