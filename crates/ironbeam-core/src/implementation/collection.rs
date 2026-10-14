@@ -499,7 +499,7 @@ impl<T: Element> PCollection<T> {
         }));
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
-    /// Fire a fixed window early when its element count reaches `count`.
+    /// Fire a fixed or sliding window early when its element count reaches `count`.
     /// Beam may combine several threshold crossings into one pane within a
     /// bundle. Direct supports this policy for single-input keyed grouping.
     pub fn early_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
@@ -517,12 +517,17 @@ impl<T: Element> PCollection<T> {
             return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));
         }
         let window = self.parent()?.time.window;
-        if !matches!(window, Window::Fixed { .. } | Window::FixedOffset { .. }) {
-            return Err(Error::graph(key, "early count trigger requires fixed windows"));
-        }
+        let operation = match window {
+            Window::Fixed { .. } | Window::FixedOffset { .. } => Operation::FixedWindow,
+            // A second sliding WindowInto would assign every existing window
+            // again, multiplying rows. Carry the new strategy on an identity
+            // ParDo instead.
+            Window::Sliding { .. } => Operation::Map,
+            _ => return Err(Error::graph(key, "early count trigger requires fixed or sliding windows")),
+        };
         self.next_with_semantic_and_trigger(
             key,
-            Operation::FixedWindow,
+            operation,
             Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
             Some(window),
             None,

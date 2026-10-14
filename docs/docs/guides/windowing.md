@@ -54,8 +54,8 @@ Source elements have `Unknown` timing before a window fires.
 
 ### Early count firings on Prism
 
-`early_count_trigger_named` configures repeated early firings for a fixed
-window. The count must be positive and fit in a signed 32-bit integer:
+`early_count_trigger_named` configures repeated early firings for fixed or
+sliding windows. The count must be positive and fit in a signed 32-bit integer:
 
 ```rust
 use ironbeam::{Pipeline, prelude::*};
@@ -83,8 +83,9 @@ the next pane index with the source cursor and restores it after restart.
 values. With separate values `2` and `3`, the first early pane contains `[2]`,
 the second contains `[2, 3]`, and the on-time pane contains `[2, 3]` again.
 Direct checkpoints both the retained values and the count at the last firing.
-Its accumulating keyed fold requires a value coder. This support covers
-single-input keyed grouping in fixed windows; late firings and allowed
+Its accumulating keyed fold requires a value coder. A bounded overlapping
+sliding-window proof matches Direct and pinned Prism. This support covers
+single-input keyed grouping in fixed and sliding windows; late firings and allowed
 lateness remain unavailable.
 
 ## Sliding windows

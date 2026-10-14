@@ -201,7 +201,7 @@ them, depending on the accumulation mode. Allowed lateness controls how long
 the runner keeps a window available after its watermark passes the window end.
 
 Ironbeam emits the Beam default trigger with discarding accumulation and zero
-allowed lateness unless a fixed-window collection calls
+allowed lateness unless a fixed- or sliding-window collection calls
 `early_count_trigger_named` or `accumulating_count_trigger_named`. `reify_panes_named` exposes each element as
 `(PaneInfo, value)`, and a typed sink receives the same pane through
 `ElementMetadata`. A source element has `Unknown` timing before a firing;
@@ -220,7 +220,10 @@ firings. A bounded two-row bundle produced one early pane containing both
 rows on pinned Prism; two TestStream advances produced panes with indices 0
 and 1. Direct emits the same panes in the corresponding bounded and streaming
 cases. Its keyed fold stores the next pane index with the source checkpoint,
-so a resumed stream does not repeat an earlier firing. The accumulating count
+so a resumed stream does not repeat an earlier firing. For sliding windows,
+an identity transform carries the new trigger policy after window assignment;
+another `WindowInto` would assign overlapping windows twice. A bounded
+overlapping-window proof matches Direct and pinned Prism. The accumulating count
 policy retains earlier values in later panes. In the tested two-advance stream,
 Direct and pinned Prism both emit `[2]` in the first early pane, `[2, 3]` in
 the second, and `[2, 3]` again in the on-time pane. Direct checkpoints the
@@ -327,7 +330,7 @@ commit decision or the sink's durable finalization record.
 | Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Bounded joins and co-groups, including a three-input shared-source co-group, merge keyed intervals. Two-source unbounded joins and co-groups also run on both. Direct checkpoints open unbounded sessions and source cursors. Independent-source and intermediate-watermark session cases can differ on local Prism; more than two unbounded inputs and nonzero allowed lateness remain unproved. |
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
 | Pane metadata | `reify_panes_named` makes `PaneInfo` available to elementwise callbacks, and typed sinks receive it in `ElementMetadata`. Direct and Prism agree for fixed and sliding grouped windows. The pinned Prism runner marks the tested merged-session group as `Early` while Direct marks it `OnTime`. |
-| Early count trigger | Public fixed-window repeated count policy lowers to Beam and passes bounded and TestStream pane proofs on local Prism. Direct supports single-input keyed grouping in bounded and resumable unbounded jobs, including pane-index recovery. |
+| Early count trigger | Public fixed- and sliding-window repeated count policy lowers to Beam. Bounded overlapping sliding windows and fixed-window TestStream panes pass on local Prism. Direct supports single-input keyed grouping in bounded and resumable unbounded jobs, including pane-index recovery. |
 | Other triggers | Processing-time, composite, and late firings and allowed lateness remain pending. Accumulating repeated count firings run for fixed-window single-input keyed grouping. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
 | Splittable source residuals | Supported by local process-restart fixtures. |

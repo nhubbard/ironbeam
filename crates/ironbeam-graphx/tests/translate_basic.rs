@@ -107,6 +107,55 @@ fn accumulating_count_trigger_sets_beam_accumulation_mode() {
 }
 
 #[test]
+fn sliding_count_trigger_does_not_reassign_existing_windows() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .sliding_windows("windows", 10_000_000, 5_000_000, 0)
+        .unwrap()
+        .early_count_trigger_named("count-trigger", 1)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let windows = components
+        .transforms
+        .values()
+        .find(|transform| transform.unique_name == "windows")
+        .unwrap();
+    let trigger = components
+        .transforms
+        .values()
+        .find(|transform| transform.unique_name == "count-trigger")
+        .unwrap();
+    assert_eq!(
+        windows.spec.as_ref().unwrap().urn,
+        urns::TRANSFORM_WINDOW_INTO
+    );
+    assert_eq!(trigger.spec.as_ref().unwrap().urn, urns::TRANSFORM_PARDO);
+    let window_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "windows")
+        .unwrap();
+    let trigger_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "count-trigger")
+        .unwrap();
+    assert_ne!(
+        window_pc.windowing_strategy_id,
+        trigger_pc.windowing_strategy_id
+    );
+}
+
+#[test]
 fn bounded_multi_signal_wait_lowers_two_portable_side_dependencies() {
     let pipeline = Pipeline::default();
     let first = pipeline.from_vec("first", vec![1_i32]).unwrap();

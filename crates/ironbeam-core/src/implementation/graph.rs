@@ -70,11 +70,11 @@ impl Graph {
             if let Some(count) = node.time.trigger.early_count()
                 && (count == 0
                     || count > i32::MAX as u64
-                    || !matches!(node.time.window, Window::Fixed { .. } | Window::FixedOffset { .. }))
+                    || !matches!(node.time.window, Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. }))
             {
                 return Err(Error::graph(
                     &node.key,
-                    "early count trigger requires fixed windows and a positive count",
+                    "early count trigger requires fixed or sliding windows and a positive count",
                 ));
             }
             if matches!(node.operation, Operation::FixedWindow)
@@ -240,6 +240,10 @@ impl Graph {
                             | Operation::Output
                             | Operation::Sink { .. }
                     ) && node.time != upstream.time
+                        && !(matches!(node.operation, Operation::Map)
+                            && node.time.initial_timestamp_ns == upstream.time.initial_timestamp_ns
+                            && node.time.window == upstream.time.window
+                            && node.time.trigger.early_count().is_some())
                     {
                         return Err(Error::graph(&node.key, "event time/window must propagate"));
                     }

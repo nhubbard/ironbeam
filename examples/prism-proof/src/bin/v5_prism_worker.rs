@@ -461,10 +461,15 @@ async fn main() -> anyhow::Result<()> {
             .map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_COUNT_BOUNDED") {
+        let window = if std::env::var("IRONBEAM_V5_PRISM_COUNT_WINDOW").as_deref() == Ok("sliding") {
+            PaneFixtureWindow::Sliding
+        } else {
+            PaneFixtureWindow::Fixed
+        };
         return pane_metadata_fixture_with_trigger(
             pipeline,
             path.into(),
-            PaneFixtureWindow::Fixed,
+            window,
             true,
         )
         .map(|_| ())
