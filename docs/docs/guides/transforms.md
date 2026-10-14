@@ -80,7 +80,9 @@ called; the remaining vectors follow the order of `others`. A missing key in
 one input produces an empty vector. Input collections must share the same time
 and window declaration. The method uses Flatten and GroupByKey in the portable
 graph, so value order within each vector is unspecified. A twelve-input
-fixed-window job passes on Direct and local Prism.
+fixed-window job and a twelve-branch merged-session job pass on Direct and
+local Prism. The session job derives its branches from one bounded source so
+the bridge record precedes source completion on both runners.
 
 ## Side views
 

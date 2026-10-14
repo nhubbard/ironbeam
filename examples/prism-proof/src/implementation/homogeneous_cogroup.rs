@@ -57,3 +57,63 @@ pub fn homogeneous_twelve_way_cogroup_fixture(
         },
     )
 }
+
+/// A bridge from the last branch merges two sessions from the first branch.
+pub fn homogeneous_twelve_way_session_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let source = pipeline
+        .from_vec(
+            "homogeneous-session-source",
+            vec![
+                (0_i64, ("a".to_owned(), (0_i32, 10_i32))),
+                (4_000_000, ("a".to_owned(), (11, 40))),
+                (8_000_000, ("a".to_owned(), (0, 80))),
+            ],
+        )?
+        .timestamps_from_pairs_named("homogeneous-session-time")?
+        .session_windows_named("homogeneous-session-windows", 5_000_000)?;
+    let inputs = (0..12)
+        .map(|index| {
+            source
+                .filter_named(
+                    &format!("homogeneous-session-branch-{index}"),
+                    move |(_, (branch, _))| *branch == index,
+                )?
+                .map_named(&format!("homogeneous-session-value-{index}"), |(key, (_, value))| {
+                    (key, value)
+                })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    inputs[0]
+        .co_group_homogeneous_named("homogeneous-session-group", &inputs[1..])?
+        .with_window_named("homogeneous-session-result-window")?
+        .map_named("homogeneous-session-result-row", |(window, (key, mut buckets))| {
+            for bucket in &mut buckets {
+                bucket.sort_unstable();
+            }
+            format!("{}..{}:{key}:{buckets:?}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn homogeneous_twelve_way_session_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    homogeneous_twelve_way_session_collection(pipeline)?.sink_named_with_config(
+        "homogeneous-session-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("homogeneous-session-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}

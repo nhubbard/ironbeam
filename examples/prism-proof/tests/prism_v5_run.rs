@@ -38,10 +38,10 @@ use ironbeam_prism_proof::{
     dual_unbounded_session_join_collection, dual_unbounded_session_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
     finalization_probe_sink, finalization_probe_store, global_fold_fixture, global_vector_fixture,
-    group_time_fixture, homogeneous_twelve_way_cogroup_fixture, invalid_dynop_fixture,
-    invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
-    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
-    mixed_boundedness_join_cogroup_fixture, offset_window_group_fixture,
+    group_time_fixture, homogeneous_twelve_way_cogroup_fixture,
+    homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
+    large_group_rows, large_group_summary, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
+    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
     panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
@@ -1935,6 +1935,46 @@ async fn prism_matches_direct_twelve_way_homogeneous_cogroup() {
         "Prism twelve-way co-group state: {terminal:?}"
     );
     assert_eq!(rows(&portable_path), expected);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_twelve_branch_session_cogroup() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-homogeneous-session.txt");
+    let portable_path = directory.path().join("portable-homogeneous-session.txt");
+    let direct = Pipeline::default();
+    let sink = homogeneous_twelve_way_session_fixture(&direct, direct_path.clone()).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let mut buckets = vec![Vec::<i32>::new(); 12];
+    buckets[0] = vec![10, 80];
+    buckets[11] = vec![40];
+    let expected = format!("0..13000000:a:{buckets:?}");
+    assert_eq!(
+        std::fs::read_to_string(&direct_path).unwrap().trim(),
+        expected
+    );
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    homogeneous_twelve_way_session_fixture(&portable, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "homogeneous-twelve-session",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_HOMOGENEOUS_SESSION".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism session co-group state: {terminal:?}");
+    assert_eq!(
+        std::fs::read_to_string(&portable_path).unwrap().trim(),
+        expected
+    );
 }
 
 #[tokio::test]
