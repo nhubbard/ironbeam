@@ -176,9 +176,18 @@ pub fn large_group_summary(mut values: Vec<String>) -> (i32, usize, String) {
 
 /// A bounded signal that records when its iterator reaches completion.
 pub fn completion_signal(pipeline: &Pipeline, marker: PathBuf) -> Result<PCollection<i32>, Error> {
+    completion_signal_named(pipeline, "wait-signal", marker)
+}
+
+/// A separately named bounded signal that marks its completed source read.
+pub fn completion_signal_named(
+    pipeline: &Pipeline,
+    key: &str,
+    marker: PathBuf,
+) -> Result<PCollection<i32>, Error> {
     let digest = format!("wait-signal-v1:{}", marker.display());
     pipeline.bounded_source_with_semantic(
-        "wait-signal",
+        key,
         "tests/prism-completion-signal",
         SourceProgress {
             stable_split_id: true,

@@ -240,6 +240,41 @@ pub fn bounded_wait_on_fixture(
         )
 }
 
+/// Both independent bounded producers must finish before main output begins.
+pub fn bounded_multi_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    first_marker: PathBuf,
+    second_marker: PathBuf,
+) -> Result<Sink<i32>, Error> {
+    let first = completion_signal_named(pipeline, "multi-wait-first", first_marker.clone())?;
+    let second = completion_signal_named(pipeline, "multi-wait-second", second_marker.clone())?;
+    let sink_path = path.clone();
+    pipeline
+        .from_vec("multi-wait-main", vec![1_i32, 2])?
+        .wait_on_all_named("multi-wait", &[first, second])?
+        .map_named("multi-wait-check", move |value| {
+            assert!(first_marker.exists(), "first signal did not finish");
+            assert!(second_marker.exists(), "second signal did not finish");
+            value
+        })?
+        .sink_named_with_config(
+            "multi-wait-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("multi-wait-result:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// A partially emitted signal must fail the job before the main sink commits.
 pub fn failing_wait_on_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
     let sink_path = path.clone();
