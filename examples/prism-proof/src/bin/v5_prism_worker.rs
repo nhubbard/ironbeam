@@ -20,14 +20,14 @@ use ironbeam_prism_proof::{
     latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
     mixed_boundedness_join_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
-    ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture,
+    ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
     panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
     panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
     production_stream_fixture, session_group_fixture, sliding_window_group_fixture,
     streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
     streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
     streaming_windowed_side_input_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_side_input_fixture, ExpandSingleton,
+    windowed_side_input_fixture, ExpandSingleton, PaneFixtureWindow,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture};
@@ -364,7 +364,12 @@ async fn main() -> anyhow::Result<()> {
             .map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_PANES") {
-        return pane_metadata_fixture(pipeline, path.into())
+        let window = match std::env::var("IRONBEAM_V5_PRISM_PANES_WINDOW").as_deref() {
+            Ok("sliding") => PaneFixtureWindow::Sliding,
+            Ok("session") => PaneFixtureWindow::Session,
+            _ => PaneFixtureWindow::Fixed,
+        };
+        return pane_metadata_fixture_for(pipeline, path.into(), window)
             .map(|_| ())
             .map_err(Into::into);
     }

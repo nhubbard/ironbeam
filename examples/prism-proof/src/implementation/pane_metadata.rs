@@ -10,16 +10,18 @@ impl TypedSink<String> for PaneCheckingSink {
         value: String,
         metadata: ElementMetadata,
     ) -> Result<(), Error> {
-        let expected = if value.starts_with("group:") {
-            ironbeam_core::PaneInfo::FIRST_LAST_ON_TIME
-        } else {
-            ironbeam_core::PaneInfo::NO_FIRING
-        };
-        if metadata.pane != expected {
+        let pane = metadata.pane;
+        let suffix = format!(
+            ":{:?}:{}:{}:{}:{}",
+            pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+        );
+        if !value.ends_with(&suffix) {
             return Err(Error::execution(
                 "pane-result",
                 "runner",
-                "sink pane metadata differs from reified element pane",
+                format!(
+                    "sink pane metadata differs from reified element pane: value={value}, actual={pane:?}"
+                ),
             ));
         }
         self.0.write(value)
@@ -36,6 +38,21 @@ impl TypedSink<String> for PaneCheckingSink {
 
 /// Compare source and grouped pane metadata through Direct and native Beam GBK.
 pub fn pane_metadata_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    pane_metadata_fixture_for(pipeline, path, PaneFixtureWindow::Fixed)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PaneFixtureWindow {
+    Fixed,
+    Sliding,
+    Session,
+}
+
+pub fn pane_metadata_fixture_for(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    window: PaneFixtureWindow,
+) -> Result<Sink<String>, Error> {
     let values = pipeline
         .from_vec(
             "pane-events",
@@ -44,8 +61,14 @@ pub fn pane_metadata_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<
                 (2_000_000, ("a".to_owned(), 3)),
             ],
         )?
-        .timestamps_from_pairs_named("pane-event-time")?
-        .fixed_windows("pane-windows", 10_000_000)?;
+        .timestamps_from_pairs_named("pane-event-time")?;
+    let values = match window {
+        PaneFixtureWindow::Fixed => values.fixed_windows("pane-windows", 10_000_000)?,
+        PaneFixtureWindow::Sliding => {
+            values.sliding_windows("pane-windows", 10_000_000, 5_000_000, 0)?
+        }
+        PaneFixtureWindow::Session => values.session_windows_named("pane-windows", 10_000_000)?,
+    };
     let raw = values.reify_panes_named("source-pane")?.map_named(
         "source-pane-row",
         |(pane, (key, value))| {
