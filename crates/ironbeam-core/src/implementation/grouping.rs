@@ -72,6 +72,7 @@ where
     for _ in 0..input_count {
         let event = output.pop_front().expect("right input count is fixed");
         let Envelope {
+            pane: _,
             value,
             timestamp_ns,
             window,
@@ -85,6 +86,7 @@ where
                 if let Some(pair) = emit(Some(left_values[position].0.clone()), Some(value.clone()))
                 {
                     output.push_back(Envelope {
+                        pane: PaneInfo::FIRST_LAST_ON_TIME,
                         value: Box::new((row_key.clone(), pair)),
                         timestamp_ns: timestamp_ns.min(left_values[position].1),
                         window: window.clone(),
@@ -139,6 +141,7 @@ where
                 let (right_value, timestamp_ns, window, assigned_window) = &right_rows[position];
                 if let Some(pair) = emit(Some(value.clone()), Some(right_value.clone())) {
                     output.push_back(Envelope {
+                        pane: PaneInfo::FIRST_LAST_ON_TIME,
                         value: Box::new((row_key.clone(), pair)),
                         timestamp_ns: left_time.min(*timestamp_ns),
                         window: window.clone(),
@@ -372,6 +375,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
 impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldState<K, V> {
     fn add(&mut self, event: Envelope) -> Result<(), Error> {
         let Envelope {
+            pane: _,
             value,
             timestamp_ns,
             window,
@@ -392,6 +396,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             if assigned_window.is_some_and(|interval| interval.end_ns <= watermark_ns) {
                 released = released.saturating_add(values.len());
                 closed.push(Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new((key, values)),
                     timestamp_ns,
                     window,
@@ -523,6 +528,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             .into_iter()
             .map(
                 |(key, values, timestamp_ns, window, assigned_window)| Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new((key, values)),
                     timestamp_ns,
                     window,
@@ -538,6 +544,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
     ) -> Result<(), Error> {
         for (key, values, timestamp_ns, window, assigned_window) in self.groups {
             emit(Envelope {
+                pane: PaneInfo::FIRST_LAST_ON_TIME,
                 value: Box::new((key, values)),
                 timestamp_ns,
                 window,
@@ -584,6 +591,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> LatestPerKeyFoldState<K, V> {
 impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFoldState<K, V> {
     fn add(&mut self, event: Envelope) -> Result<(), Error> {
         let Envelope {
+            pane: _,
             value,
             timestamp_ns,
             window,
@@ -702,6 +710,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFol
             .into_iter()
             .map(
                 |(key, value, timestamp_ns, window, assigned_window)| Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new((key, vec![value])),
                     timestamp_ns,
                     window,
@@ -717,6 +726,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFol
     ) -> Result<(), Error> {
         for (key, value, timestamp_ns, window, assigned_window) in self.groups {
             emit(Envelope {
+                pane: PaneInfo::FIRST_LAST_ON_TIME,
                 value: Box::new((key, vec![value])),
                 timestamp_ns,
                 window,
@@ -739,6 +749,7 @@ macro_rules! collect_cogroup_input {
             .ok_or_else(|| Error::execution(&$node_key, "direct", "co-group input missing"))?
         {
             let Envelope {
+                pane: _,
                 value,
                 timestamp_ns,
                 window,
@@ -819,6 +830,7 @@ macro_rules! define_cogroup {
                 $(collect_cogroup_input!(inputs, rows, indices, $other_ty, $position,
                     empty_values!(), node_key);)+
                 Ok(rows.into_iter().map(|(key, values, timestamp_ns, window, assigned_window)| Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new((key, values)), timestamp_ns, window, assigned_window
                 }).collect())
             });

@@ -269,6 +269,7 @@ impl<T: Element> PCollection<T> {
         let key_owned = key.to_owned();
         let transform = Transform::Multi(Arc::new(move |e| {
             let Envelope {
+                pane,
                 value,
                 timestamp_ns,
                 window,
@@ -280,6 +281,7 @@ impl<T: Element> PCollection<T> {
             Ok(f(*value)
                 .into_iter()
                 .map(|value| Envelope {
+                    pane,
                     value: Box::new(value),
                     timestamp_ns,
                     window: window.clone(),
@@ -479,6 +481,7 @@ impl<T: Element> PCollection<T> {
                 .assign_all(event.timestamp_ns)?
                 .into_iter()
                 .map(|assigned_window| Envelope {
+                    pane: event.pane,
                     value: Box::new((*value).clone()),
                     timestamp_ns: event.timestamp_ns,
                     window: runtime_window.clone(),
@@ -498,6 +501,7 @@ impl<T: Element> PCollection<T> {
         let node_key = key.to_owned();
         let transform = Transform::Single(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 timestamp_ns,
                 window,
@@ -509,6 +513,7 @@ impl<T: Element> PCollection<T> {
                 .downcast::<T>()
                 .map_err(|_| Error::execution(&node_key, "direct", "window input type mismatch"))?;
             Ok(Some(Envelope {
+                pane,
                 value: Box::new((interval, value)),
                 timestamp_ns,
                 window,
@@ -548,6 +553,7 @@ impl<T: Element> PCollection<T> {
         let key_owned = key.to_owned();
         let transform = Transform::Single(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 timestamp_ns,
                 window,
@@ -557,7 +563,34 @@ impl<T: Element> PCollection<T> {
                 Error::execution(&key_owned, "direct", "timestamp input type mismatch")
             })?;
             Ok(Some(Envelope {
+                pane,
                 value: Box::new((timestamp_ns, value)),
+                timestamp_ns,
+                window,
+                assigned_window,
+            }))
+        }));
+        self.next(key, Operation::Map, Some(transform), None)
+    }
+    /// Expose the runner's pane for each element while retaining that pane in
+    /// the output envelope. Sources have `NO_FIRING`; a completed default
+    /// window firing has `FIRST_LAST_ON_TIME`.
+    pub fn reify_panes_named(&self, key: &str) -> Result<PCollection<(PaneInfo, T)>, Error> {
+        let key_owned = key.to_owned();
+        let transform = Transform::Single(Arc::new(move |event| {
+            let Envelope {
+                pane,
+                value,
+                timestamp_ns,
+                window,
+                assigned_window,
+            } = event;
+            let value = *value.downcast::<T>().map_err(|_| {
+                Error::execution(&key_owned, "direct", "pane input type mismatch")
+            })?;
+            Ok(Some(Envelope {
+                pane,
+                value: Box::new((pane, value)),
                 timestamp_ns,
                 window,
                 assigned_window,
@@ -766,6 +799,7 @@ impl<T: Element> PCollection<T> {
             Ok(groups
                 .into_values()
                 .map(|(values, timestamp_ns, assigned_window)| Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new(f(values)),
                     timestamp_ns,
                     window: output_window.clone(),
@@ -919,6 +953,7 @@ impl<T: Element> PCollection<T> {
                     fold.add_input(&mut accumulator, value);
                 }
                 result.push(Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new(fold.finish(accumulator)),
                     timestamp_ns,
                     window: output_window.clone(),
@@ -1165,6 +1200,7 @@ impl<T: Element> PCollection<T> {
         let single = batch_size == 1;
         let transform = Transform::Multi(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 timestamp_ns,
                 window,
@@ -1188,6 +1224,7 @@ impl<T: Element> PCollection<T> {
             Ok((*output)
                 .into_iter()
                 .map(|value| Envelope {
+                    pane,
                     value: Box::new(value) as Payload,
                     timestamp_ns,
                     window: window.clone(),
@@ -1340,6 +1377,7 @@ impl<T: Element> PCollection<T> {
             }),
             apply: Arc::new(move |event, view| {
                 let Envelope {
+                    pane,
                     value,
                     timestamp_ns,
                     window,
@@ -1352,6 +1390,7 @@ impl<T: Element> PCollection<T> {
                     Error::execution(&main_key, "direct", "side input view type mismatch")
                 })?;
                 Ok(Envelope {
+                    pane,
                     value: Box::new(f(value, view)?),
                     timestamp_ns,
                     window,

@@ -151,6 +151,7 @@ pub(crate) fn execute<T: Element>(
                     session,
                     sink_key,
                     Envelope {
+                        pane: ironbeam_core::PaneInfo::NO_FIRING,
                         value: Box::new(value),
                         timestamp_ns: 0,
                         window: Window::Global,
@@ -216,6 +217,7 @@ pub(crate) fn execute<T: Element>(
                         session,
                         sink_key,
                         Envelope {
+                            pane: ironbeam_core::PaneInfo::NO_FIRING,
                             value: Box::new(value),
                             timestamp_ns: 0,
                             window: Window::Global,

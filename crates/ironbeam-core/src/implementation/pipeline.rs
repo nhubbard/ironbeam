@@ -247,6 +247,7 @@ impl Pipeline {
                 values
                     .into_iter()
                     .map(|value| Envelope {
+                        pane: PaneInfo::NO_FIRING,
                         value: Box::new(value),
                         timestamp_ns: 0,
                         window: Window::Global,
@@ -266,6 +267,7 @@ impl Pipeline {
             let source = envelope_factory()?;
             Ok(Box::new(source.map(|result| {
                 result.map(|value| Envelope {
+                    pane: PaneInfo::NO_FIRING,
                     value: Box::new(value),
                     timestamp_ns: 0,
                     window: Window::Global,
@@ -342,6 +344,7 @@ impl Pipeline {
             let source = envelope_factory()?;
             Ok(Box::new(source.map(|result| {
                 result.map(|value| Envelope {
+                    pane: PaneInfo::NO_FIRING,
                     value: Box::new(value),
                     timestamp_ns: 0,
                     window: Window::Global,

@@ -4,12 +4,14 @@ pub struct ElementMetadata {
     pub timestamp_ns: i64,
     pub window: Window,
     pub assigned_window: Option<WindowInterval>,
+    pub pane: PaneInfo,
 }
 pub struct Envelope {
     pub value: Payload,
     pub timestamp_ns: i64,
     pub window: Window,
     pub assigned_window: Option<WindowInterval>,
+    pub pane: PaneInfo,
 }
 pub type SourceIterator = Box<dyn Iterator<Item = Result<Envelope, Error>> + Send>;
 pub type TypedSourceIterator<T> = Box<dyn Iterator<Item = Result<T, Error>> + Send>;
@@ -207,6 +209,7 @@ impl<T: Element, A: Send + 'static, O: Element, C: FoldLogic<T, A, O>> FoldSessi
 {
     fn add(&mut self, event: Envelope) -> Result<(), Error> {
         let Envelope {
+            pane: _,
             value,
             timestamp_ns,
             window,
@@ -236,6 +239,7 @@ impl<T: Element, A: Send + 'static, O: Element, C: FoldLogic<T, A, O>> FoldSessi
             .into_values()
             .map(
                 |(accumulator, timestamp_ns, window, assigned_window)| Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new(self.combiner.finish(accumulator)),
                     timestamp_ns,
                     window,
@@ -256,6 +260,7 @@ impl<T: Element, A: Send + 'static, O: Element, C: FoldLogic<T, A, O>> FoldSessi
             std::mem::take(&mut self.entries).into_values()
         {
             emit(Envelope {
+                pane: PaneInfo::FIRST_LAST_ON_TIME,
                 value: Box::new(self.combiner.finish(accumulator)),
                 timestamp_ns,
                 window,
@@ -283,6 +288,7 @@ impl<
 {
     fn add(&mut self, event: Envelope) -> Result<(), Error> {
         let Envelope {
+            pane: _,
             value,
             timestamp_ns,
             window,
@@ -316,6 +322,7 @@ impl<
             .into_iter()
             .map(
                 |(key, (accumulator, timestamp_ns, window, assigned_window))| Envelope {
+                    pane: PaneInfo::FIRST_LAST_ON_TIME,
                     value: Box::new((key, self.combiner.finish(accumulator))),
                     timestamp_ns,
                     window,
@@ -332,6 +339,7 @@ impl<
             std::mem::take(&mut self.rows)
         {
             emit(Envelope {
+                pane: PaneInfo::FIRST_LAST_ON_TIME,
                 value: Box::new((key, self.combiner.finish(accumulator))),
                 timestamp_ns,
                 window,
@@ -423,6 +431,7 @@ impl<T: Element> SinkSession for SinkAdapter<T> {
                 timestamp_ns: event.timestamp_ns,
                 window: event.window,
                 assigned_window: event.assigned_window,
+                pane: event.pane,
             },
         )
     }
@@ -590,6 +599,7 @@ impl<T: Element> UnboundedSource<Envelope> for TypedUnboundedAdapter<T> {
                     .elements
                     .into_iter()
                     .map(|item| Envelope {
+                        pane: PaneInfo::NO_FIRING,
                         value: Box::new(item.value),
                         timestamp_ns: item.timestamp_ns,
                         window: Window::Global,

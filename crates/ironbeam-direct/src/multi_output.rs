@@ -187,6 +187,7 @@ pub(crate) fn process_event(
             ))
         })?;
         let right_event = Envelope {
+            pane: event.pane,
             value: copy,
             timestamp_ns: event.timestamp_ns,
             window: event.window.clone(),

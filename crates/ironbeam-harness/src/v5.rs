@@ -89,6 +89,7 @@ pub fn run_mock_bundle(
         let mut next = Vec::new();
         for item in wire {
             let envelope = Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: registry.decode_element(input_key, &item.bytes)?,
                 timestamp_ns: item.timestamp_ns,
                 window: Window::Global,

@@ -72,6 +72,7 @@ fn direct_sinks_keep_event_time_and_window_metadata_on_both_routes() {
                     (
                         7,
                         ElementMetadata {
+                            pane: ironbeam_core::PaneInfo::NO_FIRING,
                             timestamp_ns: -2,
                             window: Window::Fixed { size_ns: 10 },
                             assigned_window: Some(WindowInterval {
@@ -83,6 +84,7 @@ fn direct_sinks_keep_event_time_and_window_metadata_on_both_routes() {
                     (
                         9,
                         ElementMetadata {
+                            pane: ironbeam_core::PaneInfo::NO_FIRING,
                             timestamp_ns: 12,
                             window: Window::Fixed { size_ns: 10 },
                             assigned_window: Some(WindowInterval {
@@ -347,6 +349,7 @@ fn grouped_sink_drain_preserves_window_metadata() {
             (
                 (1, vec![7]),
                 ElementMetadata {
+                    pane: ironbeam_core::PaneInfo::FIRST_LAST_ON_TIME,
                     timestamp_ns: 2,
                     window: Window::Fixed { size_ns: 10 },
                     assigned_window: Some(WindowInterval {
@@ -358,6 +361,7 @@ fn grouped_sink_drain_preserves_window_metadata() {
             (
                 (1, vec![9]),
                 ElementMetadata {
+                    pane: ironbeam_core::PaneInfo::FIRST_LAST_ON_TIME,
                     timestamp_ns: 12,
                     window: Window::Fixed { size_ns: 10 },
                     assigned_window: Some(WindowInterval {

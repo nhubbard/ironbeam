@@ -13,6 +13,7 @@ fn session_group_checkpoint_merges_bridge_after_restore() {
     let mut fold = registry.open_fold("session-group").unwrap();
     for (key, value, time) in [(1, 10, 0), (1, 20, 8), (2, 50, 4)] {
         fold.add(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new((key, value)),
             timestamp_ns: time,
             window: window.clone(),
@@ -26,6 +27,7 @@ fn session_group_checkpoint_merges_bridge_after_restore() {
     for (value, time) in [(30, 4), (40, 13)] {
         resumed
             .add(Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: Box::new((1_i32, value)),
                 timestamp_ns: time,
                 window: window.clone(),
@@ -97,6 +99,7 @@ fn grouped_fold_restores_ordered_values_and_window_metadata() {
         [(1, 10, 2, first), (2, 20, 3, first), (1, 30, 12, second)]
     {
         fold.add(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new((key, value)),
             timestamp_ns,
             window: window.clone(),
@@ -110,6 +113,7 @@ fn grouped_fold_restores_ordered_values_and_window_metadata() {
     assert_eq!(resumed.checkpoint_state().unwrap().unwrap(), saved);
     resumed
         .add(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new((1_i32, 40_i32)),
             timestamp_ns: 4,
             window: window.clone(),

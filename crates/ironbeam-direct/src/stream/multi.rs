@@ -626,6 +626,7 @@ fn copy_window_events(
                 ))
             })?;
             Ok(Envelope {
+                pane: event.pane,
                 value,
                 timestamp_ns: event.timestamp_ns,
                 window: event.window.clone(),

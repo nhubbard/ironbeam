@@ -124,6 +124,7 @@ fn semantic_batch_handler_records_application_version() {
         .apply_many(
             "batch",
             Envelope {
+                pane: crate::PaneInfo::NO_FIRING,
                 value: Box::new(vec![1_i32, 2]),
                 timestamp_ns: 0,
                 window: Window::Global,
@@ -326,6 +327,7 @@ fn bundle_recovery_is_explicit_and_typed_adapter_forwards_the_exact_id() {
     assert!(direct.recover_bundle_finalization("bundle-7").is_err());
     direct
         .write(Envelope {
+            pane: crate::PaneInfo::NO_FIRING,
             value: Box::new(1_i32),
             timestamp_ns: 0,
             window: Window::Global,
@@ -342,6 +344,7 @@ fn bundle_recovery_is_explicit_and_typed_adapter_forwards_the_exact_id() {
     assert!(typed.recover_bundle_finalization("other").is_err());
     typed
         .write(Envelope {
+            pane: crate::PaneInfo::NO_FIRING,
             value: Box::new(1_i32),
             timestamp_ns: 0,
             window: Window::Global,

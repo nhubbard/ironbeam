@@ -145,6 +145,7 @@ fn restarted_registry_recovers_exact_journaled_protobuf_sinks() {
     guard.begin_bundle("bundle-1").unwrap();
     guard
         .write(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(7_i32),
             timestamp_ns: 0,
             window: Window::Global,
@@ -159,6 +160,7 @@ fn restarted_registry_recovers_exact_journaled_protobuf_sinks() {
     second.begin_bundle("bundle-1").unwrap();
     second
         .write(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(8_i32),
             timestamp_ns: 0,
             window: Window::Global,
@@ -238,6 +240,7 @@ fn finalized_fragment_survives_worker_process_exit() {
             guard.begin_bundle("bundle-1").unwrap();
             guard
                 .write(Envelope {
+                    pane: ironbeam_core::PaneInfo::NO_FIRING,
                     value: Box::new(7_i32),
                     timestamp_ns: 0,
                     window: Window::Global,

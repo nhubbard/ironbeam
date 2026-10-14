@@ -219,6 +219,7 @@ fn two_sinks_share_source_and_transforms_and_keep_branch_metadata() {
         assert_eq!(job.metrics().source_elements, 3);
         let expected_metadata = [
             ElementMetadata {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 timestamp_ns: 20,
                 window: Window::Fixed { size_ns: 20 },
                 assigned_window: Some(WindowInterval {
@@ -227,6 +228,7 @@ fn two_sinks_share_source_and_transforms_and_keep_branch_metadata() {
                 }),
             },
             ElementMetadata {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 timestamp_ns: 30,
                 window: Window::Fixed { size_ns: 20 },
                 assigned_window: Some(WindowInterval {
@@ -235,6 +237,7 @@ fn two_sinks_share_source_and_transforms_and_keep_branch_metadata() {
                 }),
             },
             ElementMetadata {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 timestamp_ns: 40,
                 window: Window::Fixed { size_ns: 20 },
                 assigned_window: Some(WindowInterval {

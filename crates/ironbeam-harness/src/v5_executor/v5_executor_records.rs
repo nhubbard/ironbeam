@@ -194,6 +194,7 @@ impl V5BundleExecutor {
                                 .iter()
                                 .map(|wire| {
                                     let event = Envelope {
+                                        pane: wire.pane,
                                         value: self.registry.decode_element(parent, &wire.bytes)?,
                                         timestamp_ns: wire.timestamp_ns,
                                         window: node.time.window.clone(),
@@ -215,7 +216,7 @@ impl V5BundleExecutor {
                                             .encode_element(&node.key, output.value.as_ref())?,
                                         timestamp_ns: output.timestamp_ns,
                                         window: output.assigned_window,
-                                        pane: wire.pane,
+                                        pane: output.pane,
                                         element_metadata: wire.element_metadata.clone(),
                                     })
                                 })
@@ -235,6 +236,7 @@ impl V5BundleExecutor {
                                 .ok_or_else(|| anyhow!("v5 sink {} was not opened", node.key))?;
                             for value in input {
                                 session.write(Envelope {
+                                    pane: value.pane,
                                     value: self.registry.decode_element(parent, &value.bytes)?,
                                     timestamp_ns: value.timestamp_ns,
                                     window: self

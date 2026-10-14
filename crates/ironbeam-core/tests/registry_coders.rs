@@ -2,6 +2,7 @@ use ironbeam_core::{Element, Envelope, Error, ErrorKind, Pipeline, Window};
 
 fn scalar_event(value: i32) -> Envelope {
     Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
         value: Box::new(value),
         timestamp_ns: 0,
         window: Window::Global,
@@ -348,6 +349,7 @@ fn side_input_registration_reuses_direct_materialization_and_mapping() {
         .apply_side_input(
             "with-side",
             Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: Box::new(1_i32),
                 timestamp_ns: 4,
                 window: Window::Global,
@@ -363,6 +365,7 @@ fn side_input_registration_reuses_direct_materialization_and_mapping() {
             .apply_side_input(
                 "with-side",
                 Envelope {
+                    pane: ironbeam_core::PaneInfo::NO_FIRING,
                     value: Box::new(1_i32),
                     timestamp_ns: 0,
                     window: Window::Global,

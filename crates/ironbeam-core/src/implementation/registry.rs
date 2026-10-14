@@ -87,6 +87,7 @@ impl Registry {
             timestamp_array.copy_from_slice(timestamp_bytes);
             let timestamp_ns = i64::from_be_bytes(timestamp_array);
             inputs[usize::from(tag)].push(Envelope {
+                pane: PaneInfo::NO_FIRING,
                 value: assembler(encoded_key, &payload[8..])?,
                 timestamp_ns,
                 window: window.clone(),

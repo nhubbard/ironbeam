@@ -14,6 +14,7 @@ impl V5BundleExecutor {
                     .as_deref()
                     .ok_or_else(|| anyhow!("missing input for v5 node {key}"))?;
                 let envelope = Envelope {
+                    pane: input.pane,
                     value: self.registry.decode_element(parent, &input.bytes)?,
                     timestamp_ns: input.timestamp_ns,
                     window: node.time.window.clone(),
@@ -43,7 +44,7 @@ impl V5BundleExecutor {
                     bytes: self.registry.encode_element(key, value.value.as_ref())?,
                     timestamp_ns: value.timestamp_ns,
                     window: value.assigned_window,
-                    pane: input.pane,
+                    pane: value.pane,
                     element_metadata: input.element_metadata.clone(),
                 })
             })
@@ -96,6 +97,7 @@ impl V5BundleExecutor {
                 .registry
                 .assemble_group_input(key, encoded_key, &tagged[8..])?;
             let event = Envelope {
+                pane: input.pane,
                 value: self.registry.decode_element(parent, &typed)?,
                 timestamp_ns,
                 window: node.time.window.clone(),

@@ -12,6 +12,14 @@ fn window_state_roundtrip_preserves_metadata_and_rejects_tampering() {
         end_ns: 10,
     };
     let event = Envelope {
+        pane: ironbeam_core::PaneInfo {
+            is_first: false,
+            is_last: true,
+            timing: ironbeam_core::PaneTiming::Late,
+            index: 1,
+            nonspeculative_index: 1,
+            contains_element_metadata: false,
+        },
         value: Box::new(7_i32),
         timestamp_ns: 3,
         window: Window::Fixed { size_ns: 10 },
@@ -32,6 +40,20 @@ fn window_state_roundtrip_preserves_metadata_and_rejects_tampering() {
     assert_eq!(*restored.value.downcast_ref::<i32>().unwrap(), 7);
     assert_eq!(restored.timestamp_ns, 3);
     assert_eq!(restored.assigned_window, Some(interval));
+    assert_eq!(restored.pane.timing, ironbeam_core::PaneTiming::Late);
+    assert_eq!(restored.pane.index, 1);
+
+    let mut legacy: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    legacy["windows"][0]["events"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("pane");
+    let legacy_bytes = serde_json::to_vec(&legacy).unwrap();
+    let (legacy_rows, _) = restore_window_rows(&registry, "main", &legacy_bytes, 1).unwrap();
+    assert_eq!(
+        legacy_rows[&(0, 10)][0].pane,
+        ironbeam_core::PaneInfo::NO_FIRING
+    );
 
     let original: CodedWindowRows = serde_json::from_slice(&encoded).unwrap();
     let mut duplicated = original;
@@ -39,6 +61,7 @@ fn window_state_roundtrip_preserves_metadata_and_rejects_tampering() {
         start_ns: 0,
         end_ns: 10,
         events: vec![CodedEvent {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: 7_i32.encode().unwrap(),
             timestamp_ns: 3,
             window: Window::Fixed { size_ns: 10 },
@@ -98,6 +121,7 @@ fn sliding_window_checkpoint_restores_each_overlapping_assignment() {
             (
                 (interval.start_ns, interval.end_ns),
                 vec![Envelope {
+                    pane: ironbeam_core::PaneInfo::NO_FIRING,
                     value: Box::new(7_i32),
                     timestamp_ns: 1,
                     window: window.clone(),
@@ -135,6 +159,7 @@ fn window_state_rejects_invalid_version_windows_and_element_budget() {
             start_ns: 1,
             end_ns: 1,
             events: vec![CodedEvent {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: vec![],
                 timestamp_ns: 1,
                 window: Window::Global,
@@ -159,6 +184,7 @@ fn window_state_rejects_invalid_version_windows_and_element_budget() {
         start_ns: 0,
         end_ns: 2,
         events: vec![CodedEvent {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: vec![],
             timestamp_ns: 1,
             window: Window::Global,
@@ -215,6 +241,7 @@ fn grouped_state_roundtrip_rejects_budget_and_duplicate_open_window() {
     };
     let mut fold = registry.open_fold("groups").unwrap();
     fold.add(Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
         value: Box::new((1_i32, 7_i32)),
         timestamp_ns: 3,
         window: Window::Fixed { size_ns: 10 },

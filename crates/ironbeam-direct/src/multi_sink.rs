@@ -211,6 +211,7 @@ fn dispatch(
                         Err(Error::execution(key, "direct", "split coder panicked"))
                     })?;
                 copies.push(Envelope {
+                    pane: event.pane,
                     value,
                     timestamp_ns: event.timestamp_ns,
                     window: event.window.clone(),

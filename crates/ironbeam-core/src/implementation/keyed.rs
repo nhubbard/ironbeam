@@ -1,3 +1,5 @@
+type KeyedBatchRow<K, V> = (K, V, i64, Window, Option<WindowInterval>, PaneInfo);
+
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     /// Group keyed events into merging event-time sessions.
     /// Intervals merge when they overlap or touch; the output
@@ -101,6 +103,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let reify_key = format!("{key}/order");
         let order_transform = Transform::Single(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 timestamp_ns,
                 window,
@@ -111,6 +114,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             })?;
             let order = order_key(&value);
             Ok(Some(Envelope {
+                pane,
                 value: Box::new((group_key, (order, (timestamp_ns, value)))),
                 timestamp_ns,
                 window,
@@ -127,6 +131,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let node_key = key.to_owned();
         let select = Transform::Single(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 window,
                 assigned_window,
@@ -158,6 +163,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 fold.add_input(&mut accumulator, value);
             }
             Ok(Some(Envelope {
+                pane,
                 value: Box::new((group_key, fold.finish(accumulator))),
                 timestamp_ns,
                 window,
@@ -180,6 +186,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             let node_key = key.to_owned();
             let transform = Transform::Single(Arc::new(move |event| {
                 let Envelope {
+                    pane,
                     value,
                     timestamp_ns,
                     window,
@@ -193,6 +200,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     Error::execution(&node_key, "direct", "batch value map changed length")
                 })?;
                 Ok(Some(Envelope {
+                    pane,
                     value: Box::new((row_key, mapped)),
                     timestamp_ns,
                     window,
@@ -211,25 +219,26 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 .pop()
                 .ok_or_else(|| Error::execution(&node_key, "direct", "batch input missing"))?;
             let mut output = Vec::new();
-            let mut pending: Vec<(K, V, i64, Window, Option<WindowInterval>)> = Vec::new();
-            let mut flush = |pending: &mut Vec<(K, V, i64, Window, Option<WindowInterval>)>| -> Result<(), Error> {
+            let mut pending: Vec<KeyedBatchRow<K, V>> = Vec::new();
+            let mut flush = |pending: &mut Vec<KeyedBatchRow<K, V>>| -> Result<(), Error> {
                 if pending.is_empty() { return Ok(()); }
                 let rows = std::mem::take(pending);
                 let mut keys = Vec::with_capacity(rows.len());
                 let mut values = Vec::with_capacity(rows.len());
                 let mut metadata = Vec::with_capacity(rows.len());
-                for (key, value, timestamp_ns, window, assigned_window) in rows {
+                for (key, value, timestamp_ns, window, assigned_window, pane) in rows {
                     keys.push(key);
                     values.push(value);
-                    metadata.push((timestamp_ns, window, assigned_window));
+                    metadata.push((timestamp_ns, window, assigned_window, pane));
                 }
                 let results = f(&values);
                 if results.len() != values.len() {
                     return Err(Error::execution(&node_key, "direct", "batch value map changed length"));
                 }
-                for ((key, value), (timestamp_ns, window, assigned_window)) in
+                for ((key, value), (timestamp_ns, window, assigned_window, pane)) in
                     keys.into_iter().zip(results).zip(metadata) {
                     output.push(Envelope {
+                        pane,
                         value: Box::new((key, value)), timestamp_ns, window, assigned_window
                     });
                 }
@@ -237,6 +246,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             };
             for event in events {
                 let Envelope {
+                    pane,
                     value,
                     timestamp_ns,
                     window,
@@ -250,7 +260,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 let (row_key, row_value) = *value.downcast::<(K, V)>().map_err(|_| {
                     Error::execution(&node_key, "direct", "batch keyed input type mismatch")
                 })?;
-                pending.push((row_key, row_value, timestamp_ns, window, assigned_window));
+                pending.push((row_key, row_value, timestamp_ns, window, assigned_window, pane));
             }
             flush(&mut pending)?;
             Ok(output)
@@ -293,6 +303,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let order_error_node = order_node.clone();
         let order_transform = Transform::Single(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 timestamp_ns,
                 window,
@@ -307,6 +318,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             })?;
             let order = order_key(&row_value);
             Ok(Some(Envelope {
+                pane,
                 value: Box::new((row_key, (order, (timestamp_ns, row_value)))),
                 timestamp_ns,
                 window,
@@ -323,6 +335,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let node_key = key.to_owned();
         let transform = Transform::Multi(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 window,
                 assigned_window,
@@ -359,6 +372,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 }
                 for (timestamp_ns, mapped) in timestamps.drain(..).zip(mapped) {
                     output.push(Envelope {
+                        pane,
                         value: Box::new((group_key.clone(), mapped)),
                         timestamp_ns,
                         window: window.clone(),
@@ -481,6 +495,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let select_key = key.to_owned();
         let select = Transform::Single(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 window,
                 assigned_window,
@@ -500,6 +515,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 }
             }
             Ok(Some(Envelope {
+                pane,
                 value: Box::new((group_key, latest_value)),
                 timestamp_ns: latest_timestamp,
                 window,
@@ -526,6 +542,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let reify_key = format!("{key}/tie");
         let transform = Transform::Single(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 timestamp_ns,
                 window,
@@ -536,6 +553,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             })?;
             let tie = tie_key(&value);
             Ok(Some(Envelope {
+                pane,
                 value: Box::new((group_key, (timestamp_ns, (tie, value)))),
                 timestamp_ns,
                 window,
@@ -552,6 +570,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let select_key = key.to_owned();
         let select = Transform::Single(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 window,
                 assigned_window,
@@ -581,6 +600,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 Error::execution(&select_key, "runner", "latest tie group is empty")
             })?;
             Ok(Some(Envelope {
+                pane,
                 value: Box::new((group_key, latest)),
                 timestamp_ns,
                 window,
@@ -596,6 +616,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let reify_key = key.to_owned();
         let transform = Transform::Single(Arc::new(move |event| {
             let Envelope {
+                pane,
                 value,
                 timestamp_ns,
                 window,
@@ -605,6 +626,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 Error::execution(&reify_key, "direct", "latest input type mismatch")
             })?;
             Ok(Some(Envelope {
+                pane,
                 value: Box::new((group_key, (timestamp_ns, value))),
                 timestamp_ns,
                 window,
@@ -816,6 +838,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 let mut output = Vec::new();
                 for event in left {
                     let Envelope {
+                        pane: _,
                         value,
                         timestamp_ns,
                         window,
@@ -832,6 +855,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                             if let Some(pair) = emit(Some(value.clone()), Some(right_value.clone()))
                             {
                                 output.push(Envelope {
+                                    pane: PaneInfo::FIRST_LAST_ON_TIME,
                                     value: Box::new((row_key.clone(), pair)),
                                     timestamp_ns: timestamp_ns.min(*right_time),
                                     window: right_window.clone(),
@@ -841,6 +865,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                         }
                     } else if let Some(pair) = emit(Some(value), None) {
                         output.push(Envelope {
+                            pane: PaneInfo::FIRST_LAST_ON_TIME,
                             value: Box::new((row_key, pair)),
                             timestamp_ns,
                             window,
@@ -851,6 +876,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 for (row_key, value, timestamp_ns, window, assigned_window, matched) in right_rows {
                     if !matched && let Some(pair) = emit(None, Some(value)) {
                         output.push(Envelope {
+                            pane: PaneInfo::FIRST_LAST_ON_TIME,
                             value: Box::new((row_key, pair)),
                             timestamp_ns,
                             window,
@@ -887,6 +913,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             let mut output = Vec::new();
             for event in right {
                 let Envelope {
+                    pane: _,
                     value,
                     timestamp_ns,
                     window,
@@ -901,6 +928,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                         *matched = true;
                         if let Some(pair) = emit(Some(left_value.clone()), Some(value.clone())) {
                             output.push(Envelope {
+                                pane: PaneInfo::FIRST_LAST_ON_TIME,
                                 value: Box::new((row_key.clone(), pair)),
                                 timestamp_ns: timestamp_ns.min(*left_time),
                                 window: window.clone(),
@@ -910,6 +938,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     }
                 } else if let Some(pair) = emit(None, Some(value)) {
                     output.push(Envelope {
+                        pane: PaneInfo::FIRST_LAST_ON_TIME,
                         value: Box::new((row_key, pair)),
                         timestamp_ns,
                         window,
@@ -920,6 +949,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             for (row_key, value, timestamp_ns, window, assigned_window, matched) in left_rows {
                 if !matched && let Some(pair) = emit(Some(value), None) {
                     output.push(Envelope {
+                        pane: PaneInfo::FIRST_LAST_ON_TIME,
                         value: Box::new((row_key, pair)),
                         timestamp_ns,
                         window,

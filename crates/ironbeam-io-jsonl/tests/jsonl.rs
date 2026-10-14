@@ -44,6 +44,7 @@ fn finalized_jsonl_bundles_publish_one_valid_file() {
         session.begin_bundle(&format!("bundle-{index}")).unwrap();
         session
             .write(Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: Box::new(row),
                 timestamp_ns: 0,
                 window: Window::Global,

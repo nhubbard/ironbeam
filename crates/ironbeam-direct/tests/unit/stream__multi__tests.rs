@@ -350,6 +350,7 @@ fn dual_checkpoint_rejects_mismatched_cursors_and_open_windows() {
         let mut combined = multi_progress(2, &state.sources);
         if fault == "budget" || fault == "completed-open" {
             let event = Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: Box::new((1_i32, 1_i32)),
                 timestamp_ns: 1,
                 window: Window::Fixed { size_ns: 10 },

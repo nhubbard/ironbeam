@@ -26,6 +26,7 @@ fn finalized_cbor_bundles_publish_one_valid_sequence() {
         session.begin_bundle(bundle).unwrap();
         session
             .write(Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: Box::new(row),
                 timestamp_ns: 0,
                 window: Window::Global,
@@ -191,6 +192,7 @@ fn failed_cbor_serialization_preserves_previous_result() {
     assert_eq!(
         session
             .write(Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: Box::new(Fails),
                 timestamp_ns: 0,
                 window: Window::Global,

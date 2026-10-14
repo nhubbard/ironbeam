@@ -644,6 +644,7 @@ fn bounded_session_join_registry_merges_intervals_from_both_inputs() {
         let window = Window::Session { gap_ns: 5 };
         rows.iter()
             .map(|&(timestamp_ns, key, value)| Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: Box::new((key, value)),
                 timestamp_ns,
                 assigned_window: window.assign(timestamp_ns).unwrap(),
@@ -733,6 +734,7 @@ fn bounded_session_cogroup_registry_merges_and_rejects_bad_input_metadata() {
     fn event<T: Element>(key: i32, value: T, timestamp_ns: i64) -> Envelope {
         let window = Window::Session { gap_ns: 5 };
         Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new((key, value)),
             timestamp_ns,
             assigned_window: window.assign(timestamp_ns).unwrap(),
@@ -1263,6 +1265,7 @@ fn registry_reports_missing_operations_and_wrong_runtime_types() {
         ErrorKind::Execution
     );
     let make_wrong = || Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
         value: Box::new(String::from("wrong")),
         timestamp_ns: -1,
         window: Window::Global,
@@ -1655,6 +1658,7 @@ fn bounded_source_and_deferred_sink_registry_contract() {
     assert_eq!(
         session
             .write(Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: Box::new("bad".to_string()),
                 timestamp_ns: 0,
                 window: Window::Global,
@@ -1666,6 +1670,7 @@ fn bounded_source_and_deferred_sink_registry_contract() {
     );
     session
         .write(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(7_i32),
             timestamp_ns: 0,
             window: Window::Global,
@@ -1832,6 +1837,7 @@ fn transform_registry_preserves_time_and_runs_all_aggregates() {
         values
             .into_iter()
             .map(|value| Envelope {
+                pane: ironbeam_core::PaneInfo::NO_FIRING,
                 value: Box::new(value),
                 timestamp_ns: -1,
                 window: Window::Global,
@@ -1984,6 +1990,7 @@ fn grouped_tuple_coder_exposes_beam_key_and_value_halves() {
 fn latest_per_key_direct_fold_keeps_one_value_and_restores_checkpoint() {
     fn event(key: &str, timestamp: i64, value: i32) -> Envelope {
         Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new((key.to_owned(), (timestamp, value))),
             timestamp_ns: timestamp,
             window: Window::Global,
@@ -2057,6 +2064,7 @@ fn latest_per_key_direct_fold_keeps_one_value_and_restores_checkpoint() {
 fn latest_per_key_registry_rejects_bad_groups_and_restores_selected_event_time() {
     fn envelope<T: Element>(value: T, timestamp_ns: i64) -> Envelope {
         Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(value),
             timestamp_ns,
             window: Window::Global,
@@ -2141,6 +2149,7 @@ fn latest_per_key_registry_rejects_bad_groups_and_restores_selected_event_time()
 fn latest_per_key_fold_rejects_mismatched_typed_batches_and_checkpoint_state() {
     fn event(value: impl Element) -> Envelope {
         Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(value),
             timestamp_ns: 1,
             window: Window::Global,
@@ -2438,6 +2447,7 @@ fn cogroup_uses_earliest_event_time_across_all_inputs() {
     cogroup_by_key_2_named("cogroup", &left, &right).unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
     let event = |time, value| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
         value: Box::new((1_i32, value)),
         timestamp_ns: time,
         window: Window::Global,
@@ -2469,6 +2479,7 @@ fn aggregate_registry_rejects_missing_and_mistyped_runner_inputs() {
     }
     fn event<T: Element>(value: T) -> Envelope {
         Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(value),
             timestamp_ns: 0,
             window: Window::Global,
@@ -2583,6 +2594,7 @@ impl OrderedFoldFn<i32, i32, i32> for SumI32 {
 fn aggregate_registry_reports_bad_arity_and_runtime_types() {
     fn event(value: impl Send + 'static) -> Envelope {
         Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(value),
             timestamp_ns: 0,
             window: Window::Global,
@@ -2687,6 +2699,7 @@ fn aggregate_registry_reports_bad_arity_and_runtime_types() {
 fn portable_ordered_and_latest_steps_reject_corrupt_shuffle_groups() {
     fn event(value: impl Send + 'static) -> Envelope {
         Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(value),
             timestamp_ns: 0,
             window: Window::Global,
@@ -2734,6 +2747,7 @@ fn portable_ordered_and_latest_steps_reject_corrupt_shuffle_groups() {
 fn single_input_aggregates_reject_extra_runner_inputs() {
     fn event(value: impl Send + 'static) -> Envelope {
         Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(value),
             timestamp_ns: 0,
             window: Window::Global,
@@ -2781,6 +2795,7 @@ fn single_input_aggregates_reject_extra_runner_inputs() {
 fn built_in_fold_sessions_drain_values_and_propagate_emitter_failure() {
     fn event(value: impl Send + 'static, timestamp_ns: i64) -> Envelope {
         Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
             value: Box::new(value),
             timestamp_ns,
             window: Window::Global,
@@ -3038,6 +3053,7 @@ fn composite_coder_rejects_corrupt_lengths_and_group_join_handles_misses() {
     left.join_inner_named("join", &right).unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
     let event = |value: (i32, i32)| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
         value: Box::new(value),
         timestamp_ns: 0,
         window: Window::Global,

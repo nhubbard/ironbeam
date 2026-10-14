@@ -76,6 +76,12 @@ struct CodedEvent {
     timestamp_ns: i64,
     window: Window,
     assigned_window: Option<WindowInterval>,
+    #[serde(default = "no_firing_pane")]
+    pane: ironbeam_core::PaneInfo,
+}
+
+const fn no_firing_pane() -> ironbeam_core::PaneInfo {
+    ironbeam_core::PaneInfo::NO_FIRING
 }
 
 fn encode_window_rows(
@@ -93,6 +99,7 @@ fn encode_window_rows(
                 timestamp_ns: event.timestamp_ns,
                 window: event.window.clone(),
                 assigned_window: event.assigned_window,
+                pane: event.pane,
             });
         }
         windows.push(CodedWindow {
@@ -155,6 +162,7 @@ fn restore_window_rows(
                 return Err(Error::recovery("checkpoint", "invalid stream event window"));
             }
             events.push(Envelope {
+                pane: event.pane,
                 value: registry.decode_element(input_key, &event.value)?,
                 timestamp_ns: event.timestamp_ns,
                 window: event.window,
