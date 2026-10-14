@@ -88,6 +88,10 @@ An overlapping sliding-window full join assigns the late main row to two
 different panes. Both runners emit the same four values and pane indices.
 Prism marks the late `[0, 10 ms)` pane final after expiry; Direct emits that
 pane earlier and marks it nonfinal.
+A separate two-source full join uses a late element-count trigger of two.
+Both runners emit the on-time pair, a late pane containing two main-only
+values, and a final one-value pane at expiry. Direct resumes the partially
+filled late pane from its coded checkpoint without duplicating the first pane.
 Live Prism jobs match Direct on values, windows, and event times in all three
 operations. Prism still accepts only one TestStream transform per job; tagged
 streams use one element coder and exclude processing time advances. The

@@ -5,6 +5,7 @@ include!("dynamic_ops.rs");
 include!("error_cases.rs");
 include!("streaming_side_inputs.rs");
 include!("streaming_late_sliding.rs");
+include!("streaming_late_count_join.rs");
 include!("side_view_shapes.rs");
 include!("streaming_joins.rs");
 include!("ordered_folds.rs");
