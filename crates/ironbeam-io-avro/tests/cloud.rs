@@ -2,7 +2,10 @@
 use ironbeam_cloud_objects::{LocalObjectIO, ObjectStores};
 use ironbeam_core::{Element, ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
-use ironbeam_io_avro::{cloud_avro_uri_source, cloud_avro_uri_source_with_reader_schema};
+use ironbeam_io_avro::{
+    cloud_avro_uri_prefix_source, cloud_avro_uri_prefix_source_with_reader_schema,
+    cloud_avro_uri_source, cloud_avro_uri_source_with_reader_schema,
+};
 use serde::Deserialize;
 use std::fs;
 
@@ -40,23 +43,113 @@ fn object_store() -> (tempfile::TempDir, ObjectStores) {
 }
 
 fn put_avro(stores: &ObjectStores, dir: &std::path::Path) {
+    put_avro_row(stores, dir, "file://bucket/rows.avro", 1, "Ada");
+}
+
+fn put_avro_row(stores: &ObjectStores, dir: &std::path::Path, uri: &str, id: i32, name: &str) {
     let path = dir.join("writer.avro");
     let schema = apache_avro::Schema::parse_str(WRITER_SCHEMA).unwrap();
     let mut writer = apache_avro::Writer::new(&schema, fs::File::create(&path).unwrap()).unwrap();
     writer
         .append_value(apache_avro::types::Value::Record(vec![
-            ("id".into(), apache_avro::types::Value::Int(1)),
+            ("id".into(), apache_avro::types::Value::Int(id)),
             (
                 "name".into(),
-                apache_avro::types::Value::String("Ada".into()),
+                apache_avro::types::Value::String(name.into()),
             ),
         ]))
         .unwrap();
     writer.flush().unwrap();
     drop(writer);
-    stores
-        .write("file://bucket/rows.avro", &fs::read(path).unwrap())
-        .unwrap();
+    stores.write(uri, &fs::read(path).unwrap()).unwrap();
+}
+
+#[test]
+fn object_uri_prefix_uses_sorted_stable_children() {
+    let (dir, stores) = object_store();
+    put_avro_row(&stores, dir.path(), "file://bucket/input/b.avro", 2, "Lin");
+    put_avro_row(&stores, dir.path(), "file://bucket/input/a.avro", 1, "Ada");
+    let pipeline = Pipeline::default();
+    let output = cloud_avro_uri_prefix_source_with_reader_schema::<EvolvedRow>(
+        &pipeline,
+        "files",
+        &stores,
+        "file://bucket/input/",
+        READER_SCHEMA,
+    )
+    .unwrap()
+    .output("output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![
+            EvolvedRow {
+                id: 1,
+                name: "Ada".into(),
+                active: true
+            },
+            EvolvedRow {
+                id: 2,
+                name: "Lin".into(),
+                active: true
+            },
+        ]
+    );
+    let plain = Pipeline::default();
+    let plain_output =
+        cloud_avro_uri_prefix_source::<Row>(&plain, "plain-files", &stores, "file://bucket/input/")
+            .unwrap()
+            .output("plain-output")
+            .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&plain_output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![
+            Row {
+                id: 1,
+                name: "Ada".into()
+            },
+            Row {
+                id: 2,
+                name: "Lin".into()
+            },
+        ]
+    );
+    let single = Pipeline::default();
+    let single_output = cloud_avro_uri_prefix_source::<Row>(
+        &single,
+        "single-file",
+        &stores,
+        "file://bucket/input/a.avro",
+    )
+    .unwrap()
+    .output("single-output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&single_output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![Row {
+            id: 1,
+            name: "Ada".into()
+        }]
+    );
+    assert!(
+        cloud_avro_uri_prefix_source_with_reader_schema::<EvolvedRow>(
+            &Pipeline::default(),
+            "empty",
+            &stores,
+            "file://bucket/none/",
+            READER_SCHEMA
+        )
+        .is_err()
+    );
 }
 
 #[test]

@@ -7,6 +7,7 @@ use ironbeam_core::{
 };
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 fn identity(uri: &str, bytes: &[u8], reader_schema: Option<&str>) -> String {
@@ -21,7 +22,6 @@ fn identity(uri: &str, bytes: &[u8], reader_schema: Option<&str>) -> String {
     }
     let mut digest = String::from("cloud-avro-sha256-v1:");
     for byte in hash.finalize() {
-        use std::fmt::Write as _;
         write!(digest, "{byte:02x}").expect("writing to String cannot fail");
     }
     digest
@@ -129,4 +129,72 @@ pub fn cloud_avro_uri_source_with_reader_schema<T: Element + DeserializeOwned>(
     reader_schema: impl AsRef<str>,
 ) -> Result<PCollection<T>, Error> {
     source(pipeline, key, stores, uri, Some(reader_schema.as_ref()))
+}
+
+fn prefix_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    stores: &ObjectStores,
+    uri_prefix: &str,
+    reader_schema: Option<&str>,
+) -> Result<PCollection<T>, Error> {
+    let mut locations = stores
+        .list(uri_prefix)
+        .map_err(|error| Error::io(key, "cloud", error.to_string()))?
+        .into_iter()
+        .map(|(location, _)| location.uri())
+        .collect::<Vec<_>>();
+    locations.sort();
+    if locations.is_empty() {
+        return Err(Error::io(
+            key,
+            "cloud",
+            format!("no Avro objects matched {uri_prefix}"),
+        ));
+    }
+    let mut sources = Vec::with_capacity(locations.len());
+    for uri in locations {
+        let mut digest = String::new();
+        for byte in Sha256::digest(uri.as_bytes()) {
+            write!(digest, "{byte:02x}").expect("writing to String cannot fail");
+        }
+        let child_key = format!("{key}/object-{digest}");
+        sources.push(source(pipeline, &child_key, stores, &uri, reader_schema)?);
+    }
+    let first = sources.remove(0);
+    if sources.is_empty() {
+        first.map_named(key, |value| value)
+    } else {
+        first.flatten_named(key, &sources)
+    }
+}
+
+/// Read every Avro object under a URI prefix in sorted URI order.
+///
+/// The object set is fixed when the graph is built. Each object has a stable
+/// child key and its own byte-bound source configuration.
+pub fn cloud_avro_uri_prefix_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    stores: &ObjectStores,
+    uri_prefix: &str,
+) -> Result<PCollection<T>, Error> {
+    prefix_source(pipeline, key, stores, uri_prefix, None)
+}
+
+/// Read every Avro object under a URI prefix through a reader schema.
+pub fn cloud_avro_uri_prefix_source_with_reader_schema<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    stores: &ObjectStores,
+    uri_prefix: &str,
+    reader_schema: impl AsRef<str>,
+) -> Result<PCollection<T>, Error> {
+    prefix_source(
+        pipeline,
+        key,
+        stores,
+        uri_prefix,
+        Some(reader_schema.as_ref()),
+    )
 }

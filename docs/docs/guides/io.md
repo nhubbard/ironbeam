@@ -106,10 +106,13 @@ Native Avro objects can also be read through `cloud_avro_uri_source` or
 the second form, the reader schema. The URI and object bytes are bound to source
 configuration; the reader schema also changes the graph fingerprint. The
 source reads the object once while building the graph and again when it runs.
-It rejects a changed object. This adapter currently uses the registered
-provider in the local process. The bundled object-store backend is local;
-GCP's official storage client has a separate asynchronous API and does not yet
-implement this registry's `ObjectIO` contract. Portable worker access also
+It rejects a changed object. `cloud_avro_uri_prefix_source` and its
+`_with_reader_schema` form read all objects under a literal URI prefix in
+sorted order. The object set is fixed when the graph is built; a later object
+does not silently enter a resumed job. This adapter currently uses the
+registered provider in the local process. The bundled object-store backend is
+local. GCP's official storage client has a separate asynchronous API and does
+not yet implement this registry's `ObjectIO` contract. Portable worker access also
 needs an execution binding. Enable the Avro crate's `cloud` feature for these
 functions; the root `cloud` feature forwards to it when `v5-io-avro` is also
 enabled.

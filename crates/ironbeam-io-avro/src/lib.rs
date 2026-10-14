@@ -4,7 +4,10 @@ use ironbeam_io::io;
 #[cfg(feature = "cloud")]
 mod cloud_io;
 #[cfg(feature = "cloud")]
-pub use cloud_io::{cloud_avro_uri_source, cloud_avro_uri_source_with_reader_schema};
+pub use cloud_io::{
+    cloud_avro_uri_prefix_source, cloud_avro_uri_prefix_source_with_reader_schema,
+    cloud_avro_uri_source, cloud_avro_uri_source_with_reader_schema,
+};
 mod fragment;
 pub use fragment::{
     AvroFragmentStore, avro_fragment_sink, avro_fragment_store, publish_avro_fragments,
