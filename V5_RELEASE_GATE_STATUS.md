@@ -53,8 +53,10 @@ failed streaming creation cleanup, invalid parent paths, and symlinked lists.
 
 These floors are regression guards, not a claim of full test coverage or 99%
 Beam parity. In particular, the I/O and cloud operation branch gaps remain
-release quality work. The new floors require a fresh Linux CI run before they
-can be treated as verified.
+release quality work. On head `91505df`, all Linux package coverage jobs and
+strict Clippy passed with the corrected shell gate. The remaining feature,
+facade, package, and live Prism jobs were still running when this audit was
+updated.
 
 ## Portable parity work still open
 
@@ -67,6 +69,22 @@ lateness, state, and timer families separately. Passing the current default
 window and side-view corpus therefore does not imply general streaming parity.
 No percentage is assigned to this ledger until each family has an explicit
 test inventory and weighting.
+
+The pinned `beam_runner_api.proto` and `beam_fn_api.proto` define the portable
+capabilities used for this audit. This is the current accounting boundary:
+
+| Upstream family | Implemented proof | Missing proof for the 99% target |
+| --- | --- | --- |
+| Trigger constructors | Default window closure, repeated element count, and combined early and late counts have Direct and Prism fixtures. | Processing-time and synchronized processing-time triggers; `AfterAll`, `AfterAny`, `AfterEach`, `OrFinally`, and general nested repeats; exact merged-session and late-pane schedules. |
+| User state and timers | Seven state shapes and two timer domains have a versioned schema, Beam payload lowering, and Fn State key tests. | Executable keyed functions, timer delivery, state reads and writes in the callback, bundle retry, checkpoint restoration, and Direct/Prism agreement. Declarations alone count as no execution proof. |
+| Splittable processing | Source restrictions, residual cursors, and supervised worker-child replacement have live Prism proofs. | User-defined restriction trackers, progress and watermark estimators, dynamic splitting, and drain/truncate behavior. |
+| Side inputs | Global and window-closure views have typed Direct and Prism fixtures. | Materialization updates before closure, late view panes, and dynamic side-input replay. |
+| Rust-relevant I/O | Ten format crates, opt-in database helpers, provider-neutral objects, and four GCP clients have local tests. | Portable provider binding and replay for cloud object and service I/O, including Pub/Sub and BigQuery; controlled service proofs. |
+
+These rows are not equally weighted. A percentage computed by counting URNs
+would hide the difference between a declared state spec and a working
+stateful pipeline. The target remains open until the missing behaviors have
+executable fixtures and a documented weighting method.
 
 | Family | Current evidence | Next completion proof |
 | --- | --- | --- |
