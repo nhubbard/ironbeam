@@ -817,7 +817,8 @@ async fn fn_data_sdf_rejects_wrong_restriction_before_opening_reader() {
     let mut record = Vec::new();
     encode_windowed_value(0, &wrong, &mut record).unwrap();
     let (result, chunks) = run_sdf_process_bundle(&pipeline, record, false).await;
-    assert!(result.unwrap_err().to_string().contains("restriction"));
+    let error = result.unwrap_err();
+    assert!(error.to_string().contains("restriction"), "{error:#}");
     assert!(opened.lock().unwrap().is_empty());
     assert!(chunks.iter().all(|chunk| chunk.data.is_empty()));
 }
