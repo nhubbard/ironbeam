@@ -1027,9 +1027,15 @@ async fn run_production_unbounded_source(
             )
         })
         .collect::<Vec<_>>();
+    let store =
+        finalization_probe_store(capture.path().join("fragments"), "production-finalization")
+            .unwrap()
+            .require_bundle_attempts(ready.bundle_attempts("production-finalization").unwrap())
+            .unwrap();
+    let fragments = store.accepted_fragments().unwrap();
     assert_eq!(
         committed, 3,
-        "sink and input counts: {sink_count_diagnostics:?}"
+        "sink and input counts: {sink_count_diagnostics:?}; accepted finalization fragments: {fragments:?}"
     );
     assert_eq!(
         ironbeam_dataflow::portable_metrics::committed_sink_input_count(&metrics, &fold_transform,)
@@ -1052,12 +1058,6 @@ async fn run_production_unbounded_source(
         .unwrap(),
         2
     );
-    let store =
-        finalization_probe_store(capture.path().join("fragments"), "production-finalization")
-            .unwrap()
-            .require_bundle_attempts(ready.bundle_attempts("production-finalization").unwrap())
-            .unwrap();
-    let fragments = store.accepted_fragments().unwrap();
     assert!(
         fragments.len() >= 2,
         "production source residual did not create multiple finalized bundles: {fragments:?}"
