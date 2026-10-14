@@ -82,10 +82,12 @@ fn main() -> Result<(), ironbeam::Error> {
 }
 ```
 
-The schema is validated while building the pipeline and included in source
-identity. A resumed job rejects a different schema or changed file bytes.
-The file source reads local paths on Direct; a portable job needs an
-accessible storage source and a stable element coder.
+Use `avro_streaming_source_with_reader_schema` with the same arguments to
+decode records incrementally from a large file. Both forms validate the
+schema while building the pipeline and include it in source identity. A
+resumed job rejects a different schema or changed file bytes. These file
+sources read local paths on Direct; a portable job needs an accessible storage
+source and a stable element coder.
 
 ## Writing a result
 
