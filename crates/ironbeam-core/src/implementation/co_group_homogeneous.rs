@@ -2,7 +2,7 @@
 pub type HomogeneousGroups<K, V> = PCollection<(K, Vec<Vec<V>>)>;
 
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
-    /// Co-group any number of bounded collections with the same key and value types.
+    /// Co-group collections with the same key and value types.
     /// Bucket indices follow input order: `self` is zero, then `others`.
     /// Values within a bucket have no runner-independent order.
     pub fn co_group_homogeneous_named(
@@ -16,18 +16,26 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             .and_then(|count| u32::try_from(count).ok())
             .ok_or_else(|| Error::resource(key, "too many co-group inputs"))?;
         let main = self.parent()?;
-        if main.boundedness != Boundedness::Bounded {
-            return Err(Error::graph(key, "homogeneous co-group requires bounded inputs"));
+        if main.boundedness == Boundedness::Unbounded
+            && !matches!(
+                main.time.window,
+                Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. }
+            )
+        {
+            return Err(Error::graph(
+                key,
+                "unbounded homogeneous co-group requires a finite nonmerging window",
+            ));
         }
         for other in others {
             if !Arc::ptr_eq(&self.pipeline.inner, &other.pipeline.inner) {
                 return Err(Error::graph(key, "co-group inputs belong to different pipelines"));
             }
             let node = other.parent()?;
-            if node.boundedness != Boundedness::Bounded || node.time != main.time {
+            if node.boundedness != main.boundedness || node.time != main.time {
                 return Err(Error::graph(
                     key,
-                    "co-group inputs must be bounded and share time/window declarations",
+                    "co-group inputs must share boundedness and time/window declarations",
                 ));
             }
         }

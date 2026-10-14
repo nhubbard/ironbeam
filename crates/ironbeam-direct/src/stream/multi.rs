@@ -4,7 +4,9 @@
 
 use super::*;
 use std::fmt::Write as _;
+mod grouped;
 mod session;
+pub(super) use grouped::start_multi_grouped_stream_sink;
 
 const MULTI_SOURCE_KEY: &str = "ironbeam:multi-source";
 

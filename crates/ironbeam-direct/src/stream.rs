@@ -21,7 +21,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 mod multi;
-use multi::{start_dual_side_stream, start_multi_stream_sink};
+use multi::{start_dual_side_stream, start_multi_grouped_stream_sink, start_multi_stream_sink};
 
 /// A running unbounded Direct job. Dropping it requests cancellation and joins
 /// its worker; `wait` preserves the execution error for the caller.
@@ -51,6 +51,13 @@ struct BoundedSideStreamRoute {
     after_aggregate: Vec<String>,
     other_aggregates: Vec<(String, Vec<String>)>,
     after_fanout: Vec<String>,
+}
+
+struct MultiGroupedStreamRoute {
+    sources: Vec<(String, Vec<String>)>,
+    group_input_key: String,
+    group_key: String,
+    after_group: Vec<String>,
 }
 
 type WindowFolds = BTreeMap<(i64, i64), (Box<dyn FoldSession>, usize)>;
@@ -521,6 +528,68 @@ fn stateful_fanout_route(graph: &Graph, sink_key: &str) -> Option<BoundedSideStr
     Some(primary)
 }
 
+fn multi_grouped_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiGroupedStreamRoute> {
+    let mut key = sink_key;
+    let mut after_group = Vec::new();
+    let group = loop {
+        let node = graph.node(key)?;
+        if matches!(node.operation, Operation::GroupByKey) {
+            break node;
+        }
+        if !node.additional_inputs.is_empty() {
+            return None;
+        }
+        match node.operation {
+            Operation::Output | Operation::Sink { .. } => {}
+            Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::FixedWindow
+            | Operation::SlidingWindow => after_group.push(key.to_owned()),
+            _ => return None,
+        }
+        key = node.input.as_deref()?;
+    };
+    let flatten = graph.node(group.input.as_deref()?)?;
+    if !matches!(flatten.operation, Operation::Flatten)
+        || !matches!(
+            group.time.window,
+            Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. }
+        )
+    {
+        return None;
+    }
+    let input_keys = std::iter::once(flatten.input.as_deref()?).chain(
+        flatten
+            .additional_inputs
+            .iter()
+            .map(|edge| edge.key.as_str()),
+    );
+    let sources = input_keys
+        .map(|input_key| {
+            if graph.node(input_key)?.time != group.time {
+                return None;
+            }
+            linear_stream_input(graph, input_key)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let unique = sources
+        .iter()
+        .map(|(source_key, _)| source_key)
+        .collect::<BTreeSet<_>>();
+    if sources.is_empty() || unique.len() != sources.len() {
+        return None;
+    }
+    after_group.reverse();
+    Some(MultiGroupedStreamRoute {
+        sources,
+        group_input_key: flatten.key.clone(),
+        group_key: group.key.clone(),
+        after_group,
+    })
+}
+
 impl StreamJob {
     #[must_use]
     pub const fn handle(&self) -> &JobHandle {
@@ -607,6 +676,16 @@ impl DirectRunner {
             None
         };
         if plan.materialized && grouped.is_none() && bounded_side.is_none() {
+            if let Some(grouped_fan_in) = multi_grouped_stream_route(&graph, &sink_key) {
+                return start_multi_grouped_stream_sink::<T>(
+                    &graph,
+                    registry,
+                    plan,
+                    sink_key,
+                    config,
+                    grouped_fan_in,
+                );
+            }
             if let Some(fanout) = stateful_fanout_route(&graph, &sink_key) {
                 return start_dual_side_stream::<T>(
                     &graph, registry, plan, sink_key, config, fanout,
