@@ -156,14 +156,14 @@ drops another element after the 15 ms expiry watermark. Direct emits the same
 pane values, event timestamps, timing, and indices. Its checkpoint retains
 the closed window until expiry, including the index for the next late pane.
 Direct supports this policy for single-input GroupByKey with the default
-trigger, a late count trigger, or combined early and late counts. A separate
+trigger, a late count trigger, or combined early and late counts. The
 multi-source path retains coded GroupByKey state through expiry with the
-default or late element-count trigger. That path also serves homogeneous co-groups built from
+default or late element-count trigger. It also serves homogeneous co-groups built from
 Flatten and GroupByKey. In a two-source test, both runners emit an on-time
 pane containing `[[2], [4]]`, then a late pane containing `[[3], []]`;
 a row after expiry is dropped. Direct restores both source cursors and the
-closed group's pane index from a checkpoint. Heterogeneous joins and
-co-groups do not yet retain multi-input late state in Direct.
+closed group's pane index from a checkpoint. Typed joins and heterogeneous
+co-groups retain their windows through expiry on Direct and pinned Prism.
 
 For two-source late count firings, set the same positive allowed lateness and
 late count on each input before `co_group_homogeneous_named`. With a count of
@@ -172,6 +172,16 @@ when the second late element arrives, and a final partial `[[7], []]` pane
 at expiry. The source watermarks must leave the window open while those late
 elements arrive. Combined early and late count triggers remain limited to
 single-input grouping on Direct.
+
+The same count policy applies to typed joins and heterogeneous co-groups.
+With a main value `2` and side value `"right"`, a heterogeneous co-group
+emits `([2], ["right"])` on time. Two later main values, `3` and `5`,
+produce one late pane containing `([3, 5], [])`. Direct and pinned Prism
+produce the same pane timing, indices, and flags when both branches come
+from one tagged source. Direct reads that source once and checkpoints its
+single cursor and the unfinished pane. Inner and right joins emit no
+unmatched main-side late rows; left and full joins emit those rows, with
+a final partial pane at expiry in the tested schedule.
 
 ### Late count firings
 
