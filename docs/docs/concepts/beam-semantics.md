@@ -159,6 +159,12 @@ duplicate publication when an execution child dies. If the Control-owning
 process or its host disappears, Prism fails the active instructions; the
 current proof does not cover replacing that owner inside the same job.
 
+For ordinary Fn Data output, Ironbeam waits until the outbound transport has
+consumed a bundle's queued chunks and end markers before it acknowledges the
+bundle on the separate Fn Control stream. The check closes an ordering gap
+between data delivery and bundle completion. It does not replace the runner's
+commit decision or the sink's durable finalization record.
+
 ## Current scope
 
 | Beam facility | Ironbeam 5 status |
