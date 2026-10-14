@@ -4,9 +4,11 @@
 
 use super::*;
 use std::fmt::Write as _;
+mod dual_late;
 mod grouped;
 mod grouped_state;
 mod session;
+use dual_late::{ClosedPanes, CodedClosedPane, DualFiring, FiringClock};
 pub(super) use grouped::start_multi_grouped_stream_sink;
 
 const MULTI_SOURCE_KEY: &str = "ironbeam:multi-source";
@@ -96,6 +98,8 @@ struct DualWindowState {
     sources: [Option<ProgressSignal>; 2],
     main: Vec<u8>,
     side: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    closed: Vec<CodedClosedPane>,
 }
 
 fn validate_dual_source(graph: &Graph, registry: &Registry, key: &str) -> Result<(), Error> {
@@ -139,7 +143,32 @@ pub(super) fn start_dual_side_stream<T: Element>(
     for key in [&route.source_key, &route.side_source_key] {
         validate_dual_source(graph, &registry, key)?;
     }
+    if matches!(route.window, Window::Session { .. })
+        && !registry.has_join_coder(&route.aggregate_key)
+        && !registry.has_cogroup_coder(&route.aggregate_key)
+    {
+        return Err(Error::unsupported(
+            &route.aggregate_key,
+            "direct",
+            "session-key-coder",
+        ));
+    }
+    let aggregate = graph
+        .node(&route.aggregate_key)
+        .ok_or_else(|| Error::graph(&route.aggregate_key, "dual-source aggregate missing"))?;
+    let lateness_ns = aggregate.time.allowed_lateness_ns;
+    if lateness_ns > 0
+        && !registry.has_join_coder(&route.aggregate_key)
+        && !registry.has_cogroup_coder(&route.aggregate_key)
+    {
+        return Err(Error::unsupported(
+            &route.aggregate_key,
+            "direct",
+            "dual-source-late-key-coder",
+        ));
+    }
     if config.checkpoint.is_some()
+        || lateness_ns > 0
         || !route.other_aggregates.is_empty()
         || matches!(route.window, Window::Session { .. })
     {
@@ -152,16 +181,6 @@ pub(super) fn start_dual_side_stream<T: Element>(
                 ));
             }
         }
-    }
-    if matches!(route.window, Window::Session { .. })
-        && !registry.has_join_coder(&route.aggregate_key)
-        && !registry.has_cogroup_coder(&route.aggregate_key)
-    {
-        return Err(Error::unsupported(
-            &route.aggregate_key,
-            "direct",
-            "session-key-coder",
-        ));
     }
     let checkpoint = config
         .checkpoint
@@ -192,11 +211,11 @@ pub(super) fn start_dual_side_stream<T: Element>(
         .map(|checkpoint| checkpoint.load_state(config.memory_budget_bytes))
         .transpose()?
         .flatten();
-    let (sequence, progress_by_source, main_windows, side_windows, buffered) =
+    let (sequence, progress_by_source, main_windows, side_windows, buffered, closed) =
         if let Some((combined, bytes)) = &saved {
             let state: DualWindowState = serde_json::from_slice(bytes)
                 .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
-            if state.version != 1
+            if state.version != if lateness_ns > 0 { 2 } else { 1 }
                 || state.sources[0]
                     .as_ref()
                     .is_some_and(|p| p.source_key != route.source_key || p.split_id.is_empty())
@@ -243,9 +262,37 @@ pub(super) fn start_dual_side_stream<T: Element>(
                     "invalid dual stream open-window state",
                 ));
             }
-            (sequence, state.sources, main, side, buffered)
+            let closed = if lateness_ns > 0 {
+                dual_late::restore_closed(
+                    state.closed,
+                    dual_watermark(&state.sources),
+                    lateness_ns,
+                    config.buffer_budget_elements,
+                )?
+            } else if state.closed.is_empty() {
+                ClosedPanes::new()
+            } else {
+                return Err(Error::recovery(
+                    "checkpoint",
+                    "unexpected dual-source pane state",
+                ));
+            };
+            if combined.completed && !closed.is_empty() {
+                return Err(Error::recovery(
+                    "checkpoint",
+                    "completed dual-source checkpoint retains panes",
+                ));
+            }
+            (sequence, state.sources, main, side, buffered, closed)
         } else {
-            (0, [None, None], BTreeMap::new(), BTreeMap::new(), 0)
+            (
+                0,
+                [None, None],
+                BTreeMap::new(),
+                BTreeMap::new(),
+                0,
+                ClosedPanes::new(),
+            )
         };
     #[allow(unused_mut)]
     let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
@@ -293,6 +340,8 @@ pub(super) fn start_dual_side_stream<T: Element>(
                     main_windows,
                     side_windows,
                     buffered,
+                    closed,
+                    lateness_ns,
                 )
             }))
             .unwrap_or_else(|_| Err(Error::execution("job", "direct", "stream worker panicked")));
@@ -745,6 +794,8 @@ fn run_dual_side_stream(
     mut main_windows: WindowRows,
     mut side_windows: WindowRows,
     mut buffered: usize,
+    mut closed: ClosedPanes,
+    lateness_ns: i64,
 ) -> Result<(), Error> {
     let source_keys = [&route.source_key, &route.side_source_key];
     let stages = [&route.main_stages, &route.side_stages];
@@ -833,7 +884,9 @@ fn run_dual_side_stream(
             for input in batch.elements {
                 for event in apply_grouped_stages(registry, stages[index], input, config, handle)? {
                     let window = stream_window(&event, &route.aggregate_key)?;
-                    if old_watermark.is_some_and(|watermark| window.1 <= watermark) {
+                    if old_watermark
+                        .is_some_and(|watermark| window.1.saturating_add(lateness_ns) <= watermark)
+                    {
                         continue;
                     }
                     if buffered >= config.buffer_budget_elements {
@@ -855,7 +908,21 @@ fn run_dual_side_stream(
                 .checked_add(1)
                 .ok_or_else(|| Error::resource("checkpoint", "dual stream sequence exhausted"))?;
             let combined = multi_progress(sequence, &progress);
-            let closing = if matches!(route.window, Window::Session { .. }) {
+            let closing = if lateness_ns > 0 {
+                dual_late::drain_ready(
+                    registry,
+                    route,
+                    &mut main_windows,
+                    &mut side_windows,
+                    &mut closed,
+                    FiringClock {
+                        prior_watermark: old_watermark,
+                        watermark: dual_watermark(&progress),
+                        lateness_ns,
+                        budget_elements: config.buffer_budget_elements,
+                    },
+                )?
+            } else if matches!(route.window, Window::Session { .. }) {
                 if let Some(watermark) = dual_watermark(&progress) {
                     session::close_ready_sessions(
                         registry,
@@ -864,6 +931,13 @@ fn run_dual_side_stream(
                         &mut side_windows,
                         watermark,
                     )?
+                    .into_iter()
+                    .map(|(main, side)| DualFiring {
+                        main,
+                        side,
+                        pane: None,
+                    })
+                    .collect()
                 } else {
                     Vec::new()
                 }
@@ -877,11 +951,10 @@ fn run_dual_side_stream(
                     })
                     .collect::<BTreeSet<_>>()
                     .into_iter()
-                    .map(|window| {
-                        (
-                            main_windows.remove(&window).unwrap_or_default(),
-                            side_windows.remove(&window).unwrap_or_default(),
-                        )
+                    .map(|window| DualFiring {
+                        main: main_windows.remove(&window).unwrap_or_default(),
+                        side: side_windows.remove(&window).unwrap_or_default(),
+                        pane: None,
                     })
                     .collect()
             };
@@ -890,7 +963,12 @@ fn run_dual_side_stream(
             let mut written = 0_u64;
             let result =
                 (|| {
-                    for (mut main, mut side) in closing {
+                    for DualFiring {
+                        mut main,
+                        mut side,
+                        pane,
+                    } in closing
+                    {
                         buffered -= main.len() + side.len();
                         let branches = std::iter::once((
                             route.aggregate_key.as_str(),
@@ -912,7 +990,7 @@ fn run_dual_side_stream(
                                     copy_window_events(registry, &route.side_input_key, &side)?,
                                 ]
                             };
-                            let grouped = catch_unwind(AssertUnwindSafe(|| {
+                            let mut grouped = catch_unwind(AssertUnwindSafe(|| {
                                 registry.apply_aggregate(aggregate_key, inputs)
                             }))
                             .unwrap_or_else(|_| {
@@ -922,6 +1000,11 @@ fn run_dual_side_stream(
                                     "user aggregate panicked",
                                 ))
                             })?;
+                            if let Some(pane) = pane {
+                                for event in &mut grouped {
+                                    event.pane = pane;
+                                }
+                            }
                             for event in grouped {
                                 for branch_output in apply_grouped_stages(
                                     registry,
@@ -978,7 +1061,7 @@ fn run_dual_side_stream(
             }
             if let Some(checkpoint) = checkpoint {
                 let state = serde_json::to_vec(&DualWindowState {
-                    version: 1,
+                    version: if lateness_ns > 0 { 2 } else { 1 },
                     sources: progress.clone(),
                     main: encode_window_rows(
                         registry,
@@ -992,6 +1075,7 @@ fn run_dual_side_stream(
                         &side_windows,
                         config.memory_budget_bytes,
                     )?,
+                    closed: dual_late::encode_closed(&closed),
                 })
                 .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
                 checkpoint.save_state(&combined, &state, config.memory_budget_bytes)?;

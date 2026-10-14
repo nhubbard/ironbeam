@@ -346,6 +346,7 @@ fn dual_checkpoint_rejects_mismatched_cursors_and_open_windows() {
                 config.memory_budget_bytes,
             )
             .unwrap(),
+            closed: Vec::new(),
         };
         let mut combined = multi_progress(2, &state.sources);
         if fault == "budget" || fault == "completed-open" {
@@ -596,6 +597,92 @@ fn dual_start_rejects_missing_coder_and_cancellation() {
 }
 
 #[test]
+fn retained_dual_pane_checkpoint_rejects_invalid_keys_indices_and_expiry() {
+    let valid = CodedClosedPane {
+        start_ns: 0,
+        end_ns: 10,
+        key: vec![1, 2],
+        next_index: 2,
+    };
+    let restored = dual_late::restore_closed(
+        vec![CodedClosedPane {
+            start_ns: valid.start_ns,
+            end_ns: valid.end_ns,
+            key: valid.key.clone(),
+            next_index: valid.next_index,
+        }],
+        Some(10),
+        5,
+        1,
+    )
+    .unwrap();
+    assert_eq!(restored.get(&(0, 10, vec![1, 2])), Some(&2));
+    assert_eq!(dual_late::encode_closed(&restored).len(), 1);
+    assert!(matches!(
+        dual_late::restore_closed(
+            vec![CodedClosedPane {
+                start_ns: 0,
+                end_ns: 10,
+                key: vec![1],
+                next_index: 1,
+            }],
+            Some(10),
+            5,
+            0,
+        ),
+        Err(Error {
+            kind: ErrorKind::Resource,
+            ..
+        })
+    ));
+    for rows in [
+        vec![
+            valid,
+            CodedClosedPane {
+                start_ns: 0,
+                end_ns: 10,
+                key: vec![1, 2],
+                next_index: 1,
+            },
+        ],
+        vec![CodedClosedPane {
+            start_ns: 10,
+            end_ns: 10,
+            key: vec![1],
+            next_index: 1,
+        }],
+        vec![CodedClosedPane {
+            start_ns: 0,
+            end_ns: 10,
+            key: vec![1],
+            next_index: 0,
+        }],
+    ] {
+        assert!(matches!(
+            dual_late::restore_closed(rows, Some(10), 5, 2),
+            Err(Error {
+                kind: ErrorKind::Recovery,
+                ..
+            })
+        ));
+    }
+    assert!(
+        dual_late::restore_closed(
+            vec![CodedClosedPane {
+                start_ns: 0,
+                end_ns: 10,
+                key: vec![1],
+                next_index: 1
+            }],
+            Some(15),
+            5,
+            1,
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn completed_dual_checkpoint_returns_without_reopening() {
     let temporary = tempfile::tempdir().unwrap();
     let config = checkpoint_config(temporary.path());
@@ -627,6 +714,7 @@ fn completed_dual_checkpoint_returns_without_reopening() {
             config.memory_budget_bytes,
         )
         .unwrap(),
+        closed: Vec::new(),
     };
     let combined = multi_progress(2, &state.sources);
     save_dual_state(

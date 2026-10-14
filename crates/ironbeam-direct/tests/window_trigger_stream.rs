@@ -11,6 +11,170 @@ use std::time::{Duration, Instant};
 type Row = (String, i32);
 
 #[test]
+fn heterogeneous_cogroup_retains_late_pane_until_expiry() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .test_stream_source(
+            "late-main",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("late-main-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("late-main-policy", 5_000_000)
+        .unwrap();
+    let side = pipeline
+        .test_stream_source(
+            "late-side",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, "right".to_owned()), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("late-side-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("late-side-policy", 5_000_000)
+        .unwrap();
+    let sink = ironbeam_core::cogroup_by_key_2_named("late-group", &main, &side)
+        .unwrap()
+        .reify_panes_named("late-pane")
+        .unwrap()
+        .map_named("late-row", |(pane, (key, buckets))| {
+            format!(
+                "{key}:{buckets:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "late-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "late-heterogeneous-group-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "1:([2], [\"right\"]):OnTime:true:false:0:0",
+            "1:([3], []):Late:false:false:1:1",
+        ]
+    );
+}
+
+#[test]
+fn typed_full_join_retains_late_pane_until_expiry() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .test_stream_source(
+            "positive-late-main",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+                TestStreamEvent::Elements(vec![((1, 5), 5_000_000)]),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("positive-late-main-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("positive-late-main-policy", 5_000_000)
+        .unwrap();
+    let side = pipeline
+        .test_stream_source(
+            "positive-late-side",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("positive-late-side-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("positive-late-side-policy", 5_000_000)
+        .unwrap();
+    let sink = main
+        .join_full_named("positive-late-join", &side)
+        .unwrap()
+        .reify_panes_named("positive-late-pane")
+        .unwrap()
+        .map_named("positive-late-row", |(pane, (key, pair))| {
+            format!(
+                "{key}:{pair:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "positive-late-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "positive-late-direct-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "1:(Some(2), Some(4)):OnTime:true:false:0:0",
+            "1:(Some(3), None):Late:false:false:1:1",
+        ]
+    );
+}
+
+#[test]
 fn unbounded_global_group_into_batches_fires_full_and_final_partial_batches() {
     assert_eq!(
         run_unbounded_keyed_batches(false),

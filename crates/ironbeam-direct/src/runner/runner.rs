@@ -1,15 +1,20 @@
-fn validate_lateness(node: &ironbeam_core::Node) -> Result<(), Error> {
+fn validate_lateness(node: &ironbeam_core::Node, unbounded_source: bool) -> Result<(), Error> {
+    let stateful_fanin = matches!(
+        node.operation,
+        Operation::CoGroupByKey
+            | Operation::JoinInner
+            | Operation::JoinLeft
+            | Operation::JoinRight
+            | Operation::JoinFull
+    );
     if node.time.allowed_lateness_ns > 0
         && ((node.time.trigger != WindowTrigger::Default
             && node.time.trigger.late_count().is_none())
+            || (stateful_fanin
+                && (!unbounded_source || node.boundedness != ironbeam_core::Boundedness::Unbounded))
             || matches!(
                 node.operation,
-                Operation::CoGroupByKey
-                    | Operation::JoinInner
-                    | Operation::JoinLeft
-                    | Operation::JoinRight
-                    | Operation::JoinFull
-                    | Operation::GlobalCombine
+                Operation::GlobalCombine
                     | Operation::FoldGlobal
                     | Operation::FoldPerKey
                     | Operation::FoldOrderedGlobal
@@ -55,7 +60,7 @@ impl DirectRunner {
             },
         )?;
         for node in &graph.nodes {
-            validate_lateness(node)?;
+            validate_lateness(node, unbounded_source)?;
             let trigger_supported = matches!(
                     node.operation,
                     Operation::FixedWindow
