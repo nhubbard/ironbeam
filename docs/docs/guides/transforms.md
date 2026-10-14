@@ -73,7 +73,7 @@ fn main() -> Result<(), ironbeam::Error> {
 
 A grouped result contains a key and its values. A shuffle may change value order, so an application that depends on order must provide an explicit order key through the corresponding ordered operation. The transform crates also include keyed reductions, joins, sampling, selection, validation, and side inputs. The [ETL example](https://github.com/nhubbard/ironbeam/blob/main/examples/etl_pipeline.rs) applies several of these operations in one pipeline.
 
-## Bounded side views
+## Side views
 
 A side view lets each main element consult a bounded collection. The global
 `map_with_side_named` method supplies a slice of all side values. Three typed
@@ -102,11 +102,22 @@ fn main() -> Result<(), ironbeam::Error> {
 }
 ```
 
-These helpers materialize one global view. For matching values in each event
-time window, use `map_with_windowed_side_named`. It also accepts an unbounded
-side collection when both inputs have watermarks; the view is applied once
-the window closes on both inputs. It does not update a result already emitted
-from that window.
+These helpers materialize one global view from a bounded side collection. For
+matching values in each event-time window, use `map_with_windowed_side_named`,
+`map_with_windowed_singleton_side_named`,
+`map_with_windowed_map_side_named`, or
+`map_with_windowed_multimap_side_named`. The windowed methods accept an
+unbounded side collection when both inputs have watermarks. They apply one view
+after both inputs close the window and preserve each main element's timestamp.
+They do not update a result already emitted from that window. The singleton
+requires exactly one side value in each main window; a map rejects duplicate
+keys within a window. Values under a multimap key have no guaranteed order.
+
+`map_with_windowed_materialized_side_named` accepts a fallible view builder and
+a fallible mapping function for application-defined view shapes. For a
+transform that emits zero or more values per input and can fail, use
+`flat_map_fallible_named`. Its errors fail execution on Direct and the portable
+worker.
 
 ## Batches and custom handlers
 
