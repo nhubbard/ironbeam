@@ -13,12 +13,13 @@ use ironbeam_prism_proof::{
     bounded_wait_on_fixture, completion_signal, dead_letter_fixture,
     dual_stream_windowed_side_fixture, dual_unbounded_cogroup_fixture,
     dual_unbounded_flatten_fixture, dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
-    dual_unbounded_late_join_fixture, dual_unbounded_session_cogroup_fixture,
-    dual_unbounded_session_join_fixture, explicit_custom_batches_fixture, failing_wait_on_fixture,
-    finalization_failure_fixture, finalization_probe_sink, global_fold_fixture,
-    global_vector_fixture, group_time_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
-    large_group_rows, large_group_summary, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
-    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, offset_window_group_fixture,
+    dual_unbounded_late_join_fixture, dual_unbounded_map_side_fixture,
+    dual_unbounded_session_cogroup_fixture, dual_unbounded_session_join_fixture,
+    explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
+    finalization_probe_sink, global_fold_fixture, global_vector_fixture, group_time_fixture,
+    invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
+    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
+    mixed_boundedness_join_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
     panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
@@ -247,6 +248,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_WINDOWED_SIDE") {
         return dual_stream_windowed_side_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_TYPED_MAP_SIDE") {
+        return dual_unbounded_map_side_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

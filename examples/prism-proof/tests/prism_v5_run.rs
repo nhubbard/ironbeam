@@ -32,6 +32,7 @@ use ironbeam_prism_proof::{
     dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
+    dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_collection, dual_unbounded_session_cogroup_fixture,
     dual_unbounded_session_join_collection, dual_unbounded_session_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
@@ -3178,7 +3179,7 @@ async fn prism_runs_unbounded_main_with_per_window_side_view() {
 }
 
 #[tokio::test]
-async fn prism_matches_direct_two_unbounded_windowed_side_view_at_closure() {
+async fn prism_matches_direct_two_unbounded_windowed_side_views_at_closure() {
     struct DirectRows {
         rows: Arc<Mutex<Vec<String>>>,
         accepted: Arc<Mutex<HashSet<String>>>,
@@ -3272,6 +3273,66 @@ async fn prism_matches_direct_two_unbounded_windowed_side_view_at_closure() {
             "2000000..4000000:3000000:43",
             "4000000..6000000:5000000:3",
         ]
+    );
+
+    let typed_path = directory.path().join("dual-typed-map-side.txt");
+    let typed_direct_rows = Arc::new(Mutex::new(Vec::new()));
+    let typed_accepted = Arc::new(Mutex::new(HashSet::new()));
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = dual_unbounded_map_side_collection(&direct_pipeline)
+        .unwrap()
+        .sink_named_with_config(
+            "dual-typed-side-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "dual-typed-side-direct-v1".into(),
+            {
+                let rows = Arc::clone(&typed_direct_rows);
+                let accepted = Arc::clone(&typed_accepted);
+                move || {
+                    Ok(Box::new(DirectRows {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let pipeline = Pipeline::default();
+    dual_unbounded_map_side_fixture(&pipeline, typed_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "dual-typed-map-side",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_DUAL_TYPED_MAP_SIDE".into(),
+            typed_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism dual typed side state: {terminal:?}");
+    let mut rows = std::fs::read_to_string(&typed_path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    rows.sort();
+    let mut direct = typed_direct_rows.lock().unwrap().clone();
+    direct.sort();
+    assert_eq!(rows, direct);
+    assert_eq!(
+        rows,
+        ["0..4000000:1000000:a:11", "4000000..8000000:5000000:c:3"]
     );
 }
 

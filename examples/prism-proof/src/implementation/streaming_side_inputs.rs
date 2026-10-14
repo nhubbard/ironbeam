@@ -144,6 +144,48 @@ fn dual_unbounded_sources(pipeline: &Pipeline) -> Result<(KeyedStream, KeyedStre
     Ok((main, side))
 }
 
+/// A typed map side view joins two independent watermarked sources at closure.
+pub fn dual_unbounded_map_side_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let (main, side) = dual_unbounded_sources(pipeline)?;
+    main.map_with_windowed_map_side_named(
+        "dual-typed-side-map",
+        &side,
+        |(key, value), view| {
+            let lookup = view.get(&key).copied().unwrap_or_default();
+            format!("{key}:{}", value + lookup)
+        },
+    )?
+    .reify_timestamps_named("dual-typed-side-time")?
+    .with_window_named("dual-typed-side-window")?
+    .map_named("dual-typed-side-row", |(window, (time, value))| {
+        format!("{}..{}:{time}:{value}", window.start_ns, window.end_ns)
+    })
+}
+
+pub fn dual_unbounded_map_side_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_unbounded_map_side_collection(pipeline)?.sink_named_with_config(
+        "dual-typed-side-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("dual-typed-side-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 /// Two tagged unbounded TestStream outputs meet at a fixed-window full join.
 pub fn dual_unbounded_join_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
     let (main, side) = dual_unbounded_sources(pipeline)?;
