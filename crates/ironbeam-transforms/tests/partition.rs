@@ -92,12 +92,12 @@ fn partition_of_empty_input_has_empty_outputs() {
         .unwrap();
     for (index, branch) in branches.into_iter().enumerate() {
         let output = branch.output(&format!("output-{index}")).unwrap();
-        assert!(
+        assert_eq!(
             DirectRunner
                 .run_collect(&output, &JobConfig::default())
                 .unwrap()
-                .0
-                .is_empty()
+                .0,
+            Vec::<i32>::new()
         );
     }
 }
