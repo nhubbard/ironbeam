@@ -33,8 +33,8 @@ pub mod v5 {
             CollectionExt, ConstantSideInputExt, DeadLetterExt, DynamicSideInputExt,
             ElementwiseExt, KeyedCollectionExt, KeyedExt, KeyedSamplingExt, KeyedSelectionExt,
             KeyedStatisticalExt, KeyedValidationExt, KeyedWindowedExt, LogElementsExt,
-            PredicateExt, SamplingExt, SelectionExt, StatisticalExt, TeeExt, TryProcessExt,
-            ValidationExt, WindowedExt,
+            PartitionExt, PredicateExt, SamplingExt, SelectionExt, StatisticalExt, TeeExt,
+            TryProcessExt, ValidationExt, WindowedExt,
         };
     }
     #[cfg(feature = "v5-compression")]

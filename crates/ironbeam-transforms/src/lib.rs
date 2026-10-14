@@ -30,6 +30,8 @@ mod dead_letter;
 pub use dead_letter::{Classified, DeadLetter, DeadLetterExt};
 mod tee;
 pub use tee::TeeExt;
+mod partition;
+pub use partition::PartitionExt;
 mod windowed;
 pub use windowed::{KeyedWindowedExt, WindowedExt};
 

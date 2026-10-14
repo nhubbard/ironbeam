@@ -12,7 +12,7 @@ use ironbeam_io_mongodb::{mongodb_idempotent_sink, mongodb_source};
 #[cfg(feature = "database-proofs")]
 use ironbeam_io_sql::{sql_idempotent_sink_with, sql_source};
 use ironbeam_transforms::{
-    DeadLetterExt, Validate, ValidationError, ValidationExt, ValidationResult,
+    DeadLetterExt, PartitionExt, Validate, ValidationError, ValidationExt, ValidationResult,
 };
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};

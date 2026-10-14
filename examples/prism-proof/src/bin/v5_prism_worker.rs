@@ -22,11 +22,12 @@ use ironbeam_prism_proof::{
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, panicking_global_combine_fixture,
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
-    production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_side_input_fixture, ExpandSingleton,
+    partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
+    session_group_fixture, sliding_window_group_fixture, streaming_group_fixture,
+    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_fixture, validation_fail_fixture, validation_skip_fixture,
+    windowed_side_input_fixture, ExpandSingleton,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture};
@@ -354,6 +355,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SESSION_COGROUP") {
         return bounded_session_cogroup_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_PARTITION") {
+        return partition_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

@@ -41,13 +41,13 @@ use ironbeam_prism_proof::{
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, panicking_global_combine_fixture,
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
-    production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_side_input_fixture, ExpandSingleton, ProductionAvroRow, ProductionProtoRow,
-    PRODUCTION_AVRO_SCHEMA,
+    partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
+    session_group_fixture, sliding_window_group_fixture, streaming_group_fixture,
+    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_side_input_fixture, ExpandSingleton,
+    ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -3803,6 +3803,57 @@ async fn prism_matches_direct_bounded_join_of_merged_sessions() {
     )
     .await;
     assert_eq!(terminal.0, 3, "Prism session join state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_partition_routes_and_time_metadata() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-partition.txt");
+    let portable_path = directory.path().join("portable-partition.txt");
+    let direct_pipeline = Pipeline::default();
+    let sink = partition_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let mut expected = (0_i32..9)
+        .map(|value| {
+            let start = i64::from(value / 5) * 10_000_000;
+            let stamp = i64::from(value) * 2_000_000;
+            format!(
+                "{}:{value}:{stamp}:{start}..{}",
+                value.rem_euclid(3),
+                start + 10_000_000
+            )
+        })
+        .collect::<Vec<_>>();
+    expected.sort_unstable();
+    let direct_rows = read_rows(&direct_path);
+    assert_eq!(direct_rows, expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    partition_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "partition",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_PARTITION".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism partition state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct_rows);
 }
 

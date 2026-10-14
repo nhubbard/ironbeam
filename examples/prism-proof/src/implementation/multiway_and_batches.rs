@@ -1,3 +1,57 @@
+/// Beam-style Partition with one classified route and three typed branches.
+pub fn partition_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    let source = pipeline
+        .from_vec(
+            "partition-source",
+            (0_i32..9)
+                .map(|value| (i64::from(value) * 2_000_000, value))
+                .collect(),
+        )?
+        .timestamps_from_pairs_named("partition-time")?
+        .fixed_windows("partition-window", 10_000_000)?;
+    let branches = source.partition_with_semantic_named(
+        "partition-classify",
+        "partition-branch",
+        3,
+        "tests/prism-partition-classifier",
+        Version { major: 1, minor: 0 },
+        |value| value.rem_euclid(3) as usize,
+    )?;
+    let mut rows = Vec::new();
+    for (index, branch) in branches.into_iter().enumerate() {
+        rows.push(
+            branch
+                .with_window_named(&format!("partition-bounds-{index}"))?
+                .reify_timestamps_named(&format!("partition-stamp-{index}"))?
+                .map_named(&format!("partition-row-{index}"), move |(stamp, (window, value))| {
+                    format!(
+                        "{index}:{value}:{stamp}:{}..{}",
+                        window.start_ns, window.end_ns
+                    )
+                })?,
+        );
+    }
+    let first = rows.remove(0);
+    first
+        .flatten_named("partition-merge", &rows)?
+        .sink_named_with_config(
+            "partition-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("partition-contract:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Negative event times and an offset fixed window share exact grouped metadata.
 pub fn offset_window_group_fixture(
     pipeline: &Pipeline,
