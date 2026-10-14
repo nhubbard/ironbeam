@@ -35,6 +35,7 @@ struct GroupedStreamRoute {
     source_key: String,
     before_group: Vec<String>,
     group_key: String,
+    window: Window,
     after_group: Vec<String>,
 }
 
@@ -300,7 +301,7 @@ fn grouped_stream_route(
 ) -> Result<Option<GroupedStreamRoute>, Error> {
     let mut key = sink_key;
     let mut downstream = Vec::new();
-    let mut group_key = None;
+    let mut group_key: Option<String> = None;
     let mut upstream = Vec::new();
     loop {
         let node = graph
@@ -319,6 +320,12 @@ fn grouped_stream_route(
                 return Ok(Some(GroupedStreamRoute {
                     source_key: key.to_owned(),
                     before_group: upstream,
+                    window: graph
+                        .node(group_key.as_str())
+                        .expect("group node exists")
+                        .time
+                        .window
+                        .clone(),
                     group_key,
                     after_group: downstream,
                 }));
@@ -1470,7 +1477,15 @@ fn run_grouped_stream(
                         "grouped stream state exceeds buffer budget",
                     ));
                 }
-                let entry = folds.entry((interval.start_ns, interval.end_ns));
+                // Session intervals merge by key as bridge events arrive. A
+                // single fold owns every open session so it can see both sides
+                // of a bridge, even when their original intervals differ.
+                let scope = if matches!(route.window, Window::Session { .. }) {
+                    (i64::MIN, i64::MAX)
+                } else {
+                    (interval.start_ns, interval.end_ns)
+                };
+                let entry = folds.entry(scope);
                 let (fold, count) = match entry {
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::btree_map::Entry::Vacant(entry) => {
@@ -1498,31 +1513,65 @@ fn run_grouped_stream(
             }
         }
         let next_progress = merge_progress(progress.as_ref(), batch.progress);
-        let closing = folds
-            .keys()
-            .copied()
-            .filter(|(_, end)| {
-                next_progress.completed
-                    || next_progress
-                        .event_time_ns
-                        .is_some_and(|watermark| *end <= watermark)
-            })
-            .collect::<Vec<_>>();
+        let closing = if matches!(route.window, Window::Session { .. }) {
+            if next_progress.completed || next_progress.event_time_ns.is_some() {
+                folds.keys().copied().collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
+        } else {
+            folds
+                .keys()
+                .copied()
+                .filter(|(_, end)| {
+                    next_progress.completed
+                        || next_progress
+                            .event_time_ns
+                            .is_some_and(|watermark| *end <= watermark)
+                })
+                .collect::<Vec<_>>()
+        };
         let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &next_progress);
         let mut session = None;
         let mut written = 0_u64;
         let result = (|| {
             for window in closing {
-                let (fold, count) = folds.remove(&window).expect("closing fold exists");
                 let grouped =
-                    catch_unwind(AssertUnwindSafe(|| fold.finish())).unwrap_or_else(|_| {
-                        Err(Error::execution(
-                            &route.group_key,
-                            "direct",
-                            "group fold panicked",
-                        ))
-                    })?;
-                buffered -= count;
+                    if matches!(route.window, Window::Session { .. }) && !next_progress.completed {
+                        let (fold, count) = folds.get_mut(&window).expect("session fold exists");
+                        let watermark = next_progress.event_time_ns.expect("watermark checked");
+                        let (grouped, released) =
+                            catch_unwind(AssertUnwindSafe(|| fold.drain_closed(watermark)))
+                                .unwrap_or_else(|_| {
+                                    Err(Error::execution(
+                                        &route.group_key,
+                                        "direct",
+                                        "group fold panicked",
+                                    ))
+                                })?;
+                        *count = count.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "session fold released too many rows")
+                        })?;
+                        buffered = buffered.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "session buffer count underflow")
+                        })?;
+                        if *count == 0 {
+                            folds.remove(&window);
+                        }
+                        grouped
+                    } else {
+                        let (fold, count) = folds.remove(&window).expect("closing fold exists");
+                        let grouped = catch_unwind(AssertUnwindSafe(|| fold.finish()))
+                            .unwrap_or_else(|_| {
+                                Err(Error::execution(
+                                    &route.group_key,
+                                    "direct",
+                                    "group fold panicked",
+                                ))
+                            })?;
+                        buffered -= count;
+                        grouped
+                    };
                 for event in grouped {
                     for output in
                         apply_grouped_stages(registry, &route.after_group, event, config, handle)?

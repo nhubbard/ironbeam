@@ -68,11 +68,6 @@ impl Graph {
                 return Err(Error::graph(&node.key, "session gap must be positive"));
             }
             if matches!(node.time.window, Window::Session { .. })
-                && node.boundedness == Boundedness::Unbounded
-            {
-                return Err(Error::graph(&node.key, "unbounded session grouping is not supported"));
-            }
-            if matches!(node.time.window, Window::Session { .. })
                 && matches!(
                     node.operation,
                     Operation::CoGroupByKey

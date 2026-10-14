@@ -138,6 +138,11 @@ impl<V, A, O, C: OrderedFoldFn<V, A, O>> FoldLogic<V, A, O> for OrderedAdapter<C
 }
 pub trait FoldSession: Send {
     fn add(&mut self, event: Envelope) -> Result<(), Error>;
+    /// Remove groups whose windows end at or before the watermark. Returns
+    /// their output and the number of buffered source elements released.
+    fn drain_closed(&mut self, _watermark_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
+        Err(Error::unsupported("fold", "runner", "drain-closed-windows"))
+    }
     /// Return a versioned snapshot when this fold supports in-progress recovery.
     fn checkpoint_state(&self) -> Result<Option<Vec<u8>>, Error> {
         Ok(None)

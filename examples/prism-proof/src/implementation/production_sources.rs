@@ -131,6 +131,45 @@ pub fn streaming_sliding_group_fixture(
         )
 }
 
+/// A TestStream bridge merges two open sessions after a checkpoint boundary.
+pub fn streaming_session_group_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline.test_stream_source(
+        "stream-session-events",
+        vec![
+            TestStreamEvent::Elements(vec![
+                ((3_i32, 11_i32), -10_000_000),
+                ((1_i32, 1_i32), 0),
+                ((1, 2), 8_000_000),
+                ((2, 7), 4_000_000),
+            ]),
+            TestStreamEvent::AdvanceWatermark(1_000_000),
+            TestStreamEvent::Elements(vec![((1, 3), 4_000_000)]),
+            TestStreamEvent::AdvanceWatermark(20_000_000),
+            TestStreamEvent::Elements(vec![((1, 99), 0)]),
+        ],
+    )?
+    .group_by_session_named("stream-session-group", 5_000_000)?
+    .reify_timestamps_named("stream-session-time")?
+    .with_window_named("stream-session-bounds")?
+    .map_named("stream-session-row", |(window, (time, (key, mut values)))| {
+        values.sort_unstable();
+        format!("{key}|{values:?}|{time}|{}|{}", window.start_ns, window.end_ns)
+    })?
+    .sink_named_with_config(
+        "stream-session-capture",
+        SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+        format!("stream-session-capture:{}", directory.display()),
+        move || Ok(Box::new(IdempotentRowSink {
+            directory: sink_directory.clone(),
+            pending: Vec::new(),
+        })),
+    )
+}
+
 /// Explicitly ordered multi-row keyed batches on the same unbounded source.
 pub fn streaming_ordered_batch_fixture(
     pipeline: &Pipeline,

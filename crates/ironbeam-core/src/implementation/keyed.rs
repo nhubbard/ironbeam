@@ -1,5 +1,5 @@
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
-    /// Group bounded keyed events into merging event-time sessions.
+    /// Group keyed events into merging event-time sessions.
     /// Intervals merge when they overlap or touch; the output
     /// timestamp is the earliest event timestamp in each merged session.
     pub fn group_by_session_named(
@@ -8,9 +8,6 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         gap_ns: i64,
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
         let parent = self.parent()?;
-        if parent.boundedness != Boundedness::Bounded {
-            return Err(Error::graph(key, "unbounded session grouping is not supported"));
-        }
         if parent.time.window != Window::Global {
             return Err(Error::graph(key, "assign timestamps before session grouping"));
         }

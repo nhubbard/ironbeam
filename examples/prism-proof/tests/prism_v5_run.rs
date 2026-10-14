@@ -40,10 +40,11 @@ use ironbeam_prism_proof::{
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
     production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
     sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_side_input_fixture, ExpandSingleton,
-    ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    streaming_ordered_keyed_fixture, streaming_session_group_fixture,
+    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
+    streaming_windowed_side_input_fixture, validation_fail_fixture, validation_skip_fixture,
+    windowed_side_input_fixture, ExpandSingleton, ProductionAvroRow, ProductionProtoRow,
+    PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -4200,6 +4201,56 @@ async fn prism_matches_direct_unbounded_sliding_windows_and_late_drop() {
     )
     .await;
     assert_eq!(terminal.0, 3, "Prism streaming slide state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_unbounded_merging_sessions() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-session");
+    let portable_path = directory.path().join("portable-session");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        streaming_session_group_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let direct_rows = read_rows(&direct_path);
+    assert_eq!(
+        direct_rows,
+        [
+            "1|[1, 2, 3]|0|0|13000000",
+            "2|[7]|4000000|4000000|9000000",
+            "3|[11]|-10000000|-10000000|-5000000",
+        ]
+    );
+    let portable_pipeline = Pipeline::default();
+    streaming_session_group_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "stream-session",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAM_SESSION".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism streaming session state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct_rows);
 }
 

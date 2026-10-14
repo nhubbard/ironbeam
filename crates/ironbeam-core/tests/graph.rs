@@ -601,12 +601,11 @@ fn session_windows_validate_gap_and_time_bounds() {
             0,
         )
         .unwrap();
-    assert!(
-        unbounded
-            .group_by_session_named("unbounded-session", 5)
-            .is_err()
-    );
+    unbounded
+        .group_by_session_named("unbounded-session", 5)
+        .unwrap();
     let (graph, _) = pipeline.snapshot().unwrap();
+    graph.validate().unwrap();
     let mut malformed = graph.clone();
     malformed.node_mut_for_test("session/session").time.window = Window::Session { gap_ns: 0 };
     assert_eq!(malformed.validate().unwrap_err().kind, ErrorKind::Graph);

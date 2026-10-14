@@ -254,6 +254,22 @@ struct GroupFoldCheckpointRow {
 const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 2, minor: 0 };
 
 impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
+    fn rebuild_indices(&mut self) {
+        self.global_indices.clear();
+        self.window_indices.clear();
+        self.session_indices.clear();
+        for (index, (key, _, _, window, interval)) in self.groups.iter().enumerate() {
+            if let Some(interval) = interval {
+                self.window_indices.insert((key.clone(), *interval), index);
+                if matches!(window, Window::Session { .. }) {
+                    self.session_indices.entry(key.clone()).or_default().push(index);
+                }
+            } else {
+                self.global_indices.insert(key.clone(), index);
+            }
+        }
+    }
+
     fn add_row(
         &mut self,
         group_key: K,
@@ -308,19 +324,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
                     primary,
                     (group_key, values, timestamp, window, Some(merged)),
                 );
-                self.window_indices.clear();
-                self.session_indices.clear();
-                for (index, (key, _, _, window, interval)) in self.groups.iter().enumerate() {
-                    if let Some(interval) = interval {
-                        self.window_indices.insert((key.clone(), *interval), index);
-                        if matches!(window, Window::Session { .. }) {
-                            self.session_indices
-                                .entry(key.clone())
-                                .or_default()
-                                .push(index);
-                        }
-                    }
-                }
+                self.rebuild_indices();
             } else {
                 let index = self.groups.len();
                 self.window_indices.insert((group_key.clone(), merged), index);
@@ -378,6 +382,28 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             .map_err(|_| Error::execution(&self.key, "direct", "group input type mismatch"))?;
         self.add_row(group_key, value, timestamp_ns, window, assigned_window);
         Ok(())
+    }
+
+    fn drain_closed(&mut self, watermark_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
+        let mut remaining = Vec::new();
+        let mut closed = Vec::new();
+        let mut released = 0_usize;
+        for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
+            if assigned_window.is_some_and(|interval| interval.end_ns <= watermark_ns) {
+                released = released.saturating_add(values.len());
+                closed.push(Envelope {
+                    value: Box::new((key, values)),
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                });
+            } else {
+                remaining.push((key, values, timestamp_ns, window, assigned_window));
+            }
+        }
+        self.groups = remaining;
+        self.rebuild_indices();
+        Ok((closed, released))
     }
 
     fn accepts_vec_batch(&self, batch_type: TypeId) -> bool {
