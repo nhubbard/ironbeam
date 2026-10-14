@@ -73,6 +73,41 @@ fn main() -> Result<(), ironbeam::Error> {
 
 A grouped result contains a key and its values. A shuffle may change value order, so an application that depends on order must provide an explicit order key through the corresponding ordered operation. The transform crates also include keyed reductions, joins, sampling, selection, validation, and side inputs. The [ETL example](https://github.com/nhubbard/ironbeam/blob/main/examples/etl_pipeline.rs) applies several of these operations in one pipeline.
 
+## Bounded side views
+
+A side view lets each main element consult a bounded collection. The global
+`map_with_side_named` method supplies a slice of all side values. Three typed
+helpers give that slice a specific shape:
+
+| Method | View | Invalid input |
+| --- | --- | --- |
+| `map_with_singleton_side_named` | One side value | Zero or multiple values fail execution |
+| `map_with_map_side_named` | One value per key | Duplicate keys fail execution |
+| `map_with_multimap_side_named` | All values per key | Value order is unspecified |
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let orders = pipeline.from_vec("orders", vec!["a".to_owned(), "b".to_owned()])?;
+    let rates = pipeline.from_vec("rates", vec![("a".to_owned(), 10_i32)])?;
+    let totals = orders
+        .map_with_map_side_named("rate-lookup", &rates, |key, rates| {
+            rates.get(&key).copied().unwrap_or_default()
+        })?
+        .collect_seq()?;
+    assert_eq!(totals, vec![10, 0]);
+    Ok(())
+}
+```
+
+These helpers materialize one global view. For matching values in each event
+time window, use `map_with_windowed_side_named`. It also accepts an unbounded
+side collection when both inputs have watermarks; the view is applied once
+the window closes on both inputs. It does not update a result already emitted
+from that window.
+
 ## Batches and custom handlers
 
 Version 5 batch transforms use an explicit size rather than an implicit physical partition boundary. Registered custom handlers have semantic identifiers and versions; those values contribute to graph identity. The [migration guide](../migration/operations.md) describes the effect on v4 programs. Runner-specific capability checks determine whether a stateful graph can execute on Direct or the portable worker.

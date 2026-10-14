@@ -27,7 +27,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two-source unbounded session joins and co-groups merge across inputs when their source watermarks advance after the connecting records; tested late rows drop at zero lateness | Independent-source bounded and intermediate-watermark agreement for cross-input sessions, more than two unbounded session inputs, nonzero allowed lateness, and broader merging cases |
 | Triggers and panes | Default trigger only. `reify_panes_named` and sink metadata expose pane timing and indices. Fixed and overlapping sliding windows agree on source and grouped panes. A merged-session fixture exposes a Prism pane-timing difference. The Fn API boundary preserves the optional opaque element metadata payload | Resolve the merged-session pane difference; add custom early and late triggers, accumulation, allowed lateness, and agreement for multiple firings |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
-| Side inputs | Bounded global and per-window views; a two-unbounded-source windowed view matches Direct and Prism after both source watermarks close each window | Streaming side-input updates before closure and broader view types |
+| Side inputs | Bounded iterable, singleton, map, and multimap global views; bounded per-window views; a two-unbounded-source windowed view matches Direct and Prism after both source watermarks close each window | Streaming side-input updates before closure and per-window singleton/map views |
 | Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
 | I/O formats | Separate CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord crates; native Avro reader schemas resolve defaults, projections, numeric promotion, and field aliases through nested and named schemas across local files, globs, shards, and provider-neutral object URIs | Expand schema evolution beyond the tested Avro cases and bind object providers in portable workers |
 | External services | SQL, MongoDB, object storage, and opt-in GCP clients | Provider emulator and hosted service behavior, authentication, and streaming commit guarantees |
@@ -161,7 +161,10 @@ required when the reducer's result depends on sequence.
 
 A side input supplies a view of another collection to a transform. Its values
 must be available for the main element's window before that element can run.
-Ironbeam supports a global side view and a per-window side view. The latter
+Ironbeam supports global iterable, singleton, map, and multimap views. A
+singleton requires exactly one value; a map rejects duplicate keys. A shared
+Direct/Prism job checks all three typed views and an empty lookup. Ironbeam
+also supports a per-window side view. The latter
 uses a co-group, so an empty side window still has a defined result when the
 main side has values. The live shared fixture checks both runners with an
 unbounded main collection, including an empty side window. The windowed API
