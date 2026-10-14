@@ -788,9 +788,6 @@ macro_rules! define_cogroup {
                 }
                 unbounded |= other_node.boundedness == Boundedness::Unbounded;
             )+
-            if session_cogroup && unbounded {
-                return Err(Error::graph(key, "unbounded session co-groups require cross-input watermark and recovery support"));
-            }
             if unbounded && first_node.time.window == Window::Global {
                 return Err(Error::graph(key, "unbounded global co-group requires a finite window"));
             }

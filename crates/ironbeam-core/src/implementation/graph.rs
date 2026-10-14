@@ -67,22 +67,6 @@ impl Graph {
             if matches!(node.time.window, Window::Session { gap_ns } if gap_ns <= 0) {
                 return Err(Error::graph(&node.key, "session gap must be positive"));
             }
-            if matches!(node.time.window, Window::Session { .. })
-                && node.boundedness == Boundedness::Unbounded
-                && matches!(
-                    node.operation,
-                    Operation::CoGroupByKey
-                        | Operation::JoinInner
-                        | Operation::JoinLeft
-                        | Operation::JoinRight
-                        | Operation::JoinFull
-                )
-            {
-                return Err(Error::graph(
-                    &node.key,
-                    "unbounded session joins and co-groups require cross-input merge support",
-                ));
-            }
             if matches!(node.operation, Operation::FixedWindow)
                 && !matches!(
                     node.time.window,

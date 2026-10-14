@@ -753,12 +753,6 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let unbounded = left.boundedness == Boundedness::Unbounded
             || other.boundedness == Boundedness::Unbounded;
         let session_join = matches!(left.time.window, Window::Session { .. });
-        if session_join && unbounded {
-            return Err(Error::graph(
-                key,
-                "unbounded session joins require cross-input watermark and recovery support",
-            ));
-        }
         if unbounded && left.time.window == Window::Global {
             return Err(Error::graph(
                 key,

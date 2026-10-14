@@ -1,3 +1,70 @@
+fn dual_unbounded_session_sources(pipeline: &Pipeline) -> Result<(KeyedStream, KeyedStream), Error> {
+    let main = pipeline.test_stream_source("dual-session-main", vec![
+        TestStreamEvent::Elements(vec![
+            (("a".to_owned(), 1_i32), 0),
+            (("b".to_owned(), 99_i32), 0),
+        ]),
+        TestStreamEvent::Elements(vec![(("a".to_owned(), 2_i32), 8_000_000)]),
+        TestStreamEvent::AdvanceWatermark(20_000_000),
+    ])?.session_windows_named("dual-session-main-window", 5_000_000)?;
+    let side = pipeline.test_stream_source("dual-session-side", vec![
+        TestStreamEvent::Elements(vec![(("a".to_owned(), 10_i32), 4_000_000)]),
+        TestStreamEvent::AdvanceWatermark(20_000_000),
+    ])?.session_windows_named("dual-session-side-window", 5_000_000)?;
+    Ok((main, side))
+}
+
+/// A side event bridges two unbounded keyed session intervals across inputs.
+pub fn dual_unbounded_session_join_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let (main, side) = dual_unbounded_session_sources(pipeline)?;
+    main.join_inner_named("dual-session-join", &side)?
+        .with_window_named("dual-session-window")?
+        .map_named("dual-session-row", |(window, (key, (left, right)))| {
+            format!("{}..{}:{key}:{left}:{right}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn dual_unbounded_session_cogroup_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let (main, side) = dual_unbounded_session_sources(pipeline)?;
+    ironbeam_core::cogroup_by_key_2_named("dual-session-cogroup", &main, &side)?
+        .with_window_named("dual-session-cogroup-window")?
+        .map_named("dual-session-cogroup-row", |(window, (key, (mut main, mut side)))| {
+            main.sort_unstable();
+            side.sort_unstable();
+            format!("{}..{}:{key}:{main:?}:{side:?}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn dual_unbounded_session_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_unbounded_session_cogroup_collection(pipeline)?.sink_named_with_config(
+        "dual-session-cogroup-result",
+        SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+        format!("dual-session-cogroup-result:{}", path.display()),
+        move || Ok(Box::new(GlobalFoldSink { path: sink_path.clone(), values: Vec::new() })),
+    )
+}
+
+pub fn dual_unbounded_session_join_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_unbounded_session_join_collection(pipeline)?.sink_named_with_config(
+        "dual-session-result",
+        SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+        format!("dual-session-result:{}", path.display()),
+        move || Ok(Box::new(GlobalFoldSink { path: sink_path.clone(), values: Vec::new() })),
+    )
+}
+
 pub fn dual_unbounded_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,

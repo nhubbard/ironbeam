@@ -4,6 +4,7 @@
 
 use super::*;
 use std::fmt::Write as _;
+mod session;
 
 const MULTI_SOURCE_KEY: &str = "ironbeam:multi-source";
 
@@ -62,7 +63,10 @@ pub(super) fn start_dual_side_stream<T: Element>(
     for key in [&route.source_key, &route.side_source_key] {
         validate_dual_source(graph, &registry, key)?;
     }
-    if config.checkpoint.is_some() || !route.other_aggregates.is_empty() {
+    if config.checkpoint.is_some()
+        || !route.other_aggregates.is_empty()
+        || matches!(route.window, Window::Session { .. })
+    {
         for key in [&route.main_input_key, &route.side_input_key] {
             if !registry.has_coder(key) {
                 return Err(Error::unsupported(
@@ -72,6 +76,16 @@ pub(super) fn start_dual_side_stream<T: Element>(
                 ));
             }
         }
+    }
+    if matches!(route.window, Window::Session { .. })
+        && !registry.has_join_coder(&route.aggregate_key)
+        && !registry.has_cogroup_coder(&route.aggregate_key)
+    {
+        return Err(Error::unsupported(
+            &route.aggregate_key,
+            "direct",
+            "session-key-coder",
+        ));
     }
     let checkpoint = config
         .checkpoint
@@ -746,22 +760,42 @@ fn run_dual_side_stream(
                 .checked_add(1)
                 .ok_or_else(|| Error::resource("checkpoint", "dual stream sequence exhausted"))?;
             let combined = multi_progress(sequence, &progress);
-            let closing = main_windows
-                .keys()
-                .chain(side_windows.keys())
-                .copied()
-                .filter(|(_, end)| {
-                    dual_watermark(&progress).is_some_and(|watermark| *end <= watermark)
-                })
-                .collect::<BTreeSet<_>>();
+            let closing = if matches!(route.window, Window::Session { .. }) {
+                if let Some(watermark) = dual_watermark(&progress) {
+                    session::close_ready_sessions(
+                        registry,
+                        route,
+                        &mut main_windows,
+                        &mut side_windows,
+                        watermark,
+                    )?
+                } else {
+                    Vec::new()
+                }
+            } else {
+                main_windows
+                    .keys()
+                    .chain(side_windows.keys())
+                    .copied()
+                    .filter(|(_, end)| {
+                        dual_watermark(&progress).is_some_and(|watermark| *end <= watermark)
+                    })
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .map(|window| {
+                        (
+                            main_windows.remove(&window).unwrap_or_default(),
+                            side_windows.remove(&window).unwrap_or_default(),
+                        )
+                    })
+                    .collect()
+            };
             let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &combined);
             let mut session = None;
             let mut written = 0_u64;
             let result =
                 (|| {
-                    for window in closing {
-                        let mut main = main_windows.remove(&window).unwrap_or_default();
-                        let mut side = side_windows.remove(&window).unwrap_or_default();
+                    for (mut main, mut side) in closing {
                         buffered -= main.len() + side.len();
                         let branches = std::iter::once((
                             route.aggregate_key.as_str(),

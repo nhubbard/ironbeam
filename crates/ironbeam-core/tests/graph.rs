@@ -616,19 +616,15 @@ fn session_windows_validate_gap_and_time_bounds() {
     let unbounded_grouped = unbounded
         .group_by_session_named("unbounded-session", 5)
         .unwrap();
-    assert!(
-        unbounded_grouped
-            .join_inner_named("unsupported-unbounded-session-join", &unbounded_grouped)
-            .is_err()
-    );
-    assert!(
-        cogroup_by_key_2_named(
-            "unsupported-unbounded-session-cogroup",
-            &unbounded_grouped,
-            &unbounded_grouped
-        )
-        .is_err()
-    );
+    unbounded_grouped
+        .join_inner_named("unbounded-session-join", &unbounded_grouped)
+        .unwrap();
+    cogroup_by_key_2_named(
+        "unbounded-session-cogroup",
+        &unbounded_grouped,
+        &unbounded_grouped,
+    )
+    .unwrap();
     let (graph, _) = pipeline.snapshot().unwrap();
     graph.validate().unwrap();
     let mut malformed = graph.clone();

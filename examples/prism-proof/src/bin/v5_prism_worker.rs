@@ -13,6 +13,7 @@ use ironbeam_prism_proof::{
     bounded_wait_on_fixture, completion_signal, dead_letter_fixture,
     dual_unbounded_cogroup_fixture, dual_unbounded_flatten_fixture, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_fixture, dual_unbounded_late_join_fixture,
+    dual_unbounded_session_cogroup_fixture, dual_unbounded_session_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
     finalization_probe_sink, global_fold_fixture, global_vector_fixture, group_time_fixture,
     invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
@@ -243,6 +244,16 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_JOIN") {
         return dual_unbounded_join_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_SESSION_JOIN") {
+        return dual_unbounded_session_join_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_SESSION_COGROUP") {
+        return dual_unbounded_session_cogroup_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_LATE_JOIN") {
         return dual_unbounded_late_join_fixture(pipeline, path.into())

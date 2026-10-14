@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_lines)] // End-to-end streaming scenarios retain their setup and assertions together.
 
+use ironbeam_core::cogroup_by_key_2_named;
 use ironbeam_core::{
     DynOp, Error, ErrorKind, Partition, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
     SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
@@ -748,6 +749,15 @@ fn unbounded_full_join_emits_bounded_side_only_and_main_only_rows() {
 
 #[test]
 fn two_unbounded_join_waits_for_both_watermarks_and_recovers_open_window() {
+    dual_join_recovers_open_window(false);
+}
+
+#[test]
+fn two_unbounded_session_join_recovers_open_window() {
+    dual_join_recovers_open_window(true);
+}
+
+fn dual_join_recovers_open_window(session: bool) {
     let temporary = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));
@@ -758,7 +768,7 @@ fn two_unbounded_join_waits_for_both_watermarks_and_recovers_open_window() {
         let source_key = key.to_owned();
         let opens = Arc::clone(&opens);
         let pause_side = Arc::clone(&pause_side);
-        pipeline
+        let collection = pipeline
             .unbounded_source_with_factory(
                 key,
                 SourceProgress {
@@ -779,7 +789,15 @@ fn two_unbounded_join_waits_for_both_watermarks_and_recovers_open_window() {
                                 .into_iter()
                                 .map(|value| Timestamped {
                                     value,
-                                    timestamp_ns: 1,
+                                    timestamp_ns: if session {
+                                        match value {
+                                            11 => 9,
+                                            20 => 5,
+                                            _ => 1,
+                                        }
+                                    } else {
+                                        1
+                                    },
                                 })
                                 .collect(),
                             progress: ProgressSignal {
@@ -791,8 +809,22 @@ fn two_unbounded_join_waits_for_both_watermarks_and_recovers_open_window() {
                             },
                         })
                     };
-                    let first = ready(1, 0, false, vec![value]);
-                    let last = ready(2, 10, true, vec![]);
+                    let first_values = if session {
+                        if source_key == "main" {
+                            vec![value, 11]
+                        } else {
+                            vec![]
+                        }
+                    } else {
+                        vec![value]
+                    };
+                    let last_values = if session && source_key == "side" {
+                        vec![value]
+                    } else {
+                        vec![]
+                    };
+                    let first = ready(1, 0, false, first_values);
+                    let last = ready(2, 20, true, last_values);
                     let polls = match (source_key.as_str(), cursor.as_deref()) {
                         ("main", None) => vec![first, last],
                         ("side", None) if pause_side.load(Ordering::SeqCst) => vec![first],
@@ -804,9 +836,14 @@ fn two_unbounded_join_waits_for_both_watermarks_and_recovers_open_window() {
                     }) as TypedUnboundedSourceReader<i32>)
                 },
             )
-            .unwrap()
-            .fixed_windows(&format!("{key}-window"), 10)
-            .unwrap()
+            .unwrap();
+        let windowed = if session {
+            collection.session_windows_named(&format!("{key}-window"), 5)
+        } else {
+            collection.fixed_windows(&format!("{key}-window"), 10)
+        }
+        .unwrap();
+        windowed
             .map_named(&format!("{key}-key"), |value| (1_i32, value))
             .unwrap()
     };
@@ -867,7 +904,10 @@ fn two_unbounded_join_waits_for_both_watermarks_and_recovers_open_window() {
             .status(),
         JobStatus::Succeeded
     );
-    assert_eq!(*committed.lock().unwrap(), vec![130]);
+    assert_eq!(
+        *committed.lock().unwrap(),
+        if session { vec![130, 131] } else { vec![130] }
+    );
     assert_eq!(
         *opens.lock().unwrap(),
         vec![
@@ -1123,6 +1163,151 @@ fn two_unbounded_join_drops_late_rows_after_both_watermarks_close_window() {
         .wait()
         .unwrap();
     assert_eq!(*committed.lock().unwrap(), [130]);
+}
+
+#[test]
+fn two_unbounded_session_join_merges_cross_input_bridge_before_watermark() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let main = pipeline
+        .test_stream_source(
+            "session-main",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 1_i32), 0), ((2, 99), 0)]),
+                TestStreamEvent::Elements(vec![((1, 2), 8)]),
+                TestStreamEvent::AdvanceWatermark(20),
+            ],
+        )
+        .unwrap()
+        .session_windows_named("session-main-window", 5)
+        .unwrap();
+    let side = pipeline
+        .test_stream_source(
+            "session-side",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 4)]),
+                TestStreamEvent::AdvanceWatermark(20),
+            ],
+        )
+        .unwrap()
+        .session_windows_named("session-side-window", 5)
+        .unwrap();
+    let sink = main
+        .join_inner_named("session-join", &side)
+        .unwrap()
+        .with_window_named("session-window")
+        .unwrap()
+        .map_named("session-value", |(window, (_, (left, right)))| {
+            i32::try_from(window.end_ns).unwrap() * 100 + left + right
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "session-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "session-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort_unstable();
+    assert_eq!(rows, [1311, 1312]);
+}
+
+#[test]
+fn two_unbounded_session_cogroup_merges_cross_input_bridge() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let main = pipeline
+        .test_stream_source(
+            "co-session-main",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 1_i32), 0), ((1, 2), 8)]),
+                TestStreamEvent::AdvanceWatermark(20),
+            ],
+        )
+        .unwrap()
+        .session_windows_named("co-session-main-window", 5)
+        .unwrap();
+    let side = pipeline
+        .test_stream_source(
+            "co-session-side",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 10_i32), 4)]),
+                TestStreamEvent::AdvanceWatermark(20),
+            ],
+        )
+        .unwrap()
+        .session_windows_named("co-session-side-window", 5)
+        .unwrap();
+    let sink = cogroup_by_key_2_named("co-session-group", &main, &side)
+        .unwrap()
+        .with_window_named("co-session-window")
+        .unwrap()
+        .map_named(
+            "co-session-value",
+            |(window, (_, (mut left, mut right)))| {
+                left.sort_unstable();
+                right.sort_unstable();
+                i32::try_from(window.end_ns).unwrap() * 100
+                    + left.iter().sum::<i32>()
+                    + right.iter().sum::<i32>()
+            },
+        )
+        .unwrap()
+        .sink_named_with_config(
+            "co-session-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "co-session-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(BundleCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                        fail_commit: Arc::new(AtomicBool::new(false)),
+                        cancel_on_write: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*committed.lock().unwrap(), [1313]);
 }
 
 #[test]

@@ -40,6 +40,7 @@ struct GroupedStreamRoute {
 }
 
 struct BoundedSideStreamRoute {
+    window: Window,
     source_key: String,
     main_stages: Vec<String>,
     main_input_key: String,
@@ -409,17 +410,19 @@ fn side_stream_route(
             let (side_source_key, side_stages) = linear_stream_input(graph, &side.key)?;
             if graph.node(&source_key)?.boundedness != ironbeam_core::Boundedness::Unbounded
                 || graph.node(&side_source_key)?.boundedness != side_boundedness
-                || !matches!(
+                || !(matches!(
                     node.time.window,
                     ironbeam_core::Window::Fixed { .. }
                         | ironbeam_core::Window::FixedOffset { .. }
                         | ironbeam_core::Window::Sliding { .. }
-                )
+                ) || (matches!(node.time.window, ironbeam_core::Window::Session { .. })
+                    && side_boundedness == ironbeam_core::Boundedness::Unbounded))
             {
                 return None;
             }
             downstream.reverse();
             return Some(BoundedSideStreamRoute {
+                window: node.time.window.clone(),
                 source_key,
                 main_stages,
                 main_input_key: main_input_key.to_owned(),
