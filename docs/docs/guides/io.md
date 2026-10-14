@@ -110,7 +110,9 @@ It rejects a changed object. This adapter currently uses the registered
 provider in the local process. The bundled object-store backend is local;
 GCP's official storage client has a separate asynchronous API and does not yet
 implement this registry's `ObjectIO` contract. Portable worker access also
-needs an execution binding.
+needs an execution binding. Enable the Avro crate's `cloud` feature for these
+functions; the root `cloud` feature forwards to it when `v5-io-avro` is also
+enabled.
 
 ## Writing a result
 

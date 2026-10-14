@@ -1,3 +1,4 @@
+#![cfg(feature = "cloud")]
 use ironbeam_cloud_objects::{LocalObjectIO, ObjectStores};
 use ironbeam_core::{Element, ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};

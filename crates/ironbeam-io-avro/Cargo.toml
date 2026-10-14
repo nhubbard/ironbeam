@@ -9,6 +9,7 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = []
+cloud = ["dep:ironbeam-cloud-objects"]
 parallel-io = ["ironbeam-io/parallel-io"]
 compression-gzip = ["ironbeam-io/compression-gzip"]
 compression-zstd = ["ironbeam-io/compression-zstd"]
@@ -17,7 +18,7 @@ compression-xz = ["ironbeam-io/compression-xz"]
 
 [dependencies]
 ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
-ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects" }
+ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects", optional = true }
 ironbeam-io = { version = "5.0.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
 apache-avro = "0.22"
 serde = { version = "1", features = ["derive"] }
