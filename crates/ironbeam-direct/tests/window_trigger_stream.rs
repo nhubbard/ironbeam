@@ -100,16 +100,26 @@ fn batch(
 
 #[test]
 fn early_count_pane_indices_survive_checkpoint_recovery() {
-    run_count_pane_recovery(false);
+    run_count_pane_recovery(false, false);
 }
 
 #[test]
 fn accumulating_count_values_survive_checkpoint_recovery() {
-    run_count_pane_recovery(true);
+    run_count_pane_recovery(true, false);
+}
+
+#[test]
+fn latest_in_pane_discarding_times_survive_checkpoint_recovery() {
+    run_count_pane_recovery(false, true);
+}
+
+#[test]
+fn latest_in_pane_accumulating_times_survive_checkpoint_recovery() {
+    run_count_pane_recovery(true, true);
 }
 
 #[allow(clippy::too_many_lines)] // The source, sink, restart, and pane assertions form one scenario.
-fn run_count_pane_recovery(accumulating: bool) {
+fn run_count_pane_recovery(accumulating: bool, latest_time: bool) {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let opens = Arc::new(Mutex::new(Vec::new()));
@@ -144,6 +154,13 @@ fn run_count_pane_recovery(accumulating: bool) {
         )
         .unwrap();
     let values = values.fixed_windows("windows", 10_000_000).unwrap();
+    let values = if latest_time {
+        values
+            .latest_in_pane_output_time_named("output-time")
+            .unwrap()
+    } else {
+        values
+    };
     let values = if accumulating {
         values.accumulating_count_trigger_named("count-trigger", 1)
     } else {
@@ -153,11 +170,18 @@ fn run_count_pane_recovery(accumulating: bool) {
     let sink = values
         .group_by_key_named("groups")
         .unwrap()
+        .reify_timestamps_named("timestamp")
+        .unwrap()
         .reify_panes_named("pane")
         .unwrap()
-        .map_named("row", |(pane, (key, values))| {
+        .map_named("row", move |(pane, (timestamp, (key, values)))| {
+            let timestamp = if latest_time {
+                format!(":{timestamp}")
+            } else {
+                String::new()
+            };
             format!(
-                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                "{key}:{values:?}{timestamp}:{:?}:{}:{}:{}:{}",
                 pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
             )
         })
@@ -208,10 +232,12 @@ fn run_count_pane_recovery(accumulating: bool) {
         );
         std::thread::sleep(Duration::from_millis(1));
     }
-    assert_eq!(
-        committed.lock().unwrap().as_slice(),
-        ["a:[2]:Early:true:false:0:-1"]
-    );
+    let first = if latest_time {
+        "a:[2]:1000000:Early:true:false:0:-1"
+    } else {
+        "a:[2]:Early:true:false:0:-1"
+    };
+    assert_eq!(committed.lock().unwrap().as_slice(), [first]);
     job.cancel();
     assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
     DirectRunner
@@ -220,11 +246,22 @@ fn run_count_pane_recovery(accumulating: bool) {
         .wait()
         .unwrap();
     assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
-    let expected = if accumulating {
+    let expected = if accumulating && latest_time {
+        vec![
+            "a:[2]:1000000:Early:true:false:0:-1",
+            "a:[2, 3]:3000000:Early:false:false:1:-1",
+            "a:[2, 3]:3000000:OnTime:false:true:2:0",
+        ]
+    } else if accumulating {
         vec![
             "a:[2]:Early:true:false:0:-1",
             "a:[2, 3]:Early:false:false:1:-1",
             "a:[2, 3]:OnTime:false:true:2:0",
+        ]
+    } else if latest_time {
+        vec![
+            "a:[2]:1000000:Early:true:false:0:-1",
+            "a:[3]:3000000:Early:false:false:1:-1",
         ]
     } else {
         vec![

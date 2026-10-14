@@ -243,7 +243,10 @@ sliding windows. This policy requires millisecond-aligned window dimensions.
 event timestamp in its pane. A bounded fixed-window fixture emits at 7 ms for
 input at 5, 2, and 7 ms on both Direct and pinned Prism. Direct preserves the
 maximum through coded checkpoint recovery and accumulating early and on-time
-panes. Both policies currently apply to single-input GroupByKey.
+panes. A two-advance TestStream also exercises latest-in-pane output time on
+pinned Prism; Direct restores the corresponding discarding and accumulating
+unbounded folds after a checkpoint. Both policies currently apply to
+single-input GroupByKey.
 
 Ironbeam's Fn Data coder decodes Beam pane
 timing, first and last flags, and indices. When Beam sets the element metadata

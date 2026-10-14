@@ -143,20 +143,28 @@ pub fn count_trigger_stream_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    count_trigger_stream_fixture_with_mode(pipeline, path, false)
+    count_trigger_stream_fixture_with_mode(pipeline, path, false, false)
 }
 
 pub fn accumulating_count_trigger_stream_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    count_trigger_stream_fixture_with_mode(pipeline, path, true)
+    count_trigger_stream_fixture_with_mode(pipeline, path, true, false)
+}
+
+pub fn accumulating_latest_count_trigger_stream_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    count_trigger_stream_fixture_with_mode(pipeline, path, true, true)
 }
 
 fn count_trigger_stream_fixture_with_mode(
     pipeline: &Pipeline,
     path: PathBuf,
     accumulating: bool,
+    latest_time: bool,
 ) -> Result<Sink<String>, Error> {
     let values = pipeline
         .test_stream_source(
@@ -169,6 +177,11 @@ fn count_trigger_stream_fixture_with_mode(
             ],
         )?
         .fixed_windows("count-windows", 10_000_000)?;
+    let values = if latest_time {
+        values.latest_in_pane_output_time_named("count-output-time")?
+    } else {
+        values
+    };
     let values = if accumulating {
         values.accumulating_count_trigger_named("count-trigger", 1)?
     } else {
@@ -176,11 +189,17 @@ fn count_trigger_stream_fixture_with_mode(
     };
     let rows = values
         .group_by_key_named("count-group")?
+        .reify_timestamps_named("count-timestamp")?
         .reify_panes_named("count-pane")?
-        .map_named("count-row", |(pane, (key, mut values))| {
+        .map_named("count-row", move |(pane, (timestamp, (key, mut values)))| {
             values.sort_unstable();
+            let timestamp = if latest_time {
+                format!(":{timestamp}")
+            } else {
+                String::new()
+            };
             format!(
-                "group:{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                "group:{key}:{values:?}{timestamp}:{:?}:{}:{}:{}:{}",
                 pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
             )
         })?;
