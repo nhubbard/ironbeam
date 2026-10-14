@@ -24,6 +24,24 @@ struct PrimaryWins {
     current: String,
     renamed: String,
 }
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+struct ReferencedRows {
+    first: Renamed,
+    second: Renamed,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+struct UnionReferencedRows {
+    first: Renamed,
+    second: Option<Renamed>,
+}
+impl Element for UnionReferencedRows {
+    const TYPE_ID: &'static str = "tests/union-referenced-alias-rows";
+    const CODER_ID: &'static str = "tests/union-referenced-alias-rows-json";
+}
+impl Element for ReferencedRows {
+    const TYPE_ID: &'static str = "tests/referenced-alias-rows";
+    const CODER_ID: &'static str = "tests/referenced-alias-rows-json";
+}
 impl Element for PrimaryWins {
     const TYPE_ID: &'static str = "tests/primary-field-wins";
     const CODER_ID: &'static str = "tests/primary-field-wins-json";
@@ -105,6 +123,120 @@ fn nested_aliases_resolve_inside_arrays_and_maps() {
             expected
         );
     }
+}
+
+#[test]
+fn aliases_resolve_through_named_schema_references() {
+    let dir = tempfile::tempdir().unwrap();
+    let writer = r#"{"type":"record","name":"Outer","fields":[{"name":"first","type":{"type":"record","name":"Inner","fields":[{"name":"old_name","type":"string"}]}},{"name":"second","type":"Inner"}]}"#;
+    let reader = r#"{"type":"record","name":"Outer","fields":[{"name":"first","type":{"type":"record","name":"Inner","fields":[{"name":"new_name","type":"string","aliases":["old_name"]}]}},{"name":"second","type":"Inner"}]}"#;
+    for namespace in [false, true] {
+        let path = dir.path().join(format!("references-{namespace}.avro"));
+        let (writer, reader) = if namespace {
+            (
+                writer.replace(
+                    "\"name\":\"Outer\"",
+                    "\"name\":\"Outer\",\"namespace\":\"example\"",
+                ),
+                reader.replace(
+                    "\"name\":\"Outer\"",
+                    "\"name\":\"Outer\",\"namespace\":\"example\"",
+                ),
+            )
+        } else {
+            (writer.to_owned(), reader.to_owned())
+        };
+        write_value(
+            &path,
+            &writer,
+            Value::Record(vec![
+                (
+                    "first".into(),
+                    Value::Record(vec![("old_name".into(), Value::String("one".into()))]),
+                ),
+                (
+                    "second".into(),
+                    Value::Record(vec![("old_name".into(), Value::String("two".into()))]),
+                ),
+            ]),
+        );
+        let pipeline = Pipeline::default();
+        let output = avro_source_with_reader_schema::<ReferencedRows>(
+            &pipeline,
+            "references",
+            &path,
+            &reader,
+        )
+        .unwrap()
+        .output("output")
+        .unwrap();
+        assert_eq!(
+            DirectRunner
+                .run_collect(&output, &JobConfig::default())
+                .unwrap()
+                .0,
+            vec![ReferencedRows {
+                first: Renamed {
+                    new_name: "one".into()
+                },
+                second: Renamed {
+                    new_name: "two".into()
+                }
+            }]
+        );
+    }
+}
+
+#[test]
+fn aliases_resolve_through_nullable_named_references() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("union-reference.avro");
+    let writer = r#"{"type":"record","name":"Outer","namespace":"example","fields":[{"name":"first","type":{"type":"record","name":"Inner","fields":[{"name":"old_name","type":"string"}]}},{"name":"second","type":["null","Inner"]}]}"#;
+    let reader = r#"{"type":"record","name":"Outer","namespace":"example","fields":[{"name":"first","type":{"type":"record","name":"Inner","fields":[{"name":"new_name","type":"string","aliases":["old_name"]}]}},{"name":"second","type":["null","Inner"]}]}"#;
+    write_value(
+        &path,
+        writer,
+        Value::Record(vec![
+            (
+                "first".into(),
+                Value::Record(vec![("old_name".into(), Value::String("one".into()))]),
+            ),
+            (
+                "second".into(),
+                Value::Union(
+                    1,
+                    Box::new(Value::Record(vec![(
+                        "old_name".into(),
+                        Value::String("two".into()),
+                    )])),
+                ),
+            ),
+        ]),
+    );
+    let pipeline = Pipeline::default();
+    let output = avro_source_with_reader_schema::<UnionReferencedRows>(
+        &pipeline,
+        "union-reference",
+        &path,
+        reader,
+    )
+    .unwrap()
+    .output("output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![UnionReferencedRows {
+            first: Renamed {
+                new_name: "one".into()
+            },
+            second: Some(Renamed {
+                new_name: "two".into()
+            })
+        }]
+    );
 }
 
 #[test]

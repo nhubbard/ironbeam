@@ -53,8 +53,9 @@ The source key identifies the graph node; the file path identifies the data. A r
 An Avro container stores its writer schema. A reader schema can select fields
 or supply defaults for fields added after the file was written. It can also
 promote an `int` to a `long` and use a field alias when a reader renames a
-writer field. Aliases are resolved in records nested inside arrays, maps, and
-nullable unions; ambiguous aliases fail. The following
+writer field. Aliases are resolved in records nested inside arrays, maps,
+nullable unions, and named schema references, including namespaced references;
+ambiguous aliases fail. The following
 reader accepts a file written with `id` and `name` fields and supplies
 `active: true` for older records:
 
