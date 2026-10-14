@@ -1293,6 +1293,86 @@ impl<T: Element> PCollection<T> {
             Ok(f(value, values))
         })
     }
+    /// Materialize exactly one bounded side value for the whole collection.
+    /// An empty side collection or more than one value fails execution.
+    pub fn map_with_singleton_side_named<S: Element, U: Element>(
+        &self,
+        key: &str,
+        side: &PCollection<S>,
+        f: impl Fn(T, &S) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        let key_owned = key.to_owned();
+        self.map_with_materialized_side_named(
+            key,
+            side,
+            move |mut values| {
+                if values.len() != 1 {
+                    return Err(Error::execution(
+                        &key_owned,
+                        "side-input",
+                        "singleton side view requires exactly one value",
+                    ));
+                }
+                values.pop().ok_or_else(|| {
+                    Error::execution(
+                        &key_owned,
+                        "side-input",
+                        "singleton side view requires exactly one value",
+                    )
+                })
+            },
+            move |value, view| Ok(f(value, view)),
+        )
+    }
+    /// Materialize a bounded keyed side collection as one lookup map.
+    /// Duplicate keys fail execution because shuffle order is unspecified.
+    pub fn map_with_map_side_named<K: Element + Eq + Hash, V: Element, U: Element>(
+        &self,
+        key: &str,
+        side: &PCollection<(K, V)>,
+        f: impl Fn(T, &HashMap<K, V>) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        let key_owned = key.to_owned();
+        self.map_with_materialized_side_named(
+            key,
+            side,
+            move |values| {
+                let mut view = HashMap::with_capacity(values.len());
+                for (row_key, row_value) in values {
+                    if view.insert(row_key, row_value).is_some() {
+                        return Err(Error::execution(
+                            &key_owned,
+                            "side-input",
+                            "map side view has a duplicate key",
+                        ));
+                    }
+                }
+                Ok(view)
+            },
+            move |value, view| Ok(f(value, view)),
+        )
+    }
+    /// Materialize a bounded keyed side collection as a lookup multimap.
+    /// Values for one key have no runner-independent order.
+    pub fn map_with_multimap_side_named<K: Element + Eq + Hash, V: Element, U: Element>(
+        &self,
+        key: &str,
+        side: &PCollection<(K, V)>,
+        f: impl Fn(T, &HashMap<K, Vec<V>>) -> U + Send + Sync + 'static,
+    ) -> Result<PCollection<U>, Error> {
+        self.map_with_materialized_side_named(
+            key,
+            side,
+            move |values| {
+                let mut view: HashMap<K, Vec<V>> = HashMap::new();
+                for (row_key, row_value) in values {
+                    view.entry(row_key).or_default().push(row_value);
+                }
+                Ok(view)
+            },
+            move |value, view| Ok(f(value, view)),
+        )
+    }
     /// Apply side values separately within each matching window.
     /// This composes a keyed co-group, so the runner may shuffle and buffer all
     /// values until both input watermarks close the window. An unbounded side

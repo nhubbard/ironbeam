@@ -23,11 +23,12 @@ use ironbeam_prism_proof::{
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
     panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
     panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
-    production_stream_fixture, session_group_fixture, sliding_window_group_fixture,
-    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
-    streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_side_input_fixture, ExpandSingleton, PaneFixtureWindow,
+    production_stream_fixture, session_group_fixture, side_view_shapes_fixture,
+    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
+    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
+    streaming_sliding_group_fixture, streaming_windowed_side_input_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_side_input_fixture, ExpandSingleton,
+    PaneFixtureWindow,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture};
@@ -245,6 +246,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_WINDOWED_SIDE") {
         return dual_stream_windowed_side_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SIDE_VIEW_SHAPES") {
+        return side_view_shapes_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }
