@@ -62,9 +62,9 @@ use ironbeam_prism_proof::{
     partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
     session_group_fixture, shared_unbounded_homogeneous_cogroup_collection,
     shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
-    sliding_allowed_lateness_fixture, sliding_window_group_fixture, streaming_group_fixture,
-    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
-    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
+    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
     streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
     triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
     triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
@@ -2965,6 +2965,43 @@ async fn prism_heterogeneous_cogroup_retains_late_pane() {
             "1:([3], []):Late:false:false:1:1",
         ]
     );
+}
+
+#[tokio::test]
+async fn prism_sliding_late_join_characterizes_final_pane_timing() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("sliding-late-join.txt");
+    let pipeline = Pipeline::default();
+    sliding_late_join_fixture(&pipeline, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "sliding-late-join",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_SLIDING_LATE_JOIN".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "sliding late join state: {terminal:?}");
+    let mut rows = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    rows.sort_unstable();
+    let mut expected = vec![
+        "0..10000000:1:(Some(2), Some(4)):OnTime:true:false:0:0",
+        "0..10000000:1:(Some(3), None):Late:false:true:1:1",
+        "5000000..15000000:1:(Some(2), Some(4)):OnTime:true:false:0:0",
+        "5000000..15000000:1:(Some(3), Some(4)):OnTime:true:false:0:0",
+    ];
+    expected.sort_unstable();
+    assert_eq!(rows, expected);
 }
 
 #[tokio::test]
