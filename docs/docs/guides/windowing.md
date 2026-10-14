@@ -53,8 +53,43 @@ period, and offset values. Direct and Prism fixtures compare grouped values,
 timestamps, and intervals across negative and positive event times. The
 unbounded fixture also checks that both runners close overlapping windows and
 discard a row that arrives after their watermarks. Direct checkpoints coded
-open-window rows with each source cursor. Session windows remain outside the
-current collection contract.
+open-window rows with each source cursor.
+
+## Keyed sessions
+
+A session starts with an event and extends for a chosen inactivity gap. Two
+sessions for the same key merge when their intervals overlap or touch. A later
+event can bridge sessions that were separate when they first arrived. Sessions
+for different keys remain separate.
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let sessions = pipeline
+        .from_vec("events", vec![
+            (0_i64, ("a".to_owned(), 1_i32)),
+            (8_000_000, ("a".to_owned(), 2)),
+            (4_000_000, ("a".to_owned(), 3)),
+        ])?
+        .timestamps_from_pairs_named("event-time")?
+        .group_by_session_named("sessions", 5_000_000)?
+        .with_window_named("session-bounds")?;
+    let _ = sessions;
+    Ok(())
+}
+```
+
+The three rows for `a` form one interval `[0, 13_000_000)` ns. The event at
+`4_000_000` ns joins the intervals initially assigned at zero and eight
+milliseconds. The grouped result keeps the earliest input event time. Direct
+and local Prism agree on that result, on a touching boundary, and on a second
+key. Direct also restores open coded session groups from a checkpoint. The
+current API accepts bounded input only. Session joins, co-groups, and
+unbounded session grouping are rejected because their cross-input and
+watermark merge contracts have not been implemented. Portable session gaps
+must be positive whole milliseconds.
 
 ## Migration of timestamps
 
