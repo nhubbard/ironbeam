@@ -1,5 +1,111 @@
 struct PaneCheckingSink(GlobalFoldSink<String>);
 
+/// Two unbounded keyed sources keep a window for a late co-group pane.
+pub fn dual_late_cogroup_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
+    dual_late_cogroup_collection_with_trigger(pipeline, false)
+}
+
+pub fn dual_late_count_cogroup_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
+    dual_late_cogroup_collection_with_trigger(pipeline, true)
+}
+
+fn dual_late_cogroup_collection_with_trigger(
+    pipeline: &Pipeline,
+    count_trigger: bool,
+) -> Result<PCollection<String>, Error> {
+    let late_events = if count_trigger {
+        vec![
+            TestStreamEvent::AdvanceWatermark(11_000_000),
+            TestStreamEvent::Elements(vec![((1, 5), 5_000_000)]),
+            TestStreamEvent::AdvanceWatermark(12_000_000),
+            TestStreamEvent::Elements(vec![((1, 7), 7_000_000)]),
+            TestStreamEvent::AdvanceWatermark(15_000_000),
+        ]
+    } else {
+        vec![
+            TestStreamEvent::AdvanceWatermark(15_000_000),
+            TestStreamEvent::Elements(vec![((1, 5), 5_000_000)]),
+        ]
+    };
+    let mut first_events = vec![
+        TestStreamEvent::Elements(vec![((1_i32, 2_i32), 2_000_000)]),
+        TestStreamEvent::AdvanceWatermark(10_000_000),
+        TestStreamEvent::Elements(vec![((1, 3), 3_000_000)]),
+    ];
+    first_events.extend(late_events);
+    let first = pipeline
+        .test_stream_source(
+            "dual-late-first",
+            first_events,
+        )?
+        .fixed_windows("dual-late-first-window", 10_000_000)?
+        .allowed_lateness_named("dual-late-first-policy", 5_000_000)?;
+    let first = if count_trigger {
+        first.late_count_trigger_named("dual-late-first-trigger", 2)?
+    } else {
+        first
+    };
+    let mut second_events = vec![
+        TestStreamEvent::Elements(vec![((1_i32, 4_i32), 4_000_000)]),
+        TestStreamEvent::AdvanceWatermark(10_000_000),
+    ];
+    if !count_trigger {
+        second_events.push(TestStreamEvent::AdvanceWatermark(15_000_000));
+    }
+    let second = pipeline
+        .test_stream_source(
+            "dual-late-second",
+            second_events,
+        )?
+        .fixed_windows("dual-late-second-window", 10_000_000)?
+        .allowed_lateness_named("dual-late-second-policy", 5_000_000)?;
+    let second = if count_trigger {
+        second.late_count_trigger_named("dual-late-second-trigger", 2)?
+    } else {
+        second
+    };
+    first
+        .co_group_homogeneous_named("dual-late-group", &[second])?
+        .reify_panes_named("dual-late-pane")?
+        .map_named("dual-late-row", |(pane, (key, buckets))| {
+            format!(
+                "{key}:{buckets:?}:{:?}:{}:{}:{}:{}",
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+                pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn dual_late_cogroup_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    dual_late_fixture(pipeline, path, false)
+}
+
+pub fn dual_late_count_cogroup_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    dual_late_fixture(pipeline, path, true)
+}
+
+fn dual_late_fixture(pipeline: &Pipeline, path: PathBuf, count_trigger: bool) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_late_cogroup_collection_with_trigger(pipeline, count_trigger)?.sink_named_with_config(
+        "dual-late-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("dual-late-result:{}", path.display()),
+        move || {
+            Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })))
+        },
+    )
+}
+
 fn global_count_values(pipeline: &Pipeline) -> Result<PCollection<(String, i32)>, Error> {
     pipeline.test_stream_source(
         "global-count-source",

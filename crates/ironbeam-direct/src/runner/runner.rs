@@ -67,7 +67,11 @@ impl DirectRunner {
                         | Operation::Output
                         | Operation::Sink { .. }
                 )
-                || (!unbounded_source && matches!(node.operation, Operation::Flatten));
+                || (matches!(node.operation, Operation::Flatten)
+                    && (!unbounded_source
+                        || (node.time.allowed_lateness_ns > 0
+                            && node.time.trigger.late_count().is_some()
+                            && node.time.trigger.early_count().is_none())));
             if node.time.trigger != WindowTrigger::Default && !trigger_supported {
                 return Err(Error::unsupported(&node.key, "direct", "early-count-trigger"));
             }

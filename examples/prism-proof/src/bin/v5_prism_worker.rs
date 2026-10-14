@@ -15,9 +15,10 @@ use ironbeam_prism_proof::{
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
     bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
-    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_fixture,
-    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_fixture,
-    dual_unbounded_flatten_fixture, dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
+    dual_late_cogroup_fixture, dual_late_count_cogroup_fixture, dual_stream_windowed_side_fixture,
+    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_fixture,
+    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_fixture,
+    dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_fixture, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_fixture, dual_unbounded_session_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
@@ -448,6 +449,15 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_COMBINE_ACCUMULATING") {
         return global_keyed_combine_fixture(pipeline, path.into(), true)
+            .map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_LATE_COUNT_COGROUP") {
+        return dual_late_count_cogroup_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_LATE_COGROUP") {
+        return dual_late_cogroup_fixture(pipeline, path.into())
             .map(|_| ()).map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_JOIN_COGROUP_END_TIME") {

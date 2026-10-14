@@ -155,11 +155,23 @@ watermark, emits an element arriving afterward at 3 ms in a late pane, and
 drops another element after the 15 ms expiry watermark. Direct emits the same
 pane values, event timestamps, timing, and indices. Its checkpoint retains
 the closed window until expiry, including the index for the next late pane.
-Direct currently supports this policy for single-input GroupByKey with the
-default trigger, a late count trigger, or combined early and late counts;
-other stateful fan-in remains outside that path. Direct rejects positive
-allowed lateness on joins, co-groups, and multi-source GroupByKey routes
-before running them.
+Direct supports this policy for single-input GroupByKey with the default
+trigger, a late count trigger, or combined early and late counts. A separate
+multi-source path retains coded GroupByKey state through expiry with the
+default or late element-count trigger. That path also serves homogeneous co-groups built from
+Flatten and GroupByKey. In a two-source test, both runners emit an on-time
+pane containing `[[2], [4]]`, then a late pane containing `[[3], []]`;
+a row after expiry is dropped. Direct restores both source cursors and the
+closed group's pane index from a checkpoint. Heterogeneous joins and
+co-groups do not yet retain multi-input late state in Direct.
+
+For two-source late count firings, set the same positive allowed lateness and
+late count on each input before `co_group_homogeneous_named`. With a count of
+two, Direct and pinned Prism emit `[[2], [4]]` on time, `[[3, 5], []]`
+when the second late element arrives, and a final partial `[[7], []]` pane
+at expiry. The source watermarks must leave the window open while those late
+elements arrive. Combined early and late count triggers remain limited to
+single-input grouping on Direct.
 
 ### Late count firings
 

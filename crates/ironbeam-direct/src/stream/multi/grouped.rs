@@ -1,5 +1,6 @@
 //! Independent unbounded sources feeding one fixed or sliding window group.
 
+use super::grouped_state::MultiWindowState;
 use super::*;
 
 #[derive(Serialize, Deserialize)]
@@ -86,14 +87,12 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
     let group = graph
         .node(&route.group_key)
         .ok_or_else(|| Error::graph(&route.group_key, "multi-source group node missing"))?;
-    if group.time.allowed_lateness_ns > 0 {
-        return Err(Error::unsupported(
-            &route.group_key,
-            "direct",
-            "multi-source-allowed-lateness",
-        ));
-    }
-    if group.time.trigger != WindowTrigger::Default {
+    let allowed_lateness_ns = group.time.allowed_lateness_ns;
+    if group.time.trigger != WindowTrigger::Default
+        && !(allowed_lateness_ns > 0
+            && group.time.trigger.late_count().is_some()
+            && group.time.trigger.early_count().is_none())
+    {
         return Err(Error::unsupported(
             &route.group_key,
             "direct",
@@ -149,11 +148,10 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
         .map(|checkpoint| checkpoint.load_state(config.memory_budget_bytes))
         .transpose()?
         .flatten();
-    let (sequence, sources, windows, buffered) = if let Some((progress, bytes)) = &saved {
+    let (sequence, sources, state) = if let Some((progress, bytes)) = &saved {
         let state: MultiGroupedState = serde_json::from_slice(bytes)
             .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
-        if state.version != 1
-            || state.sources.len() != route.sources.len()
+        if state.sources.len() != route.sources.len()
             || state
                 .sources
                 .iter()
@@ -183,15 +181,21 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
                 "multi-group progress does not match cursors",
             ));
         }
-        let (windows, buffered) = restore_window_rows(
+        let windows = MultiWindowState::restore(
             &registry,
-            &route.group_input_key,
+            &route,
             &state.windows,
+            state.version,
+            allowed_lateness_ns,
             config.buffer_budget_elements,
         )?;
-        (sequence, state.sources, windows, buffered)
+        (sequence, state.sources, windows)
     } else {
-        (0, vec![None; route.sources.len()], BTreeMap::new(), 0)
+        (
+            0,
+            vec![None; route.sources.len()],
+            MultiWindowState::empty(allowed_lateness_ns),
+        )
     };
     #[allow(unused_mut)]
     let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
@@ -209,7 +213,7 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
         .as_ref()
         .is_some_and(|progress| progress.completed)
     {
-        if !windows.is_empty() {
+        if !state.is_empty() {
             return Err(Error::recovery(
                 &route.group_key,
                 "completed stream checkpoint retains open windows",
@@ -242,8 +246,7 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
                     checkpoint.as_ref(),
                     sequence,
                     sources,
-                    windows,
-                    buffered,
+                    state,
                 )
             }))
             .unwrap_or_else(|_| Err(Error::execution("job", "direct", "stream worker panicked")));
@@ -274,8 +277,7 @@ fn run_multi_grouped_stream(
     checkpoint: Option<&StreamCheckpoint>,
     mut sequence: u64,
     mut sources: Vec<Option<ProgressSignal>>,
-    mut windows: WindowRows,
-    mut buffered: usize,
+    mut state: MultiWindowState,
 ) -> Result<(), Error> {
     let mut materialized_bounded = false;
     for (index, source) in route.sources.iter().enumerate() {
@@ -314,15 +316,7 @@ fn run_multi_grouped_stream(
                     config,
                     handle,
                 )? {
-                    let window = stream_window(&event, &route.group_key)?;
-                    if buffered >= config.buffer_budget_elements {
-                        return Err(Error::resource(
-                            &route.group_key,
-                            "stateful stream input exceeds buffer budget",
-                        ));
-                    }
-                    windows.entry(window).or_default().push(event);
-                    buffered += 1;
+                    state.add(registry, route, event, None, config.buffer_budget_elements)?;
                 }
             }
         }
@@ -342,14 +336,9 @@ fn run_multi_grouped_stream(
         let combined = multi_progress(sequence, &sources);
         if let Some(checkpoint) = checkpoint {
             let state = serde_json::to_vec(&MultiGroupedState {
-                version: 1,
+                version: state.version(),
                 sources: sources.clone(),
-                windows: encode_window_rows(
-                    registry,
-                    &route.group_input_key,
-                    &windows,
-                    config.memory_budget_bytes,
-                )?,
+                windows: state.encode(registry, route, config.memory_budget_bytes)?,
             })
             .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
             checkpoint.save_state(&combined, &state, config.memory_budget_bytes)?;
@@ -470,18 +459,13 @@ fn run_multi_grouped_stream(
                     config,
                     handle,
                 )? {
-                    let window = stream_window(&event, &route.group_key)?;
-                    if old_watermark.is_some_and(|watermark| window.1 <= watermark) {
-                        continue;
-                    }
-                    if buffered >= config.buffer_budget_elements {
-                        return Err(Error::resource(
-                            &route.group_key,
-                            "stateful stream input exceeds buffer budget",
-                        ));
-                    }
-                    windows.entry(window).or_default().push(event);
-                    buffered += 1;
+                    state.add(
+                        registry,
+                        route,
+                        event,
+                        old_watermark,
+                        config.buffer_budget_elements,
+                    )?;
                 }
             }
             let next = merge_progress(sources[index].as_ref(), batch.progress);
@@ -493,69 +477,25 @@ fn run_multi_grouped_stream(
                 .checked_add(1)
                 .ok_or_else(|| Error::resource("checkpoint", "multi-group sequence exhausted"))?;
             let combined = multi_progress(sequence, &sources);
-            let closing_watermark = if combined.completed {
-                Some(i64::MAX)
-            } else {
-                combined.event_time_ns
-            };
-            let closing = if let Some(watermark) = closing_watermark {
-                if matches!(route.window, Window::Session { .. }) {
-                    session::close_ready_group_sessions(
-                        registry,
-                        &route.group_input_key,
-                        &route.group_key,
-                        &mut windows,
-                        watermark,
-                    )?
-                } else {
-                    windows
-                        .keys()
-                        .copied()
-                        .filter(|(_, end)| *end <= watermark)
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .map(|window| windows.remove(&window).expect("selected open window"))
-                        .collect()
-                }
-            } else {
-                Vec::new()
-            };
+            let closing = state.drain(registry, route, old_watermark, &combined)?;
             let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &combined);
             let mut session = None;
             let mut written = 0_u64;
             let result = (|| {
-                for events in closing {
-                    buffered -= events.len();
-                    let grouped = catch_unwind(AssertUnwindSafe(|| {
-                        registry.apply_aggregate(&route.group_key, vec![events])
-                    }))
-                    .unwrap_or_else(|_| {
-                        Err(Error::execution(
-                            &route.group_key,
-                            "direct",
-                            "user aggregate panicked",
-                        ))
-                    })?;
-                    for event in grouped {
-                        for output in apply_grouped_stages(
-                            registry,
-                            &route.after_group,
-                            event,
-                            config,
-                            handle,
-                        )? {
-                            if session.is_none() {
-                                session =
-                                    Some(begin_sink_bundle(registry, sink_key, &instruction_id)?);
-                            }
-                            catch_unwind(AssertUnwindSafe(|| {
-                                session.as_mut().expect("opened sink").write(output)
-                            }))
-                            .unwrap_or_else(|_| {
-                                Err(Error::execution(sink_key, "direct", "sink writer panicked"))
-                            })?;
-                            written = written.saturating_add(1);
+                for event in closing {
+                    for output in
+                        apply_grouped_stages(registry, &route.after_group, event, config, handle)?
+                    {
+                        if session.is_none() {
+                            session = Some(begin_sink_bundle(registry, sink_key, &instruction_id)?);
                         }
+                        catch_unwind(AssertUnwindSafe(|| {
+                            session.as_mut().expect("opened sink").write(output)
+                        }))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(sink_key, "direct", "sink writer panicked"))
+                        })?;
+                        written = written.saturating_add(1);
                     }
                 }
                 if config.cancellation.load(Ordering::Acquire) {
@@ -576,14 +516,9 @@ fn run_multi_grouped_stream(
             }
             if let Some(checkpoint) = checkpoint {
                 let state = serde_json::to_vec(&MultiGroupedState {
-                    version: 1,
+                    version: state.version(),
                     sources: sources.clone(),
-                    windows: encode_window_rows(
-                        registry,
-                        &route.group_input_key,
-                        &windows,
-                        config.memory_budget_bytes,
-                    )?,
+                    windows: state.encode(registry, route, config.memory_budget_bytes)?,
                 })
                 .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
                 checkpoint.save_state(&combined, &state, config.memory_budget_bytes)?;

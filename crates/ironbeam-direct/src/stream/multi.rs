@@ -5,6 +5,7 @@
 use super::*;
 use std::fmt::Write as _;
 mod grouped;
+mod grouped_state;
 mod session;
 pub(super) use grouped::start_multi_grouped_stream_sink;
 

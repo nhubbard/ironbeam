@@ -1,0 +1,328 @@
+//! Window rows for default grouping and retained folds for late keyed panes.
+
+use super::*;
+
+pub(super) enum MultiWindowState {
+    Rows {
+        windows: WindowRows,
+        buffered: usize,
+    },
+    Late {
+        folds: WindowFolds,
+        buffered: usize,
+        late_windows: BTreeSet<(i64, i64)>,
+        allowed_lateness_ns: i64,
+    },
+}
+
+impl MultiWindowState {
+    pub(super) fn empty(allowed_lateness_ns: i64) -> Self {
+        if allowed_lateness_ns > 0 {
+            Self::Late {
+                folds: BTreeMap::new(),
+                buffered: 0,
+                late_windows: BTreeSet::new(),
+                allowed_lateness_ns,
+            }
+        } else {
+            Self::Rows {
+                windows: BTreeMap::new(),
+                buffered: 0,
+            }
+        }
+    }
+
+    pub(super) fn restore(
+        registry: &Registry,
+        route: &MultiGroupedStreamRoute,
+        bytes: &[u8],
+        version: u8,
+        allowed_lateness_ns: i64,
+        budget_elements: usize,
+    ) -> Result<Self, Error> {
+        match (allowed_lateness_ns > 0, version) {
+            (false, 1) => {
+                let (windows, buffered) =
+                    restore_window_rows(registry, &route.group_input_key, bytes, budget_elements)?;
+                Ok(Self::Rows { windows, buffered })
+            }
+            (true, 2) => {
+                let (folds, buffered) = restore_grouped_folds(
+                    registry,
+                    &route.group_key,
+                    bytes,
+                    budget_elements,
+                    true,
+                )?;
+                Ok(Self::Late {
+                    folds,
+                    buffered,
+                    late_windows: BTreeSet::new(),
+                    allowed_lateness_ns,
+                })
+            }
+            _ => Err(Error::incompatible(
+                "multi-group window state version mismatch",
+            )),
+        }
+    }
+
+    pub(super) const fn version(&self) -> u8 {
+        match self {
+            Self::Rows { .. } => 1,
+            Self::Late { .. } => 2,
+        }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        match self {
+            Self::Rows { windows, .. } => windows.is_empty(),
+            Self::Late { folds, .. } => folds.is_empty(),
+        }
+    }
+
+    pub(super) fn encode(
+        &self,
+        registry: &Registry,
+        route: &MultiGroupedStreamRoute,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, Error> {
+        match self {
+            Self::Rows { windows, .. } => {
+                encode_window_rows(registry, &route.group_input_key, windows, max_bytes)
+            }
+            Self::Late { folds, .. } => encode_grouped_folds(folds, max_bytes, &route.group_key),
+        }
+    }
+
+    pub(super) fn add(
+        &mut self,
+        registry: &Registry,
+        route: &MultiGroupedStreamRoute,
+        event: Envelope,
+        prior_watermark: Option<i64>,
+        budget_elements: usize,
+    ) -> Result<(), Error> {
+        let window = stream_window(&event, &route.group_key)?;
+        match self {
+            Self::Rows { windows, buffered } => {
+                if prior_watermark.is_some_and(|watermark| window.1 <= watermark) {
+                    return Ok(());
+                }
+                if *buffered >= budget_elements {
+                    return Err(Error::resource(
+                        &route.group_key,
+                        "stateful stream input exceeds buffer budget",
+                    ));
+                }
+                windows.entry(window).or_default().push(event);
+                *buffered += 1;
+            }
+            Self::Late {
+                folds,
+                buffered,
+                late_windows,
+                allowed_lateness_ns,
+            } => {
+                if prior_watermark.is_some_and(|watermark| {
+                    window.1.saturating_add(*allowed_lateness_ns) <= watermark
+                }) {
+                    return Ok(());
+                }
+                if *buffered >= budget_elements {
+                    return Err(Error::resource(
+                        &route.group_key,
+                        "stateful stream input exceeds buffer budget",
+                    ));
+                }
+                if prior_watermark.is_some_and(|watermark| window.1 <= watermark) {
+                    late_windows.insert(window);
+                }
+                let (fold, count) = match folds.entry(window) {
+                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        let fold =
+                            catch_unwind(AssertUnwindSafe(|| registry.open_fold(&route.group_key)))
+                                .unwrap_or_else(|_| {
+                                    Err(Error::execution(
+                                        &route.group_key,
+                                        "direct",
+                                        "group fold factory panicked",
+                                    ))
+                                })?;
+                        entry.insert((fold, 0))
+                    }
+                };
+                catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
+                    Err(Error::execution(
+                        &route.group_key,
+                        "direct",
+                        "group fold panicked",
+                    ))
+                })?;
+                *count += 1;
+                *buffered += 1;
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_lines)] // Pane emission and state release share one watermark transition.
+    pub(super) fn drain(
+        &mut self,
+        registry: &Registry,
+        route: &MultiGroupedStreamRoute,
+        prior_watermark: Option<i64>,
+        progress: &ProgressSignal,
+    ) -> Result<Vec<Envelope>, Error> {
+        match self {
+            Self::Rows { windows, buffered } => {
+                let Some(watermark) = (if progress.completed {
+                    Some(i64::MAX)
+                } else {
+                    progress.event_time_ns
+                }) else {
+                    return Ok(Vec::new());
+                };
+                let closing = if matches!(route.window, Window::Session { .. }) {
+                    session::close_ready_group_sessions(
+                        registry,
+                        &route.group_input_key,
+                        &route.group_key,
+                        windows,
+                        watermark,
+                    )?
+                } else {
+                    windows
+                        .keys()
+                        .copied()
+                        .filter(|(_, end)| *end <= watermark)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .map(|window| windows.remove(&window).expect("selected open window"))
+                        .collect()
+                };
+                let mut panes = Vec::new();
+                for events in closing {
+                    *buffered = buffered.checked_sub(events.len()).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    let mut grouped = catch_unwind(AssertUnwindSafe(|| {
+                        registry.apply_aggregate(&route.group_key, vec![events])
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            &route.group_key,
+                            "direct",
+                            "user aggregate panicked",
+                        ))
+                    })?;
+                    panes.append(&mut grouped);
+                }
+                Ok(panes)
+            }
+            Self::Late {
+                folds,
+                buffered,
+                late_windows,
+                allowed_lateness_ns,
+            } => {
+                let watermark = if progress.completed {
+                    Some(i64::MAX)
+                } else {
+                    progress.event_time_ns
+                };
+                let mut panes = Vec::new();
+                let closing = folds
+                    .keys()
+                    .copied()
+                    .filter(|(_, end)| {
+                        prior_watermark.is_none_or(|prior| prior < *end)
+                            && watermark.is_some_and(|current| *end <= current)
+                    })
+                    .collect::<Vec<_>>();
+                for window in closing {
+                    let (fold, count) = folds.get_mut(&window).expect("closing fold exists");
+                    let (mut closed, released) = catch_unwind(AssertUnwindSafe(|| {
+                        fold.drain_closed(watermark.expect("closing window has watermark"))
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            &route.group_key,
+                            "direct",
+                            "group fold panicked",
+                        ))
+                    })?;
+                    *count = count.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "on-time fold released too many rows")
+                    })?;
+                    *buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    panes.append(&mut closed);
+                }
+                for window in std::mem::take(late_windows) {
+                    if progress.completed
+                        || watermark.is_some_and(|current| {
+                            window.1.saturating_add(*allowed_lateness_ns) <= current
+                        })
+                    {
+                        continue;
+                    }
+                    let (fold, count) = folds.get_mut(&window).expect("late fold exists");
+                    let (mut late, released) =
+                        catch_unwind(AssertUnwindSafe(|| fold.drain_late(false))).unwrap_or_else(
+                            |_| {
+                                Err(Error::execution(
+                                    &route.group_key,
+                                    "direct",
+                                    "late group fold panicked",
+                                ))
+                            },
+                        )?;
+                    *count = count.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "late fold released too many rows")
+                    })?;
+                    *buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    panes.append(&mut late);
+                }
+                let expiring = folds
+                    .keys()
+                    .copied()
+                    .filter(|(_, end)| {
+                        progress.completed
+                            || watermark.is_some_and(|current| {
+                                end.saturating_add(*allowed_lateness_ns) <= current
+                            })
+                    })
+                    .collect::<Vec<_>>();
+                for window in expiring {
+                    let (mut fold, count) = folds.remove(&window).expect("expiring fold exists");
+                    let (mut late, released) =
+                        catch_unwind(AssertUnwindSafe(|| fold.drain_late(true))).unwrap_or_else(
+                            |_| {
+                                Err(Error::execution(
+                                    &route.group_key,
+                                    "direct",
+                                    "late group fold panicked",
+                                ))
+                            },
+                        )?;
+                    if released > count {
+                        return Err(Error::recovery(
+                            &route.group_key,
+                            "late fold released too many rows",
+                        ));
+                    }
+                    *buffered = buffered.checked_sub(count).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    panes.append(&mut late);
+                }
+                Ok(panes)
+            }
+        }
+    }
+}

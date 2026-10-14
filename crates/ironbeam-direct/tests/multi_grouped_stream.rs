@@ -18,8 +18,10 @@ struct Script {
 }
 
 #[test]
-fn multi_source_group_rejects_lateness_until_retained_state_is_supported() {
+fn multi_source_group_retains_late_rows_until_expiry() {
     let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
     let first = pipeline
         .test_stream_source(
             "first",
@@ -60,25 +62,286 @@ fn multi_source_group_rejects_lateness_until_retained_state_is_supported() {
                 commit: true,
             },
             "multi-source-lateness-test-v1".into(),
-            || {
-                Ok(Box::new(Capture {
-                    committed: Arc::new(Mutex::new(Vec::new())),
-                    accepted: Arc::new(Mutex::new(HashSet::new())),
-                    bundle: None,
-                    staged: Vec::new(),
-                }))
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        staged: Vec::new(),
+                    }))
+                }
             },
         )
         .unwrap();
-    let error = DirectRunner
+    DirectRunner
         .start_stream_sink(&sink, &JobConfig::default())
-        .err()
+        .unwrap()
+        .wait()
         .unwrap();
     assert_eq!(
-        error.kind,
-        ErrorKind::UnsupportedCapability {
-            capability: "multi-source-allowed-lateness".into(),
+        committed.lock().unwrap().as_slice(),
+        ["1:[[2], [4]]", "1:[[3], []]"]
+    );
+}
+
+#[test]
+fn multi_source_late_count_waits_for_threshold_and_flushes_at_expiry() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let first = pipeline
+        .test_stream_source(
+            "first",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(11_000_000),
+                TestStreamEvent::Elements(vec![((1, 5), 5_000_000)]),
+                TestStreamEvent::AdvanceWatermark(12_000_000),
+                TestStreamEvent::Elements(vec![((1, 7), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("first-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("first-lateness", 5_000_000)
+        .unwrap()
+        .late_count_trigger_named("first-trigger", 2)
+        .unwrap();
+    let second = pipeline
+        .test_stream_source(
+            "second",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("second-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("second-lateness", 5_000_000)
+        .unwrap()
+        .late_count_trigger_named("second-trigger", 2)
+        .unwrap();
+    let sink = first
+        .co_group_homogeneous_named("group", &[second])
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("format", |(pane, (key, buckets))| {
+            format!("{key}:{buckets:?}:{:?}:{}", pane.timing, pane.index)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "multi-late-count-test-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        staged: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "1:[[2], [4]]:OnTime:0",
+            "1:[[3, 5], []]:Late:1",
+            "1:[[7], []]:Late:2",
+        ]
+    );
+}
+
+#[test]
+fn multi_source_late_group_restores_cursors_and_panes() {
+    assert_multi_source_late_group_restores_cursors_and_panes(false);
+}
+
+#[test]
+fn multi_source_late_count_group_restores_cursors_and_panes() {
+    assert_multi_source_late_group_restores_cursors_and_panes(true);
+}
+
+fn assert_multi_source_late_group_restores_cursors_and_panes(count_trigger: bool) {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let hold = Arc::new(AtomicBool::new(true));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let make_source = |index: i32| {
+        let source_key = format!("source-{index}");
+        let factory_key = source_key.clone();
+        let hold = Arc::clone(&hold);
+        let opens = Arc::clone(&opens);
+        let windowed = pipeline
+            .unbounded_source_with_factory(
+                &source_key,
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                format!("late-source-{index}-v1"),
+                0,
+                move |cursor| {
+                    opens.lock().unwrap().push((index, cursor.clone()));
+                    let (rows, position, completed) = match cursor.as_deref() {
+                        None => (vec![if index == 0 { 2 } else { 4 }], 1, false),
+                        Some([1]) if !hold.load(Ordering::SeqCst) => (
+                            if index == 0 {
+                                if count_trigger { vec![3, 5] } else { vec![3] }
+                            } else {
+                                Vec::new()
+                            },
+                            2,
+                            true,
+                        ),
+                        Some([1]) => {
+                            return Ok(Box::new(Script {
+                                polls: VecDeque::new(),
+                            })
+                                as TypedUnboundedSourceReader<(i32, i32)>);
+                        }
+                        _ => return Err(Error::incompatible("unexpected late source cursor")),
+                    };
+                    let elements = rows
+                        .into_iter()
+                        .map(|value| Timestamped {
+                            value: (1_i32, value),
+                            timestamp_ns: i64::from(value) * 1_000_000,
+                        })
+                        .collect();
+                    Ok(Box::new(Script {
+                        polls: vec![UnboundedPoll::Ready(UnboundedBatch {
+                            elements,
+                            progress: ProgressSignal {
+                                source_key: factory_key.clone(),
+                                split_id: "split-0".into(),
+                                checkpoint_position: Some(vec![position]),
+                                event_time_ns: Some(10_000_000),
+                                completed,
+                            },
+                        })]
+                        .into(),
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                },
+            )
+            .unwrap()
+            .fixed_windows(&format!("window-{index}"), 10_000_000)
+            .unwrap()
+            .allowed_lateness_named(&format!("lateness-{index}"), 5_000_000)
+            .unwrap();
+        if count_trigger {
+            windowed
+                .late_count_trigger_named(&format!("trigger-{index}"), 2)
+                .unwrap()
+        } else {
+            windowed
         }
+    };
+    let first = make_source(0);
+    let second = make_source(1);
+    let sink = first
+        .co_group_homogeneous_named("group", &[second])
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("format", |(pane, (key, buckets))| {
+            format!("{key}:{buckets:?}:{:?}:{}", pane.timing, pane.index)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "multi-late-recovery-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        staged: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 1,
+            recover: true,
+            binary_build_id: "multi-late-test-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while job.progress().and_then(|signal| signal.checkpoint_position)
+        != Some(2_u64.to_le_bytes().to_vec())
+    {
+        assert!(
+            Instant::now() < deadline,
+            "on-time pane was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        ["1:[[2], [4]]:OnTime:0"]
+    );
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    hold.store(false, Ordering::SeqCst);
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let late_row = if count_trigger {
+        "1:[[3, 5], []]:Late:1"
+    } else {
+        "1:[[3], []]:Late:1"
+    };
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        ["1:[[2], [4]]:OnTime:0", late_row]
+    );
+    assert_eq!(
+        opens.lock().unwrap().as_slice(),
+        [(0, None), (1, None), (0, Some(vec![1])), (1, Some(vec![1])),]
     );
 }
 
