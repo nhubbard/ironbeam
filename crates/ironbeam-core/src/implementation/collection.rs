@@ -543,7 +543,7 @@ impl<T: Element> PCollection<T> {
             // again, multiplying rows. Carry the new strategy on an identity
             // ParDo instead.
             Window::Sliding { .. } | Window::Global => Operation::Map,
-            _ => return Err(Error::graph(key, "early count trigger requires global, fixed, or sliding windows")),
+            Window::Session { .. } => return Err(Error::graph(key, "early count trigger requires global, fixed, or sliding windows")),
         };
         self.next_with_time_policy(
             key,
