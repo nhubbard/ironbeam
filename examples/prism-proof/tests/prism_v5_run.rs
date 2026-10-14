@@ -701,6 +701,21 @@ async fn run_production_unbounded_source(
         .find(|(_, transform)| transform.unique_name == "production-capture-fold-shared")
         .map(|(id, _)| id.clone())
         .unwrap();
+    let sink_input_pcollections = translated
+        .pipeline
+        .components
+        .as_ref()
+        .unwrap()
+        .transforms
+        .iter()
+        .filter_map(|(id, transform)| {
+            transform
+                .inputs
+                .values()
+                .next()
+                .map(|input| (id.clone(), input.clone()))
+        })
+        .collect::<HashMap<_, _>>();
     let worker = env!("CARGO_BIN_EXE_v5_prism_worker");
     let environment = translated
         .pipeline
@@ -998,7 +1013,24 @@ async fn run_production_unbounded_source(
         &finalization_transform,
     )
     .unwrap();
-    assert_eq!(committed, 3);
+    let sink_count_diagnostics = expected_sink_counts
+        .iter()
+        .map(|(id, expected)| {
+            let input = sink_input_pcollections.get(*id);
+            (
+                id.as_str(),
+                *expected,
+                ironbeam_dataflow::portable_metrics::committed_sink_input_count(&metrics, id),
+                input.and_then(|pc| {
+                    ironbeam_dataflow::portable_metrics::committed_element_count(&metrics, pc).ok()
+                }),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        committed, 3,
+        "sink and input counts: {sink_count_diagnostics:?}"
+    );
     assert_eq!(
         ironbeam_dataflow::portable_metrics::committed_sink_input_count(&metrics, &fold_transform,)
             .unwrap(),
