@@ -25,7 +25,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Elementwise transforms and branching | Map, filter, flat-map, Flatten, typed Partition, and shared fanout jobs; bounded and unbounded Partition fixtures match Direct and local Prism values, timestamps, and fixed windows | Broader multi-output and fusion cases |
 | Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases | General stateful fanout and hot-key behavior |
 | Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two-source unbounded session joins and co-groups merge across inputs when their source watermarks advance after the connecting records; tested late rows drop at zero lateness | Independent-source bounded and intermediate-watermark agreement for cross-input sessions, more than two unbounded session inputs, nonzero allowed lateness, and broader merging cases |
-| Triggers and panes | Default trigger only. The Fn API boundary preserves pane timing, indices, and the optional opaque element metadata payload in the worker | Public pane metadata, early and late triggers, accumulation, and Direct/Prism agreement |
+| Triggers and panes | Default trigger only. `reify_panes_named` and sink metadata expose pane timing and indices; a shared Direct/Prism job checks source and native grouped panes. The Fn API boundary preserves the optional opaque element metadata payload | Custom early and late triggers, accumulation, allowed lateness, and agreement for multiple firings |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
 | Side inputs | Bounded global and per-window side-view cases | Streaming side-input updates and broader view types |
 | Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
@@ -179,12 +179,14 @@ them, depending on the accumulation mode. Allowed lateness controls how long
 the runner keeps a window available after its watermark passes the window end.
 
 Ironbeam currently emits the Beam default trigger with discarding accumulation
-and zero allowed lateness. It has no public trigger builder, pane index or
-timing metadata, accumulating mode, or configurable allowed lateness. A job
-that needs early results, late corrections, or multiple panes must wait for
-those contracts to be implemented and tested on both Direct and Prism. The
-absence of an API is deliberate: treating repeated panes as ordinary duplicate
-elements would make sinks and folds ambiguous.
+and zero allowed lateness. `reify_panes_named` exposes each element as
+`(PaneInfo, value)`, and a typed sink receives the same pane through
+`ElementMetadata`. A source element has `Unknown` timing before a firing;
+the tested grouped output is a first-and-last `OnTime` pane with index zero.
+Direct and local Prism agree on those values after native GroupByKey. Ironbeam
+does not yet offer a trigger builder, accumulating mode, or configurable
+allowed lateness. Jobs requiring early results, late corrections, or multiple
+panes remain outside the supported trigger contract.
 
 The default strategy fires once when a nonempty window is ready, uses the
 earliest event timestamp in that firing for grouped output, and discards
@@ -192,11 +194,10 @@ accumulated values afterward. Ironbeam's Fn Data coder decodes Beam pane
 timing, first and last flags, and indices. When Beam sets the element metadata
 flag, a length-prefixed protobuf payload follows the pane header; the worker
 keeps that payload separate from the user element and carries it across its
-supported transform boundaries. It writes both to outgoing Fn Data.
-The public element metadata still does not expose them to application
-callbacks or sinks. A trigger configured externally in a modified Beam graph
-would therefore not give the application a complete pane contract. Such a
-graph remains outside the supported portable API.
+supported transform boundaries. It writes both to outgoing Fn Data. The
+public `PaneInfo` exposes the metadata-present flag but not the opaque
+protobuf payload. A trigger configured externally in a modified Beam graph
+remains outside the supported portable API.
 
 ## State and timers
 
@@ -286,7 +287,8 @@ commit decision or the sink's durable finalization record.
 | Sliding windows | Supported on bounded and unbounded collections on Direct and local Prism, including overlap, negative event time, watermark closure, and late-row discard. |
 | Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Bounded joins and co-groups, including a three-input shared-source co-group, merge keyed intervals. Two-source unbounded joins and co-groups also run on both. Direct checkpoints open unbounded sessions and source cursors. Independent-source and intermediate-watermark session cases can differ on local Prism; more than two unbounded inputs and nonzero allowed lateness remain unproved. |
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
-| Custom triggers and pane metadata | The worker preserves pane headers. A public pane API and custom trigger contract remain pending. |
+| Pane metadata | `reify_panes_named` makes `PaneInfo` available to elementwise callbacks, and typed sinks receive it in `ElementMetadata`. Direct and Prism agree on the default source and grouped panes. |
+| Custom triggers | Early and late firings, accumulation, and allowed lateness remain pending. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
 | Splittable source residuals | Supported by local process-restart fixtures. |
 | Active execution-child replacement in one Prism job | Supported for replay-safe graphs with supervised execution; a killed child and a failed partial-output attempt have live Prism proofs. |

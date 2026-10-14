@@ -25,6 +25,34 @@ fn main() -> Result<(), ironbeam::Error> {
 
 Window grouping operates on the assigned metadata. A keyed window group also retains the key, allowing separate aggregates for each key and interval. The [windowing example](https://github.com/nhubbard/ironbeam/blob/main/examples/windowing_aggregations.rs) computes global and per-key statistics.
 
+### Reading pane information
+
+A pane identifies one firing of a window. The default trigger produces one
+on-time pane for a nonempty grouped window. `reify_panes_named` pairs each
+value with its `PaneInfo` so a transform can inspect its timing, first and last
+flags, and firing indices:
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let grouped = pipeline
+        .from_vec("events", vec![(1_000_000_i64, ("a".to_owned(), 2_i32))])?
+        .timestamps_from_pairs_named("event-time")?
+        .fixed_windows("ten-ms-window", 10_000_000)?
+        .group_by_key_named("group")?
+        .reify_panes_named("pane")?
+        .collect_seq()?;
+    assert_eq!(grouped[0].0.timing, ironbeam::PaneTiming::OnTime);
+    Ok(())
+}
+```
+
+The same pane is available to a custom sink through `ElementMetadata.pane`.
+Source elements have `Unknown` timing before a window fires. Custom early and
+late triggers are not yet part of Ironbeam's pipeline API.
+
 ## Sliding windows
 
 Sliding windows have a size and a period. The size determines each interval's
