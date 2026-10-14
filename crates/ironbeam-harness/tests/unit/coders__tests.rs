@@ -89,16 +89,61 @@ fn interval_window_matches_beam_end_and_duration_wire_shape() {
         ((1_000, 2_000), encoded.len())
     );
     assert_eq!(&encoded[8..], &[0xe8, 0x07]);
+
+    // The four interval examples in Beam's pinned standard_coders.yaml,
+    // including the zero-span interval at Beam's maximum timestamp.
+    let fixtures: &[(&[u8], i64, i64)] = &[
+        (
+            &[
+                0x80, 0, 1, 0x52, 0x9a, 0xa4, 0x9b, 0x68, 0x80, 0xdd, 0xdb, 1,
+            ],
+            1_454_293_425_000,
+            3_600_000,
+        ),
+        (
+            &[
+                0x80, 0, 1, 0x53, 0x34, 0xec, 0x74, 0xe8, 0x80, 0x90, 0xfb, 0xd3, 9,
+            ],
+            1_456_881_825_000,
+            2_592_000_000,
+        ),
+        (
+            &[0x7f, 0xdf, 0x3b, 0x64, 0x5a, 0x1c, 0xad, 0x76, 0xed, 2],
+            -9_223_372_036_854_410,
+            365,
+        ),
+        (
+            &[0x80, 0x20, 0xc4, 0x9b, 0xa5, 0xe3, 0x53, 0xf7, 0],
+            9_223_372_036_854_775,
+            0,
+        ),
+    ];
+    for &(fixture, end, duration) in fixtures {
+        let start = end - duration;
+        assert_eq!(
+            decode_interval_window(fixture).unwrap(),
+            ((start, end), fixture.len())
+        );
+        encoded.clear();
+        encode_interval_window(start, end, &mut encoded).unwrap();
+        assert_eq!(encoded, fixture);
+    }
+
+    // The duration coder is a signed VarLong. This is a byte-level round trip;
+    // the pipeline graph does not treat an inverted interval as a valid window.
+    encoded.clear();
+    encode_interval_window(5, 4, &mut encoded).unwrap();
+    assert_eq!(
+        decode_interval_window(&encoded).unwrap(),
+        ((5, 4), encoded.len())
+    );
 }
 
 #[test]
 fn interval_window_rejects_invalid_ranges_and_wire_values() {
-    assert!(encode_interval_window(5, 5, &mut Vec::new()).is_err());
-    assert!(encode_interval_window(5, 4, &mut Vec::new()).is_err());
     assert!(encode_interval_window(i64::MIN, i64::MAX, &mut Vec::new()).is_err());
     assert!(decode_interval_window(&[0; 7]).is_err());
     assert!(decode_interval_window(&[0x80, 0, 0, 0, 0, 0, 0, 0]).is_err());
-    assert!(decode_interval_window(&[0x80, 0, 0, 0, 0, 0, 0, 0, 0]).is_err());
     let mut overflow = i64::MIN.to_be_bytes().to_vec();
     overflow[0] ^= 0x80;
     overflow.push(1);

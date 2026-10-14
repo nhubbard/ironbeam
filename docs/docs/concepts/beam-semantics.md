@@ -20,7 +20,7 @@ This page does not assign a percentage while those tests are incomplete.
 
 | Capability | Current evidence | Work needed for parity |
 | --- | --- | --- |
-| Graph identity, typed elements, and coders | Versioned graph and worker validation; custom types cross Fn Data in local Prism | Broader Beam coder compatibility corpus |
+| Graph identity, typed elements, and coders | Versioned graph and worker validation; custom types cross Fn Data in local Prism; pane and interval coder bytes match pinned Beam examples | Broader Beam coder compatibility corpus |
 | Bounded and unbounded sources | Vector, file, and resumable source fixtures; residuals cross processes | General source connector contracts and more split shapes |
 | Elementwise transforms and branching | Map, filter, flat-map, Flatten, and shared fanout jobs | Broader multi-output and fusion cases |
 | Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases | General stateful fanout and hot-key behavior |
@@ -58,6 +58,11 @@ shuffle boundary where downstream work must be independently schedulable. It
 does not sort elements. Application callbacks should use the element value and
 metadata, rather than a bundle number or the order in which workers happen to
 receive bundles.
+
+The interval-window byte coder accepts the zero-duration example in Beam's
+standard coder corpus. The graph still requires a valid windowing strategy for
+execution; accepting those bytes does not make an empty interval a useful
+application window.
 
 ## Elements and time
 

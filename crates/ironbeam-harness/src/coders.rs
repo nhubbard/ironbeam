@@ -80,7 +80,9 @@ pub fn decode_length_prefix(buf: &[u8]) -> Result<(&[u8], usize)> {
 // ---- Interval window ------------------------------------------------------
 
 /// Encode Beam's interval-window coder: the lexicographically shifted end
-/// timestamp in milliseconds followed by a positive duration varint.
+/// timestamp in milliseconds followed by a signed duration varint. The wire
+/// coder accepts zero and negative durations, as Beam's interval coder does;
+/// pipeline window validation is separate from byte-level compatibility.
 pub fn encode_interval_window<W: Write>(
     start_millis: i64,
     end_millis: i64,
@@ -88,8 +90,7 @@ pub fn encode_interval_window<W: Write>(
 ) -> Result<()> {
     let duration = end_millis
         .checked_sub(start_millis)
-        .filter(|duration| *duration > 0)
-        .ok_or_else(|| anyhow!("interval_window: end must follow start without overflow"))?;
+        .ok_or_else(|| anyhow!("interval_window: duration overflows i64"))?;
     out.write_all(&((end_millis as u64) ^ (1_u64 << 63)).to_be_bytes())?;
     encode_varint(duration as u64, out)
 }
@@ -104,11 +105,7 @@ pub fn decode_interval_window(buf: &[u8]) -> Result<((i64, i64), usize)> {
     let end_millis = (u64::from_be_bytes(end_bytes) ^ (1_u64 << 63)) as i64;
     let mut cursor = std::io::Cursor::new(&buf[8..]);
     let duration = decode_varint(&mut cursor).context("interval_window: invalid duration")?;
-    let duration =
-        i64::try_from(duration).map_err(|_| anyhow!("interval_window: duration exceeds i64"))?;
-    if duration <= 0 {
-        return Err(anyhow!("interval_window: duration must be positive"));
-    }
+    let duration = duration as i64;
     let start_millis = end_millis
         .checked_sub(duration)
         .ok_or_else(|| anyhow!("interval_window: start timestamp overflows"))?;
