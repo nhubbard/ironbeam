@@ -27,9 +27,9 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use beam_proto::fn_execution_v1::beam_fn_data_client::BeamFnDataClient;
 use beam_proto::fn_execution_v1::{elements::Data as ElemData, Elements};
+use futures_util::StreamExt;
 use tokio::sync::{mpsc, Notify};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use futures_util::StreamExt;
 use tonic::transport::Channel;
 use tracing::{debug, warn};
 
