@@ -28,7 +28,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Triggers and panes | Default trigger only. `reify_panes_named` and sink metadata expose pane timing and indices. Fixed and overlapping sliding windows agree on source and grouped panes. A merged-session fixture exposes a Prism pane-timing difference. The Fn API boundary preserves the optional opaque element metadata payload | Resolve the merged-session pane difference; add custom early and late triggers, accumulation, allowed lateness, and agreement for multiple firings |
 | User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
 | Side inputs | Bounded iterable, singleton, map, and multimap global views; per-window iterable, singleton, map, and multimap views; two unbounded sources match Direct and Prism after both watermarks close each window, including a typed map lookup | Streaming side-input updates before closure |
-| Completion signals | Bounded `wait_on_named` and windowed `wait_on_windowed_named`; a two-stream fixed-window barrier matches Direct and Prism, including an empty signal window | Release when the signal window closes before the main watermark and support several independent signals without manual chaining |
+| Completion signals | Bounded `wait_on_named` and `wait_on_all_named`, plus windowed `wait_on_windowed_named`; a two-stream fixed-window barrier matches Direct and Prism, including an empty signal window | Release when the signal window closes before the main watermark and support several independently watermarked signals in one windowed barrier |
 | Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
 | I/O formats | Separate CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord crates; native Avro reader schemas resolve defaults, projections, numeric promotion, and field aliases through nested and named schemas across local files, globs, shards, and provider-neutral object URIs | Expand schema evolution beyond the tested Avro cases and bind object providers in portable workers |
 | External services | SQL, MongoDB, object storage, and opt-in GCP clients | Provider emulator and hosted service behavior, authentication, and streaming commit guarantees |
@@ -181,7 +181,8 @@ closure; it does not revise a result that was already emitted when the side
 stream later changes.
 
 `wait_on_named` delays main output until a bounded signal collection
-completes. `wait_on_windowed_named` accepts a watermarked signal stream and
+completes. `wait_on_all_named` composes several bounded signal barriers; its
+signal collections must have the same element type. `wait_on_windowed_named` accepts a watermarked signal stream and
 releases each main window after both input watermarks close it. The signal's
 element values are ignored; a window without signal elements also closes when
 its watermark advances. This windowed barrier uses a co-group, so it can

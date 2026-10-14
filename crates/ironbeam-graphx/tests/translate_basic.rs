@@ -1,15 +1,46 @@
 //! Package-local v5 graph-to-Beam protobuf contract tests.
 
 use beam_proto::pipeline_v1::test_stream_payload::event::Event as StreamEvent;
+use beam_proto::pipeline_v1::ParDoPayload;
 use ironbeam_core::{
     cogroup_by_key_2_named, Error, OrderedFoldFn, Pipeline, Replay, SinkMode, SinkSpec,
     TestStreamEvent, TypedSink, Version,
 };
 use ironbeam_graphx::v5::{identity_from_beam, translate_v5, validate_beam_contract, V5Error};
 use ironbeam_graphx::{ids, urns};
+use prost::Message;
 
 const IMAGE: &str = "example.test/ironbeam:v5";
 const BUILD: &str = "graphx-test-build";
+
+#[test]
+fn bounded_multi_signal_wait_lowers_two_portable_side_dependencies() {
+    let pipeline = Pipeline::default();
+    let first = pipeline.from_vec("first", vec![1_i32]).unwrap();
+    let second = pipeline.from_vec("second", vec![2_i32]).unwrap();
+    pipeline
+        .from_vec("main", vec![10_i32])
+        .unwrap()
+        .wait_on_all_named("wait-all", &[first, second])
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    for key in ["wait-all/signal-0", "wait-all"] {
+        let transform = components
+            .transforms
+            .values()
+            .find(|transform| transform.unique_name == key)
+            .unwrap();
+        let payload =
+            ParDoPayload::decode(transform.spec.as_ref().unwrap().payload.as_slice()).unwrap();
+        assert_eq!(payload.side_inputs.len(), 1);
+        assert!(payload.side_inputs.contains_key("side"));
+    }
+}
 
 struct EncounterSum;
 

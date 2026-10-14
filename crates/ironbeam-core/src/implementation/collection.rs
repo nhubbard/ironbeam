@@ -426,6 +426,39 @@ impl<T: Element> PCollection<T> {
             marker: PhantomData,
         })
     }
+    /// Wait for every bounded signal collection to finish before emitting main values.
+    /// Signal element values are ignored. Each signal has its own wait node so
+    /// failures in any producer prevent downstream output from committing.
+    pub fn wait_on_all_named<S: Element>(
+        &self,
+        key: &str,
+        signals: &[PCollection<S>],
+    ) -> Result<Self, Error> {
+        if signals.is_empty() {
+            return Err(Error::graph(key, "wait requires at least one signal"));
+        }
+        for signal in signals {
+            if !Arc::ptr_eq(&self.pipeline.inner, &signal.pipeline.inner) {
+                return Err(Error::graph(
+                    key,
+                    "wait inputs belong to different pipelines",
+                ));
+            }
+            if signal.parent()?.boundedness == Boundedness::Unbounded {
+                return Err(Error::graph(key, "wait signal must be bounded"));
+            }
+        }
+        let mut current = self.clone();
+        for (index, signal) in signals.iter().enumerate() {
+            let node_key = if index + 1 == signals.len() {
+                key.to_owned()
+            } else {
+                format!("{key}/signal-{index}")
+            };
+            current = current.wait_on_named(&node_key, signal)?;
+        }
+        Ok(current)
+    }
     pub fn fixed_windows(&self, key: &str, size_ns: i64) -> Result<Self, Error> {
         if size_ns <= 0 {
             return Err(Error::graph(key, "fixed window size must be positive"));

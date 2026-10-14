@@ -122,12 +122,20 @@ worker.
 ## Completion barriers
 
 `wait_on_named` holds a main collection until a bounded signal collection
-completes. For matching event-time windows on watermarked streams,
+completes. `wait_on_all_named` accepts several bounded signals of the same
+element type and requires all of them to finish. For matching event-time windows on watermarked streams,
 `wait_on_windowed_named` releases main values after both sources close
 their matching window. Signal values are ignored, and a window with no signal
 elements still closes when the signal watermark passes it. The windowed method
 requires matching time and window declarations. It may buffer a full window;
 it does not release early when the signal closes before the main watermark.
+
+```rust
+let ready = main.wait_on_all_named("after-imports", &[users_done, orders_done])?;
+```
+
+The two signal collections in this example have the same element type. Their
+values do not appear in `ready`.
 
 ## Batches and custom handlers
 

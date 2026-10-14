@@ -1367,6 +1367,54 @@ fn wait_on_drains_signal_before_data_and_reshuffle_breaks_fusion() {
 }
 
 #[test]
+fn wait_on_all_drains_every_bounded_signal() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let pipeline = Pipeline::default();
+    let first_done = Arc::new(AtomicBool::new(false));
+    let second_done = Arc::new(AtomicBool::new(false));
+    let first_marker = Arc::clone(&first_done);
+    let second_marker = Arc::clone(&second_done);
+    let first = pipeline
+        .from_vec("first-signal", vec![1_i32])
+        .unwrap()
+        .map_named("first-effect", move |value| {
+            first_marker.store(true, Ordering::SeqCst);
+            value
+        })
+        .unwrap();
+    let second = pipeline
+        .from_vec("second-signal", vec![2_i32])
+        .unwrap()
+        .map_named("second-effect", move |value| {
+            second_marker.store(true, Ordering::SeqCst);
+            value
+        })
+        .unwrap();
+    let output = pipeline
+        .from_vec("main", vec![10_i32, 20])
+        .unwrap()
+        .wait_on_all_named("wait-all", &[first, second])
+        .unwrap()
+        .map_named("check-signals", move |value| {
+            assert!(first_done.load(Ordering::SeqCst));
+            assert!(second_done.load(Ordering::SeqCst));
+            value
+        })
+        .unwrap()
+        .output("result")
+        .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![10, 20]
+    );
+}
+
+#[test]
 fn bounded_batch_helpers_keep_chunks_and_key_groups() {
     let pipeline = Pipeline::default();
     let values = pipeline

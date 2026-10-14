@@ -2577,6 +2577,38 @@ fn stateful_global_inputs_require_compatible_finite_windows() {
     );
 }
 
+#[test]
+fn wait_on_all_rejects_missing_or_invalid_signals_without_partial_nodes() {
+    let pipeline = Pipeline::default();
+    let main = pipeline.from_vec("main", vec![1_i32]).unwrap();
+    let signal = pipeline.from_vec("signal", vec![2_i32]).unwrap();
+    let foreign = Pipeline::default()
+        .from_vec("foreign", vec![3_i32])
+        .unwrap();
+    let unbounded = pipeline
+        .unbounded_source::<i32>(
+            "unbounded",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            0,
+        )
+        .unwrap();
+    let before = pipeline.snapshot().unwrap().0.nodes.len();
+    assert!(main.wait_on_all_named::<i32>("empty", &[]).is_err());
+    assert!(
+        main.wait_on_all_named("foreign-wait", &[signal.clone(), foreign])
+            .is_err()
+    );
+    assert!(
+        main.wait_on_all_named("unbounded-wait", &[signal, unbounded])
+            .is_err()
+    );
+    assert_eq!(pipeline.snapshot().unwrap().0.nodes.len(), before);
+}
+
 struct SumI32;
 impl OrderedFoldFn<i32, i32, i32> for SumI32 {
     fn create(&self) -> i32 {
