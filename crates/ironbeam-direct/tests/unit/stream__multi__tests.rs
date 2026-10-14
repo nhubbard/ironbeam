@@ -325,7 +325,6 @@ fn dual_checkpoint_rejects_mismatched_cursors_and_open_windows() {
             event_time_ns: Some(0),
             completed: false,
         };
-        let empty = BTreeMap::new();
         let mut state = DualWindowState {
             version: 1,
             sources: [
@@ -335,14 +334,14 @@ fn dual_checkpoint_rejects_mismatched_cursors_and_open_windows() {
             main: encode_window_rows(
                 &registry,
                 &route.main_input_key,
-                &empty,
+                &BTreeMap::new(),
                 config.memory_budget_bytes,
             )
             .unwrap(),
             side: encode_window_rows(
                 &registry,
                 &route.side_input_key,
-                &empty,
+                &BTreeMap::new(),
                 config.memory_budget_bytes,
             )
             .unwrap(),

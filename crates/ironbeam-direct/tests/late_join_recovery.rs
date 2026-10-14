@@ -375,6 +375,10 @@ impl TypedSink<String> for Capture {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fixture checks all four join kinds and their late panes"
+)]
 fn every_typed_join_kind_fires_the_correct_late_pane() {
     for kind in ["inner", "left", "right", "full"] {
         let rows = Arc::new(Mutex::new(Vec::new()));
@@ -483,6 +487,10 @@ fn every_typed_join_kind_fires_the_correct_late_pane() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the recovery fixture retains both source cursors and every keyed pane"
+)]
 fn typed_late_join_restores_each_key_pane_and_both_source_cursors() {
     let main_opens = Arc::new(Mutex::new(Vec::new()));
     let side_opens = Arc::new(Mutex::new(Vec::new()));
@@ -642,6 +650,10 @@ fn typed_late_join_restores_each_key_pane_and_both_source_cursors() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the count-trigger recovery fixture checks both source cursors and panes"
+)]
 fn typed_late_count_join_restores_partial_pane_and_source_cursors() {
     let main_opens = Arc::new(Mutex::new(Vec::new()));
     let side_opens = Arc::new(Mutex::new(Vec::new()));
@@ -756,10 +768,10 @@ fn typed_late_count_join_restores_partial_pane_and_source_cursors() {
     };
     let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
-    while !job
+    while job
         .progress()
         .and_then(|progress| progress.checkpoint_position)
-        .is_some_and(|position| position == 5_u64.to_le_bytes())
+        .is_none_or(|position| position != 5_u64.to_le_bytes())
     {
         assert!(
             Instant::now() < deadline,

@@ -3,7 +3,7 @@ use ironbeam_core::{
     SinkSpec, SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
     UnboundedBatch, UnboundedPoll, UnboundedSource,
 };
-use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
+use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, StreamJob};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -341,18 +341,7 @@ fn keyed_batch_restores_a_partial_group_and_source_cursor() {
         ..JobConfig::default()
     };
     let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while job
-        .progress()
-        .and_then(|progress| progress.checkpoint_position)
-        != Some(vec![1])
-    {
-        assert!(
-            Instant::now() < deadline,
-            "partial batch was not checkpointed"
-        );
-        std::thread::sleep(Duration::from_millis(1));
-    }
+    wait_for_checkpoint_position(&job, &[1]);
     assert!(committed.lock().unwrap().is_empty());
     job.cancel();
     assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
@@ -369,6 +358,19 @@ fn keyed_batch_restores_a_partial_group_and_source_cursor() {
             "a:[4]:OnTime:false:true:1:0"
         ]
     );
+}
+
+fn wait_for_checkpoint_position(job: &StreamJob, expected: &[u8]) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        .as_deref()
+        != Some(expected)
+    {
+        assert!(Instant::now() < deadline, "batch was not checkpointed");
+        std::thread::sleep(Duration::from_millis(1));
+    }
 }
 
 struct Sum;
