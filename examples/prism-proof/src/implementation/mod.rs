@@ -1,5 +1,6 @@
 include!("records_and_joins.rs");
 include!("multiway_and_batches.rs");
+include!("homogeneous_cogroup.rs");
 include!("dynamic_ops.rs");
 include!("error_cases.rs");
 include!("streaming_side_inputs.rs");

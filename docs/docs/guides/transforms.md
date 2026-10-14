@@ -73,6 +73,15 @@ fn main() -> Result<(), ironbeam::Error> {
 
 A grouped result contains a key and its values. A shuffle may change value order, so an application that depends on order must provide an explicit order key through the corresponding ordered operation. The transform crates also include keyed reductions, joins, sampling, selection, validation, and side inputs. The [ETL example](https://github.com/nhubbard/ironbeam/blob/main/examples/etl_pipeline.rs) applies several of these operations in one pipeline.
 
+`co_group_homogeneous_named` groups any number of bounded collections whose
+keys and values have the same types. The result is a key and one value vector
+per input. The first vector belongs to the collection on which the method is
+called; the remaining vectors follow the order of `others`. A missing key in
+one input produces an empty vector. Input collections must share the same time
+and window declaration. The method uses Flatten and GroupByKey in the portable
+graph, so value order within each vector is unspecified. A twelve-input
+fixed-window job passes on Direct and local Prism.
+
 ## Side views
 
 A side view lets each main element consult a bounded collection. The global

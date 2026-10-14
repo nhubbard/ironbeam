@@ -17,8 +17,8 @@ IRONBEAM_PRISM_ENDPOINT=localhost:8073 cargo test -p ironbeam-prism-proof --test
 ```
 
 Database proofs are opt-in so the default fixture does not build SQL or
-MongoDB clients. With a local MongoDB service available, run the full 50-job
-corpus with `--features database-proofs` and set
+MongoDB clients. With a local MongoDB service available, run the corpus with
+`--features database-proofs` and set
 `IRONBEAM_PRISM_MONGODB_URI` to its connection URI. The SQLite and MongoDB
 cases each read a real database source and write replay-safe results through
 the separately launched worker twice, comparing the final rows with Direct.
@@ -27,7 +27,8 @@ The fixture asserts actual job completion and captured values, including
 JSONL, Avro, CSV, XML, Parquet, Protobuf, and TFRecord input with terminal captures,
 format-specific append output, object-backed JSONL, native Flatten, global
 and fixed-window GroupByKey, keyed latest with restored event time, two-,
-three-, and ten-input CoGroupByKey, all four joins with
+three- and ten-input typed CoGroupByKey, a twelve-input homogeneous co-group,
+all four joins with
 duplicate and unmatched keys, a fixed-window join with preserved input
 timestamps, a bounded side input fetched through Beam Fn State, native
 Reshuffle, event-time assignment, and fixed-window metadata.

@@ -22,6 +22,7 @@ include!("side_views.rs");
 include!("grouping.rs");
 include!("session_join.rs");
 include!("keyed.rs");
+include!("co_group_homogeneous.rs");
 include!("output.rs");
 
 #[cfg(test)]
