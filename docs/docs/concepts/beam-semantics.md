@@ -7,6 +7,35 @@ collections. A runner chooses where and when to execute the transforms. Ironbeam
 protobuf for a portable runner. The two paths share element and graph
 descriptors, but they do not yet cover every part of the Beam model.
 
+## Parity target and evidence
+
+The reference is the local Apache Beam checkout at commit `7d93ef8e76aa3fd7874e760010f6479fba40721a`.
+The target covers portable pipeline semantics and I/O useful to Rust
+applications. It does not count Beam's Java, Python, Go, and TypeScript SDK
+implementations as four copies of the same feature. Each supported semantic
+must have a Direct test and a local Prism job with comparable output, time,
+window, and failure behavior. A connector also needs a format or protocol
+round trip and an execution test on each runner that supports its lifecycle.
+This page does not assign a percentage while those tests are incomplete.
+
+| Capability | Current evidence | Work needed for parity |
+| --- | --- | --- |
+| Graph identity, typed elements, and coders | Versioned graph and worker validation; custom types cross Fn Data in local Prism | Broader Beam coder compatibility corpus |
+| Bounded and unbounded sources | Vector, file, and resumable source fixtures; residuals cross processes | General source connector contracts and more split shapes |
+| Elementwise transforms and branching | Map, filter, flat-map, Flatten, and shared fanout jobs | Broader multi-output and fusion cases |
+| Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases | General stateful fanout and hot-key behavior |
+| Event time and watermarks | Fixed, offset, sliding, and bounded session cases; late rows drop at zero lateness | Unbounded merging sessions and nonzero allowed lateness |
+| Triggers and panes | Default trigger only. The Fn API boundary now decodes and preserves pane timing and indices in the worker | Public pane metadata, early and late triggers, accumulation, and Direct/Prism agreement |
+| User state and timers | Internal grouped checkpoints and Fn State reads | Public key/window state and event or processing-time timer callbacks |
+| Side inputs | Bounded global and per-window side-view cases | Streaming side-input updates and broader view types |
+| Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
+| I/O formats | Separate CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord crates | Expand protocol fixtures, schema evolution, and portable production cases |
+| External services | SQL, MongoDB, object storage, and opt-in GCP clients | Provider emulator and hosted service behavior, authentication, and streaming commit guarantees |
+
+The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)
+records exact passing suites and remaining release constraints. The table is
+an inventory of work, not a weighted feature score.
+
 ## Portable graph
 
 The Ironbeam graph records each collection's element coder, boundedness,
@@ -121,12 +150,13 @@ elements would make sinks and folds ambiguous.
 
 The default strategy fires once when a nonempty window is ready, uses the
 earliest event timestamp in that firing for grouped output, and discards
-accumulated values afterward. Ironbeam's Fn Data coder recognizes Beam pane
-headers needed to decode the current output, but the public element metadata
-does not expose a pane index, first or last status, or early/on-time/late
-timing. A trigger configured externally in a modified Beam graph would not
-give the application a complete pane contract. Such a graph should be treated
-as outside the supported portable API.
+accumulated values afterward. Ironbeam's Fn Data coder decodes Beam pane
+timing, first and last flags, and indices. The worker retains those fields
+across its supported transform boundaries and writes them to outgoing Fn Data.
+The public element metadata still does not expose them to application
+callbacks or sinks. A trigger configured externally in a modified Beam graph
+would therefore not give the application a complete pane contract. Such a
+graph remains outside the supported portable API.
 
 ## State and timers
 
@@ -216,7 +246,7 @@ commit decision or the sink's durable finalization record.
 | Sliding windows | Supported on bounded and unbounded collections on Direct and local Prism, including overlap, negative event time, watermark closure, and late-row discard. |
 | Session windows | Bounded keyed grouping merges overlapping or touching intervals on Direct and local Prism. Unbounded groups and session joins or co-groups are rejected. |
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
-| Custom triggers and pane metadata | Pending. |
+| Custom triggers and pane metadata | The worker preserves pane headers. A public pane API and custom trigger contract remain pending. |
 | General user state and timers | Pending; internal checkpoint and Fn State paths serve specific operations. |
 | Splittable source residuals | Supported by local process-restart fixtures. |
 | Active execution-child replacement in one Prism job | Supported for replay-safe graphs with supervised execution; a killed child and a failed partial-output attempt have live Prism proofs. |
