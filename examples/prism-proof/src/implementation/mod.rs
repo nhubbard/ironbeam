@@ -7,5 +7,6 @@ include!("streaming_joins.rs");
 include!("ordered_folds.rs");
 include!("duplicate_order_cases.rs");
 include!("production_sources.rs");
+include!("pane_metadata.rs");
 include!("production_sinks.rs");
 include!("finalization.rs");

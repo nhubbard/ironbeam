@@ -39,12 +39,12 @@ use ironbeam_prism_proof::{
     large_group_summary, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
     latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
-    ordered_keyed_duplicate_fixture, ordered_keyed_fixture, panicking_global_combine_fixture,
-    panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
-    partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
-    session_group_fixture, sliding_window_group_fixture, streaming_group_fixture,
-    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
-    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture,
+    panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
+    panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
+    production_stream_fixture, session_group_fixture, sliding_window_group_fixture,
+    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
     streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
     validation_fail_fixture, validation_skip_fixture, windowed_side_input_fixture, ExpandSingleton,
     ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
@@ -3855,6 +3855,54 @@ async fn prism_matches_direct_partition_routes_and_time_metadata() {
     .await;
     assert_eq!(terminal.0, 3, "Prism partition state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), direct_rows);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_default_pane_metadata_after_native_grouping() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-panes.txt");
+    let portable_path = directory.path().join("portable-panes.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = pane_metadata_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let direct_rows = rows(&direct_path);
+    assert_eq!(
+        direct_rows,
+        [
+            "group:a:[2, 3]:OnTime:true:true:0:0",
+            "source:a:2:Unknown:true:true:0:0",
+            "source:a:3:Unknown:true:true:0:0",
+        ]
+    );
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    pane_metadata_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "panes",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_PANES".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism pane metadata state: {terminal:?}");
+    assert_eq!(rows(&portable_path), direct_rows);
 }
 
 #[tokio::test]
