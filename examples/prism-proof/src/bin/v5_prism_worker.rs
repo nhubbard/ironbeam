@@ -29,8 +29,8 @@ use ironbeam_prism_proof::{
     heterogeneous_late_count_cogroup_fixture, homogeneous_twelve_way_cogroup_fixture,
     homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
     large_group_rows, large_group_summary, late_count_fixture, late_count_join_fixture,
-    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
-    mixed_boundedness_join_cogroup_fixture, mixed_flatten_fixture,
+    late_count_join_kind_fixture, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
+    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, mixed_flatten_fixture,
     mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
@@ -342,6 +342,14 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_LATE_COUNT_JOIN") {
         return late_count_join_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let (Ok(kind), Ok(path)) = (
+        std::env::var("IRONBEAM_V5_PRISM_LATE_COUNT_JOIN_KIND"),
+        std::env::var("IRONBEAM_V5_PRISM_LATE_COUNT_JOIN_KIND_PATH"),
+    ) {
+        return late_count_join_kind_fixture(pipeline, &kind, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

@@ -1,5 +1,12 @@
 /// A count trigger fires a typed join's late pane after two new main values.
 pub fn late_count_join_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
+    late_count_join_kind_collection(pipeline, "full")
+}
+
+pub fn late_count_join_kind_collection(
+    pipeline: &Pipeline,
+    kind: &str,
+) -> Result<PCollection<String>, Error> {
     let main = pipeline
         .test_stream_source(
             "late-count-main",
@@ -30,14 +37,29 @@ pub fn late_count_join_collection(pipeline: &Pipeline) -> Result<PCollection<Str
         .fixed_windows("late-count-side-window", 10_000_000)?
         .allowed_lateness_named("late-count-side-policy", 5_000_000)?
         .late_count_trigger_named("late-count-side-trigger", 2)?;
-    main.join_full_named("late-count-join", &side)?
-        .reify_panes_named("late-count-join-pane")?
-        .map_named("late-count-join-row", |(pane, (key, pair))| {
-            format!(
-                "{key}:{pair:?}:{:?}:{}:{}:{}:{}",
-                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
-            )
-        })
+    match kind {
+        "inner" => main.join_inner_named("late-count-inner", &side)?
+            .reify_panes_named("late-count-inner-pane")?
+            .map_named("late-count-inner-row", |(pane, (key, pair))| {
+                format!("{key}:{pair:?}:{:?}:{}:{}:{}:{}", pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index)
+            }),
+        "left" => main.join_left_named("late-count-left", &side)?
+            .reify_panes_named("late-count-left-pane")?
+            .map_named("late-count-left-row", |(pane, (key, pair))| {
+                format!("{key}:{pair:?}:{:?}:{}:{}:{}:{}", pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index)
+            }),
+        "right" => main.join_right_named("late-count-right", &side)?
+            .reify_panes_named("late-count-right-pane")?
+            .map_named("late-count-right-row", |(pane, (key, pair))| {
+                format!("{key}:{pair:?}:{:?}:{}:{}:{}:{}", pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index)
+            }),
+        "full" => main.join_full_named("late-count-join", &side)?
+            .reify_panes_named("late-count-join-pane")?
+            .map_named("late-count-join-row", |(pane, (key, pair))| {
+                format!("{key}:{pair:?}:{:?}:{}:{}:{}:{}", pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index)
+            }),
+        _ => Err(Error::graph("late-count-join-kind", "unknown join kind")),
+    }
 }
 
 pub fn late_count_join_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
@@ -50,6 +72,30 @@ pub fn late_count_join_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sin
             commit: true,
         },
         format!("late-count-join-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
+
+pub fn late_count_join_kind_fixture(
+    pipeline: &Pipeline,
+    kind: &str,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    late_count_join_kind_collection(pipeline, kind)?.sink_named_with_config(
+        "late-count-kind-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("late-count-{kind}-result:{}", path.display()),
         move || {
             Ok(Box::new(GlobalFoldSink {
                 path: sink_path.clone(),
