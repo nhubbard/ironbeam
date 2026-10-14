@@ -180,6 +180,34 @@ fn ambiguous_field_aliases_fail_closed() {
 }
 
 #[test]
+fn one_writer_field_cannot_fill_two_reader_aliases() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("overlap.avro");
+    let writer = r#"{"type":"record","name":"Row","fields":[{"name":"old_name","type":"string"}]}"#;
+    let reader = r#"{"type":"record","name":"Row","fields":[{"name":"first","type":"string","aliases":["old_name"]},{"name":"second","type":"string","aliases":["old_name"],"default":"fallback"}]}"#;
+    write_value(
+        &path,
+        writer,
+        Value::Record(vec![("old_name".into(), Value::String("value".into()))]),
+    );
+    let pipeline = Pipeline::default();
+    let output = avro_source_with_reader_schema::<String>(&pipeline, "overlap", &path, reader)
+        .unwrap()
+        .output("output")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Io);
+    assert!(
+        error
+            .message
+            .contains("several reader fields match writer field")
+    );
+}
+
+#[test]
 fn primary_reader_field_wins_over_another_fields_alias() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("primary.avro");

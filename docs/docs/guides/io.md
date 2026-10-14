@@ -112,14 +112,37 @@ source reads the object once while building the graph and again when it runs.
 It rejects a changed object. `cloud_avro_uri_prefix_source` and its
 `_with_reader_schema` form read all objects under a literal URI prefix in
 sorted order. The object set is fixed when the graph is built; a later object
-does not silently enter a resumed job. This adapter currently uses the
-registered provider in the local process. The bundled object-store backend is
-local. GCP's official storage client has a separate asynchronous API and does
-not yet implement this registry's `ObjectIO` contract. Portable worker access also
-needs an execution binding. Enable the Avro crate's `cloud` feature for these
-functions; the root `cloud` feature forwards to it when `v5-io-avro` is also
-enabled. With an enabled compression feature, object names such as
-`records.avro.gz` are decoded before Avro schema resolution.
+does not silently enter a resumed job. This adapter uses the registered
+provider in the local process. For a Direct job reading Google Cloud Storage,
+enable `ironbeam-io-avro`'s `cloud` feature and
+`ironbeam-cloud-object-store`'s `gcp` feature, then build the registry with
+`object_stores_from_env()` and pass a `gs://bucket/key.avro` URI. The hosted
+adapter uses the `object_store` GCS client and Application Default
+Credentials. The separate `ironbeam-cloud-gcp` client does not itself
+implement this registry's `ObjectIO` contract. A portable worker still needs
+its own provider binding and credential proof. The root `cloud` feature
+forwards to Avro's `cloud` feature when `v5-io-avro` is also enabled. With an
+enabled compression feature, object names such as `records.avro.gz` are
+decoded before Avro schema resolution.
+
+For example, the `Account` type and reader schema above can read one GCS
+object through the hosted registry:
+
+```rust
+use ironbeam_cloud_object_store::object_stores_from_env;
+use ironbeam_io_avro::cloud_avro_uri_source_with_reader_schema;
+
+let stores = object_stores_from_env()?;
+let pipeline = Pipeline::default();
+let accounts = cloud_avro_uri_source_with_reader_schema::<Account>(
+    &pipeline, "accounts", &stores, "gs://example-bucket/accounts.avro", schema,
+)?.collect_seq()?;
+```
+
+The source reads the object at graph construction, so this form requires
+credentials and network access in the process that builds the graph. The
+provider reads the full object into memory; large objects need a streaming
+provider and source implementation.
 
 ## Writing a result
 

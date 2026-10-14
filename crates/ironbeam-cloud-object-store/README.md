@@ -4,8 +4,8 @@ This opt-in crate connects Ironbeam's provider-neutral `ObjectIO` contract to
 Apache `object_store`. Enable only the providers an application uses:
 
 ```toml
-ironbeam-cloud-objects = "0.1"
-ironbeam-cloud-object-store = { version = "0.1", features = ["gcp"] }
+ironbeam-cloud-objects = "5.0.0"
+ironbeam-cloud-object-store = { version = "5.0.0", features = ["gcp"] }
 ```
 
 ```rust,ignore

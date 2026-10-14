@@ -33,6 +33,7 @@ fn apply_field_aliases(value: &mut Value, schema: &Schema) -> Result<(), Error> 
     match (value, schema) {
         (value, Schema::Union(union)) => apply_union_aliases(value, union)?,
         (Value::Record(values), Schema::Record(record)) => {
+            let mut renamed = Vec::new();
             for field in &record.fields {
                 if values.iter().any(|(name, _)| name == &field.name) {
                     continue;
@@ -51,8 +52,21 @@ fn apply_field_aliases(value: &mut Value, schema: &Schema) -> Result<(), Error> 
                     }
                 }
                 if let Some(index) = matched {
-                    values[index].0.clone_from(&field.name);
+                    if renamed.iter().any(|(prior, _)| *prior == index) {
+                        return Err(Error::io(
+                            "avro",
+                            "schema",
+                            format!(
+                                "several reader fields match writer field {}",
+                                values[index].0
+                            ),
+                        ));
+                    }
+                    renamed.push((index, &field.name));
                 }
+            }
+            for (index, name) in renamed {
+                values[index].0.clone_from(name);
             }
             for field in &record.fields {
                 if let Some((_, nested)) = values.iter_mut().find(|(name, _)| name == &field.name) {
