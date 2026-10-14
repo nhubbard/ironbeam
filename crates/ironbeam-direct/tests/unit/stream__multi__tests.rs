@@ -514,6 +514,22 @@ fn bounded_stream_resume_rejects_a_shortened_source_and_invalid_position() {
             .kind,
         ErrorKind::Recovery
     );
+    progress.checkpoint_position = None;
+    assert_eq!(
+        BoundedStreamReader::open(&registry, "bounded", Some(&progress), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+    progress.source_key = "other".into();
+    assert_eq!(
+        BoundedStreamReader::open(&registry, "bounded", Some(&progress), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Incompatible
+    );
 }
 
 #[test]
@@ -550,6 +566,16 @@ fn dual_start_rejects_missing_coder_and_cancellation() {
     let config = checkpoint_config(temporary.path());
     let (graph, registry, plan, mut route, sink_key) = dual_fixture();
     route.side_input_key = "missing-coder".into();
+    assert!(matches!(
+        start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    let (graph, registry, plan, mut route, sink_key) = dual_fixture();
+    route.window = Window::Session { gap_ns: 10 };
+    route.aggregate_key = "missing-session-coder".into();
     assert!(matches!(
         start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
             .err()
@@ -634,4 +660,366 @@ fn dual_stream_enforces_one_budget_across_both_open_sides() {
         .err()
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Resource);
+}
+
+#[derive(Clone, Copy)]
+enum FoldFault {
+    AddPanic,
+    ClosedPanic,
+    ClosedOverrelease,
+    ClosedReleaseOne,
+    LatePanic,
+    LateOverrelease,
+    LateReleaseOne,
+    FinalPanic,
+    FinalOverrelease,
+    FinalReleaseOne,
+}
+
+struct FaultFold(FoldFault);
+
+impl FoldSession for FaultFold {
+    fn add(&mut self, _: Envelope) -> Result<(), Error> {
+        assert!(!matches!(self.0, FoldFault::AddPanic), "fold add failed");
+        Ok(())
+    }
+
+    fn drain_closed(&mut self, _: i64) -> Result<(Vec<Envelope>, usize), Error> {
+        match self.0 {
+            FoldFault::ClosedPanic => panic!("closed fold failed"),
+            FoldFault::ClosedOverrelease => Ok((Vec::new(), 2)),
+            FoldFault::ClosedReleaseOne => Ok((Vec::new(), 1)),
+            _ => Ok((Vec::new(), 0)),
+        }
+    }
+
+    fn drain_late(&mut self, final_firing: bool) -> Result<(Vec<Envelope>, usize), Error> {
+        match (self.0, final_firing) {
+            (FoldFault::LatePanic, false) => panic!("late fold failed"),
+            (FoldFault::LateOverrelease, false) | (FoldFault::FinalOverrelease, true) => {
+                Ok((Vec::new(), 2))
+            }
+            (FoldFault::LateReleaseOne, false) | (FoldFault::FinalReleaseOne, true) => {
+                Ok((Vec::new(), 1))
+            }
+            (FoldFault::FinalPanic, true) => panic!("final fold failed"),
+            _ => Ok((Vec::new(), 0)),
+        }
+    }
+
+    fn finish(self: Box<Self>) -> Result<Vec<Envelope>, Error> {
+        Ok(Vec::new())
+    }
+}
+
+fn fault_group_route() -> MultiGroupedStreamRoute {
+    MultiGroupedStreamRoute {
+        sources: Vec::new(),
+        group_input_key: "input".into(),
+        group_key: "group".into(),
+        window: Window::Fixed { size_ns: 10 },
+        after_group: Vec::new(),
+    }
+}
+
+fn fault_progress(watermark: i64) -> ProgressSignal {
+    ProgressSignal {
+        source_key: "source".into(),
+        split_id: "split-0".into(),
+        checkpoint_position: Some(vec![1]),
+        event_time_ns: Some(watermark),
+        completed: false,
+    }
+}
+
+#[test]
+fn multi_grouped_fold_panics_and_invalid_release_counts_are_typed_errors() {
+    use grouped_state::MultiWindowState;
+
+    let route = fault_group_route();
+    let registry = Registry::default();
+    let window = (0, 10);
+    for (fault, watermark, prior, late_window, expected) in [
+        (
+            FoldFault::ClosedPanic,
+            10,
+            None,
+            false,
+            ErrorKind::Execution,
+        ),
+        (
+            FoldFault::ClosedOverrelease,
+            10,
+            None,
+            false,
+            ErrorKind::Recovery,
+        ),
+        (
+            FoldFault::LatePanic,
+            11,
+            Some(10),
+            true,
+            ErrorKind::Execution,
+        ),
+        (
+            FoldFault::LateOverrelease,
+            11,
+            Some(10),
+            true,
+            ErrorKind::Recovery,
+        ),
+        (
+            FoldFault::FinalPanic,
+            15,
+            Some(10),
+            false,
+            ErrorKind::Execution,
+        ),
+        (
+            FoldFault::FinalOverrelease,
+            15,
+            Some(10),
+            false,
+            ErrorKind::Recovery,
+        ),
+    ] {
+        let mut state = MultiWindowState::Late {
+            folds: BTreeMap::from([(
+                window,
+                (Box::new(FaultFold(fault)) as Box<dyn FoldSession>, 1),
+            )]),
+            buffered: 1,
+            late_windows: if late_window {
+                BTreeSet::from([window])
+            } else {
+                BTreeSet::new()
+            },
+            allowed_lateness_ns: 5,
+        };
+        let error = state
+            .drain(&registry, &route, prior, &fault_progress(watermark))
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, expected);
+    }
+}
+
+#[test]
+fn multi_grouped_state_versions_and_empty_snapshots_are_distinct() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    for lateness in [0, 5] {
+        let state = MultiWindowState::empty(lateness);
+        assert!(state.is_empty());
+        let version = state.version();
+        assert_eq!(version, if lateness == 0 { 1 } else { 2 });
+        let bytes = state.encode(&registry, &route, 1024).unwrap();
+        let restored =
+            MultiWindowState::restore(&registry, &route, &bytes, version, lateness, 10).unwrap();
+        assert!(restored.is_empty());
+        assert_eq!(restored.version(), version);
+        assert_eq!(
+            MultiWindowState::restore(&registry, &route, &bytes, 3 - version, lateness, 10)
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Incompatible
+        );
+        if lateness > 0 {
+            assert!(
+                MultiWindowState::restore(
+                    &registry,
+                    &route,
+                    b"bad-fold-state",
+                    version,
+                    lateness,
+                    10
+                )
+                .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn multi_grouped_state_drops_expired_rows_before_charging_the_budget() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let event = || Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, 2_i32)),
+        timestamp_ns: 2,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+    };
+    let mut rows = MultiWindowState::empty(0);
+    rows.add(&registry, &route, event(), Some(10), 0).unwrap();
+    assert!(rows.is_empty());
+    assert_eq!(
+        rows.add(&registry, &route, event(), None, 0)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+    let mut late = MultiWindowState::empty(5);
+    late.add(&registry, &route, event(), Some(15), 0).unwrap();
+    assert!(late.is_empty());
+    assert_eq!(
+        late.add(&registry, &route, event(), Some(10), 0)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+    assert!(late.add(&registry, &route, event(), Some(10), 1).is_err());
+    assert!(late.is_empty());
+    let mut panicking = MultiWindowState::Late {
+        folds: BTreeMap::from([(
+            (0, 10),
+            (
+                Box::new(FaultFold(FoldFault::AddPanic)) as Box<dyn FoldSession>,
+                0,
+            ),
+        )]),
+        buffered: 0,
+        late_windows: BTreeSet::new(),
+        allowed_lateness_ns: 5,
+    };
+    assert_eq!(
+        panicking
+            .add(&registry, &route, event(), Some(10), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+}
+
+#[test]
+fn multi_grouped_state_rejects_buffer_accounting_underflow() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let window = (0, 10);
+    let event = Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, 2_i32)),
+        timestamp_ns: 2,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+    };
+    let mut rows = MultiWindowState::Rows {
+        windows: BTreeMap::from([(window, vec![event])]),
+        buffered: 0,
+    };
+    assert_eq!(
+        rows.drain(&registry, &route, None, &fault_progress(10))
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+    for (fault, watermark, prior, late_window) in [
+        (FoldFault::ClosedReleaseOne, 10, None, false),
+        (FoldFault::LateReleaseOne, 11, Some(10), true),
+        (FoldFault::FinalReleaseOne, 15, Some(10), false),
+    ] {
+        let mut state = MultiWindowState::Late {
+            folds: BTreeMap::from([(
+                window,
+                (Box::new(FaultFold(fault)) as Box<dyn FoldSession>, 1),
+            )]),
+            buffered: 0,
+            late_windows: if late_window {
+                BTreeSet::from([window])
+            } else {
+                BTreeSet::new()
+            },
+            allowed_lateness_ns: 5,
+        };
+        assert_eq!(
+            state
+                .drain(&registry, &route, prior, &fault_progress(watermark))
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Recovery
+        );
+    }
+}
+
+#[test]
+fn multi_grouped_rows_report_missing_aggregate_without_losing_the_error() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let event = Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, 2_i32)),
+        timestamp_ns: 2,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+    };
+    let mut rows = MultiWindowState::Rows {
+        windows: BTreeMap::from([((0, 10), vec![event])]),
+        buffered: 1,
+    };
+    assert_eq!(
+        rows.drain(&registry, &route, None, &fault_progress(10))
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+}
+
+#[test]
+fn multi_grouped_state_waits_for_progress_and_skips_late_delivery_at_expiry() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let mut rows = MultiWindowState::empty(0);
+    let mut pending = fault_progress(0);
+    pending.event_time_ns = None;
+    assert!(
+        rows.drain(&registry, &route, None, &pending)
+            .unwrap()
+            .is_empty()
+    );
+    let window = (0, 10);
+    let mut late = MultiWindowState::Late {
+        folds: BTreeMap::from([(
+            window,
+            (
+                Box::new(FaultFold(FoldFault::ClosedPanic)) as Box<dyn FoldSession>,
+                0,
+            ),
+        )]),
+        buffered: 0,
+        late_windows: BTreeSet::from([window]),
+        allowed_lateness_ns: 5,
+    };
+    assert!(
+        late.drain(&registry, &route, Some(10), &fault_progress(15))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(late.is_empty());
 }

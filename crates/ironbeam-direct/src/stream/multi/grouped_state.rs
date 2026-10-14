@@ -2,6 +2,15 @@
 
 use super::*;
 
+fn catch_group_user<T>(
+    key: &str,
+    message: &str,
+    action: impl FnOnce() -> Result<T, Error>,
+) -> Result<T, Error> {
+    catch_unwind(AssertUnwindSafe(action))
+        .unwrap_or_else(|_| Err(Error::execution(key, "direct", message)))
+}
+
 pub(super) enum MultiWindowState {
     Rows {
         windows: WindowRows,
@@ -141,25 +150,15 @@ impl MultiWindowState {
                 let (fold, count) = match folds.entry(window) {
                     std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                     std::collections::btree_map::Entry::Vacant(entry) => {
-                        let fold =
-                            catch_unwind(AssertUnwindSafe(|| registry.open_fold(&route.group_key)))
-                                .unwrap_or_else(|_| {
-                                    Err(Error::execution(
-                                        &route.group_key,
-                                        "direct",
-                                        "group fold factory panicked",
-                                    ))
-                                })?;
+                        let fold = catch_group_user(
+                            &route.group_key,
+                            "group fold factory panicked",
+                            || registry.open_fold(&route.group_key),
+                        )?;
                         entry.insert((fold, 0))
                     }
                 };
-                catch_unwind(AssertUnwindSafe(|| fold.add(event))).unwrap_or_else(|_| {
-                    Err(Error::execution(
-                        &route.group_key,
-                        "direct",
-                        "group fold panicked",
-                    ))
-                })?;
+                catch_group_user(&route.group_key, "group fold panicked", || fold.add(event))?;
                 *count += 1;
                 *buffered += 1;
             }
@@ -207,16 +206,10 @@ impl MultiWindowState {
                     *buffered = buffered.checked_sub(events.len()).ok_or_else(|| {
                         Error::recovery(&route.group_key, "group buffer count underflow")
                     })?;
-                    let mut grouped = catch_unwind(AssertUnwindSafe(|| {
-                        registry.apply_aggregate(&route.group_key, vec![events])
-                    }))
-                    .unwrap_or_else(|_| {
-                        Err(Error::execution(
-                            &route.group_key,
-                            "direct",
-                            "user aggregate panicked",
-                        ))
-                    })?;
+                    let mut grouped =
+                        catch_group_user(&route.group_key, "user aggregate panicked", || {
+                            registry.apply_aggregate(&route.group_key, vec![events])
+                        })?;
                     panes.append(&mut grouped);
                 }
                 Ok(panes)

@@ -541,3 +541,7 @@ fn run_multi_grouped_stream(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/stream__multi__grouped_tests.rs"]
+mod tests;

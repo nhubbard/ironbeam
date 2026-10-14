@@ -21,6 +21,53 @@ fn manager<T: Element>(output: &Output<T>, config: &CheckpointConfig) -> Checkpo
 }
 
 #[test]
+fn materialized_eval_rejects_missing_nodes_inputs_and_prestart_cancellation() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![1_i32])
+        .unwrap()
+        .map_named("mapped", |value| value + 1)
+        .unwrap();
+    let (mut graph, registry) = pipeline.snapshot().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    let metrics = MetricsState::default();
+    let config = JobConfig::default();
+    assert_eq!(
+        eval(&pool, &graph, &registry, "missing", &config, &metrics)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+    graph
+        .nodes
+        .iter_mut()
+        .find(|node| node.key == "mapped")
+        .unwrap()
+        .input = None;
+    assert_eq!(
+        eval(&pool, &graph, &registry, "mapped", &config, &metrics)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+    config
+        .cancellation
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        eval(&pool, &graph, &registry, "mapped", &config, &metrics)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Cancelled
+    );
+}
+
+#[test]
 fn grouped_fast_routes_decline_incomplete_or_non_linear_graphs() {
     fn declines(graph: &Graph, registry: &Registry, config: &JobConfig) -> bool {
         let metrics = MetricsState::default();
