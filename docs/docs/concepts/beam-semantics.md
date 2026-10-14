@@ -111,8 +111,9 @@ fixtures check bridges formed by other inputs, isolated sessions, empty sides,
 values, and merged bounds. Two-source unbounded session joins and co-groups
 also merge intervals across inputs. Direct waits for both watermarks before
 closing a keyed session and restores the open rows with both source cursors
-from a checkpoint. Shared Direct and local Prism jobs check the bridge and
-merged bounds for a join and co-group. More than two unbounded inputs and
+from a checkpoint. Shared Direct and local Prism jobs check the bridge,
+merged bounds, and a row dropped after closure for a join and co-group. More
+than two unbounded inputs and
 nonzero allowed lateness remain outside this tested contract. The [windowing guide](../guides/windowing.md#keyed-sessions)
 contains a working example.
 

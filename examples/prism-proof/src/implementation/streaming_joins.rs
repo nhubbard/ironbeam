@@ -6,6 +6,7 @@ fn dual_unbounded_session_sources(pipeline: &Pipeline) -> Result<(KeyedStream, K
         ]),
         TestStreamEvent::Elements(vec![(("a".to_owned(), 2_i32), 8_000_000)]),
         TestStreamEvent::AdvanceWatermark(20_000_000),
+        TestStreamEvent::Elements(vec![(("a".to_owned(), 3_i32), 0)]),
     ])?.session_windows_named("dual-session-main-window", 5_000_000)?;
     let side = pipeline.test_stream_source("dual-session-side", vec![
         TestStreamEvent::Elements(vec![(("a".to_owned(), 10_i32), 4_000_000)]),

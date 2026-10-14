@@ -1177,6 +1177,7 @@ fn two_unbounded_session_join_merges_cross_input_bridge_before_watermark() {
                 TestStreamEvent::Elements(vec![((1_i32, 1_i32), 0), ((2, 99), 0)]),
                 TestStreamEvent::Elements(vec![((1, 2), 8)]),
                 TestStreamEvent::AdvanceWatermark(20),
+                TestStreamEvent::Elements(vec![((1, 3), 0)]),
             ],
         )
         .unwrap()
@@ -1312,6 +1313,15 @@ fn two_unbounded_session_cogroup_merges_cross_input_bridge() {
 
 #[test]
 fn stateful_two_source_fanout_recovers_open_window_and_completed_checkpoint() {
+    stateful_two_source_fanout_recovers(false);
+}
+
+#[test]
+fn stateful_two_source_session_fanout_recovers_bridge_and_completed_checkpoint() {
+    stateful_two_source_fanout_recovers(true);
+}
+
+fn stateful_two_source_fanout_recovers(session: bool) {
     let temporary = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
     let source_opens = Arc::new(AtomicUsize::new(0));
@@ -1324,7 +1334,7 @@ fn stateful_two_source_fanout_recovers_open_window_and_completed_checkpoint() {
         let opens = Arc::clone(&source_opens);
         let source_key = key.to_owned();
         let finish_side = Arc::clone(&finish_side);
-        pipeline
+        let collection = pipeline
             .unbounded_source_with_factory(
                 key,
                 SourceProgress {
@@ -1342,10 +1352,24 @@ fn stateful_two_source_fanout_recovers_open_window_and_completed_checkpoint() {
                             Vec::new()
                         } else {
                             vec![UnboundedPoll::Ready(UnboundedBatch {
-                                elements: vec![Timestamped {
-                                    value: if source_key == "fanout-main" { 2 } else { 3 },
-                                    timestamp_ns: 1,
-                                }],
+                                elements: if source_key == "fanout-main" {
+                                    let mut rows = vec![Timestamped {
+                                        value: 2,
+                                        timestamp_ns: 1,
+                                    }];
+                                    if session {
+                                        rows.push(Timestamped {
+                                            value: 4,
+                                            timestamp_ns: 9,
+                                        });
+                                    }
+                                    rows
+                                } else {
+                                    vec![Timestamped {
+                                        value: 3,
+                                        timestamp_ns: if session { 5 } else { 1 },
+                                    }]
+                                },
                                 progress: ProgressSignal {
                                     source_key: source_key.clone(),
                                     split_id: "split-0".into(),
@@ -1360,9 +1384,14 @@ fn stateful_two_source_fanout_recovers_open_window_and_completed_checkpoint() {
                     }))
                 },
             )
-            .unwrap()
-            .fixed_windows(&format!("{key}-window"), 10)
-            .unwrap()
+            .unwrap();
+        let windowed = if session {
+            collection.session_windows_named(&format!("{key}-window"), 5)
+        } else {
+            collection.fixed_windows(&format!("{key}-window"), 10)
+        }
+        .unwrap();
+        windowed
             .map_named(&format!("{key}-key"), |value| (1_i32, value))
             .unwrap()
     };
@@ -1463,7 +1492,11 @@ fn stateful_two_source_fanout_recovers_open_window_and_completed_checkpoint() {
     }
     let mut values = committed.lock().unwrap().clone();
     values.sort_unstable();
-    assert_eq!(values, [17, 27, 37, 47]);
+    if session {
+        assert_eq!(values, [17, 19, 27, 29, 37, 39, 47, 49]);
+    } else {
+        assert_eq!(values, [17, 27, 37, 47]);
+    }
     assert_eq!(source_opens.load(Ordering::SeqCst), 4);
     assert_eq!(sink_opens.load(Ordering::SeqCst), 2);
 }
