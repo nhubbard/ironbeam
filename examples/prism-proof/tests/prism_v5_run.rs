@@ -47,7 +47,8 @@ use ironbeam_prism_proof::{
     sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
     streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
     streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, validation_fail_fixture, validation_skip_fixture,
+    streaming_windowed_side_input_fixture, triple_unbounded_flatten_collection,
+    triple_unbounded_flatten_fixture, validation_fail_fixture, validation_skip_fixture,
     windowed_duplicate_map_side_fixture, windowed_side_input_fixture,
     windowed_side_view_shapes_fixture, ExpandSingleton, PaneFixtureWindow, ProductionAvroRow,
     ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
@@ -2913,7 +2914,7 @@ async fn prism_matches_direct_two_unbounded_windowed_cogroup() {
 }
 
 #[tokio::test]
-async fn prism_matches_direct_two_unbounded_windowed_flatten() {
+async fn prism_matches_direct_two_and_three_unbounded_windowed_flatten() {
     struct DirectRows {
         rows: Arc<Mutex<Vec<String>>>,
         accepted: Arc<Mutex<HashSet<String>>>,
@@ -3007,6 +3008,73 @@ async fn prism_matches_direct_two_unbounded_windowed_flatten() {
             "0..4000000:2000000:a:10",
             "4000000..8000000:5000000:b:20",
             "4000000..8000000:5000000:c:3",
+        ]
+    );
+
+    let triple_path = directory.path().join("triple-flatten.txt");
+    let triple_direct_rows = Arc::new(Mutex::new(Vec::new()));
+    let triple_accepted = Arc::new(Mutex::new(HashSet::new()));
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = triple_unbounded_flatten_collection(&direct_pipeline)
+        .unwrap()
+        .sink_named_with_config(
+            "triple-flatten-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "triple-flatten-direct-v1".into(),
+            {
+                let rows = Arc::clone(&triple_direct_rows);
+                let accepted = Arc::clone(&triple_accepted);
+                move || {
+                    Ok(Box::new(DirectRows {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let pipeline = Pipeline::default();
+    triple_unbounded_flatten_fixture(&pipeline, triple_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "triple-flatten",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_TRIPLE_FLATTEN".into(),
+            triple_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism triple flatten state: {terminal:?}");
+    let mut rows = std::fs::read_to_string(&triple_path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    rows.sort();
+    let mut direct = triple_direct_rows.lock().unwrap().clone();
+    direct.sort();
+    assert_eq!(rows, direct);
+    assert_eq!(
+        rows,
+        [
+            "0..4000000:1000000:a:1",
+            "0..4000000:2000000:a:10",
+            "0..4000000:2000000:d:30",
+            "4000000..8000000:5000000:b:20",
+            "4000000..8000000:5000000:c:3",
+            "4000000..8000000:5000000:e:40",
         ]
     );
 }

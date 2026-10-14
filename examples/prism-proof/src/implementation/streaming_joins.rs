@@ -126,6 +126,57 @@ pub fn dual_unbounded_flatten_fixture(
     )
 }
 
+/// Three independent watermarked sources share a native Flatten boundary.
+pub fn triple_unbounded_flatten_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let (main, side) = dual_unbounded_sources(pipeline)?;
+    let third = pipeline
+        .test_stream_source(
+            "third-flatten-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("d".to_owned(), 30_i32), 2_000_000),
+                    (("e".to_owned(), 40), 5_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+                TestStreamEvent::AdvanceWatermark(8_000_000),
+            ],
+        )?
+        .fixed_windows("third-flatten-window", 4_000_000)?;
+    main.flatten_named("triple-flatten", &[side, third])?
+        .reify_timestamps_named("triple-flatten-time")?
+        .with_window_named("triple-flatten-window-out")?
+        .map_named("triple-flatten-row", |(window, (time, (key, value)))| {
+            format!(
+                "{}..{}:{time}:{key}:{value}",
+                window.start_ns, window.end_ns
+            )
+        })
+}
+
+pub fn triple_unbounded_flatten_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    triple_unbounded_flatten_collection(pipeline)?.sink_named_with_config(
+        "triple-flatten-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("triple-flatten-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 pub fn dual_unbounded_join_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
