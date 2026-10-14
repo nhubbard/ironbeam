@@ -436,6 +436,24 @@ impl<T: Element> PCollection<T> {
         }));
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
     }
+    /// Assign merging session intervals without grouping the collection.
+    /// A later keyed grouping can merge overlapping intervals for each key.
+    pub fn session_windows_named(&self, key: &str, gap_ns: i64) -> Result<Self, Error> {
+        if self.parent()?.time.window != Window::Global {
+            return Err(Error::graph(key, "assign timestamps before session windowing"));
+        }
+        if gap_ns <= 0 {
+            return Err(Error::graph(key, "session gap must be positive"));
+        }
+        let window = Window::Session { gap_ns };
+        let runtime_window = window.clone();
+        let transform = Transform::Single(Arc::new(move |mut event| {
+            event.assigned_window = runtime_window.assign(event.timestamp_ns)?;
+            event.window = runtime_window.clone();
+            Ok(Some(event))
+        }));
+        self.next(key, Operation::SessionWindow, Some(transform), Some(window))
+    }
     /// Assign an element to each overlapping sliding interval.
     pub fn sliding_windows(
         &self,

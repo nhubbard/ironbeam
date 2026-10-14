@@ -2,6 +2,40 @@ use ironbeam_core::Pipeline;
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
 
 #[test]
+fn explicit_session_assignment_merges_when_grouped_later() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec(
+            "events",
+            vec![
+                (0_i64, ("a".to_owned(), 1_i32)),
+                (8_000_000, ("a".to_owned(), 2)),
+                (4_000_000, ("a".to_owned(), 3)),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("event-time")
+        .unwrap()
+        .session_windows_named("session-assignment", 5_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .with_window_named("bounds")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (rows, _) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!((rows[0].0.start_ns, rows[0].0.end_ns), (0, 13_000_000));
+    assert_eq!(rows[0].1.0, "a");
+    let mut values = rows[0].1.1.clone();
+    values.sort_unstable();
+    assert_eq!(values, [1, 2, 3]);
+}
+
+#[test]
 fn keyed_sessions_merge_bridge_and_restore_completed_checkpoint() {
     let pipeline = Pipeline::default();
     let output = pipeline

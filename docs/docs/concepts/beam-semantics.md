@@ -97,8 +97,9 @@ open-window checkpoint.
 Session windows start at each event's timestamp and extend by a configured
 gap. Keyed sessions merge when their intervals overlap or touch. The arrival
 order does not determine the final interval: a later bridge event can join two
-existing groups. `group_by_session_named` implements this behavior for bounded
-and single-source unbounded keyed input. Direct and local Prism agree on a
+existing groups. `session_windows_named` assigns session intervals, while
+`group_by_session_named` also groups the keyed values. Bounded and
+single-source unbounded grouping runs on Direct and local Prism. They agree on a
 bridge, independent keys, the earliest group event time, and merged interval
 bounds. An unbounded test advances the watermark, merges two still-open
 sessions, closes them, and drops a row for a closed window. It also closes one

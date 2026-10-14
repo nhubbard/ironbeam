@@ -107,7 +107,8 @@ pub fn session_group_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<
             ],
         )?
         .timestamps_from_pairs_named("session-time")?
-        .group_by_session_named("session-group", 5_000_000)?
+        .session_windows_named("session-group/session", 5_000_000)?
+        .group_by_key_named("session-group")?
         .reify_timestamps_named("session-group-time")?
         .with_window_named("session-group-window")?
         .map_named("session-row", |(window, (time, (key, mut values)))| {

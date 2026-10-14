@@ -7,26 +7,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         key: &str,
         gap_ns: i64,
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
-        let parent = self.parent()?;
-        if parent.time.window != Window::Global {
-            return Err(Error::graph(key, "assign timestamps before session grouping"));
-        }
-        if gap_ns <= 0 {
-            return Err(Error::graph(key, "session gap must be positive"));
-        }
-        let window = Window::Session { gap_ns };
-        let runtime_window = window.clone();
-        let transform = Transform::Single(Arc::new(move |mut event| {
-            event.assigned_window = runtime_window.assign(event.timestamp_ns)?;
-            event.window = runtime_window.clone();
-            Ok(Some(event))
-        }));
-        let windowed: Self = self.next(
-            &format!("{key}/session"),
-            Operation::SessionWindow,
-            Some(transform),
-            Some(window),
-        )?;
+        let windowed = self.session_windows_named(&format!("{key}/session"), gap_ns)?;
         windowed.group_by_key_named(key)
     }
 

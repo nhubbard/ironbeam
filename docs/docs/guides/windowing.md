@@ -92,8 +92,11 @@ Prism. Direct restores their open sessions and source cursor from a checkpoint;
 the shared fixture closes one negative-time session, then bridges two open
 sessions and discards a row after its session closes. Session joins and
 co-groups remain unsupported because they require merging across inputs.
-Portable session gaps must be
-positive whole milliseconds.
+Portable session gaps must be positive whole milliseconds.
+
+`group_by_session_named` assigns sessions and then groups the keyed elements.
+Use `session_windows_named` to assign intervals separately when another
+transform needs to run before `group_by_key_named`.
 
 ## Migration of timestamps
 

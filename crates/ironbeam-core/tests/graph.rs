@@ -581,6 +581,15 @@ fn session_windows_validate_gap_and_time_bounds() {
     let pipeline = Pipeline::default();
     let bounded = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
     assert!(bounded.group_by_session_named("bad-gap", 0).is_err());
+    assert!(
+        bounded
+            .session_windows_named("bad-explicit-gap", 0)
+            .is_err()
+    );
+    let explicit = bounded
+        .session_windows_named("explicit-session", 5)
+        .unwrap();
+    explicit.group_by_key_named("explicit-group").unwrap();
     let grouped = bounded.group_by_session_named("session", 5).unwrap();
     assert!(
         grouped
@@ -590,6 +599,11 @@ fn session_windows_validate_gap_and_time_bounds() {
     assert!(cogroup_by_key_2_named("unsupported-session-cogroup", &grouped, &grouped).is_err());
     let fixed = bounded.fixed_windows("fixed-before-session", 10).unwrap();
     assert!(fixed.group_by_session_named("nested-session", 5).is_err());
+    assert!(
+        fixed
+            .session_windows_named("nested-explicit-session", 5)
+            .is_err()
+    );
     let unbounded = pipeline
         .unbounded_source::<(i32, i32)>(
             "stream-for-session",
