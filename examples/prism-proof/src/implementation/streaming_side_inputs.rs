@@ -436,10 +436,9 @@ pub fn dual_unbounded_late_join_fixture(
     )
 }
 
-/// A typed full join retains its window for a main-only late pane.
-pub fn dual_positive_late_full_join_collection(
-    pipeline: &Pipeline,
-) -> Result<PCollection<String>, Error> {
+type DualLateInputs = (PCollection<(i32, i32)>, PCollection<(i32, i32)>);
+
+fn dual_positive_late_join_sources(pipeline: &Pipeline) -> Result<DualLateInputs, Error> {
     let main = pipeline
         .test_stream_source(
             "positive-late-main",
@@ -464,6 +463,14 @@ pub fn dual_positive_late_full_join_collection(
         )?
         .fixed_windows("positive-late-side-window", 10_000_000)?
         .allowed_lateness_named("positive-late-side-policy", 5_000_000)?;
+    Ok((main, side))
+}
+
+/// A typed full join retains its window for a main-only late pane.
+pub fn dual_positive_late_full_join_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let (main, side) = dual_positive_late_join_sources(pipeline)?;
     main.join_full_named("positive-late-join", &side)?
         .reify_panes_named("positive-late-pane")?
         .map_named("positive-late-row", |(pane, (key, pair))| {
@@ -472,6 +479,57 @@ pub fn dual_positive_late_full_join_collection(
                 pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
             )
         })
+}
+
+/// Apply Beam's output-time policy independently to on-time and late panes.
+pub fn dual_positive_late_join_time_collection(
+    pipeline: &Pipeline,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<PCollection<String>, Error> {
+    let (main, side) = dual_positive_late_join_sources(pipeline)?;
+    let (main, side) = match policy {
+        ironbeam_core::WindowOutputTime::EndOfWindow => (
+            main.end_of_window_output_time_named("positive-late-main-time")?,
+            side.end_of_window_output_time_named("positive-late-side-time")?,
+        ),
+        ironbeam_core::WindowOutputTime::LatestInPane => (
+            main.latest_in_pane_output_time_named("positive-late-main-time")?,
+            side.latest_in_pane_output_time_named("positive-late-side-time")?,
+        ),
+        ironbeam_core::WindowOutputTime::EarliestInPane => (main, side),
+    };
+    main.join_full_named("positive-late-time-join", &side)?
+        .reify_panes_named("positive-late-time-pane")?
+        .reify_timestamps_named("positive-late-time-stamp")?
+        .map_named("positive-late-time-row", |(time, (pane, (key, pair)))| {
+            format!(
+                "{time}:{key}:{pair:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn dual_positive_late_join_time_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_positive_late_join_time_collection(pipeline, policy)?.sink_named_with_config(
+        "positive-late-time-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("positive-late-time-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
 }
 
 pub fn dual_positive_late_full_join_fixture(

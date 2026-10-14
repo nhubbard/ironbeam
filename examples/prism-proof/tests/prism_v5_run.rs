@@ -32,12 +32,13 @@ use ironbeam_prism_proof::{
     combined_count_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
     dual_late_cogroup_collection, dual_late_cogroup_fixture, dual_late_count_cogroup_collection,
     dual_late_count_cogroup_fixture, dual_positive_late_cogroup_fixture,
-    dual_positive_late_full_join_fixture, dual_stream_windowed_side_collection,
-    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_collection,
-    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
-    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_collection,
-    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_collection,
-    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    dual_positive_late_full_join_fixture, dual_positive_late_join_time_fixture,
+    dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
+    dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
+    dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
+    dual_unbounded_fanin_output_time_collection, dual_unbounded_fanin_output_time_fixture,
+    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
+    dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -2964,6 +2965,53 @@ async fn prism_heterogeneous_cogroup_retains_late_pane() {
             "1:([3], []):Late:false:false:1:1",
         ]
     );
+}
+
+#[tokio::test]
+async fn prism_late_full_join_uses_each_panes_output_time_policy() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    for (policy, environment, on_time, late) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            "IRONBEAM_V5_PRISM_DUAL_POSITIVE_LATE_END_TIME",
+            9_000_000,
+            9_000_000,
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            "IRONBEAM_V5_PRISM_DUAL_POSITIVE_LATE_LATEST_TIME",
+            4_000_000,
+            3_000_000,
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("late-join-time.txt");
+        let pipeline = Pipeline::default();
+        dual_positive_late_join_time_fixture(&pipeline, path.clone(), policy).unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &pipeline,
+            "positive-late-join-output-time",
+            HashMap::from([(environment.into(), path.to_string_lossy().into_owned())]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "late join time state: {terminal:?}");
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        let mut expected = vec![
+            format!("{on_time}:1:(Some(2), Some(4)):OnTime:true:false:0:0"),
+            format!("{late}:1:(Some(3), None):Late:false:false:1:1"),
+        ];
+        expected.sort_unstable();
+        assert_eq!(rows, expected, "policy: {policy:?}");
+    }
 }
 
 #[tokio::test]

@@ -81,6 +81,9 @@ and a late main-only row on both runners, checking pane timing and index and
 the drop after window expiry. A heterogeneous co-group fixture checks typed
 main and side values with the same on-time and late pane transition. Direct
 also checkpoints the two source cursors and retained per-key pane indices.
+Two more full-join jobs apply end-of-window and latest-in-pane output-time
+policies. Direct and Prism both timestamp the on-time pane at 9 ms or 4 ms,
+respectively, and the late pane at 9 ms or 3 ms.
 Live Prism jobs match Direct on values, windows, and event times in all three
 operations. Prism still accepts only one TestStream transform per job; tagged
 streams use one element coder and exclude processing time advances. The
