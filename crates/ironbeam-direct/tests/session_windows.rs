@@ -36,6 +36,7 @@ fn explicit_session_assignment_merges_when_grouped_later() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Keep the four join kinds on the same keyed session fixture.
 fn bounded_join_merges_session_intervals_across_both_inputs() {
     let pipeline = Pipeline::default();
     let left = pipeline
