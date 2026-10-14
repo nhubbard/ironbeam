@@ -14,6 +14,12 @@ fn keyed_batches_reject_zero_and_unrepresentable_portable_sizes() {
     }
     let (graph, _) = pipeline.snapshot().unwrap();
     assert!(graph.node("batches").is_none());
+
+    if let Ok(largest) = usize::try_from(i64::MAX - 1) {
+        input.group_into_batches_named("largest", largest).unwrap();
+        let (graph, _) = pipeline.snapshot().unwrap();
+        assert!(graph.node("largest").is_some());
+    }
 }
 
 struct ScriptedUnbounded {
