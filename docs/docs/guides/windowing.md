@@ -94,8 +94,14 @@ then call `group_by_key_named("group")`. Direct and Prism both emit an early
 pane after the second element and a final pane when the finite test stream
 completes. For a continuing source, the trigger supplies regular output while
 the key remains live; retained state grows when accumulation is enabled.
-To combine early
-and late count firings, set allowed lateness and use the combined policy
+`combine_values_lifted_named` also accepts an unbounded global keyed input
+with this trigger. It combines each emitted group pane, so the example input
+`2, 3, 4` yields an early sum of `5` and a final sum of `4` in discarding
+mode, or `9` in accumulating mode. This path materializes the values in each
+pane before applying the combiner; use finite windows when long-lived keys
+must have bounded retained state.
+
+To combine early and late count firings, set allowed lateness and use the combined policy
 described below.
 
 ### Group output timestamps

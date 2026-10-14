@@ -43,7 +43,8 @@ use ironbeam_prism_proof::{
     dual_unbounded_session_join_collection, dual_unbounded_session_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
     finalization_probe_sink, finalization_probe_store, global_count_collection,
-    global_count_fixture, global_fold_fixture, global_vector_fixture, group_end_time_fixture,
+    global_count_fixture, global_fold_fixture, global_keyed_combine_collection,
+    global_keyed_combine_fixture, global_vector_fixture, group_end_time_fixture,
     group_latest_time_fixture, group_time_fixture, homogeneous_twelve_way_cogroup_fixture,
     homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
     large_group_rows, large_group_summary, late_count_fixture, latest_tie_duplicate_fixture,
@@ -6108,7 +6109,7 @@ async fn prism_matches_direct_combine_output_time_policies() {
 }
 
 #[tokio::test]
-async fn prism_matches_direct_global_count_trigger_panes() {
+async fn prism_matches_direct_global_count_group_and_combine_panes() {
     struct DirectRows {
         rows: Arc<Mutex<Vec<String>>>,
         committed: Arc<Mutex<HashSet<String>>>,
@@ -6139,17 +6140,23 @@ async fn prism_matches_direct_global_count_trigger_panes() {
         return;
     };
     let _prism_job = prism_job_lock().lock().await;
-    for (accumulating, variable) in [
-        (false, "IRONBEAM_V5_PRISM_GLOBAL_COUNT_DISCARDING"),
-        (true, "IRONBEAM_V5_PRISM_GLOBAL_COUNT_ACCUMULATING"),
+    for (accumulating, combine, variable) in [
+        (false, false, "IRONBEAM_V5_PRISM_GLOBAL_COUNT_DISCARDING"),
+        (true, false, "IRONBEAM_V5_PRISM_GLOBAL_COUNT_ACCUMULATING"),
+        (false, true, "IRONBEAM_V5_PRISM_GLOBAL_COMBINE_DISCARDING"),
+        (true, true, "IRONBEAM_V5_PRISM_GLOBAL_COMBINE_ACCUMULATING"),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let portable_path = directory.path().join("portable.txt");
         let rows = Arc::new(Mutex::new(Vec::new()));
         let committed = Arc::new(Mutex::new(HashSet::new()));
         let direct_pipeline = Pipeline::default();
-        let direct_sink = global_count_collection(&direct_pipeline, accumulating)
-            .unwrap()
+        let direct_collection = if combine {
+            global_keyed_combine_collection(&direct_pipeline, accumulating).unwrap()
+        } else {
+            global_count_collection(&direct_pipeline, accumulating).unwrap()
+        };
+        let direct_sink = direct_collection
             .sink_named_with_config(
                 "global-count-capture",
                 SinkSpec {
@@ -6178,7 +6185,11 @@ async fn prism_matches_direct_global_count_trigger_panes() {
             .wait()
             .unwrap();
         let pipeline = Pipeline::default();
-        global_count_fixture(&pipeline, portable_path.clone(), accumulating).unwrap();
+        if combine {
+            global_keyed_combine_fixture(&pipeline, portable_path.clone(), accumulating).unwrap();
+        } else {
+            global_count_fixture(&pipeline, portable_path.clone(), accumulating).unwrap();
+        }
         let terminal = run_shared_fixture(
             &endpoint,
             &pipeline,
@@ -6198,7 +6209,10 @@ async fn prism_matches_direct_global_count_trigger_panes() {
             .map(str::to_owned)
             .collect::<Vec<_>>();
         portable.sort_unstable();
-        assert_eq!(portable, direct, "accumulating: {accumulating}");
+        assert_eq!(
+            portable, direct,
+            "accumulating: {accumulating}, combine: {combine}"
+        );
     }
 }
 

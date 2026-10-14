@@ -1,6 +1,6 @@
 use ironbeam_core::{
-    ElementMetadata, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
-    SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
+    CombineFn, ElementMetadata, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode,
+    SinkSpec, SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
     UnboundedBatch, UnboundedPoll, UnboundedSource,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
@@ -9,6 +9,101 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 type Row = (String, i32);
+
+struct Sum;
+
+impl CombineFn<i32, i32, i32> for Sum {
+    fn create(&self) -> i32 {
+        0
+    }
+    fn add_input(&self, total: &mut i32, value: i32) {
+        *total += value;
+    }
+    fn merge(&self, total: &mut i32, other: i32) {
+        *total += other;
+    }
+    fn finish(&self, total: i32) -> i32 {
+        total
+    }
+}
+
+#[test]
+fn unbounded_global_keyed_combine_uses_count_panes() {
+    for accumulating in [false, true] {
+        let committed = Arc::new(Mutex::new(Vec::new()));
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let pipeline = Pipeline::default();
+        let source = pipeline
+            .test_stream_source(
+                "values",
+                vec![
+                    TestStreamEvent::Elements(vec![
+                        (("a".to_owned(), 2_i32), 2_000_000),
+                        (("a".to_owned(), 3), 3_000_000),
+                    ]),
+                    TestStreamEvent::Elements(vec![(("a".to_owned(), 4), 4_000_000)]),
+                ],
+            )
+            .unwrap();
+        let source = if accumulating {
+            source
+                .accumulating_count_trigger_named("trigger", 2)
+                .unwrap()
+        } else {
+            source.early_count_trigger_named("trigger", 2).unwrap()
+        };
+        let sink = source
+            .combine_values_lifted_named("combine", Sum)
+            .unwrap()
+            .reify_panes_named("pane")
+            .unwrap()
+            .map_named("row", |(pane, (key, sum))| {
+                format!(
+                    "{key}:{sum}:{:?}:{}:{}:{}:{}",
+                    pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+                )
+            })
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "global-combine-v1".into(),
+                {
+                    let committed = Arc::clone(&committed);
+                    let accepted = Arc::clone(&accepted);
+                    move || {
+                        Ok(Box::new(Capture {
+                            committed: Arc::clone(&committed),
+                            accepted: Arc::clone(&accepted),
+                            staged: Vec::new(),
+                            bundle: None,
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert_eq!(
+            committed.lock().unwrap().as_slice(),
+            [
+                "a:5:Early:true:false:0:-1",
+                if accumulating {
+                    "a:9:OnTime:false:true:1:0"
+                } else {
+                    "a:4:OnTime:false:true:1:0"
+                },
+            ]
+        );
+    }
+}
 
 #[test]
 fn unbounded_global_count_trigger_emits_early_and_final_panes() {

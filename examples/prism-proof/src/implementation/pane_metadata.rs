@@ -1,11 +1,7 @@
 struct PaneCheckingSink(GlobalFoldSink<String>);
 
-/// Repeated count firings in the global window, followed by a final pane.
-pub fn global_count_collection(
-    pipeline: &Pipeline,
-    accumulating: bool,
-) -> Result<PCollection<String>, Error> {
-    let values = pipeline.test_stream_source(
+fn global_count_values(pipeline: &Pipeline) -> Result<PCollection<(String, i32)>, Error> {
+    pipeline.test_stream_source(
         "global-count-source",
         vec![
             TestStreamEvent::Elements(vec![
@@ -18,7 +14,15 @@ pub fn global_count_collection(
                 4_000_000,
             )]),
         ],
-    )?;
+    )
+}
+
+/// Repeated count firings in the global window, followed by a final pane.
+pub fn global_count_collection(
+    pipeline: &Pipeline,
+    accumulating: bool,
+) -> Result<PCollection<String>, Error> {
+    let values = global_count_values(pipeline)?;
     let values = if accumulating {
         values.accumulating_count_trigger_named("global-count-trigger", 2)?
     } else {
@@ -37,6 +41,55 @@ pub fn global_count_collection(
                 pane.nonspeculative_index
             )
         })
+}
+
+/// A keyed combine uses each count-triggered global group pane.
+pub fn global_keyed_combine_collection(
+    pipeline: &Pipeline,
+    accumulating: bool,
+) -> Result<PCollection<String>, Error> {
+    let values = global_count_values(pipeline)?;
+    let values = if accumulating {
+        values.accumulating_count_trigger_named("global-count-trigger", 2)?
+    } else {
+        values.early_count_trigger_named("global-count-trigger", 2)?
+    };
+    values
+        .combine_values_lifted_named("global-count-combine", ProductionSum)?
+        .reify_panes_named("global-count-pane")?
+        .map_named("global-count-row", |(pane, (key, sum))| {
+            format!(
+                "{key}:{sum}:{:?}:{}:{}:{}:{}",
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+                pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn global_keyed_combine_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    global_keyed_combine_collection(pipeline, accumulating)?.sink_named_with_config(
+        "global-count-capture",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("global-count:combine:{}", path.display()),
+        move || {
+            Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })))
+        },
+    )
 }
 
 pub fn global_count_fixture(

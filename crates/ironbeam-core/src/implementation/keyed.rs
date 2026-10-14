@@ -43,6 +43,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         windowed.group_by_key_named(key)
     }
 
+    /// Combine values for each key and window. An unbounded global input
+    /// needs an early count trigger; each firing materializes a group pane
+    /// and applies the combiner to that pane.
     pub fn combine_values_lifted_named<C, A, O>(
         &self,
         key: &str,
@@ -55,10 +58,20 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     {
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
-            return Err(Error::graph(
-                key,
-                "unbounded global aggregation requires a finite window",
-            ));
+            if parent.time.trigger.early_count().is_none() {
+                return Err(Error::graph(
+                    key,
+                    "unbounded global keyed combine requires an early count trigger",
+                ));
+            }
+            let grouped = self.group_by_key_named(&format!("{key}/group"))?;
+            return grouped.map_named(key, move |(group_key, values)| {
+                let mut accumulator = combiner.create();
+                for value in values {
+                    combiner.add_input(&mut accumulator, value);
+                }
+                (group_key, combiner.finish(accumulator))
+            });
         }
         let node_key = key.to_owned();
         let output_time = parent.time.output_time;
