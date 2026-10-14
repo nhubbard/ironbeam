@@ -11,7 +11,7 @@ use beam_proto::job_management_v1::{
     job_messages_response, job_service_client::JobServiceClient, job_state, CancelJobRequest,
     GetJobMetricsRequest, GetJobStateRequest, JobMessagesRequest, PrepareJobRequest, RunJobRequest,
 };
-use beam_proto::pipeline_v1::{trigger, ProcessPayload, Trigger};
+use beam_proto::pipeline_v1::ProcessPayload;
 use ironbeam_cloud_objects::{LocalObjectIO, ObjectIO, ObjectStores};
 use ironbeam_core::{
     Element, Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, SourceProgress,
@@ -45,9 +45,10 @@ use ironbeam_prism_proof::{
     mixed_flatten_fixture, mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
     offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
     ordered_global_fixture, ordered_keyed_duplicate_fixture, ordered_keyed_fixture,
-    pane_metadata_fixture_for, panicking_global_combine_fixture, panicking_keyed_fold_fixture,
-    panicking_map_fixture, panicking_side_input_fixture, partition_fixture,
-    production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
+    pane_metadata_fixture_for, pane_metadata_fixture_with_trigger,
+    panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
+    panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
+    production_stream_fixture, session_group_fixture,
     shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
     side_view_shapes_fixture, sliding_window_group_fixture, streaming_group_fixture,
     streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
@@ -243,18 +244,7 @@ async fn run_shared_fixture(
     name: &str,
     env: HashMap<String, String>,
 ) -> (i32, Vec<String>) {
-    run_shared_fixture_with_pipeline(endpoint, pipeline, name, env, |_| {}).await
-}
-
-async fn run_shared_fixture_with_pipeline(
-    endpoint: &str,
-    pipeline: &Pipeline,
-    name: &str,
-    env: HashMap<String, String>,
-    change: impl FnOnce(&mut beam_proto::pipeline_v1::Pipeline),
-) -> (i32, Vec<String>) {
     let mut translated = prepare_v5(pipeline, "local-process", "prism-run-fixture").unwrap();
-    change(&mut translated.pipeline);
     let environment = translated
         .pipeline
         .components
@@ -5106,37 +5096,6 @@ async fn prism_reports_early_default_pane_for_merged_session() {
     .await;
 }
 
-fn install_count_one_trigger(beam: &mut beam_proto::pipeline_v1::Pipeline) {
-    let components = beam.components.as_mut().unwrap();
-    let mut altered = false;
-    for strategy in components.windowing_strategies.values_mut() {
-        if strategy
-            .window_fn
-            .as_ref()
-            .is_some_and(|window| window.urn == "beam:window_fn:fixed_windows:v1")
-        {
-            strategy.trigger = Some(Trigger {
-                trigger: Some(trigger::Trigger::AfterEndOfWindow(Box::new(
-                    trigger::AfterEndOfWindow {
-                        early_firings: Some(Box::new(Trigger {
-                            trigger: Some(trigger::Trigger::Repeat(Box::new(trigger::Repeat {
-                                subtrigger: Some(Box::new(Trigger {
-                                    trigger: Some(trigger::Trigger::ElementCount(
-                                        trigger::ElementCount { element_count: 1 },
-                                    )),
-                                })),
-                            }))),
-                        })),
-                        late_firings: None,
-                    },
-                ))),
-            });
-            altered = true;
-        }
-    }
-    assert!(altered, "fixture needs a fixed-window strategy");
-}
-
 #[tokio::test]
 async fn prism_count_trigger_fires_one_early_pane_for_a_bounded_bundle() {
     // Characterize pinned Prism before exposing trigger configuration in the
@@ -5148,16 +5107,16 @@ async fn prism_count_trigger_fires_one_early_pane_for_a_bounded_bundle() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("count-trigger.txt");
     let pipeline = Pipeline::default();
-    pane_metadata_fixture_for(&pipeline, path.clone(), PaneFixtureWindow::Fixed).unwrap();
-    let terminal = run_shared_fixture_with_pipeline(
+    pane_metadata_fixture_with_trigger(&pipeline, path.clone(), PaneFixtureWindow::Fixed, true)
+        .unwrap();
+    let terminal = run_shared_fixture(
         &endpoint,
         &pipeline,
         "count-trigger-probe",
         HashMap::from([(
-            "IRONBEAM_V5_PRISM_PANES".into(),
+            "IRONBEAM_V5_PRISM_COUNT_BOUNDED".into(),
             path.to_string_lossy().into_owned(),
         )]),
-        install_count_one_trigger,
     )
     .await;
     assert_eq!(terminal.0, 3, "count trigger job state: {terminal:?}");
@@ -5187,7 +5146,7 @@ async fn prism_count_trigger_stream_advances_early_pane_indices() {
     let path = directory.path().join("count-stream.txt");
     let pipeline = Pipeline::default();
     count_trigger_stream_fixture(&pipeline, path.clone()).unwrap();
-    let terminal = run_shared_fixture_with_pipeline(
+    let terminal = run_shared_fixture(
         &endpoint,
         &pipeline,
         "count-trigger-stream-probe",
@@ -5195,7 +5154,6 @@ async fn prism_count_trigger_stream_advances_early_pane_indices() {
             "IRONBEAM_V5_PRISM_COUNT_STREAM".into(),
             path.to_string_lossy().into_owned(),
         )]),
-        install_count_one_trigger,
     )
     .await;
     assert_eq!(terminal.0, 3, "count stream job state: {terminal:?}");

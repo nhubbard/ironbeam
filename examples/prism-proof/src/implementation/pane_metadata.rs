@@ -53,6 +53,15 @@ pub fn pane_metadata_fixture_for(
     path: PathBuf,
     window: PaneFixtureWindow,
 ) -> Result<Sink<String>, Error> {
+    pane_metadata_fixture_with_trigger(pipeline, path, window, false)
+}
+
+pub fn pane_metadata_fixture_with_trigger(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    window: PaneFixtureWindow,
+    early_count_one: bool,
+) -> Result<Sink<String>, Error> {
     let values = pipeline
         .from_vec(
             "pane-events",
@@ -68,6 +77,11 @@ pub fn pane_metadata_fixture_for(
             values.sliding_windows("pane-windows", 10_000_000, 5_000_000, 0)?
         }
         PaneFixtureWindow::Session => values.session_windows_named("pane-windows", 10_000_000)?,
+    };
+    let values = if early_count_one {
+        values.early_count_trigger_named("pane-count-trigger", 1)?
+    } else {
+        values
     };
     let raw = values.reify_panes_named("source-pane")?.map_named(
         "source-pane-row",
@@ -122,7 +136,8 @@ pub fn count_trigger_stream_fixture(
                 TestStreamEvent::AdvanceWatermark(10_000_000),
             ],
         )?
-        .fixed_windows("count-windows", 10_000_000)?;
+        .fixed_windows("count-windows", 10_000_000)?
+        .early_count_trigger_named("count-trigger", 1)?;
     let rows = values
         .group_by_key_named("count-group")?
         .reify_panes_named("count-pane")?

@@ -40,13 +40,13 @@ duplicate and unmatched keys, a fixed-window join with preserved input
 timestamps, a bounded side input fetched through Beam Fn State, native
 Reshuffle, event-time assignment, and fixed-window metadata.
 
-Two count-trigger tests serve as a reference for future windowing support.
-They replace the fixed-window strategy in the lowered Beam pipeline inside
-the test; Ironbeam does not expose a trigger setting yet. With a repeated
+Two count-trigger tests exercise `early_count_trigger_named` from the public
+collection API through the separately launched worker. With a repeated
 count-one early trigger, pinned Prism emits one early pane for two values in
 one bounded bundle. Values separated by TestStream watermark advances appear
 in early panes numbered 0 and 1. Both tests passed five consecutive local
-Prism runs, and the full non-destructive suite passed with 76 tests.
+Prism runs during characterization. Direct currently rejects this trigger
+before execution; its pane state and checkpoint path are still being added.
 
 A separate small job runs versioned `DynOp` partition transforms, including a
 row-type change, followed by map/filter/flat-map on Direct and the local Prism

@@ -32,6 +32,9 @@ impl DirectRunner {
             },
         )?;
         for node in &graph.nodes {
+            if node.time.trigger != WindowTrigger::Default {
+                return Err(Error::unsupported(&node.key, "direct", "early-count-trigger"));
+            }
             let capability = match &node.operation {
                 Operation::Source { .. }
                 | Operation::Map

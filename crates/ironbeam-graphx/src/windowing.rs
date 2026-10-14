@@ -10,6 +10,7 @@ use prost::Message;
 
 use crate::ids;
 use crate::urns;
+use ironbeam_core::WindowTrigger;
 
 pub fn global_windowing_strategy() -> WindowingStrategy {
     WindowingStrategy {
@@ -29,6 +30,29 @@ pub fn global_windowing_strategy() -> WindowingStrategy {
         on_time_behavior: on_time_behavior::Enum::FireIfNonempty as i32,
         assigns_to_one_window: true,
         environment_id: ids::ENV_ID.to_string(),
+    }
+}
+
+pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrigger) {
+    if let WindowTrigger::EarlyElementCount { count } = policy {
+        strategy.trigger = Some(Trigger {
+            trigger: Some(trigger::Trigger::AfterEndOfWindow(Box::new(
+                trigger::AfterEndOfWindow {
+                    early_firings: Some(Box::new(Trigger {
+                        trigger: Some(trigger::Trigger::Repeat(Box::new(trigger::Repeat {
+                            subtrigger: Some(Box::new(Trigger {
+                                trigger: Some(trigger::Trigger::ElementCount(
+                                    trigger::ElementCount {
+                                        element_count: count as i32,
+                                    },
+                                )),
+                            })),
+                        }))),
+                    })),
+                    late_firings: None,
+                },
+            ))),
+        });
     }
 }
 

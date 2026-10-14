@@ -338,7 +338,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             if transform.outputs.get(key.as_str()) != Some(&pc_id)
                 || pc.unique_name != *key
                 || pc.is_bounded != beam_boundedness(node)
-                || pc.windowing_strategy_id != windowing_id(&node.time.window)
+                || pc.windowing_strategy_id != windowing_id(&node.time)
                 || pc.coder_id != primary_pc.coder_id
             {
                 return Err(V5Error::Wire(format!(
@@ -454,7 +454,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
                     .ok_or_else(|| V5Error::Wire("missing co-group tag collection".into()))?;
                 if tag_collection.unique_name != format!("{key}:tag{input_index}")
                     || tag_collection.coder_id != CODER_V5_KV
-                    || tag_collection.windowing_strategy_id != windowing_id(&node.time.window)
+                    || tag_collection.windowing_strategy_id != windowing_id(&node.time)
                     || tag_collection.is_bounded != beam_boundedness(parent_node)
                 {
                     return Err(V5Error::Wire("wrong co-group tag collection".into()));
@@ -488,7 +488,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
                 .ok_or_else(|| V5Error::Wire("missing co-group Flatten collection".into()))?;
             if flatten_collection.unique_name != format!("{key}:flatten")
                 || flatten_collection.coder_id != CODER_V5_KV
-                || flatten_collection.windowing_strategy_id != windowing_id(&node.time.window)
+                || flatten_collection.windowing_strategy_id != windowing_id(&node.time)
                 || flatten_collection.is_bounded != beam_boundedness(node)
             {
                 return Err(V5Error::Wire("wrong co-group Flatten collection".into()));
@@ -545,7 +545,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             })?;
             if tagged.unique_name != format!("{key}:tag")
                 || tagged.coder_id != CODER_V5_KV
-                || tagged.windowing_strategy_id != windowing_id(&node.time.window)
+                || tagged.windowing_strategy_id != windowing_id(&node.time)
                 || tagged.is_bounded != beam_boundedness(node)
             {
                 return Err(V5Error::Wire(format!(
@@ -676,7 +676,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             })?;
             if grouped.unique_name != format!("{key}:group")
                 || grouped.coder_id != CODER_V5_KV_ITER
-                || grouped.windowing_strategy_id != windowing_id(&node.time.window)
+                || grouped.windowing_strategy_id != windowing_id(&node.time)
                 || grouped.is_bounded != beam_boundedness(node)
             {
                 return Err(V5Error::Wire(format!(
@@ -847,13 +847,13 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             .ok_or_else(|| V5Error::Wire(format!("missing output collection for {key}")))?;
         if pc.unique_name != *key
             || pc.is_bounded != beam_boundedness(node)
-            || pc.windowing_strategy_id != windowing_id(&node.time.window)
+            || pc.windowing_strategy_id != windowing_id(&node.time)
         {
             return Err(V5Error::Wire(format!(
                 "output collection metadata differs for {key}"
             )));
         }
-        let expected_strategy = match &node.time.window {
+        let mut expected_strategy = match &node.time.window {
             Window::Global => global_windowing_strategy(),
             Window::Fixed { size_ns } => {
                 fixed_windowing_strategy(*size_ns, 0).map_err(V5Error::Wire)?
@@ -868,6 +868,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
                 session_windowing_strategy(*gap_ns).map_err(V5Error::Wire)?
             }
         };
+        apply_trigger(&mut expected_strategy, node.time.trigger);
         if components
             .windowing_strategies
             .get(&pc.windowing_strategy_id)

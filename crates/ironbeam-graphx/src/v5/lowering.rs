@@ -65,33 +65,15 @@ fn lower(
     let mut windowing_strategies =
         HashMap::from([(ids::WINDOWING_ID.into(), global_windowing_strategy())]);
     for node in &graph.nodes {
-        match &node.time.window {
-            Window::Global => {}
-            Window::Fixed { size_ns } => {
-                windowing_strategies.insert(
-                    windowing_id(&node.time.window),
-                    fixed_windowing_strategy(*size_ns, 0).map_err(V5Error::Wire)?,
-                );
-            }
-            Window::FixedOffset { size_ns, offset_ns } => {
-                windowing_strategies.insert(
-                    windowing_id(&node.time.window),
-                    fixed_windowing_strategy(*size_ns, *offset_ns).map_err(V5Error::Wire)?,
-                );
-            }
-            Window::Sliding { size_ns, period_ns, offset_ns } => {
-                windowing_strategies.insert(
-                    windowing_id(&node.time.window),
-                    sliding_windowing_strategy(*size_ns, *period_ns, *offset_ns).map_err(V5Error::Wire)?,
-                );
-            }
-            Window::Session { gap_ns } => {
-                windowing_strategies.insert(
-                    windowing_id(&node.time.window),
-                    session_windowing_strategy(*gap_ns).map_err(V5Error::Wire)?,
-                );
-            }
-        }
+        let mut strategy = match &node.time.window {
+            Window::Global => global_windowing_strategy(),
+            Window::Fixed { size_ns } => fixed_windowing_strategy(*size_ns, 0).map_err(V5Error::Wire)?,
+            Window::FixedOffset { size_ns, offset_ns } => fixed_windowing_strategy(*size_ns, *offset_ns).map_err(V5Error::Wire)?,
+            Window::Sliding { size_ns, period_ns, offset_ns } => sliding_windowing_strategy(*size_ns, *period_ns, *offset_ns).map_err(V5Error::Wire)?,
+            Window::Session { gap_ns } => session_windowing_strategy(*gap_ns).map_err(V5Error::Wire)?,
+        };
+        apply_trigger(&mut strategy, node.time.trigger);
+        windowing_strategies.insert(windowing_id(&node.time), strategy);
     }
     coders.insert(
         ids::CODER_BYTES.into(),
@@ -264,7 +246,7 @@ fn lower(
                         unique_name: format!("{key}:tag{input_index}"),
                         coder_id: CODER_V5_KV.into(),
                         is_bounded: beam_boundedness(parent_node),
-                        windowing_strategy_id: windowing_id(&node.time.window),
+                        windowing_strategy_id: windowing_id(&node.time),
                         display_data: Vec::new(),
                     },
                 );
@@ -306,7 +288,7 @@ fn lower(
                     unique_name: format!("{key}:flatten"),
                     coder_id: CODER_V5_KV.into(),
                     is_bounded: beam_boundedness(node),
-                    windowing_strategy_id: windowing_id(&node.time.window),
+                    windowing_strategy_id: windowing_id(&node.time),
                     display_data: Vec::new(),
                 },
             );
@@ -341,7 +323,7 @@ fn lower(
                     unique_name: format!("{key}:tag"),
                     coder_id: CODER_V5_KV.into(),
                     is_bounded: beam_boundedness(node),
-                    windowing_strategy_id: windowing_id(&node.time.window),
+                    windowing_strategy_id: windowing_id(&node.time),
                     display_data: Vec::new(),
                 },
             );
@@ -458,7 +440,7 @@ fn lower(
                     unique_name: format!("{key}:group"),
                     coder_id: CODER_V5_KV_ITER.into(),
                     is_bounded: beam_boundedness(node),
-                    windowing_strategy_id: windowing_id(&node.time.window),
+                    windowing_strategy_id: windowing_id(&node.time),
                     display_data: Vec::new(),
                 },
             );
@@ -518,7 +500,7 @@ fn lower(
                         lp_key
                     },
                     is_bounded: beam_boundedness(node),
-                    windowing_strategy_id: windowing_id(&node.time.window),
+                    windowing_strategy_id: windowing_id(&node.time),
                     display_data: Vec::new(),
                 },
             );

@@ -67,6 +67,16 @@ impl Graph {
             if matches!(node.time.window, Window::Session { gap_ns } if gap_ns <= 0) {
                 return Err(Error::graph(&node.key, "session gap must be positive"));
             }
+            if let WindowTrigger::EarlyElementCount { count } = node.time.trigger
+                && (count == 0
+                    || count > i32::MAX as u64
+                    || !matches!(node.time.window, Window::Fixed { .. } | Window::FixedOffset { .. }))
+            {
+                return Err(Error::graph(
+                    &node.key,
+                    "early count trigger requires fixed windows and a positive count",
+                ));
+            }
             if matches!(node.operation, Operation::FixedWindow)
                 && !matches!(
                     node.time.window,

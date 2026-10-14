@@ -7,7 +7,7 @@ use beam_proto::pipeline_v1::{
 };
 use ironbeam_core::{
     Boundedness, Capabilities, ElementDescriptor, EncodedTestStreamEvent, ExecutionIdentity, Graph,
-    Node, Operation, Pipeline, Registry, Replay, Time, Window, CODER_VERSION,
+    Node, Operation, Pipeline, Registry, Replay, Time, Window, WindowTrigger, CODER_VERSION,
 };
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     environment::docker_environment,
     ids, urns,
-    windowing::{fixed_window_fn, fixed_windowing_strategy, global_windowing_strategy, session_window_fn, session_windowing_strategy, sliding_window_fn, sliding_windowing_strategy},
+    windowing::{apply_trigger, fixed_window_fn, fixed_windowing_strategy, global_windowing_strategy, session_window_fn, session_windowing_strategy, sliding_window_fn, sliding_windowing_strategy},
 };
 
 pub const IDENTITY_URN: &str = "ironbeam:execution-identity:v5";
@@ -46,8 +46,8 @@ pub fn side_input_spec() -> SideInput {
     }
 }
 
-fn windowing_id(window: &Window) -> String {
-    match window {
+fn windowing_id(time: &Time) -> String {
+    let base = match &time.window {
         Window::Global => ids::WINDOWING_ID.into(),
         Window::Fixed { size_ns } => id("v5_ws", &format!("fixed:{size_ns}:0")),
         Window::FixedOffset { size_ns, offset_ns } => {
@@ -57,6 +57,12 @@ fn windowing_id(window: &Window) -> String {
             id("v5_ws", &format!("sliding:{size_ns}:{period_ns}:{offset_ns}"))
         }
         Window::Session { gap_ns } => id("v5_ws", &format!("session:{gap_ns}")),
+    };
+    match time.trigger {
+        WindowTrigger::Default => base,
+        WindowTrigger::EarlyElementCount { count } => {
+            id("v5_ws", &format!("{base}:early-count:{count}"))
+        }
     }
 }
 

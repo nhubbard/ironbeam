@@ -50,8 +50,34 @@ fn main() -> Result<(), ironbeam::Error> {
 ```
 
 The same pane is available to a custom sink through `ElementMetadata.pane`.
-Source elements have `Unknown` timing before a window fires. Custom early and
-late triggers are not yet part of Ironbeam's pipeline API.
+Source elements have `Unknown` timing before a window fires.
+
+### Early count firings on Prism
+
+`early_count_trigger_named` configures repeated early firings for a fixed
+window. The count must be positive and fit in a signed 32-bit integer:
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let _grouped = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32), ("a".to_owned(), 3)])?
+        .fixed_windows("windows", 10_000_000)?
+        .early_count_trigger_named("early-count", 1)?
+        .group_by_key_named("group")?
+        .reify_panes_named("pane")?;
+    Ok(())
+}
+```
+
+The setting is part of the graph fingerprint and lowers to Beam's repeated
+early element-count trigger. The local Prism proof emits one early pane for
+two values in one bounded bundle. A TestStream proof with the values in
+separate advances emits panes numbered 0 and 1. Bundle scheduling can affect
+which elements share a pane. Direct rejects this trigger before execution;
+late firings, accumulation, and allowed lateness remain unavailable.
 
 ## Sliding windows
 

@@ -32,6 +32,17 @@ impl<T: Element> PCollection<T> {
         window: Option<Window>,
         semantic: Option<(&str, Version)>,
     ) -> Result<PCollection<U>, Error> {
+        self.next_with_semantic_and_trigger(key, operation, transform, window, semantic, None)
+    }
+    fn next_with_semantic_and_trigger<U: Element>(
+        &self,
+        key: &str,
+        operation: Operation,
+        transform: Option<Transform>,
+        window: Option<Window>,
+        semantic: Option<(&str, Version)>,
+        trigger: Option<WindowTrigger>,
+    ) -> Result<PCollection<U>, Error> {
         let parent = self.parent()?;
         let (semantic_id, semantic_version) = semantic.map_or_else(
             || Pipeline::semantic_identity(&operation),
@@ -56,6 +67,7 @@ impl<T: Element> PCollection<T> {
             time: Time {
                 initial_timestamp_ns: parent.time.initial_timestamp_ns,
                 window: window.unwrap_or(parent.time.window),
+                trigger: trigger.unwrap_or(parent.time.trigger),
             },
             local_id: 0,
         };
@@ -486,6 +498,26 @@ impl<T: Element> PCollection<T> {
             Ok(Some(e))
         }));
         self.next(key, Operation::FixedWindow, Some(transform), Some(window))
+    }
+    /// Fire a fixed window early when its element count reaches `count`.
+    /// Beam may combine several threshold crossings into one pane within a
+    /// bundle. Direct execution does not yet support this policy.
+    pub fn early_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
+        if count == 0 || count > i32::MAX as u64 {
+            return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));
+        }
+        let window = self.parent()?.time.window;
+        if !matches!(window, Window::Fixed { .. } | Window::FixedOffset { .. }) {
+            return Err(Error::graph(key, "early count trigger requires fixed windows"));
+        }
+        self.next_with_semantic_and_trigger(
+            key,
+            Operation::FixedWindow,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(window),
+            None,
+            Some(WindowTrigger::EarlyElementCount { count }),
+        )
     }
     pub fn fixed_windows_with_offset(
         &self,

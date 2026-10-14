@@ -19,6 +19,21 @@ pub enum Window {
     Session { gap_ns: i64 },
 }
 
+/// Firing policy for a windowed collection.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum WindowTrigger {
+    #[default]
+    Default,
+    /// Repeated early firings after at least `count` elements arrive.
+    EarlyElementCount { count: u64 },
+}
+
+impl WindowTrigger {
+    pub const fn is_default(&self) -> bool {
+        matches!(self, Self::Default)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct WindowInterval {
     pub start_ns: i64,
@@ -263,6 +278,8 @@ impl Element for WindowInterval {
 pub struct Time {
     pub initial_timestamp_ns: i64,
     pub window: Window,
+    #[serde(default, skip_serializing_if = "WindowTrigger::is_default")]
+    pub trigger: WindowTrigger,
 }
 
 impl Default for Time {
@@ -270,6 +287,7 @@ impl Default for Time {
         Self {
             initial_timestamp_ns: 0,
             window: Window::Global,
+            trigger: WindowTrigger::Default,
         }
     }
 }
