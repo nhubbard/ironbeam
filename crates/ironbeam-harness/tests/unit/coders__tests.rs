@@ -257,6 +257,33 @@ fn beam_pane_headers_round_trip_all_timings_and_index_forms() {
 }
 
 #[test]
+fn pane_header_matches_beam_standard_coder_example() {
+    // Beam standard_coders.yaml param_windowed_value payload ends in
+    // PaneInfo(false, true, ON_TIME, 30, 40) = 0x26 0x1e 0x28.
+    let pane = PaneInfo {
+        is_first: false,
+        is_last: true,
+        timing: PaneTiming::OnTime,
+        index: 30,
+        nonspeculative_index: 40,
+    };
+    let mut encoded = Vec::new();
+    encode_pane_info(pane, &mut encoded).unwrap();
+    assert_eq!(encoded, [0x26, 0x1e, 0x28]);
+    let mut windowed = Vec::new();
+    encode_interval_windowed_value_with_pane(1_000, 10, 20, pane, b"\x02", &mut windowed).unwrap();
+    assert_eq!(&windowed[21..], [0x26, 0x1e, 0x28, 0x02]);
+    assert_eq!(
+        try_decode_windowed_value(&windowed, true)
+            .unwrap()
+            .unwrap()
+            .0
+            .pane,
+        pane
+    );
+}
+
+#[test]
 fn kv_is_concatenation() {
     let k = {
         let mut v = Vec::new();

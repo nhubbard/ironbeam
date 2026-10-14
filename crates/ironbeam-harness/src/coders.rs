@@ -8,10 +8,9 @@
 //!   Beam pane headers, including timing and firing indices
 //! - `beam:coder:kv:v1` — concatenation of two inner coder outputs
 //!
-//! The structure of these is defined in Beam's `standard_coders.yaml`
-//! fixtures (`sdks/python/apache_beam/portability/api/standard_coders.yaml`
-//! in the upstream repo). Our tests cover round-trip; cross-checking against
-//! the upstream fixtures is an M4 verification step.
+//! The wire examples are defined in Beam's `standard_coders.yaml` under
+//! `model/fn-execution/src/main/resources`. Tests include Beam's pane byte
+//! example as well as local round trips.
 //!
 //! All nested coders use *nested* encoding (Beam's term): when two coders
 //! are composed, the inner coder is responsible for being self-delimiting.
@@ -197,6 +196,17 @@ pub fn encode_pane_info<W: Write>(pane: PaneInfo, out: &mut W) -> Result<()> {
     }
     if pane.timing == PaneTiming::Unknown && (pane.index != 0 || pane.nonspeculative_index != 0) {
         return Err(anyhow!("pane_info: unknown timing cannot encode indices"));
+    }
+    if pane.is_first
+        && (pane.index != 0
+            || pane.nonspeculative_index
+                != if pane.timing == PaneTiming::Early {
+                    -1
+                } else {
+                    0
+                })
+    {
+        return Err(anyhow!("pane_info: first firing has nonzero indices"));
     }
     let base = u8::from(pane.is_first)
         | (u8::from(pane.is_last) << 1)
