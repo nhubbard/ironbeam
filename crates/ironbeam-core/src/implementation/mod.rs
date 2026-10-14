@@ -21,6 +21,7 @@ include!("collection.rs");
 include!("side_views.rs");
 include!("grouping.rs");
 include!("session_join.rs");
+include!("stateful.rs");
 include!("keyed.rs");
 include!("co_group_homogeneous.rs");
 include!("output.rs");
