@@ -101,3 +101,35 @@ fn partition_of_empty_input_has_empty_outputs() {
         );
     }
 }
+
+#[test]
+fn versioned_partition_runs_each_declared_branch() {
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("input", vec![1_i32, 2, 3, 4]).unwrap();
+    let branches = input
+        .partition_with_semantic_named(
+            "classify",
+            "versioned-part",
+            2,
+            "tests/parity-router",
+            Version { major: 2, minor: 0 },
+            |value| value.rem_euclid(2) as usize,
+        )
+        .unwrap();
+    let even = branches[0].output("even").unwrap();
+    let odd = branches[1].output("odd").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&even, &JobConfig::default())
+            .unwrap()
+            .0,
+        [2, 4]
+    );
+    assert_eq!(
+        DirectRunner
+            .run_collect(&odd, &JobConfig::default())
+            .unwrap()
+            .0,
+        [1, 3]
+    );
+}

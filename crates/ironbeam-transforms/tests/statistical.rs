@@ -165,6 +165,31 @@ fn keyed_quantiles_and_empty_global_input() {
 }
 
 #[test]
+fn keyed_median_keeps_each_key_separate() {
+    let pipeline = Pipeline::default();
+    let input = pipeline
+        .from_vec(
+            "values",
+            vec![
+                ("a".to_owned(), 1.0_f64),
+                ("a".to_owned(), 3.0),
+                ("b".to_owned(), 10.0),
+            ],
+        )
+        .unwrap();
+    let output = input
+        .approx_median_per_key_named("median-group", "median", 100.0)
+        .unwrap()
+        .output("median-out")
+        .unwrap();
+    let values = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap()
+        .0;
+    assert_eq!(values, [("a".to_owned(), 2.0), ("b".to_owned(), 10.0)]);
+}
+
+#[test]
 fn quantiles_stream_large_linear_source() {
     let pipeline = Pipeline::default();
     let source = pipeline
