@@ -142,7 +142,9 @@ pane values, event timestamps, timing, and indices. Its checkpoint retains
 the closed window until expiry, including the index for the next late pane.
 Direct currently supports this policy for single-input GroupByKey with the
 default trigger, a late count trigger, or combined early and late counts;
-other stateful fan-in remains outside that path.
+other stateful fan-in remains outside that path. Direct rejects positive
+allowed lateness on joins, co-groups, and multi-source GroupByKey routes
+before running them.
 
 ### Late count firings
 

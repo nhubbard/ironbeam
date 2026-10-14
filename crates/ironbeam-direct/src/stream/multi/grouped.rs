@@ -83,6 +83,23 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
     config: &JobConfig,
     route: MultiGroupedStreamRoute,
 ) -> Result<StreamJob, Error> {
+    let group = graph
+        .node(&route.group_key)
+        .ok_or_else(|| Error::graph(&route.group_key, "multi-source group node missing"))?;
+    if group.time.allowed_lateness_ns > 0 {
+        return Err(Error::unsupported(
+            &route.group_key,
+            "direct",
+            "multi-source-allowed-lateness",
+        ));
+    }
+    if group.time.trigger != WindowTrigger::Default {
+        return Err(Error::unsupported(
+            &route.group_key,
+            "direct",
+            "multi-source-trigger",
+        ));
+    }
     let mut source_digest = String::new();
     for source in &route.sources {
         let source_key = &source.key;

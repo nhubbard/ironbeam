@@ -18,6 +18,71 @@ struct Script {
 }
 
 #[test]
+fn multi_source_group_rejects_lateness_until_retained_state_is_supported() {
+    let pipeline = Pipeline::default();
+    let first = pipeline
+        .test_stream_source(
+            "first",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 2_000_000)]),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("first-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("first-lateness", 5_000_000)
+        .unwrap();
+    let second = pipeline
+        .test_stream_source(
+            "second",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("second-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("second-lateness", 5_000_000)
+        .unwrap();
+    let sink = first
+        .co_group_homogeneous_named("group", &[second])
+        .unwrap()
+        .map_named("format", |(key, buckets)| format!("{key}:{buckets:?}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "multi-source-lateness-test-v1".into(),
+            || {
+                Ok(Box::new(Capture {
+                    committed: Arc::new(Mutex::new(Vec::new())),
+                    accepted: Arc::new(Mutex::new(HashSet::new())),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "multi-source-allowed-lateness".into(),
+        }
+    );
+}
+
+#[test]
 fn one_unbounded_input_uses_one_group_bucket() {
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));
