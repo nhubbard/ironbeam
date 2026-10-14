@@ -100,6 +100,18 @@ bytes. Sharded reads count the records once while building the graph, then
 rescan the file for each shard. These file sources read local paths on Direct;
 a portable job needs an accessible storage source and a stable element coder.
 
+Native Avro objects can also be read through `cloud_avro_uri_source` or
+`cloud_avro_uri_source_with_reader_schema`. Register a provider in
+`ObjectStores`, then pass a URI such as `file://bucket/records.avro` and, for
+the second form, the reader schema. The URI and object bytes are bound to source
+configuration; the reader schema also changes the graph fingerprint. The
+source reads the object once while building the graph and again when it runs.
+It rejects a changed object. This adapter currently uses the registered
+provider in the local process. The bundled object-store backend is local;
+GCP's official storage client has a separate asynchronous API and does not yet
+implement this registry's `ObjectIO` contract. Portable worker access also
+needs an execution binding.
+
 ## Writing a result
 
 A sink is a terminal operation. It is run with `DirectRunner.run_sink` rather than collected into a vector:

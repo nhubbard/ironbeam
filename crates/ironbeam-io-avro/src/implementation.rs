@@ -10,7 +10,8 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-fn reader_schema_format(raw_schema: &str) -> String {
+#[allow(clippy::redundant_pub_crate)] // This helper is shared with the sibling cloud adapter.
+pub(crate) fn reader_schema_format(raw_schema: &str) -> String {
     let schema_digest = Sha256::digest(raw_schema.as_bytes());
     let mut format = String::from("avro-reader-");
     for byte in schema_digest {

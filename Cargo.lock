@@ -3037,6 +3037,7 @@ name = "ironbeam-io-avro"
 version = "5.0.0"
 dependencies = [
  "apache-avro 0.22.0",
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
