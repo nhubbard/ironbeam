@@ -339,6 +339,50 @@ fn accumulating_late_count_sets_beam_accumulation_mode() {
 }
 
 #[test]
+fn combined_count_trigger_lowers_early_and_late_firings() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .early_and_late_count_trigger_named("combined", 1, 2)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "combined")
+        .unwrap();
+    let strategy = &components.windowing_strategies[&pc.windowing_strategy_id];
+    let Some(trigger::Trigger::AfterEndOfWindow(end)) =
+        strategy.trigger.as_ref().and_then(|t| t.trigger.as_ref())
+    else {
+        panic!("expected end-of-window trigger");
+    };
+    for (firing, expected_count) in [(&end.early_firings, 1), (&end.late_firings, 2)] {
+        let Some(trigger::Trigger::Repeat(repeat)) =
+            firing.as_ref().and_then(|t| t.trigger.as_ref())
+        else {
+            panic!("expected repeated count trigger");
+        };
+        assert!(
+            matches!(repeat.subtrigger.as_ref().and_then(|t| t.trigger.as_ref()),
+            Some(trigger::Trigger::ElementCount(count)) if count.element_count == expected_count)
+        );
+    }
+}
+
+#[test]
 fn bounded_multi_signal_wait_lowers_two_portable_side_dependencies() {
     let pipeline = Pipeline::default();
     let first = pipeline.from_vec("first", vec![1_i32]).unwrap();

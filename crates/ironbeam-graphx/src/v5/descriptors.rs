@@ -72,6 +72,9 @@ fn windowing_id(time: &Time) -> String {
         WindowTrigger::LateElementCountAccumulating { count } => {
             id("v5_ws", &format!("{base}:late-count:{count}:accumulating"))
         }
+        WindowTrigger::EarlyAndLateElementCount { early_count, late_count } => {
+            id("v5_ws", &format!("{base}:early-count:{early_count}:late-count:{late_count}"))
+        }
     };
     let output_timed = match time.output_time {
         WindowOutputTime::EarliestInPane => triggered,

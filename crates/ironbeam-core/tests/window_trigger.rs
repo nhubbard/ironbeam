@@ -155,3 +155,44 @@ fn accumulating_late_count_has_distinct_graph_identity() {
         discarding.snapshot().unwrap().0.fingerprint().unwrap()
     );
 }
+
+#[test]
+fn combined_count_trigger_requires_lateness_and_records_both_thresholds() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap();
+    let windowed = values.fixed_windows("windows", 10_000_000).unwrap();
+    assert!(
+        windowed
+            .early_and_late_count_trigger_named("no-lateness", 1, 2)
+            .is_err()
+    );
+    let late = windowed
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap();
+    assert!(
+        late.early_and_late_count_trigger_named("zero-early", 0, 2)
+            .is_err()
+    );
+    assert!(
+        late.early_and_late_count_trigger_named("zero-late", 1, 0)
+            .is_err()
+    );
+    let triggered = late
+        .early_and_late_count_trigger_named("combined", 1, 2)
+        .unwrap();
+    triggered
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node("groups").unwrap().time.trigger,
+        WindowTrigger::EarlyAndLateElementCount {
+            early_count: 1,
+            late_count: 2
+        }
+    );
+}

@@ -655,6 +655,38 @@ impl<T: Element> PCollection<T> {
             },
         )
     }
+
+    /// Fire repeated early and late count panes for each key and window.
+    /// Positive allowed lateness must be set first. Both thresholds use
+    /// discarding panes; the watermark produces an on-time pane if nonempty.
+    pub fn early_and_late_count_trigger_named(
+        &self,
+        key: &str,
+        early_count: u64,
+        late_count: u64,
+    ) -> Result<Self, Error> {
+        if early_count == 0 || early_count > i32::MAX as u64
+            || late_count == 0 || late_count > i32::MAX as u64
+        {
+            return Err(Error::graph(key, "early and late counts must be positive 32-bit values"));
+        }
+        let time = self.parent()?.time;
+        if time.allowed_lateness_ns == 0 || !time.window.is_millisecond_aligned_fixed_or_sliding() {
+            return Err(Error::graph(key, "combined count trigger requires allowed lateness and millisecond-aligned fixed or sliding windows"));
+        }
+        self.next_with_time_policy(
+            key,
+            Operation::Map,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(time.window),
+            None,
+            TimePolicyOverride {
+                trigger: Some(WindowTrigger::EarlyAndLateElementCount { early_count, late_count }),
+                output_time: None,
+                allowed_lateness_ns: None,
+            },
+        )
+    }
     pub fn fixed_windows_with_offset(
         &self,
         key: &str,

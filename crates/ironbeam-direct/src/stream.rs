@@ -1676,7 +1676,14 @@ fn run_grouped_stream(
         let next_progress = merge_progress(progress.as_ref(), batch.progress);
         let mut early_panes = Vec::new();
         if let Some(count) = route.trigger.early_count() {
-            for (fold, rows) in folds.values_mut() {
+            for ((_, end), (fold, rows)) in &mut folds {
+                if progress
+                    .as_ref()
+                    .and_then(|prior| prior.event_time_ns)
+                    .is_some_and(|watermark| *end <= watermark)
+                {
+                    continue;
+                }
                 let (mut fired, released) =
                     catch_unwind(AssertUnwindSafe(|| fold.drain_ready_count(count)))
                         .unwrap_or_else(|_| {

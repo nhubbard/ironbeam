@@ -1,7 +1,7 @@
 use ironbeam_core::{
     ElementMetadata, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
-    SourceProgress, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
-    UnboundedPoll, UnboundedSource,
+    SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
+    UnboundedBatch, UnboundedPoll, UnboundedSource,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
 use std::collections::{HashSet, VecDeque};
@@ -245,16 +245,108 @@ fn late_pane_and_expiry_survive_checkpoint_recovery() {
 
 #[test]
 fn late_count_buffers_across_checkpoint_and_flushes_at_expiry() {
-    run_late_count_recovery(false);
+    run_late_count_recovery(LateCountMode::Discarding);
 }
 
 #[test]
 fn accumulating_late_count_retains_on_time_values_across_recovery() {
-    run_late_count_recovery(true);
+    run_late_count_recovery(LateCountMode::Accumulating);
+}
+
+#[test]
+fn combined_early_and_late_counts_restore_non_speculative_index() {
+    run_late_count_recovery(LateCountMode::Combined);
+}
+
+#[test]
+fn combined_count_matches_portable_on_time_schedule() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let events = vec![
+        TestStreamEvent::Elements(vec![
+            (("a".to_owned(), 2_i32), 2_000_000),
+            (("a".to_owned(), 3), 3_000_000),
+        ]),
+        TestStreamEvent::AdvanceWatermark(4_000_000),
+        TestStreamEvent::Elements(vec![(("a".to_owned(), 4), 4_000_000)]),
+        TestStreamEvent::AdvanceWatermark(10_000_000),
+        TestStreamEvent::Elements(vec![(("a".to_owned(), 5), 5_000_000)]),
+        TestStreamEvent::AdvanceWatermark(11_000_000),
+        TestStreamEvent::Elements(vec![(("a".to_owned(), 7), 7_000_000)]),
+        TestStreamEvent::AdvanceWatermark(12_000_000),
+        TestStreamEvent::Elements(vec![(("a".to_owned(), 11), 8_000_000)]),
+        TestStreamEvent::AdvanceWatermark(15_000_000),
+    ];
+    let sink = pipeline
+        .test_stream_source("values", events)
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .early_and_late_count_trigger_named("combined", 2, 2)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .reify_timestamps_named("timestamp")
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (timestamp, (key, values)))| {
+            format!(
+                "{key}:{values:?}:{timestamp}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "combined-count-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "a:[2, 3]:2000000:Early:true:false:0:-1",
+            "a:[4]:4000000:OnTime:false:false:1:0",
+            "a:[5, 7]:5000000:Late:false:false:2:1",
+            "a:[11]:8000000:Late:false:true:3:2",
+        ]
+    );
+}
+
+#[derive(Clone, Copy)]
+enum LateCountMode {
+    Discarding,
+    Accumulating,
+    Combined,
 }
 
 #[allow(clippy::too_many_lines)] // Restart across a partial late pane and expiry.
-fn run_late_count_recovery(accumulating: bool) {
+fn run_late_count_recovery(mode: LateCountMode) {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let opens = Arc::new(Mutex::new(Vec::new()));
@@ -300,12 +392,14 @@ fn run_late_count_recovery(accumulating: bool) {
         .unwrap()
         .allowed_lateness_named("lateness", 5_000_000)
         .unwrap();
-    let triggered = if accumulating {
-        windowed
+    let triggered = match mode {
+        LateCountMode::Discarding => windowed.late_count_trigger_named("late-count", 2).unwrap(),
+        LateCountMode::Accumulating => windowed
             .accumulating_late_count_trigger_named("late-count", 2)
-            .unwrap()
-    } else {
-        windowed.late_count_trigger_named("late-count", 2).unwrap()
+            .unwrap(),
+        LateCountMode::Combined => windowed
+            .early_and_late_count_trigger_named("late-count", 1, 2)
+            .unwrap(),
     };
     let sink = triggered
         .group_by_key_named("groups")
@@ -367,10 +461,18 @@ fn run_late_count_recovery(accumulating: bool) {
         );
         std::thread::sleep(Duration::from_millis(1));
     }
-    assert_eq!(
-        committed.lock().unwrap().as_slice(),
-        ["a:[2]:2000000:OnTime:true:false:0:0"]
-    );
+    let first_timing = if matches!(mode, LateCountMode::Combined) {
+        "Early"
+    } else {
+        "OnTime"
+    };
+    let first_non_speculative = if matches!(mode, LateCountMode::Combined) {
+        -1
+    } else {
+        0
+    };
+    let first = format!("a:[2]:2000000:{first_timing}:true:false:0:{first_non_speculative}");
+    assert_eq!(committed.lock().unwrap().as_slice(), [first]);
     job.cancel();
     assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
     DirectRunner
@@ -379,18 +481,22 @@ fn run_late_count_recovery(accumulating: bool) {
         .wait()
         .unwrap();
     assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![2])]);
-    let expected = if accumulating {
-        [
+    let expected = match mode {
+        LateCountMode::Accumulating => [
             "a:[2]:2000000:OnTime:true:false:0:0",
             "a:[2, 3, 5]:2000000:Late:false:false:1:1",
             "a:[2, 3, 5, 7]:2000000:Late:false:true:2:2",
-        ]
-    } else {
-        [
+        ],
+        LateCountMode::Discarding => [
             "a:[2]:2000000:OnTime:true:false:0:0",
             "a:[3, 5]:3000000:Late:false:false:1:1",
             "a:[7]:7000000:Late:false:true:2:2",
-        ]
+        ],
+        LateCountMode::Combined => [
+            "a:[2]:2000000:Early:true:false:0:-1",
+            "a:[3, 5]:3000000:Late:false:false:1:0",
+            "a:[7]:7000000:Late:false:true:2:1",
+        ],
     };
     assert_eq!(committed.lock().unwrap().as_slice(), expected);
 }

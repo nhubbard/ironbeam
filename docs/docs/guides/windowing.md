@@ -85,8 +85,9 @@ the second contains `[2, 3]`, and the on-time pane contains `[2, 3]` again.
 Direct checkpoints both the retained values and the count at the last firing.
 Its accumulating keyed fold requires a value coder. A bounded overlapping
 sliding-window proof matches Direct and pinned Prism in both accumulation modes. This support covers
-single-input keyed grouping in fixed and sliding windows. Early count firings
-cannot currently be combined with allowed lateness in Direct.
+single-input keyed grouping in fixed and sliding windows. To combine early
+and late count firings, set allowed lateness and use the combined policy
+described below.
 
 ### Group output timestamps
 
@@ -135,8 +136,8 @@ drops another element after the 15 ms expiry watermark. Direct emits the same
 pane values, event timestamps, timing, and indices. Its checkpoint retains
 the closed window until expiry, including the index for the next late pane.
 Direct currently supports this policy for single-input GroupByKey with the
-default trigger or a late count trigger; other stateful fan-in remains outside
-that path.
+default trigger, a late count trigger, or combined early and late counts;
+other stateful fan-in remains outside that path.
 
 ### Late count firings
 
@@ -174,6 +175,34 @@ TestStream schedule coalesces the late elements and fires one final pane at
 expiry. Both runners retain the same values, but applications that act on
 intermediate accumulating late panes must account for this scheduling
 difference. Direct requires a value coder for the retained group.
+
+`early_and_late_count_trigger_named` combines repeated early and late
+thresholds in one Beam `AfterEndOfWindow` trigger. The call follows
+`allowed_lateness_named` and takes the early count before the late count:
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let _grouped = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])?
+        .fixed_windows("windows", 10_000_000)?
+        .allowed_lateness_named("lateness", 5_000_000)?
+        .early_and_late_count_trigger_named("early-late", 2, 2)?
+        .group_by_key_named("group")?;
+    Ok(())
+}
+```
+
+On the tested stream, `[2, 3]` fires early, `[4]` fires at the watermark,
+`[5, 7]` fires late at the count threshold, and `[11]` fires when the window
+expires. Direct and pinned Prism agree on the values, event times, timing,
+indices, and final flag for this schedule. Direct also restores a partial
+late count after an early pane when there was no on-time value. Pinned Prism
+placed the first post-watermark element in an on-time pane in that separate
+empty-on-time schedule, so intermediate pane agreement is not established
+there. The combined policy uses discarding panes.
 
 For overlapping sliding windows, each assigned interval keeps its own pane
 index and expiry. A tested late element is a late pane in `[0, 10 ms)` while

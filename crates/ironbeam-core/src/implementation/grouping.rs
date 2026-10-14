@@ -238,6 +238,7 @@ struct GroupByKeyFoldState<K, V> {
     window_indices: HashMap<(K, WindowInterval), usize>,
     session_indices: HashMap<K, Vec<usize>>,
     fired_panes: HashMap<(K, WindowInterval), i64>,
+    nonspeculative_base: HashMap<(K, WindowInterval), i64>,
     fired_value_counts: HashMap<(K, WindowInterval), usize>,
     latest_timestamps: HashMap<(K, WindowInterval), i64>,
     groups: GroupBuffer<K, V>,
@@ -274,6 +275,8 @@ struct GroupFoldCheckpointPane {
     key: Vec<u8>,
     interval: WindowInterval,
     next_index: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nonspeculative_base: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     fired_value_count: Option<usize>,
 }
@@ -523,7 +526,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
             if assigned_window.is_some_and(|interval| interval.end_ns <= watermark_ns) {
                 if self.allowed_lateness_ns > 0
-                    && self.fired_panes.contains_key(&(key.clone(), assigned_window.unwrap()))
+                    && self.nonspeculative_base.contains_key(&(key.clone(), assigned_window.unwrap()))
                 {
                     remaining.push((key, values, timestamp_ns, window, assigned_window));
                     continue;
@@ -548,6 +551,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 } else {
                     self.fired_panes.remove(&scope).unwrap_or(0)
                 };
+                if self.allowed_lateness_ns > 0 {
+                    self.nonspeculative_base.insert(scope.clone(), index);
+                }
                 if accumulating_late {
                     self.fired_value_counts.insert(scope.clone(), value_count);
                 } else {
@@ -640,6 +646,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             *next_index = next_index
                 .checked_add(1)
                 .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
+            let base = *self.nonspeculative_base.entry(scope.clone()).or_insert_with(|| {
+                if self.trigger.early_count().is_some() { index } else { 0 }
+            });
             let latest = if accumulating && !final_firing {
                 self.latest_timestamps.get(&scope).copied()
             } else {
@@ -651,7 +660,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     is_last: final_firing,
                     timing: PaneTiming::Late,
                     index,
-                    nonspeculative_index: index,
+                    nonspeculative_index: index - base,
                     contains_element_metadata: false,
                 },
                 value: Box::new((key, output_values)),
@@ -697,6 +706,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     key: key.encode()?,
                     interval: *interval,
                     next_index,
+                    nonspeculative_base: self.nonspeculative_base.get(&(key.clone(), *interval)).copied(),
                     fired_value_count: self.fired_value_counts.get(&(key.clone(), *interval)).copied(),
                 })
             })
@@ -741,6 +751,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             window_indices: HashMap::new(),
             session_indices: HashMap::new(),
             fired_panes: HashMap::new(),
+            nonspeculative_base: HashMap::new(),
             fired_value_counts: HashMap::new(),
             latest_timestamps: HashMap::new(),
             groups: Vec::with_capacity(checkpoint.groups.len()),
@@ -755,6 +766,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 .is_some()
             {
                 return Err(Error::recovery(&self.key, "duplicate pane in fold checkpoint"));
+            }
+            let base = pane.nonspeculative_base.or_else(|| {
+                if self.trigger.early_count().is_none() { Some(0) } else { None }
+            });
+            if let Some(base) = base {
+                if base < 0 || base > pane.next_index {
+                    return Err(Error::recovery(&self.key, "invalid non-speculative pane base"));
+                }
+                restored.nonspeculative_base.insert((K::decode(&pane.key)?, pane.interval), base);
             }
             match (self.trigger.is_accumulating(), pane.fired_value_count) {
                 (true, Some(fired_value_count)) if fired_value_count > 0 => {

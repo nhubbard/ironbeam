@@ -32,6 +32,8 @@ pub enum WindowTrigger {
     LateElementCount { count: u64 },
     /// Repeated late firings after `count` new elements; panes retain prior values.
     LateElementCountAccumulating { count: u64 },
+    /// Repeated count firings before and after the window-end watermark.
+    EarlyAndLateElementCount { early_count: u64, late_count: u64 },
 }
 
 impl WindowTrigger {
@@ -47,6 +49,7 @@ impl WindowTrigger {
             Self::EarlyElementCount { count } | Self::EarlyElementCountAccumulating { count } => {
                 Some(*count)
             }
+            Self::EarlyAndLateElementCount { early_count, .. } => Some(*early_count),
         }
     }
 
@@ -54,6 +57,7 @@ impl WindowTrigger {
     pub const fn late_count(&self) -> Option<u64> {
         match self {
             Self::LateElementCount { count } | Self::LateElementCountAccumulating { count } => Some(*count),
+            Self::EarlyAndLateElementCount { late_count, .. } => Some(*late_count),
             _ => None,
         }
     }

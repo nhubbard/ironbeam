@@ -205,35 +205,66 @@ pub fn allowed_lateness_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Si
 
 /// Repeated late count firing with a partial pane at window expiry.
 pub fn late_count_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
-    late_count_fixture_with_mode(pipeline, path, false)
+    late_count_fixture_with_mode(pipeline, path, LateCountFixtureMode::Discarding)
 }
 
 pub fn accumulating_late_count_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
-    late_count_fixture_with_mode(pipeline, path, true)
+    late_count_fixture_with_mode(pipeline, path, LateCountFixtureMode::Accumulating)
 }
 
-fn late_count_fixture_with_mode(pipeline: &Pipeline, path: PathBuf, accumulating: bool) -> Result<Sink<String>, Error> {
+pub fn combined_count_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    late_count_fixture_with_mode(pipeline, path, LateCountFixtureMode::Combined)
+}
+
+#[derive(Clone, Copy)]
+enum LateCountFixtureMode {
+    Discarding,
+    Accumulating,
+    Combined,
+}
+
+fn late_count_fixture_with_mode(pipeline: &Pipeline, path: PathBuf, mode: LateCountFixtureMode) -> Result<Sink<String>, Error> {
+    let ordinary_events = vec![
+        TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 2_000_000)]),
+        TestStreamEvent::AdvanceWatermark(10_000_000),
+        TestStreamEvent::Elements(vec![(('a'.to_string(), 3_i32), 3_000_000)]),
+        TestStreamEvent::AdvanceWatermark(11_000_000),
+        TestStreamEvent::Elements(vec![(('a'.to_string(), 5_i32), 5_000_000)]),
+        TestStreamEvent::AdvanceWatermark(12_000_000),
+        TestStreamEvent::Elements(vec![(('a'.to_string(), 7_i32), 7_000_000)]),
+        TestStreamEvent::AdvanceWatermark(15_000_000),
+        TestStreamEvent::AdvanceWatermark(20_000_000),
+    ];
+    let events = if matches!(mode, LateCountFixtureMode::Combined) {
+        vec![
+            TestStreamEvent::Elements(vec![
+                (('a'.to_string(), 2_i32), 2_000_000),
+                (('a'.to_string(), 3_i32), 3_000_000),
+            ]),
+            TestStreamEvent::AdvanceWatermark(4_000_000),
+            TestStreamEvent::Elements(vec![(('a'.to_string(), 4_i32), 4_000_000)]),
+            TestStreamEvent::AdvanceWatermark(10_000_000),
+            TestStreamEvent::Elements(vec![(('a'.to_string(), 5_i32), 5_000_000)]),
+            TestStreamEvent::AdvanceWatermark(11_000_000),
+            TestStreamEvent::Elements(vec![(('a'.to_string(), 7_i32), 7_000_000)]),
+            TestStreamEvent::AdvanceWatermark(12_000_000),
+            TestStreamEvent::Elements(vec![(('a'.to_string(), 11_i32), 8_000_000)]),
+            TestStreamEvent::AdvanceWatermark(15_000_000),
+        ]
+    } else {
+        ordinary_events
+    };
     let windowed = pipeline
         .test_stream_source(
             "late-count-events",
-            vec![
-                TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 2_000_000)]),
-                TestStreamEvent::AdvanceWatermark(10_000_000),
-                TestStreamEvent::Elements(vec![(('a'.to_string(), 3_i32), 3_000_000)]),
-                TestStreamEvent::AdvanceWatermark(11_000_000),
-                TestStreamEvent::Elements(vec![(('a'.to_string(), 5_i32), 5_000_000)]),
-                TestStreamEvent::AdvanceWatermark(12_000_000),
-                TestStreamEvent::Elements(vec![(('a'.to_string(), 7_i32), 7_000_000)]),
-                TestStreamEvent::AdvanceWatermark(15_000_000),
-                TestStreamEvent::AdvanceWatermark(20_000_000),
-            ],
+            events,
         )?
         .fixed_windows("late-count-windows", 10_000_000)?
         .allowed_lateness_named("late-count-lateness", 5_000_000)?;
-    let triggered = if accumulating {
-        windowed.accumulating_late_count_trigger_named("late-count-policy", 2)?
-    } else {
-        windowed.late_count_trigger_named("late-count-policy", 2)?
+    let triggered = match mode {
+        LateCountFixtureMode::Discarding => windowed.late_count_trigger_named("late-count-policy", 2)?,
+        LateCountFixtureMode::Accumulating => windowed.accumulating_late_count_trigger_named("late-count-policy", 2)?,
+        LateCountFixtureMode::Combined => windowed.early_and_late_count_trigger_named("late-count-policy", 2, 2)?,
     };
     let rows = triggered
         .group_by_key_named("late-count-group")?

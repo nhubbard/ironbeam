@@ -162,6 +162,67 @@ fn accumulating_count_fold_restores_values_and_threshold_progress() {
 }
 
 #[test]
+fn older_late_fold_state_restores_non_speculative_pane_number() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let interval = WindowInterval {
+        start_ns: 0,
+        end_ns: 10_000_000,
+    };
+    let add = |fold: &mut Box<dyn ironbeam_core::FoldSession>, value, timestamp_ns| {
+        fold.add(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, value)),
+            timestamp_ns,
+            window: Window::Fixed {
+                size_ns: 10_000_000,
+            },
+            assigned_window: Some(interval),
+        })
+        .unwrap();
+    };
+    let mut fold = registry.open_fold("group").unwrap();
+    add(&mut fold, 2_i32, 2_000_000);
+    assert_eq!(fold.drain_closed(10_000_000).unwrap().0[0].pane.index, 0);
+    let mut saved: serde_json::Value =
+        serde_json::from_slice(&fold.checkpoint_state().unwrap().unwrap()).unwrap();
+    saved["fired_panes"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("nonspeculative_base");
+    let mut restored = registry.open_fold("group").unwrap();
+    restored
+        .restore_checkpoint_state(&serde_json::to_vec(&saved).unwrap())
+        .unwrap();
+    add(&mut restored, 3_i32, 3_000_000);
+    let (late, released) = restored.drain_late(false).unwrap();
+    assert_eq!(released, 1);
+    assert_eq!(late[0].pane.timing, PaneTiming::Late);
+    assert_eq!(late[0].pane.index, 1);
+    assert_eq!(late[0].pane.nonspeculative_index, 1);
+
+    saved["fired_panes"][0]["nonspeculative_base"] = 9.into();
+    assert_eq!(
+        registry
+            .open_fold("group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&saved).unwrap())
+            .unwrap_err()
+            .kind,
+        ErrorKind::Recovery
+    );
+}
+
+#[test]
 fn count_two_trigger_preserves_partial_group_across_checkpoint() {
     let pipeline = Pipeline::default();
     pipeline
