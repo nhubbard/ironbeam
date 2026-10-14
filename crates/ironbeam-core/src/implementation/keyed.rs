@@ -57,7 +57,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
             return Err(Error::graph(
                 key,
-                "unbounded global grouping requires an early count trigger",
+                "unbounded global aggregation requires a finite window",
             ));
         }
         let node_key = key.to_owned();
@@ -691,7 +691,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         {
             return Err(Error::graph(
                 key,
-                "unbounded global aggregation requires a finite window",
+                "unbounded global grouping requires an early count trigger",
             ));
         }
         let key_owned = key.to_owned();
