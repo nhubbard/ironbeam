@@ -50,8 +50,8 @@ element. The classifier must return the same index on each evaluation and
 should have no observable side effects. Use
 `partition_with_semantic_named` to include an application semantic ID and
 version in graph identity; change that version when routing behavior changes.
-The local Prism fixture checks all three outputs, their event timestamps, and
-their fixed windows against Direct.
+The local Prism fixtures check all three bounded outputs and a two-branch
+unbounded source against Direct, including event timestamps and fixed windows.
 
 ## Grouping by key
 
