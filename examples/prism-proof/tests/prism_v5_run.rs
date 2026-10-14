@@ -33,6 +33,7 @@ use ironbeam_prism_proof::{
     dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
     dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
     dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
+    dual_unbounded_fanin_output_time_collection, dual_unbounded_fanin_output_time_fixture,
     dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
     dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
@@ -5919,6 +5920,128 @@ async fn prism_matches_direct_fanin_output_time_policies() {
             read_rows(&direct_path),
             "policy: {policy:?}"
         );
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_unbounded_fanin_output_time_policies() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        committed: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.committed.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    for (policy, variable, first_time, second_time) in [
+        (
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+            "IRONBEAM_V5_PRISM_DUAL_FANIN_END_TIME",
+            3_000_000,
+            7_000_000,
+        ),
+        (
+            ironbeam_core::WindowOutputTime::LatestInPane,
+            "IRONBEAM_V5_PRISM_DUAL_FANIN_LATEST_TIME",
+            2_000_000,
+            5_000_000,
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let portable_path = directory.path().join("portable.txt");
+        let direct_rows = Arc::new(Mutex::new(Vec::new()));
+        let committed = Arc::new(Mutex::new(HashSet::new()));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = dual_unbounded_fanin_output_time_collection(&direct_pipeline, policy)
+            .unwrap()
+            .sink_named_with_config(
+                "dual-time-result",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "dual-time-direct-result-v1".into(),
+                {
+                    let direct_rows = Arc::clone(&direct_rows);
+                    let committed = Arc::clone(&committed);
+                    move || {
+                        Ok(Box::new(DirectRows {
+                            rows: Arc::clone(&direct_rows),
+                            committed: Arc::clone(&committed),
+                            staged: Vec::new(),
+                            bundle: String::new(),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let pipeline = Pipeline::default();
+        dual_unbounded_fanin_output_time_fixture(&pipeline, portable_path.clone(), policy).unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &pipeline,
+            "dual-fanin-output-time",
+            HashMap::from([(
+                variable.into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(
+            terminal.0, 3,
+            "dual fan-in output-time job state: {terminal:?}"
+        );
+        let read_rows = |path: &Path| {
+            let mut rows = std::fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            rows.sort_unstable();
+            rows
+        };
+        let mut direct = direct_rows.lock().unwrap().clone();
+        direct.sort_unstable();
+        assert_eq!(
+            direct,
+            vec![
+                format!("C:a:{first_time}:([1], [10])"),
+                format!("C:b:{second_time}:([], [20])"),
+                format!("C:c:{second_time}:([3], [])"),
+                format!("J:a:{first_time}:(Some(1), Some(10))"),
+                format!("J:b:{second_time}:(None, Some(20))"),
+                format!("J:c:{second_time}:(Some(3), None)"),
+            ]
+        );
+        assert_eq!(read_rows(&portable_path), direct, "policy: {policy:?}");
     }
 }
 

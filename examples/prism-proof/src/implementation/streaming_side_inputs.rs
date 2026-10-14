@@ -200,6 +200,61 @@ fn dual_unbounded_sources(pipeline: &Pipeline) -> Result<(KeyedStream, KeyedStre
     Ok((main, side))
 }
 
+/// Timestamped full join and heterogeneous co-group over two watermarked inputs.
+pub fn dual_unbounded_fanin_output_time_collection(
+    pipeline: &Pipeline,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<PCollection<String>, Error> {
+    let (main, side) = dual_unbounded_sources(pipeline)?;
+    let (main, side) = match policy {
+        ironbeam_core::WindowOutputTime::EndOfWindow => (
+            main.end_of_window_output_time_named("dual-time-main-policy")?,
+            side.end_of_window_output_time_named("dual-time-side-policy")?,
+        ),
+        ironbeam_core::WindowOutputTime::LatestInPane => (
+            main.latest_in_pane_output_time_named("dual-time-main-policy")?,
+            side.latest_in_pane_output_time_named("dual-time-side-policy")?,
+        ),
+        ironbeam_core::WindowOutputTime::EarliestInPane => (main, side),
+    };
+    let joined = main
+        .join_full_named("dual-time-join", &side)?
+        .reify_timestamps_named("dual-time-join-stamp")?
+        .map_named("dual-time-join-row", |(time, (key, pair))| {
+            format!("J:{key}:{time}:{pair:?}")
+        })?;
+    let grouped = ironbeam_core::cogroup_by_key_2_named("dual-time-group", &main, &side)?
+        .reify_timestamps_named("dual-time-group-stamp")?
+        .map_named("dual-time-group-row", |(time, (key, groups))| {
+            format!("C:{key}:{time}:{groups:?}")
+        })?;
+    joined.flatten_named("dual-time-merge", &[grouped])
+}
+
+pub fn dual_unbounded_fanin_output_time_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_unbounded_fanin_output_time_collection(pipeline, policy)?
+        .sink_named_with_config(
+            "dual-time-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("dual-time-result:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// A typed map side view joins two independent watermarked sources at closure.
 pub fn dual_unbounded_map_side_collection(
     pipeline: &Pipeline,
