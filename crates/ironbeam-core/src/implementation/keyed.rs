@@ -450,6 +450,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     }
     pub fn latest_per_key_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
+        if parent.time.output_time != WindowOutputTime::EarliestInPane {
+            return Err(Error::graph(key, "latest_per_key does not yet support end-of-window output time"));
+        }
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
             return Err(Error::graph(
                 key,
@@ -654,10 +657,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let key_owned = key.to_owned();
         let fold_key = key_owned.clone();
         let trigger = parent.time.trigger;
+        let output_time = parent.time.output_time;
         let fold_factory: FoldFactory = Arc::new(move || {
             Box::new(GroupByKeyFoldState::<K, V> {
                 key: fold_key.clone(),
                 trigger,
+                output_time,
                 global_indices: HashMap::new(),
                 window_indices: HashMap::new(),
                 session_indices: HashMap::new(),
@@ -673,6 +678,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             let mut fold: Box<dyn FoldSession> = Box::new(GroupByKeyFoldState::<K, V> {
                 key: key_owned.clone(),
                 trigger,
+                output_time,
                 global_indices: HashMap::new(),
                 window_indices: HashMap::new(),
                 session_indices: HashMap::new(),

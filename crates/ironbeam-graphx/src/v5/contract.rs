@@ -869,6 +869,10 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             }
         };
         apply_trigger(&mut expected_strategy, node.time.trigger);
+        expected_strategy.output_time = match node.time.output_time {
+            WindowOutputTime::EarliestInPane => output_time::Enum::EarliestInPane as i32,
+            WindowOutputTime::EndOfWindow => output_time::Enum::EndOfWindow as i32,
+        };
         if components
             .windowing_strategies
             .get(&pc.windowing_strategy_id)

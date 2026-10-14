@@ -233,7 +233,15 @@ configurable allowed lateness remain unavailable.
 
 The default strategy fires once when a nonempty window is ready, uses the
 earliest event timestamp in that firing for grouped output, and discards
-accumulated values afterward. Ironbeam's Fn Data coder decodes Beam pane
+accumulated values afterward. `end_of_window_output_time_named` changes a
+fixed or sliding window's GroupByKey output timestamp to the final whole
+millisecond in that window. A window ending at 10 ms therefore emits its
+group at 9 ms. Direct and the pinned Prism runner agree on the bounded
+fixed-window fixture; Direct also computes separate ends for overlapping
+sliding windows. This policy requires millisecond-aligned window dimensions.
+Latest-in-pane output time remains unavailable.
+
+Ironbeam's Fn Data coder decodes Beam pane
 timing, first and last flags, and indices. When Beam sets the element metadata
 flag, a length-prefixed protobuf payload follows the pane header; the worker
 keeps that payload separate from the user element and carries it across its
@@ -329,6 +337,7 @@ commit decision or the sink's durable finalization record.
 | Sliding windows | Supported on bounded and unbounded collections on Direct and local Prism, including overlap, negative event time, watermark closure, and late-row discard. |
 | Session windows | Bounded and single-source unbounded keyed grouping merge overlapping or touching intervals on Direct and local Prism. Bounded joins and co-groups, including a three-input shared-source co-group, merge keyed intervals. Two-source unbounded joins and co-groups also run on both. Direct checkpoints open unbounded sessions and source cursors. Independent-source and intermediate-watermark session cases can differ on local Prism; more than two unbounded inputs and nonzero allowed lateness remain unproved. |
 | Default trigger | Used by portable lowering, with discarding accumulation and zero allowed lateness. |
+| Group output timestamp | Earliest-in-pane is the default. End-of-window is available for fixed and sliding windows on GroupByKey; the bounded fixed-window job agrees on Direct and pinned Prism. Latest-in-pane remains pending. |
 | Pane metadata | `reify_panes_named` makes `PaneInfo` available to elementwise callbacks, and typed sinks receive it in `ElementMetadata`. Direct and Prism agree for fixed and sliding grouped windows. The pinned Prism runner marks the tested merged-session group as `Early` while Direct marks it `OnTime`. |
 | Early count trigger | Public fixed- and sliding-window repeated count policy lowers to Beam. Bounded overlapping sliding windows and fixed-window TestStream panes pass on local Prism. Direct supports single-input keyed grouping in bounded and resumable unbounded jobs, including pane-index recovery. |
 | Other triggers | Processing-time, composite, and late firings and allowed lateness remain pending. Accumulating repeated count firings run for fixed-window single-input keyed grouping. |

@@ -18,10 +18,11 @@ use ironbeam_prism_proof::{
     dual_unbounded_map_side_fixture, dual_unbounded_session_cogroup_fixture,
     dual_unbounded_session_join_fixture, explicit_custom_batches_fixture, failing_wait_on_fixture,
     finalization_failure_fixture, finalization_probe_sink, global_fold_fixture,
-    global_vector_fixture, group_time_fixture, homogeneous_twelve_way_cogroup_fixture,
-    homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
-    large_group_rows, large_group_summary, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
-    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, mixed_flatten_fixture,
+    global_vector_fixture, group_end_time_fixture, group_time_fixture,
+    homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
+    invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
+    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
+    mixed_boundedness_join_cogroup_fixture, mixed_flatten_fixture,
     mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
@@ -503,6 +504,9 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GROUP_TIME") {
         return group_time_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GROUP_END_TIME") {
+        return group_end_time_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
     }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_CAPTURE") {
         return production_stream_fixture(pipeline, directory).map_err(Into::into);

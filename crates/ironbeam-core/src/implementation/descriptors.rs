@@ -52,6 +52,21 @@ impl WindowTrigger {
     }
 }
 
+/// Timestamp assigned to a grouped window's output panes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum WindowOutputTime {
+    #[default]
+    EarliestInPane,
+    EndOfWindow,
+}
+
+impl WindowOutputTime {
+    #[must_use]
+    pub const fn is_default(&self) -> bool {
+        matches!(self, Self::EarliestInPane)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct WindowInterval {
     pub start_ns: i64,
@@ -298,6 +313,8 @@ pub struct Time {
     pub window: Window,
     #[serde(default, skip_serializing_if = "WindowTrigger::is_default")]
     pub trigger: WindowTrigger,
+    #[serde(default, skip_serializing_if = "WindowOutputTime::is_default")]
+    pub output_time: WindowOutputTime,
 }
 
 impl Default for Time {
@@ -306,6 +323,7 @@ impl Default for Time {
             initial_timestamp_ns: 0,
             window: Window::Global,
             trigger: WindowTrigger::Default,
+            output_time: WindowOutputTime::EarliestInPane,
         }
     }
 }

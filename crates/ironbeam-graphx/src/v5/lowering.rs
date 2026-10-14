@@ -73,6 +73,10 @@ fn lower(
             Window::Session { gap_ns } => session_windowing_strategy(*gap_ns).map_err(V5Error::Wire)?,
         };
         apply_trigger(&mut strategy, node.time.trigger);
+        strategy.output_time = match node.time.output_time {
+            WindowOutputTime::EarliestInPane => output_time::Enum::EarliestInPane as i32,
+            WindowOutputTime::EndOfWindow => output_time::Enum::EndOfWindow as i32,
+        };
         windowing_strategies.insert(windowing_id(&node.time), strategy);
     }
     coders.insert(

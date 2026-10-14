@@ -88,6 +88,32 @@ sliding-window proof matches Direct and pinned Prism in both accumulation modes.
 single-input keyed grouping in fixed and sliding windows; late firings and allowed
 lateness remain unavailable.
 
+### Group output timestamps
+
+By default, GroupByKey uses the earliest event timestamp in its pane. A
+fixed or sliding window can instead timestamp grouped output at the final
+whole millisecond in the interval:
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let _grouped = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])?
+        .fixed_windows("windows", 10_000_000)?
+        .end_of_window_output_time_named("output-time")?
+        .group_by_key_named("group")?
+        .reify_timestamps_named("timestamp")?;
+    Ok(())
+}
+```
+
+The interval `[0, 10 ms)` produces a grouped timestamp of 9 ms. The policy
+is part of the graph identity and Beam windowing strategy. Window sizes,
+periods, and offsets must be whole milliseconds. Direct currently applies
+this choice to GroupByKey; other keyed aggregates do not yet share it.
+
 ## Sliding windows
 
 Sliding windows have a size and a period. The size determines each interval's

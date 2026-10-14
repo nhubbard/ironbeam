@@ -567,6 +567,7 @@ impl Pipeline {
                     initial_timestamp_ns,
                     window: Window::Global,
                     trigger: WindowTrigger::Default,
+                    output_time: WindowOutputTime::EarliestInPane,
                 },
                 local_id: 0,
             },

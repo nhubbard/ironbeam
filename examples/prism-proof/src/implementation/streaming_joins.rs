@@ -558,8 +558,20 @@ pub fn bounded_multi_source_fixture(
 }
 
 pub fn group_time_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
+    group_time_fixture_with_policy(pipeline, path, false)
+}
+
+pub fn group_end_time_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
+    group_time_fixture_with_policy(pipeline, path, true)
+}
+
+fn group_time_fixture_with_policy(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    end_of_window: bool,
+) -> Result<Sink<i32>, Error> {
     let sink_path = path.clone();
-    pipeline
+    let values = pipeline
         .from_vec(
             "group-time-events",
             vec![
@@ -569,7 +581,13 @@ pub fn group_time_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32
             ],
         )?
         .timestamps_from_pairs_named("group-time-assign")?
-        .fixed_windows("group-time-window", 10_000_000)?
+        .fixed_windows("group-time-window", 10_000_000)?;
+    let values = if end_of_window {
+        values.end_of_window_output_time_named("group-time-output-policy")?
+    } else {
+        values
+    };
+    values
         .group_by_key_named("group-time-group")?
         .reify_timestamps_named("group-time-reify")?
         .with_window_named("group-time-window-context")?

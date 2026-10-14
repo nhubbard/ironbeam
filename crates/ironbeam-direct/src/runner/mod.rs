@@ -7,7 +7,7 @@ use crate::{
 use ironbeam_core::{
     Capabilities, Element, Envelope, Error, ErrorKind, Graph, Operation, Output, PCollection,
     Pipeline, Registry, Replay, RetryClass, Sink, SinkMode, SinkSession, SourceIterator,
-    TypedSourceIterator, WindowTrigger,
+    TypedSourceIterator, WindowOutputTime, WindowTrigger,
 };
 use rayon::prelude::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};

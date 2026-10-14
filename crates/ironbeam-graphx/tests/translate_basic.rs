@@ -1,7 +1,7 @@
 //! Package-local v5 graph-to-Beam protobuf contract tests.
 
 use beam_proto::pipeline_v1::test_stream_payload::event::Event as StreamEvent;
-use beam_proto::pipeline_v1::{accumulation_mode, trigger, ParDoPayload};
+use beam_proto::pipeline_v1::{accumulation_mode, output_time, trigger, ParDoPayload};
 use ironbeam_core::{
     cogroup_by_key_2_named, Error, OrderedFoldFn, Pipeline, Replay, SinkMode, SinkSpec,
     TestStreamEvent, TypedSink, Version,
@@ -153,6 +153,43 @@ fn sliding_count_trigger_does_not_reassign_existing_windows() {
         window_pc.windowing_strategy_id,
         trigger_pc.windowing_strategy_id
     );
+}
+
+#[test]
+fn end_of_window_timestamp_policy_has_a_distinct_beam_strategy() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .end_of_window_output_time_named("output-policy")
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let default_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "windows")
+        .unwrap();
+    let policy_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "output-policy")
+        .unwrap();
+    assert_ne!(
+        default_pc.windowing_strategy_id,
+        policy_pc.windowing_strategy_id
+    );
+    let strategy = &components.windowing_strategies[&policy_pc.windowing_strategy_id];
+    assert_eq!(strategy.output_time, output_time::Enum::EndOfWindow as i32);
+    assert_eq!(strategy.allowed_lateness, 0);
 }
 
 #[test]

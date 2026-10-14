@@ -232,12 +232,24 @@ where
 struct GroupByKeyFoldState<K, V> {
     key: String,
     trigger: WindowTrigger,
+    output_time: WindowOutputTime,
     global_indices: HashMap<K, usize>,
     window_indices: HashMap<(K, WindowInterval), usize>,
     session_indices: HashMap<K, Vec<usize>>,
     fired_panes: HashMap<(K, WindowInterval), i64>,
     fired_value_counts: HashMap<(K, WindowInterval), usize>,
     groups: GroupBuffer<K, V>,
+}
+
+const fn grouped_output_timestamp(
+    policy: WindowOutputTime,
+    earliest_ns: i64,
+    interval: Option<WindowInterval>,
+) -> i64 {
+    match (policy, interval) {
+        (WindowOutputTime::EndOfWindow, Some(interval)) => interval.end_ns.saturating_sub(1_000_000),
+        _ => earliest_ns,
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -435,7 +447,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         contains_element_metadata: false,
                     },
                     value: Box::new((key.clone(), copied)),
-                    timestamp_ns: *timestamp_ns,
+                    timestamp_ns: grouped_output_timestamp(self.output_time, *timestamp_ns, Some(interval)),
                     window: window.clone(),
                     assigned_window: Some(interval),
                 });
@@ -469,7 +481,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     contains_element_metadata: false,
                 },
                 value: Box::new((key, values)),
-                timestamp_ns,
+                timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, Some(interval)),
                 window,
                 assigned_window: Some(interval),
             });
@@ -498,7 +510,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         contains_element_metadata: false,
                     },
                     value: Box::new((key, values)),
-                    timestamp_ns,
+                    timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, assigned_window),
                     window,
                     assigned_window,
                 });
@@ -580,6 +592,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let mut restored = Self {
             key: self.key.clone(),
             trigger: self.trigger,
+            output_time: self.output_time,
             global_indices: HashMap::new(),
             window_indices: HashMap::new(),
             session_indices: HashMap::new(),
@@ -692,6 +705,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             Vec::new()
         };
         let fired_panes = self.fired_panes;
+        let output_time = self.output_time;
         early.extend(self
             .groups
             .into_iter()
@@ -710,7 +724,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         contains_element_metadata: false,
                     },
                     value: Box::new((key, values)),
-                    timestamp_ns,
+                    timestamp_ns: grouped_output_timestamp(output_time, timestamp_ns, assigned_window),
                     window,
                     assigned_window,
                 }
@@ -731,6 +745,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             return Ok(());
         }
         let fired_panes = self.fired_panes;
+        let output_time = self.output_time;
         for (key, values, timestamp_ns, window, assigned_window) in self.groups {
             let index = assigned_window
                 .and_then(|interval| fired_panes.get(&(key.clone(), interval)).copied())
@@ -745,7 +760,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     contains_element_metadata: false,
                 },
                 value: Box::new((key, values)),
-                timestamp_ns,
+                timestamp_ns: grouped_output_timestamp(output_time, timestamp_ns, assigned_window),
                 window,
                 assigned_window,
             })?;

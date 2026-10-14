@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use beam_proto::pipeline_v1::{
-    is_bounded, test_stream_payload, Coder, Components, DisplayData, FunctionSpec, PCollection,
+    is_bounded, output_time, test_stream_payload, Coder, Components, DisplayData, FunctionSpec, PCollection,
     PTransform, ParDoPayload, Pipeline as BeamPipeline, SideInput, TestStreamPayload,
     WindowIntoPayload,
 };
 use ironbeam_core::{
     Boundedness, Capabilities, ElementDescriptor, EncodedTestStreamEvent, ExecutionIdentity, Graph,
-    Node, Operation, Pipeline, Registry, Replay, Time, Window, WindowTrigger, CODER_VERSION,
+    Node, Operation, Pipeline, Registry, Replay, Time, Window, WindowOutputTime, WindowTrigger, CODER_VERSION,
 };
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -58,7 +58,7 @@ fn windowing_id(time: &Time) -> String {
         }
         Window::Session { gap_ns } => id("v5_ws", &format!("session:{gap_ns}")),
     };
-    match time.trigger {
+    let triggered = match time.trigger {
         WindowTrigger::Default => base,
         WindowTrigger::EarlyElementCount { count } => {
             id("v5_ws", &format!("{base}:early-count:{count}"))
@@ -66,6 +66,10 @@ fn windowing_id(time: &Time) -> String {
         WindowTrigger::EarlyElementCountAccumulating { count } => {
             id("v5_ws", &format!("{base}:early-count:{count}:accumulating"))
         }
+    };
+    match time.output_time {
+        WindowOutputTime::EarliestInPane => triggered,
+        WindowOutputTime::EndOfWindow => id("v5_ws", &format!("{triggered}:end-of-window")),
     }
 }
 

@@ -47,6 +47,23 @@ impl DirectRunner {
             if node.time.trigger != WindowTrigger::Default && !trigger_supported {
                 return Err(Error::unsupported(&node.key, "direct", "early-count-trigger"));
             }
+            if node.time.output_time == WindowOutputTime::EndOfWindow
+                && matches!(
+                    node.operation,
+                    Operation::CoGroupByKey
+                        | Operation::JoinInner
+                        | Operation::JoinLeft
+                        | Operation::JoinRight
+                        | Operation::JoinFull
+                        | Operation::GlobalCombine
+                        | Operation::FoldGlobal
+                        | Operation::FoldPerKey
+                        | Operation::FoldOrderedGlobal
+                        | Operation::FoldOrderedPerKey
+                )
+            {
+                return Err(Error::unsupported(&node.key, "direct", "end-of-window-output-time"));
+            }
             let capability = match &node.operation {
                 Operation::Source { .. }
                 | Operation::Map

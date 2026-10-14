@@ -1,3 +1,9 @@
+#[derive(Clone, Copy, Default)]
+struct TimePolicyOverride {
+    trigger: Option<WindowTrigger>,
+    output_time: Option<WindowOutputTime>,
+}
+
 impl<T: Element> PCollection<T> {
     #[must_use]
     pub fn key(&self) -> &str {
@@ -32,16 +38,23 @@ impl<T: Element> PCollection<T> {
         window: Option<Window>,
         semantic: Option<(&str, Version)>,
     ) -> Result<PCollection<U>, Error> {
-        self.next_with_semantic_and_trigger(key, operation, transform, window, semantic, None)
+        self.next_with_time_policy(
+            key,
+            operation,
+            transform,
+            window,
+            semantic,
+            TimePolicyOverride::default(),
+        )
     }
-    fn next_with_semantic_and_trigger<U: Element>(
+    fn next_with_time_policy<U: Element>(
         &self,
         key: &str,
         operation: Operation,
         transform: Option<Transform>,
         window: Option<Window>,
         semantic: Option<(&str, Version)>,
-        trigger: Option<WindowTrigger>,
+        policy: TimePolicyOverride,
     ) -> Result<PCollection<U>, Error> {
         let parent = self.parent()?;
         let (semantic_id, semantic_version) = semantic.map_or_else(
@@ -67,7 +80,8 @@ impl<T: Element> PCollection<T> {
             time: Time {
                 initial_timestamp_ns: parent.time.initial_timestamp_ns,
                 window: window.unwrap_or(parent.time.window),
-                trigger: trigger.unwrap_or(parent.time.trigger),
+                trigger: policy.trigger.unwrap_or(parent.time.trigger),
+                output_time: policy.output_time.unwrap_or(parent.time.output_time),
             },
             local_id: 0,
         };
@@ -525,17 +539,54 @@ impl<T: Element> PCollection<T> {
             Window::Sliding { .. } => Operation::Map,
             _ => return Err(Error::graph(key, "early count trigger requires fixed or sliding windows")),
         };
-        self.next_with_semantic_and_trigger(
+        self.next_with_time_policy(
             key,
             operation,
             Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
             Some(window),
             None,
-            Some(if accumulating {
-                WindowTrigger::EarlyElementCountAccumulating { count }
-            } else {
-                WindowTrigger::EarlyElementCount { count }
-            }),
+            TimePolicyOverride {
+                trigger: Some(if accumulating {
+                    WindowTrigger::EarlyElementCountAccumulating { count }
+                } else {
+                    WindowTrigger::EarlyElementCount { count }
+                }),
+                output_time: None,
+            },
+        )
+    }
+
+    /// Timestamp grouped output at the final millisecond in each fixed or
+    /// sliding window. The window dimensions must be whole milliseconds.
+    pub fn end_of_window_output_time_named(&self, key: &str) -> Result<Self, Error> {
+        let window = self.parent()?.time.window;
+        let aligned = match &window {
+            Window::Fixed { size_ns } => *size_ns > 0 && size_ns % 1_000_000 == 0,
+            Window::FixedOffset { size_ns, offset_ns } => {
+                *size_ns > 0 && size_ns % 1_000_000 == 0 && offset_ns % 1_000_000 == 0
+            }
+            Window::Sliding { size_ns, period_ns, offset_ns } => {
+                *size_ns > 0
+                    && *period_ns > 0
+                    && size_ns % 1_000_000 == 0
+                    && period_ns % 1_000_000 == 0
+                    && offset_ns % 1_000_000 == 0
+            }
+            _ => false,
+        };
+        if !aligned {
+            return Err(Error::graph(key, "end-of-window output time requires millisecond-aligned fixed or sliding windows"));
+        }
+        self.next_with_time_policy(
+            key,
+            Operation::Map,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(window),
+            None,
+            TimePolicyOverride {
+                trigger: None,
+                output_time: Some(WindowOutputTime::EndOfWindow),
+            },
         )
     }
     pub fn fixed_windows_with_offset(
