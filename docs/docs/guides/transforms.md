@@ -23,6 +23,13 @@ fn main() -> Result<(), ironbeam::Error> {
 
 Elementwise operations can often be executed as a fused Direct route. Grouping and similar operations require a materialization boundary; `DirectRunner.explain` identifies those choices.
 
+`flatten_named` accepts bounded and unbounded inputs when their element types
+and time declarations match. A shared fixed-window fixture preserves each
+input's value, event timestamp, and window on Direct and local Prism. With a
+checkpointed Direct job, a bounded source resumes by skipping rows already
+committed before continuing with the stream. Use a source whose configured
+snapshot remains stable across that restart.
+
 ## Partitioning
 
 `partition_named` routes each input element to one of a fixed number of

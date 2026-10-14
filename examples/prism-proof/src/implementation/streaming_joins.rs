@@ -73,6 +73,49 @@ pub fn mixed_homogeneous_cogroup_fixture(
     )
 }
 
+/// Stateless Flatten accepts a bounded first input and a live stream.
+pub fn mixed_flatten_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
+    let bounded = pipeline
+        .from_vec("mixed-flat-bounded", vec![(1_000_000_i64, 10_i32), (3_000_000, 20)])?
+        .timestamps_from_pairs_named("mixed-flat-bounded-time")?
+        .fixed_windows("mixed-flat-bounded-window", 2_000_000)?;
+    let stream = pipeline
+        .test_stream_source(
+            "mixed-flat-stream",
+            vec![
+                TestStreamEvent::Elements(vec![(30_i32, 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+            ],
+        )?
+        .fixed_windows("mixed-flat-stream-window", 2_000_000)?;
+    bounded
+        .flatten_named("mixed-flat-merge", &[stream])?
+        .reify_timestamps_named("mixed-flat-time")?
+        .with_window_named("mixed-flat-window")?
+        .map_named("mixed-flat-row", |(window, (time, value))| {
+            format!("{}..{}:{time}:{value}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn mixed_flatten_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    mixed_flatten_collection(pipeline)?.sink_named_with_config(
+        "mixed-flat-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("mixed-flat-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 /// A side event bridges two unbounded keyed session intervals across inputs.
 pub fn dual_unbounded_session_join_collection(
     pipeline: &Pipeline,

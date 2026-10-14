@@ -213,6 +213,10 @@ impl Registry {
             .ok_or_else(|| Error::execution(key, "direct", "source factory missing"))
             .and_then(|source| (source.factory)())
     }
+    #[must_use]
+    pub fn has_source(&self, key: &str) -> bool {
+        self.sources.contains_key(key)
+    }
     /// Resume a registered unbounded split from its last committed progress.
     /// The returned reader validates source identity, poll limits, and watermark
     /// order before a runner can consume its events.

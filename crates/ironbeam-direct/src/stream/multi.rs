@@ -16,6 +16,79 @@ struct MultiSourceState {
     sources: Vec<Option<ProgressSignal>>,
 }
 
+struct BoundedStreamReader {
+    source: ironbeam_core::SourceIterator,
+    source_key: String,
+    position: u64,
+}
+
+impl BoundedStreamReader {
+    fn open(
+        registry: &Registry,
+        key: &str,
+        progress: Option<&ProgressSignal>,
+        budget_elements: usize,
+    ) -> Result<Self, Error> {
+        let position = if let Some(progress) = progress {
+            if progress.split_id != "bounded" || progress.source_key != key {
+                return Err(Error::incompatible(
+                    "bounded stream source identity mismatch",
+                ));
+            }
+            let bytes = progress.checkpoint_position.as_deref().ok_or_else(|| {
+                Error::recovery(key, "bounded stream checkpoint lacks a position")
+            })?;
+            u64::from_le_bytes(
+                bytes
+                    .try_into()
+                    .map_err(|_| Error::recovery(key, "invalid bounded stream position"))?,
+            )
+        } else {
+            0
+        };
+        let mut source = open_source_safe(registry, key)?;
+        let mut remaining = position;
+        while remaining > 0 {
+            let limit = usize::try_from(remaining)
+                .unwrap_or(usize::MAX)
+                .min(budget_elements);
+            let batch = read_source_batch(&mut source, limit, key)?;
+            if batch.len() != limit {
+                return Err(Error::incompatible(
+                    "bounded stream source changed on resume",
+                ));
+            }
+            remaining -= u64::try_from(batch.len()).expect("batch count fits u64");
+        }
+        Ok(Self {
+            source,
+            source_key: key.to_owned(),
+            position,
+        })
+    }
+}
+
+impl ironbeam_core::UnboundedSource<Envelope> for BoundedStreamReader {
+    fn poll(&mut self, max_elements: usize) -> Result<UnboundedPoll<Envelope>, Error> {
+        let elements = read_source_batch(&mut self.source, max_elements, &self.source_key)?;
+        self.position = self
+            .position
+            .checked_add(u64::try_from(elements.len()).unwrap_or(u64::MAX))
+            .ok_or_else(|| Error::resource(&self.source_key, "bounded stream position overflow"))?;
+        let completed = elements.len() < max_elements;
+        Ok(UnboundedPoll::Ready(ironbeam_core::UnboundedBatch {
+            elements,
+            progress: ProgressSignal {
+                source_key: self.source_key.clone(),
+                split_id: "bounded".into(),
+                checkpoint_position: Some(self.position.to_le_bytes().to_vec()),
+                event_time_ns: None,
+                completed,
+            },
+        }))
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 struct DualWindowState {
     version: u8,
@@ -273,15 +346,25 @@ pub(super) fn start_multi_stream_sink<T: Element>(
                 "stream route has no source",
             ));
         };
-        if node.boundedness != ironbeam_core::Boundedness::Unbounded
-            || !progress.stable_split_id
-            || progress.replay == Replay::None
-            || !registry.has_unbounded_source(&route.source_key)
+        if node.boundedness == ironbeam_core::Boundedness::Unbounded
+            && (!progress.stable_split_id
+                || progress.replay == Replay::None
+                || !registry.has_unbounded_source(&route.source_key))
         {
             return Err(Error::unsupported(
                 &route.source_key,
                 "direct",
                 "resumable-stream-source",
+            ));
+        }
+        if node.boundedness == ironbeam_core::Boundedness::Bounded
+            && (!registry.has_source(&route.source_key)
+                || registry.has_unbounded_source(&route.source_key))
+        {
+            return Err(Error::unsupported(
+                &route.source_key,
+                "direct",
+                "bounded-stream-source",
             ));
         }
         if config.checkpoint.is_some() {
@@ -439,6 +522,14 @@ fn run_multi_stream(
         .map(|(route, progress)| {
             if progress.as_ref().is_some_and(|progress| progress.completed) {
                 Ok(None)
+            } else if !registry.has_unbounded_source(&route.source_key) {
+                BoundedStreamReader::open(
+                    registry,
+                    &route.source_key,
+                    progress.as_ref(),
+                    config.buffer_budget_elements,
+                )
+                .map(|reader| Some(Box::new(reader) as ironbeam_core::UnboundedSourceReader))
             } else {
                 catch_unwind(AssertUnwindSafe(|| {
                     registry.open_unbounded_source(&route.source_key, progress.clone())

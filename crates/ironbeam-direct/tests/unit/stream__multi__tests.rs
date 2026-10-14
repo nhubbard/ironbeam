@@ -466,7 +466,7 @@ fn stateless_start_validates_each_route_before_opening_sources() {
         let error =
             start_multi_stream_sink::<i32>(&graph, registry, plan, sink_key, &JobConfig::default())
                 .err()
-                .unwrap();
+                .unwrap_or_else(|| panic!("{fault}: invalid route was accepted"));
         assert!(
             matches!(
                 error.kind,
@@ -484,6 +484,35 @@ fn stateless_start_validates_each_route_before_opening_sources() {
             .unwrap()
             .kind,
         ErrorKind::Cancelled
+    );
+}
+
+#[test]
+fn bounded_stream_resume_rejects_a_shortened_source_and_invalid_position() {
+    let pipeline = Pipeline::default();
+    pipeline.from_vec("bounded", vec![1_i32]).unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut progress = ProgressSignal {
+        source_key: "bounded".into(),
+        split_id: "bounded".into(),
+        checkpoint_position: Some(2_u64.to_le_bytes().to_vec()),
+        event_time_ns: None,
+        completed: false,
+    };
+    assert_eq!(
+        BoundedStreamReader::open(&registry, "bounded", Some(&progress), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Incompatible
+    );
+    progress.checkpoint_position = Some(vec![1]);
+    assert_eq!(
+        BoundedStreamReader::open(&registry, "bounded", Some(&progress), 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
     );
 }
 

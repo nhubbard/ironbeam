@@ -20,20 +20,21 @@ use ironbeam_prism_proof::{
     global_vector_fixture, group_time_fixture, homogeneous_twelve_way_cogroup_fixture,
     homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
     large_group_rows, large_group_summary, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
-    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, mixed_homogeneous_cogroup_fixture,
-    offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
-    ordered_global_fixture, ordered_keyed_duplicate_fixture, ordered_keyed_fixture,
-    pane_metadata_fixture_for, panicking_global_combine_fixture, panicking_keyed_fold_fixture,
-    panicking_map_fixture, panicking_side_input_fixture, partition_fixture,
-    production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
-    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_fixture,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_side_input_fixture,
-    windowed_side_view_shapes_fixture, ExpandSingleton, PaneFixtureWindow,
+    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, mixed_flatten_fixture,
+    mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
+    ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
+    ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
+    panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
+    panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
+    production_stream_fixture, session_group_fixture, shared_unbounded_homogeneous_cogroup_fixture,
+    side_view_shapes_fixture, sliding_window_group_fixture, streaming_group_fixture,
+    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
+    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_fixture, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture};
@@ -453,6 +454,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_MIXED_HOMOGENEOUS") {
         return mixed_homogeneous_cogroup_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_MIXED_FLATTEN") {
+        return mixed_flatten_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }
