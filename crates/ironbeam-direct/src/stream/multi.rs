@@ -133,11 +133,20 @@ pub(super) fn start_dual_side_stream<T: Element>(
     config: &JobConfig,
     route: BoundedSideStreamRoute,
 ) -> Result<StreamJob, Error> {
-    if route.source_key == route.side_source_key {
+    let shared_prefix_len = route
+        .main_stages
+        .iter()
+        .zip(&route.side_stages)
+        .take_while(|(main, side)| main == side)
+        .count();
+    let split_key = route.main_stages[..shared_prefix_len]
+        .last()
+        .unwrap_or(&route.source_key);
+    if route.source_key == route.side_source_key && !registry.has_coder(split_key) {
         return Err(Error::unsupported(
             &route.aggregate_key,
             "direct",
-            "shared-dual-stream-source",
+            "shared-stream-branch-coder",
         ));
     }
     for key in [&route.source_key, &route.side_source_key] {
@@ -233,6 +242,8 @@ pub(super) fn start_dual_side_stream<T: Element>(
                 || state.sources[1]
                     .as_ref()
                     .is_some_and(|p| p.source_key != route.side_source_key || p.split_id.is_empty())
+                || (route.source_key == route.side_source_key
+                    && state.sources[0] != state.sources[1])
             {
                 return Err(Error::incompatible(
                     "dual stream checkpoint identity mismatch",
@@ -810,13 +821,24 @@ fn run_dual_side_stream(
     lateness_ns: i64,
     late_count: Option<u64>,
 ) -> Result<(), Error> {
+    let shared_source = route.source_key == route.side_source_key;
     let source_keys = [&route.source_key, &route.side_source_key];
     let stages = [&route.main_stages, &route.side_stages];
+    let shared_prefix_len = stages[0]
+        .iter()
+        .zip(stages[1])
+        .take_while(|(main, side)| main == side)
+        .count();
+    let split_key = stages[0][..shared_prefix_len]
+        .last()
+        .unwrap_or(&route.source_key);
     let mut readers = source_keys
         .iter()
         .zip(&progress)
-        .map(|(key, saved)| {
-            if saved.as_ref().is_some_and(|saved| saved.completed) {
+        .enumerate()
+        .map(|(index, (key, saved))| {
+            if (shared_source && index == 1) || saved.as_ref().is_some_and(|saved| saved.completed)
+            {
                 Ok(None)
             } else {
                 catch_unwind(AssertUnwindSafe(|| {
@@ -889,32 +911,69 @@ fn run_dual_side_stream(
                 .fetch_max(count, Ordering::Relaxed);
             handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
             let old_watermark = dual_watermark(&progress);
-            let windows = if index == 0 {
-                &mut main_windows
-            } else {
-                &mut side_windows
-            };
             for input in batch.elements {
-                for event in apply_grouped_stages(registry, stages[index], input, config, handle)? {
-                    let window = stream_window(&event, &route.aggregate_key)?;
-                    if old_watermark
-                        .is_some_and(|watermark| window.1.saturating_add(lateness_ns) <= watermark)
-                    {
-                        continue;
+                let common_outputs = if shared_source {
+                    apply_grouped_stages(
+                        registry,
+                        &stages[0][..shared_prefix_len],
+                        input,
+                        config,
+                        handle,
+                    )?
+                } else {
+                    vec![input]
+                };
+                for common_output in common_outputs {
+                    let branch_inputs = if shared_source {
+                        let copy = copy_window_events(
+                            registry,
+                            split_key,
+                            std::slice::from_ref(&common_output),
+                        )?
+                        .pop()
+                        .expect("one copied branch element");
+                        vec![(0, copy), (1, common_output)]
+                    } else {
+                        vec![(index, common_output)]
+                    };
+                    for (branch, input) in branch_inputs {
+                        let windows = if branch == 0 {
+                            &mut main_windows
+                        } else {
+                            &mut side_windows
+                        };
+                        let branch_stages = if shared_source {
+                            &stages[branch][shared_prefix_len..]
+                        } else {
+                            stages[branch].as_slice()
+                        };
+                        for event in
+                            apply_grouped_stages(registry, branch_stages, input, config, handle)?
+                        {
+                            let window = stream_window(&event, &route.aggregate_key)?;
+                            if old_watermark.is_some_and(|watermark| {
+                                window.1.saturating_add(lateness_ns) <= watermark
+                            }) {
+                                continue;
+                            }
+                            if buffered >= config.buffer_budget_elements {
+                                return Err(Error::resource(
+                                    &route.aggregate_key,
+                                    "stateful stream input exceeds buffer budget",
+                                ));
+                            }
+                            windows.entry(window).or_default().push(event);
+                            buffered += 1;
+                        }
                     }
-                    if buffered >= config.buffer_budget_elements {
-                        return Err(Error::resource(
-                            &route.aggregate_key,
-                            "stateful stream input exceeds buffer budget",
-                        ));
-                    }
-                    windows.entry(window).or_default().push(event);
-                    buffered += 1;
                 }
             }
             let next = merge_progress(progress[index].as_ref(), batch.progress);
             if next.completed {
                 readers[index] = None;
+            }
+            if shared_source {
+                progress[1] = Some(next.clone());
             }
             progress[index] = Some(next);
             sequence = sequence

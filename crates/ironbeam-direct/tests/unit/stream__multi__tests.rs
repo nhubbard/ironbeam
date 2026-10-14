@@ -408,23 +408,7 @@ fn dual_checkpoint_rejects_mismatched_cursors_and_open_windows() {
 }
 
 #[test]
-fn dual_stream_rejects_shared_source_and_completes_without_checkpoint() {
-    let (graph, registry, plan, mut route, sink_key) = dual_fixture();
-    route.side_source_key.clone_from(&route.source_key);
-    let error = start_dual_side_stream::<i32>(
-        &graph,
-        registry,
-        plan,
-        sink_key,
-        &JobConfig::default(),
-        route,
-    )
-    .err()
-    .unwrap();
-    assert!(matches!(
-        error.kind,
-        ErrorKind::UnsupportedCapability { .. }
-    ));
+fn dual_stream_completes_without_checkpoint() {
     let (graph, registry, plan, route, sink_key) = dual_fixture();
     let job = start_dual_side_stream::<i32>(
         &graph,

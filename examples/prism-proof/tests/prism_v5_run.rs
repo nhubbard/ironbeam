@@ -49,31 +49,32 @@ use ironbeam_prism_proof::{
     global_count_fixture, global_fold_fixture, global_keyed_batches_fixture,
     global_keyed_combine_collection, global_keyed_combine_fixture, global_vector_fixture,
     group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
-    heterogeneous_late_count_cogroup_fixture, homogeneous_twelve_way_cogroup_fixture,
-    homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
-    large_group_rows, large_group_summary, late_count_fixture, late_count_join_fixture,
-    late_count_join_kind_collection, late_count_join_kind_fixture, latest_tie_duplicate_fixture,
-    latest_tie_empty_fixture, latest_tie_fixture, mixed_boundedness_join_cogroup_fixture,
-    mixed_flatten_collection, mixed_flatten_fixture, mixed_homogeneous_cogroup_collection,
-    mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
-    ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
-    ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
-    pane_metadata_fixture_with_accumulating_count, pane_metadata_fixture_with_trigger,
-    panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
-    panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
-    production_stream_fixture, session_group_fixture,
-    shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
-    side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, triple_unbounded_flatten_collection,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
-    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
-    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    heterogeneous_late_count_cogroup_collection, heterogeneous_late_count_cogroup_fixture,
+    homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
+    invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
+    late_count_fixture, late_count_join_fixture, late_count_join_kind_collection,
+    late_count_join_kind_fixture, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
+    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, mixed_flatten_collection,
+    mixed_flatten_fixture, mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
+    offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
+    ordered_global_fixture, ordered_keyed_duplicate_fixture, ordered_keyed_fixture,
+    pane_metadata_fixture_for, pane_metadata_fixture_with_accumulating_count,
+    pane_metadata_fixture_with_trigger, panicking_global_combine_fixture,
+    panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
+    partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
+    session_group_fixture, shared_unbounded_homogeneous_cogroup_collection,
+    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
+    sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
+    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
+    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
+    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
+    PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -2970,6 +2971,32 @@ async fn prism_heterogeneous_cogroup_retains_late_pane() {
 
 #[tokio::test]
 async fn prism_heterogeneous_late_count_panes() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        accepted: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.accepted.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
@@ -2988,6 +3015,41 @@ async fn prism_heterogeneous_late_count_panes() {
         "1:([2], [\"right\"]):OnTime:true:false:0:0",
         "1:([3, 5], []):Late:false:false:1:1",
     ];
+    let direct_rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = heterogeneous_late_count_cogroup_collection(&direct_pipeline)
+        .unwrap()
+        .sink_named_with_config(
+            "heterogeneous-late-count-direct",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "heterogeneous-late-count-direct-v1".into(),
+            {
+                let rows = Arc::clone(&direct_rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(DirectRows {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut direct = direct_rows.lock().unwrap().clone();
+    direct.sort_unstable();
+    assert_eq!(direct, expected);
     let portable_path = directory.path().join("heterogeneous-prism.txt");
     let portable_pipeline = Pipeline::default();
     heterogeneous_late_count_cogroup_fixture(&portable_pipeline, portable_path.clone()).unwrap();
