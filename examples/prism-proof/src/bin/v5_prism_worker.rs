@@ -22,7 +22,7 @@ use ironbeam_prism_proof::{
     global_vector_fixture, group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
     homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
     invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
-    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
+    late_count_fixture, latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
     mixed_boundedness_join_cogroup_fixture, mixed_flatten_fixture,
     mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
@@ -470,6 +470,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_ALLOWED_LATENESS") {
         return allowed_lateness_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_LATE_COUNT") {
+        return late_count_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

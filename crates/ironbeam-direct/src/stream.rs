@@ -1736,16 +1736,21 @@ fn run_grouped_stream(
             )?;
             for window in closing {
                 let grouped = if route.allowed_lateness_ns > 0 && next_progress.completed {
-                    let (fold, count) =
+                    let (mut fold, count) =
                         folds.remove(&window).expect("completed window fold exists");
-                    let grouped =
-                        catch_unwind(AssertUnwindSafe(|| fold.finish())).unwrap_or_else(|_| {
-                            Err(Error::execution(
-                                &route.group_key,
-                                "direct",
-                                "group fold panicked",
-                            ))
-                        })?;
+                    let grouped = catch_unwind(AssertUnwindSafe(|| {
+                        let (mut on_time, _) = fold.drain_closed(i64::MAX)?;
+                        let (late, _) = fold.drain_late(true)?;
+                        on_time.extend(late);
+                        Ok::<_, Error>(on_time)
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err(Error::execution(
+                            &route.group_key,
+                            "direct",
+                            "group fold panicked",
+                        ))
+                    })?;
                     buffered = buffered.checked_sub(count).ok_or_else(|| {
                         Error::recovery(&route.group_key, "group buffer count underflow")
                     })?;
@@ -1819,8 +1824,15 @@ fn run_grouped_stream(
                 )?;
             }
             for window in late_windows {
+                if next_progress.completed
+                    || next_progress.event_time_ns.is_some_and(|watermark| {
+                        window.1.saturating_add(route.allowed_lateness_ns) <= watermark
+                    })
+                {
+                    continue;
+                }
                 let (fold, count) = folds.get_mut(&window).expect("late window fold exists");
-                let (late, released) = catch_unwind(AssertUnwindSafe(|| fold.drain_late()))
+                let (late, released) = catch_unwind(AssertUnwindSafe(|| fold.drain_late(false)))
                     .unwrap_or_else(|_| {
                         Err(Error::execution(
                             &route.group_key,
@@ -1845,6 +1857,45 @@ fn run_grouped_stream(
                     &mut session,
                     &mut written,
                 )?;
+            }
+            if route.allowed_lateness_ns > 0 {
+                let expiring = folds
+                    .keys()
+                    .copied()
+                    .filter(|(_, end)| {
+                        next_progress.event_time_ns.is_some_and(|watermark| {
+                            end.saturating_add(route.allowed_lateness_ns) <= watermark
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                for window in expiring {
+                    let (fold, count) = folds.get_mut(&window).expect("expiring fold exists");
+                    let (late, released) = catch_unwind(AssertUnwindSafe(|| fold.drain_late(true)))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(
+                                &route.group_key,
+                                "direct",
+                                "late group fold panicked",
+                            ))
+                        })?;
+                    *count = count.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "late fold released too many rows")
+                    })?;
+                    buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    write_grouped_panes(
+                        registry,
+                        route,
+                        sink_key,
+                        &instruction_id,
+                        config,
+                        handle,
+                        late,
+                        &mut session,
+                        &mut written,
+                    )?;
+                }
             }
             if config.cancellation.load(Ordering::Acquire) {
                 return Err(cancelled());

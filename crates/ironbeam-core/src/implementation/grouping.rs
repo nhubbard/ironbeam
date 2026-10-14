@@ -521,6 +521,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let mut released = 0_usize;
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
             if assigned_window.is_some_and(|interval| interval.end_ns <= watermark_ns) {
+                if self.allowed_lateness_ns > 0
+                    && self.fired_panes.contains_key(&(key.clone(), assigned_window.unwrap()))
+                {
+                    remaining.push((key, values, timestamp_ns, window, assigned_window));
+                    continue;
+                }
                 released = released.saturating_add(values.len());
                 let scope = (key.clone(), assigned_window.unwrap());
                 let index = if self.allowed_lateness_ns > 0 {
@@ -558,18 +564,31 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             self.fired_panes.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         }
         self.fired_value_counts.retain(|(_, interval), _| interval.end_ns > watermark_ns);
-        self.latest_timestamps.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        if self.trigger.late_count().is_none() {
+            self.latest_timestamps.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        }
         self.rebuild_indices();
         Ok((closed, released))
     }
 
-    fn drain_late(&mut self) -> Result<(Vec<Envelope>, usize), Error> {
-        if self.allowed_lateness_ns == 0 || self.trigger != WindowTrigger::Default {
+    fn drain_late(&mut self, final_firing: bool) -> Result<(Vec<Envelope>, usize), Error> {
+        if self.allowed_lateness_ns == 0
+            || (self.trigger != WindowTrigger::Default && self.trigger.late_count().is_none())
+        {
             return Err(Error::unsupported(&self.key, "direct", "late-window-firing"));
         }
         let mut panes = Vec::new();
+        let mut remaining = Vec::new();
         let mut released = 0_usize;
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
+            if !final_firing
+                && self.trigger.late_count().is_some_and(|count| {
+                    values.len() < usize::try_from(count).unwrap_or(usize::MAX)
+                })
+            {
+                remaining.push((key, values, timestamp_ns, window, assigned_window));
+                continue;
+            }
             let interval = assigned_window.ok_or_else(|| Error::incompatible("late pane lacks a window"))?;
             let scope = (key.clone(), interval);
             let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
@@ -582,7 +601,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             panes.push(Envelope {
                 pane: PaneInfo {
                     is_first: index == 0,
-                    is_last: false,
+                    is_last: final_firing,
                     timing: PaneTiming::Late,
                     index,
                     nonspeculative_index: index,
@@ -594,6 +613,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 assigned_window,
             });
         }
+        self.groups = remaining;
         self.rebuild_indices();
         Ok((panes, released))
     }

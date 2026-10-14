@@ -203,6 +203,46 @@ pub fn allowed_lateness_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Si
     )
 }
 
+/// Repeated late count firing with a partial pane at window expiry.
+pub fn late_count_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    let rows = pipeline
+        .test_stream_source(
+            "late-count-events",
+            vec![
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 3_i32), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(11_000_000),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 5_i32), 5_000_000)]),
+                TestStreamEvent::AdvanceWatermark(12_000_000),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 7_i32), 7_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )?
+        .fixed_windows("late-count-windows", 10_000_000)?
+        .allowed_lateness_named("late-count-lateness", 5_000_000)?
+        .late_count_trigger_named("late-count-policy", 2)?
+        .group_by_key_named("late-count-group")?
+        .reify_timestamps_named("late-count-timestamp")?
+        .reify_panes_named("late-count-pane")?
+        .map_named("late-count-row", |(pane, (timestamp, (key, values)))| {
+            format!(
+                "{key}:{values:?}:{timestamp}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })?;
+    let sink_path = path.clone();
+    rows.sink_named_with_config(
+        "late-count-result",
+        SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+        format!("late-count-result:{}", path.display()),
+        move || Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+            path: sink_path.clone(), values: Vec::new(),
+        }))),
+    )
+}
+
 pub fn sliding_allowed_lateness_fixture(
     pipeline: &Pipeline,
     path: PathBuf,

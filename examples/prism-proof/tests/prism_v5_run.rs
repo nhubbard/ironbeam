@@ -43,7 +43,7 @@ use ironbeam_prism_proof::{
     group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
     homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
     invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
-    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
+    late_count_fixture, latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
     mixed_boundedness_join_cogroup_fixture, mixed_flatten_collection, mixed_flatten_fixture,
     mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
     offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
@@ -5390,6 +5390,42 @@ async fn prism_emits_late_pane_before_allowed_lateness_expires() {
         [
             "a:[2]:2000000:OnTime:true:false:0:0",
             "a:[3]:3000000:Late:false:false:1:1",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn prism_repeats_late_count_and_flushes_partial_pane() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("late-count.txt");
+    let pipeline = Pipeline::default();
+    late_count_fixture(&pipeline, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "late-count-probe",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_LATE_COUNT".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "late count job state: {terminal:?}");
+    let rows = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            "a:[2]:2000000:OnTime:true:false:0:0",
+            "a:[3, 5]:3000000:Late:false:false:1:1",
+            "a:[7]:7000000:Late:false:true:2:2",
         ]
     );
 }

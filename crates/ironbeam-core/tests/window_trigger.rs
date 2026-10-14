@@ -66,3 +66,50 @@ fn accumulating_count_has_distinct_graph_identity() {
     );
     assert_ne!(graph.fingerprint().unwrap(), triggered_fingerprint(1));
 }
+
+#[test]
+fn late_count_requires_lateness_and_changes_graph_identity() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap();
+    let windowed = values.fixed_windows("windows", 10_000_000).unwrap();
+    assert!(windowed.late_count_trigger_named("no-lateness", 2).is_err());
+    let late = windowed
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap();
+    assert!(late.late_count_trigger_named("zero", 0).is_err());
+    assert!(
+        late.late_count_trigger_named("overflow", i32::MAX as u64 + 1)
+            .is_err()
+    );
+    let triggered = late.late_count_trigger_named("late-count", 2).unwrap();
+    triggered
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node("groups").unwrap().time.trigger,
+        WindowTrigger::LateElementCount { count: 2 }
+    );
+    let triggered_fingerprint = graph.fingerprint().unwrap();
+
+    let baseline = Pipeline::default();
+    baseline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    assert_ne!(
+        triggered_fingerprint,
+        baseline.snapshot().unwrap().0.fingerprint().unwrap()
+    );
+}

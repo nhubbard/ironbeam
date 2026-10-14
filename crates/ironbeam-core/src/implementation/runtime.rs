@@ -152,7 +152,7 @@ pub trait FoldSession: Send {
     }
     /// Fire buffered late input without expiring the window. The runner calls
     /// this after a source poll whose prior watermark passed the window end.
-    fn drain_late(&mut self) -> Result<(Vec<Envelope>, usize), Error> {
+    fn drain_late(&mut self, _final_firing: bool) -> Result<(Vec<Envelope>, usize), Error> {
         Err(Error::unsupported("fold", "runner", "late-window-firing"))
     }
     /// Return a versioned snapshot when this fold supports in-progress recovery.

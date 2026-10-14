@@ -85,8 +85,8 @@ the second contains `[2, 3]`, and the on-time pane contains `[2, 3]` again.
 Direct checkpoints both the retained values and the count at the last firing.
 Its accumulating keyed fold requires a value coder. A bounded overlapping
 sliding-window proof matches Direct and pinned Prism in both accumulation modes. This support covers
-single-input keyed grouping in fixed and sliding windows; late firings and allowed
-lateness remain unavailable.
+single-input keyed grouping in fixed and sliding windows. Early count firings
+cannot currently be combined with allowed lateness in Direct.
 
 ### Group output timestamps
 
@@ -135,7 +135,37 @@ drops another element after the 15 ms expiry watermark. Direct emits the same
 pane values, event timestamps, timing, and indices. Its checkpoint retains
 the closed window until expiry, including the index for the next late pane.
 Direct currently supports this policy for single-input GroupByKey with the
-default trigger; other stateful fan-in remains outside that path.
+default trigger or a late count trigger; other stateful fan-in remains outside
+that path.
+
+### Late count firings
+
+`late_count_trigger_named` waits for a specified number of new late elements
+before emitting a pane. Set positive allowed lateness first:
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let _grouped = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])?
+        .fixed_windows("windows", 10_000_000)?
+        .allowed_lateness_named("lateness", 5_000_000)?
+        .late_count_trigger_named("late-count", 2)?
+        .group_by_key_named("group")?;
+    Ok(())
+}
+```
+
+The count is per key and window. In a streaming job, two late elements in
+`[0, 10 ms)` produce one late pane. If only one more late element arrives,
+the closing behavior emits that partial pane when the window expires at
+15 ms. The local Prism and Direct fixtures agree on the values, timestamps,
+timing, pane indices, and final flag for this schedule. Direct stores a
+partial late pane with the source cursor, so a restart does not lose the
+count or emit the pane twice. The policy uses discarding panes and currently
+supports single-input GroupByKey in fixed and sliding windows.
 
 For overlapping sliding windows, each assigned interval keeps its own pane
 index and expiry. A tested late element is a late pane in `[0, 10 ms)` while

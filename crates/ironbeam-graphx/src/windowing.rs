@@ -34,29 +34,31 @@ pub fn global_windowing_strategy() -> WindowingStrategy {
 }
 
 pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrigger) {
-    if let Some(count) = policy.early_count() {
+    if policy.early_count().is_some() || policy.late_count().is_some() {
         if policy.is_accumulating() {
             strategy.accumulation_mode = accumulation_mode::Enum::Accumulating as i32;
         }
         strategy.trigger = Some(Trigger {
             trigger: Some(trigger::Trigger::AfterEndOfWindow(Box::new(
                 trigger::AfterEndOfWindow {
-                    early_firings: Some(Box::new(Trigger {
-                        trigger: Some(trigger::Trigger::Repeat(Box::new(trigger::Repeat {
-                            subtrigger: Some(Box::new(Trigger {
-                                trigger: Some(trigger::Trigger::ElementCount(
-                                    trigger::ElementCount {
-                                        element_count: count as i32,
-                                    },
-                                )),
-                            })),
-                        }))),
-                    })),
-                    late_firings: None,
+                    early_firings: policy.early_count().map(repeated_count_trigger),
+                    late_firings: policy.late_count().map(repeated_count_trigger),
                 },
             ))),
         });
     }
+}
+
+fn repeated_count_trigger(count: u64) -> Box<Trigger> {
+    Box::new(Trigger {
+        trigger: Some(trigger::Trigger::Repeat(Box::new(trigger::Repeat {
+            subtrigger: Some(Box::new(Trigger {
+                trigger: Some(trigger::Trigger::ElementCount(trigger::ElementCount {
+                    element_count: count as i32,
+                })),
+            })),
+        }))),
+    })
 }
 
 pub fn fixed_window_fn(size_ns: i64, offset_ns: i64) -> Result<FunctionSpec, String> {

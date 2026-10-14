@@ -77,6 +77,17 @@ impl Graph {
                     "early count trigger requires fixed or sliding windows and a positive count",
                 ));
             }
+            if let Some(count) = node.time.trigger.late_count()
+                && (count == 0
+                    || count > i32::MAX as u64
+                    || node.time.allowed_lateness_ns == 0
+                    || !node.time.window.is_millisecond_aligned_fixed_or_sliding())
+            {
+                return Err(Error::graph(
+                    &node.key,
+                    "late count trigger requires allowed lateness, finite millisecond-aligned windows, and a positive count",
+                ));
+            }
             if node.time.output_time != WindowOutputTime::EarliestInPane
                 && !node.time.window.is_millisecond_aligned_fixed_or_sliding()
             {
@@ -257,7 +268,8 @@ impl Graph {
                             && node.time.window == upstream.time.window
                             && ((node.time.output_time == upstream.time.output_time
                                 && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
-                                && node.time.trigger.early_count().is_some())
+                                && (node.time.trigger.early_count().is_some()
+                                    || node.time.trigger.late_count().is_some()))
                                 || (node.time.trigger == upstream.time.trigger
                                     && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
                                     && node.time.output_time != WindowOutputTime::EarliestInPane)

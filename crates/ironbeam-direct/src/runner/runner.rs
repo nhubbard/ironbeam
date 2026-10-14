@@ -1,6 +1,7 @@
 fn validate_lateness(node: &ironbeam_core::Node) -> Result<(), Error> {
     if node.time.allowed_lateness_ns > 0
-        && (node.time.trigger != WindowTrigger::Default
+        && ((node.time.trigger != WindowTrigger::Default
+            && node.time.trigger.late_count().is_none())
             || matches!(
                 node.operation,
                 Operation::CoGroupByKey
