@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_lines)] // End-to-end checkpoint fixtures keep setup and assertions together.
+
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
     TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
@@ -7,7 +9,7 @@ use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
 
@@ -62,6 +64,222 @@ fn one_unbounded_input_uses_one_group_bucket() {
         .wait()
         .unwrap();
     assert_eq!(*committed.lock().unwrap(), ["1:[[5]]".to_owned()]);
+}
+
+#[test]
+fn shared_unbounded_source_runs_common_transform_once_before_three_branches() {
+    let pipeline = Pipeline::default();
+    let visits = Arc::new(AtomicUsize::new(0));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let common_visits = Arc::clone(&visits);
+    let source = pipeline
+        .test_stream_source(
+            "shared",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, (0_i32, 10_i32)), 1_000_000),
+                    ((1, (1, 20)), 2_000_000),
+                    ((1, (2, 30)), 3_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )
+        .unwrap()
+        .map_named("common", move |value| {
+            common_visits.fetch_add(1, Ordering::SeqCst);
+            value
+        })
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap();
+    let inputs = (0..3)
+        .map(|index| {
+            source
+                .filter_named(&format!("branch-{index}"), move |(_, (branch, _))| {
+                    *branch == index
+                })
+                .unwrap()
+                .map_named(&format!("value-{index}"), |(key, (_, value))| (key, value))
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
+    let sink = inputs[0]
+        .co_group_homogeneous_named("group", &inputs[1..])
+        .unwrap()
+        .map_named("format", |(key, buckets)| format!("{key}:{buckets:?}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-group-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        *committed.lock().unwrap(),
+        ["1:[[10], [20], [30]]".to_owned()]
+    );
+    assert_eq!(visits.load(Ordering::SeqCst), 3);
+}
+
+#[test]
+fn shared_unbounded_source_restores_one_cursor_and_open_group() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let hold = Arc::new(AtomicBool::new(true));
+    let visits = Arc::new(AtomicUsize::new(0));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let factory_hold = Arc::clone(&hold);
+    let factory_opens = Arc::clone(&opens);
+    let common_visits = Arc::clone(&visits);
+    let source = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "shared-recovery-v1".into(),
+            0,
+            move |cursor| {
+                factory_opens.lock().unwrap().push(cursor.clone());
+                let batch = match cursor.as_deref() {
+                    None => UnboundedBatch {
+                        elements: vec![
+                            Timestamped {
+                                value: (1_i32, 10_i32),
+                                timestamp_ns: 1_000_000,
+                            },
+                            Timestamped {
+                                value: (1, 20),
+                                timestamp_ns: 2_000_000,
+                            },
+                        ],
+                        progress: ProgressSignal {
+                            source_key: "source".into(),
+                            split_id: "split-0".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(2_000_000),
+                            completed: false,
+                        },
+                    },
+                    Some([1]) if !factory_hold.load(Ordering::SeqCst) => UnboundedBatch {
+                        elements: Vec::new(),
+                        progress: ProgressSignal {
+                            source_key: "source".into(),
+                            split_id: "split-0".into(),
+                            checkpoint_position: Some(vec![2]),
+                            event_time_ns: Some(10_000_000),
+                            completed: true,
+                        },
+                    },
+                    Some([1]) => {
+                        return Ok(Box::new(Script {
+                            polls: VecDeque::new(),
+                        })
+                            as TypedUnboundedSourceReader<(i32, i32)>);
+                    }
+                    _ => return Err(Error::incompatible("unexpected shared cursor")),
+                };
+                Ok(Box::new(Script {
+                    polls: vec![UnboundedPoll::Ready(batch)].into(),
+                }) as TypedUnboundedSourceReader<(i32, i32)>)
+            },
+        )
+        .unwrap()
+        .map_named("common", move |row| {
+            common_visits.fetch_add(1, Ordering::SeqCst);
+            row
+        })
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap();
+    let first = source
+        .filter_named("first", |(_, value)| *value == 10)
+        .unwrap();
+    let second = source
+        .filter_named("second", |(_, value)| *value == 20)
+        .unwrap();
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
+    let sink = first
+        .co_group_homogeneous_named("group", &[second])
+        .unwrap()
+        .map_named("format", |(key, buckets)| format!("{key}:{buckets:?}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-recovery-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            binary_build_id: "shared-recovery-test-build".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let expected_progress = 1_u64.to_le_bytes().to_vec();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while job.progress().and_then(|signal| signal.checkpoint_position)
+        != Some(expected_progress.clone())
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        job.progress().and_then(|signal| signal.checkpoint_position),
+        Some(expected_progress)
+    );
+    assert!(committed.lock().unwrap().is_empty());
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    hold.store(false, Ordering::SeqCst);
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*committed.lock().unwrap(), ["1:[[10], [20]]".to_owned()]);
+    assert_eq!(visits.load(Ordering::SeqCst), 2);
+    assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
 }
 
 #[test]

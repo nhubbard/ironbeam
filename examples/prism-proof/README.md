@@ -28,9 +28,10 @@ JSONL, Avro, CSV, XML, Parquet, Protobuf, and TFRecord input with terminal captu
 format-specific append output, object-backed JSONL, native Flatten, global
 and fixed-window GroupByKey, keyed latest with restored event time, two-,
 three- and ten-input typed CoGroupByKey, twelve-input homogeneous co-group
-in fixed and merged-session windows, a three-independent-unbounded-source
-homogeneous co-group with window closure and late-row drop,
-all four joins with
+in fixed and merged-session windows, and two unbounded homogeneous co-groups:
+one with three independent sources and one with three branches from a shared
+source. Both cover window closure and late-row drop. The corpus also covers all
+four joins with
 duplicate and unmatched keys, a fixed-window join with preserved input
 timestamps, a bounded side input fetched through Beam Fn State, native
 Reshuffle, event-time assignment, and fixed-window metadata.

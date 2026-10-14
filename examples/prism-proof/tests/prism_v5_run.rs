@@ -46,16 +46,17 @@ use ironbeam_prism_proof::{
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
     panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
     panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
-    production_stream_fixture, session_group_fixture, side_view_shapes_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, triple_unbounded_flatten_collection,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
-    triple_unbounded_homogeneous_cogroup_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_side_input_fixture,
-    windowed_side_view_shapes_fixture, ExpandSingleton, PaneFixtureWindow, ProductionAvroRow,
-    ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    production_stream_fixture, session_group_fixture,
+    shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
+    side_view_shapes_fixture, sliding_window_group_fixture, streaming_group_fixture,
+    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
+    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
+    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -3271,6 +3272,94 @@ async fn prism_matches_direct_three_unbounded_homogeneous_cogroup() {
         .collect::<Vec<_>>();
     rows.sort();
     assert_eq!(rows, expected);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_shared_unbounded_homogeneous_cogroup() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        accepted: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.accepted.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let portable_path = directory.path().join("shared-homogeneous.txt");
+    let direct_rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = shared_unbounded_homogeneous_cogroup_collection(&direct_pipeline)
+        .unwrap()
+        .sink_named_with_config(
+            "shared-homogeneous-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-homogeneous-direct-v1".into(),
+            {
+                let rows = Arc::clone(&direct_rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(DirectRows {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let expected = ["0..10000000:1000000:a:[[10], [20], [30]]".to_owned()];
+    assert_eq!(*direct_rows.lock().unwrap(), expected);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    shared_unbounded_homogeneous_cogroup_fixture(&portable, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "shared-homogeneous",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_SHARED_HOMOGENEOUS".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism shared co-group state: {terminal:?}");
+    assert_eq!(
+        std::fs::read_to_string(&portable_path).unwrap().trim(),
+        expected[0]
+    );
 }
 
 #[tokio::test]

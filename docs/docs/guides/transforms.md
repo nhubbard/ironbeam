@@ -84,10 +84,11 @@ graph, so value order within each vector is unspecified. A twelve-input
 fixed-window job and a twelve-branch merged-session job pass on Direct and
 local Prism. The session job derives its branches from one bounded source so
 the bridge record precedes source completion on both runners. Three independent
-unbounded sources also pass on both runners in fixed windows. Direct checkpoints
-their open group and source cursors; late records after window closure are
-dropped. The Direct route does not yet support merging sessions or multiple
-branches from the same unbounded source in this form.
+unbounded sources and three branches from one unbounded source also pass on
+both runners in fixed windows. Direct checkpoints their open groups and source
+cursors; late records after window closure are dropped. A common transform
+before the branches runs once per input element. The Direct route does not yet
+support merging sessions for unbounded inputs in this form.
 
 ## Side views
 

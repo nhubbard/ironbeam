@@ -54,10 +54,15 @@ struct BoundedSideStreamRoute {
 }
 
 struct MultiGroupedStreamRoute {
-    sources: Vec<(String, Vec<String>)>,
+    sources: Vec<MultiGroupedSource>,
     group_input_key: String,
     group_key: String,
     after_group: Vec<String>,
+}
+
+struct MultiGroupedSource {
+    key: String,
+    branches: Vec<Vec<String>>,
 }
 
 type WindowFolds = BTreeMap<(i64, i64), (Box<dyn FoldSession>, usize)>;
@@ -566,7 +571,7 @@ fn multi_grouped_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiGrou
             .iter()
             .map(|edge| edge.key.as_str()),
     );
-    let sources = input_keys
+    let input_routes = input_keys
         .map(|input_key| {
             if graph.node(input_key)?.time != group.time {
                 return None;
@@ -574,12 +579,19 @@ fn multi_grouped_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiGrou
             linear_stream_input(graph, input_key)
         })
         .collect::<Option<Vec<_>>>()?;
-    let unique = sources
-        .iter()
-        .map(|(source_key, _)| source_key)
-        .collect::<BTreeSet<_>>();
-    if sources.is_empty() || unique.len() != sources.len() {
+    if input_routes.is_empty() {
         return None;
+    }
+    let mut sources: Vec<MultiGroupedSource> = Vec::new();
+    for (source_key, stages) in input_routes {
+        if let Some(source) = sources.iter_mut().find(|source| source.key == source_key) {
+            source.branches.push(stages);
+        } else {
+            sources.push(MultiGroupedSource {
+                key: source_key,
+                branches: vec![stages],
+            });
+        }
     }
     after_group.reverse();
     Some(MultiGroupedStreamRoute {

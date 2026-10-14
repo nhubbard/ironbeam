@@ -117,3 +117,67 @@ pub fn homogeneous_twelve_way_session_fixture(
         },
     )
 }
+
+/// Three branches from one unbounded source share its upstream path.
+pub fn shared_unbounded_homogeneous_cogroup_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let source = pipeline
+        .test_stream_source(
+            "shared-homogeneous-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("a".to_owned(), (0_i32, 10_i32)), 1_000_000),
+                    (("a".to_owned(), (1, 20)), 2_000_000),
+                    (("a".to_owned(), (2, 30)), 3_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![(("late".to_owned(), (2, 99)), 0)]),
+            ],
+        )?
+        .fixed_windows("shared-homogeneous-window", 10_000_000)?;
+    let inputs = (0..3)
+        .map(|index| {
+            source
+                .filter_named(
+                    &format!("shared-homogeneous-branch-{index}"),
+                    move |(_, (branch, _))| *branch == index,
+                )?
+                .map_named(&format!("shared-homogeneous-value-{index}"), |(key, (_, value))| {
+                    (key, value)
+                })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    inputs[0]
+        .co_group_homogeneous_named("shared-homogeneous-group", &inputs[1..])?
+        .reify_timestamps_named("shared-homogeneous-time")?
+        .with_window_named("shared-homogeneous-output-window")?
+        .map_named("shared-homogeneous-row", |(window, (time, (key, mut buckets)))| {
+            for bucket in &mut buckets {
+                bucket.sort_unstable();
+            }
+            format!("{}..{}:{time}:{key}:{buckets:?}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn shared_unbounded_homogeneous_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    shared_unbounded_homogeneous_cogroup_collection(pipeline)?.sink_named_with_config(
+        "shared-homogeneous-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("shared-homogeneous-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}

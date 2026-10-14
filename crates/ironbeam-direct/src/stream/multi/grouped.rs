@@ -9,6 +9,71 @@ struct MultiGroupedState {
     windows: Vec<u8>,
 }
 
+fn apply_branch_paths(
+    registry: &Registry,
+    source_key: &str,
+    branches: &[Vec<String>],
+    input: Envelope,
+    config: &JobConfig,
+    handle: &JobHandle,
+) -> Result<Vec<Envelope>, Error> {
+    let paths = branches.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    apply_branch_slices(registry, source_key, &paths, input, config, handle)
+}
+
+fn apply_branch_slices(
+    registry: &Registry,
+    current_key: &str,
+    paths: &[&[String]],
+    input: Envelope,
+    config: &JobConfig,
+    handle: &JobHandle,
+) -> Result<Vec<Envelope>, Error> {
+    if let [path] = paths {
+        return apply_grouped_stages(registry, path, input, config, handle);
+    }
+    let mut groups: BTreeMap<Option<&str>, Vec<&[String]>> = BTreeMap::new();
+    for path in paths {
+        let (next, rest) = path
+            .split_first()
+            .map_or((None, &[][..]), |(next, rest)| (Some(next.as_str()), rest));
+        groups.entry(next).or_default().push(rest);
+    }
+    let group_count = groups.len();
+    let mut remaining = Some(input);
+    let mut result = Vec::new();
+    for (index, (next, tails)) in groups.into_iter().enumerate() {
+        let event = if index + 1 == group_count {
+            remaining.take().expect("last fanout branch owns input")
+        } else {
+            copy_window_events(
+                registry,
+                current_key,
+                std::slice::from_ref(remaining.as_ref().expect("fanout input exists")),
+            )?
+            .remove(0)
+        };
+        if let Some(next) = next {
+            for output in apply_grouped_stages(registry, &[next.to_owned()], event, config, handle)?
+            {
+                result.extend(apply_branch_slices(
+                    registry, next, &tails, output, config, handle,
+                )?);
+            }
+        } else {
+            for _ in 1..tails.len() {
+                result.extend(copy_window_events(
+                    registry,
+                    current_key,
+                    std::slice::from_ref(&event),
+                )?);
+            }
+            result.push(event);
+        }
+    }
+    Ok(result)
+}
+
 #[allow(clippy::too_many_lines)]
 pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
     graph: &Graph,
@@ -19,7 +84,8 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
     route: MultiGroupedStreamRoute,
 ) -> Result<StreamJob, Error> {
     let mut source_digest = String::new();
-    for (source_key, _) in &route.sources {
+    for source in &route.sources {
+        let source_key = &source.key;
         validate_dual_source(graph, &registry, source_key)?;
         if config.checkpoint.is_some() {
             let digest = registry
@@ -73,9 +139,9 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
                 .sources
                 .iter()
                 .zip(&route.sources)
-                .any(|(signal, (key, _))| {
+                .any(|(signal, source)| {
                     signal.as_ref().is_some_and(|signal| {
-                        signal.source_key != *key || signal.split_id.is_empty()
+                        signal.source_key != source.key || signal.split_id.is_empty()
                     })
                 })
         {
@@ -196,7 +262,8 @@ fn run_multi_grouped_stream(
         .sources
         .iter()
         .zip(&sources)
-        .map(|((source_key, _), progress)| {
+        .map(|(source, progress)| {
+            let source_key = &source.key;
             if progress.as_ref().is_some_and(|progress| progress.completed) {
                 Ok(None)
             } else {
@@ -221,7 +288,8 @@ fn run_multi_grouped_stream(
         .collect::<Result<Vec<_>, Error>>()?;
     loop {
         let mut ready = false;
-        for (index, (source_key, stages)) in route.sources.iter().enumerate() {
+        for (index, source) in route.sources.iter().enumerate() {
+            let source_key = &source.key;
             if config.cancellation.load(Ordering::Acquire) {
                 return Err(cancelled());
             }
@@ -294,7 +362,14 @@ fn run_multi_grouped_stream(
             handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
             let old_watermark = multi_progress(sequence, &sources).event_time_ns;
             for input in batch.elements {
-                for event in apply_grouped_stages(registry, stages, input, config, handle)? {
+                for event in apply_branch_paths(
+                    registry,
+                    source_key,
+                    &source.branches,
+                    input,
+                    config,
+                    handle,
+                )? {
                     let window = stream_window(&event, &route.group_key)?;
                     if old_watermark.is_some_and(|watermark| window.1 <= watermark) {
                         continue;
