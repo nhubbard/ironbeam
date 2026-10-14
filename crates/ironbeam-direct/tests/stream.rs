@@ -3775,16 +3775,16 @@ fn stream_transform_output_obeys_buffer_limit() {
 }
 
 #[test]
-fn stream_flattens_two_unbounded_sources_and_recovers_each_cursor() {
+fn stream_flattens_three_unbounded_sources_and_recovers_each_cursor() {
     let temporary = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
     let opens = Arc::new(Mutex::new(Vec::new()));
-    let hold_second = Arc::new(AtomicBool::new(true));
+    let hold_remaining = Arc::new(AtomicBool::new(true));
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let make_source = |key: &str| {
         let opens = Arc::clone(&opens);
-        let hold_second = Arc::clone(&hold_second);
+        let hold_remaining = Arc::clone(&hold_remaining);
         let source_key = key.to_owned();
         pipeline
             .unbounded_source_with_factory(
@@ -3818,10 +3818,14 @@ fn stream_flattens_two_unbounded_sources_and_recovers_each_cursor() {
                     };
                     let polls = match (source_key.as_str(), cursor.as_deref()) {
                         ("events", None) => vec![ready(1, 1, true)].into(),
-                        ("other", None) if hold_second.load(Ordering::SeqCst) => {
+                        ("other", None) if hold_remaining.load(Ordering::SeqCst) => {
                             vec![ready(10, 1, false)].into()
                         }
                         ("other", Some([1])) => vec![ready(20, 2, true)].into(),
+                        ("third", None) if hold_remaining.load(Ordering::SeqCst) => {
+                            vec![ready(100, 1, false)].into()
+                        }
+                        ("third", Some([1])) => vec![ready(200, 2, true)].into(),
                         _ => return Err(Error::incompatible("unexpected multi-source cursor")),
                     };
                     Ok(Box::new(Script { polls }) as TypedUnboundedSourceReader<i32>)
@@ -3835,7 +3839,10 @@ fn stream_flattens_two_unbounded_sources_and_recovers_each_cursor() {
     let second = make_source("other")
         .map_named("second-map", |value| value + 200)
         .unwrap();
-    let joined = first.flatten_named("merge", &[second]).unwrap();
+    let third = make_source("third")
+        .map_named("third-map", |value| value + 300)
+        .unwrap();
+    let joined = first.flatten_named("merge", &[second, third]).unwrap();
     let sink_committed = Arc::clone(&committed);
     let sink_accepted = Arc::clone(&accepted);
     let sink = joined
@@ -3862,26 +3869,31 @@ fn stream_flattens_two_unbounded_sources_and_recovers_each_cursor() {
     let job_config = config(temporary.path());
     let first_job = DirectRunner.start_stream_sink(&sink, &job_config).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
-    while first_job.handle().processed() < 2 && Instant::now() < deadline {
+    while first_job.handle().processed() < 3 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert_eq!(first_job.handle().processed(), 2);
+    assert_eq!(first_job.handle().processed(), 3);
     first_job.cancel();
     assert_eq!(first_job.wait().err().unwrap().kind, ErrorKind::Cancelled);
-    hold_second.store(false, Ordering::SeqCst);
+    hold_remaining.store(false, Ordering::SeqCst);
     let resumed = DirectRunner
         .start_stream_sink(&sink, &config(temporary.path()))
         .unwrap();
     assert_eq!(resumed.wait().unwrap().status(), JobStatus::Succeeded);
-    assert_eq!(*committed.lock().unwrap(), vec![101, 210, 220]);
-    assert_eq!(
-        *opens.lock().unwrap(),
-        vec![
-            ("events".into(), None),
-            ("other".into(), None),
-            ("other".into(), Some(vec![1])),
-        ]
-    );
+    let mut values = committed.lock().unwrap().clone();
+    values.sort_unstable();
+    assert_eq!(values, vec![101, 210, 220, 400, 500]);
+    let mut opens = opens.lock().unwrap().clone();
+    opens.sort();
+    let mut expected = vec![
+        ("events".into(), None),
+        ("other".into(), None),
+        ("third".into(), None),
+        ("other".into(), Some(vec![1])),
+        ("third".into(), Some(vec![1])),
+    ];
+    expected.sort();
+    assert_eq!(opens, expected);
 }
 
 #[test]
