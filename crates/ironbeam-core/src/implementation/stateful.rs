@@ -20,10 +20,12 @@ impl UserStateKind {
     #[must_use]
     pub const fn protocol_urn(&self) -> &'static str {
         match self {
-            Self::Value { .. } | Self::Bag { .. } | Self::Set { .. } | Self::Combining { .. } => {
+            Self::Value { .. } | Self::Bag { .. } | Self::Combining { .. } => {
                 "beam:user_state:bag:v1"
             }
-            Self::Map { .. } | Self::Multimap { .. } => "beam:user_state:multimap:v1",
+            Self::Set { .. } | Self::Map { .. } | Self::Multimap { .. } => {
+                "beam:user_state:multimap:v1"
+            }
             Self::OrderedList { .. } => "beam:user_state:ordered_list:v1",
         }
     }

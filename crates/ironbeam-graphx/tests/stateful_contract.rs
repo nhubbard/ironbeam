@@ -131,6 +131,10 @@ fn lowers_each_beam_user_state_family_and_timer_domain() {
         "beam:user_state:multimap:v1"
     );
     assert_eq!(
+        payload.state_specs["set"].protocol.as_ref().unwrap().urn,
+        "beam:user_state:multimap:v1"
+    );
+    assert_eq!(
         payload.state_specs["ordered"]
             .protocol
             .as_ref()

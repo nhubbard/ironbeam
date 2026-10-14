@@ -83,7 +83,7 @@ fn state_and_timer_families_have_a_stable_serialized_contract() {
     first.validate().unwrap();
     for (id, kind) in &first.states {
         let expected = match id.as_str() {
-            "map" | "multi" => "beam:user_state:multimap:v1",
+            "map" | "multi" | "set" => "beam:user_state:multimap:v1",
             "ordered" => "beam:user_state:ordered_list:v1",
             _ => "beam:user_state:bag:v1",
         };
