@@ -84,7 +84,8 @@ pub(crate) fn prepare(graph: &Graph, registry: &Registry, keys: &[&str]) -> Resu
             | Operation::FlatMap
             | Operation::AssignTimestamp
             | Operation::FixedWindow
-            | Operation::SlidingWindow => {
+            | Operation::SlidingWindow
+            | Operation::SessionWindow => {
                 if !registry.has_transform(&current) {
                     return Err(Error::unsupported(&current, "direct", "transform-function"));
                 }

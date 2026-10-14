@@ -1,4 +1,38 @@
 impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
+    /// Group bounded keyed events into merging event-time sessions.
+    /// Intervals merge when they overlap or touch; the output
+    /// timestamp is the earliest event timestamp in each merged session.
+    pub fn group_by_session_named(
+        &self,
+        key: &str,
+        gap_ns: i64,
+    ) -> Result<PCollection<(K, Vec<V>)>, Error> {
+        let parent = self.parent()?;
+        if parent.boundedness != Boundedness::Bounded {
+            return Err(Error::graph(key, "unbounded session grouping is not supported"));
+        }
+        if parent.time.window != Window::Global {
+            return Err(Error::graph(key, "assign timestamps before session grouping"));
+        }
+        if gap_ns <= 0 {
+            return Err(Error::graph(key, "session gap must be positive"));
+        }
+        let window = Window::Session { gap_ns };
+        let runtime_window = window.clone();
+        let transform = Transform::Single(Arc::new(move |mut event| {
+            event.assigned_window = runtime_window.assign(event.timestamp_ns)?;
+            event.window = runtime_window.clone();
+            Ok(Some(event))
+        }));
+        let windowed: PCollection<(K, V)> = self.next(
+            &format!("{key}/session"),
+            Operation::SessionWindow,
+            Some(transform),
+            Some(window),
+        )?;
+        windowed.group_by_key_named(key)
+    }
+
     pub fn combine_values_lifted_named<C, A, O>(
         &self,
         key: &str,
@@ -624,6 +658,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 key: fold_key.clone(),
                 global_indices: HashMap::new(),
                 window_indices: HashMap::new(),
+                session_indices: HashMap::new(),
                 groups: Vec::new(),
             })
         });
@@ -635,6 +670,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 key: key_owned.clone(),
                 global_indices: HashMap::new(),
                 window_indices: HashMap::new(),
+                session_indices: HashMap::new(),
                 groups: Vec::new(),
             });
             for event in events {
@@ -734,6 +770,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             return Err(Error::graph(
                 key,
                 "join inputs must have equal time/window declarations",
+            ));
+        }
+        if matches!(left.time.window, Window::Session { .. }) {
+            return Err(Error::graph(
+                key,
+                "session joins require cross-input merge support",
             ));
         }
         let unbounded = left.boundedness == Boundedness::Unbounded

@@ -90,6 +90,47 @@ pub fn sliding_window_group_fixture(
         )
 }
 
+/// A late-arriving bridge joins two prior sessions for one key.
+pub fn session_group_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    pipeline
+        .from_vec(
+            "session-source",
+            vec![
+                (0_i64, ("a".to_owned(), 1_i32)),
+                (8_000_000, ("a".to_owned(), 2)),
+                (4_000_000, ("a".to_owned(), 3)),
+                (13_000_000, ("a".to_owned(), 4)),
+                (4_000_000, ("b".to_owned(), 5)),
+                (-4_000_000, ("c".to_owned(), 6)),
+                (-1_000_000, ("c".to_owned(), 7)),
+            ],
+        )?
+        .timestamps_from_pairs_named("session-time")?
+        .group_by_session_named("session-group", 5_000_000)?
+        .reify_timestamps_named("session-group-time")?
+        .with_window_named("session-group-window")?
+        .map_named("session-row", |(window, (time, (key, mut values)))| {
+            values.sort_unstable();
+            format!("{key}|{values:?}|{time}|{}|{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "session-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("session-contract:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Three tagged inputs exercise the portable co-group coder beyond join arity.
 pub fn bounded_three_way_cogroup_fixture(
     pipeline: &Pipeline,

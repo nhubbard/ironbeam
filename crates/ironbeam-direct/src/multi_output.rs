@@ -39,7 +39,8 @@ fn linear_route(
             | Operation::FlatMap
             | Operation::AssignTimestamp
             | Operation::FixedWindow
-            | Operation::SlidingWindow => {
+            | Operation::SlidingWindow
+            | Operation::SessionWindow => {
                 if !registry.has_transform(key) {
                     return Err(Error::unsupported(key, "direct", "transform-function"));
                 }

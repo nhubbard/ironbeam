@@ -59,6 +59,7 @@ impl Pipeline {
             }
             Operation::FixedWindow => ("ironbeam/fixed-window".into(), BUILTIN_OPERATION_VERSION),
             Operation::SlidingWindow => ("ironbeam/sliding-window".into(), BUILTIN_OPERATION_VERSION),
+            Operation::SessionWindow => ("ironbeam/session-window".into(), BUILTIN_OPERATION_VERSION),
             Operation::GlobalCombine => {
                 ("ironbeam/global-combine".into(), BUILTIN_OPERATION_VERSION)
             }

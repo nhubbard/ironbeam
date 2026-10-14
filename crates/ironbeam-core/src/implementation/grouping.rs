@@ -230,6 +230,7 @@ struct GroupByKeyFoldState<K, V> {
     key: String,
     global_indices: HashMap<K, usize>,
     window_indices: HashMap<(K, WindowInterval), usize>,
+    session_indices: HashMap<K, Vec<usize>>,
     groups: GroupBuffer<K, V>,
 }
 
@@ -261,6 +262,82 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
         window: Window,
         assigned_window: Option<WindowInterval>,
     ) {
+        if matches!(window, Window::Session { .. }) {
+            let Some(mut merged) = assigned_window else {
+                return;
+            };
+            let matches = self
+                .session_indices
+                .get(&group_key)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|&index| {
+                    let interval = self.groups[index]
+                        .4
+                        .expect("session group has an interval");
+                    merged.start_ns <= interval.end_ns && interval.start_ns <= merged.end_ns
+                })
+                .collect::<Vec<_>>();
+            if let [index] = matches.as_slice() {
+                let row = &mut self.groups[*index];
+                let prior = row.4.expect("session group has an interval");
+                merged.start_ns = merged.start_ns.min(prior.start_ns);
+                merged.end_ns = merged.end_ns.max(prior.end_ns);
+                row.1.push(value);
+                row.2 = row.2.min(timestamp_ns);
+                row.4 = Some(merged);
+                self.window_indices.remove(&(group_key.clone(), prior));
+                self.window_indices.insert((group_key, merged), *index);
+                return;
+            }
+            if let Some(&primary) = matches.first() {
+                let mut timestamp = timestamp_ns;
+                let mut values = Vec::new();
+                for &index in matches.iter().rev() {
+                    let (_, prior_values, prior_timestamp, _, prior_interval) =
+                        self.groups.remove(index);
+                    let interval = prior_interval.expect("session group has an interval");
+                    merged.start_ns = merged.start_ns.min(interval.start_ns);
+                    merged.end_ns = merged.end_ns.max(interval.end_ns);
+                    timestamp = timestamp.min(prior_timestamp);
+                    values.extend(prior_values);
+                }
+                values.push(value);
+                self.groups.insert(
+                    primary,
+                    (group_key, values, timestamp, window, Some(merged)),
+                );
+                self.window_indices.clear();
+                self.session_indices.clear();
+                for (index, (key, _, _, window, interval)) in self.groups.iter().enumerate() {
+                    if let Some(interval) = interval {
+                        self.window_indices.insert((key.clone(), *interval), index);
+                        if matches!(window, Window::Session { .. }) {
+                            self.session_indices
+                                .entry(key.clone())
+                                .or_default()
+                                .push(index);
+                        }
+                    }
+                }
+            } else {
+                let index = self.groups.len();
+                self.window_indices.insert((group_key.clone(), merged), index);
+                self.session_indices
+                    .entry(group_key.clone())
+                    .or_default()
+                    .push(index);
+                self.groups.push((
+                    group_key,
+                    vec![value],
+                    timestamp_ns,
+                    window,
+                    Some(merged),
+                ));
+            }
+            return;
+        }
         if let Some(interval) = assigned_window {
             let scope = (group_key.clone(), interval);
             if let Some(&index) = self.window_indices.get(&scope) {
@@ -354,6 +431,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             key: self.key.clone(),
             global_indices: HashMap::new(),
             window_indices: HashMap::new(),
+            session_indices: HashMap::new(),
             groups: Vec::with_capacity(checkpoint.groups.len()),
         };
         for row in checkpoint.groups {
@@ -373,6 +451,13 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         &self.key,
                         "duplicate group in fold checkpoint",
                     ));
+                }
+                if matches!(row.window, Window::Session { .. }) {
+                    restored
+                        .session_indices
+                        .entry(key.clone())
+                        .or_default()
+                        .push(position);
                 }
             } else if restored
                 .global_indices
@@ -665,6 +750,9 @@ macro_rules! define_cogroup {
             $($other_ty: Element),+
         {
             let first_node = $first.parent()?;
+            if matches!(first_node.time.window, Window::Session { .. }) {
+                return Err(Error::graph(key, "session co-groups require cross-input merge support"));
+            }
             let mut unbounded = first_node.boundedness == Boundedness::Unbounded;
             $(
                 if !Arc::ptr_eq(&$first.pipeline.inner, &$other.pipeline.inner) {

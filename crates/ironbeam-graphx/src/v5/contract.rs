@@ -743,7 +743,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
                     "test stream payload differs for {key}"
                 )));
             }
-        } else if matches!(node.operation, Operation::FixedWindow | Operation::SlidingWindow) {
+        } else if matches!(node.operation, Operation::FixedWindow | Operation::SlidingWindow | Operation::SessionWindow) {
             if spec.urn != urns::TRANSFORM_WINDOW_INTO {
                 return Err(V5Error::Wire(format!("wrong WindowInto URN for {key}")));
             }
@@ -863,6 +863,9 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             }
             Window::Sliding { size_ns, period_ns, offset_ns } => {
                 sliding_windowing_strategy(*size_ns, *period_ns, *offset_ns).map_err(V5Error::Wire)?
+            }
+            Window::Session { gap_ns } => {
+                session_windowing_strategy(*gap_ns).map_err(V5Error::Wire)?
             }
         };
         if components

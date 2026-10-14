@@ -346,7 +346,7 @@ impl V5BundleExecutor {
                                 }
                                 encode_windowed_value(timestamp_millis, &body, &mut output)?;
                             }
-                            Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. } => {
+                            Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. } | Window::Session { .. } => {
                                 let interval = value.window.ok_or_else(|| {
                                     anyhow!("fixed v5 output is missing its interval window")
                                 })?;

@@ -64,6 +64,29 @@ impl Graph {
             if matches!(node.time.window, Window::Sliding { size_ns, period_ns, .. } if size_ns <= 0 || period_ns <= 0) {
                 return Err(Error::graph(&node.key, "sliding size and period must be positive"));
             }
+            if matches!(node.time.window, Window::Session { gap_ns } if gap_ns <= 0) {
+                return Err(Error::graph(&node.key, "session gap must be positive"));
+            }
+            if matches!(node.time.window, Window::Session { .. })
+                && node.boundedness == Boundedness::Unbounded
+            {
+                return Err(Error::graph(&node.key, "unbounded session grouping is not supported"));
+            }
+            if matches!(node.time.window, Window::Session { .. })
+                && matches!(
+                    node.operation,
+                    Operation::CoGroupByKey
+                        | Operation::JoinInner
+                        | Operation::JoinLeft
+                        | Operation::JoinRight
+                        | Operation::JoinFull
+                )
+            {
+                return Err(Error::graph(
+                    &node.key,
+                    "session joins and co-groups require cross-input merge support",
+                ));
+            }
             if matches!(node.operation, Operation::FixedWindow)
                 && !matches!(
                     node.time.window,
@@ -79,6 +102,11 @@ impl Graph {
                 && !matches!(node.time.window, Window::Sliding { .. })
             {
                 return Err(Error::graph(&node.key, "sliding-window operation requires a sliding descriptor"));
+            }
+            if matches!(node.operation, Operation::SessionWindow)
+                && !matches!(node.time.window, Window::Session { .. })
+            {
+                return Err(Error::graph(&node.key, "session-window operation requires a session descriptor"));
             }
             if matches!(node.operation, Operation::BatchMapValues { batch_size: 0 }) {
                 return Err(Error::graph(&node.key, "batch size must be positive"));
@@ -171,6 +199,7 @@ impl Graph {
                             | Operation::WaitOn
                             | Operation::FixedWindow
                             | Operation::SlidingWindow
+                            | Operation::SessionWindow
                             | Operation::Output
                             | Operation::Sink { .. }
                     ) && (node.type_id != upstream.type_id
@@ -373,7 +402,7 @@ impl Graph {
                 {
                     Some(node.semantic_id.clone())
                 }
-                Operation::FixedWindow | Operation::SlidingWindow if !capabilities.fixed_window => {
+                Operation::FixedWindow | Operation::SlidingWindow | Operation::SessionWindow if !capabilities.fixed_window => {
                     Some("fixed-window".to_string())
                 }
                 Operation::AssignTimestamp if !capabilities.assign_timestamp => {

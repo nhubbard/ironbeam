@@ -74,4 +74,9 @@ fn session_function_encodes_gap_and_rejects_submillisecond_gap() {
     );
     assert!(session_window_fn(0).is_err());
     assert!(session_window_fn(1_000_001).is_err());
+    let strategy = session_windowing_strategy(2_500_000_000).unwrap();
+    assert_eq!(strategy.merge_status, merge_status::Enum::NeedsMerge as i32);
+    assert_eq!(strategy.window_coder_id, ids::CODER_INTERVAL_WINDOW);
+    assert!(strategy.assigns_to_one_window);
+    assert_eq!(strategy.allowed_lateness, 0);
 }

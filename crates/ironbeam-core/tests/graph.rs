@@ -557,6 +557,40 @@ fn sliding_windows_assign_overlapping_intervals_across_zero() {
 }
 
 #[test]
+fn session_windows_validate_gap_and_time_bounds() {
+    let session = Window::Session { gap_ns: 5 };
+    assert_eq!(
+        session.assign(-2).unwrap(),
+        Some(WindowInterval {
+            start_ns: -2,
+            end_ns: 3
+        })
+    );
+    assert_eq!(
+        session.assign(i64::MAX - 5).unwrap().unwrap().end_ns,
+        i64::MAX
+    );
+    assert_eq!(
+        session.assign(i64::MAX - 4).unwrap_err().kind,
+        ErrorKind::Graph
+    );
+    assert_eq!(
+        Window::Session { gap_ns: 0 }.assign(0).unwrap_err().kind,
+        ErrorKind::Graph
+    );
+    let pipeline = Pipeline::default();
+    let bounded = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
+    assert!(bounded.group_by_session_named("bad-gap", 0).is_err());
+    let grouped = bounded.group_by_session_named("session", 5).unwrap();
+    assert!(
+        grouped
+            .join_inner_named("unsupported-session-join", &grouped)
+            .is_err()
+    );
+    assert!(cogroup_by_key_2_named("unsupported-session-cogroup", &grouped, &grouped).is_err());
+}
+
+#[test]
 fn filter_registry_and_duplicate_sink_failures_are_explicit() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("source", vec![1_i32, 2]).unwrap();

@@ -177,6 +177,7 @@ pub(crate) fn lower(
                                     | Operation::AssignTimestamp
                                     | Operation::FixedWindow
                                     | Operation::SlidingWindow
+                                    | Operation::SessionWindow
                             )
                         })
                     })
@@ -326,7 +327,8 @@ fn lower_routes(
         | Operation::FlatMap
         | Operation::AssignTimestamp
         | Operation::FixedWindow
-        | Operation::SlidingWindow => {
+        | Operation::SlidingWindow
+        | Operation::SessionWindow => {
             let mut suffix = suffix;
             if !matches!(node.operation, Operation::Output | Operation::Sink { .. }) {
                 suffix.push(node.key.clone());

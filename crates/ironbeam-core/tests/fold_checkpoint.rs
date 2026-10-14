@@ -1,6 +1,80 @@
 use ironbeam_core::{CombineFn, Element, Envelope, ErrorKind, Pipeline, Window, WindowInterval};
 
 #[test]
+fn session_group_checkpoint_merges_bridge_after_restore() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 10_i32)])
+        .unwrap()
+        .group_by_session_named("session-group", 5)
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let window = Window::Session { gap_ns: 5 };
+    let mut fold = registry.open_fold("session-group").unwrap();
+    for (key, value, time) in [(1, 10, 0), (1, 20, 8), (2, 50, 4)] {
+        fold.add(Envelope {
+            value: Box::new((key, value)),
+            timestamp_ns: time,
+            window: window.clone(),
+            assigned_window: window.assign(time).unwrap(),
+        })
+        .unwrap();
+    }
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut resumed = registry.open_fold("session-group").unwrap();
+    resumed.restore_checkpoint_state(&saved).unwrap();
+    for (value, time) in [(30, 4), (40, 13)] {
+        resumed
+            .add(Envelope {
+                value: Box::new((1_i32, value)),
+                timestamp_ns: time,
+                window: window.clone(),
+                assigned_window: window.assign(time).unwrap(),
+            })
+            .unwrap();
+    }
+    let mut rows = resumed
+        .finish()
+        .unwrap()
+        .into_iter()
+        .map(|event| {
+            let (key, mut values) = *event.value.downcast::<(i32, Vec<i32>)>().unwrap();
+            values.sort_unstable();
+            (
+                key,
+                values,
+                event.timestamp_ns,
+                event.assigned_window.unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by_key(|row| row.0);
+    assert_eq!(
+        rows,
+        [
+            (
+                1,
+                vec![10, 20, 30, 40],
+                0,
+                WindowInterval {
+                    start_ns: 0,
+                    end_ns: 18
+                }
+            ),
+            (
+                2,
+                vec![50],
+                4,
+                WindowInterval {
+                    start_ns: 4,
+                    end_ns: 9
+                }
+            ),
+        ]
+    );
+}
+
+#[test]
 fn grouped_fold_restores_ordered_values_and_window_metadata() {
     let pipeline = Pipeline::default();
     pipeline

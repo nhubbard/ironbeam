@@ -16,6 +16,7 @@ pub enum Window {
     Fixed { size_ns: i64 },
     FixedOffset { size_ns: i64, offset_ns: i64 },
     Sliding { size_ns: i64, period_ns: i64, offset_ns: i64 },
+    Session { gap_ns: i64 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -59,6 +60,13 @@ impl Window {
                 "time",
                 "sliding windows may assign several intervals; use assign_all",
             )),
+            Self::Session { gap_ns } if gap_ns > 0 => {
+                let end_ns = timestamp_ns.checked_add(gap_ns).ok_or_else(|| {
+                    Error::graph("time", "session window end overflows i64 nanoseconds")
+                })?;
+                Ok(Some(WindowInterval { start_ns: timestamp_ns, end_ns }))
+            }
+            Self::Session { .. } => Err(Error::graph("time", "session gap must be positive")),
         }
     }
 
@@ -221,6 +229,7 @@ pub enum Operation {
     SideInputMap,
     FixedWindow,
     SlidingWindow,
+    SessionWindow,
     GlobalCombine,
     FoldGlobal,
     FoldPerKey,

@@ -1,4 +1,4 @@
-//! Beam windowing strategies for bounded Ironbeam collections.
+//! Beam windowing strategies for Ironbeam collections.
 
 use beam_proto::pipeline_v1::{
     accumulation_mode, closing_behavior, merge_status, on_time_behavior, output_time,
@@ -97,8 +97,8 @@ pub fn sliding_window_fn(
     })
 }
 
-/// Encode a Beam session-window function. Session merging is runner-owned and
-/// requires keyed grouping; encoding the function alone does not merge panes.
+/// Encode a Beam session-window function. Native keyed grouping performs the
+/// merge; encoding the function alone does not merge intervals.
 pub fn session_window_fn(gap_ns: i64) -> Result<FunctionSpec, String> {
     const NANOS_PER_MILLI: i64 = 1_000_000;
     const NANOS_PER_SECOND: i64 = 1_000_000_000;
@@ -136,6 +136,14 @@ pub(crate) fn sliding_windowing_strategy(
     strategy.window_fn = Some(sliding_window_fn(size_ns, period_ns, offset_ns)?);
     strategy.window_coder_id = ids::CODER_INTERVAL_WINDOW.into();
     strategy.assigns_to_one_window = size_ns <= period_ns;
+    Ok(strategy)
+}
+
+pub(crate) fn session_windowing_strategy(gap_ns: i64) -> Result<WindowingStrategy, String> {
+    let mut strategy = global_windowing_strategy();
+    strategy.window_fn = Some(session_window_fn(gap_ns)?);
+    strategy.window_coder_id = ids::CODER_INTERVAL_WINDOW.into();
+    strategy.merge_status = merge_status::Enum::NeedsMerge as i32;
     Ok(strategy)
 }
 
