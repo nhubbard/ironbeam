@@ -783,6 +783,14 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             }
             let pardo = ParDoPayload::decode(spec.payload.as_slice())
                 .map_err(|error| V5Error::Wire(error.to_string()))?;
+            if !pardo.state_specs.is_empty()
+                || !pardo.timer_family_specs.is_empty()
+                || !pardo.on_window_expiration_timer_family_spec.is_empty()
+            {
+                return Err(V5Error::Wire(format!(
+                    "stateful DoFn contract differs for {key}"
+                )));
+            }
             let expected_restriction = if is_production_source(node) {
                 ids::CODER_BYTES
             } else {

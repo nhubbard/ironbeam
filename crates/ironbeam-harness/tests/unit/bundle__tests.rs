@@ -2,7 +2,7 @@
 use super::*;
 use beam_proto::fn_execution_v1::RemoteGrpcPort;
 use beam_proto::pipeline_v1::{
-    ApiServiceDescriptor, Coder, FunctionSpec, PTransform, ParDoPayload,
+    ApiServiceDescriptor, Coder, FunctionSpec, PTransform, ParDoPayload, StateSpec, TimerFamilySpec,
 };
 use prost::Message;
 
@@ -135,6 +135,43 @@ fn plans_v5_node_references_without_reinterpreting_them_as_v4_ids() {
     payload.side_inputs.clear();
     spec.payload = payload.encode_to_vec();
     assert!(matches!(plan(&invalid), Err(PlanError::BadPayload { .. })));
+}
+
+#[test]
+fn rejects_unimplemented_user_state_and_timer_specs_before_execution() {
+    for fault in ["state", "timer", "window-expiration"] {
+        let mut pbd = ProcessBundleDescriptor {
+            id: "stateful-contract".into(),
+            ..Default::default()
+        };
+        pbd.transforms.insert(
+            "source".into(),
+            mk_port_ptransform(URN_RUNNER_SOURCE, "runner:1", "coder", "pc0", "source"),
+        );
+        let mut transform = mk_pardo_ptransform("stateful", "pc0", "pc1");
+        let spec = transform.spec.as_mut().unwrap();
+        let mut payload = ParDoPayload::decode(spec.payload.as_slice()).unwrap();
+        match fault {
+            "state" => {
+                payload
+                    .state_specs
+                    .insert("cell".into(), StateSpec::default());
+            }
+            "timer" => {
+                payload
+                    .timer_family_specs
+                    .insert("fire".into(), TimerFamilySpec::default());
+            }
+            "window-expiration" => payload.on_window_expiration_timer_family_spec = "fire".into(),
+            _ => unreachable!(),
+        }
+        spec.payload = payload.encode_to_vec();
+        pbd.transforms.insert("pardo".into(), transform);
+        assert!(
+            matches!(plan(&pbd), Err(PlanError::BadPayload { .. })),
+            "{fault}"
+        );
+    }
 }
 
 fn mk_port_ptransform(
@@ -304,6 +341,21 @@ fn plans_three_v5_sdf_stages_with_their_portable_identity() {
             SdfStage::ProcessSizedElements,
         ]
     );
+
+    let mut stateful = pbd.clone();
+    let spec = stateful
+        .transforms
+        .get_mut("process")
+        .unwrap()
+        .spec
+        .as_mut()
+        .unwrap();
+    let mut stateful_payload = ParDoPayload::decode(spec.payload.as_slice()).unwrap();
+    stateful_payload
+        .state_specs
+        .insert("cell".into(), StateSpec::default());
+    spec.payload = stateful_payload.encode_to_vec();
+    assert!(matches!(plan(&stateful), Err(PlanError::BadPayload { .. })));
 
     let bad = pbd.transforms.get_mut("split").unwrap();
     let spec = bad.spec.as_mut().unwrap();

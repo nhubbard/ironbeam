@@ -1,7 +1,9 @@
 //! Package-local v5 graph-to-Beam protobuf contract tests.
 
 use beam_proto::pipeline_v1::test_stream_payload::event::Event as StreamEvent;
-use beam_proto::pipeline_v1::{accumulation_mode, output_time, trigger, ParDoPayload};
+use beam_proto::pipeline_v1::{
+    accumulation_mode, output_time, trigger, ParDoPayload, StateSpec, TimerFamilySpec,
+};
 use ironbeam_core::{
     cogroup_by_key_2_named, Error, OrderedFoldFn, Pipeline, Replay, SinkMode, SinkSpec,
     TestStreamEvent, TypedSink, Version,
@@ -12,6 +14,55 @@ use prost::Message;
 
 const IMAGE: &str = "example.test/ironbeam:v5";
 const BUILD: &str = "graphx-test-build";
+
+#[test]
+fn v5_contract_rejects_unimplemented_state_and_timer_payloads() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![1_i32])
+        .unwrap()
+        .map_named("mapped", |value| value + 1)
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    for fault in ["state", "timer", "window-expiration"] {
+        let mut translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+        let transform = translated
+            .pipeline
+            .components
+            .as_mut()
+            .unwrap()
+            .transforms
+            .values_mut()
+            .find(|transform| transform.unique_name == "mapped")
+            .unwrap();
+        let spec = transform.spec.as_mut().unwrap();
+        let mut payload = ParDoPayload::decode(spec.payload.as_slice()).unwrap();
+        match fault {
+            "state" => {
+                payload
+                    .state_specs
+                    .insert("cell".into(), StateSpec::default());
+            }
+            "timer" => {
+                payload
+                    .timer_family_specs
+                    .insert("fire".into(), TimerFamilySpec::default());
+            }
+            "window-expiration" => payload.on_window_expiration_timer_family_spec = "fire".into(),
+            _ => unreachable!(),
+        }
+        spec.payload = payload.encode_to_vec();
+        assert!(
+            matches!(
+                validate_beam_contract(&graph, &translated),
+                Err(V5Error::Wire(_))
+            ),
+            "{fault}"
+        );
+    }
+}
 
 #[test]
 fn unbounded_global_count_group_lowers_to_portable_global_trigger() {

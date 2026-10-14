@@ -46,6 +46,19 @@ pub enum PlanError {
     NotLinear,
 }
 
+fn reject_unsupported_state_and_timers(id: &str, payload: &ParDoPayload) -> Result<(), PlanError> {
+    if !payload.state_specs.is_empty()
+        || !payload.timer_family_specs.is_empty()
+        || !payload.on_window_expiration_timer_family_spec.is_empty()
+    {
+        return Err(PlanError::BadPayload {
+            id: id.into(),
+            err: "v5 user state and timers require a stateful DoFn contract".into(),
+        });
+    }
+    Ok(())
+}
+
 /// Classification of the per-element wire format the runner expects on a
 /// bundle sink. Derived at plan time by walking the sink port's coder chain
 /// in the PBD's `coders` map. The executor reads this to emit bytes the
@@ -258,18 +271,19 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
             }
             TransformKind::Pardo => {
                 let node_ref = decode_ironbeam_node_ref(id, t)?;
-                let input_pc = if t.inputs.len() == 2 {
-                    let payload = t
-                        .spec
+                let pardo = ParDoPayload::decode(
+                    t.spec
                         .as_ref()
                         .expect("categorized spec")
                         .payload
-                        .as_slice();
-                    let pardo =
-                        ParDoPayload::decode(payload).map_err(|error| PlanError::BadPayload {
-                            id: id.to_string(),
-                            err: error.to_string(),
-                        })?;
+                        .as_slice(),
+                )
+                .map_err(|error| PlanError::BadPayload {
+                    id: id.to_string(),
+                    err: error.to_string(),
+                })?;
+                reject_unsupported_state_and_timers(id, &pardo)?;
+                let input_pc = if t.inputs.len() == 2 {
                     if pardo.side_inputs.len() != 1
                         || pardo.side_inputs.get("side")
                             != Some(&ironbeam_graphx::v5::side_input_spec())
@@ -309,6 +323,7 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
                     id: id.to_string(),
                     err: error.to_string(),
                 })?;
+                reject_unsupported_state_and_timers(id, &payload)?;
                 if payload.restriction_coder_id.is_empty() || !payload.side_inputs.is_empty() {
                     return Err(PlanError::BadPayload {
                         id: id.to_string(),
