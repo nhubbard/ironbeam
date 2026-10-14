@@ -202,7 +202,7 @@ fn committed_metric_metadata_is_registered_and_unknown_ids_fail_closed() {
     };
     d.register_bundle_metrics("bundle-1", &mut bundle).unwrap();
     assert_eq!(bundle.monitoring_data.len(), 1);
-    let metric_id = "ironbeam-element-count:6:pc-one:bundle-1";
+    let metric_id = "ironbeam-element-count:6:pc-one";
     assert_eq!(bundle.monitoring_data[metric_id], vec![0x80, 0x01]);
     let response = d.handle(req(
         "metric-request",
@@ -250,7 +250,7 @@ fn committed_metric_metadata_is_registered_and_unknown_ids_fail_closed() {
         ..Default::default()
     };
     d.register_bundle_metrics("bundle-1", &mut user).unwrap();
-    let user_id = "ironbeam-user-sum:14:sink-transform:bundle-1";
+    let user_id = "ironbeam-user-sum:14:sink-transform";
     assert_eq!(user.monitoring_data[user_id], vec![3]);
 
     let mut second_bundle = ProcessBundleResponse {
@@ -266,13 +266,29 @@ fn committed_metric_metadata_is_registered_and_unknown_ids_fail_closed() {
     let response = d.handle(req(
         "metric-request-2",
         InstrReq::MonitoringInfos(MonitoringInfosMetadataRequest {
-            monitoring_info_id: vec!["ironbeam-element-count:6:pc-one:bundle-2".into()],
+            monitoring_info_id: vec!["ironbeam-element-count:6:pc-one:bundle:bundle-2".into()],
         }),
     ));
     assert!(matches!(
         response.response,
         Some(InstrResp::MonitoringInfos(_))
     ));
+
+    // Once the first metadata response leaves Control, future bundles reuse
+    // its stable ID; the worker and Prism retain only one metadata entry.
+    d.mark_metric_metadata_sent(&d.handle(req(
+        "metric-register",
+        InstrReq::MonitoringInfos(MonitoringInfosMetadataRequest {
+            monitoring_info_id: vec![metric_id.into(), user_id.into()],
+        }),
+    )));
+    let mut third_bundle = ProcessBundleResponse {
+        monitoring_infos: vec![crate::executor::element_count_info("pc-one", 4).unwrap()],
+        ..Default::default()
+    };
+    d.register_bundle_metrics("bundle-3", &mut third_bundle)
+        .unwrap();
+    assert_eq!(third_bundle.monitoring_data[metric_id], vec![4]);
 }
 
 #[test]

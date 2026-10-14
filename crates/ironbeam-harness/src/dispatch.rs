@@ -65,15 +65,15 @@ pub struct Dispatcher {
     /// handler (M2b) will cross-check this against the one the driver embedded
     /// in pipeline display data — if they disagree, fail fast.
     pub local_fingerprint: u64,
+    metric_registration: Mutex<HashMap<String, bool>>,
 }
 
 // Prism buffers unknown metric payloads in a map indexed by short ID. A
 // transform-wide ID can therefore overwrite an earlier bundle's count while
-// Prism is fetching its metadata. Include the bundle instruction ID. The
-// metadata is reconstructible, so a long-running stream does not retain one
-// registry entry per completed bundle.
-fn bundle_metric_id(prefix: &str, label: &str, instruction_id: &str) -> String {
-    format!("{prefix}:{}:{label}:{instruction_id}", label.len())
+// Prism is fetching its metadata. Give concurrent bundles distinct IDs until
+// the stable ID's metadata response leaves Fn Control. Thereafter reuse it.
+fn stable_metric_id(prefix: &str, label: &str) -> String {
+    format!("{prefix}:{}:{label}", label.len())
 }
 
 fn metric_label<'a>(id: &'a str, prefix: &str) -> Option<&'a str> {
@@ -81,8 +81,12 @@ fn metric_label<'a>(id: &'a str, prefix: &str) -> Option<&'a str> {
     let (length, rest) = rest.split_once(':')?;
     let length = length.parse::<usize>().ok()?;
     let label = rest.get(..length)?;
-    let instruction = rest.get(length..)?.strip_prefix(':')?;
-    (!label.is_empty() && !instruction.is_empty()).then_some(label)
+    let suffix = rest.get(length..)?;
+    let valid_suffix = suffix.is_empty()
+        || suffix
+            .strip_prefix(":bundle:")
+            .is_some_and(|instruction| !instruction.is_empty());
+    (!label.is_empty() && valid_suffix).then_some(label)
 }
 
 fn metric_metadata(id: &str) -> Option<MonitoringInfo> {
@@ -116,10 +120,11 @@ impl Dispatcher {
         Self {
             pbd_cache,
             local_fingerprint,
+            metric_registration: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Publish bundle-scoped metadata IDs for committed count payloads.
+    /// Publish distinct pending IDs, then stable IDs after runner registration.
     pub fn register_bundle_metrics(
         &self,
         instruction_id: &str,
@@ -128,17 +133,22 @@ impl Dispatcher {
         if instruction_id.is_empty() {
             return Err("bundle metric instruction ID is empty".into());
         }
+        let mut registration = self
+            .metric_registration
+            .lock()
+            .map_err(|_| "metric registration state poisoned".to_owned())?;
+        let mut bundle_ids = HashMap::new();
         for info in &response.monitoring_infos {
             if info.r#type != "beam:metrics:sum_int64:v1" {
                 return Err(format!("unsupported v5 monitoring info {}", info.urn));
             }
-            let id = match info.urn.as_str() {
+            let base_id = match info.urn.as_str() {
                 "beam:metric:element_count:v1" => {
                     let pc = info
                         .labels
                         .get("PCOLLECTION")
                         .ok_or_else(|| "element count lacks PCOLLECTION label".to_owned())?;
-                    bundle_metric_id("ironbeam-element-count", pc, instruction_id)
+                    stable_metric_id("ironbeam-element-count", pc)
                 }
                 "beam:metric:user:sum_int64:v1" => {
                     let transform = info
@@ -156,15 +166,23 @@ impl Dispatcher {
                     if namespace != "ironbeam.sink" || name != "input_elements" {
                         return Err("unsupported v5 user count labels".into());
                     }
-                    bundle_metric_id("ironbeam-user-sum", transform, instruction_id)
+                    stable_metric_id("ironbeam-user-sum", transform)
                 }
                 _ => return Err(format!("unsupported v5 monitoring info {}", info.urn)),
             };
             let mut descriptor = info.clone();
             descriptor.payload.clear();
-            if metric_metadata(&id).as_ref() != Some(&descriptor) {
-                return Err(format!("monitoring metadata changed for {id}"));
+            if metric_metadata(&base_id).as_ref() != Some(&descriptor) {
+                return Err(format!("monitoring metadata changed for {base_id}"));
             }
+            let id = bundle_ids
+                .entry(base_id.clone())
+                .or_insert_with(|| match registration.get(&base_id) {
+                    Some(true) | None => base_id.clone(),
+                    Some(false) => format!("{base_id}:bundle:{instruction_id}"),
+                })
+                .clone();
+            registration.entry(base_id).or_insert(false);
             if response
                 .monitoring_data
                 .insert(id.clone(), info.payload.clone())
@@ -174,6 +192,21 @@ impl Dispatcher {
             }
         }
         Ok(())
+    }
+
+    /// Called when the Fn Control transport takes a metadata response. Later
+    /// bundle responses on that same stream may reuse its stable short IDs.
+    pub fn mark_metric_metadata_sent(&self, response: &InstructionResponse) {
+        let Some(InstrResp::MonitoringInfos(metadata)) = &response.response else {
+            return;
+        };
+        if let Ok(mut registration) = self.metric_registration.lock() {
+            for id in metadata.monitoring_info.keys() {
+                if let Some(confirmed) = registration.get_mut(id) {
+                    *confirmed = true;
+                }
+            }
+        }
     }
 
     /// Convert a request into a response. Never panics — errors are surfaced
