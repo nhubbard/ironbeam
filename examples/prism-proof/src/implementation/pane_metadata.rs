@@ -205,7 +205,15 @@ pub fn allowed_lateness_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Si
 
 /// Repeated late count firing with a partial pane at window expiry.
 pub fn late_count_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
-    let rows = pipeline
+    late_count_fixture_with_mode(pipeline, path, false)
+}
+
+pub fn accumulating_late_count_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    late_count_fixture_with_mode(pipeline, path, true)
+}
+
+fn late_count_fixture_with_mode(pipeline: &Pipeline, path: PathBuf, accumulating: bool) -> Result<Sink<String>, Error> {
+    let windowed = pipeline
         .test_stream_source(
             "late-count-events",
             vec![
@@ -221,8 +229,13 @@ pub fn late_count_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<Str
             ],
         )?
         .fixed_windows("late-count-windows", 10_000_000)?
-        .allowed_lateness_named("late-count-lateness", 5_000_000)?
-        .late_count_trigger_named("late-count-policy", 2)?
+        .allowed_lateness_named("late-count-lateness", 5_000_000)?;
+    let triggered = if accumulating {
+        windowed.accumulating_late_count_trigger_named("late-count-policy", 2)?
+    } else {
+        windowed.late_count_trigger_named("late-count-policy", 2)?
+    };
+    let rows = triggered
         .group_by_key_named("late-count-group")?
         .reify_timestamps_named("late-count-timestamp")?
         .reify_panes_named("late-count-pane")?

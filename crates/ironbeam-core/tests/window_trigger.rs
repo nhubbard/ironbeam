@@ -113,3 +113,45 @@ fn late_count_requires_lateness_and_changes_graph_identity() {
         baseline.snapshot().unwrap().0.fingerprint().unwrap()
     );
 }
+
+#[test]
+fn accumulating_late_count_has_distinct_graph_identity() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .accumulating_late_count_trigger_named("late-count", 2)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node("groups").unwrap().time.trigger,
+        WindowTrigger::LateElementCountAccumulating { count: 2 }
+    );
+
+    let discarding = Pipeline::default();
+    discarding
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .late_count_trigger_named("late-count", 2)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    assert_ne!(
+        graph.fingerprint().unwrap(),
+        discarding.snapshot().unwrap().0.fingerprint().unwrap()
+    );
+}

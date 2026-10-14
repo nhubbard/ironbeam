@@ -244,8 +244,17 @@ fn late_pane_and_expiry_survive_checkpoint_recovery() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // Restart across a partial late pane and expiry.
 fn late_count_buffers_across_checkpoint_and_flushes_at_expiry() {
+    run_late_count_recovery(false);
+}
+
+#[test]
+fn accumulating_late_count_retains_on_time_values_across_recovery() {
+    run_late_count_recovery(true);
+}
+
+#[allow(clippy::too_many_lines)] // Restart across a partial late pane and expiry.
+fn run_late_count_recovery(accumulating: bool) {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let opens = Arc::new(Mutex::new(Vec::new()));
@@ -286,13 +295,19 @@ fn late_count_buffers_across_checkpoint_and_flushes_at_expiry() {
             },
         )
         .unwrap();
-    let sink = values
+    let windowed = values
         .fixed_windows("windows", 10_000_000)
         .unwrap()
         .allowed_lateness_named("lateness", 5_000_000)
-        .unwrap()
-        .late_count_trigger_named("late-count", 2)
-        .unwrap()
+        .unwrap();
+    let triggered = if accumulating {
+        windowed
+            .accumulating_late_count_trigger_named("late-count", 2)
+            .unwrap()
+    } else {
+        windowed.late_count_trigger_named("late-count", 2).unwrap()
+    };
+    let sink = triggered
         .group_by_key_named("groups")
         .unwrap()
         .reify_timestamps_named("timestamp")
@@ -364,14 +379,20 @@ fn late_count_buffers_across_checkpoint_and_flushes_at_expiry() {
         .wait()
         .unwrap();
     assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![2])]);
-    assert_eq!(
-        committed.lock().unwrap().as_slice(),
+    let expected = if accumulating {
+        [
+            "a:[2]:2000000:OnTime:true:false:0:0",
+            "a:[2, 3, 5]:2000000:Late:false:false:1:1",
+            "a:[2, 3, 5, 7]:2000000:Late:false:true:2:2",
+        ]
+    } else {
         [
             "a:[2]:2000000:OnTime:true:false:0:0",
             "a:[3, 5]:3000000:Late:false:false:1:1",
             "a:[7]:7000000:Late:false:true:2:2",
         ]
-    );
+    };
+    assert_eq!(committed.lock().unwrap().as_slice(), expected);
 }
 
 #[test]

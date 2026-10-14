@@ -621,6 +621,16 @@ impl<T: Element> PCollection<T> {
     /// Set a positive allowed lateness before this policy. Incomplete late
     /// panes are emitted when the window expires.
     pub fn late_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
+        self.set_late_count_trigger_named(key, count, false)
+    }
+
+    /// Fire repeated late panes that retain every value previously observed
+    /// for each key and window. Direct requires a registered value coder.
+    pub fn accumulating_late_count_trigger_named(&self, key: &str, count: u64) -> Result<Self, Error> {
+        self.set_late_count_trigger_named(key, count, true)
+    }
+
+    fn set_late_count_trigger_named(&self, key: &str, count: u64, accumulating: bool) -> Result<Self, Error> {
         if count == 0 || count > i32::MAX as u64 {
             return Err(Error::graph(key, "late count trigger requires a positive 32-bit count"));
         }
@@ -635,7 +645,11 @@ impl<T: Element> PCollection<T> {
             Some(time.window),
             None,
             TimePolicyOverride {
-                trigger: Some(WindowTrigger::LateElementCount { count }),
+                trigger: Some(if accumulating {
+                    WindowTrigger::LateElementCountAccumulating { count }
+                } else {
+                    WindowTrigger::LateElementCount { count }
+                }),
                 output_time: None,
                 allowed_lateness_ns: None,
             },

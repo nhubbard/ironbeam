@@ -306,6 +306,39 @@ fn late_count_lowers_to_repeated_late_firings() {
 }
 
 #[test]
+fn accumulating_late_count_sets_beam_accumulation_mode() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .accumulating_late_count_trigger_named("late-count", 2)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let trigger_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "late-count")
+        .unwrap();
+    let strategy = &components.windowing_strategies[&trigger_pc.windowing_strategy_id];
+    assert_eq!(
+        strategy.accumulation_mode,
+        accumulation_mode::Enum::Accumulating as i32
+    );
+    assert_eq!(strategy.allowed_lateness, 5);
+}
+
+#[test]
 fn bounded_multi_signal_wait_lowers_two_portable_side_dependencies() {
     let pipeline = Pipeline::default();
     let first = pipeline.from_vec("first", vec![1_i32]).unwrap();

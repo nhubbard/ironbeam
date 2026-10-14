@@ -519,6 +519,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let mut remaining = Vec::new();
         let mut closed = Vec::new();
         let mut released = 0_usize;
+        let accumulating_late = self.trigger.late_count().is_some() && self.trigger.is_accumulating();
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
             if assigned_window.is_some_and(|interval| interval.end_ns <= watermark_ns) {
                 if self.allowed_lateness_ns > 0
@@ -527,8 +528,16 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     remaining.push((key, values, timestamp_ns, window, assigned_window));
                     continue;
                 }
-                released = released.saturating_add(values.len());
+                let value_count = values.len();
                 let scope = (key.clone(), assigned_window.unwrap());
+                let output_values = if accumulating_late {
+                    let copied = Vec::<V>::decode(&values.encode()?)?;
+                    remaining.push((key.clone(), values, timestamp_ns, window.clone(), assigned_window));
+                    copied
+                } else {
+                    released = released.saturating_add(value_count);
+                    values
+                };
                 let index = if self.allowed_lateness_ns > 0 {
                     let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
                     let index = *next_index;
@@ -539,8 +548,16 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 } else {
                     self.fired_panes.remove(&scope).unwrap_or(0)
                 };
-                self.fired_value_counts.remove(&(key.clone(), assigned_window.unwrap()));
-                let latest = self.latest_timestamps.remove(&(key.clone(), assigned_window.unwrap()));
+                if accumulating_late {
+                    self.fired_value_counts.insert(scope.clone(), value_count);
+                } else {
+                    self.fired_value_counts.remove(&scope);
+                }
+                let latest = if accumulating_late {
+                    self.latest_timestamps.get(&scope).copied()
+                } else {
+                    self.latest_timestamps.remove(&scope)
+                };
                 closed.push(Envelope {
                     pane: PaneInfo {
                         is_first: index == 0,
@@ -550,7 +567,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         nonspeculative_index: 0,
                         contains_element_metadata: false,
                     },
-                    value: Box::new((key, values)),
+                    value: Box::new((key, output_values)),
                     timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, assigned_window),
                     window,
                     assigned_window,
@@ -563,7 +580,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         if self.allowed_lateness_ns == 0 {
             self.fired_panes.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         }
-        self.fired_value_counts.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        if !accumulating_late {
+            self.fired_value_counts.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        }
         if self.trigger.late_count().is_none() {
             self.latest_timestamps.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         }
@@ -580,24 +599,52 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let mut panes = Vec::new();
         let mut remaining = Vec::new();
         let mut released = 0_usize;
+        let accumulating = self.trigger.is_accumulating();
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
-            if !final_firing
-                && self.trigger.late_count().is_some_and(|count| {
-                    values.len() < usize::try_from(count).unwrap_or(usize::MAX)
-                })
-            {
-                remaining.push((key, values, timestamp_ns, window, assigned_window));
-                continue;
-            }
             let interval = assigned_window.ok_or_else(|| Error::incompatible("late pane lacks a window"))?;
             let scope = (key.clone(), interval);
+            let prior = if accumulating {
+                self.fired_value_counts.get(&scope).copied().unwrap_or(0)
+            } else {
+                0
+            };
+            let new_count = values.len().checked_sub(prior).ok_or_else(|| {
+                Error::recovery(&self.key, "late pane count exceeds group length")
+            })?;
+            let threshold = self.trigger.late_count()
+                .and_then(|count| usize::try_from(count).ok())
+                .unwrap_or(1);
+            if new_count == 0 || (!final_firing && new_count < threshold) {
+                if final_firing {
+                    released = released.saturating_add(values.len());
+                    self.fired_value_counts.remove(&scope);
+                    self.latest_timestamps.remove(&scope);
+                } else {
+                    remaining.push((key, values, timestamp_ns, window, assigned_window));
+                }
+                continue;
+            }
+            let value_count = values.len();
+            let output_values = if accumulating && !final_firing {
+                let copied = Vec::<V>::decode(&values.encode()?)?;
+                remaining.push((key.clone(), values, timestamp_ns, window.clone(), assigned_window));
+                self.fired_value_counts.insert(scope.clone(), value_count);
+                copied
+            } else {
+                released = released.saturating_add(value_count);
+                self.fired_value_counts.remove(&scope);
+                values
+            };
             let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
             let index = *next_index;
             *next_index = next_index
                 .checked_add(1)
                 .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
-            let latest = self.latest_timestamps.remove(&scope);
-            released = released.saturating_add(values.len());
+            let latest = if accumulating && !final_firing {
+                self.latest_timestamps.get(&scope).copied()
+            } else {
+                self.latest_timestamps.remove(&scope)
+            };
             panes.push(Envelope {
                 pane: PaneInfo {
                     is_first: index == 0,
@@ -607,7 +654,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     nonspeculative_index: index,
                     contains_element_metadata: false,
                 },
-                value: Box::new((key, values)),
+                value: Box::new((key, output_values)),
                 timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, Some(interval)),
                 window,
                 assigned_window,

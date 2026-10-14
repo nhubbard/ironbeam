@@ -167,6 +167,14 @@ partial late pane with the source cursor, so a restart does not lose the
 count or emit the pane twice. The policy uses discarding panes and currently
 supports single-input GroupByKey in fixed and sliding windows.
 
+`accumulating_late_count_trigger_named` retains the on-time values in every
+later pane. Direct fires after two new late elements and checkpoints the
+retained values and count. In the pinned local Prism runner, the same
+TestStream schedule coalesces the late elements and fires one final pane at
+expiry. Both runners retain the same values, but applications that act on
+intermediate accumulating late panes must account for this scheduling
+difference. Direct requires a value coder for the retained group.
+
 For overlapping sliding windows, each assigned interval keeps its own pane
 index and expiry. A tested late element is a late pane in `[0, 10 ms)` while
 remaining part of the on-time pane in `[5, 15 ms)`. Prism marked the first

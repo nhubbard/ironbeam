@@ -22,17 +22,17 @@ use ironbeam_dataflow::prepare_v5;
 use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_harness::finalization_journal::FileFinalizationJournal;
 use ironbeam_prism_proof::{
-    accumulating_count_trigger_stream_fixture, accumulating_latest_count_trigger_stream_fixture,
-    allowed_lateness_fixture, bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
-    bounded_map_filter_fixture, bounded_multi_source_fixture, bounded_multi_wait_fixture,
-    bounded_session_cogroup_fixture, bounded_session_join_fixture, bounded_side_input_fixture,
-    bounded_ten_way_cogroup_fixture, bounded_three_way_cogroup_fixture, bounded_wait_on_fixture,
-    completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
-    dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
-    dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
-    dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
-    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
-    dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    accumulating_count_trigger_stream_fixture, accumulating_late_count_fixture,
+    accumulating_latest_count_trigger_stream_fixture, allowed_lateness_fixture,
+    bounded_batch_helpers_fixture, bounded_join_cogroup_fixture, bounded_map_filter_fixture,
+    bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
+    bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
+    bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, completion_signal,
+    count_trigger_stream_fixture, dead_letter_fixture, dual_stream_windowed_side_collection,
+    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_collection,
+    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
+    dual_unbounded_cogroup_fixture, dual_unbounded_flatten_collection,
+    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -5426,6 +5426,46 @@ async fn prism_repeats_late_count_and_flushes_partial_pane() {
             "a:[2]:2000000:OnTime:true:false:0:0",
             "a:[3, 5]:3000000:Late:false:false:1:1",
             "a:[7]:7000000:Late:false:true:2:2",
+        ]
+    );
+}
+
+#[tokio::test]
+async fn prism_accumulating_late_count_coalesces_until_expiry() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("accumulating-late-count.txt");
+    let pipeline = Pipeline::default();
+    accumulating_late_count_fixture(&pipeline, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "accumulating-late-count-probe",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_LATE_COUNT_ACCUMULATING".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    // Pinned Prism holds accumulating late input until expiry on this schedule.
+    // Direct emits a threshold pane earlier, but the final values agree.
+    assert_eq!(
+        terminal.0, 3,
+        "accumulating late count job state: {terminal:?}"
+    );
+    let rows = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            "a:[2]:2000000:OnTime:true:false:0:0",
+            "a:[2, 3, 5, 7]:2000000:Late:false:true:1:1",
         ]
     );
 }
