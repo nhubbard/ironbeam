@@ -26,11 +26,12 @@ use ironbeam_prism_proof::{
     finalization_probe_sink, global_count_fixture, global_fold_fixture,
     global_keyed_batches_fixture, global_keyed_combine_fixture, global_vector_fixture,
     group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
-    homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
-    invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
-    late_count_fixture, late_count_join_fixture, latest_tie_duplicate_fixture,
-    latest_tie_empty_fixture, latest_tie_fixture, mixed_boundedness_join_cogroup_fixture,
-    mixed_flatten_fixture, mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
+    heterogeneous_late_count_cogroup_fixture, homogeneous_twelve_way_cogroup_fixture,
+    homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
+    large_group_rows, large_group_summary, late_count_fixture, late_count_join_fixture,
+    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
+    mixed_boundedness_join_cogroup_fixture, mixed_flatten_fixture,
+    mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
     ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
     ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
     pane_metadata_fixture_with_accumulating_count, pane_metadata_fixture_with_trigger,
@@ -369,6 +370,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_POSITIVE_LATE_COGROUP") {
         return dual_positive_late_cogroup_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_HETEROGENEOUS_LATE_COUNT_COGROUP") {
+        return heterogeneous_late_count_cogroup_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

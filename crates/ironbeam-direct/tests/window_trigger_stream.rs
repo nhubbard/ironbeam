@@ -92,6 +92,92 @@ fn heterogeneous_cogroup_retains_late_pane_until_expiry() {
 }
 
 #[test]
+fn heterogeneous_cogroup_fires_late_count_after_two_new_values() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .test_stream_source(
+            "count-main",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 3), 3_000_000)]),
+                TestStreamEvent::Elements(vec![((1, 5), 5_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("count-main-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("count-main-policy", 5_000_000)
+        .unwrap()
+        .late_count_trigger_named("count-main-late", 2)
+        .unwrap();
+    let side = pipeline
+        .test_stream_source(
+            "count-side",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, "right".to_owned()), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("count-side-window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("count-side-policy", 5_000_000)
+        .unwrap()
+        .late_count_trigger_named("count-side-late", 2)
+        .unwrap();
+    let sink = ironbeam_core::cogroup_by_key_2_named("count-group", &main, &side)
+        .unwrap()
+        .reify_panes_named("count-pane")
+        .unwrap()
+        .map_named("count-row", |(pane, (key, buckets))| {
+            format!(
+                "{key}:{buckets:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "count-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "late-heterogeneous-count-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "1:([2], [\"right\"]):OnTime:true:false:0:0",
+            "1:([3, 5], []):Late:false:false:1:1",
+        ]
+    );
+}
+
+#[test]
 fn typed_full_join_retains_late_pane_until_expiry() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));

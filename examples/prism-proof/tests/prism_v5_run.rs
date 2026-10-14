@@ -49,30 +49,31 @@ use ironbeam_prism_proof::{
     global_count_fixture, global_fold_fixture, global_keyed_batches_fixture,
     global_keyed_combine_collection, global_keyed_combine_fixture, global_vector_fixture,
     group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
-    homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
-    invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
-    late_count_fixture, late_count_join_fixture, latest_tie_duplicate_fixture,
-    latest_tie_empty_fixture, latest_tie_fixture, mixed_boundedness_join_cogroup_fixture,
-    mixed_flatten_collection, mixed_flatten_fixture, mixed_homogeneous_cogroup_collection,
-    mixed_homogeneous_cogroup_fixture, offset_window_group_fixture,
-    ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture, ordered_global_fixture,
-    ordered_keyed_duplicate_fixture, ordered_keyed_fixture, pane_metadata_fixture_for,
-    pane_metadata_fixture_with_accumulating_count, pane_metadata_fixture_with_trigger,
-    panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
-    panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
-    production_stream_fixture, session_group_fixture,
-    shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
-    side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, triple_unbounded_flatten_collection,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
-    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
-    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    heterogeneous_late_count_cogroup_fixture, homogeneous_twelve_way_cogroup_fixture,
+    homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
+    large_group_rows, large_group_summary, late_count_fixture, late_count_join_fixture,
+    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
+    mixed_boundedness_join_cogroup_fixture, mixed_flatten_collection, mixed_flatten_fixture,
+    mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
+    offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
+    ordered_global_fixture, ordered_keyed_duplicate_fixture, ordered_keyed_fixture,
+    pane_metadata_fixture_for, pane_metadata_fixture_with_accumulating_count,
+    pane_metadata_fixture_with_trigger, panicking_global_combine_fixture,
+    panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
+    partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
+    session_group_fixture, shared_unbounded_homogeneous_cogroup_collection,
+    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
+    sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
+    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
+    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
+    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
+    PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -2965,6 +2966,46 @@ async fn prism_heterogeneous_cogroup_retains_late_pane() {
             "1:([3], []):Late:false:false:1:1",
         ]
     );
+}
+
+#[tokio::test]
+async fn prism_heterogeneous_late_count_panes() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let read_rows = |path: &std::path::Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let expected = [
+        "1:([2], [\"right\"]):OnTime:true:false:0:0",
+        "1:([3, 5], []):Late:false:false:1:1",
+    ];
+    let portable_path = directory.path().join("heterogeneous-prism.txt");
+    let portable_pipeline = Pipeline::default();
+    heterogeneous_late_count_cogroup_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "heterogeneous-late-count-cogroup",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_HETEROGENEOUS_LATE_COUNT_COGROUP".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "heterogeneous late-count state: {terminal:?}"
+    );
+    assert_eq!(read_rows(&portable_path), expected);
 }
 
 #[tokio::test]

@@ -558,21 +558,43 @@ pub fn dual_positive_late_full_join_fixture(
 pub fn dual_positive_late_cogroup_collection(
     pipeline: &Pipeline,
 ) -> Result<PCollection<String>, Error> {
+    heterogeneous_late_cogroup_collection(pipeline, false)
+}
+
+pub fn heterogeneous_late_count_cogroup_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    heterogeneous_late_cogroup_collection(pipeline, true)
+}
+
+fn heterogeneous_late_cogroup_collection(
+    pipeline: &Pipeline,
+    count_trigger: bool,
+) -> Result<PCollection<String>, Error> {
+    let mut events = vec![
+        TestStreamEvent::Elements(vec![
+            ((1_i32, 0_u8, 2_i32), 2_000_000),
+            ((1, 1, 4), 4_000_000),
+        ]),
+        TestStreamEvent::AdvanceWatermark(10_000_000),
+        TestStreamEvent::Elements(vec![((1, 0, 3), 3_000_000)]),
+    ];
+    if count_trigger {
+        events.push(TestStreamEvent::Elements(vec![((1, 0, 5), 5_000_000)]));
+    }
+    events.push(TestStreamEvent::AdvanceWatermark(15_000_000));
     let source = pipeline
         .test_stream_source(
             "heterogeneous-late-source",
-            vec![
-                TestStreamEvent::Elements(vec![
-                    ((1_i32, 0_u8, 2_i32), 2_000_000),
-                    ((1, 1, 4), 4_000_000),
-                ]),
-                TestStreamEvent::AdvanceWatermark(10_000_000),
-                TestStreamEvent::Elements(vec![((1, 0, 3), 3_000_000)]),
-                TestStreamEvent::AdvanceWatermark(15_000_000),
-            ],
+            events,
         )?
         .fixed_windows("heterogeneous-late-window", 10_000_000)?
         .allowed_lateness_named("heterogeneous-late-policy", 5_000_000)?;
+    let source = if count_trigger {
+        source.late_count_trigger_named("heterogeneous-late-trigger", 2)?
+    } else {
+        source
+    };
     let main = source
         .filter_named("heterogeneous-main-filter", |(_, tag, _)| *tag == 0)?
         .map_named("heterogeneous-main", |(key, _, value)| (key, value))?;
@@ -593,8 +615,23 @@ pub fn dual_positive_late_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
+    heterogeneous_late_cogroup_fixture(pipeline, path, false)
+}
+
+pub fn heterogeneous_late_count_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    heterogeneous_late_cogroup_fixture(pipeline, path, true)
+}
+
+fn heterogeneous_late_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    count_trigger: bool,
+) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
-    dual_positive_late_cogroup_collection(pipeline)?.sink_named_with_config(
+    heterogeneous_late_cogroup_collection(pipeline, count_trigger)?.sink_named_with_config(
         "heterogeneous-late-result",
         SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
         format!("heterogeneous-late-result:{}", path.display()),
