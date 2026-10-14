@@ -1253,7 +1253,6 @@ async fn run_production_unbounded_source(
     let avro_committed =
         ironbeam_dataflow::portable_metrics::committed_sink_input_count(&metrics, &avro_transform)
             .unwrap();
-    assert_eq!(avro_committed, 3);
     let avro_staging = capture.path().join("avro-fragments");
     let avro_store = ironbeam_io_avro::avro_fragment_store(
         &avro_staging,
@@ -1266,6 +1265,10 @@ async fn run_production_unbounded_source(
     .require_bundle_attempts(ready.bundle_attempts("production-avro-final").unwrap())
     .unwrap();
     let avro_fragments = avro_store.accepted_fragments().unwrap();
+    assert_eq!(
+        avro_committed, 3,
+        "sink and input counts: {sink_count_diagnostics:?}; accepted Avro fragments: {avro_fragments:?}"
+    );
     assert!(
         !avro_fragments.is_empty(),
         "production Avro output did not finalize: {avro_fragments:?}"
@@ -1321,19 +1324,6 @@ async fn run_production_unbounded_source(
         &tfrecord_transform,
     )
     .unwrap();
-    assert_eq!(
-        tfrecord_committed,
-        3,
-        "committed sink counts: {:?}",
-        expected_sink_counts
-            .iter()
-            .map(|(id, expected)| (
-                id.as_str(),
-                *expected,
-                ironbeam_dataflow::portable_metrics::committed_sink_input_count(&metrics, id)
-            ))
-            .collect::<Vec<_>>()
-    );
     let tfrecord_staging = capture.path().join("tfrecord-fragments");
     let tfrecord_store = ironbeam_io_tfrecord::tfrecord_fragment_store(
         &tfrecord_staging,
@@ -1345,6 +1335,10 @@ async fn run_production_unbounded_source(
     .require_bundle_attempts(ready.bundle_attempts("production-tfrecord-final").unwrap())
     .unwrap();
     let tfrecord_fragments = tfrecord_store.accepted_fragments().unwrap();
+    assert_eq!(
+        tfrecord_committed, 3,
+        "sink and input counts: {sink_count_diagnostics:?}; accepted TFRecord fragments: {tfrecord_fragments:?}"
+    );
     assert!(
         !tfrecord_fragments.is_empty(),
         "production TFRecord output did not finalize: {tfrecord_fragments:?}"
@@ -1398,7 +1392,6 @@ async fn run_production_unbounded_source(
         &msgpack_transform,
     )
     .unwrap();
-    assert_eq!(msgpack_committed, 3);
     let msgpack_staging = capture.path().join("msgpack-fragments");
     let msgpack_store = ironbeam_io_msgpack::msgpack_fragment_store(
         &msgpack_staging,
@@ -1410,6 +1403,10 @@ async fn run_production_unbounded_source(
     .require_bundle_attempts(ready.bundle_attempts("production-msgpack-final").unwrap())
     .unwrap();
     let msgpack_fragments = msgpack_store.accepted_fragments().unwrap();
+    assert_eq!(
+        msgpack_committed, 3,
+        "sink and input counts: {sink_count_diagnostics:?}; accepted MessagePack fragments: {msgpack_fragments:?}"
+    );
     assert!(
         !msgpack_fragments.is_empty(),
         "production MessagePack output did not finalize: {msgpack_fragments:?}"
@@ -1454,7 +1451,6 @@ async fn run_production_unbounded_source(
     let cbor_committed =
         ironbeam_dataflow::portable_metrics::committed_sink_input_count(&metrics, &cbor_transform)
             .unwrap();
-    assert_eq!(cbor_committed, 3);
     let cbor_staging = capture.path().join("cbor-fragments");
     let cbor_store = ironbeam_io_cbor::cbor_fragment_store(
         &cbor_staging,
@@ -1466,6 +1462,10 @@ async fn run_production_unbounded_source(
     .require_bundle_attempts(ready.bundle_attempts("production-cbor-final").unwrap())
     .unwrap();
     let cbor_fragments = cbor_store.accepted_fragments().unwrap();
+    assert_eq!(
+        cbor_committed, 3,
+        "sink and input counts: {sink_count_diagnostics:?}; accepted CBOR fragments: {cbor_fragments:?}"
+    );
     assert!(
         !cbor_fragments.is_empty(),
         "production CBOR output did not finalize: {cbor_fragments:?}"

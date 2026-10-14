@@ -53,7 +53,10 @@ jobs:
           IRONBEAM_PRISM_ENDPOINT: localhost:8073
         run: |
           cargo test -p beam-proto -p ironbeam-graphx -p ironbeam-harness -p ironbeam-dataflow --locked
-          cargo test -p ironbeam-prism-proof --test prism_v5_run --locked prism_runs_production_unbounded_source_with_residual_resume -- --exact
+          # Residual scheduling and multi-format fanout vary between runs.
+          for attempt in {1..8}; do
+            cargo test -p ironbeam-prism-proof --test prism_v5_run --locked prism_runs_production_unbounded_source_with_residual_resume -- --exact
+          done
           cargo test -p ironbeam-prism-proof --test prism_v5_run --locked -- --test-threads=1 --skip prism_fails_closed_on_supervised_worker_loss_with_active_bundles --skip prism_runs_production_unbounded_source_with_residual_resume
           cargo test -p ironbeam-prism-proof --test prism_arrow --locked
       - name: Test worker loss against fresh Prism
