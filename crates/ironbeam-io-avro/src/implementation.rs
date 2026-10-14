@@ -112,14 +112,7 @@ pub fn avro_streaming_source_with_reader_schema<T: Element + DeserializeOwned>(
     let schema = Arc::new(apache_avro::Schema::parse_str(raw_schema).map_err(|e| io(key, e))?);
     let format = format!("{}-streaming", reader_schema_format(raw_schema));
     lazy_source(pipeline, key, path, &format, move |path| {
-        let file = open_lazy_input(&path, "avro")?;
-        let reader = apache_avro::Reader::new(file).map_err(|error| io("avro", error))?;
-        let schema = Arc::clone(&schema);
-        Ok(Box::new(reader.map(move |row| {
-            let value = row.map_err(|error| io("avro", error))?;
-            let value = value.resolve(&schema).map_err(|error| io("avro", error))?;
-            apache_avro::from_value(&value).map_err(|error| io("avro", error))
-        })))
+        read_avro_lazy_with_schema(path, Arc::clone(&schema))
     })
 }
 
@@ -132,6 +125,20 @@ fn read_avro_lazy<T: Element + DeserializeOwned>(
     Ok(Box::new(reader.map(|row| {
         let value = row.map_err(|e| io("avro", e))?;
         apache_avro::from_value(&value).map_err(|e| io("avro", e))
+    })))
+}
+
+#[allow(clippy::needless_pass_by_value)] // The shared lazy-source factory takes PathBuf.
+fn read_avro_lazy_with_schema<T: Element + DeserializeOwned>(
+    path: PathBuf,
+    schema: Arc<apache_avro::Schema>,
+) -> Result<TypedSourceIterator<T>, Error> {
+    let file = open_lazy_input(&path, "avro")?;
+    let reader = apache_avro::Reader::new(file).map_err(|error| io("avro", error))?;
+    Ok(Box::new(reader.map(move |row| {
+        let value = row.map_err(|error| io("avro", error))?;
+        let value = value.resolve(&schema).map_err(|error| io("avro", error))?;
+        apache_avro::from_value(&value).map_err(|error| io("avro", error))
     })))
 }
 
@@ -152,6 +159,19 @@ pub fn avro_glob_source<T: Element + DeserializeOwned>(
 ) -> Result<PCollection<T>, Error> {
     file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
         avro_source(pipeline, key, path)
+    })
+}
+
+/// Expand a sorted local glob into bounded Avro sources resolved with a reader schema.
+pub fn avro_glob_source_with_reader_schema<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    pattern: &str,
+    reader_schema: impl AsRef<str>,
+) -> Result<PCollection<T>, Error> {
+    let reader_schema = reader_schema.as_ref();
+    file_glob_source(pipeline, key, pattern, |pipeline, key, path| {
+        avro_source_with_reader_schema(pipeline, key, path, reader_schema)
     })
 }
 
@@ -182,6 +202,40 @@ pub fn avro_sharded_source<T: Element + DeserializeOwned>(
         "avro",
         count_avro_records::<T>,
         read_avro_range::<T>,
+    )
+}
+
+/// Split an Avro file into finite record ranges resolved with a reader schema.
+///
+/// The file's writer schema is checked against the requested reader schema
+/// while counting rows and again as each shard is read.
+pub fn avro_sharded_source_with_reader_schema<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    path: impl AsRef<Path>,
+    records_per_shard: usize,
+    reader_schema: impl AsRef<str>,
+) -> Result<PCollection<T>, Error> {
+    let raw_schema = reader_schema.as_ref();
+    let schema = Arc::new(apache_avro::Schema::parse_str(raw_schema).map_err(|e| io(key, e))?);
+    let format = format!("{}-sharded", reader_schema_format(raw_schema));
+    let count_schema = Arc::clone(&schema);
+    file_sharded_source(
+        pipeline,
+        key,
+        path,
+        records_per_shard,
+        &format,
+        move |path| {
+            count_lazy_records(path, |path| {
+                read_avro_lazy_with_schema::<T>(path, Arc::clone(&count_schema))
+            })
+        },
+        move |path, start, end| {
+            read_lazy_range(path, start, end, |path| {
+                read_avro_lazy_with_schema::<T>(path, Arc::clone(&schema))
+            })
+        },
     )
 }
 

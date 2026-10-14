@@ -83,11 +83,22 @@ fn main() -> Result<(), ironbeam::Error> {
 ```
 
 Use `avro_streaming_source_with_reader_schema` with the same arguments to
-decode records incrementally from a large file. Both forms validate the
-schema while building the pipeline and include it in source identity. A
-resumed job rejects a different schema or changed file bytes. These file
-sources read local paths on Direct; a portable job needs an accessible storage
-source and a stable element coder.
+decode records incrementally from a large file. For multiple local files,
+`avro_glob_source_with_reader_schema` accepts a glob pattern in place of the
+path. `avro_sharded_source_with_reader_schema` accepts a file path, a positive
+record count per shard, and then the reader schema:
+
+```rust
+let accounts = avro_sharded_source_with_reader_schema::<Account>(
+    &pipeline, "accounts", "accounts.avro", 1_000, schema,
+)?;
+```
+
+All four forms validate the schema while building the pipeline and include it
+in source identity. A resumed job rejects a different schema or changed file
+bytes. Sharded reads count the records once while building the graph, then
+rescan the file for each shard. These file sources read local paths on Direct;
+a portable job needs an accessible storage source and a stable element coder.
 
 ## Writing a result
 

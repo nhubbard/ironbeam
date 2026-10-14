@@ -40,8 +40,11 @@ pub fn file_sharded_source<T: Element>(
     path: impl AsRef<Path>,
     records_per_shard: usize,
     format: &str,
-    count: fn(&Path) -> Result<usize, Error>,
-    read_range: fn(PathBuf, usize, usize) -> Result<TypedSourceIterator<T>, Error>,
+    count: impl Fn(&Path) -> Result<usize, Error>,
+    read_range: impl Fn(PathBuf, usize, usize) -> Result<TypedSourceIterator<T>, Error>
+    + Send
+    + Sync
+    + 'static,
 ) -> Result<PCollection<T>, Error> {
     if records_per_shard == 0 {
         return Err(Error::graph(key, "records per shard must be positive"));
@@ -49,6 +52,7 @@ pub fn file_sharded_source<T: Element>(
     let path = path.as_ref().to_path_buf();
     let expected = file_hash(&path, key)?;
     let total = count(&path)?;
+    let read_range = Arc::new(read_range);
     let shards = total.max(1).div_ceil(records_per_shard);
     let mut sources = Vec::with_capacity(shards);
     for index in 0..shards {
@@ -59,6 +63,7 @@ pub fn file_sharded_source<T: Element>(
         let source_path = path.clone();
         let source_expected = expected.clone();
         let name = child_key.clone();
+        let shard_read_range = Arc::clone(&read_range);
         sources.push(pipeline.bounded_source_with_semantic(
             &child_key,
             &format!("ironbeam/io/{format}-shard"),
@@ -76,7 +81,7 @@ pub fn file_sharded_source<T: Element>(
                         "source contents changed after graph construction",
                     ));
                 }
-                read_range(source_path.clone(), start, end)
+                shard_read_range(source_path.clone(), start, end)
             },
         )?);
     }
@@ -92,7 +97,7 @@ pub fn file_sharded_source<T: Element>(
 #[doc(hidden)]
 pub fn count_lazy_records<T: Element>(
     path: &Path,
-    read: fn(PathBuf) -> Result<TypedSourceIterator<T>, Error>,
+    read: impl Fn(PathBuf) -> Result<TypedSourceIterator<T>, Error>,
 ) -> Result<usize, Error> {
     let mut count = 0_usize;
     for value in read(path.to_path_buf())? {
@@ -110,7 +115,7 @@ pub fn read_lazy_range<T: Element>(
     path: PathBuf,
     start: usize,
     end: usize,
-    read: fn(PathBuf) -> Result<TypedSourceIterator<T>, Error>,
+    read: impl Fn(PathBuf) -> Result<TypedSourceIterator<T>, Error>,
 ) -> Result<TypedSourceIterator<T>, Error> {
     Ok(Box::new(read(path)?.skip(start).take(end - start)))
 }

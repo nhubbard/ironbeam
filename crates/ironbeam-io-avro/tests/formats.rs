@@ -440,6 +440,83 @@ fn avro_shards_and_glob_preserve_records() {
     assert!(avro_sharded_source::<Row>(&pipeline, "bad", &paths[0], 0).is_err());
 }
 
+#[test]
+fn avro_glob_and_shards_resolve_reader_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("a.avro");
+    let second = dir.path().join("b.avro");
+    write_native_rows(&first);
+    write_native_rows(&second);
+    let expected = [
+        EvolvedRow {
+            id: 1,
+            name: "Ada".into(),
+            active: true,
+        },
+        EvolvedRow {
+            id: 2,
+            name: "Lin".into(),
+            active: true,
+        },
+    ];
+
+    let pipeline = Pipeline::default();
+    let glob = avro_glob_source_with_reader_schema::<EvolvedRow>(
+        &pipeline,
+        "files",
+        &format!("{}/*.avro", dir.path().display()),
+        EVOLVED_AVRO_SCHEMA,
+    )
+    .unwrap()
+    .output("glob-out")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&glob, &JobConfig::default())
+            .unwrap()
+            .0,
+        [expected.as_slice(), expected.as_slice()].concat()
+    );
+
+    let pipeline = Pipeline::default();
+    let shards = avro_sharded_source_with_reader_schema::<EvolvedRow>(
+        &pipeline,
+        "shards",
+        &first,
+        1,
+        EVOLVED_AVRO_SCHEMA,
+    )
+    .unwrap()
+    .output("shard-out")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&shards, &JobConfig::default())
+            .unwrap()
+            .0,
+        expected
+    );
+    fs::write(&first, b"changed").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&shards, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+    assert!(
+        avro_sharded_source_with_reader_schema::<EvolvedRow>(
+            &Pipeline::default(),
+            "bad",
+            &second,
+            0,
+            EVOLVED_AVRO_SCHEMA
+        )
+        .is_err()
+    );
+}
+
 #[cfg(feature = "parallel-io")]
 #[test]
 fn parallel_avro_sink_publishes_one_ordered_container() {
