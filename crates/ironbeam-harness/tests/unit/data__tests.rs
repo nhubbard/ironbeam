@@ -11,6 +11,7 @@ fn concurrent_reader_registration_keeps_the_complete_runner_chunk() {
             outbound_tx,
             inbound: Arc::clone(&inbound),
             replay: false,
+            replay_output_budget: None,
         };
         let barrier = Arc::new(Barrier::new(2));
         let producer_barrier = Arc::clone(&barrier);
@@ -53,4 +54,17 @@ fn replay_client_delivers_input_once_and_keeps_output_local() {
     assert!(!first.data[0].is_last);
     let second = outbound.try_recv().unwrap();
     assert!(second.data[0].is_last);
+}
+
+#[test]
+fn replay_output_budget_is_shared_by_cloned_clients() {
+    let (client, mut outbound) = DataClient::for_replay_with_limit("bundle", "source", vec![], 3);
+    client.write_chunk("bundle", "sink", vec![1, 2]).unwrap();
+    let clone = client.clone();
+    assert!(clone.write_chunk("bundle", "sink", vec![3, 4]).is_err());
+    clone.write_chunk("bundle", "sink", vec![3]).unwrap();
+    client.close_write("bundle", "sink").unwrap();
+    assert_eq!(outbound.try_recv().unwrap().data[0].data, vec![1, 2]);
+    assert_eq!(outbound.try_recv().unwrap().data[0].data, vec![3]);
+    assert!(outbound.try_recv().unwrap().data[0].is_last);
 }

@@ -20,6 +20,7 @@
 //! with inbound routing because Prism can run source bundles concurrently.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -34,6 +35,7 @@ use tracing::{debug, warn};
 use crate::endpoints::{normalize_endpoint, worker_request};
 
 type Key = (String, String); // (instruction_id, transform_id)
+const MAX_REPLAY_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Per-key reader state. `sender` is dropped on `is_last=true`, which closes
 /// the corresponding receiver the executor is draining.
@@ -88,6 +90,7 @@ pub struct DataClient {
     /// with routing a runner chunk into the pending buffer.
     inbound: Arc<Mutex<InboundState>>,
     replay: bool,
+    replay_output_budget: Option<(Arc<AtomicUsize>, usize)>,
 }
 
 impl DataClient {
@@ -97,6 +100,15 @@ impl DataClient {
         instruction_id: &str,
         source_id: &str,
         chunks: Vec<Vec<u8>>,
+    ) -> (Self, mpsc::UnboundedReceiver<Elements>) {
+        Self::for_replay_with_limit(instruction_id, source_id, chunks, MAX_REPLAY_OUTPUT_BYTES)
+    }
+
+    fn for_replay_with_limit(
+        instruction_id: &str,
+        source_id: &str,
+        chunks: Vec<Vec<u8>>,
+        output_limit: usize,
     ) -> (Self, mpsc::UnboundedReceiver<Elements>) {
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         let mut inbound = InboundState::default();
@@ -112,6 +124,7 @@ impl DataClient {
                 outbound_tx,
                 inbound: Arc::new(Mutex::new(inbound)),
                 replay: true,
+                replay_output_budget: Some((Arc::new(AtomicUsize::new(0)), output_limit)),
             },
             outbound_rx,
         )
@@ -149,6 +162,7 @@ impl DataClient {
             outbound_tx,
             inbound: state,
             replay: false,
+            replay_output_budget: None,
         })
     }
 
@@ -228,6 +242,20 @@ impl DataClient {
     }
 
     fn send_data(&self, d: ElemData) -> Result<()> {
+        if let Some((used, limit)) = &self.replay_output_budget {
+            let mut prior = used.load(Ordering::Relaxed);
+            loop {
+                let next = prior
+                    .checked_add(d.data.len())
+                    .filter(|next| next <= limit)
+                    .ok_or_else(|| anyhow!("supervised bundle output exceeds replay limit"))?;
+                match used.compare_exchange_weak(prior, next, Ordering::Relaxed, Ordering::Relaxed)
+                {
+                    Ok(_) => break,
+                    Err(current) => prior = current,
+                }
+            }
+        }
         self.outbound_tx
             .send(Elements {
                 data: vec![d],

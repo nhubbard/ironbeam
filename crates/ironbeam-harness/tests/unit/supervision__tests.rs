@@ -58,3 +58,23 @@ fn supervisor_accepts_an_idempotent_sink() {
         .unwrap();
     validate_pipeline(&pipeline).unwrap();
 }
+
+#[tokio::test]
+async fn supervised_split_reaches_a_registered_bundle() {
+    let runner = SupervisedV5Runner::new(PbdCache::new(), "test-worker".into()).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let signal = directory.path().join("split-requested");
+    runner
+        .active
+        .lock()
+        .unwrap()
+        .insert("bundle-1".into(), signal.clone());
+    runner
+        .split_bundle(&ProcessBundleSplitRequest {
+            instruction_id: "bundle-1".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(signal).unwrap(), b"split");
+}
