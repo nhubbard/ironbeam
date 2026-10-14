@@ -1,7 +1,7 @@
 use ironbeam_core::{
     ElementMetadata, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
     SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
-    UnboundedBatch, UnboundedPoll, UnboundedSource,
+    UnboundedBatch, UnboundedPoll, UnboundedSource, WindowOutputTime,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
 use std::collections::{HashSet, VecDeque};
@@ -9,6 +9,109 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 type Row = (i32, i32);
+
+#[test]
+fn typed_late_join_uses_each_panes_output_time_policy() {
+    for (policy, on_time, late) in [
+        (WindowOutputTime::EndOfWindow, 9_000_000, 9_000_000),
+        (WindowOutputTime::LatestInPane, 4_000_000, 3_000_000),
+    ] {
+        let rows = Arc::new(Mutex::new(Vec::new()));
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let pipeline = Pipeline::default();
+        let main = pipeline
+            .test_stream_source(
+                "main",
+                vec![
+                    TestStreamEvent::Elements(vec![((1_i32, 2_i32), 2_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                    TestStreamEvent::Elements(vec![((1, 3), 3_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(15_000_000),
+                ],
+            )
+            .unwrap()
+            .fixed_windows("main-window", 10_000_000)
+            .unwrap()
+            .allowed_lateness_named("main-lateness", 5_000_000)
+            .unwrap();
+        let side = pipeline
+            .test_stream_source(
+                "side",
+                vec![
+                    TestStreamEvent::Elements(vec![((1_i32, 4_i32), 4_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                    TestStreamEvent::AdvanceWatermark(15_000_000),
+                ],
+            )
+            .unwrap()
+            .fixed_windows("side-window", 10_000_000)
+            .unwrap()
+            .allowed_lateness_named("side-lateness", 5_000_000)
+            .unwrap();
+        let (main, side) = match policy {
+            WindowOutputTime::EndOfWindow => (
+                main.end_of_window_output_time_named("main-policy").unwrap(),
+                side.end_of_window_output_time_named("side-policy").unwrap(),
+            ),
+            WindowOutputTime::LatestInPane => (
+                main.latest_in_pane_output_time_named("main-policy")
+                    .unwrap(),
+                side.latest_in_pane_output_time_named("side-policy")
+                    .unwrap(),
+            ),
+            WindowOutputTime::EarliestInPane => unreachable!(),
+        };
+        let sink = main
+            .join_full_named("join", &side)
+            .unwrap()
+            .reify_panes_named("pane")
+            .unwrap()
+            .reify_timestamps_named("timestamp")
+            .unwrap()
+            .map_named("row", |(time, (pane, (key, pair)))| {
+                format!(
+                    "{time}:{key}:{pair:?}:{:?}:{}:{}:{}:{}",
+                    pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+                )
+            })
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                format!("late-time-{policy:?}-v1"),
+                {
+                    let rows = Arc::clone(&rows);
+                    let accepted = Arc::clone(&accepted);
+                    move || {
+                        Ok(Box::new(Capture {
+                            rows: Arc::clone(&rows),
+                            accepted: Arc::clone(&accepted),
+                            staged: Vec::new(),
+                            bundle: String::new(),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert_eq!(
+            rows.lock().unwrap().as_slice(),
+            [
+                format!("{on_time}:1:(Some(2), Some(4)):OnTime:true:false:0:0"),
+                format!("{late}:1:(Some(3), None):Late:false:false:1:1"),
+            ],
+            "policy: {policy:?}"
+        );
+    }
+}
 
 struct Script(VecDeque<UnboundedPoll<Timestamped<Row>>>);
 
