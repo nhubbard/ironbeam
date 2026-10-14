@@ -75,8 +75,10 @@ fn main() -> Result<(), ironbeam::Error> {
         ])?
         .timestamps_from_pairs_named("event-time")?
         .group_by_session_named("sessions", 5_000_000)?
-        .with_window_named("session-bounds")?;
-    let _ = sessions;
+        .with_window_named("session-bounds")?
+        .collect_seq()?;
+    assert_eq!(sessions.len(), 1);
+    assert_eq!((sessions[0].0.start_ns, sessions[0].0.end_ns), (0, 13_000_000));
     Ok(())
 }
 ```
