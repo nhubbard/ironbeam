@@ -1,5 +1,21 @@
 use ironbeam_core::*;
 
+#[test]
+fn keyed_batches_reject_zero_and_unrepresentable_portable_sizes() {
+    let pipeline = Pipeline::default();
+    let input = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
+    for invalid in std::iter::once(0).chain(usize::try_from(i64::MAX).ok()) {
+        let error = input
+            .group_into_batches_named("batches", invalid)
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, ErrorKind::Graph);
+        assert!(error.message.contains("batch size"));
+    }
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert!(graph.node("batches").is_none());
+}
+
 struct ScriptedUnbounded {
     polls: std::collections::VecDeque<UnboundedPoll<Timestamped<i32>>>,
 }

@@ -453,7 +453,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         key: &str,
         batch_size: usize,
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
-        let limit = batch_size.max(1);
+        if !matches!(i64::try_from(batch_size), Ok(size) if size > 0 && size < i64::MAX) {
+            return Err(Error::graph(key, "batch size must be in 1..i64::MAX"));
+        }
+        let limit = batch_size;
         let batch_semantic_id = format!("ironbeam/group-into-batches/{limit}");
         // A streaming GroupByKey must fire before its global window closes.
         // Use a count firing when the caller has not already selected one;
