@@ -277,6 +277,61 @@ fn processing_time_trigger_lowers_a_repeated_millisecond_delay() {
 }
 
 #[test]
+fn keyed_batch_duration_lowers_repeated_count_or_time_trigger() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)])],
+        )
+        .unwrap()
+        .group_into_batches_with_max_buffering_duration_named("batches", 2, 5_000_000)
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let trigger_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "batches/count-or-time-trigger")
+        .unwrap();
+    let strategy = &components.windowing_strategies[&trigger_pc.windowing_strategy_id];
+    let Some(trigger::Trigger::AfterEndOfWindow(end)) = strategy
+        .trigger
+        .as_ref()
+        .and_then(|trigger| trigger.trigger.as_ref())
+    else {
+        panic!("expected end-of-window trigger");
+    };
+    let Some(trigger::Trigger::Repeat(repeat)) = end
+        .early_firings
+        .as_ref()
+        .and_then(|trigger| trigger.trigger.as_ref())
+    else {
+        panic!("expected repeated early trigger");
+    };
+    let Some(trigger::Trigger::AfterAny(any)) = repeat
+        .subtrigger
+        .as_ref()
+        .and_then(|trigger| trigger.trigger.as_ref())
+    else {
+        panic!("expected count-or-time trigger");
+    };
+    assert!(matches!(
+        any.subtriggers[0].trigger,
+        Some(trigger::Trigger::ElementCount(ref count)) if count.element_count == 2
+    ));
+    assert!(matches!(
+        any.subtriggers[1].trigger,
+        Some(trigger::Trigger::AfterProcessingTime(ref time))
+            if time.timestamp_transforms.len() == 1
+    ));
+}
+
+#[test]
 fn accumulating_count_trigger_sets_beam_accumulation_mode() {
     let pipeline = Pipeline::default();
     pipeline

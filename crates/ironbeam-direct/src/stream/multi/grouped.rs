@@ -92,9 +92,12 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
     let allowed_lateness_ns = group.time.allowed_lateness_ns;
     let early_count = group.time.trigger.early_count();
     let early_processing_time = group.time.trigger.early_processing_time();
-    let early_policy = early_count
-        .map(EarlyPolicy::Count)
-        .or_else(|| early_processing_time.map(EarlyPolicy::ProcessingTime));
+    let early_policy = match (early_count, early_processing_time) {
+        (Some(count), Some(delay_ns)) => Some(EarlyPolicy::CountOrProcessingTime(count, delay_ns)),
+        (Some(count), None) => Some(EarlyPolicy::Count(count)),
+        (None, Some(delay_ns)) => Some(EarlyPolicy::ProcessingTime(delay_ns)),
+        (None, None) => None,
+    };
     if group.time.trigger != WindowTrigger::Default
         && !(allowed_lateness_ns > 0
             && group.time.trigger.late_count().is_some()

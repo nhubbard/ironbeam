@@ -463,6 +463,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     .checked_add(1)
                     .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
                 self.fired_value_counts.insert(scope.clone(), values.len());
+                self.processing_deadlines.remove(&scope);
                 fired.push(Envelope {
                     pane: PaneInfo {
                         is_first: index == 0,
@@ -495,6 +496,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             }
             let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
             let latest = self.latest_timestamps.remove(&(key.clone(), interval));
+            self.processing_deadlines.remove(&(key.clone(), interval));
             let next_index = self.fired_panes.entry((key.clone(), interval)).or_insert(0);
             let index = *next_index;
             *next_index = next_index

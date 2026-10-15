@@ -45,14 +45,14 @@ pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrig
         strategy.trigger = Some(Trigger {
             trigger: Some(trigger::Trigger::AfterEndOfWindow(Box::new(
                 trigger::AfterEndOfWindow {
-                    early_firings: policy
-                        .early_count()
-                        .map(repeated_count_trigger)
-                        .or_else(|| {
-                            policy
-                                .early_processing_time()
-                                .map(repeated_processing_time_trigger)
-                        }),
+                    early_firings: match (policy.early_count(), policy.early_processing_time()) {
+                        (Some(count), Some(delay_ns)) => {
+                            Some(repeated_count_or_processing_time_trigger(count, delay_ns))
+                        }
+                        (Some(count), None) => Some(repeated_count_trigger(count)),
+                        (None, Some(delay_ns)) => Some(repeated_processing_time_trigger(delay_ns)),
+                        (None, None) => None,
+                    },
                     late_firings: policy.late_count().map(repeated_count_trigger),
                 },
             ))),
@@ -60,37 +60,52 @@ pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrig
     }
 }
 
+fn repeated_count_or_processing_time_trigger(count: u64, delay_ns: i64) -> Box<Trigger> {
+    let count_trigger = Trigger {
+        trigger: Some(trigger::Trigger::ElementCount(trigger::ElementCount {
+            element_count: count as i32,
+        })),
+    };
+    repeated_trigger(Trigger {
+        trigger: Some(trigger::Trigger::AfterAny(trigger::AfterAny {
+            subtriggers: vec![count_trigger, processing_time_trigger(delay_ns)],
+        })),
+    })
+}
+
 fn repeated_processing_time_trigger(delay_ns: i64) -> Box<Trigger> {
+    repeated_trigger(processing_time_trigger(delay_ns))
+}
+
+fn processing_time_trigger(delay_ns: i64) -> Trigger {
+    Trigger {
+        trigger: Some(trigger::Trigger::AfterProcessingTime(
+            trigger::AfterProcessingTime {
+                timestamp_transforms: vec![TimestampTransform {
+                    timestamp_transform: Some(timestamp_transform::TimestampTransform::Delay(
+                        timestamp_transform::Delay {
+                            delay_millis: delay_ns / 1_000_000,
+                        },
+                    )),
+                }],
+            },
+        )),
+    }
+}
+
+fn repeated_trigger(subtrigger: Trigger) -> Box<Trigger> {
     Box::new(Trigger {
         trigger: Some(trigger::Trigger::Repeat(Box::new(trigger::Repeat {
-            subtrigger: Some(Box::new(Trigger {
-                trigger: Some(trigger::Trigger::AfterProcessingTime(
-                    trigger::AfterProcessingTime {
-                        timestamp_transforms: vec![TimestampTransform {
-                            timestamp_transform: Some(
-                                timestamp_transform::TimestampTransform::Delay(
-                                    timestamp_transform::Delay {
-                                        delay_millis: delay_ns / 1_000_000,
-                                    },
-                                ),
-                            ),
-                        }],
-                    },
-                )),
-            })),
+            subtrigger: Some(Box::new(subtrigger)),
         }))),
     })
 }
 
 fn repeated_count_trigger(count: u64) -> Box<Trigger> {
-    Box::new(Trigger {
-        trigger: Some(trigger::Trigger::Repeat(Box::new(trigger::Repeat {
-            subtrigger: Some(Box::new(Trigger {
-                trigger: Some(trigger::Trigger::ElementCount(trigger::ElementCount {
-                    element_count: count as i32,
-                })),
-            })),
-        }))),
+    repeated_trigger(Trigger {
+        trigger: Some(trigger::Trigger::ElementCount(trigger::ElementCount {
+            element_count: count as i32,
+        })),
     })
 }
 

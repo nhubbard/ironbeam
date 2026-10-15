@@ -407,6 +407,96 @@ fn unbounded_global_group_into_batches_fires_full_and_final_partial_batches() {
 }
 
 #[test]
+fn keyed_batches_flush_on_either_time_or_count() {
+    let rows = run_count_or_time_keyed_batches(vec![
+        TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000)]),
+        TestStreamEvent::AdvanceProcessingTime(5_000_000),
+        TestStreamEvent::Elements(vec![
+            (('a'.to_string(), 3), 2_000_000),
+            (('a'.to_string(), 4), 3_000_000),
+        ]),
+        TestStreamEvent::Elements(vec![(('a'.to_string(), 5), 4_000_000)]),
+        TestStreamEvent::AdvanceWatermark(10_000_000),
+    ]);
+    assert_eq!(
+        rows,
+        [
+            "a:[2]:Early:true:false:0:-1",
+            "a:[3, 4]:Early:false:false:1:-1",
+            "a:[5]:OnTime:false:true:2:0",
+        ]
+    );
+}
+
+#[test]
+fn keyed_batch_count_firing_cancels_its_old_timer() {
+    let rows = run_count_or_time_keyed_batches(vec![
+        TestStreamEvent::Elements(vec![
+            (('a'.to_string(), 2_i32), 1_000_000),
+            (('a'.to_string(), 3), 2_000_000),
+        ]),
+        TestStreamEvent::AdvanceProcessingTime(5_000_000),
+        TestStreamEvent::Elements(vec![(('a'.to_string(), 4), 3_000_000)]),
+        TestStreamEvent::AdvanceProcessingTime(5_000_000),
+        TestStreamEvent::AdvanceWatermark(10_000_000),
+    ]);
+    assert_eq!(
+        rows,
+        [
+            "a:[2, 3]:Early:true:false:0:-1",
+            "a:[4]:Early:false:false:1:-1",
+        ]
+    );
+}
+
+fn run_count_or_time_keyed_batches(events: Vec<TestStreamEvent<Row>>) -> Vec<String> {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let source = pipeline.test_stream_source("values", events).unwrap();
+    let sink = source
+        .group_into_batches_with_max_buffering_duration_named("batches", 2, 5_000_000)
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "count-or-time-batches-v1".to_owned(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    committed.lock().unwrap().clone()
+}
+
+#[test]
 fn unbounded_fixed_window_group_into_batches_flushes_partial_batch_at_watermark() {
     assert_eq!(
         run_unbounded_keyed_batches(true),

@@ -37,6 +37,54 @@ fn early_count_is_validated_and_changes_graph_identity() {
 }
 
 #[test]
+fn count_or_processing_time_batch_policy_validates_and_identifies_duration() {
+    let make = |delay_ns| {
+        let pipeline = Pipeline::default();
+        pipeline
+            .test_stream_source(
+                "source",
+                vec![ironbeam_core::TestStreamEvent::Elements(vec![(
+                    (1_i32, 2_i32),
+                    1_000_000,
+                )])],
+            )
+            .unwrap()
+            .group_into_batches_with_max_buffering_duration_named("batches", 2, delay_ns)
+            .unwrap();
+        let (graph, _) = pipeline.snapshot().unwrap();
+        assert_eq!(
+            graph.node("batches/group").unwrap().time.trigger,
+            WindowTrigger::EarlyCountOrProcessingTime { count: 2, delay_ns }
+        );
+        graph.fingerprint().unwrap()
+    };
+    assert_ne!(make(5_000_000), make(6_000_000));
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
+    for delay_ns in [0, -1_000_000, 1] {
+        assert!(
+            source
+                .group_into_batches_with_max_buffering_duration_named("invalid", 2, delay_ns)
+                .is_err()
+        );
+    }
+    assert!(
+        source
+            .group_into_batches_with_max_buffering_duration_named("empty", 0, 5_000_000)
+            .is_err()
+    );
+    assert!(
+        source
+            .group_into_batches_with_max_buffering_duration_named(
+                "overflow",
+                i32::MAX as usize + 1,
+                5_000_000,
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn processing_time_trigger_validates_delay_and_changes_graph_identity() {
     let make = |delay_ns, accumulating| {
         let pipeline = Pipeline::default();

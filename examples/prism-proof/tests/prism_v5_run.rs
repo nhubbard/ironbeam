@@ -76,14 +76,15 @@ use ironbeam_prism_proof::{
     sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
     streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
     streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, triple_stream_windowed_wait_collection,
-    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_collection,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
-    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
-    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
+    triple_stream_windowed_wait_collection, triple_stream_windowed_wait_fixture,
+    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
+    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
+    PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -7623,6 +7624,36 @@ async fn prism_emits_full_and_final_partial_unbounded_keyed_batches() {
             "windowed: {windowed}"
         );
     }
+}
+
+#[tokio::test]
+async fn prism_flushes_partial_keyed_batch_on_processing_time() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("timed-batches.txt");
+    let pipeline = Pipeline::default();
+    timed_keyed_batches_fixture(&pipeline, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "timed-keyed-batches",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_TIMED_KEYED_BATCHES".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "timed batch job state: {terminal:?}");
+    let mut rows = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    rows.sort_unstable();
+    assert_eq!(rows, ["a:[2]:Early:true:false:0:-1"]);
 }
 
 #[tokio::test]

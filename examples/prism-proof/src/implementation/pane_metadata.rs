@@ -253,6 +253,50 @@ pub fn global_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollectio
     keyed_batches_collection(pipeline, false)
 }
 
+pub fn timed_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
+    pipeline
+        .test_stream_source(
+            "timed-batches-source",
+            vec![
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(0),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("timed-batches-window", 10_000_000)?
+        .group_into_batches_with_max_buffering_duration_named("timed-batches", 2, 5_000_000)?
+        .reify_panes_named("timed-batches-pane")?
+        .map_named("timed-batches-row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn timed_keyed_batches_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    timed_keyed_batches_collection(pipeline)?.sink_named_with_config(
+        "timed-batches-capture",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("timed-batches:{}", path.display()),
+        move || {
+            Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })))
+        },
+    )
+}
+
 pub fn windowed_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
     keyed_batches_collection(pipeline, true)
 }

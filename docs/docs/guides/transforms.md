@@ -89,6 +89,16 @@ count trigger, Ironbeam installs one so a full batch can fire before the
 window closes. A final pane can contain fewer values than the requested size.
 Batch membership can depend on arrival and firing order after a shuffle.
 
+`group_into_batches_with_max_buffering_duration_named("batches", 2, 5_000_000)`
+also flushes a partial batch five milliseconds after its first pending value.
+It uses a repeated count-or-processing-time trigger: a full batch fires as
+soon as the count is met, while the time limit permits a smaller early batch.
+The delay must be a positive whole number of milliseconds, expressed in
+nanoseconds. The Direct runner tests both firing paths. A local Prism job
+confirms the timed path; its tested version can panic when a later count
+firing follows a timed firing in the same window, so that sequence is not yet
+a portable execution guarantee.
+
 `co_group_homogeneous_named` groups collections whose keys and values have
 the same types. The result is a key and one value vector
 per input. The first vector belongs to the collection on which the method is

@@ -499,6 +499,26 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 },
             )
     }
+    /// Flush full batches by count and partial streaming batches after a
+    /// processing-time delay. The delay starts with the first pending value.
+    pub fn group_into_batches_with_max_buffering_duration_named(
+        &self,
+        key: &str,
+        batch_size: usize,
+        delay_ns: i64,
+    ) -> Result<PCollection<(K, Vec<V>)>, Error> {
+        if !matches!(i64::try_from(batch_size), Ok(size) if size > 0 && size < i64::MAX) {
+            return Err(Error::graph(key, "batch size must be in 1..i64::MAX"));
+        }
+        let count = u64::try_from(batch_size)
+            .map_err(|_| Error::graph(key, "batch size exceeds count trigger range"))?;
+        self.count_or_processing_time_trigger_named(
+            &format!("{key}/count-or-time-trigger"),
+            count,
+            delay_ns,
+        )?
+        .group_into_batches_named(key, batch_size)
+    }
     pub fn combine_per_key_and_window_named<U: Element>(
         &self,
         key: &str,

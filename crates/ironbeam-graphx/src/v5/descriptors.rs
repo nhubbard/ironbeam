@@ -72,6 +72,9 @@ fn windowing_id(time: &Time) -> String {
         WindowTrigger::EarlyProcessingTimeAccumulating { delay_ns } => {
             id("v5_ws", &format!("{base}:early-processing-time:{delay_ns}:accumulating"))
         }
+        WindowTrigger::EarlyCountOrProcessingTime { count, delay_ns } => {
+            id("v5_ws", &format!("{base}:early-count-or-processing-time:{count}:{delay_ns}"))
+        }
         WindowTrigger::LateElementCount { count } => {
             id("v5_ws", &format!("{base}:late-count:{count}"))
         }

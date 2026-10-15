@@ -592,6 +592,42 @@ impl<T: Element> PCollection<T> {
         )
     }
 
+    /// Repeatedly fire a discarding pane when either `count` new elements
+    /// arrive or `delay_ns` elapses after the first pending element.
+    pub fn count_or_processing_time_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+    ) -> Result<Self, Error> {
+        if count == 0 || count > i32::MAX as u64 {
+            return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));
+        }
+        if delay_ns <= 0 || delay_ns % 1_000_000 != 0 {
+            return Err(Error::graph(key, "processing-time trigger requires a positive whole-millisecond delay"));
+        }
+        let window = self.parent()?.time.window;
+        let operation = match window {
+            Window::Fixed { .. } | Window::FixedOffset { .. } => Operation::FixedWindow,
+            Window::Sliding { .. } | Window::Global => Operation::Map,
+            Window::Session { .. } => {
+                return Err(Error::graph(key, "count-or-processing-time trigger requires global, fixed, or sliding windows"));
+            }
+        };
+        self.next_with_time_policy(
+            key,
+            operation,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(window),
+            None,
+            TimePolicyOverride {
+                trigger: Some(WindowTrigger::EarlyCountOrProcessingTime { count, delay_ns }),
+                output_time: None,
+                allowed_lateness_ns: None,
+            },
+        )
+    }
+
     fn count_trigger_named(&self, key: &str, count: u64, accumulating: bool) -> Result<Self, Error> {
         if count == 0 || count > i32::MAX as u64 {
             return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));

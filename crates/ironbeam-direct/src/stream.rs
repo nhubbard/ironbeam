@@ -1874,7 +1874,8 @@ fn run_grouped_stream(
                 })?;
                 early_panes.append(&mut fired);
             }
-        } else if let Some(delay_ns) = route.trigger.early_processing_time() {
+        }
+        if let Some(delay_ns) = route.trigger.early_processing_time() {
             let now_ns = processing_time_now_ns(source.as_ref())?;
             for (fold, rows) in folds.values_mut() {
                 fold.arm_processing_time(now_ns, delay_ns)?;

@@ -47,12 +47,12 @@ use ironbeam_prism_proof::{
     sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
     streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
     streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_fixture, triple_stream_windowed_wait_fixture,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow,
+    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
+    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture};
@@ -548,6 +548,10 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES") {
         return global_keyed_batches_fixture(pipeline, path.into())
+            .map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_TIMED_KEYED_BATCHES") {
+        return timed_keyed_batches_fixture(pipeline, path.into())
             .map(|_| ()).map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_WINDOWED_KEYED_BATCHES") {
