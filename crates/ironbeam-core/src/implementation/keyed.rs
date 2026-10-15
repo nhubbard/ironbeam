@@ -10,22 +10,23 @@ fn retime_join_outputs<K: Element + Eq + Hash + Clone, O: Element>(
         return Ok(());
     }
     for event in output {
-        let (key, _) = event.value.downcast_ref::<(K, O)>().ok_or_else(|| {
-            Error::execution(node_key, "direct", "join output type mismatch")
-        })?;
+        let (key, _) = event
+            .value
+            .downcast_ref::<(K, O)>()
+            .ok_or_else(|| Error::execution(node_key, "direct", "join output type mismatch"))?;
         let latest_ns = if policy == WindowOutputTime::LatestInPane {
-            Some(*latest.get(&(key.clone(), event.assigned_window)).ok_or_else(|| {
-                Error::execution(node_key, "direct", "join output has no input timestamp")
-            })?)
+            Some(
+                *latest
+                    .get(&(key.clone(), event.assigned_window))
+                    .ok_or_else(|| {
+                        Error::execution(node_key, "direct", "join output has no input timestamp")
+                    })?,
+            )
         } else {
             None
         };
-        event.timestamp_ns = grouped_output_timestamp(
-            policy,
-            event.timestamp_ns,
-            latest_ns,
-            event.assigned_window,
-        );
+        event.timestamp_ns =
+            grouped_output_timestamp(policy, event.timestamp_ns, latest_ns, event.assigned_window);
     }
     Ok(())
 }
@@ -270,7 +271,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             let mut output = Vec::new();
             let mut pending: Vec<KeyedBatchRow<K, V>> = Vec::new();
             let mut flush = |pending: &mut Vec<KeyedBatchRow<K, V>>| -> Result<(), Error> {
-                if pending.is_empty() { return Ok(()); }
+                if pending.is_empty() {
+                    return Ok(());
+                }
                 let rows = std::mem::take(pending);
                 let mut keys = Vec::with_capacity(rows.len());
                 let mut values = Vec::with_capacity(rows.len());
@@ -282,13 +285,21 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 }
                 let results = f(&values);
                 if results.len() != values.len() {
-                    return Err(Error::execution(&node_key, "direct", "batch value map changed length"));
+                    return Err(Error::execution(
+                        &node_key,
+                        "direct",
+                        "batch value map changed length",
+                    ));
                 }
                 for ((key, value), (timestamp_ns, window, assigned_window, pane)) in
-                    keys.into_iter().zip(results).zip(metadata) {
+                    keys.into_iter().zip(results).zip(metadata)
+                {
                     output.push(Envelope {
                         pane,
-                        value: Box::new((key, value)), timestamp_ns, window, assigned_window
+                        value: Box::new((key, value)),
+                        timestamp_ns,
+                        window,
+                        assigned_window,
                     });
                 }
                 Ok(())
@@ -309,7 +320,14 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 let (row_key, row_value) = *value.downcast::<(K, V)>().map_err(|_| {
                     Error::execution(&node_key, "direct", "batch keyed input type mismatch")
                 })?;
-                pending.push((row_key, row_value, timestamp_ns, window, assigned_window, pane));
+                pending.push((
+                    row_key,
+                    row_value,
+                    timestamp_ns,
+                    window,
+                    assigned_window,
+                    pane,
+                ));
             }
             flush(&mut pending)?;
             Ok(output)
@@ -486,7 +504,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 self.early_count_trigger_named(&format!("{key}/count-trigger"), count)?
             }
             (Boundedness::Unbounded, Some(_)) if parent.time.allowed_lateness_ns > 0 => {
-                return Err(Error::graph(key, "count-or-time batches with allowed lateness require a late trigger policy"));
+                return Err(Error::graph(
+                    key,
+                    "count-or-time batches with allowed lateness require a late trigger policy",
+                ));
             }
             (_, Some(delay_ns)) => self.count_or_processing_time_trigger_named(
                 &format!("{key}/count-or-time-trigger"),
@@ -507,17 +528,24 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     let mut current = Vec::with_capacity(limit);
                     let mut earliest = None::<i64>;
                     for (timestamp_ns, value) in values {
-                        earliest = Some(earliest.map_or(timestamp_ns, |prior| prior.min(timestamp_ns)));
+                        earliest =
+                            Some(earliest.map_or(timestamp_ns, |prior| prior.min(timestamp_ns)));
                         current.push(value);
                         if current.len() == limit {
                             batches.push((
                                 earliest.take().expect("nonempty batch has a timestamp"),
-                                (group_key.clone(), std::mem::replace(&mut current, Vec::with_capacity(limit))),
+                                (
+                                    group_key.clone(),
+                                    std::mem::replace(&mut current, Vec::with_capacity(limit)),
+                                ),
                             ));
                         }
                     }
                     if !current.is_empty() {
-                        batches.push((earliest.expect("nonempty batch has a timestamp"), (group_key, current)));
+                        batches.push((
+                            earliest.expect("nonempty batch has a timestamp"),
+                            (group_key, current),
+                        ));
                     }
                     Ok(batches)
                 },
@@ -543,12 +571,20 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         max_encoded_bytes: usize,
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
         if max_count == 0 || max_encoded_bytes == 0 {
-            return Err(Error::graph(key, "batch count and encoded byte limits must be positive"));
+            return Err(Error::graph(
+                key,
+                "batch count and encoded byte limits must be positive",
+            ));
         }
         if self.parent()?.boundedness != Boundedness::Bounded {
-            return Err(Error::graph(key, "encoded byte batching currently requires a bounded input"));
+            return Err(Error::graph(
+                key,
+                "encoded byte batching currently requires a bounded input",
+            ));
         }
-        let semantic_id = format!("ironbeam/group-into-batches/limits/{max_count}/{max_encoded_bytes}");
+        let semantic_id =
+            format!("ironbeam/group-into-batches/limits/{max_count}/{max_encoded_bytes}");
+        let node_key = key.to_owned();
         self.reify_keyed_timestamp_named(&format!("{key}/timestamp"))?
             .group_by_key_named(&format!("{key}/group"))?
             .flat_map_registered(
@@ -565,25 +601,35 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                             && (current.len() >= max_count
                                 || bytes.saturating_add(encoded_len) > max_encoded_bytes)
                         {
+                            let timestamp = earliest.take().ok_or_else(|| {
+                                Error::execution(&node_key, "direct", "batch timestamp missing")
+                            })?;
                             batches.push((
-                                earliest.take().expect("nonempty batch has a timestamp"),
+                                timestamp,
                                 (group_key.clone(), std::mem::take(&mut current)),
                             ));
                             bytes = 0;
                         }
-                        earliest = Some(earliest.map_or(timestamp_ns, |prior| prior.min(timestamp_ns)));
+                        earliest =
+                            Some(earliest.map_or(timestamp_ns, |prior| prior.min(timestamp_ns)));
                         bytes = bytes.saturating_add(encoded_len);
                         current.push(value);
                         if current.len() >= max_count || bytes >= max_encoded_bytes {
+                            let timestamp = earliest.take().ok_or_else(|| {
+                                Error::execution(&node_key, "direct", "batch timestamp missing")
+                            })?;
                             batches.push((
-                                earliest.take().expect("nonempty batch has a timestamp"),
+                                timestamp,
                                 (group_key.clone(), std::mem::take(&mut current)),
                             ));
                             bytes = 0;
                         }
                     }
                     if !current.is_empty() {
-                        batches.push((earliest.expect("nonempty batch has a timestamp"), (group_key, current)));
+                        let timestamp = earliest.ok_or_else(|| {
+                            Error::execution(&node_key, "direct", "batch timestamp missing")
+                        })?;
+                        batches.push((timestamp, (group_key, current)));
                     }
                     Ok(batches)
                 },
@@ -610,10 +656,16 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     pub fn latest_per_key_named(&self, key: &str) -> Result<Self, Error> {
         let parent = self.parent()?;
         if parent.time.output_time != WindowOutputTime::EarliestInPane {
-            return Err(Error::graph(key, "latest_per_key does not yet support a custom output time policy"));
+            return Err(Error::graph(
+                key,
+                "latest_per_key does not yet support a custom output time policy",
+            ));
         }
         if parent.time.allowed_lateness_ns > 0 {
-            return Err(Error::graph(key, "latest_per_key does not yet support allowed lateness"));
+            return Err(Error::graph(
+                key,
+                "latest_per_key does not yet support allowed lateness",
+            ));
         }
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
             return Err(Error::graph(
@@ -993,7 +1045,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     let (key, _) = event.value.downcast_ref::<(K, V)>().ok_or_else(|| {
                         Error::execution(&key_owned, "direct", "left join type mismatch")
                     })?;
-                    latest.entry((key.clone(), event.assigned_window))
+                    latest
+                        .entry((key.clone(), event.assigned_window))
                         .and_modify(|time: &mut i64| *time = (*time).max(event.timestamp_ns))
                         .or_insert(event.timestamp_ns);
                 }
@@ -1001,28 +1054,21 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     let (key, _) = event.value.downcast_ref::<(K, W)>().ok_or_else(|| {
                         Error::execution(&key_owned, "direct", "right join type mismatch")
                     })?;
-                    latest.entry((key.clone(), event.assigned_window))
+                    latest
+                        .entry((key.clone(), event.assigned_window))
                         .and_modify(|time: &mut i64| *time = (*time).max(event.timestamp_ns))
                         .or_insert(event.timestamp_ns);
                 }
             }
             if inner_join && left.len() <= right.len() {
-                let mut output = inner_join_reusing_right::<K, V, W, O>(
-                    left,
-                    right,
-                    &key_owned,
-                    emit.as_ref(),
-                )?;
+                let mut output =
+                    inner_join_reusing_right::<K, V, W, O>(left, right, &key_owned, emit.as_ref())?;
                 retime_join_outputs::<K, O>(&mut output, output_time, &latest, &key_owned)?;
                 return Ok(output);
             }
             if inner_join && right.len() < left.len() {
-                let mut output = inner_join_indexed_right::<K, V, W, O>(
-                    left,
-                    right,
-                    &key_owned,
-                    emit.as_ref(),
-                )?;
+                let mut output =
+                    inner_join_indexed_right::<K, V, W, O>(left, right, &key_owned, emit.as_ref())?;
                 retime_join_outputs::<K, O>(&mut output, output_time, &latest, &key_owned)?;
                 return Ok(output);
             }
