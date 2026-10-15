@@ -21,6 +21,68 @@ impl OffsetRange {
         }
         Ok(Self { start, stop })
     }
+
+    /// Encode this range as Beam Java's `OffsetRange.Coder`: two signed
+    /// 64-bit `VarInt` values, start followed by stop.
+    pub fn encode_beam(self) -> Result<Vec<u8>, Error> {
+        Self::new(self.start, self.stop)?;
+        let mut bytes = Vec::with_capacity(20);
+        encode_varint(self.start.cast_unsigned(), &mut bytes);
+        encode_varint(self.stop.cast_unsigned(), &mut bytes);
+        Ok(bytes)
+    }
+
+    /// Decode one complete Beam `OffsetRange.Coder` body.
+    pub fn decode_beam(mut bytes: &[u8]) -> Result<Self, Error> {
+        let start = decode_varint(&mut bytes)?.cast_signed();
+        let stop = decode_varint(&mut bytes)?.cast_signed();
+        if !bytes.is_empty() {
+            return Err(Error::execution(
+                "restriction",
+                "coder",
+                "offset range has trailing bytes",
+            ));
+        }
+        Self::new(start, stop)
+    }
+}
+
+fn encode_varint(mut value: u64, out: &mut Vec<u8>) {
+    while value >= 0x80 {
+        out.push(u8::try_from(value & 0x7f).expect("seven bits fit in u8") | 0x80);
+        value >>= 7;
+    }
+    out.push(u8::try_from(value).expect("final VarInt byte fits in u8"));
+}
+
+fn decode_varint(input: &mut &[u8]) -> Result<u64, Error> {
+    let mut value = 0_u64;
+    for shift in (0..64).step_by(7) {
+        let Some((&byte, rest)) = input.split_first() else {
+            return Err(Error::execution(
+                "restriction",
+                "coder",
+                "truncated offset VarInt",
+            ));
+        };
+        if shift == 63 && byte > 1 {
+            return Err(Error::execution(
+                "restriction",
+                "coder",
+                "offset VarInt exceeds 64 bits",
+            ));
+        }
+        value |= u64::from(byte & 0x7f) << shift;
+        *input = rest;
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+    }
+    Err(Error::execution(
+        "restriction",
+        "coder",
+        "offset VarInt is too long",
+    ))
 }
 
 /// The current primary and the residual created by a successful split.

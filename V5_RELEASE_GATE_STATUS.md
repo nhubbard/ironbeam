@@ -192,7 +192,9 @@ The new `RestrictionTracker` contract and `OffsetRangeTracker` implement
 strictly increasing claims, fractional dynamic splits, zero-fraction
 checkpoints, progress, and completion checks. The tracker serializes claims and
 splits through a shared lock; tests cover concurrent claims and splits,
-residual recovery, invalid fractions, and extreme offset ranges. It is not yet
+residual recovery, invalid fractions, and extreme offset ranges. `OffsetRange`
+also encodes and decodes the two signed VarInts used by the pinned Java Beam
+coder, including negative boundaries and malformed bytes. It is not yet
 registered as an executable splittable transform on either runner, so the
 splittable-processing parity row remains open.
 

@@ -7,6 +7,51 @@ fn range(start: i64, stop: i64) -> OffsetRange {
     OffsetRange::new(start, stop).unwrap()
 }
 
+#[test]
+fn beam_offset_range_coder_matches_two_signed_varints() {
+    assert_eq!(range(0, 10).encode_beam().unwrap(), [0, 10]);
+    assert_eq!(OffsetRange::decode_beam(&[0, 10]).unwrap(), range(0, 10));
+    let negative_start = [
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0x01,
+    ];
+    assert_eq!(range(-1, 1).encode_beam().unwrap(), negative_start);
+    assert_eq!(
+        OffsetRange::decode_beam(&negative_start).unwrap(),
+        range(-1, 1)
+    );
+    let extreme = range(i64::MIN, i64::MAX);
+    assert_eq!(
+        OffsetRange::decode_beam(&extreme.encode_beam().unwrap()).unwrap(),
+        extreme
+    );
+}
+
+#[test]
+fn beam_offset_range_coder_rejects_invalid_bodies() {
+    for bytes in [
+        vec![],
+        vec![0],
+        vec![0x80],
+        vec![0xff; 11],
+        vec![
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02, 0x00,
+        ],
+        vec![2, 1],
+        vec![0, 1, 2],
+    ] {
+        assert!(
+            OffsetRange::decode_beam(&bytes).is_err(),
+            "accepted {bytes:?}"
+        );
+    }
+    assert!(OffsetRange { start: 2, stop: 1 }.encode_beam().is_err());
+    // Beam's Java VarInt reader accepts an overlong zero representation.
+    assert_eq!(
+        OffsetRange::decode_beam(&[0x80, 0, 1]).unwrap(),
+        range(0, 1)
+    );
+}
+
 fn claim_to_end<T: RestrictionTracker<Position = i64, Restriction = OffsetRange>>(
     tracker: &T,
     start: i64,
