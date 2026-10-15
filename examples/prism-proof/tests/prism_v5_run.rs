@@ -19,7 +19,7 @@ use ironbeam_core::{
 };
 use ironbeam_dataflow::portable_publication::PortablePublicationPlan;
 use ironbeam_dataflow::prepare_v5;
-use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
+use ironbeam_direct::{CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_harness::finalization_journal::FileFinalizationJournal;
 use ironbeam_prism_proof::{
     accumulating_combined_count_fixture, accumulating_count_trigger_stream_fixture,
@@ -5062,6 +5062,47 @@ async fn prism_closes_grouped_window_while_source_remains_idle() {
         &["0..10000000:[7]"],
     )
     .await;
+}
+
+#[tokio::test]
+async fn direct_restores_idle_window_group_after_watermark_checkpoint() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("rows");
+    let pipeline = Pipeline::default();
+    let sink = idle_source_window_group_fixture(&pipeline, path.clone()).unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().join("checkpoint"),
+            binary_build_id: "idle-window-source-build-v1".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let first = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    for _ in 0..100 {
+        if read_open_rows(&path) == ["0..10000000:[7]"]
+            && first
+                .progress()
+                .and_then(|signal| signal.checkpoint_position)
+                == Some(vec![2])
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(read_open_rows(&path), ["0..10000000:[7]"]);
+    assert_eq!(first.progress().unwrap().checkpoint_position, Some(vec![2]));
+    first.cancel();
+    assert_eq!(first.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    let resumed = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(read_open_rows(&path), ["0..10000000:[7]"]);
+    assert_eq!(
+        resumed.progress().unwrap().checkpoint_position,
+        Some(vec![2])
+    );
+    resumed.cancel();
+    assert_eq!(resumed.wait().err().unwrap().kind, ErrorKind::Cancelled);
 }
 
 async fn run_open_sink_fixture(
