@@ -553,8 +553,14 @@ fn idle_multi_source_timer_stops_on_cancellation() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)] // The saved deadline, failed commit, and replay use one fixture.
 fn two_source_timer_recovers_deadline_and_retries_committed_bundle() {
+    for composite in [false, true] {
+        run_two_source_timer_recovery(composite);
+    }
+}
+
+#[allow(clippy::too_many_lines)] // The saved deadline, failed commit, and replay use one fixture.
+fn run_two_source_timer_recovery(composite: bool) {
     let directory = tempfile::tempdir().unwrap();
     let hold = Arc::new(AtomicBool::new(true));
     let fail_once = Arc::new(AtomicBool::new(false));
@@ -626,9 +632,16 @@ fn two_source_timer_recovers_deadline_and_retries_committed_bundle() {
             .unwrap()
             .fixed_windows(&format!("{key}-window"), 10_000_000)
             .unwrap();
-        source
-            .accumulating_processing_time_trigger_named(&format!("{key}-timer"), 5_000_000)
-            .unwrap()
+        if composite {
+            source.accumulating_count_or_processing_time_trigger_named(
+                &format!("{key}-timer"),
+                3,
+                5_000_000,
+            )
+        } else {
+            source.accumulating_processing_time_trigger_named(&format!("{key}-timer"), 5_000_000)
+        }
+        .unwrap()
     };
     let sink = make_source("first", 2)
         .co_group_homogeneous_named("group", &[make_source("second", 4)])
