@@ -94,3 +94,32 @@ fn beam_rows_keep_schema_payload_in_graph_and_direct_bytes() {
 fn beam_row_rejects_values_outside_its_fixed_schema() {
     assert!(BeamRow::<DemoSchema>::new(Row { values: vec![] }).is_err());
 }
+
+#[test]
+fn writer_and_reader_row_schemas_lower_to_distinct_beam_coders() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::beam_row_projection_fixture(
+        &pipeline,
+        directory.path().join("projected-rows.txt"),
+    )
+    .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated =
+        translate_v5(&pipeline, "example.test/ironbeam:v5", "projection-build").unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let payloads = ["beam-projection-build", "beam-projection-project"].map(|name| {
+        let collection = components
+            .pcollections
+            .values()
+            .find(|collection| collection.unique_name == name)
+            .unwrap();
+        let outer = &components.coders[&collection.coder_id];
+        assert_eq!(outer.spec.as_ref().unwrap().urn, urns::CODER_LENGTH_PREFIX);
+        let inner = &components.coders[&outer.component_coder_ids[0]];
+        assert_eq!(inner.spec.as_ref().unwrap().urn, urns::CODER_ROW);
+        inner.spec.as_ref().unwrap().payload.clone()
+    });
+    assert_ne!(payloads[0], payloads[1]);
+}

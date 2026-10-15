@@ -5,6 +5,8 @@ mod row;
 pub use row::*;
 mod row_decimal;
 pub use row_decimal::*;
+mod row_projection;
+pub use row_projection::*;
 include!("object_avro.rs");
 include!("object_parquet.rs");
 include!("multiway_and_batches.rs");

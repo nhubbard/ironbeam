@@ -69,6 +69,18 @@ impl<S: RowSchema> BeamRow<S> {
     pub fn into_row(self) -> Row {
         self.value
     }
+
+    /// Project this row into another fixed schema using the declared writer schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the schemas have incompatible fields or the
+    /// projected row violates the reader schema.
+    pub fn project<T: RowSchema>(&self) -> Result<BeamRow<T>> {
+        let bytes = encode_row(&S::schema(), &self.value)?;
+        let projected = decode_row_evolved(&S::schema(), &T::schema(), &bytes)?;
+        BeamRow::<T>::new(projected)
+    }
 }
 
 impl<S: RowSchema> Element for BeamRow<S> {
