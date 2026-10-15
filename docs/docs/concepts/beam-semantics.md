@@ -34,6 +34,19 @@ This page does not assign a percentage while those tests are incomplete.
 | I/O formats | CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord have separate crates and local format tests. | Wider Avro evolution and portable remote-object execution. |
 | External services | SQL, MongoDB, object storage, and opt-in GCP clients have adapters. | Provider emulator and hosted-service proofs, including streaming commits. |
 
+`BeamShardedKey<String>` and `BeamShardedKey<Vec<u8>>` use the Beam
+sharded-key coder, including non-UTF-8 byte keys. Direct and local Prism have
+reshuffle tests for both key types. Explicit sharded batching produces two
+batches for one hot key in bounded and fixed-window streams; a supervised
+Prism job also recovers while processing that batch callback. Automatic
+sharding remains outside the tested API.
+
+`BeamRow<S>` embeds its writer schema in the graph and uses Beam's row coder.
+An explicit reader schema can add nullable fields, remove fields, or reorder
+compatible fields, including fields inside nested rows, arrays, iterables,
+and maps. The streaming execution proof covers an integer/string projection;
+the wider nested cases have byte-level tests but no streaming runner proof.
+
 Bounded keyed batching can also use encoded-value byte and count limits. The
 byte-limited method rejects unbounded input until a stateful streaming
 implementation exists.
@@ -409,7 +422,9 @@ mutation fixture matches Direct and local Prism, including duplicate
 insertion, removal, clearing, replacement, and unchanged contents. The
 element coder must encode equal values identically. Unbounded membership
 persists across element batches on both runners; Direct checkpoint restart
-and Prism execution-child replacement have separate proofs.
+and Prism execution-child replacement have separate proofs. The pinned
+Python and Java SDKs use different Set-state protocols, so these runner
+tests do not establish cross-SDK Set interoperability.
 
 `stateful_map_map_named` exposes a map for each pipeline key and window.
 It keeps one value per coded map key and supports put, remove, clear, and
