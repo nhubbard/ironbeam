@@ -2200,6 +2200,55 @@ async fn prism_replays_bounded_value_state_after_child_loss() {
 }
 
 #[tokio::test]
+async fn prism_replays_production_unbounded_bag_state_after_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let portable_path = directory.path().join("production-bag");
+    let trigger = directory.path().join("bag-source-reopen-trigger");
+    let killed = directory.path().join("killed-bag-child");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::production_bag_state_fixture(&pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-production-unbounded-bag-state",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_PRODUCTION_BAG_STATE".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism production bag replay failed: {terminal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap()
+    );
+    let mut rows = std::fs::read_dir(&portable_path)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(rows, ["1:7:1", "1:8:3", "1:9:2"]);
+}
+
+#[tokio::test]
 async fn prism_replays_production_unbounded_value_state_after_child_loss() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

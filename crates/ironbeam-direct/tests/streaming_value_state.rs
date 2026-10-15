@@ -1,7 +1,7 @@
 use ironbeam_core::{
-    ElementMetadata, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
-    SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
-    UnboundedBatch, UnboundedPoll, UnboundedSource, Version,
+    BagStateMutation, ElementMetadata, Error, ErrorKind, Pipeline, ProgressSignal, Replay,
+    SinkMode, SinkSpec, SourceProgress, TestStreamEvent, Timestamped, TypedSink,
+    TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll, UnboundedSource, Version,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::HashSet;
@@ -144,6 +144,110 @@ fn global_value_state_recovers_with_source_cursor() {
         assert!(
             Instant::now() < deadline,
             "first stateful batch was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+    assert_eq!(
+        *accepted.lock().unwrap(),
+        HashSet::from([
+            "1:1".to_owned(),
+            "1:2".to_owned(),
+            "1:3".to_owned(),
+            "2:1".to_owned(),
+            "2:2".to_owned(),
+        ])
+    );
+}
+
+#[test]
+fn global_bag_state_recovers_with_source_cursor() {
+    let directory = tempfile::tempdir().unwrap();
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "bag-state-two-batches-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |cursor| {
+                    opens.lock().unwrap().push(cursor.clone());
+                    Ok(Box::new(TwoBatchSource {
+                        cursor,
+                        emitted: false,
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap()
+        .stateful_bag_map_named::<i32, i32>(
+            "count",
+            "tests/global-bag-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior: Vec<i32>| {
+                let count = i32::try_from(prior.len()).unwrap() + 1;
+                Ok((BagStateMutation::Append(vec![value]), count))
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, count)| format!("{key}:{count}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "bag-state-idempotent-capture-v1".into(),
+            {
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(IdempotentCapture {
+                        accepted: Arc::clone(&accepted),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 2,
+            recover: true,
+            binary_build_id: "global-bag-state-test-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        != Some(vec![1])
+    {
+        assert_ne!(job.handle().status(), JobStatus::Failed);
+        assert!(
+            Instant::now() < deadline,
+            "first bag batch was not checkpointed"
         );
         std::thread::sleep(Duration::from_millis(1));
     }

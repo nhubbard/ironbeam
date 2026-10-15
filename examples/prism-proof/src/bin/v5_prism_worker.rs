@@ -938,6 +938,11 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_BAG_STATE") {
+        return ironbeam_prism_proof::production_bag_state_fixture(pipeline, directory.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_FAIL_AFTER_STAGE") {
         return finalization_failure_fixture(pipeline, directory).map_err(Into::into);
     }

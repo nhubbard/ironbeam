@@ -147,12 +147,8 @@ fn production_events_source(pipeline: &Pipeline) -> Result<PCollection<i32>, Err
         )
 }
 
-/// Production unbounded source feeding one keyed value cell and idempotent output.
-pub fn production_value_state_fixture(
-    pipeline: &Pipeline,
-    directory: PathBuf,
-) -> Result<Sink<String>, Error> {
-    let sink_directory = directory.clone();
+/// Replayable production source shared by value and bag state proofs.
+fn production_state_source(pipeline: &Pipeline) -> Result<PCollection<(i32, i32)>, Error> {
     pipeline
         .unbounded_source_with_factory(
             "production-state-events",
@@ -181,7 +177,16 @@ pub fn production_value_state_fixture(
                 Ok(Box::new(ProductionSource([UnboundedPoll::Pending, batch].into()))
                     as TypedUnboundedSourceReader<(i32, i32)>)
             },
-        )?
+        )
+}
+
+/// Production unbounded source feeding one keyed value cell and idempotent output.
+pub fn production_value_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    production_state_source(pipeline)?
         .stateful_value_map_named::<i32, (i32, i32)>(
             "production-state-count",
             "prism-proof/production-key-count-state",
@@ -196,6 +201,31 @@ pub fn production_value_state_fixture(
             "production-state-result",
             SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
             format!("production-value-state:{}", directory.display()),
+            move || Ok(Box::new(IdempotentStateLabelSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
+/// Production unbounded source feeding one keyed bag and idempotent output.
+pub fn production_bag_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    production_state_source(pipeline)?
+        .stateful_bag_map_named::<i32, (i32, i32)>(
+            "production-state-count",
+            "prism-proof/production-key-bag-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior: Vec<i32>| {
+                let count = i32::try_from(prior.len()).expect("fixture bag fits i32") + 1;
+                Ok((BagStateMutation::Append(vec![value]), (value, count)))
+            },
+        )?
+        .map_named("production-state-label", |(key, (value, count))| format!("{key}:{value}:{count}"))?
+        .sink_named_with_config(
+            "production-state-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("production-bag-state:{}", directory.display()),
             move || Ok(Box::new(IdempotentStateLabelSink { directory: sink_directory.clone(), pending: Vec::new() })),
         )
 }

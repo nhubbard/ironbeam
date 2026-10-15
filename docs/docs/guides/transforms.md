@@ -356,4 +356,7 @@ The Direct runner saves coded bag contents with the source cursor. The
 portable worker encodes each item with the declared Beam bag element coder
 and uses Fn State under the current bundle instruction. An unbounded
 TestStream with two keys and two element batches produces the same five
-counts on Direct and local Prism. The operation has no timer callback.
+counts on Direct and local Prism. A production unbounded source retains its
+bag contents after Prism replaces a failed execution child and reopens the
+source residual. Direct resumes its bag and source cursor from a checkpoint.
+The operation has no timer callback.
