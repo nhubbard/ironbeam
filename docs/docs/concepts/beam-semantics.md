@@ -202,6 +202,12 @@ same value consistently. Shared bounded and watermarked Direct/Prism jobs
 check the chosen values and group timestamps in two fixed windows. The older
 `distinct_by_named` retains its encounter-order behavior for local use.
 
+`distinct_per_window_named` can emit one result in an on-time pane and the
+same value again in a late pane when allowed lateness keeps the window open.
+Direct and local Prism agree on a tested two-late-element schedule. A
+supervised Prism test kills the execution child while processing that late
+pane; the replacement commits the on-time and late rows once each.
+
 Grouping may retain all values for a key and window until the window closes.
 For a large key, this can use substantially more memory than an incremental
 combiner. The supported keyed fold and combine operations describe a reducer
