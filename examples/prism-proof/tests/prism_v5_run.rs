@@ -58,7 +58,7 @@ use ironbeam_prism_proof::{
     homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
     invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
     late_count_fixture, late_count_join_fixture, late_count_join_kind_collection,
-    late_count_join_kind_fixture, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
+    late_count_join_kind_fixture, late_keyed_batches_fixture, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
     latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, mixed_flatten_collection,
     mixed_flatten_fixture, mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
     offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
@@ -7673,6 +7673,27 @@ async fn prism_emits_full_and_final_partial_unbounded_keyed_batches() {
             "windowed: {windowed}; upstream trigger: {upstream_trigger}"
         );
     }
+}
+
+#[tokio::test]
+async fn prism_flushes_late_keyed_batches_at_the_batch_count() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("late-batches.txt");
+    let pipeline = Pipeline::default();
+    late_keyed_batches_fixture(&pipeline, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "late-keyed-batches",
+        HashMap::from([("IRONBEAM_V5_PRISM_LATE_KEYED_BATCHES".into(), path.to_string_lossy().into_owned())]),
+    ).await;
+    assert_eq!(terminal.0, 3, "late keyed batch job state: {terminal:?}");
+    let rows = std::fs::read_to_string(path).unwrap().lines().map(str::to_owned).collect::<Vec<_>>();
+    assert_eq!(rows, ["a:[2, 3]:Early:true:false:0:-1", "a:[4, 5]:Late:false:false:1:0"]);
 }
 
 #[tokio::test]

@@ -418,6 +418,60 @@ fn keyed_batch_overrides_an_upstream_accumulating_count_trigger() {
 }
 
 #[test]
+fn keyed_batches_flush_late_values_at_their_own_count() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "values",
+            vec![
+                TestStreamEvent::Elements(vec![(("a".to_owned(), 2_i32), 1_000_000), (("a".to_owned(), 3), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![(("a".to_owned(), 4), 3_000_000), (("a".to_owned(), 5), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .accumulating_early_and_late_count_trigger_named("upstream", 1, 1)
+        .unwrap()
+        .group_into_batches_named("batches", 2)
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (key, values))| format!(
+            "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+            pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+        ))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            "late-keyed-batches-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || Ok(Box::new(Capture {
+                    committed: Arc::clone(&committed),
+                    accepted: Arc::clone(&accepted),
+                    staged: Vec::new(),
+                    bundle: None,
+                }))
+            },
+        )
+        .unwrap();
+    DirectRunner.start_stream_sink(&sink, &JobConfig::default()).unwrap().wait().unwrap();
+    assert_eq!(committed.lock().unwrap().as_slice(), [
+        "a:[2, 3]:Early:true:false:0:-1",
+        "a:[4, 5]:Late:false:false:1:0",
+    ]);
+}
+
+#[test]
 fn keyed_batches_flush_on_either_time_or_count() {
     let rows = run_count_or_time_keyed_batches(vec![
         TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000)]),

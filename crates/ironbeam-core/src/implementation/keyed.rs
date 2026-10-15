@@ -473,14 +473,24 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         // transform. An upstream trigger (including an accumulating one) can
         // otherwise emit partial or repeated batches before the limit.
         let parent = self.parent()?;
+        let count = u64::try_from(limit)
+            .map_err(|_| Error::graph(key, "batch size exceeds count trigger range"))?;
         let input = match (parent.boundedness, delay_ns) {
-            (Boundedness::Unbounded, None) => self.early_count_trigger_named(
-                &format!("{key}/count-trigger"),
-                u64::try_from(limit).map_err(|_| Error::graph(key, "batch size exceeds count trigger range"))?,
-            )?,
+            (Boundedness::Unbounded, None) if parent.time.allowed_lateness_ns > 0 => self
+                .early_and_late_count_trigger_named(
+                    &format!("{key}/count-trigger"),
+                    count,
+                    count,
+                )?,
+            (Boundedness::Unbounded, None) => {
+                self.early_count_trigger_named(&format!("{key}/count-trigger"), count)?
+            }
+            (Boundedness::Unbounded, Some(_)) if parent.time.allowed_lateness_ns > 0 => {
+                return Err(Error::graph(key, "count-or-time batches with allowed lateness require a late trigger policy"));
+            }
             (_, Some(delay_ns)) => self.count_or_processing_time_trigger_named(
                 &format!("{key}/count-or-time-trigger"),
-                u64::try_from(limit).map_err(|_| Error::graph(key, "batch size exceeds count trigger range"))?,
+                count,
                 delay_ns,
             )?,
             (Boundedness::Bounded, None) => self.clone(),

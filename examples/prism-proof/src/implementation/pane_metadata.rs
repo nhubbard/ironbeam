@@ -304,7 +304,7 @@ fn global_count_values(pipeline: &Pipeline) -> Result<PCollection<(String, i32)>
 
 /// An unbounded keyed batch emits at the count threshold and flushes its tail.
 pub fn global_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
-    keyed_batches_collection(pipeline, false, false)
+    keyed_batches_collection(pipeline, false, false, false)
 }
 
 pub fn timed_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
@@ -357,11 +357,24 @@ pub fn timed_keyed_batches_fixture(
 }
 
 pub fn windowed_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
-    keyed_batches_collection(pipeline, true, false)
+    keyed_batches_collection(pipeline, true, false, false)
 }
 
-fn keyed_batches_collection(pipeline: &Pipeline, windowed: bool, upstream_trigger: bool) -> Result<PCollection<String>, Error> {
-    let source = if windowed {
+fn keyed_batches_collection(pipeline: &Pipeline, windowed: bool, upstream_trigger: bool, late: bool) -> Result<PCollection<String>, Error> {
+    let source = if late {
+        pipeline.test_stream_source(
+            "global-count-source",
+            vec![
+                TestStreamEvent::Elements(vec![(("a".to_owned(), 2_i32), 1_000_000), (("a".to_owned(), 3), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![(("a".to_owned(), 4), 3_000_000), (("a".to_owned(), 5), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )?
+        .fixed_windows("global-batches-window", 10_000_000)?
+        .allowed_lateness_named("global-batches-lateness", 5_000_000)?
+        .accumulating_early_and_late_count_trigger_named("upstream-count", 1, 1)?
+    } else if windowed {
         pipeline.test_stream_source(
             "global-count-source",
             vec![
@@ -401,26 +414,30 @@ pub fn global_keyed_batches_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    keyed_batches_fixture(pipeline, path, false, false)
+    keyed_batches_fixture(pipeline, path, false, false, false)
 }
 
 pub fn global_keyed_batches_with_upstream_trigger_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    keyed_batches_fixture(pipeline, path, false, true)
+    keyed_batches_fixture(pipeline, path, false, true, false)
+}
+
+pub fn late_keyed_batches_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    keyed_batches_fixture(pipeline, path, true, false, true)
 }
 
 pub fn windowed_keyed_batches_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    keyed_batches_fixture(pipeline, path, true, false)
+    keyed_batches_fixture(pipeline, path, true, false, false)
 }
 
-fn keyed_batches_fixture(pipeline: &Pipeline, path: PathBuf, windowed: bool, upstream_trigger: bool) -> Result<Sink<String>, Error> {
+fn keyed_batches_fixture(pipeline: &Pipeline, path: PathBuf, windowed: bool, upstream_trigger: bool, late: bool) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
-    keyed_batches_collection(pipeline, windowed, upstream_trigger)?.sink_named_with_config(
+    keyed_batches_collection(pipeline, windowed, upstream_trigger, late)?.sink_named_with_config(
         "global-batches-capture",
         SinkSpec {
             mode: SinkMode::Append,

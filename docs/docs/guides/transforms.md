@@ -87,7 +87,10 @@ must be greater than zero and smaller than `i64::MAX`; invalid sizes fail
 while the graph is built. For an unbounded input, Ironbeam sets a discarding
 count trigger at the requested size. It replaces any earlier trigger on the
 input so a smaller count or accumulating policy cannot emit partial or repeated
-batches. A final pane can contain fewer values than the requested size.
+batches. When the input allows late data, the helper uses the same count for
+late firings. A final pane can contain fewer values than the requested size.
+The count-or-processing-time batching method rejects unbounded input with
+allowed lateness until it can preserve a late firing policy as well.
 Batch membership can depend on arrival and firing order after a shuffle.
 Each output batch receives the earliest event timestamp among the values in
 that batch. A later batch in the same key and window can therefore have a
