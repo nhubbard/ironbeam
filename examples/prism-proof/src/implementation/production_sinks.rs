@@ -15,7 +15,9 @@ impl TypedSink<(i64, i32)> for IdempotentValueSink {
         value: (i64, i32),
         metadata: ElementMetadata,
     ) -> Result<(), Error> {
-        if !matches!(metadata.window, Window::Fixed { .. }) || metadata.timestamp_ns != value.0 {
+        if !matches!(metadata.window, Window::Fixed { .. } | Window::Sliding { .. })
+            || metadata.timestamp_ns != value.0
+        {
             return Err(Error::incompatible(
                 "production fixture has wrong event-time metadata",
             ));

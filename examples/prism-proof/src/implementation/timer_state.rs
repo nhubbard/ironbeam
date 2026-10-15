@@ -191,22 +191,52 @@ pub fn streaming_windowed_timer_hold_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
+    windowed_timer_hold_fixture(pipeline, directory, false)
+}
+
+/// One event in two overlapping sliding windows, each with its own timer.
+pub fn streaming_sliding_timer_hold_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<(i64, i32)>, Error> {
+    windowed_timer_hold_fixture(pipeline, directory, true)
+}
+
+fn windowed_timer_hold_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    sliding: bool,
+) -> Result<Sink<(i64, i32)>, Error> {
     let sink_directory = directory.clone();
-    pipeline
-        .test_stream_source(
-            "windowed-timer-source",
-            vec![
-                TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0), ((1, 4), 20_000_000)]),
-                TestStreamEvent::AdvanceWatermark(30_000_000),
-            ],
-        )?
-        .fixed_windows("windowed-timer-assign", 10_000_000)?
+    let events = if sliding {
+        vec![
+            TestStreamEvent::Elements(vec![((1_i32, 3_i32), 7_000_000)]),
+            TestStreamEvent::AdvanceWatermark(20_000_000),
+        ]
+    } else {
+        vec![
+            TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0), ((1, 4), 20_000_000)]),
+            TestStreamEvent::AdvanceWatermark(30_000_000),
+        ]
+    };
+    let source = pipeline.test_stream_source("windowed-timer-source", events)?;
+    let windowed = if sliding {
+        source.sliding_windows("windowed-timer-assign", 10_000_000, 5_000_000, 0)?
+    } else {
+        source.fixed_windows("windowed-timer-assign", 10_000_000)?
+    };
+    let semantic_id = if sliding {
+        "prism-proof/sliding-timer-hold"
+    } else {
+        "prism-proof/windowed-timer-hold"
+    };
+    windowed
         .stateful_timer_map_named::<i32, (i64, i32)>(
             "windowed-timer-state",
-            "prism-proof/windowed-timer-hold",
+            semantic_id,
             Version { major: 1, minor: 0 },
             BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
-            |_, value, _, metadata| {
+            move |_, value, _, metadata| {
                 let window = metadata
                     .assigned_window
                     .ok_or_else(|| Error::incompatible("windowed timer has no interval"))?;
@@ -216,24 +246,49 @@ pub fn streaming_windowed_timer_hold_fixture(
                     timers: vec![UserTimerRequest::Set {
                         family_id: "event".into(),
                         dynamic_tag: "flush".into(),
-                        fire_timestamp_ns: window.start_ns + 5_000_000,
-                        output_timestamp_ns: Some(window.start_ns + 2_000_000),
+                        fire_timestamp_ns: if sliding {
+                            window.end_ns - 1_000_000
+                        } else {
+                            window.start_ns + 5_000_000
+                        },
+                        output_timestamp_ns: Some(if sliding {
+                            7_000_000
+                        } else {
+                            window.start_ns + 2_000_000
+                        }),
                     }],
                 })
             },
-            |_, state, event| {
+            move |_, state, event| {
                 let window = event
                     .window
                     .ok_or_else(|| Error::incompatible("windowed timer firing has no interval"))?;
-                let hold = window.start_ns + 2_000_000;
-                if event.fire_timestamp_ns != window.start_ns + 5_000_000
-                    || event.output_timestamp_ns != hold
-                {
+                let hold = if sliding {
+                    7_000_000
+                } else {
+                    window.start_ns + 2_000_000
+                };
+                let fire = if sliding {
+                    window.end_ns - 1_000_000
+                } else {
+                    window.start_ns + 5_000_000
+                };
+                if event.fire_timestamp_ns != fire || event.output_timestamp_ns != hold {
                     return Err(Error::incompatible("windowed timer metadata differs"));
                 }
                 Ok(TimedStateResult {
                     state: None,
-                    outputs: state.into_iter().map(|value| (hold, value)).collect(),
+                    outputs: state
+                        .into_iter()
+                        .map(|value| {
+                            let value = if sliding {
+                                value + i32::try_from(window.start_ns / 5_000_000).unwrap()
+                            } else {
+                                value
+                            };
+                            (hold, value)
+                        })
+                        .collect(),
                     timers: Vec::new(),
                 })
             },

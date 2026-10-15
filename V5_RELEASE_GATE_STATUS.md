@@ -293,6 +293,10 @@ output timestamps and interval bounds. The focused live test and strict
 Prism-proof lint pass; this does not cover timer behavior under nonzero
 allowed lateness or window merging.
 
+A second live job assigns one event to two overlapping sliding windows.
+Each window arms its own timer; Direct and Prism commit the same two rows
+with the shared seven-millisecond output hold and distinct interval bounds.
+
 | Required execution boundary | Direct | Portable worker |
 | --- | --- | --- |
 | Element callback schedules or clears a keyed timer | Implemented for the single-route unbounded stream path, with atomic timer mutations and coded state checkpointed with source progress. | A fake runner receives the element's set record on the declared family stream; local Prism fires the same event timer. |
