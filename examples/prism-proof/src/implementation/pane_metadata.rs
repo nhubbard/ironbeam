@@ -1,5 +1,48 @@
 struct PaneCheckingSink(GlobalFoldSink<String>);
 
+pub fn count_then_processing_time_trigger_collection(
+    pipeline: &Pipeline,
+    accumulating: bool,
+) -> Result<PCollection<String>, Error> {
+    let values = pipeline
+        .test_stream_source(
+            "count-then-time-events",
+            vec![
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000), (('a'.to_string(), 3), 2_000_000)]),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 4), 3_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::AdvanceProcessingTime(1_000_000),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("count-then-time-windows", 10_000_000)?;
+    let values = if accumulating {
+        values.accumulating_count_then_processing_time_trigger_named("count-then-time-trigger", 2, 5_000_000)?
+    } else {
+        values.count_then_processing_time_trigger_named("count-then-time-trigger", 2, 5_000_000)?
+    };
+    values
+        .group_by_key_named("count-then-time-group")?
+        .reify_panes_named("count-then-time-pane")?
+        .map_named("count-then-time-row", |(pane, (key, values))| {
+            format!("group:{key}:{values:?}:{:?}:{}:{}:{}:{}", pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index)
+        })
+}
+
+pub fn count_then_processing_time_trigger_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    count_then_processing_time_trigger_collection(pipeline, accumulating)?.sink_named_with_config(
+        "count-then-time-result",
+        SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+        format!("count-then-time-result:{accumulating}:{}", directory.display()),
+        move || Ok(Box::new(IdempotentRowSink { directory: sink_directory.clone(), pending: Vec::new() })),
+    )
+}
+
 pub fn count_and_processing_time_trigger_collection(
     pipeline: &Pipeline,
     accumulating: bool,

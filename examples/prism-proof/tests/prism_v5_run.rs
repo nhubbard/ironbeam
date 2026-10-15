@@ -31,19 +31,19 @@ use ironbeam_prism_proof::{
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
     bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_and_processing_time_trigger_collection,
-    count_and_processing_time_trigger_fixture, count_trigger_stream_fixture, dead_letter_fixture,
-    distinct_window_fixture, dual_count_and_time_cogroup_collection,
-    dual_count_and_time_cogroup_fixture, dual_count_or_time_cogroup_fixture,
-    dual_late_cogroup_collection, dual_late_cogroup_fixture, dual_late_count_cogroup_collection,
-    dual_late_count_cogroup_fixture, dual_positive_late_cogroup_fixture,
-    dual_positive_late_full_join_fixture, dual_positive_late_join_time_fixture,
-    dual_processing_time_cogroup_collection, dual_processing_time_cogroup_fixture,
-    dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
-    dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
-    dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
-    dual_unbounded_fanin_output_time_collection, dual_unbounded_fanin_output_time_fixture,
-    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
-    dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    count_and_processing_time_trigger_fixture, count_then_processing_time_trigger_fixture,
+    count_trigger_stream_fixture, dead_letter_fixture, distinct_window_fixture,
+    dual_count_and_time_cogroup_collection, dual_count_and_time_cogroup_fixture,
+    dual_count_or_time_cogroup_fixture, dual_late_cogroup_collection, dual_late_cogroup_fixture,
+    dual_late_count_cogroup_collection, dual_late_count_cogroup_fixture,
+    dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
+    dual_positive_late_join_time_fixture, dual_processing_time_cogroup_collection,
+    dual_processing_time_cogroup_fixture, dual_stream_windowed_side_collection,
+    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_collection,
+    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
+    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_collection,
+    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_collection,
+    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -7065,6 +7065,76 @@ async fn prism_matches_direct_count_and_processing_time_panes() {
         direct.sort();
         portable.sort();
         assert_eq!(portable, direct, "count-and-time panes differ");
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_sequential_count_then_processing_time_panes() {
+    let directory = tempfile::tempdir().unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let endpoint = std::env::var("IRONBEAM_PRISM_ENDPOINT").ok();
+    let _prism_job = prism_job_lock().lock().await;
+    for accumulating in [false, true] {
+        let direct_path = directory.path().join(format!("direct-{accumulating}"));
+        let portable_path = directory.path().join(format!("portable-{accumulating}"));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = count_then_processing_time_trigger_fixture(
+            &direct_pipeline,
+            direct_path.clone(),
+            accumulating,
+        )
+        .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let expected = if accumulating {
+            vec![
+                "group:a:[2, 3, 4]:OnTime:false:true:2:0".to_owned(),
+                "group:a:[2, 3, 4]:Early:false:false:1:-1".to_owned(),
+                "group:a:[2, 3]:Early:true:false:0:-1".to_owned(),
+            ]
+        } else {
+            vec![
+                "group:a:[2, 3]:Early:true:false:0:-1".to_owned(),
+                "group:a:[4]:Early:false:false:1:-1".to_owned(),
+            ]
+        };
+        let mut expected = expected;
+        expected.sort();
+        assert_eq!(read_rows(&direct_path), expected);
+        let Some(endpoint) = endpoint.as_deref() else {
+            continue;
+        };
+        let pipeline = Pipeline::default();
+        count_then_processing_time_trigger_fixture(&pipeline, portable_path.clone(), accumulating)
+            .unwrap();
+        let terminal = run_shared_fixture(
+            endpoint,
+            &pipeline,
+            &format!("count-then-time-{accumulating}"),
+            HashMap::from([
+                (
+                    "IRONBEAM_V5_PRISM_COUNT_THEN_TIME".into(),
+                    portable_path.to_string_lossy().into_owned(),
+                ),
+                (
+                    "IRONBEAM_V5_PRISM_COUNT_THEN_TIME_ACCUMULATING".into(),
+                    if accumulating { "1" } else { "0" }.into(),
+                ),
+            ]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "sequential trigger job state: {terminal:?}");
+        assert_eq!(read_rows(&portable_path), expected);
     }
 }
 
