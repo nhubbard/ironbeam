@@ -28,6 +28,10 @@ fn pipeline() -> Pipeline {
                         start_ms: 20,
                         end_ms: 20,
                     },
+                    -8 => OrderedListStateMutation::ClearRange {
+                        start_ms: 0,
+                        end_ms: 20,
+                    },
                     value => OrderedListStateMutation::Append(i64::from(value), value),
                 };
                 Ok((mutation, seen))
@@ -122,6 +126,16 @@ fn ordered_list_rejects_invalid_updates_without_mutating_cell() {
     assert_eq!(apply(&registry, -4), [10]);
 }
 
+#[test]
+fn ordered_list_clear_range_preserves_entries_below_and_at_upper_bound() {
+    let (_, registry) = pipeline().snapshot().unwrap();
+    assert_eq!(apply(&registry, -10), Vec::<i32>::new());
+    assert_eq!(apply(&registry, 10), [-10]);
+    assert_eq!(apply(&registry, 20), [-10, 10]);
+    assert_eq!(apply(&registry, -8), [-10, 10, 20]);
+    assert_eq!(apply(&registry, -4), [-10, 20]);
+}
+
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct Uncoded;
 
@@ -131,7 +145,7 @@ impl Element for Uncoded {
 }
 
 #[test]
-fn ordered_list_requires_coders_and_default_nonmerging_windows() {
+fn ordered_list_requires_coded_inputs_and_outputs() {
     let pipeline = Pipeline::default();
     let pairs = pipeline.from_vec("pairs", vec![(1_i32, 1_i32)]).unwrap();
     assert!(
@@ -180,6 +194,12 @@ fn ordered_list_requires_coders_and_default_nonmerging_windows() {
             )
             .is_err()
     );
+}
+
+#[test]
+fn ordered_list_requires_default_nonmerging_windows() {
+    let pipeline = Pipeline::default();
+    let pairs = pipeline.from_vec("pairs", vec![(1_i32, 1_i32)]).unwrap();
     assert!(
         pairs
             .stateful_ordered_list_map_named::<i32, i32>(

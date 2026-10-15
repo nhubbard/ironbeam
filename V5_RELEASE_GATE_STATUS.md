@@ -262,7 +262,7 @@ unbounded global cell with its source cursor. The harness reads and replaces
 Beam ordered-list Fn State entries inside one bundle; a fake-runner test
 checks range-scoped read and clear, base-key append, and wire bytes. Bounded
 mutations and two-batch fixed-window cells agree on Direct and pinned local
-Prism. A production unbounded source retains the cell after the supervised
+Prism; the bounded fixture includes a negative millisecond sort key. A production unbounded source retains the cell after the supervised
 execution child is replaced and its residual reopens. Prism may process the
 two residual values in either order, so that fixture checks both corresponding
 sorted-state observations. The pinned Prism build panics if a worker clears an ordered-list cell

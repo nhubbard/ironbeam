@@ -477,7 +477,8 @@ example is the amount; event-time ordering instead requires the caller to
 provide an event-time millisecond key. The maximum signed 64-bit sort key is
 reserved because Beam's full-range read uses a half-open upper bound. Direct
 checkpoints the coded list with its source cursor. Bounded mutation and
-unbounded fixed-window fixtures agree with local Prism, and a Direct restart
+unbounded fixed-window fixtures agree with local Prism, including a negative
+sort key in the bounded job. A Direct restart
 test resumes an open list from its checkpoint. A production unbounded Prism
 job retains the list through execution-child replacement; its two residual
 values may arrive in either order. The portable worker reads the current

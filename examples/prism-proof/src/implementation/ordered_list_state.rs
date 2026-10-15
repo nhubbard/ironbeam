@@ -14,7 +14,15 @@ pub fn bounded_ordered_list_fixture(
     pipeline
         .from_vec(
             "ordered-list-input",
-            vec![(1_i32, 20_i32), (1, 10), (2, 30), (1, 10), (1, -1), (1, 15)],
+            vec![
+                (1_i32, 20_i32),
+                (1, -10),
+                (1, 10),
+                (2, 30),
+                (1, 10),
+                (1, -1),
+                (1, 15),
+            ],
         )?
         .stateful_ordered_list_map_named::<i32, (i32, Vec<i32>)>(
             "ordered-list-mutate",
