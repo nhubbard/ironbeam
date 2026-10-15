@@ -476,6 +476,36 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         self.group_into_batches_with_delay(key, batch_size, None)
     }
 
+    /// Assign each keyed value to an explicit Beam shard, then form batches
+    /// per `(key, shard_id)`. The selector must return the same shard bytes
+    /// for a record after retry or checkpoint recovery. Its semantic ID and
+    /// version become part of the graph identity.
+    pub fn group_into_batches_with_sharded_key_named(
+        &self,
+        key: &str,
+        batch_size: usize,
+        shard_semantic_id: &str,
+        shard_version: Version,
+        shard_selector: impl Fn(&K, &V) -> Vec<u8> + Send + Sync + 'static,
+    ) -> Result<PCollection<BeamShardedBatch<K, V>>, Error>
+    where
+        K: BeamPortableKey,
+    {
+        Self::validate_semantic_handler(key, shard_semantic_id, shard_version)?;
+        if !matches!(i64::try_from(batch_size), Ok(size) if size > 0 && size < i64::MAX) {
+            return Err(Error::graph(key, "batch size must be in 1..i64::MAX"));
+        }
+        let sharded = self.flat_map_registered(
+            &format!("{key}/assign-shard"),
+            Some((shard_semantic_id, shard_version)),
+            move |(user_key, value)| {
+                let shard_id = shard_selector(&user_key, &value);
+                Ok(vec![(BeamShardedKey::new(user_key, shard_id), value)])
+            },
+        )?;
+        sharded.group_into_batches_named(key, batch_size)
+    }
+
     fn group_into_batches_with_delay(
         &self,
         key: &str,

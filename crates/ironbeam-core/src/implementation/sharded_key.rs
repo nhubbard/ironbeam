@@ -55,6 +55,9 @@ pub struct BeamShardedKey<K> {
     pub shard_id: Vec<u8>,
 }
 
+/// One batch associated with a user key and an opaque shard identifier.
+pub type BeamShardedBatch<K, V> = (BeamShardedKey<K>, Vec<V>);
+
 impl<K> BeamShardedKey<K> {
     #[must_use]
     pub const fn new(key: K, shard_id: Vec<u8>) -> Self {

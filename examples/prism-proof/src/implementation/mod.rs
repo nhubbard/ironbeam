@@ -11,6 +11,8 @@ mod row_projection;
 pub use row_projection::*;
 mod sharded_key;
 pub use sharded_key::*;
+mod sharded_batches;
+pub use sharded_batches::*;
 include!("object_avro.rs");
 include!("object_parquet.rs");
 include!("tfrecord_source.rs");

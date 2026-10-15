@@ -36,6 +36,32 @@ the graph fingerprint.
 
 A test sends this value through a reshuffle on Direct and the pinned local
 Prism runner. It verifies that both runners preserve the user key and shard
-identifier. The [Beam semantics inventory](../concepts/beam-semantics.md)
-tracks the separate work needed for automatic sharding and stateful,
-byte-limited streaming batches.
+identifier.
+
+## Form batches on explicit shards
+
+`group_into_batches_with_sharded_key_named` applies a shard selector before
+the keyed batch transform. The selector receives a user key and value and
+returns opaque shard bytes. Its semantic ID and version identify that choice
+in the graph. A retry must choose the same shard for the same record.
+
+```rust
+use ironbeam_core::Version;
+
+let batches = keyed.group_into_batches_with_sharded_key_named(
+    "account-batches",
+    100,
+    "myapp/account-shard",
+    Version { major: 1, minor: 0 },
+    |_, event| vec![event.partition_id],
+)?;
+```
+
+Each output key is a `BeamShardedKey<K>` containing the original user key and
+the selected shard ID. The batch size applies separately to every key and
+shard. The helper expands into ordinary portable elementwise, grouping, and
+batching transforms; it does not require a special runner operation. A bounded
+fixture with two shards of one hot key produces the same batches on Direct and
+the pinned local Prism runner. Streaming shard assignment and byte-limited
+batches need further runner proofs. The
+[Beam semantics inventory](../concepts/beam-semantics.md) tracks those cases.
