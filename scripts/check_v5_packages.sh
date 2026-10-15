@@ -136,7 +136,9 @@ for package in "${packages[@]}"; do
       patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-io-jsonl|ironbeam-io-protobuf|ironbeam-io-tfrecord|ironbeam-io-csv|ironbeam-io-xml|ironbeam-io-msgpack|ironbeam-io-cbor|ironbeam-io-avro)
       patches=("${compression_patch[@]}" "${cloud_objects_patch[@]}" "${cloud_service_api_patch[@]}" "${cloud_fakes_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
-    ironbeam-io-parquet|ironbeam-io-arrow)
+    ironbeam-io-parquet)
+      patches=("${cloud_objects_patch[@]}" "${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
+    ironbeam-io-arrow)
       patches=("${core_patch[@]}" "${direct_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"") ;;
     ironbeam-compat)
       patches=("${core_patch[@]}" "${direct_patch[@]}" "${transforms_patch[@]}" "${regex_patch[@]}" "${approx_patch[@]}" --config "patch.crates-io.ironbeam-io.path=\"$root/crates/ironbeam-io\"" --config "patch.crates-io.ironbeam-io-tfrecord.path=\"$root/crates/ironbeam-io-tfrecord\"") ;;
