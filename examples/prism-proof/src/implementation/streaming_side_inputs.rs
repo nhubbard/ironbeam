@@ -235,7 +235,7 @@ pub fn triple_stream_windowed_wait_fixture(
     )
 }
 
-/// One watermarked main stream and two differently typed bounded signals.
+/// Three independent watermarked sources with differently typed signals.
 pub fn heterogeneous_windowed_wait_collection(
     pipeline: &Pipeline,
 ) -> Result<PCollection<String>, Error> {
@@ -250,12 +250,28 @@ pub fn heterogeneous_windowed_wait_collection(
         )?
         .fixed_windows("heterogeneous-wait-main-window", 2_000_000)?;
     let text = pipeline
-        .from_vec("heterogeneous-wait-text", vec!["ready".to_owned()])?
+        .test_stream_source(
+            "heterogeneous-wait-text",
+            vec![
+                TestStreamEvent::Elements(vec![(10_i32, 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+            ],
+        )?
         .fixed_windows("heterogeneous-wait-text-window", 2_000_000)?
+        .map_named("heterogeneous-wait-text-value", |_| "ready".to_owned())?
         .windowed_wait_signal_named("heterogeneous-wait-text-marker")?;
     let flag = pipeline
-        .from_vec("heterogeneous-wait-flag", vec![true])?
+        .test_stream_source(
+            "heterogeneous-wait-flag",
+            vec![
+                TestStreamEvent::Elements(vec![(20_i32, 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+            ],
+        )?
         .fixed_windows("heterogeneous-wait-flag-window", 2_000_000)?
+        .map_named("heterogeneous-wait-flag-value", |_| true)?
         .windowed_wait_signal_named("heterogeneous-wait-flag-marker")?;
     main.wait_on_windowed_signals_named("heterogeneous-wait-barrier", &[text, flag])?
         .reify_timestamps_named("heterogeneous-wait-time")?

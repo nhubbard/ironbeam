@@ -187,8 +187,8 @@ fixed-window test, including windows without signal elements.
 For signals with different element types, convert each collection with
 `windowed_wait_signal_named` and pass the handles to
 `wait_on_windowed_signals_named`. This also uses one keyed co-group. A shared
-job checks a watermarked main stream against text and Boolean signals on
-Direct and local Prism.
+job checks three independently watermarked sources on Direct and local Prism.
+The two signal branches carry text and Boolean values after their sources.
 
 ```rust
 let ready = main.wait_on_all_windowed_named(

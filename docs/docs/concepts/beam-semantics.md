@@ -192,8 +192,9 @@ Direct and local Prism.
 
 `wait_on_windowed_signals_named` accepts handles converted from signals of
 different element types with `windowed_wait_signal_named`. Its shared job
-matches Direct and Prism with one watermarked main stream and bounded text and
-Boolean signals, including an empty signal window. Each handle discards the
+matches Direct and Prism with three independently watermarked sources whose
+signal branches carry text and Boolean values, including an empty signal
+window. Each handle discards the
 signal values but retains its windows and source progress. A window without
 signal elements also closes when its watermark advances. This windowed barrier
 uses a co-group, so it can
