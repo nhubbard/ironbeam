@@ -120,8 +120,12 @@ enable `ironbeam-io-avro`'s `cloud` feature and
 `object_stores_from_env()` and pass a `gs://bucket/key.avro` URI. The hosted
 adapter uses the `object_store` GCS client and Application Default
 Credentials. The separate `ironbeam-cloud-gcp` client does not itself
-implement this registry's `ObjectIO` contract. A portable worker still needs
-its own provider binding and credential proof. The root `cloud` feature
+implement this registry's `ObjectIO` contract. A local Prism fixture now
+rebuilds the same `file://` provider binding in the worker and reads an Avro
+object with a reader schema that adds a defaulted field. Direct and Prism
+produce the same decoded rows. A worker using `gs://` still needs its own
+GCS provider configuration, credentials, and a controlled service proof. The
+root `cloud` feature
 forwards to Avro's `cloud` feature when `v5-io-avro` is also enabled. With an
 enabled compression feature, object names such as `records.avro.gz` are
 decoded before Avro schema resolution.

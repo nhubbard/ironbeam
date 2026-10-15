@@ -23,9 +23,8 @@ use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_harness::finalization_journal::FileFinalizationJournal;
 use ironbeam_prism_proof::{
     accumulating_count_trigger_stream_fixture, accumulating_late_count_fixture,
-    accumulating_late_join_fixture,
-    accumulating_latest_count_trigger_stream_fixture, allowed_lateness_fixture,
-    bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
+    accumulating_late_join_fixture, accumulating_latest_count_trigger_stream_fixture,
+    allowed_lateness_fixture, bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
@@ -62,21 +61,21 @@ use ironbeam_prism_proof::{
     pane_metadata_fixture_for, pane_metadata_fixture_with_accumulating_count,
     pane_metadata_fixture_with_trigger, panicking_global_combine_fixture,
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
-    partition_fixture, production_join_cogroup_fixture, production_stream_fixture,
-    session_group_fixture, shared_accumulating_late_cogroup_collection,
-    shared_accumulating_late_cogroup_fixture, shared_unbounded_homogeneous_cogroup_collection,
-    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
-    sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
-    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
-    streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
-    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
-    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
-    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
-    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
-    PRODUCTION_AVRO_SCHEMA,
+    partition_fixture, portable_object_avro_collection, portable_object_avro_fixture,
+    production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
+    shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
+    shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
+    side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
+    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
+    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
+    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
+    streaming_windowed_side_input_fixture, triple_unbounded_flatten_collection,
+    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
+    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
+    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -4033,10 +4032,7 @@ async fn prism_matches_direct_shared_accumulating_late_cogroup_values_and_indice
         .unwrap()
         .wait()
         .unwrap();
-    let expected = [
-        "a:[[2], [4], []]:OnTime:0",
-        "a:[[2, 3, 5], [4], []]:Late:1",
-    ];
+    let expected = ["a:[[2], [4], []]:OnTime:0", "a:[[2, 3, 5], [4], []]:Late:1"];
     assert_eq!(*direct_rows.lock().unwrap(), expected);
 
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
@@ -4057,13 +4053,100 @@ async fn prism_matches_direct_shared_accumulating_late_cogroup_values_and_indice
         )]),
     )
     .await;
-    assert_eq!(terminal.0, 3, "Prism accumulating fan-in state: {terminal:?}");
+    assert_eq!(
+        terminal.0, 3,
+        "Prism accumulating fan-in state: {terminal:?}"
+    );
     let rows = std::fs::read_to_string(path)
         .unwrap()
         .lines()
         .map(str::to_owned)
         .collect::<Vec<_>>();
     assert_eq!(rows, expected);
+}
+
+#[tokio::test]
+async fn prism_reads_provider_bound_avro_with_a_defaulted_reader_field() {
+    let directory = tempfile::tempdir().unwrap();
+    let object_root = directory.path().join("objects");
+    let seed_path = directory.path().join("seed.avro");
+    let seed = Pipeline::default()
+        .from_vec(
+            "object-avro-seed",
+            vec![
+                ProductionAvroRow {
+                    id: 6,
+                    label: "first".into(),
+                },
+                ProductionAvroRow {
+                    id: 7,
+                    label: "second".into(),
+                },
+            ],
+        )
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &ironbeam_io_avro::avro_sink(
+                &seed,
+                "object-avro-seed-sink",
+                &seed_path,
+                PRODUCTION_AVRO_SCHEMA,
+            )
+            .unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let mut stores = ObjectStores::new();
+    stores
+        .register("file", LocalObjectIO::new(&object_root).unwrap())
+        .unwrap();
+    stores
+        .write(
+            "file://bucket/input/rows.avro",
+            &std::fs::read(seed_path).unwrap(),
+        )
+        .unwrap();
+    let direct_pipeline = Pipeline::default();
+    let direct = portable_object_avro_collection(&direct_pipeline, &object_root)
+        .unwrap()
+        .output("object-avro-direct-output")
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(direct, ["6:first:5", "7:second:5"]);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let path = directory.path().join("object-avro-result.txt");
+    let portable = Pipeline::default();
+    portable_object_avro_fixture(&portable, &object_root, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "provider-bound-avro",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_AVRO_ROOT".into(),
+                object_root.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_AVRO_RESULT".into(),
+                path.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "portable object Avro job: {terminal:?}");
+    assert_eq!(
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        ["6:first:5", "7:second:5"]
+    );
 }
 
 #[tokio::test]
