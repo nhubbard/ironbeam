@@ -567,5 +567,7 @@ With no explicit output timestamp, an event timer uses its fire time; a
 processing-time timer uses the input timestamp as its output timestamp. The
 current callback execution path is available on Direct for one unbounded
 route with default global, fixed, or sliding windows and zero allowed
-lateness. Beam lowering records the timer families, but the portable worker
-does not yet execute their callbacks.
+lateness. Beam lowering records the timer families, and the portable worker
+executes them through Fn State and Fn Data. Global-window event- and
+processing-time timers have matching Direct and pinned local Prism fixtures.
+Worker replacement during timer firing needs further tests.
