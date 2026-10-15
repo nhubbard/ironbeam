@@ -183,6 +183,28 @@ would hide the difference between a declared state spec and a working
 stateful pipeline. The target remains open until the missing behaviors have
 executable fixtures and a documented weighting method.
 
+### Portable wire-surface audit
+
+This table groups the standard transform and coder families in the pinned
+`beam_runner_api.proto`. An Ironbeam helper that expands into portable
+primitives can satisfy a semantic contract without emitting the corresponding
+composite URN. Naming a URN or serializing its payload does not prove that
+the worker can execute it.
+
+| Beam family | Current v5 execution | Next proof needed |
+| --- | --- | --- |
+| `ParDo`, `Flatten`, `GroupByKey`, `Impulse`, `WindowInto`, `TestStream`, `Reshuffle` | Stateless elementwise work, source setup, fanout, shuffle, window assignment, and tested stream schedules run through Direct and pinned Prism. | Broader fusion, pane, and multi-source schedules; executable user state and timers within `ParDo`. |
+| `MapWindows`, `MergeWindows` | Global and identity side-input window mapping plus keyed session merging have tested cases. | General side-window mapping, merging with late panes, and exact multi-source session behavior. |
+| `CombinePerKey`, `CombineGlobally`, and lifted combine components | Ironbeam uses registered folds and portable grouping rather than native combine URNs. Tested outputs and timestamps cover the documented fold corpus. | Portable accumulator merging and compact hot-key execution without full group materialization. |
+| SDF pair, split/size, process, and truncate | The first three stages execute for one-split resumable sources. `OffsetRangeTracker` supplies a claim/split/progress contract and Beam Java-compatible restriction bytes. | Execute registered user functions with offset restrictions, deliver dynamic splits and timer/watermark state, and prove drain through `sdf_truncate_sized_restrictions:v1`. |
+| Native `GroupIntoBatches` and sharded-key batching | Count and buffering-time helpers expand to grouping and Beam triggers; tested Direct and Prism cases agree. | Stateful byte-limited unbounded batches, hot-key sharding, and a recovery proof. Native URN emission is optional if the expansion preserves behavior. |
+| `WriteFiles`, Pub/Sub read/write, and provider operations | Format-specific worker sinks and provider-neutral/GCP clients exist. Local provider object I/O has portable jobs. | Portable service source and sink bindings, worker re-creation, and replay-safe publication under a controlled service or emulator. |
+| Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. Timer records and Fn State access have codec tests; state-backed iterables can be read from runner state. | Executable timer callbacks and state mutation, schema-coder and sharded-key jobs, and cross-SDK row evolution cases. |
+
+These are evidence categories, not equal-sized percentage points. A scored
+99% claim still requires per-case inventory, runner agreement, and an explicit
+weight for each user-visible behavior.
+
 The RowCoder date, time, and UUID wire tests also have a bounded execution
 fixture. It crosses a reshuffle boundary and matches decoded values on Direct
 and pinned local Prism. This proves these three logical representations in a
@@ -197,6 +219,10 @@ also encodes and decodes the two signed VarInts used by the pinned Java Beam
 coder, including negative boundaries and malformed bytes. It is not yet
 registered as an executable splittable transform on either runner, so the
 splittable-processing parity row remains open.
+The Linux core coverage job for commit `cb5399e` passed its unchanged floor:
+**5342/5547 source lines (96.30%)** and **1078/1242 source branches (86.80%)**.
+Its strict Clippy job also passed. Other PR jobs were still running when this
+measurement was recorded.
 
 The provider-neutral Pub/Sub extension contract now exposes acknowledgment
 IDs separately from message IDs. Its in-memory provider delivers published
