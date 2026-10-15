@@ -155,13 +155,12 @@ needs an explicit order key; equal keys are rejected where the operation
 requires a total order. Direct can preserve encounter order for its local
 variant, but that local behavior is not a portable ordering guarantee.
 
-`distinct_by_per_window_named` combines values by a derived key and selects
-one representative in each window. It retains one candidate per partial
-accumulator and chooses the value with the smallest encoded bytes, so its
-result does not depend on bundle arrival order. The value and derived-key
-types need registered coders, and the value coder must encode the same value
-consistently. Shared bounded and watermarked Direct/Prism jobs check the
-chosen values and group timestamps in two fixed windows. The older
+`distinct_by_per_window_named` groups values by a derived key and selects one
+representative in each window. It chooses the value with the smallest encoded
+bytes, so its result does not depend on bundle arrival order. The value and
+derived-key types need registered coders, and the value coder must encode the
+same value consistently. Shared bounded and watermarked Direct/Prism jobs
+check the chosen values and group timestamps in two fixed windows. The older
 `distinct_by_named` retains its encounter-order behavior for local use.
 
 Grouping may retain all values for a key and window until the window closes.

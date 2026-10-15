@@ -370,9 +370,7 @@ fn grouped_stream_route(
                     after_group: downstream,
                 }));
             }
-            Operation::GroupByKey | Operation::FoldPerKey if group_key.is_none() => {
-                group_key = Some(key.to_owned());
-            }
+            Operation::GroupByKey if group_key.is_none() => group_key = Some(key.to_owned()),
             Operation::Output
             | Operation::Sink { .. }
             | Operation::Map
