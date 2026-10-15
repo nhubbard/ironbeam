@@ -5,8 +5,11 @@ use ironbeam_io::io;
 mod cloud_io;
 #[cfg(feature = "cloud")]
 pub use cloud_io::{
-    cloud_avro_uri_prefix_source, cloud_avro_uri_prefix_source_with_reader_schema,
-    cloud_avro_uri_source, cloud_avro_uri_source_with_reader_schema,
+    cloud_avro_streaming_uri_prefix_source,
+    cloud_avro_streaming_uri_prefix_source_with_reader_schema, cloud_avro_streaming_uri_source,
+    cloud_avro_streaming_uri_source_with_reader_schema, cloud_avro_uri_prefix_source,
+    cloud_avro_uri_prefix_source_with_reader_schema, cloud_avro_uri_source,
+    cloud_avro_uri_source_with_reader_schema,
 };
 mod fragment;
 pub use fragment::{

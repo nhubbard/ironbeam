@@ -12,6 +12,14 @@ use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::Arc;
 
+mod streaming;
+use streaming::streaming_source;
+pub use streaming::{
+    cloud_avro_streaming_uri_prefix_source,
+    cloud_avro_streaming_uri_prefix_source_with_reader_schema, cloud_avro_streaming_uri_source,
+    cloud_avro_streaming_uri_source_with_reader_schema,
+};
+
 fn identity(uri: &str, bytes: &[u8], reader_schema: Option<&str>) -> String {
     let mut hash = Sha256::new();
     for part in [
@@ -139,6 +147,7 @@ fn prefix_source<T: Element + DeserializeOwned>(
     stores: &ObjectStores,
     uri_prefix: &str,
     reader_schema: Option<&str>,
+    streaming: bool,
 ) -> Result<PCollection<T>, Error> {
     let mut locations = stores
         .list(uri_prefix)
@@ -161,7 +170,11 @@ fn prefix_source<T: Element + DeserializeOwned>(
             write!(digest, "{byte:02x}").expect("writing to String cannot fail");
         }
         let child_key = format!("{key}/object-{digest}");
-        sources.push(source(pipeline, &child_key, stores, &uri, reader_schema)?);
+        sources.push(if streaming {
+            streaming_source(pipeline, &child_key, stores, &uri, reader_schema)?
+        } else {
+            source(pipeline, &child_key, stores, &uri, reader_schema)?
+        });
     }
     let first = sources.remove(0);
     if sources.is_empty() {
@@ -181,7 +194,7 @@ pub fn cloud_avro_uri_prefix_source<T: Element + DeserializeOwned>(
     stores: &ObjectStores,
     uri_prefix: &str,
 ) -> Result<PCollection<T>, Error> {
-    prefix_source(pipeline, key, stores, uri_prefix, None)
+    prefix_source(pipeline, key, stores, uri_prefix, None, false)
 }
 
 /// Read every Avro object under a URI prefix through a reader schema.
@@ -198,5 +211,6 @@ pub fn cloud_avro_uri_prefix_source_with_reader_schema<T: Element + DeserializeO
         stores,
         uri_prefix,
         Some(reader_schema.as_ref()),
+        false,
     )
 }

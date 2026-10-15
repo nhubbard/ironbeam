@@ -1,13 +1,91 @@
 #![cfg(feature = "cloud")]
-use ironbeam_cloud_objects::{LocalObjectIO, ObjectStores};
+use ironbeam_cloud_objects::{
+    CloudIOError, CloudResult, ErrorKind as CloudErrorKind, LocalObjectIO, ObjectIO,
+    ObjectMetadata, ObjectStores,
+};
 use ironbeam_core::{Element, ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
+#[cfg(feature = "compression-gzip")]
+use ironbeam_io_avro::avro_sink;
 use ironbeam_io_avro::{
-    avro_sink, cloud_avro_uri_prefix_source, cloud_avro_uri_prefix_source_with_reader_schema,
-    cloud_avro_uri_source, cloud_avro_uri_source_with_reader_schema,
+    cloud_avro_streaming_uri_prefix_source,
+    cloud_avro_streaming_uri_prefix_source_with_reader_schema, cloud_avro_streaming_uri_source,
+    cloud_avro_streaming_uri_source_with_reader_schema, cloud_avro_uri_prefix_source,
+    cloud_avro_uri_prefix_source_with_reader_schema, cloud_avro_uri_source,
+    cloud_avro_uri_source_with_reader_schema,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::{Cursor, ErrorKind as IoErrorKind, Read};
+
+#[derive(Clone, Copy)]
+enum FirstReadFailure {
+    Interrupted,
+    Broken,
+}
+
+struct FirstReadFails {
+    content: Cursor<Vec<u8>>,
+    first: bool,
+    mode: FirstReadFailure,
+}
+
+impl Read for FirstReadFails {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        if self.first {
+            self.first = false;
+            let kind = match self.mode {
+                FirstReadFailure::Interrupted => IoErrorKind::Interrupted,
+                FirstReadFailure::Broken => IoErrorKind::BrokenPipe,
+            };
+            return Err(std::io::Error::new(kind, "injected object read failure"));
+        }
+        self.content.read(buffer)
+    }
+}
+
+struct ReadFaultObjectIO {
+    content: Vec<u8>,
+    mode: FirstReadFailure,
+}
+
+fn unused<T>() -> CloudResult<T> {
+    Err(CloudIOError::new(
+        CloudErrorKind::InvalidInput,
+        "unused test operation",
+    ))
+}
+
+impl ObjectIO for ReadFaultObjectIO {
+    fn put_object(&self, _: &str, _: &str, _: &[u8]) -> CloudResult<()> {
+        unused()
+    }
+    fn open_object(&self, _: &str, _: &str) -> CloudResult<Box<dyn Read + Send>> {
+        Ok(Box::new(FirstReadFails {
+            content: Cursor::new(self.content.clone()),
+            first: true,
+            mode: self.mode,
+        }))
+    }
+    fn get_object(&self, _: &str, _: &str) -> CloudResult<Vec<u8>> {
+        Ok(self.content.clone())
+    }
+    fn delete_object(&self, _: &str, _: &str) -> CloudResult<()> {
+        unused()
+    }
+    fn list_objects(&self, _: &str, _: Option<&str>) -> CloudResult<Vec<ObjectMetadata>> {
+        unused()
+    }
+    fn object_exists(&self, _: &str, _: &str) -> CloudResult<bool> {
+        unused()
+    }
+    fn get_metadata(&self, _: &str, _: &str) -> CloudResult<ObjectMetadata> {
+        unused()
+    }
+    fn copy_object(&self, _: &str, _: &str, _: &str, _: &str) -> CloudResult<()> {
+        unused()
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 struct Row {
@@ -49,6 +127,28 @@ fn gzip_object_uri_decodes_native_avro() {
     assert_eq!(
         DirectRunner
             .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![EvolvedRow {
+            id: 7,
+            name: "Gzip".into(),
+            active: true
+        }]
+    );
+    let streamed = Pipeline::default();
+    let streamed_output = cloud_avro_streaming_uri_source_with_reader_schema::<EvolvedRow>(
+        &streamed,
+        "gzip-streamed",
+        &stores,
+        "file://bucket/rows.avro.gz",
+        READER_SCHEMA,
+    )
+    .unwrap()
+    .output("gzip-streamed-output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&streamed_output, &JobConfig::default())
             .unwrap()
             .0,
         vec![EvolvedRow {
@@ -116,6 +216,223 @@ fn put_avro_row(stores: &ObjectStores, dir: &std::path::Path, uri: &str, id: i32
     writer.flush().unwrap();
     drop(writer);
     stores.write(uri, &fs::read(path).unwrap()).unwrap();
+}
+
+#[test]
+fn streaming_object_uri_resolves_schema_and_rejects_changed_bytes() {
+    let (dir, stores) = object_store();
+    put_avro(&stores, dir.path());
+    let pipeline = Pipeline::default();
+    let output = cloud_avro_streaming_uri_source_with_reader_schema::<EvolvedRow>(
+        &pipeline,
+        "streamed",
+        &stores,
+        "file://bucket/rows.avro",
+        READER_SCHEMA,
+    )
+    .unwrap()
+    .output("output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![EvolvedRow {
+            id: 1,
+            name: "Ada".into(),
+            active: true,
+        }]
+    );
+    put_avro_row(&stores, dir.path(), "file://bucket/rows.avro", 2, "Lin");
+    let Err(error) = DirectRunner.run_collect(&output, &JobConfig::default()) else {
+        panic!("changed Avro bytes should reject the source");
+    };
+    assert_eq!(error.kind, ErrorKind::Recovery);
+    assert!(
+        cloud_avro_streaming_uri_source_with_reader_schema::<EvolvedRow>(
+            &Pipeline::default(),
+            "invalid-schema",
+            &stores,
+            "file://bucket/rows.avro",
+            "not JSON",
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn streaming_object_prefix_binds_sorted_members_and_detects_loss() {
+    let (dir, stores) = object_store();
+    put_avro_row(&stores, dir.path(), "file://bucket/input/b.avro", 2, "Lin");
+    put_avro_row(&stores, dir.path(), "file://bucket/input/a.avro", 1, "Ada");
+    let pipeline = Pipeline::default();
+    let output = cloud_avro_streaming_uri_prefix_source_with_reader_schema::<EvolvedRow>(
+        &pipeline,
+        "streamed-prefix",
+        &stores,
+        "file://bucket/input/",
+        READER_SCHEMA,
+    )
+    .unwrap()
+    .output("output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![
+            EvolvedRow {
+                id: 1,
+                name: "Ada".into(),
+                active: true
+            },
+            EvolvedRow {
+                id: 2,
+                name: "Lin".into(),
+                active: true
+            },
+        ]
+    );
+    put_avro_row(&stores, dir.path(), "file://bucket/input/c.avro", 3, "New");
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0
+            .len(),
+        2
+    );
+    stores.delete("file://bucket/input/a.avro").unwrap();
+    assert!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .is_err()
+    );
+    assert!(
+        cloud_avro_streaming_uri_prefix_source::<Row>(
+            &Pipeline::default(),
+            "empty",
+            &stores,
+            "file://bucket/empty/",
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn streaming_single_object_without_reader_schema_decodes_rows() {
+    let (dir, stores) = object_store();
+    put_avro(&stores, dir.path());
+    let pipeline = Pipeline::default();
+    let output = cloud_avro_streaming_uri_source::<Row>(
+        &pipeline,
+        "streamed",
+        &stores,
+        "file://bucket/rows.avro",
+    )
+    .unwrap()
+    .output("output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![Row {
+            id: 1,
+            name: "Ada".into()
+        }]
+    );
+}
+
+#[test]
+fn streaming_source_handles_extensionless_objects_and_singleton_prefixes() {
+    let (dir, stores) = object_store();
+    put_avro_row(&stores, dir.path(), "file://bucket/single/rows", 9, "NoExt");
+    let pipeline = Pipeline::default();
+    let output = cloud_avro_streaming_uri_prefix_source::<Row>(
+        &pipeline,
+        "single-prefix",
+        &stores,
+        "file://bucket/single/",
+    )
+    .unwrap()
+    .output("output")
+    .unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        vec![Row {
+            id: 9,
+            name: "NoExt".into()
+        }]
+    );
+    assert!(
+        cloud_avro_streaming_uri_source::<Row>(
+            &Pipeline::default(),
+            "invalid-uri",
+            &stores,
+            "invalid-uri",
+        )
+        .is_err()
+    );
+    assert!(
+        cloud_avro_streaming_uri_source::<Row>(
+            &Pipeline::default(),
+            "missing-object",
+            &stores,
+            "file://bucket/missing.avro",
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn streaming_object_retries_interruption_and_reports_broken_reads() {
+    let (dir, local) = object_store();
+    put_avro(&local, dir.path());
+    let content = local.read("file://bucket/rows.avro").unwrap();
+    for (scheme, mode) in [
+        ("interrupted", FirstReadFailure::Interrupted),
+        ("broken", FirstReadFailure::Broken),
+    ] {
+        let mut stores = ObjectStores::new();
+        stores
+            .register(
+                scheme,
+                ReadFaultObjectIO {
+                    content: content.clone(),
+                    mode,
+                },
+            )
+            .unwrap();
+        let result = cloud_avro_streaming_uri_source::<Row>(
+            &Pipeline::default(),
+            "faulty-read",
+            &stores,
+            &format!("{scheme}://bucket/rows.avro"),
+        );
+        match mode {
+            FirstReadFailure::Interrupted => {
+                let output = result.unwrap().output("faulty-output").unwrap();
+                assert_eq!(
+                    DirectRunner
+                        .run_collect(&output, &JobConfig::default())
+                        .unwrap()
+                        .0,
+                    vec![Row {
+                        id: 1,
+                        name: "Ada".into()
+                    }]
+                );
+            }
+            FirstReadFailure::Broken => assert!(result.is_err()),
+        }
+    }
 }
 
 #[test]

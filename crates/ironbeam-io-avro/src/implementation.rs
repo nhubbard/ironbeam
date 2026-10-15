@@ -117,7 +117,8 @@ pub fn avro_streaming_source_with_reader_schema<T: Element + DeserializeOwned>(
 }
 
 #[allow(clippy::needless_pass_by_value)] // The shared lazy-source factory takes PathBuf.
-fn read_avro_lazy<T: Element + DeserializeOwned>(
+#[allow(clippy::redundant_pub_crate)] // The cloud module uses this private-module helper.
+pub(super) fn read_avro_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
     let file = open_lazy_input(&path, "avro")?;
@@ -129,7 +130,8 @@ fn read_avro_lazy<T: Element + DeserializeOwned>(
 }
 
 #[allow(clippy::needless_pass_by_value)] // The shared lazy-source factory takes PathBuf.
-fn read_avro_lazy_with_schema<T: Element + DeserializeOwned>(
+#[allow(clippy::redundant_pub_crate)] // The cloud module uses this private-module helper.
+pub(super) fn read_avro_lazy_with_schema<T: Element + DeserializeOwned>(
     path: PathBuf,
     schema: Arc<apache_avro::Schema>,
 ) -> Result<TypedSourceIterator<T>, Error> {

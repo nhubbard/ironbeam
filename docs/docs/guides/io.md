@@ -113,7 +113,13 @@ source reads the object once while building the graph and again when it runs.
 It rejects a changed object. `cloud_avro_uri_prefix_source` and its
 `_with_reader_schema` form read all objects under a literal URI prefix in
 sorted order. The object set is fixed when the graph is built; a later object
-does not silently enter a resumed job. This adapter uses the registered
+does not silently enter a resumed job. For large objects, the corresponding
+`cloud_avro_streaming_uri_source` and
+`cloud_avro_streaming_uri_prefix_source` forms use a provider's `open_object`
+method. Both have `_with_reader_schema` forms. They hash each object at graph
+construction, then spool and verify it before reading records incrementally.
+The temporary file uses disk space proportional to the object size and is
+removed when the source closes. This adapter uses the registered
 provider in the local process. For a Direct job reading Google Cloud Storage,
 enable `ironbeam-io-avro`'s `cloud` feature and
 `ironbeam-cloud-object-store`'s `gcp` feature, then build the registry with
@@ -121,7 +127,7 @@ enable `ironbeam-io-avro`'s `cloud` feature and
 adapter uses the `object_store` GCS client and Application Default
 Credentials. The separate `ironbeam-cloud-gcp` client does not itself
 implement this registry's `ObjectIO` contract. A local Prism fixture now
-rebuilds the same `file://` provider binding in the worker and reads an Avro
+rebuilds the same `file://` provider binding in the worker and streams an Avro
 object with a reader schema that adds a defaulted field. Direct and Prism
 produce the same decoded rows. A worker using `gs://` still needs its own
 GCS provider configuration, credentials, and a controlled service proof. The
@@ -135,19 +141,19 @@ object through the hosted registry:
 
 ```rust
 use ironbeam_cloud_object_store::object_stores_from_env;
-use ironbeam_io_avro::cloud_avro_uri_source_with_reader_schema;
+use ironbeam_io_avro::cloud_avro_streaming_uri_source_with_reader_schema;
 
 let stores = object_stores_from_env()?;
 let pipeline = Pipeline::default();
-let accounts = cloud_avro_uri_source_with_reader_schema::<Account>(
+let accounts = cloud_avro_streaming_uri_source_with_reader_schema::<Account>(
     &pipeline, "accounts", &stores, "gs://example-bucket/accounts.avro", schema,
 )?.collect_seq()?;
 ```
 
 The source reads the object at graph construction, so this form requires
 credentials and network access in the process that builds the graph. The
-provider reads the full object into memory; large objects need a streaming
-provider and source implementation.
+provider must implement sequential object reads. The original nonstreaming
+forms still load the full object and decoded rows into memory.
 
 Parquet has opt-in `cloud_parquet_uri_source` and
 `cloud_parquet_uri_prefix_source` functions. For larger objects, use

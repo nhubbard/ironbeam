@@ -21,7 +21,7 @@ pub fn portable_object_avro_collection(
             Error::incompatible(error.to_string())
         })?)
         .map_err(|error| Error::incompatible(error.to_string()))?;
-    ironbeam_io_avro::cloud_avro_uri_source_with_reader_schema::<EvolvedAvroRow>(
+    ironbeam_io_avro::cloud_avro_streaming_uri_source_with_reader_schema::<EvolvedAvroRow>(
         pipeline,
         "portable-object-avro-source",
         &stores,
