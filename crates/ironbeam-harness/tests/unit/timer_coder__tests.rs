@@ -123,3 +123,37 @@ fn timer_rejects_malformed_fields_without_partial_write() {
     bad_count[1..5].copy_from_slice(&(-1_i32).to_be_bytes());
     assert!(decode(&bad_count).is_err());
 }
+
+#[test]
+fn partial_timer_decoder_waits_at_each_field_boundary() {
+    let record = TimerRecord {
+        encoded_key: nested_string("key"),
+        dynamic_tag: "tag".into(),
+        encoded_windows: vec![Vec::new()],
+        clear: false,
+        fire_timestamp_millis: Some(123),
+        hold_timestamp_millis: Some(456),
+        pane: Some(PaneInfo {
+            is_first: false,
+            is_last: false,
+            index: 300,
+            nonspeculative_index: 299,
+            ..PaneInfo::FIRST_LAST_ON_TIME
+        }),
+    };
+    let mut bytes = Vec::new();
+    record.encode(&mut bytes).unwrap();
+    for end in 0..bytes.len() {
+        assert!(
+            try_decode_timer_record(&bytes[..end], try_nested_bytes_len, |_| Ok(Some(0)),)
+                .unwrap()
+                .is_none(),
+            "prefix ending at byte {end} appeared complete"
+        );
+    }
+    let (decoded, used) = try_decode_timer_record(&bytes, try_nested_bytes_len, |_| Ok(Some(0)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(used, bytes.len());
+    assert_eq!(decoded, record);
+}

@@ -402,8 +402,9 @@ side inputs and state-backed grouped iterables. The worker also has a raw,
 scoped user-state accessor for a validated declaration. A worker helper can
 read one value-state cell, invoke a callback, and submit its change under the
 same bundle instruction. Another helper assembles a declared timer family's
-fragmented Fn Data records and invokes callbacks after its input stream
-closes. Both paths have fake-runner tests. Application transforms cannot yet
+fragmented Fn Data records and invokes each callback as its record becomes
+complete, before the stream closes. Both paths have fake-runner tests.
+Application transforms cannot yet
 register or invoke a stateful function through the current v5 builder.
 Graph validation and worker planning reject a `ParDoPayload` that declares
 user state or timers. This prevents a stateful transform from being executed

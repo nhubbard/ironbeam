@@ -183,8 +183,9 @@ the declared cell, passes its encoded bytes to a callback, and applies Keep,
 Clear, or Set under the same bundle instruction. Fake Fn State tests verify
 Get→Clear→Append ordering and that callback errors or panics submit no
 mutation. A declared-family Fn Data dispatcher also reconstructs timer
-records split across arbitrary chunks, then calls a handler after the timer
-stream closes. Fake-runner tests cover two records, an undeclared family,
+records split across arbitrary chunks and calls a handler as each record
+becomes complete. A fake-runner test confirms a callback runs before the
+timer stream closes; other tests cover two records, an undeclared family,
 and a callback error. These helpers are not yet pipeline execution proofs:
 the next gate is to register keyed user callbacks in the logical graph,
 dispatch them from a portable ParDo, connect their timer emissions and state

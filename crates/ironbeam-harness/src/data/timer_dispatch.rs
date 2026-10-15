@@ -8,7 +8,7 @@ use futures_util::FutureExt;
 use ironbeam_core::StatefulParDoContract;
 
 use super::DataClient;
-use crate::timer_coder::{decode_timer_record, TimerRecord};
+use crate::timer_coder::{try_decode_timer_record, TimerRecord};
 
 const MAX_TIMER_INPUT_BYTES: usize = 64 * 1024 * 1024;
 
@@ -72,8 +72,8 @@ impl<'a> TimerFamilyScope<'a> {
         mut callback: F,
     ) -> Result<usize>
     where
-        K: Fn(&[u8]) -> Result<usize>,
-        W: Fn(&[u8]) -> Result<usize>,
+        K: Fn(&[u8]) -> Result<Option<usize>>,
+        W: Fn(&[u8]) -> Result<Option<usize>>,
         F: FnMut(TimerRecord) -> Fut,
         Fut: Future<Output = Result<()>>,
     {
@@ -81,30 +81,36 @@ impl<'a> TimerFamilyScope<'a> {
             self.client
                 .open_timer_read(self.instruction_id, self.transform_id, self.family_id);
         let mut encoded = Vec::new();
+        let mut callbacks = 0;
         while let Some(chunk) = reader.recv().await {
             if encoded.len().saturating_add(chunk.len()) > MAX_TIMER_INPUT_BYTES {
                 bail!("Beam timer-family input exceeds 64 MiB");
             }
             encoded.extend_from_slice(&chunk);
+            let mut consumed = 0;
+            while let Some((record, used)) =
+                try_decode_timer_record(&encoded[consumed..], &decode_key, &decode_window)?
+            {
+                if used == 0 {
+                    bail!("Beam timer coder consumed no bytes");
+                }
+                consumed += used;
+                let future = match catch_unwind(AssertUnwindSafe(|| callback(record))) {
+                    Ok(future) => future,
+                    Err(_) => bail!("Beam timer callback panicked"),
+                };
+                match AssertUnwindSafe(future).catch_unwind().await {
+                    Ok(result) => result?,
+                    Err(_) => bail!("Beam timer callback panicked"),
+                }
+                callbacks += 1;
+            }
+            if consumed != 0 {
+                encoded.drain(..consumed);
+            }
         }
-        let mut consumed = 0;
-        let mut callbacks = 0;
-        while consumed < encoded.len() {
-            let (record, used) =
-                decode_timer_record(&encoded[consumed..], &decode_key, &decode_window)?;
-            if used == 0 {
-                bail!("Beam timer coder consumed no bytes");
-            }
-            consumed += used;
-            let future = match catch_unwind(AssertUnwindSafe(|| callback(record))) {
-                Ok(future) => future,
-                Err(_) => bail!("Beam timer callback panicked"),
-            };
-            match AssertUnwindSafe(future).catch_unwind().await {
-                Ok(result) => result?,
-                Err(_) => bail!("Beam timer callback panicked"),
-            }
-            callbacks += 1;
+        if !encoded.is_empty() {
+            bail!("Beam timer-family input ended with a truncated record");
         }
         Ok(callbacks)
     }

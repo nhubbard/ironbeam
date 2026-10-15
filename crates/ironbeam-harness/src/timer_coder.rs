@@ -6,6 +6,9 @@ use ironbeam_core::{PaneInfo, PaneTiming};
 
 use crate::coders::{decode_length_prefix, decode_varint, encode_length_prefix, encode_pane_info};
 
+mod partial;
+pub use partial::{try_decode_timer_record, try_nested_bytes_len};
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TimerRecord {
     /// Exactly one nested key coder value, including its framing.

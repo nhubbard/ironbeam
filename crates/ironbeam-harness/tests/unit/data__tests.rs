@@ -262,8 +262,8 @@ async fn declared_timer_family_dispatches_fragmented_records_to_callbacks() {
     let family = TimerFamilyScope::new(&client, &contract, "bundle", "pardo", "expiry").unwrap();
     let count = family
         .dispatch(
-            |bytes| Ok(crate::coders::decode_length_prefix(bytes)?.1),
-            |_| Ok(0),
+            crate::timer_coder::try_nested_bytes_len,
+            |_| Ok(Some(0)),
             move |record| {
                 let received = Arc::clone(&callback_received);
                 async move {
@@ -276,6 +276,75 @@ async fn declared_timer_family_dispatches_fragmented_records_to_callbacks() {
         .unwrap();
     assert_eq!(count, 2);
     assert_eq!(*received.lock().unwrap(), records);
+}
+
+#[tokio::test]
+async fn timer_callback_runs_before_runner_closes_the_family_stream() {
+    let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
+    let inbound = Arc::new(Mutex::new(InboundState::default()));
+    let client = DataClient {
+        outbound_tx,
+        inbound: Arc::clone(&inbound),
+        replay: false,
+        replay_output_budget: None,
+        outbound_progress: None,
+    };
+    let (called_tx, mut called_rx) = mpsc::unbounded_channel();
+    let dispatch = tokio::spawn(async move {
+        let contract = timer_contract();
+        let family =
+            TimerFamilyScope::new(&client, &contract, "bundle", "pardo", "expiry").unwrap();
+        family
+            .dispatch(
+                crate::timer_coder::try_nested_bytes_len,
+                |_| Ok(Some(0)),
+                move |record| {
+                    let called_tx = called_tx.clone();
+                    async move {
+                        called_tx.send(record.fire_timestamp_millis).unwrap();
+                        Ok(())
+                    }
+                },
+            )
+            .await
+            .unwrap()
+    });
+    let mut encoded = Vec::new();
+    TimerRecord {
+        encoded_key: vec![1, b'k'],
+        dynamic_tag: String::new(),
+        encoded_windows: vec![Vec::new()],
+        clear: false,
+        fire_timestamp_millis: Some(5),
+        hold_timestamp_millis: Some(5),
+        pane: Some(ironbeam_core::PaneInfo::NO_FIRING),
+    }
+    .encode(&mut encoded)
+    .unwrap();
+    for part in encoded.chunks(2) {
+        inbound.lock().unwrap().route_timer(ElemTimers {
+            instruction_id: "bundle".into(),
+            transform_id: "pardo".into(),
+            timer_family_id: "expiry".into(),
+            timers: part.to_vec(),
+            is_last: false,
+        });
+    }
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), called_rx.recv())
+            .await
+            .unwrap(),
+        Some(Some(5))
+    );
+    assert!(!dispatch.is_finished());
+    inbound.lock().unwrap().route_timer(ElemTimers {
+        instruction_id: "bundle".into(),
+        transform_id: "pardo".into(),
+        timer_family_id: "expiry".into(),
+        timers: Vec::new(),
+        is_last: true,
+    });
+    assert_eq!(dispatch.await.unwrap(), 1);
 }
 
 #[tokio::test]
@@ -313,8 +382,8 @@ async fn timer_dispatch_rejects_undeclared_family_and_callback_failure() {
     let family = TimerFamilyScope::new(&client, &contract, "bundle", "pardo", "expiry").unwrap();
     let error = family
         .dispatch(
-            |bytes| Ok(crate::coders::decode_length_prefix(bytes)?.1),
-            |_| Ok(0),
+            crate::timer_coder::try_nested_bytes_len,
+            |_| Ok(Some(0)),
             |_| async { anyhow::bail!("callback failed") },
         )
         .await
