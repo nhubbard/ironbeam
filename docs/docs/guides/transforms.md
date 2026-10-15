@@ -179,6 +179,17 @@ their matching window. Signal values are ignored, and a window with no signal
 elements still closes when the signal watermark passes it. The windowed method
 requires matching time and window declarations. It may buffer a full window;
 it does not release early when the signal closes before the main watermark.
+`wait_on_all_windowed_named` accepts several signals of the same element type.
+It uses one keyed co-group to wait for the main input and every signal watermark
+to close the matching window. Direct and local Prism agree in a three-source
+fixed-window test, including windows without signal elements.
+
+```rust
+let ready = main.wait_on_all_windowed_named(
+    "after-windowed-imports",
+    &[users_done, orders_done],
+)?;
+```
 
 ```rust
 let ready = main.wait_on_signals_named(

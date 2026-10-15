@@ -28,7 +28,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Triggers and panes | Default, repeated early count, late count, and combined early/late count triggers run in proved fixed-window cases on Direct and Prism. Homogeneous and heterogeneous co-groups and all four typed join kinds have matching discarding late-count schedules. Accumulating late count retains values across a checkpointed Direct multi-source co-group and typed join; a shared three-input co-group matches Prism on values, timing, and pane indices. Accumulating combined early/late count lowers to Beam and survives a Direct checkpoint, but pinned Prism emits extra early and on-time panes for a late TestStream bundle. Direct restores a shared-source heterogeneous co-group's single cursor and open window state. `reify_panes_named` and sink metadata expose pane timing and indices. A merged-session fixture exposes a Prism pane-timing difference. | Processing-time and broader composite triggers, accumulating combined-count and typed-join pane scheduling, and merged-session pane agreement. |
 | User state and timers | Internal grouped checkpoints and Fn State reads serve existing operations. Versioned state and timer declarations lower to Beam ParDo fields, while worker planning rejects them without executable callbacks. | Public key/window state and event or processing-time timer callbacks, state replay, and runner agreement. |
 | Side inputs | Bounded iterable, singleton, map, and multimap global views; per-window iterable, singleton, map, and multimap views; two unbounded sources match Direct and Prism after both watermarks close each window, including a typed map lookup | Streaming side-input updates before closure |
-| Completion signals | Bounded `wait_on_named`, `wait_on_all_named`, and heterogeneous `wait_on_signals_named`, plus windowed `wait_on_windowed_named`; a two-stream fixed-window barrier matches Direct and Prism, including an empty signal window | Release when the signal window closes before the main watermark and support several independently watermarked signals in one windowed barrier |
+| Completion signals | Bounded `wait_on_named`, `wait_on_all_named`, and heterogeneous `wait_on_signals_named`, plus windowed `wait_on_windowed_named` and `wait_on_all_windowed_named`; two- and three-stream fixed-window barriers match Direct and Prism, including empty signal windows | Release when signal windows close before the main watermark, heterogeneous windowed signals, and broader window schedules |
 | Bundle retries and output commits | Final-result journals and supervised execution-child replay in one Prism job | Control-owner replacement, hosted runner proof, and indefinite metric retention |
 | I/O formats | Separate CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord crates. Native Avro reader schemas resolve defaults, projections, numeric promotion, and field aliases through nested and named schemas across local files, globs, shards, and provider-neutral object URIs. Parquet accepts object URIs and prefixes through a registered provider; its streaming variants spool each object to temporary storage and decode record batches incrementally. A local Prism worker rebuilds `file://` providers for Avro and Parquet and reads their rows. | Expand schema evolution beyond the tested Avro cases and prove remote object providers in portable workers. |
 | External services | SQL, MongoDB, object storage, and opt-in GCP clients | Provider emulator and hosted service behavior, authentication, and streaming commit guarantees |
@@ -184,13 +184,17 @@ stream later changes.
 completes. `wait_on_all_named` composes several bounded signal barriers of one
 element type. `wait_on_signals_named` accepts different signal element types
 through `wait_signal` handles. `wait_on_windowed_named` accepts a watermarked signal stream and
-releases each main window after both input watermarks close it. The signal's
+releases each main window after both input watermarks close it.
+`wait_on_all_windowed_named` accepts several signals of one element type. It
+groups them with the main input in one shuffle and waits for every input
+watermark. A shared three-source job checks the same windows and timestamps on
+Direct and local Prism. The signals'
 element values are ignored; a window without signal elements also closes when
 its watermark advances. This windowed barrier uses a co-group, so it can
 buffer a full window and does not release main values early when only the
-signal watermark has advanced. Both methods express a dependency between
+signal watermark has advanced. These methods express a dependency between
 collections, not an order among main elements. A failing signal prevents
-dependent output from being committed. Neither method provides mutable user
+dependent output from being committed. None provides mutable user
 state.
 
 ## Triggers, panes, and late data

@@ -121,6 +121,56 @@ impl<T: Element> PCollection<T> {
     ) -> Result<Self, Error> {
         self.map_with_windowed_side_named(key, signal, |value, _| value)
     }
+    /// Release each main window after it and every matching signal window close.
+    /// Signals may be unbounded and their values are ignored. One keyed
+    /// co-group combines their watermarks, so all signal windows must close.
+    /// Main values are buffered until closure.
+    pub fn wait_on_all_windowed_named<S: Element>(
+        &self,
+        key: &str,
+        signals: &[PCollection<S>],
+    ) -> Result<Self, Error> {
+        if signals.is_empty() {
+            return Err(Error::graph(key, "windowed wait requires at least one signal"));
+        }
+        let main = self.parent()?;
+        for signal in signals {
+            if !Arc::ptr_eq(&self.pipeline.inner, &signal.pipeline.inner) {
+                return Err(Error::graph(key, "wait inputs belong to different pipelines"));
+            }
+            if signal.parent()?.time != main.time {
+                return Err(Error::graph(key, "signal time/window declaration mismatch"));
+            }
+        }
+        if signals.len() == 1 {
+            return self.wait_on_windowed_named(key, &signals[0]);
+        }
+        let main = self
+            .reify_timestamps_named(&format!("{key}/main-time"))?
+            .map_named(&format!("{key}/main-key"), |value| {
+                (0_i32, Some(value))
+            })?;
+        let signals = signals
+            .iter()
+            .enumerate()
+            .map(|(index, signal)| {
+                signal.map_named(&format!("{key}/signal-{index}"), |_| {
+                    (0_i32, None::<(i64, T)>)
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
+        main.co_group_homogeneous_named(&format!("{key}/group"), &signals)?
+            .flat_map_named(&format!("{key}/restore"), |(_, buckets)| {
+                buckets
+                    .into_iter()
+                    .next()
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .collect::<Vec<_>>()
+            })?
+            .timestamps_from_pairs_in_window_named(key)
+    }
     /// Materialize one side view for each closed window. The side collection
     /// may be unbounded if both source watermarks can close the window.
     pub fn map_with_windowed_materialized_side_named<S: Element, M: Send + 'static, U: Element>(

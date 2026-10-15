@@ -2,6 +2,59 @@ use ironbeam_core::{Envelope, PaneInfo, Pipeline, Window};
 use std::collections::HashMap;
 
 #[test]
+fn multiple_windowed_signals_have_distinct_dependencies() {
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .from_vec("main", vec![1_i32])
+        .unwrap()
+        .fixed_windows("main-window", 10)
+        .unwrap();
+    let first = pipeline
+        .from_vec("first", vec![2_i32])
+        .unwrap()
+        .fixed_windows("first-window", 10)
+        .unwrap();
+    let second = pipeline
+        .from_vec("second", vec![3_i32])
+        .unwrap()
+        .fixed_windows("second-window", 10)
+        .unwrap();
+    assert!(
+        main.wait_on_all_windowed_named::<i32>("empty", &[])
+            .is_err()
+    );
+    let other = Pipeline::default().from_vec("other", vec![4_i32]).unwrap();
+    assert!(
+        main.wait_on_all_windowed_named("foreign", &[first.clone(), other])
+            .is_err()
+    );
+    let mismatched = pipeline
+        .from_vec("mismatched", vec![5_i32])
+        .unwrap()
+        .fixed_windows("mismatched-window", 20)
+        .unwrap();
+    assert!(
+        main.wait_on_all_windowed_named("mismatch", &[first.clone(), mismatched])
+            .is_err()
+    );
+    assert_eq!(
+        main.wait_on_all_windowed_named("single-barrier", std::slice::from_ref(&first))
+            .unwrap()
+            .key(),
+        "single-barrier"
+    );
+
+    let waited = main
+        .wait_on_all_windowed_named("barrier", &[first, second])
+        .unwrap();
+    assert_eq!(waited.key(), "barrier");
+    let (graph, _) = pipeline.snapshot().unwrap();
+    graph.validate().unwrap();
+    assert!(graph.node("barrier/group/flatten").is_some());
+    assert!(graph.node("barrier/group/group").is_some());
+}
+
+#[test]
 fn singleton_side_view_requires_exactly_one_value() {
     let pipeline = Pipeline::default();
     let main = pipeline.from_vec("main", vec![1_i32]).unwrap();

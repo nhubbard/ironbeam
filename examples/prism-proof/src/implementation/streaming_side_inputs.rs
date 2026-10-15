@@ -168,6 +168,73 @@ pub fn dual_stream_windowed_wait_fixture(
     )
 }
 
+/// A three-source barrier with two independently watermarked signal streams.
+pub fn triple_stream_windowed_wait_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let main = pipeline
+        .test_stream_source(
+            "triple-wait-main",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 1_000_000), (2, 3_000_000), (3, 5_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+            ],
+        )?
+        .fixed_windows("triple-wait-main-window", 2_000_000)?;
+    let first = pipeline
+        .test_stream_source(
+            "triple-wait-first",
+            vec![
+                TestStreamEvent::Elements(vec![(10_i32, 0)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+            ],
+        )?
+        .fixed_windows("triple-wait-first-window", 2_000_000)?;
+    let second = pipeline
+        .test_stream_source(
+            "triple-wait-second",
+            vec![
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::Elements(vec![(20_i32, 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+                TestStreamEvent::AdvanceWatermark(6_000_000),
+            ],
+        )?
+        .fixed_windows("triple-wait-second-window", 2_000_000)?;
+    main.wait_on_all_windowed_named("triple-wait-barrier", &[first, second])?
+        .reify_timestamps_named("triple-wait-time")?
+        .with_window_named("triple-wait-window")?
+        .map_named("triple-wait-row", |(window, (time, value))| {
+            format!("{}..{}:{time}:{value}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn triple_stream_windowed_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    triple_stream_windowed_wait_collection(pipeline)?.sink_named_with_config(
+        "triple-wait-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("triple-wait-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 type KeyedStream = PCollection<(String, i32)>;
 
 fn dual_unbounded_sources(pipeline: &Pipeline) -> Result<(KeyedStream, KeyedStream), Error> {
