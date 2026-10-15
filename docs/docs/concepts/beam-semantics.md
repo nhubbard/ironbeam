@@ -471,8 +471,9 @@ timers fire and after a scripted processing-time timer fires. A supervised
 Prism job replaces the execution child after an event timer is armed; the
 replacement processes the next source batch and emits one accumulated result
 at the timer deadline. The supervisor replays element and timer-family input
-and publishes timer mutations only from the accepted attempt. Other failure
-points, general stateful fanout, and window-expiration callbacks remain open.
+and publishes timer mutations only from the accepted attempt. Fixed-window
+expiration callbacks are covered above; broader expiration schedules, other
+failure points, and general stateful fanout remain open.
 
 ## Bundles and committed output
 
