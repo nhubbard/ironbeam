@@ -185,8 +185,9 @@ impl V5BundleExecutor {
                             let map_state = matches!(contract.states.get("map"), Some(UserStateKind::Map { .. }));
                             let multimap_state = matches!(contract.states.get("multimap"), Some(UserStateKind::Multimap { .. }));
                             let ordered_state = matches!(contract.states.get("ordered_list"), Some(UserStateKind::OrderedList { .. }));
-                            if !bag_state && !set_state && !map_state && !multimap_state && !ordered_state && !matches!(contract.states.get("value"), Some(UserStateKind::Value { .. })) {
-                                bail!("stateful ParDo {} has no executable value, bag, set, map, multimap, or ordered-list cell", node.key);
+                            let combining_state = matches!(contract.states.get("combining"), Some(UserStateKind::Combining { .. }));
+                            if !bag_state && !set_state && !map_state && !multimap_state && !ordered_state && !combining_state && !matches!(contract.states.get("value"), Some(UserStateKind::Value { .. })) {
+                                bail!("stateful ParDo {} has no executable value, bag, set, map, multimap, ordered-list, or combining cell", node.key);
                             }
                             let mut produced = Vec::with_capacity(input.len());
                             for wire in input {
@@ -250,13 +251,14 @@ impl V5BundleExecutor {
                                         Ok((output, next))
                                     }).await?
                                 } else {
-                                    access.apply_value_state("value", |encoded| {
+                                    let cell_id = if combining_state { "combining" } else { "value" };
+                                    access.apply_value_state(cell_id, |encoded| {
                                         let prior = if encoded.is_empty() {
                                             None
                                         } else {
                                             let (value, used) = decode_length_prefix(encoded)?;
                                             if used != encoded.len() {
-                                                bail!("stateful value cell contains more than one encoded value");
+                                                bail!("stateful value or combining cell contains more than one encoded value");
                                             }
                                             Some(value)
                                         };

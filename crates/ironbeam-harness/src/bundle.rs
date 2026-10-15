@@ -89,6 +89,17 @@ fn value_state_payload(
                     ("bag", Some(state_spec::Spec::BagSpec(cell))) => {
                         (vec![&cell.element_coder_id], "beam:user_state:bag:v1")
                     }
+                    ("combining", Some(state_spec::Spec::CombiningSpec(cell)))
+                        if cell.combine_fn.as_ref().is_some_and(|combine| {
+                            combine.urn.contains('/')
+                                && serde_json::from_slice::<ironbeam_core::Version>(
+                                    &combine.payload,
+                                )
+                                .is_ok_and(|version| version.major > 0)
+                        }) =>
+                    {
+                        (vec![&cell.accumulator_coder_id], "beam:user_state:bag:v1")
+                    }
                     ("set", Some(state_spec::Spec::SetSpec(cell))) => {
                         (vec![&cell.element_coder_id], "beam:user_state:multimap:v1")
                     }
@@ -127,7 +138,7 @@ fn value_state_payload(
     if !valid {
         return Err(PlanError::BadPayload {
             id: id.into(),
-            err: "v5 ParDo supports one declared value, bag, set, map, multimap, or ordered-list cell without timers"
+            err: "v5 ParDo supports one declared value, bag, set, map, multimap, ordered-list, or combining cell without timers"
                 .into(),
         });
     }

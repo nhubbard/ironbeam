@@ -198,7 +198,10 @@ impl<'a> UserStateAccess<'a> {
     }
 
     fn value_kind(kind: &UserStateKind) -> bool {
-        matches!(kind, UserStateKind::Value { .. })
+        matches!(
+            kind,
+            UserStateKind::Value { .. } | UserStateKind::Combining { .. }
+        )
     }
 
     fn map_only_kind(kind: &UserStateKind) -> bool {

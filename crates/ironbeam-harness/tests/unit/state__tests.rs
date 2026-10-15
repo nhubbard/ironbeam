@@ -46,6 +46,14 @@ fn user_contract() -> StatefulParDoContract {
                 },
             ),
             (
+                "combining".into(),
+                UserStateKind::Combining {
+                    accumulator_coder_id: "beam:coder:bytes:v1".into(),
+                    combine_semantic_id: "tests/merge".into(),
+                    combine_version: Version { major: 1, minor: 0 },
+                },
+            ),
+            (
                 "set".into(),
                 UserStateKind::Set {
                     element_coder_id: "beam:coder:bytes:v1".into(),
@@ -68,6 +76,74 @@ fn user_contract() -> StatefulParDoContract {
         timers: BTreeMap::new(),
         on_window_expiration_timer: None,
     }
+}
+
+#[tokio::test]
+async fn combining_state_callback_reads_and_replaces_one_accumulator() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "combining-bundle",
+        "combining-transform",
+        &contract,
+        vec![3],
+        vec![7],
+    )
+    .unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for expected in ["get", "clear", "append"] {
+            let request = requests.recv().await.unwrap();
+            assert_eq!(request.instruction_id, "combining-bundle");
+            let Some(state_key::Type::BagUserState(scope)) = &request.state_key.unwrap().r#type
+            else {
+                panic!("combining accumulator did not use Beam bag state");
+            };
+            assert_eq!(scope.transform_id, "combining-transform");
+            assert_eq!(scope.user_state_id, "combining");
+            assert_eq!(
+                (scope.window.as_slice(), scope.key.as_slice()),
+                (&[3][..], &[7][..])
+            );
+            let response = match (expected, request.request) {
+                ("get", Some(state_request::Request::Get(_))) => {
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: b"prior".to_vec(),
+                    })
+                }
+                ("clear", Some(state_request::Request::Clear(_))) => {
+                    state_response::Response::Clear(StateClearResponse {})
+                }
+                ("append", Some(state_request::Request::Append(append))) => {
+                    assert_eq!(append.data, b"merged");
+                    state_response::Response::Append(StateAppendResponse {})
+                }
+                _ => panic!("unexpected combining-state request"),
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+    });
+    let observed = access
+        .apply_value_state("combining", |current| {
+            assert_eq!(current, b"prior");
+            Ok((17, ValueStateMutation::Set(b"merged".to_vec())))
+        })
+        .await
+        .unwrap();
+    assert_eq!(observed, 17);
+    responder.await.unwrap();
 }
 
 #[tokio::test]
