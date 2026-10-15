@@ -33,6 +33,7 @@ pub mod portable_publication;
 pub mod provision;
 pub mod sdf_wire;
 pub mod state;
+pub mod timer_coder;
 mod supervision;
 pub mod unbounded;
 pub mod v5;

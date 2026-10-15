@@ -27,6 +27,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::timer_coder::TimerRecord;
 use anyhow::{anyhow, Context, Result};
 use beam_proto::fn_execution_v1::beam_fn_data_client::BeamFnDataClient;
 use beam_proto::fn_execution_v1::{
@@ -347,6 +348,19 @@ impl DataClient {
             timers,
             is_last: false,
         })
+    }
+
+    /// Encode and send one Beam timer record to its declared family stream.
+    pub fn write_timer_record(
+        &self,
+        instruction_id: &str,
+        transform_id: &str,
+        timer_family_id: &str,
+        record: &TimerRecord,
+    ) -> Result<()> {
+        let mut bytes = Vec::new();
+        record.encode(&mut bytes)?;
+        self.write_timer_chunk(instruction_id, transform_id, timer_family_id, bytes)
     }
 
     /// Close an outbound timer-family stream after all timer bytes are sent.

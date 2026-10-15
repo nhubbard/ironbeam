@@ -171,3 +171,34 @@ fn outbound_timer_stream_keeps_family_identity_and_shares_replay_budget() {
     assert!(last.timers[0].is_last);
     assert!(last.timers[0].timers.is_empty());
 }
+
+#[test]
+fn outbound_timer_record_uses_beam_timer_codec_and_family_route() {
+    let record = TimerRecord {
+        encoded_key: vec![1, b'k'],
+        dynamic_tag: "tag".into(),
+        encoded_windows: vec![Vec::new()],
+        clear: false,
+        fire_timestamp_millis: Some(5),
+        hold_timestamp_millis: Some(4),
+        pane: Some(ironbeam_core::PaneInfo::NO_FIRING),
+    };
+    let (client, mut outbound) = DataClient::for_replay_with_limit("bundle", "source", vec![], 128);
+    client
+        .write_timer_record("bundle", "pardo", "expiry", &record)
+        .unwrap();
+    client
+        .close_timer_write("bundle", "pardo", "expiry")
+        .unwrap();
+    let sent = outbound.try_recv().unwrap();
+    assert_eq!(sent.timers[0].timer_family_id, "expiry");
+    let (decoded, used) = crate::timer_coder::decode_timer_record(
+        &sent.timers[0].timers,
+        |input| Ok(crate::coders::decode_length_prefix(input)?.1),
+        |_| Ok(0),
+    )
+    .unwrap();
+    assert_eq!(used, sent.timers[0].timers.len());
+    assert_eq!(decoded, record);
+    assert!(outbound.try_recv().unwrap().timers[0].is_last);
+}
