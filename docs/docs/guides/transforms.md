@@ -628,4 +628,5 @@ window. Its output carries the window's maximum event timestamp. Local
 Direct/Prism fixtures pass for two fixed windows and two offset fixed
 windows, including a negative window start. Each source advances its
 watermark after a window; other interleavings and allowed lateness have not
-been proved.
+been proved. A supervised local Prism job also replaces the execution child
+during the expiration callback and commits each window result once.

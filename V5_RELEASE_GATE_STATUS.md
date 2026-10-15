@@ -322,8 +322,10 @@ An overlapping sliding-window experiment likewise emitted only the first
 expiration callback on pinned Prism while Direct emitted both, even with
 separate watermarks after the two window ends. The public API rejects sliding
 expiration at graph construction until that runner boundary is resolved.
-Other expiration patterns remain open.
-The nine live local Prism timer fixtures and the full affected core, Direct,
+Other expiration patterns remain open. A supervised Prism job also kills the
+execution child inside an expiration callback; the parent replays the
+runner-injected timer input and commits both window rows once.
+The ten live local Prism timer fixtures and the full affected core, Direct,
 Graphx, harness, and proof-package suites pass after this change. At
 `5b756bb`, the Linux core job reports **6567/6836 lines (96.06%)** and
 **1340/1552 branches (86.34%)**, while Direct reports **6191/6786 lines
@@ -335,7 +337,7 @@ verification checks remain in progress.
 | --- | --- | --- |
 | Element callback schedules or clears a keyed timer | Implemented for the single-route unbounded stream path, with atomic timer mutations and coded state checkpointed with source progress. | A fake runner receives the element's set record on the declared family stream; local Prism fires the same event timer. |
 | Timer callback produces state and output | Event-watermark, scripted processing-clock, and idle wall-clock fixtures pass. Output traverses downstream transforms to the sink. | A fake runner sends mixed and timer-only bundles through Fn Data; the worker reads and clears scoped Fn State before output traverses a map. Pinned local Prism jobs match Direct on two event-time results and one scripted processing-time result, including the callback's hold timestamp. |
-| Recovery and expiry | A fresh Direct run restores an armed timer and value cell from one source checkpoint. A failed timer sink commit retries from that checkpoint and emits once. Corrupt combined state is rejected atomically. A fixed-window expiration callback restores its state and armed firing before cleanup. Multi-route state and broader expiration schedules need proofs. | A production job kills and replaces the execution child with an armed event timer, then emits one accumulated result on Prism. A child lost inside global or fixed-window timer callbacks is replaced and receives the same timer input. Two fixed-window expiration callbacks match Direct when source watermarks advance between windows. Same-batch expiration, multi-route state, and other failure points need proofs. |
+| Recovery and expiry | A fresh Direct run restores an armed timer and value cell from one source checkpoint. A failed timer sink commit retries from that checkpoint and emits once. Corrupt combined state is rejected atomically. A fixed-window expiration callback restores its state and armed firing before cleanup. Multi-route state and broader expiration schedules need proofs. | A production job kills and replaces the execution child with an armed event timer, then emits one accumulated result on Prism. A child lost inside global, fixed-window, or expiration timer callbacks is replaced and receives the same timer input. Two fixed-window expiration callbacks match Direct when source watermarks advance between windows. Same-batch expiration, multi-route state, and other failure points need proofs. |
 
 The harness executes declared value, bag, set, map, multimap, and ordered-list
 cells through Fn State. It reads the cell, invokes the registered callback,
