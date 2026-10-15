@@ -341,6 +341,42 @@ pub fn streaming_bag_state_fixture(
         )
 }
 
+/// Mutation and duplicate-content contract for one Beam bag cell per key.
+pub fn bounded_bag_mutations_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .from_vec(
+            "bag-mutations-input",
+            vec![(1_i32, 11_i32), (1, 13), (2, 7), (1, 13), (1, 0), (1, -1), (1, 17), (1, -2), (1, 19)],
+        )?
+        .stateful_bag_map_named::<i32, (i32, String)>(
+            "bag-mutations",
+            "prism-proof/bag-mutations",
+            Version { major: 1, minor: 0 },
+            |_, value, mut prior: Vec<i32>| {
+                prior.sort_unstable();
+                let seen = prior.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
+                let mutation = match value {
+                    0 => BagStateMutation::Keep,
+                    -1 => BagStateMutation::Clear,
+                    -2 => BagStateMutation::Replace(vec![99]),
+                    value => BagStateMutation::Append(vec![value]),
+                };
+                Ok((mutation, (value, seen)))
+            },
+        )?
+        .map_named("bag-mutations-label", |(key, (value, seen))| format!("{key}:{value}:{seen}"))?
+        .sink_named_with_config(
+            "bag-mutations-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("bag-mutations:{}", directory.display()),
+            move || Ok(Box::new(IdempotentStateLabelSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
 /// Two unbounded element batches retain distinct value cells in fixed windows.
 pub fn streaming_windowed_value_state_fixture(
     pipeline: &Pipeline,
