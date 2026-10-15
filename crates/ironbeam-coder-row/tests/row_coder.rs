@@ -413,6 +413,122 @@ fn nested_row_rejects_unknown_trailing_fields_without_writer_schema() {
 }
 
 #[test]
+fn explicit_writer_schema_projects_nested_rows() {
+    use atomic_type_value::Value;
+    let inner_writer = schema(vec![
+        field("number", atomic(AtomicType::Int32, false)),
+        field("label", atomic(AtomicType::String, false)),
+    ]);
+    let inner_reader = schema(vec![
+        field("number", atomic(AtomicType::Int32, false)),
+        field("label", atomic(AtomicType::String, false)),
+        field("note", atomic(AtomicType::String, true)),
+    ]);
+    let outer = |inner: Schema| {
+        schema(vec![field(
+            "nested",
+            FieldType {
+                nullable: true,
+                type_info: Some(field_type::TypeInfo::RowType(RowType {
+                    schema: Some(inner),
+                })),
+            },
+        )])
+    };
+    let writer = outer(inner_writer);
+    let reader = outer(inner_reader);
+    let row = Row {
+        values: vec![FieldValue {
+            field_value: Some(field_value::FieldValue::RowValue(Row {
+                values: vec![value(Value::Int32(42)), value(Value::String("beam".into()))],
+            })),
+        }],
+    };
+    let bytes = encode_row(&writer, &row).unwrap();
+    let projected = decode_row_evolved(&writer, &reader, &bytes).unwrap();
+    let Some(field_value::FieldValue::RowValue(inner)) = &projected.values[0].field_value else {
+        panic!("expected nested row");
+    };
+    assert_eq!(
+        inner.values,
+        [
+            value(Value::Int32(42)),
+            value(Value::String("beam".into())),
+            null()
+        ]
+    );
+    assert_eq!(
+        decode_row(&reader, &encode_row(&reader, &projected).unwrap()).unwrap(),
+        projected
+    );
+
+    let old_reader = outer(schema(vec![field(
+        "number",
+        atomic(AtomicType::Int32, false),
+    )]));
+    assert_eq!(
+        decode_row_evolved(&writer, &old_reader, &bytes)
+            .unwrap()
+            .values[0],
+        FieldValue {
+            field_value: Some(field_value::FieldValue::RowValue(Row {
+                values: vec![value(Value::Int32(42))],
+            })),
+        }
+    );
+
+    let mut incompatible = reader.clone();
+    if let Some(field_type::TypeInfo::RowType(inner)) =
+        &mut incompatible.fields[0].r#type.as_mut().unwrap().type_info
+    {
+        inner.schema.as_mut().unwrap().fields[0].r#type = Some(atomic(AtomicType::Int64, false));
+    }
+    assert!(decode_row_evolved(&writer, &incompatible, &bytes).is_err());
+
+    let mut missing_reader_schema = reader.clone();
+    if let Some(field_type::TypeInfo::RowType(inner)) = &mut missing_reader_schema.fields[0]
+        .r#type
+        .as_mut()
+        .unwrap()
+        .type_info
+    {
+        inner.schema = None;
+    }
+    assert!(decode_row_evolved(&writer, &missing_reader_schema, &bytes).is_err());
+
+    let mut missing_reader_type = reader.clone();
+    missing_reader_type.fields[0].r#type = None;
+    assert!(decode_row_evolved(&writer, &missing_reader_type, &bytes).is_err());
+
+    let required_nested_field = outer(schema(vec![
+        field("number", atomic(AtomicType::Int32, false)),
+        field("label", atomic(AtomicType::String, false)),
+        field("note", atomic(AtomicType::String, false)),
+    ]));
+    assert!(decode_row_evolved(&writer, &required_nested_field, &bytes).is_err());
+
+    let null_row = Row {
+        values: vec![null()],
+    };
+    assert_eq!(
+        decode_row_evolved(&writer, &reader, &encode_row(&writer, &null_row).unwrap()).unwrap(),
+        null_row
+    );
+    let mut nonnullable_reader = reader;
+    nonnullable_reader.fields[0]
+        .r#type
+        .as_mut()
+        .unwrap()
+        .nullable = false;
+    assert!(decode_row_evolved(
+        &writer,
+        &nonnullable_reader,
+        &encode_row(&writer, &null_row).unwrap()
+    )
+    .is_err());
+}
+
+#[test]
 fn malformed_rows_fail_without_partial_decode() {
     use atomic_type_value::Value;
     let mut schema = schema(vec![field("flag", atomic(AtomicType::Boolean, false))]);

@@ -14,7 +14,7 @@ mod values;
 
 use atomic::{read_varint, take};
 use beam_proto::pipeline_v1::{
-    atomic_type_value, field_value, AtomicTypeValue, FieldValue, Row, Schema,
+    atomic_type_value, field_type, field_value, AtomicTypeValue, FieldType, FieldValue, Row, Schema,
 };
 use ironbeam_core::{Element, Error};
 use prost::Message;
@@ -147,15 +147,26 @@ pub fn decode_row(schema: &Schema, bytes: &[u8]) -> Result<Row> {
 /// Decode with the writer's schema, then project fields into a newer schema.
 ///
 /// Encoding positions identify fields across a reorder. Fields added by the
-/// reader are null; removed fields are ignored. Type changes are rejected.
+/// reader are null; removed fields are ignored. Projection recurses into nested
+/// rows. Incompatible field types are rejected.
 ///
 /// # Errors
 ///
 /// Returns an error for malformed bytes or incompatible schemas.
 pub fn decode_row_evolved(writer: &Schema, reader: &Schema, bytes: &[u8]) -> Result<Row> {
     let old = decode_row(writer, bytes)?;
+    project_row(writer, reader, &old, 0)
+}
+
+fn project_row(writer: &Schema, reader: &Schema, old: &Row, depth: usize) -> Result<Row> {
+    if depth >= MAX_DEPTH {
+        bail!("row nesting exceeds limit");
+    }
     let old_order = encoding_order(writer)?;
     let new_order = encoding_order(reader)?;
+    if old.values.len() != writer.fields.len() {
+        bail!("writer row value count does not match schema");
+    }
     let mut values = vec![FieldValue { field_value: None }; reader.fields.len()];
     for (position, &new_index) in new_order.iter().enumerate() {
         let Some(&old_index) = old_order.get(position) else {
@@ -177,15 +188,51 @@ pub fn decode_row_evolved(writer: &Schema, reader: &Schema, bytes: &[u8]) -> Res
             .r#type
             .as_ref()
             .ok_or_else(|| anyhow!("reader row field lacks type"))?;
-        if old_type.type_info != new_type.type_info {
-            bail!("row field type changed at encoding position {position}");
-        }
         if old.values[old_index].field_value.is_none() && !new_type.nullable {
             bail!("null projected into nonnullable row field");
         }
-        values[new_index] = old.values[old_index].clone();
+        values[new_index] =
+            project_field_value(old_type, new_type, &old.values[old_index], depth + 1)
+                .map_err(|error| anyhow!("row field at encoding position {position}: {error}"))?;
     }
     Ok(Row { values })
+}
+
+fn project_field_value(
+    writer: &FieldType,
+    reader: &FieldType,
+    value: &FieldValue,
+    depth: usize,
+) -> Result<FieldValue> {
+    match (&writer.type_info, &reader.type_info, &value.field_value) {
+        (
+            Some(field_type::TypeInfo::RowType(writer_row)),
+            Some(field_type::TypeInfo::RowType(reader_row)),
+            Some(field_value::FieldValue::RowValue(row)),
+        ) => {
+            let writer_schema = writer_row
+                .schema
+                .as_ref()
+                .ok_or_else(|| anyhow!("writer nested row lacks schema"))?;
+            let reader_schema = reader_row
+                .schema
+                .as_ref()
+                .ok_or_else(|| anyhow!("reader nested row lacks schema"))?;
+            Ok(FieldValue {
+                field_value: Some(field_value::FieldValue::RowValue(project_row(
+                    writer_schema,
+                    reader_schema,
+                    row,
+                    depth,
+                )?)),
+            })
+        }
+        (Some(field_type::TypeInfo::RowType(_)), Some(field_type::TypeInfo::RowType(_)), None) => {
+            Ok(value.clone())
+        }
+        _ if writer.type_info == reader.type_info => Ok(value.clone()),
+        _ => bail!("row field type changed"),
+    }
 }
 
 fn encoding_order(schema: &Schema) -> Result<Vec<usize>> {
