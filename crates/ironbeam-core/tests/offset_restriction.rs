@@ -8,6 +8,37 @@ fn range(start: i64, stop: i64) -> OffsetRange {
 }
 
 #[test]
+fn initial_chunks_cover_the_range_without_gaps_or_overlap() {
+    let mut chunks = range(-3, 5).chunks(3).unwrap();
+    assert_eq!(chunks.size_hint(), (3, Some(3)));
+    assert_eq!(chunks.next(), Some(range(-3, 0)));
+    assert_eq!(chunks.size_hint(), (2, Some(2)));
+    assert_eq!(chunks.collect::<Vec<_>>(), vec![range(0, 3), range(3, 5)]);
+    assert_eq!(range(4, 4).chunks(1).unwrap().next(), None);
+    assert!(range(0, 1).chunks(0).is_err());
+    assert!(OffsetRange { start: 2, stop: 1 }.chunks(1).is_err());
+}
+
+#[test]
+fn initial_chunks_handle_the_full_signed_span_lazily() {
+    let full = range(i64::MIN, i64::MAX);
+    let mut chunks = full.chunks(u64::MAX).unwrap();
+    assert_eq!(chunks.size_hint(), (1, Some(1)));
+    assert_eq!(chunks.next(), Some(full));
+    assert_eq!(chunks.next(), None);
+
+    let mut chunks = full.chunks(u64::MAX / 2).unwrap();
+    let first = chunks.next().unwrap();
+    let second = chunks.next().unwrap();
+    let third = chunks.next().unwrap();
+    assert_eq!(first.start, i64::MIN);
+    assert_eq!(first.stop, second.start);
+    assert_eq!(second.stop, third.start);
+    assert_eq!(third.stop, i64::MAX);
+    assert_eq!(chunks.next(), None);
+}
+
+#[test]
 fn beam_offset_range_coder_matches_two_signed_varints() {
     assert_eq!(range(0, 10).encode_beam().unwrap(), [0, 10]);
     assert_eq!(OffsetRange::decode_beam(&[0, 10]).unwrap(), range(0, 10));

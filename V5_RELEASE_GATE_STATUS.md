@@ -216,7 +216,10 @@ checkpoints, progress, and completion checks. The tracker serializes claims and
 splits through a shared lock; tests cover concurrent claims and splits,
 residual recovery, invalid fractions, and extreme offset ranges. `OffsetRange`
 also encodes and decodes the two signed VarInts used by the pinned Java Beam
-coder, including negative boundaries and malformed bytes. It is not yet
+coder, including negative boundaries and malformed bytes. Its lazy `chunks`
+iterator provides contiguous initial restrictions without allocating a list;
+tests cover empty input, invalid sizes, signed offsets, and the full signed
+64-bit span. It is not yet
 registered as an executable splittable transform on either runner, so the
 splittable-processing parity row remains open.
 The Linux core coverage job for commit `cb5399e` passed its unchanged floor:

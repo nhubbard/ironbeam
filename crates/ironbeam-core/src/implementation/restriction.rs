@@ -22,6 +22,24 @@ impl OffsetRange {
         Ok(Self { start, stop })
     }
 
+    /// Divide a finite restriction into consecutive ranges of at most
+    /// `max_positions` offsets. The iterator creates each range on demand, so
+    /// even the full signed 64-bit span does not allocate a range list.
+    pub fn chunks(self, max_positions: u64) -> Result<OffsetRangeChunks, Error> {
+        Self::new(self.start, self.stop)?;
+        if max_positions == 0 {
+            return Err(Error::graph(
+                "restriction",
+                "offset chunk size must be positive",
+            ));
+        }
+        Ok(OffsetRangeChunks {
+            next: self.start,
+            stop: self.stop,
+            max_positions,
+        })
+    }
+
     /// Encode this range as Beam Java's `OffsetRange.Coder`: two signed
     /// 64-bit `VarInt` values, start followed by stop.
     pub fn encode_beam(self) -> Result<Vec<u8>, Error> {
@@ -44,6 +62,40 @@ impl OffsetRange {
             ));
         }
         Self::new(start, stop)
+    }
+}
+
+/// Lazy initial restrictions for parallel offset processing.
+#[derive(Clone, Debug)]
+pub struct OffsetRangeChunks {
+    next: i64,
+    stop: i64,
+    max_positions: u64,
+}
+
+impl Iterator for OffsetRangeChunks {
+    type Item = OffsetRange;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next >= self.stop {
+            return None;
+        }
+        let start = self.next;
+        let stop = (i128::from(start) + i128::from(self.max_positions)).min(i128::from(self.stop));
+        self.next = i64::try_from(stop).expect("chunk boundary lies inside the offset range");
+        Some(OffsetRange {
+            start,
+            stop: self.next,
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = u128::try_from(i128::from(self.stop) - i128::from(self.next))
+            .expect("valid offset range has nonnegative length");
+        let chunk_size = u128::from(self.max_positions);
+        let chunks = remaining.div_ceil(chunk_size);
+        let lower = usize::try_from(chunks).unwrap_or(usize::MAX);
+        (lower, usize::try_from(chunks).ok())
     }
 }
 
