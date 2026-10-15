@@ -427,6 +427,32 @@ impl Registry {
             _ => Ok(Vec::new()),
         }
     }
+    /// Invoke a timer-bearing element callback against runner-supplied coded
+    /// state. The caller commits the returned state and timer mutations.
+    pub fn invoke_timed_element(
+        &self,
+        key: &str,
+        input: Envelope,
+        prior: Option<&[u8]>,
+    ) -> Result<TimedCallbackChange, Error> {
+        match self.transforms.get(key) {
+            Some(Transform::StatefulTimer(transform)) => transform.invoke_element(input, prior),
+            _ => Err(Error::execution(key, "runner", "timed state handler missing")),
+        }
+    }
+    /// Invoke a registered timer callback against runner-supplied coded
+    /// state, without using Direct's in-memory timer queue.
+    pub fn invoke_timed_firing(
+        &self,
+        key: &str,
+        firing: &TimerFiring,
+        prior: Option<&[u8]>,
+    ) -> Result<TimedCallbackChange, Error> {
+        match self.transforms.get(key) {
+            Some(Transform::StatefulTimer(transform)) => transform.invoke_timer(firing, prior),
+            _ => Err(Error::execution(key, "runner", "timed state handler missing")),
+        }
+    }
     /// Earliest pending processing-time user timer on one stateful node.
     pub fn next_stateful_timer_deadline(&self, key: &str) -> Result<Option<i64>, Error> {
         match self.transforms.get(key) {

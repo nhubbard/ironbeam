@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use ironbeam_core::{
-    ElementMetadata, Envelope, PaneInfo, Pipeline, TestStreamEvent, TimedStateResult,
-    UserTimerDomain, UserTimerRequest, Version, Window,
+    Element, ElementMetadata, Envelope, PaneInfo, Pipeline, TestStreamEvent, TimedStateResult,
+    TimerFiring, TimerMutation, UserTimerDomain, UserTimerRequest, Version, Window,
 };
 
 fn input(value: i32) -> Envelope {
@@ -54,6 +54,47 @@ fn timed_state_and_timer_restore_atomically_and_fire_once() {
         .output("result")
         .unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
+    let before = registry.checkpoint_stateful_value("timer").unwrap();
+    let change = registry
+        .invoke_timed_element("timer", input(2), None)
+        .unwrap();
+    assert_eq!(change.state, Some(2_i32.encode().unwrap()));
+    assert!(change.outputs.is_empty());
+    let TimerMutation::Set(identity, schedule) = &change.timers[0] else {
+        panic!("element callback did not arm a timer");
+    };
+    assert!(
+        registry
+            .invoke_timed_firing(
+                "timer",
+                &TimerFiring {
+                    identity: identity.clone(),
+                    schedule: *schedule,
+                    domain: UserTimerDomain::ProcessingTime,
+                },
+                change.state.as_deref(),
+            )
+            .is_err()
+    );
+    let fired = registry
+        .invoke_timed_firing(
+            "timer",
+            &TimerFiring {
+                identity: identity.clone(),
+                schedule: *schedule,
+                domain: UserTimerDomain::EventTime,
+            },
+            change.state.as_deref(),
+        )
+        .unwrap();
+    assert_eq!(fired.state, None);
+    assert_eq!(fired.outputs.len(), 1);
+    assert_eq!(
+        *fired.outputs[0].value.downcast_ref::<(i32, i32)>().unwrap(),
+        (1, 2)
+    );
+    assert!(fired.timers.is_empty());
+    assert_eq!(registry.checkpoint_stateful_value("timer").unwrap(), before);
     assert!(registry.apply_many("timer", input(2)).unwrap().is_empty());
     let snapshot = registry.checkpoint_stateful_value("timer").unwrap();
 

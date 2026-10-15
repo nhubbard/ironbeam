@@ -46,6 +46,15 @@ struct TimedCallbackOutput {
     timers: Vec<UserTimerRequest>,
 }
 
+/// Encoded value-state change, produced elements, and runner-owned timer
+/// mutations from one registered callback. The runner applies them under one
+/// bundle instruction; invoking a callback does not mutate Direct's cells.
+pub struct TimedCallbackChange {
+    pub state: Option<Vec<u8>>,
+    pub outputs: Vec<Envelope>,
+    pub timers: Vec<TimerMutation>,
+}
+
 struct StatefulTimerTransform {
     key_bytes: fn(&(dyn Any + Send)) -> Result<Vec<u8>, Error>,
     validate_key: fn(&[u8]) -> Result<(), Error>,
@@ -87,6 +96,108 @@ struct TimedStateSnapshot {
 }
 
 impl StatefulTimerTransform {
+    fn invoke_element(
+        &self,
+        input: Envelope,
+        prior: Option<&[u8]>,
+    ) -> Result<TimedCallbackChange, Error> {
+        if self.window != Window::Global && input.assigned_window.is_none() {
+            return Err(Error::execution(
+                &self.contract.semantic_id,
+                "runner",
+                "timed state has no assigned window",
+            ));
+        }
+        let key = (self.key_bytes)(input.value.as_ref())?;
+        let metadata = ElementMetadata {
+            timestamp_ns: input.timestamp_ns,
+            window: input.window.clone(),
+            assigned_window: input.assigned_window,
+            pane: input.pane,
+        };
+        let result = (self.on_element)(input.value, prior, metadata.clone())?;
+        if let Some(bytes) = &result.state {
+            (self.validate_state)(bytes)?;
+        }
+        let timers = self.bind_requests(
+            &key,
+            metadata.assigned_window,
+            metadata.pane,
+            metadata.timestamp_ns,
+            result.timers,
+        )?;
+        self.validate_mutations(&timers)?;
+        Ok(TimedCallbackChange {
+            state: result.state,
+            outputs: result
+                .outputs
+                .into_iter()
+                .map(|value| Envelope {
+                    value,
+                    timestamp_ns: metadata.timestamp_ns,
+                    window: metadata.window.clone(),
+                    assigned_window: metadata.assigned_window,
+                    pane: metadata.pane,
+                })
+                .collect(),
+            timers,
+        })
+    }
+
+    fn invoke_timer(
+        &self,
+        firing: &TimerFiring,
+        prior: Option<&[u8]>,
+    ) -> Result<TimedCallbackChange, Error> {
+        (self.validate_key)(&firing.identity.encoded_key)?;
+        let family = self.contract.timers.get(&firing.identity.family_id).ok_or_else(|| {
+            Error::execution(&self.contract.semantic_id, "runner", "undeclared timer family")
+        })?;
+        if family.domain != firing.domain {
+            return Err(Error::execution(
+                &self.contract.semantic_id,
+                "runner",
+                "timer domain differs from declaration",
+            ));
+        }
+        TimerQueue::new(self.contract.clone(), self.window == Window::Global)?.set(
+            firing.identity.clone(),
+            firing.schedule,
+        )?;
+        let result = (self.on_timer)(firing, prior)?;
+        if let Some(bytes) = &result.state {
+            (self.validate_state)(bytes)?;
+        }
+        let timers = self.bind_requests(
+            &firing.identity.encoded_key,
+            firing.identity.window,
+            firing.schedule.pane,
+            firing.schedule.hold_timestamp_ns,
+            result.timers,
+        )?;
+        self.validate_mutations(&timers)?;
+        Ok(TimedCallbackChange {
+            state: result.state,
+            outputs: result
+                .outputs
+                .into_iter()
+                .map(|value| Envelope {
+                    value,
+                    timestamp_ns: firing.schedule.hold_timestamp_ns,
+                    window: self.window.clone(),
+                    assigned_window: firing.identity.window,
+                    pane: firing.schedule.pane,
+                })
+                .collect(),
+            timers,
+        })
+    }
+
+    fn validate_mutations(&self, mutations: &[TimerMutation]) -> Result<(), Error> {
+        let mut queue = TimerQueue::new(self.contract.clone(), self.window == Window::Global)?;
+        queue.apply_mutations(mutations.to_vec())
+    }
+
     fn bind_requests(
         &self,
         key: &[u8],
@@ -128,69 +239,34 @@ impl StatefulTimerTransform {
     }
 
     fn apply_element(&self, input: Envelope) -> Result<Vec<Envelope>, Error> {
-        if self.window != Window::Global && input.assigned_window.is_none() {
-            return Err(Error::execution(&self.contract.semantic_id, "direct", "timed state has no assigned window"));
-        }
         let key = (self.key_bytes)(input.value.as_ref())?;
-        let cell = (input.assigned_window, key.clone());
-        let metadata = ElementMetadata {
-            timestamp_ns: input.timestamp_ns,
-            window: input.window.clone(),
-            assigned_window: input.assigned_window,
-            pane: input.pane,
-        };
+        let cell = (input.assigned_window, key);
         let mut cells = self.cells.lock()
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timed state lock poisoned"))?;
-        let result = (self.on_element)(input.value, cells.get(&cell).map(Vec::as_slice), metadata.clone())?;
-        if let Some(bytes) = &result.state {
-            (self.validate_state)(bytes)?;
-        }
-        let mutations = self.bind_requests(&key, cell.0, input.pane, input.timestamp_ns, result.timers)?;
+        let change = self.invoke_element(input, cells.get(&cell).map(Vec::as_slice))?;
         self.timers.lock()
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timer lock poisoned"))?
-            .apply_mutations(mutations)?;
-        match result.state {
+            .apply_mutations(change.timers)?;
+        match change.state {
             Some(bytes) => { cells.insert(cell, bytes); }
             None => { cells.remove(&cell); }
         }
-        Ok(result.outputs.into_iter().map(|value| Envelope {
-            value,
-            timestamp_ns: metadata.timestamp_ns,
-            window: metadata.window.clone(),
-            assigned_window: metadata.assigned_window,
-            pane: metadata.pane,
-        }).collect())
+        Ok(change.outputs)
     }
 
     fn apply_timer(&self, firing: TimerFiring) -> Result<Vec<Envelope>, Error> {
         let cell = (firing.identity.window, firing.identity.encoded_key.clone());
         let mut cells = self.cells.lock()
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timed state lock poisoned"))?;
-        let result = (self.on_timer)(&firing, cells.get(&cell).map(Vec::as_slice))?;
-        if let Some(bytes) = &result.state {
-            (self.validate_state)(bytes)?;
-        }
-        let mutations = self.bind_requests(
-            &cell.1,
-            cell.0,
-            firing.schedule.pane,
-            firing.schedule.hold_timestamp_ns,
-            result.timers,
-        )?;
+        let change = self.invoke_timer(&firing, cells.get(&cell).map(Vec::as_slice))?;
         self.timers.lock()
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timer lock poisoned"))?
-            .apply_mutations(mutations)?;
-        match result.state {
+            .apply_mutations(change.timers)?;
+        match change.state {
             Some(bytes) => { cells.insert(cell, bytes); }
             None => { cells.remove(&cell); }
         }
-        Ok(result.outputs.into_iter().map(|value| Envelope {
-            value,
-            timestamp_ns: firing.schedule.hold_timestamp_ns,
-            window: self.window.clone(),
-            assigned_window: firing.identity.window,
-            pane: firing.schedule.pane,
-        }).collect())
+        Ok(change.outputs)
     }
 
     fn take_ready(&self, event_watermark_ns: Option<i64>, processing_time_ns: Option<i64>) -> Result<Vec<Envelope>, Error> {

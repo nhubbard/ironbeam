@@ -262,6 +262,14 @@ decoder, check dynamic tags and negative intervals, and reject overflow,
 trailing window bytes, and clear records on a firing input. It is a wire
 boundary; the bundle executor still needs to invoke the callback.
 
+Core now exposes a runner-neutral invocation for the same registered element
+and timer callbacks. It accepts runner-supplied coded value state and returns
+the next coded cell, output envelopes, and validated timer mutations without
+touching Direct's queue. A unit fixture invokes both callbacks, rejects a
+firing with the wrong time domain, and confirms that the Direct checkpoint
+remains unchanged. The portable executor still needs to bind this result to
+Fn State and Fn Data within one bundle.
+
 | Required execution boundary | Direct | Portable worker |
 | --- | --- | --- |
 | Element callback schedules or clears a keyed timer | Implemented for the single-route unbounded stream path, with atomic timer mutations and coded state checkpointed with source progress. | Emit the declared family record before acknowledging the bundle. |
