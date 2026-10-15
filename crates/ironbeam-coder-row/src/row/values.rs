@@ -5,6 +5,7 @@ use beam_proto::pipeline_v1::{
 };
 
 use super::atomic::{decode_atomic, encode_atomic, read_count, take};
+use super::decimal::{decode_decimal, encode_decimal};
 use super::{decode_row_from, encode_row_into, MAX_DEPTH};
 
 pub(super) fn encode_value(
@@ -84,7 +85,13 @@ pub(super) fn encode_value(
                 return Ok(());
             }
             if logical.urn == "beam:logical_type:decimal:v1" {
-                bail!("decimal requires Beam's scale and integer coder");
+                let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+                    value: Some(atomic_type_value::Value::Bytes(text)),
+                })) = representation.field_value.as_ref()
+                else {
+                    bail!("decimal requires UTF-8 text in its bytes representation");
+                };
+                return encode_decimal(std::str::from_utf8(text)?, out);
             }
             encode_value(
                 logical
@@ -162,7 +169,13 @@ pub(super) fn decode_value(ty: &FieldType, input: &mut &[u8], depth: usize) -> R
                     })),
                 }
             } else if logical.urn == "beam:logical_type:decimal:v1" {
-                bail!("decimal requires Beam's scale and integer coder");
+                FieldValue {
+                    field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+                        value: Some(atomic_type_value::Value::Bytes(
+                            decode_decimal(input)?.into_bytes(),
+                        )),
+                    })),
+                }
             } else {
                 decode_value(
                     logical

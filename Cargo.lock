@@ -2858,6 +2858,7 @@ dependencies = [
  "anyhow",
  "beam-proto",
  "ironbeam-core",
+ "num-bigint 0.4.8",
  "prost 0.13.5",
 ]
 

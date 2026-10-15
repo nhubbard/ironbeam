@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use anyhow::{anyhow, bail, Result};
 
 mod atomic;
+mod decimal;
 mod values;
 
 use atomic::{read_varint, take};

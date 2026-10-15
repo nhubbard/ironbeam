@@ -266,12 +266,12 @@
   "ironbeam-coder-row": {
     "source": "crates/ironbeam-coder-row/src",
     "lines": {
-      "covered": 312,
-      "count": 365
+      "covered": 375,
+      "count": 429
     },
     "branches": {
-      "covered": 61,
-      "count": 82
+      "covered": 82,
+      "count": 104
     }
   },
   "ironbeam-compression": {

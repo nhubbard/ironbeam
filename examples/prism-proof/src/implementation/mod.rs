@@ -3,6 +3,8 @@ mod distinct;
 pub use distinct::*;
 mod row;
 pub use row::*;
+mod row_decimal;
+pub use row_decimal::*;
 include!("object_avro.rs");
 include!("object_parquet.rs");
 include!("multiway_and_batches.rs");
