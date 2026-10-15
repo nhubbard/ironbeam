@@ -80,6 +80,132 @@ fn multi_source_early_count_emits_panes_from_both_inputs() {
 }
 
 #[test]
+fn bounded_branch_fires_early_before_unbounded_source_polls_and_recovers() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let hold = Arc::new(AtomicBool::new(true));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let bounded = pipeline
+        .from_vec("bounded", vec![(1_000_000_i64, (1_i32, 2_i32))])
+        .unwrap()
+        .timestamps_from_pairs_named("bounded-time")
+        .unwrap()
+        .fixed_windows("bounded-window", 10_000_000)
+        .unwrap()
+        .accumulating_count_trigger_named("bounded-trigger", 1)
+        .unwrap();
+    let stream = pipeline
+        .unbounded_source_with_factory(
+            "stream",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "pending-early-source-v1".into(),
+            0,
+            {
+                let hold = Arc::clone(&hold);
+                move |_| {
+                    let polls = if hold.load(Ordering::SeqCst) {
+                        VecDeque::new()
+                    } else {
+                        VecDeque::from([UnboundedPoll::Ready(UnboundedBatch {
+                            elements: Vec::new(),
+                            progress: ProgressSignal {
+                                source_key: "stream".into(),
+                                split_id: "split-0".into(),
+                                checkpoint_position: Some(vec![1]),
+                                event_time_ns: Some(10_000_000),
+                                completed: true,
+                            },
+                        })])
+                    };
+                    Ok(Box::new(Script { polls }) as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap()
+        .fixed_windows("stream-window", 10_000_000)
+        .unwrap()
+        .accumulating_count_trigger_named("stream-trigger", 1)
+        .unwrap();
+    let sink = bounded
+        .co_group_homogeneous_named("group", &[stream])
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("format", |(pane, (key, buckets))| {
+            format!("{key}:{buckets:?}:{:?}:{}", pane.timing, pane.index)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "mixed-early-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        staged: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 1,
+            recover: true,
+            binary_build_id: "mixed-early-test-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while committed.lock().unwrap().is_empty() {
+        assert!(Instant::now() < deadline, "bounded early pane did not fire");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    while job.progress().and_then(|signal| signal.checkpoint_position)
+        != Some(1_u64.to_le_bytes().to_vec())
+    {
+        assert!(
+            Instant::now() < deadline,
+            "bounded early pane was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        ["1:[[2], []]:Early:0"]
+    );
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    hold.store(false, Ordering::SeqCst);
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        ["1:[[2], []]:Early:0", "1:[[2], []]:OnTime:1"]
+    );
+}
+
+#[test]
 fn multi_source_group_retains_late_rows_until_expiry() {
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));

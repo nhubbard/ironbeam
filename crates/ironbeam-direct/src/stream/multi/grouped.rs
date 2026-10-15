@@ -352,18 +352,24 @@ fn run_multi_grouped_stream(
     }
     if materialized_bounded {
         let combined = multi_progress(sequence, &sources);
-        if let Some(checkpoint) = checkpoint {
-            let state = serde_json::to_vec(&MultiGroupedState {
-                version: state.version(),
-                sources: sources.clone(),
-                windows: state.encode(registry, route, config.memory_budget_bytes)?,
-            })
-            .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
-            checkpoint.save_state(&combined, &state, config.memory_budget_bytes)?;
+        let panes = state.drain(registry, route, None, &combined)?;
+        publish_multi_grouped_step(
+            registry,
+            route,
+            graph_fingerprint,
+            sink_key,
+            config,
+            handle,
+            shared_progress,
+            checkpoint,
+            &state,
+            &sources,
+            &combined,
+            panes,
+        )?;
+        if combined.completed {
+            return Ok(());
         }
-        *shared_progress
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(combined);
     }
     let mut readers = route
         .sources
@@ -496,60 +502,20 @@ fn run_multi_grouped_stream(
                 .ok_or_else(|| Error::resource("checkpoint", "multi-group sequence exhausted"))?;
             let combined = multi_progress(sequence, &sources);
             let closing = state.drain(registry, route, old_watermark, &combined)?;
-            let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &combined);
-            let mut session = None;
-            let mut written = 0_u64;
-            let result = (|| {
-                for event in closing {
-                    for output in
-                        apply_grouped_stages(registry, &route.after_group, event, config, handle)?
-                    {
-                        if session.is_none() {
-                            session = Some(begin_sink_bundle(registry, sink_key, &instruction_id)?);
-                        }
-                        catch_unwind(AssertUnwindSafe(|| {
-                            session.as_mut().expect("opened sink").write(output)
-                        }))
-                        .unwrap_or_else(|_| {
-                            Err(Error::execution(sink_key, "direct", "sink writer panicked"))
-                        })?;
-                        written = written.saturating_add(1);
-                    }
-                }
-                if config.cancellation.load(Ordering::Acquire) {
-                    return Err(cancelled());
-                }
-                if let Some(session) = &mut session {
-                    catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(|_| {
-                        Err(Error::execution(sink_key, "direct", "sink commit panicked"))
-                    })?;
-                }
-                Ok::<(), Error>(())
-            })();
-            if let Err(error) = result {
-                if let Some(session) = &mut session {
-                    let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
-                }
-                return Err(error);
-            }
-            if let Some(checkpoint) = checkpoint {
-                let state = serde_json::to_vec(&MultiGroupedState {
-                    version: state.version(),
-                    sources: sources.clone(),
-                    windows: state.encode(registry, route, config.memory_budget_bytes)?,
-                })
-                .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
-                checkpoint.save_state(&combined, &state, config.memory_budget_bytes)?;
-            }
-            let total = handle
-                .metrics
-                .output_elements
-                .fetch_add(written, Ordering::Relaxed)
-                .saturating_add(written);
-            handle.processed.store(total, Ordering::Relaxed);
-            *shared_progress
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(combined.clone());
+            publish_multi_grouped_step(
+                registry,
+                route,
+                graph_fingerprint,
+                sink_key,
+                config,
+                handle,
+                shared_progress,
+                checkpoint,
+                &state,
+                &sources,
+                &combined,
+                closing,
+            )?;
             if combined.completed {
                 return Ok(());
             }
@@ -558,6 +524,77 @@ fn run_multi_grouped_stream(
             std::thread::sleep(Duration::from_millis(10));
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn publish_multi_grouped_step(
+    registry: &Registry,
+    route: &MultiGroupedStreamRoute,
+    graph_fingerprint: &str,
+    sink_key: &str,
+    config: &JobConfig,
+    handle: &JobHandle,
+    shared_progress: &Arc<Mutex<Option<ProgressSignal>>>,
+    checkpoint: Option<&StreamCheckpoint>,
+    state: &MultiWindowState,
+    sources: &[Option<ProgressSignal>],
+    progress: &ProgressSignal,
+    panes: Vec<Envelope>,
+) -> Result<(), Error> {
+    let instruction_id = bundle_id(graph_fingerprint, &[sink_key], progress);
+    let mut session = None;
+    let mut written = 0_u64;
+    let result = (|| {
+        for event in panes {
+            for output in apply_grouped_stages(registry, &route.after_group, event, config, handle)?
+            {
+                if session.is_none() {
+                    session = Some(begin_sink_bundle(registry, sink_key, &instruction_id)?);
+                }
+                catch_unwind(AssertUnwindSafe(|| {
+                    session.as_mut().expect("opened sink").write(output)
+                }))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(sink_key, "direct", "sink writer panicked"))
+                })?;
+                written = written.saturating_add(1);
+            }
+        }
+        if config.cancellation.load(Ordering::Acquire) {
+            return Err(cancelled());
+        }
+        if let Some(session) = &mut session {
+            catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(|_| {
+                Err(Error::execution(sink_key, "direct", "sink commit panicked"))
+            })?;
+        }
+        Ok::<(), Error>(())
+    })();
+    if let Err(error) = result {
+        if let Some(session) = &mut session {
+            let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+        }
+        return Err(error);
+    }
+    if let Some(checkpoint) = checkpoint {
+        let state = serde_json::to_vec(&MultiGroupedState {
+            version: state.version(),
+            sources: sources.to_vec(),
+            windows: state.encode(registry, route, config.memory_budget_bytes)?,
+        })
+        .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
+        checkpoint.save_state(progress, &state, config.memory_budget_bytes)?;
+    }
+    let total = handle
+        .metrics
+        .output_elements
+        .fetch_add(written, Ordering::Relaxed)
+        .saturating_add(written);
+    handle.processed.store(total, Ordering::Relaxed);
+    *shared_progress
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(progress.clone());
+    Ok(())
 }
 
 #[cfg(test)]
