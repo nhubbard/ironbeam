@@ -110,5 +110,139 @@ fn ordered_list_rejects_invalid_updates_without_mutating_cell() {
             .apply_stateful_value("ordered", input(-4), Some(&max))
             .is_err()
     );
+    let wrong_input = Envelope {
+        value: Box::new(1_i32),
+        ..input(-4)
+    };
+    assert!(
+        registry
+            .apply_stateful_value("ordered", wrong_input, None)
+            .is_err()
+    );
     assert_eq!(apply(&registry, -4), [10]);
+}
+
+#[derive(Clone, Eq, Hash, PartialEq)]
+struct Uncoded;
+
+impl Element for Uncoded {
+    const TYPE_ID: &'static str = "tests/uncoded-ordered-list";
+    const CODER_ID: &'static str = "tests/uncoded-ordered-list-v1";
+}
+
+#[test]
+fn ordered_list_requires_coders_and_default_nonmerging_windows() {
+    let pipeline = Pipeline::default();
+    let pairs = pipeline.from_vec("pairs", vec![(1_i32, 1_i32)]).unwrap();
+    assert!(
+        pairs
+            .stateful_ordered_list_map_named::<Uncoded, i32>(
+                "uncoded-cell",
+                "tests/uncoded-ordered-cell",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((OrderedListStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    assert!(
+        pairs
+            .stateful_ordered_list_map_named::<i32, Uncoded>(
+                "uncoded-output",
+                "tests/uncoded-ordered-output",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((OrderedListStateMutation::Keep, Uncoded)),
+            )
+            .is_err()
+    );
+    let key_pairs = pipeline
+        .from_vec("uncoded-keys", vec![(Uncoded, 1_i32)])
+        .unwrap();
+    assert!(
+        key_pairs
+            .stateful_ordered_list_map_named::<i32, i32>(
+                "uncoded-key",
+                "tests/uncoded-ordered-key",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((OrderedListStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    let value_pairs = pipeline
+        .from_vec("uncoded-values", vec![(1_i32, Uncoded)])
+        .unwrap();
+    assert!(
+        value_pairs
+            .stateful_ordered_list_map_named::<i32, i32>(
+                "uncoded-input",
+                "tests/uncoded-ordered-input",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((OrderedListStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    assert!(
+        pairs
+            .stateful_ordered_list_map_named::<i32, i32>(
+                "bad-semantic",
+                "unversioned",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((OrderedListStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    let session = pairs.session_windows_named("sessions", 10_000_000).unwrap();
+    assert!(
+        session
+            .stateful_ordered_list_map_named::<i32, i32>(
+                "session-ordered",
+                "tests/session-ordered",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((OrderedListStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    let early = pairs
+        .fixed_windows("early-fixed", 10_000_000)
+        .unwrap()
+        .early_count_trigger_named("early", 1)
+        .unwrap();
+    assert!(
+        early
+            .stateful_ordered_list_map_named::<i32, i32>(
+                "early-ordered",
+                "tests/early-ordered",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((OrderedListStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    let late = pairs
+        .fixed_windows("late-fixed", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 1_000_000)
+        .unwrap();
+    assert!(
+        late.stateful_ordered_list_map_named::<i32, i32>(
+            "late-ordered",
+            "tests/late-ordered",
+            Version { major: 1, minor: 0 },
+            |_, _, _| Ok((OrderedListStateMutation::Keep, 0)),
+        )
+        .is_err()
+    );
+    let fixed = pairs.fixed_windows("fixed", 10_000_000).unwrap();
+    fixed
+        .stateful_ordered_list_map_named::<i32, i32>(
+            "fixed-ordered",
+            "tests/fixed-ordered",
+            Version { major: 1, minor: 0 },
+            |_, _, _| Ok((OrderedListStateMutation::Keep, 0)),
+        )
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let Operation::StatefulParDo { contract, .. } = &graph.node("fixed-ordered").unwrap().operation
+    else {
+        panic!("fixed ordered-list must be stateful");
+    };
+    assert_eq!(contract.window_coder_id, "c_iw");
 }

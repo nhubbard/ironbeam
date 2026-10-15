@@ -141,6 +141,14 @@ the same unchanged Linux core ratchet on `3b11207`: **5769/6002 lines
 Prism SetState corpus includes bounded mutations, unbounded global and fixed
 windows, checkpoint restart, and supervised worker replacement.
 
+The later completed Linux core coverage job on `8453b49` passed lines at
+**5843/6079 (96.12%)** but failed branches at **1200/1396 (85.96%)** against
+the unchanged **86.17%** floor. The subsequent MultimapState and OrderedListState
+tests have not yet been measured by Linux CI. A local macOS `cargo llvm-cov`
+run executed the exact package selection, but its source-location denominator
+differs substantially from Linux, so it is not evidence that the Linux gate
+passes. The branch floor has not been lowered.
+
 The 2026-10-15 local Direct package measurement after the sequential trigger
 and multi-source progress tests is **5946/6521 source lines (91.18%)** and
 **1711/1900 source branches (90.05%)**. Both unchanged floors pass. Core's

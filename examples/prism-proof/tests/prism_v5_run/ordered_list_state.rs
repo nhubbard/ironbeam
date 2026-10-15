@@ -160,5 +160,8 @@ async fn prism_replays_production_ordered_list_after_child_loss() {
     rows.sort();
     let sequential = ["1:7:[]", "1:8:[7]", "1:9:[7, 8]"];
     let residual_first = ["1:7:[]", "1:8:[7, 9]", "1:9:[7]"];
-    assert!(rows == sequential || rows == residual_first, "unexpected ordered-list replay: {rows:?}");
+    assert!(
+        rows == sequential || rows == residual_first,
+        "unexpected ordered-list replay: {rows:?}"
+    );
 }
