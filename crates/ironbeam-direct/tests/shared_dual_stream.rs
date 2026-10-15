@@ -52,7 +52,7 @@ struct Capture {
 
 impl TypedSink<String> for Capture {
     fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
-        self.bundle = id.to_owned();
+        id.clone_into(&mut self.bundle);
         Ok(())
     }
     fn write(&mut self, row: String) -> Result<(), Error> {
@@ -72,6 +72,10 @@ impl TypedSink<String> for Capture {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the checkpoint restart checks one source cursor, both branches, and late panes"
+)]
 fn heterogeneous_shared_source_restores_one_cursor_and_late_count_pane() {
     let directory = tempfile::tempdir().unwrap();
     let opens = Arc::new(Mutex::new(Vec::new()));
