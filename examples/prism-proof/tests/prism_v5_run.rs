@@ -50,7 +50,8 @@ use ironbeam_prism_proof::{
     finalization_probe_sink, finalization_probe_store,
     global_accumulating_early_cogroup_collection, global_accumulating_early_cogroup_fixture,
     global_count_collection, global_count_fixture, global_fold_fixture,
-    global_keyed_batches_fixture, global_keyed_combine_collection, global_keyed_combine_fixture,
+    global_keyed_batches_fixture, global_keyed_batches_with_upstream_trigger_fixture,
+    global_keyed_combine_collection, global_keyed_combine_fixture,
     global_vector_fixture, group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
     heterogeneous_late_count_cogroup_collection, heterogeneous_late_count_cogroup_fixture,
     heterogeneous_windowed_wait_collection, heterogeneous_windowed_wait_fixture,
@@ -7634,14 +7635,17 @@ async fn prism_emits_full_and_final_partial_unbounded_keyed_batches() {
         return;
     };
     let _prism_job = prism_job_lock().lock().await;
-    for (windowed, variable) in [
-        (false, "IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES"),
-        (true, "IRONBEAM_V5_PRISM_WINDOWED_KEYED_BATCHES"),
+    for (windowed, upstream_trigger, variable) in [
+        (false, false, "IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES"),
+        (true, false, "IRONBEAM_V5_PRISM_WINDOWED_KEYED_BATCHES"),
+        (false, true, "IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES_UPSTREAM_TRIGGER"),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("batches.txt");
         let pipeline = Pipeline::default();
-        if windowed {
+        if upstream_trigger {
+            global_keyed_batches_with_upstream_trigger_fixture(&pipeline, path.clone()).unwrap();
+        } else if windowed {
             windowed_keyed_batches_fixture(&pipeline, path.clone()).unwrap();
         } else {
             global_keyed_batches_fixture(&pipeline, path.clone()).unwrap();
@@ -7666,7 +7670,7 @@ async fn prism_emits_full_and_final_partial_unbounded_keyed_batches() {
                 "a:[2, 3]:Early:true:false:0:-1",
                 "a:[4]:OnTime:false:true:1:0",
             ],
-            "windowed: {windowed}"
+            "windowed: {windowed}; upstream trigger: {upstream_trigger}"
         );
     }
 }

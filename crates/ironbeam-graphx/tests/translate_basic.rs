@@ -18,8 +18,17 @@ const BUILD: &str = "graphx-test-build";
 
 #[test]
 fn unbounded_group_into_batches_adds_portable_count_trigger() {
+    assert_batch_count_trigger(false);
+}
+
+#[test]
+fn portable_batch_count_replaces_upstream_accumulating_trigger() {
+    assert_batch_count_trigger(true);
+}
+
+fn assert_batch_count_trigger(upstream_trigger: bool) {
     let pipeline = Pipeline::default();
-    pipeline
+    let source = pipeline
         .test_stream_source(
             "source",
             vec![TestStreamEvent::Elements(vec![(
@@ -27,7 +36,15 @@ fn unbounded_group_into_batches_adds_portable_count_trigger() {
                 2_000_000,
             )])],
         )
-        .unwrap()
+        .unwrap();
+    let source = if upstream_trigger {
+        source
+            .accumulating_count_trigger_named("upstream-count", 1)
+            .unwrap()
+    } else {
+        source
+    };
+    source
         .group_into_batches_named("batches", 2)
         .unwrap()
         .output("result")
@@ -59,6 +76,7 @@ fn unbounded_group_into_batches_adds_portable_count_trigger() {
     assert!(
         matches!(repeat.subtrigger.as_ref().and_then(|sub| sub.trigger.as_ref()), Some(trigger::Trigger::ElementCount(count)) if count.element_count == 2)
     );
+    assert_eq!(strategy.accumulation_mode, accumulation_mode::Enum::Discarding as i32);
 }
 
 #[test]

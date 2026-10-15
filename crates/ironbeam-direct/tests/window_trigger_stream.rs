@@ -398,7 +398,18 @@ fn typed_full_join_retains_late_pane_until_expiry() {
 #[test]
 fn unbounded_global_group_into_batches_fires_full_and_final_partial_batches() {
     assert_eq!(
-        run_unbounded_keyed_batches(false),
+        run_unbounded_keyed_batches(false, false),
+        [
+            "a:[2, 3]:Early:true:false:0:-1",
+            "a:[4]:OnTime:false:true:1:0",
+        ]
+    );
+}
+
+#[test]
+fn keyed_batch_overrides_an_upstream_accumulating_count_trigger() {
+    assert_eq!(
+        run_unbounded_keyed_batches(false, true),
         [
             "a:[2, 3]:Early:true:false:0:-1",
             "a:[4]:OnTime:false:true:1:0",
@@ -571,7 +582,7 @@ fn run_count_or_time_keyed_batches(events: Vec<TestStreamEvent<Row>>) -> Vec<Str
 #[test]
 fn unbounded_fixed_window_group_into_batches_flushes_partial_batch_at_watermark() {
     assert_eq!(
-        run_unbounded_keyed_batches(true),
+        run_unbounded_keyed_batches(true, false),
         [
             "a:[2, 3]:Early:true:false:0:-1",
             "a:[4]:OnTime:false:true:1:0",
@@ -579,7 +590,7 @@ fn unbounded_fixed_window_group_into_batches_flushes_partial_batch_at_watermark(
     );
 }
 
-fn run_unbounded_keyed_batches(windowed: bool) -> Vec<String> {
+fn run_unbounded_keyed_batches(windowed: bool, upstream_trigger: bool) -> Vec<String> {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let pipeline = Pipeline::default();
@@ -598,6 +609,13 @@ fn run_unbounded_keyed_batches(windowed: bool) -> Vec<String> {
         .unwrap();
     let source = if windowed {
         source.fixed_windows("window", 10_000_000).unwrap()
+    } else {
+        source
+    };
+    let source = if upstream_trigger {
+        source
+            .accumulating_count_trigger_named("upstream-count", 1)
+            .unwrap()
     } else {
         source
     };

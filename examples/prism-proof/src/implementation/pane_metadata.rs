@@ -304,7 +304,7 @@ fn global_count_values(pipeline: &Pipeline) -> Result<PCollection<(String, i32)>
 
 /// An unbounded keyed batch emits at the count threshold and flushes its tail.
 pub fn global_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
-    keyed_batches_collection(pipeline, false)
+    keyed_batches_collection(pipeline, false, false)
 }
 
 pub fn timed_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
@@ -357,10 +357,10 @@ pub fn timed_keyed_batches_fixture(
 }
 
 pub fn windowed_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
-    keyed_batches_collection(pipeline, true)
+    keyed_batches_collection(pipeline, true, false)
 }
 
-fn keyed_batches_collection(pipeline: &Pipeline, windowed: bool) -> Result<PCollection<String>, Error> {
+fn keyed_batches_collection(pipeline: &Pipeline, windowed: bool, upstream_trigger: bool) -> Result<PCollection<String>, Error> {
     let source = if windowed {
         pipeline.test_stream_source(
             "global-count-source",
@@ -376,6 +376,11 @@ fn keyed_batches_collection(pipeline: &Pipeline, windowed: bool) -> Result<PColl
         )?.fixed_windows("global-batches-window", 10_000_000)?
     } else {
         global_count_values(pipeline)?
+    };
+    let source = if upstream_trigger {
+        source.accumulating_count_trigger_named("upstream-count", 1)?
+    } else {
+        source
     };
     source
         .group_into_batches_named("global-batches", 2)?
@@ -396,19 +401,26 @@ pub fn global_keyed_batches_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    keyed_batches_fixture(pipeline, path, false)
+    keyed_batches_fixture(pipeline, path, false, false)
+}
+
+pub fn global_keyed_batches_with_upstream_trigger_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    keyed_batches_fixture(pipeline, path, false, true)
 }
 
 pub fn windowed_keyed_batches_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    keyed_batches_fixture(pipeline, path, true)
+    keyed_batches_fixture(pipeline, path, true, false)
 }
 
-fn keyed_batches_fixture(pipeline: &Pipeline, path: PathBuf, windowed: bool) -> Result<Sink<String>, Error> {
+fn keyed_batches_fixture(pipeline: &Pipeline, path: PathBuf, windowed: bool, upstream_trigger: bool) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
-    keyed_batches_collection(pipeline, windowed)?.sink_named_with_config(
+    keyed_batches_collection(pipeline, windowed, upstream_trigger)?.sink_named_with_config(
         "global-batches-capture",
         SinkSpec {
             mode: SinkMode::Append,

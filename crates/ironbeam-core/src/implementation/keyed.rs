@@ -455,25 +455,35 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         key: &str,
         batch_size: usize,
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
+        self.group_into_batches_with_delay(key, batch_size, None)
+    }
+
+    fn group_into_batches_with_delay(
+        &self,
+        key: &str,
+        batch_size: usize,
+        delay_ns: Option<i64>,
+    ) -> Result<PCollection<(K, Vec<V>)>, Error> {
         if !matches!(i64::try_from(batch_size), Ok(size) if size > 0 && size < i64::MAX) {
             return Err(Error::graph(key, "batch size must be in 1..i64::MAX"));
         }
         let limit = batch_size;
         let batch_semantic_id = format!("ironbeam/group-into-batches/{limit}");
-        // A streaming GroupByKey must fire before its global window closes.
-        // Use a count firing when the caller has not already selected one;
-        // the final pane still flushes a partially filled batch.
+        // A batch's count and retention policy belongs to the batching
+        // transform. An upstream trigger (including an accumulating one) can
+        // otherwise emit partial or repeated batches before the limit.
         let parent = self.parent()?;
-        let input = if parent.boundedness == Boundedness::Unbounded
-            && parent.time.trigger.early_count().is_none()
-            && parent.time.trigger.early_processing_time().is_none()
-        {
-            self.early_count_trigger_named(
+        let input = match (parent.boundedness, delay_ns) {
+            (Boundedness::Unbounded, None) => self.early_count_trigger_named(
                 &format!("{key}/count-trigger"),
                 u64::try_from(limit).map_err(|_| Error::graph(key, "batch size exceeds count trigger range"))?,
-            )?
-        } else {
-            self.clone()
+            )?,
+            (_, Some(delay_ns)) => self.count_or_processing_time_trigger_named(
+                &format!("{key}/count-or-time-trigger"),
+                u64::try_from(limit).map_err(|_| Error::graph(key, "batch size exceeds count trigger range"))?,
+                delay_ns,
+            )?,
+            (Boundedness::Bounded, None) => self.clone(),
         };
         let grouped = input
             .reify_keyed_timestamp_named(&format!("{key}/timestamp"))?
@@ -512,17 +522,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         batch_size: usize,
         delay_ns: i64,
     ) -> Result<PCollection<(K, Vec<V>)>, Error> {
-        if !matches!(i64::try_from(batch_size), Ok(size) if size > 0 && size < i64::MAX) {
-            return Err(Error::graph(key, "batch size must be in 1..i64::MAX"));
-        }
-        let count = u64::try_from(batch_size)
-            .map_err(|_| Error::graph(key, "batch size exceeds count trigger range"))?;
-        self.count_or_processing_time_trigger_named(
-            &format!("{key}/count-or-time-trigger"),
-            count,
-            delay_ns,
-        )?
-        .group_into_batches_named(key, batch_size)
+        self.group_into_batches_with_delay(key, batch_size, Some(delay_ns))
     }
     /// Split a bounded keyed group when either its element count or encoded
     /// value bytes reach a limit. A single oversized value forms one batch.

@@ -84,9 +84,10 @@ For an unbounded keyed collection, call `early_processing_time_trigger_named("ti
 
 `group_into_batches_named` emits vectors of values under each key. Its size
 must be greater than zero and smaller than `i64::MAX`; invalid sizes fail
-while the graph is built. For an unbounded input without an existing early
-count trigger, Ironbeam installs one so a full batch can fire before the
-window closes. A final pane can contain fewer values than the requested size.
+while the graph is built. For an unbounded input, Ironbeam sets a discarding
+count trigger at the requested size. It replaces any earlier trigger on the
+input so a smaller count or accumulating policy cannot emit partial or repeated
+batches. A final pane can contain fewer values than the requested size.
 Batch membership can depend on arrival and firing order after a shuffle.
 Each output batch receives the earliest event timestamp among the values in
 that batch. A later batch in the same key and window can therefore have a
