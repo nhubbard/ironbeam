@@ -97,6 +97,14 @@ watermark will not reopen. In the shared fixed-window fixture, Direct and
 Prism both discard a row that arrives after the window closes. A watermark
 does not impose an order on rows that are still in the same open window.
 
+A source may advance its event-time watermark in a batch with no elements.
+For example, a source can emit a value at one millisecond, advance its
+watermark past a ten-millisecond fixed window, and then remain idle. Direct and
+the pinned local Prism runner both close the grouped window and deliver its
+result while the source and job remain open. The source cursor advances with
+the empty progress batch, allowing a resumed worker to distinguish it from
+the earlier data batch.
+
 Ironbeam's fixed-window operation assigns each element to one interval. The
 portable graph expresses that operation as Beam `WindowInto` and gives the
 resulting collection an interval-window coder. Its Beam windowing strategy uses
@@ -238,6 +246,7 @@ when the signal watermark passes its end and leave the second buffered. In the
 pinned Prism version, a signal source that remains open did not release that
 first window in the tested production-source schedule.
 Other configurations use the co-group path and wait for both input watermarks.
+
 `wait_on_all_windowed_named` accepts several signals of one element type. It
 groups them with the main input in one shuffle and waits for every input
 watermark. A shared three-source job checks the same windows and timestamps on

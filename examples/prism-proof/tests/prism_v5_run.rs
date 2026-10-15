@@ -60,12 +60,12 @@ use ironbeam_prism_proof::{
     heterogeneous_late_count_cogroup_collection, heterogeneous_late_count_cogroup_fixture,
     heterogeneous_windowed_wait_collection, heterogeneous_windowed_wait_fixture,
     homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
-    invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
-    late_count_fixture, late_count_join_fixture, late_count_join_kind_collection,
-    late_count_join_kind_fixture, late_distinct_window_fixture, late_keyed_batches_fixture,
-    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
-    mixed_boundedness_join_cogroup_fixture, mixed_flatten_collection, mixed_flatten_fixture,
-    mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
+    idle_source_window_group_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
+    large_group_rows, large_group_summary, late_count_fixture, late_count_join_fixture,
+    late_count_join_kind_collection, late_count_join_kind_fixture, late_distinct_window_fixture,
+    late_keyed_batches_fixture, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
+    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, mixed_flatten_collection,
+    mixed_flatten_fixture, mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
     offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
     ordered_global_fixture, ordered_keyed_duplicate_fixture, ordered_keyed_fixture,
     pane_metadata_fixture_for, pane_metadata_fixture_with_accumulating_count,
@@ -5007,7 +5007,14 @@ async fn prism_releases_windowed_wait_while_main_source_remains_open() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
-    run_early_windowed_wait_fixture(&endpoint, false).await;
+    run_open_sink_fixture(
+        &endpoint,
+        "early-fixed-wait",
+        "IRONBEAM_V5_PRISM_EARLY_WINDOWED_WAIT",
+        early_windowed_wait_fixture,
+        &["0..10000000:7"],
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -5015,19 +5022,60 @@ async fn prism_releases_sliding_wait_windows_after_signal_completion() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
-    run_early_windowed_wait_fixture(&endpoint, true).await;
+    run_open_sink_fixture(
+        &endpoint,
+        "early-sliding-wait",
+        "IRONBEAM_V5_PRISM_EARLY_SLIDING_WAIT",
+        early_sliding_windowed_wait_fixture,
+        &["0..10000000:7", "5000000..15000000:7"],
+    )
+    .await;
 }
 
-async fn run_early_windowed_wait_fixture(endpoint: &str, sliding: bool) {
+#[tokio::test]
+async fn prism_closes_grouped_window_while_source_remains_idle() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let direct_directory = tempfile::tempdir().unwrap();
+    let direct_path = direct_directory.path().join("direct-idle-group.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        idle_source_window_group_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    let direct_job = DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+    for _ in 0..100 {
+        if !read_open_rows(&direct_path).is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(read_open_rows(&direct_path), ["0..10000000:[7]"]);
+    direct_job.cancel();
+    assert_eq!(direct_job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    run_open_sink_fixture(
+        &endpoint,
+        "idle-window-group",
+        "IRONBEAM_V5_PRISM_IDLE_WINDOW_GROUP",
+        idle_source_window_group_fixture,
+        &["0..10000000:[7]"],
+    )
+    .await;
+}
+
+async fn run_open_sink_fixture(
+    endpoint: &str,
+    name: &str,
+    env_key: &str,
+    fixture: fn(&Pipeline, std::path::PathBuf) -> Result<ironbeam_core::Sink<String>, Error>,
+    expected: &[&str],
+) {
     let _prism_job = prism_job_lock().lock().await;
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("early-wait.txt");
+    let path = directory.path().join("open-result.txt");
     let pipeline = Pipeline::default();
-    if sliding {
-        early_sliding_windowed_wait_fixture(&pipeline, path.clone()).unwrap();
-    } else {
-        early_windowed_wait_fixture(&pipeline, path.clone()).unwrap();
-    }
+    fixture(&pipeline, path.clone()).unwrap();
     let mut translated = prepare_v5(&pipeline, "local-process", "prism-run-fixture").unwrap();
     let environment = translated
         .pipeline
@@ -5043,16 +5091,7 @@ async fn run_early_windowed_wait_fixture(endpoint: &str, sliding: bool) {
         os: std::env::consts::OS.into(),
         arch: std::env::consts::ARCH.into(),
         command: env!("CARGO_BIN_EXE_v5_prism_worker").into(),
-        env: [(
-            if sliding {
-                "IRONBEAM_V5_PRISM_EARLY_SLIDING_WAIT"
-            } else {
-                "IRONBEAM_V5_PRISM_EARLY_WINDOWED_WAIT"
-            }
-            .into(),
-            path.to_string_lossy().into_owned(),
-        )]
-        .into(),
+        env: [(env_key.into(), path.to_string_lossy().into_owned())].into(),
     }
     .encode_to_vec();
     let url = if endpoint.contains("://") {
@@ -5065,7 +5104,7 @@ async fn run_early_windowed_wait_fixture(endpoint: &str, sliding: bool) {
         .prepare(PrepareJobRequest {
             pipeline: Some(translated.pipeline),
             pipeline_options: Some(prost_types::Struct::default()),
-            job_name: format!("ironbeam-v5-early-wait-{}", std::process::id()),
+            job_name: format!("ironbeam-v5-{name}-{}", std::process::id()),
         })
         .await
         .unwrap()
@@ -5088,8 +5127,8 @@ async fn run_early_windowed_wait_fixture(endpoint: &str, sliding: bool) {
             .unwrap()
             .into_inner()
             .state;
-        let rows = std::fs::read_to_string(&path).unwrap_or_default();
-        if rows.lines().count() >= if sliding { 2 } else { 1 } || matches!(state, 3..=6) {
+        let rows = read_open_rows(&path);
+        if rows.len() >= expected.len() || matches!(state, 3..=6) {
             observed = Some((state, rows));
             break;
         }
@@ -5107,16 +5146,31 @@ async fn run_early_windowed_wait_fixture(endpoint: &str, sliding: bool) {
         !matches!(state, 3..=6),
         "job ended before early release: {state}"
     );
-    let mut rows = rows.lines().collect::<Vec<_>>();
+    let mut rows = rows;
     rows.sort_unstable();
-    assert_eq!(
-        rows,
-        if sliding {
-            vec!["0..10000000:7", "5000000..15000000:7"]
-        } else {
-            vec!["0..10000000:7"]
-        }
-    );
+    assert_eq!(rows, expected);
+}
+
+fn read_open_rows(path: &Path) -> Vec<String> {
+    if path.is_dir() {
+        std::fs::read_dir(path)
+            .unwrap()
+            .filter_map(|entry| {
+                let entry = entry.unwrap();
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with("row-"))
+                    .then(|| std::fs::read_to_string(entry.path()).unwrap())
+            })
+            .collect()
+    } else {
+        std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
 }
 
 #[tokio::test]

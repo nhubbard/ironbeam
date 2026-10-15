@@ -181,6 +181,80 @@ impl UnboundedSource<Timestamped<i32>> for EarlyWaitReader {
     }
 }
 
+/// The source advances a fixed-window watermark, then remains open without
+/// data. A portable test observes the grouped output before cancellation.
+pub fn idle_source_window_group_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let source = pipeline.unbounded_source_with_factory(
+        "idle-window-source",
+        SourceProgress {
+            stable_split_id: true,
+            replay: Replay::AtLeastOnce,
+            reports_event_time: true,
+        },
+        "idle-window-source-v1".into(),
+        0,
+        |cursor| {
+            let first = UnboundedBatch {
+                elements: vec![Timestamped {
+                    value: 7_i32,
+                    timestamp_ns: 1_000_000,
+                }],
+                progress: ProgressSignal {
+                    source_key: "idle-window-source".into(),
+                    split_id: "source-split".into(),
+                    checkpoint_position: Some(vec![1]),
+                    event_time_ns: Some(1_000_000),
+                    completed: false,
+                },
+            };
+            let second = UnboundedBatch {
+                elements: Vec::new(),
+                progress: ProgressSignal {
+                    source_key: "idle-window-source".into(),
+                    split_id: "source-split".into(),
+                    checkpoint_position: Some(vec![2]),
+                    event_time_ns: Some(11_000_000),
+                    completed: false,
+                },
+            };
+            let polls = match cursor.as_deref() {
+                None => vec![UnboundedPoll::Ready(first), UnboundedPoll::Ready(second)],
+                Some([1]) => vec![UnboundedPoll::Ready(second)],
+                Some([2]) => Vec::new(),
+                _ => return Err(Error::incompatible("idle source cursor changed")),
+            };
+            Ok(Box::new(ProductionSource(polls.into())) as TypedUnboundedSourceReader<i32>)
+        },
+    )?;
+    let sink_path = path.clone();
+    source
+        .fixed_windows("idle-window", 10_000_000)?
+        .map_named("idle-key", |value| (0_i32, value))?
+        .group_by_key_named("idle-group")?
+        .with_window_named("idle-result-window")?
+        .map_named("idle-format", |(window, (_, values))| {
+            format!("{}..{}:{values:?}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "idle-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("idle-result:{}", path.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_path.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Keep the main source open after one value while an empty signal window
 /// closes. A portable test observes the sink before the job is cancelled.
 pub fn early_windowed_wait_fixture(
