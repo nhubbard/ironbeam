@@ -18,6 +18,8 @@
 
 use std::io::{Read, Write};
 
+pub mod row;
+
 use anyhow::{anyhow, Context, Result};
 pub use ironbeam_core::{PaneInfo, PaneTiming};
 
