@@ -667,6 +667,28 @@ impl<T: Element> PCollection<T> {
         early_count: u64,
         late_count: u64,
     ) -> Result<Self, Error> {
+        self.set_early_and_late_count_trigger_named(key, early_count, late_count, false)
+    }
+
+    /// Fire repeated early and late count panes that retain prior values.
+    /// Positive allowed lateness must be set first. Direct requires a
+    /// registered value coder for checkpointed unbounded grouping.
+    pub fn accumulating_early_and_late_count_trigger_named(
+        &self,
+        key: &str,
+        early_count: u64,
+        late_count: u64,
+    ) -> Result<Self, Error> {
+        self.set_early_and_late_count_trigger_named(key, early_count, late_count, true)
+    }
+
+    fn set_early_and_late_count_trigger_named(
+        &self,
+        key: &str,
+        early_count: u64,
+        late_count: u64,
+        accumulating: bool,
+    ) -> Result<Self, Error> {
         if early_count == 0 || early_count > i32::MAX as u64
             || late_count == 0 || late_count > i32::MAX as u64
         {
@@ -683,7 +705,11 @@ impl<T: Element> PCollection<T> {
             Some(time.window),
             None,
             TimePolicyOverride {
-                trigger: Some(WindowTrigger::EarlyAndLateElementCount { early_count, late_count }),
+                trigger: Some(if accumulating {
+                    WindowTrigger::EarlyAndLateElementCountAccumulating { early_count, late_count }
+                } else {
+                    WindowTrigger::EarlyAndLateElementCount { early_count, late_count }
+                }),
                 output_time: None,
                 allowed_lateness_ns: None,
             },

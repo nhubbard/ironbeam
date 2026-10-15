@@ -225,3 +225,65 @@ fn combined_count_trigger_requires_lateness_and_records_both_thresholds() {
         }
     );
 }
+
+#[test]
+fn accumulating_combined_count_has_distinct_identity_and_validates_thresholds() {
+    let pipeline = Pipeline::default();
+    let values = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap();
+    let windowed = values.fixed_windows("windows", 10_000_000).unwrap();
+    assert!(
+        windowed
+            .accumulating_early_and_late_count_trigger_named("no-lateness", 1, 2)
+            .is_err()
+    );
+    let late = windowed
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap();
+    assert!(
+        late.accumulating_early_and_late_count_trigger_named("zero-early", 0, 2)
+            .is_err()
+    );
+    assert!(
+        late.accumulating_early_and_late_count_trigger_named("zero-late", 1, 0)
+            .is_err()
+    );
+    late.accumulating_early_and_late_count_trigger_named("combined", 1, 2)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let trigger = graph.node("groups").unwrap().time.trigger;
+    assert_eq!(
+        trigger,
+        WindowTrigger::EarlyAndLateElementCountAccumulating {
+            early_count: 1,
+            late_count: 2
+        }
+    );
+    assert_eq!(trigger.early_count(), Some(1));
+    assert_eq!(trigger.late_count(), Some(2));
+    assert!(trigger.is_accumulating());
+
+    let discarding = Pipeline::default();
+    discarding
+        .from_vec("values", vec![("a".to_owned(), 2_i32)])
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .early_and_late_count_trigger_named("combined", 1, 2)
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    assert_ne!(
+        graph.fingerprint().unwrap(),
+        discarding.snapshot().unwrap().0.fingerprint().unwrap()
+    );
+}

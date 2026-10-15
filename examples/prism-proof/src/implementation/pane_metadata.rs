@@ -511,11 +511,19 @@ pub fn combined_count_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink
     late_count_fixture_with_mode(pipeline, path, LateCountFixtureMode::Combined)
 }
 
+pub fn accumulating_combined_count_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    late_count_fixture_with_mode(pipeline, path, LateCountFixtureMode::CombinedAccumulating)
+}
+
 #[derive(Clone, Copy)]
 enum LateCountFixtureMode {
     Discarding,
     Accumulating,
     Combined,
+    CombinedAccumulating,
 }
 
 fn late_count_fixture_with_mode(pipeline: &Pipeline, path: PathBuf, mode: LateCountFixtureMode) -> Result<Sink<String>, Error> {
@@ -530,7 +538,20 @@ fn late_count_fixture_with_mode(pipeline: &Pipeline, path: PathBuf, mode: LateCo
         TestStreamEvent::AdvanceWatermark(15_000_000),
         TestStreamEvent::AdvanceWatermark(20_000_000),
     ];
-    let events = if matches!(mode, LateCountFixtureMode::Combined) {
+    let events = if matches!(mode, LateCountFixtureMode::CombinedAccumulating) {
+        vec![
+            TestStreamEvent::Elements(vec![
+                (('a'.to_string(), 2_i32), 2_000_000),
+                (('a'.to_string(), 3_i32), 3_000_000),
+            ]),
+            TestStreamEvent::AdvanceWatermark(10_000_000),
+            TestStreamEvent::Elements(vec![
+                (('a'.to_string(), 5_i32), 5_000_000),
+                (('a'.to_string(), 7_i32), 7_000_000),
+            ]),
+            TestStreamEvent::AdvanceWatermark(15_000_000),
+        ]
+    } else if matches!(mode, LateCountFixtureMode::Combined) {
         vec![
             TestStreamEvent::Elements(vec![
                 (('a'.to_string(), 2_i32), 2_000_000),
@@ -560,6 +581,7 @@ fn late_count_fixture_with_mode(pipeline: &Pipeline, path: PathBuf, mode: LateCo
         LateCountFixtureMode::Discarding => windowed.late_count_trigger_named("late-count-policy", 2)?,
         LateCountFixtureMode::Accumulating => windowed.accumulating_late_count_trigger_named("late-count-policy", 2)?,
         LateCountFixtureMode::Combined => windowed.early_and_late_count_trigger_named("late-count-policy", 2, 2)?,
+        LateCountFixtureMode::CombinedAccumulating => windowed.accumulating_early_and_late_count_trigger_named("late-count-policy", 2, 2)?,
     };
     let rows = triggered
         .group_by_key_named("late-count-group")?
@@ -574,11 +596,28 @@ fn late_count_fixture_with_mode(pipeline: &Pipeline, path: PathBuf, mode: LateCo
     let sink_path = path.clone();
     rows.sink_named_with_config(
         "late-count-result",
-        SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: if matches!(mode, LateCountFixtureMode::CombinedAccumulating) {
+                Replay::Idempotent
+            } else {
+                Replay::AtLeastOnce
+            },
+            commit: true,
+        },
         format!("late-count-result:{}", path.display()),
-        move || Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
-            path: sink_path.clone(), values: Vec::new(),
-        }))),
+        move || {
+            if matches!(mode, LateCountFixtureMode::CombinedAccumulating) {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_path.clone(),
+                    pending: Vec::new(),
+                }) as Box<dyn TypedSink<String>>)
+            } else {
+                Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+                    path: sink_path.clone(), values: Vec::new(),
+                })) as Box<dyn TypedSink<String>>)
+            }
+        },
     )
 }
 

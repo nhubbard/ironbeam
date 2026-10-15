@@ -890,6 +890,11 @@ fn combined_early_and_late_counts_restore_non_speculative_index() {
 }
 
 #[test]
+fn accumulating_combined_counts_restore_values_and_pane_indices() {
+    run_late_count_recovery(LateCountMode::CombinedAccumulating);
+}
+
+#[test]
 fn combined_count_matches_portable_on_time_schedule() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
@@ -974,6 +979,7 @@ enum LateCountMode {
     Discarding,
     Accumulating,
     Combined,
+    CombinedAccumulating,
 }
 
 #[allow(clippy::too_many_lines)] // Restart across a partial late pane and expiry.
@@ -1030,6 +1036,9 @@ fn run_late_count_recovery(mode: LateCountMode) {
             .unwrap(),
         LateCountMode::Combined => windowed
             .early_and_late_count_trigger_named("late-count", 1, 2)
+            .unwrap(),
+        LateCountMode::CombinedAccumulating => windowed
+            .accumulating_early_and_late_count_trigger_named("late-count", 1, 2)
             .unwrap(),
     };
     let sink = triggered
@@ -1092,18 +1101,31 @@ fn run_late_count_recovery(mode: LateCountMode) {
         );
         std::thread::sleep(Duration::from_millis(1));
     }
-    let first_timing = if matches!(mode, LateCountMode::Combined) {
+    let first_timing = if matches!(
+        mode,
+        LateCountMode::Combined | LateCountMode::CombinedAccumulating
+    ) {
         "Early"
     } else {
         "OnTime"
     };
-    let first_non_speculative = if matches!(mode, LateCountMode::Combined) {
+    let first_non_speculative = if matches!(
+        mode,
+        LateCountMode::Combined | LateCountMode::CombinedAccumulating
+    ) {
         -1
     } else {
         0
     };
     let first = format!("a:[2]:2000000:{first_timing}:true:false:0:{first_non_speculative}");
-    assert_eq!(committed.lock().unwrap().as_slice(), [first]);
+    if matches!(mode, LateCountMode::CombinedAccumulating) {
+        assert_eq!(
+            committed.lock().unwrap().as_slice(),
+            [first.as_str(), "a:[2]:2000000:OnTime:false:false:1:0"]
+        );
+    } else {
+        assert_eq!(committed.lock().unwrap().as_slice(), [first]);
+    }
     job.cancel();
     assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
     DirectRunner
@@ -1112,21 +1134,27 @@ fn run_late_count_recovery(mode: LateCountMode) {
         .wait()
         .unwrap();
     assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![2])]);
-    let expected = match mode {
-        LateCountMode::Accumulating => [
+    let expected: &[&str] = match mode {
+        LateCountMode::Accumulating => &[
             "a:[2]:2000000:OnTime:true:false:0:0",
             "a:[2, 3, 5]:2000000:Late:false:false:1:1",
             "a:[2, 3, 5, 7]:2000000:Late:false:true:2:2",
         ],
-        LateCountMode::Discarding => [
+        LateCountMode::Discarding => &[
             "a:[2]:2000000:OnTime:true:false:0:0",
             "a:[3, 5]:3000000:Late:false:false:1:1",
             "a:[7]:7000000:Late:false:true:2:2",
         ],
-        LateCountMode::Combined => [
+        LateCountMode::Combined => &[
             "a:[2]:2000000:Early:true:false:0:-1",
             "a:[3, 5]:3000000:Late:false:false:1:0",
             "a:[7]:7000000:Late:false:true:2:1",
+        ],
+        LateCountMode::CombinedAccumulating => &[
+            "a:[2]:2000000:Early:true:false:0:-1",
+            "a:[2]:2000000:OnTime:false:false:1:0",
+            "a:[2, 3, 5]:2000000:Late:false:false:2:1",
+            "a:[2, 3, 5, 7]:2000000:Late:false:true:3:2",
         ],
     };
     assert_eq!(committed.lock().unwrap().as_slice(), expected);

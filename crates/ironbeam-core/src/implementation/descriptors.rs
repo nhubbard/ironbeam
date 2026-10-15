@@ -34,6 +34,8 @@ pub enum WindowTrigger {
     LateElementCountAccumulating { count: u64 },
     /// Repeated count firings before and after the window-end watermark.
     EarlyAndLateElementCount { early_count: u64, late_count: u64 },
+    /// Repeated early and late count firings that retain prior values.
+    EarlyAndLateElementCountAccumulating { early_count: u64, late_count: u64 },
 }
 
 impl WindowTrigger {
@@ -49,7 +51,8 @@ impl WindowTrigger {
             Self::EarlyElementCount { count } | Self::EarlyElementCountAccumulating { count } => {
                 Some(*count)
             }
-            Self::EarlyAndLateElementCount { early_count, .. } => Some(*early_count),
+            Self::EarlyAndLateElementCount { early_count, .. }
+            | Self::EarlyAndLateElementCountAccumulating { early_count, .. } => Some(*early_count),
         }
     }
 
@@ -57,14 +60,20 @@ impl WindowTrigger {
     pub const fn late_count(&self) -> Option<u64> {
         match self {
             Self::LateElementCount { count } | Self::LateElementCountAccumulating { count } => Some(*count),
-            Self::EarlyAndLateElementCount { late_count, .. } => Some(*late_count),
+            Self::EarlyAndLateElementCount { late_count, .. }
+            | Self::EarlyAndLateElementCountAccumulating { late_count, .. } => Some(*late_count),
             _ => None,
         }
     }
 
     #[must_use]
     pub const fn is_accumulating(&self) -> bool {
-        matches!(self, Self::EarlyElementCountAccumulating { .. } | Self::LateElementCountAccumulating { .. })
+        matches!(
+            self,
+            Self::EarlyElementCountAccumulating { .. }
+                | Self::LateElementCountAccumulating { .. }
+                | Self::EarlyAndLateElementCountAccumulating { .. }
+        )
     }
 }
 

@@ -22,9 +22,10 @@ use ironbeam_dataflow::prepare_v5;
 use ironbeam_direct::{DirectCollectExt, DirectRunner, JobConfig};
 use ironbeam_harness::finalization_journal::FileFinalizationJournal;
 use ironbeam_prism_proof::{
-    accumulating_count_trigger_stream_fixture, accumulating_late_count_fixture,
-    accumulating_late_join_fixture, accumulating_latest_count_trigger_stream_fixture,
-    allowed_lateness_fixture, bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
+    accumulating_combined_count_fixture, accumulating_count_trigger_stream_fixture,
+    accumulating_late_count_fixture, accumulating_late_join_fixture,
+    accumulating_latest_count_trigger_stream_fixture, allowed_lateness_fixture,
+    bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
@@ -6480,6 +6481,66 @@ async fn prism_combines_early_and_late_count_firings() {
             "a:[11]:8000000:Late:false:true:3:2",
         ]
     );
+}
+
+#[tokio::test]
+async fn prism_characterizes_accumulating_early_and_late_count_schedule() {
+    let directory = tempfile::tempdir().unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let direct_path = directory.path().join("combined-accumulating-direct");
+    let direct = Pipeline::default();
+    let direct_sink = accumulating_combined_count_fixture(&direct, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let direct_rows = read_rows(&direct_path);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_path = directory.path().join("combined-accumulating-prism");
+    let portable = Pipeline::default();
+    accumulating_combined_count_fixture(&portable, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "combined-accumulating-count",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_COMBINED_COUNT_ACCUMULATING".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "combined accumulating job: {terminal:?}");
+    let portable_rows = read_rows(&portable_path);
+    let mut expected_direct = vec![
+        "a:[2, 3]:2000000:Early:true:false:0:-1",
+        "a:[2, 3]:2000000:OnTime:false:false:1:0",
+        "a:[2, 3, 5, 7]:2000000:Late:false:false:2:1",
+    ];
+    expected_direct.sort();
+    assert_eq!(direct_rows, expected_direct);
+    // Pinned Prism restarts the accumulating early/on-time trigger for the
+    // late bundle before firing its final late pane on this TestStream schedule.
+    let mut expected_prism = vec![
+        "a:[2, 3]:2000000:Early:true:false:0:-1",
+        "a:[2, 3]:2000000:OnTime:false:false:1:0",
+        "a:[2, 3, 5, 7]:2000000:Early:false:false:2:-1",
+        "a:[2, 3, 5, 7]:2000000:OnTime:false:false:3:0",
+        "a:[2, 3, 5, 7]:2000000:Late:false:true:4:1",
+    ];
+    expected_prism.sort();
+    assert_eq!(portable_rows, expected_prism);
 }
 
 #[tokio::test]

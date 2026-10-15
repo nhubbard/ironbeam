@@ -254,6 +254,15 @@ placed the first post-watermark element in an on-time pane in that separate
 empty-on-time schedule, so intermediate pane agreement is not established
 there. The combined policy uses discarding panes.
 
+`accumulating_early_and_late_count_trigger_named` uses the same thresholds
+and retains previous values in later panes. Direct checkpoints those values
+and the pane index. In a local Prism TestStream with `[2, 3]` before the
+watermark and `[5, 7]` afterward, Direct emits early `[2, 3]`, on-time
+`[2, 3]`, and late `[2, 3, 5, 7]`. Pinned Prism also emits an early and an
+on-time pane containing `[2, 3, 5, 7]` before its final late pane. This policy
+therefore has no cross-runner guarantee for the number or timing of
+accumulating panes in this schedule.
+
 For overlapping sliding windows, each assigned interval keeps its own pane
 index and expiry. A tested late element is a late pane in `[0, 10 ms)` while
 remaining part of the on-time pane in `[5, 15 ms)`. Prism marked the first
