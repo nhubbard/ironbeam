@@ -26,6 +26,19 @@ pub struct StateClient {
     next_id: Arc<AtomicU64>,
 }
 
+// A cancelled bundle must not leave its outstanding State RPC registered until
+// the runner responds. This also covers the timeout and closed-stream paths.
+struct PendingRequest {
+    id: String,
+    pending: Arc<Mutex<HashMap<String, oneshot::Sender<StateResponse>>>>,
+}
+
+impl Drop for PendingRequest {
+    fn drop(&mut self) {
+        self.pending.lock().unwrap().remove(&self.id);
+    }
+}
+
 impl StateClient {
     pub async fn connect(endpoint: &str, worker_id: Option<&str>) -> Result<Self> {
         let url = normalize_endpoint(endpoint).context("state endpoint")?;
@@ -121,6 +134,10 @@ impl StateClient {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed).to_string();
         let (sender, receiver) = oneshot::channel();
         self.pending.lock().unwrap().insert(id.clone(), sender);
+        let _pending_request = PendingRequest {
+            id: id.clone(),
+            pending: Arc::clone(&self.pending),
+        };
         let request = StateRequest {
             id: id.clone(),
             instruction_id: instruction_id.into(),
@@ -128,16 +145,12 @@ impl StateClient {
             request: Some(request),
         };
         if self.outbound.send(request).is_err() {
-            self.pending.lock().unwrap().remove(&id);
             bail!("Beam state stream closed before request {id}");
         }
         let response = match tokio::time::timeout(Duration::from_secs(60), receiver).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => bail!("Beam state stream closed before response {id}"),
-            Err(_) => {
-                self.pending.lock().unwrap().remove(&id);
-                bail!("Beam state request {id} timed out");
-            }
+            Err(_) => bail!("Beam state request {id} timed out"),
         };
         if !response.error.is_empty() {
             bail!("Beam state request {id} failed: {}", response.error);

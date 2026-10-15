@@ -24,6 +24,38 @@ fn runner_key() -> StateKey {
     }
 }
 
+#[tokio::test]
+async fn cancelled_state_request_releases_only_its_pending_response() {
+    let (client, mut requests) = test_client();
+    let cancelled = {
+        let client = client.clone();
+        tokio::spawn(async move { client.get_all("cancelled", runner_key()).await })
+    };
+    let first = requests.recv().await.unwrap();
+    let surviving = {
+        let client = client.clone();
+        tokio::spawn(async move { client.get_all("surviving", runner_key()).await })
+    };
+    let second = requests.recv().await.unwrap();
+    assert_eq!(client.pending.lock().unwrap().len(), 2);
+    cancelled.abort();
+    assert!(cancelled.await.unwrap_err().is_cancelled());
+    {
+        let mut pending = client.pending.lock().unwrap();
+        assert!(!pending.contains_key(&first.id));
+        pending.remove(&second.id).unwrap().send(StateResponse {
+            id: second.id,
+            error: String::new(),
+            response: Some(state_response::Response::Get(StateGetResponse {
+                continuation_token: Vec::new(),
+                data: b"retained".to_vec(),
+            })),
+        }).unwrap();
+    }
+    assert_eq!(surviving.await.unwrap().unwrap(), b"retained");
+    assert!(client.pending.lock().unwrap().is_empty());
+}
+
 #[test]
 fn user_state_scope_builds_each_beam_fn_state_key_shape() {
     let scope = UserStateScope::new("transform", "cell", Vec::new(), vec![7]).unwrap();
