@@ -261,6 +261,11 @@ pub fn timed_keyed_batches_collection(pipeline: &Pipeline) -> Result<PCollection
                 TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000)]),
                 TestStreamEvent::AdvanceWatermark(0),
                 TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::Elements(vec![
+                    (('a'.to_string(), 3_i32), 2_000_000),
+                    (('a'.to_string(), 4_i32), 3_000_000),
+                ]),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
                 TestStreamEvent::AdvanceWatermark(10_000_000),
             ],
         )?

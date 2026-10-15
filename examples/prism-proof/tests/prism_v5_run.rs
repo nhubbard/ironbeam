@@ -7627,7 +7627,7 @@ async fn prism_emits_full_and_final_partial_unbounded_keyed_batches() {
 }
 
 #[tokio::test]
-async fn prism_flushes_partial_keyed_batch_on_processing_time() {
+async fn prism_flushes_keyed_batches_on_time_and_count() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
@@ -7653,7 +7653,13 @@ async fn prism_flushes_partial_keyed_batch_on_processing_time() {
         .map(str::to_owned)
         .collect::<Vec<_>>();
     rows.sort_unstable();
-    assert_eq!(rows, ["a:[2]:Early:true:false:0:-1"]);
+    assert_eq!(
+        rows,
+        [
+            "a:[2]:Early:true:false:0:-1",
+            "a:[3, 4]:Early:false:false:1:-1",
+        ]
+    );
 }
 
 #[tokio::test]

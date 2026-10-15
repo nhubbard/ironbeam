@@ -95,9 +95,10 @@ It uses a repeated count-or-processing-time trigger: a full batch fires as
 soon as the count is met, while the time limit permits a smaller early batch.
 The delay must be a positive whole number of milliseconds, expressed in
 nanoseconds. The Direct runner tests both firing paths. A local Prism job
-confirms the timed path; its tested version can panic when a later count
-firing follows a timed firing in the same window, so that sequence is not yet
-a portable execution guarantee.
+confirms a timed partial batch followed by a count batch when its clock
+advances again before window closure. The pinned Prism version can panic if
+the window closes while an old processing timer from that count firing is
+still queued. That schedule remains unproved on Prism.
 
 For a general keyed group, `count_or_processing_time_trigger_named` uses
 discarding panes and `accumulating_count_or_processing_time_trigger_named`
