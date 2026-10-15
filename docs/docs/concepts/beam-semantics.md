@@ -585,6 +585,12 @@ commit decision or the sink's durable finalization record.
 | Active execution-child replacement in one Prism job | Supported for replay-safe graphs with supervised execution; a killed child and a failed partial-output attempt have live Prism proofs. |
 | Control-owner process replacement | Pending; Prism fails active instructions when that connection disconnects. |
 
+In a single-source fixed-window test, an accumulating count-or-processing-time
+early trigger is followed by a late count trigger. Direct produces four panes.
+The pinned Prism produces six: it adds Early and OnTime panes after the late
+inputs, then marks the final Late pane as `is_last`. An ignored live test records
+the difference while the expected cross-runner behavior remains unresolved.
+
 The [portable execution guide](../guides/portable.md) describes how to run the
 local proof. Bounded keyed batching can also use encoded-value byte and count limits. The
 byte-limited method rejects unbounded input until a stateful streaming
