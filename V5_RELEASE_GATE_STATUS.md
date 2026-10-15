@@ -306,6 +306,14 @@ A second live job assigns one event to two overlapping sliding windows.
 Each window arms its own timer; Direct and Prism commit the same two rows
 with the shared seven-millisecond output hold and distinct interval bounds.
 
+Window-expiration callbacks remain open. The pinned Prism runner injects one
+expiration timer per key used in a window after the window's completion
+watermark, with the callback timestamp at the window's maximum timestamp.
+Graphx can lower the corresponding Beam timer-family declaration, but the
+public v5 callback API does not expose it and Direct currently expires the
+cell without invoking a user callback. A shared proof must invoke the callback
+before state cleanup and compare its outputs and timestamps on both runners.
+
 | Required execution boundary | Direct | Portable worker |
 | --- | --- | --- |
 | Element callback schedules or clears a keyed timer | Implemented for the single-route unbounded stream path, with atomic timer mutations and coded state checkpointed with source progress. | A fake runner receives the element's set record on the declared family stream; local Prism fires the same event timer. |
@@ -575,7 +583,7 @@ The separate checkout was not changed.
 
 | Gate | Done when |
 | --- | --- |
-| ☐ Core coverage on current branch; ☑ local workspace and expanded CI verification | At `f9ec20d`, all 34 required PR checks passed. The timer additions at `3a6285c` pass Direct coverage but leave core at 6521/6791 lines (96.02% versus 96.04%) and 1322/1536 branches (86.07% versus 86.17%) on Linux. Focused timer checkpoint and value-state registration tests add two locally covered source lines and four locally covered branches; the Linux rerun remains pending. The expanded workspace tests, non-destructive local Prism jobs, separate Control-loss proof, and Arrow IPC job passed earlier. The opt-in database proof compiled earlier but was not rerun against live database services after the import. Coverage is a release floor, not a claim that every branch is exercised. |
+| ☑ Core and Direct coverage on current branch; ☑ local workspace and expanded CI verification | At `f9ec20d`, all 34 required PR checks passed. The timer additions at `3a6285c` temporarily missed the unchanged Linux core floor. Focused timer checkpoint and value-state registration tests bring commit `7310e5a` to **6523/6791 core lines (96.05% versus 96.04%)** and **1326/1536 core branches (86.33% versus 86.17%)**; the Linux core and Direct coverage jobs pass. The expanded workspace tests, non-destructive local Prism jobs, separate Control-loss proof, and Arrow IPC job passed earlier. The opt-in database proof compiled earlier but was not rerun against live database services after the import. Coverage is a release floor, not a claim that every branch is exercised. |
 | ☑ Performance | The paired million-row corpus matches outputs and passes explicit v5 latency and peak-memory limits. |
 | ☑ Versioning configuration; ☐ registry publication | The public facade and 33 implementation/helper crates are unpublished `5.0.0` candidates. Semantic Release uses the previous Git tag and conventional commits to select the next version; a `major:` commit selects 5.0.0 after v4.1.1. Its workspace adapter synchronizes package versions and local dependency versions, including inherited workspace dependencies, validates dependency order, and publishes every crate before the GitHub release. The release workflow obtains a temporary crates.io token through Trusted Publishing. The four imported crates and root package pass local package verification; publication remains held at the user's request. Registry authorization cannot be exercised before the workflow runs. |
 | ☑ Day-one GCP resource clients | `ironbeam-cloud-gcp` 5.0.0 packages the official Google Rust clients for Storage, Pub/Sub, BigQuery, and Secret Manager. Each service has its own feature; the root facade offers matching features and an aggregate. The client crate's unit tests, isolated feature builds, strict lint, local package verification, all-feature workspace tests, and Zensical guide pass. At the user's direction, no live GCP integration test was run; successful operations, IAM, and hosted Dataflow behavior are not claimed by this gate. |
