@@ -396,6 +396,12 @@ operation has no timer callback. Direct's source checkpoint includes its
 supported value cells, while the sink finalization journal records output
 publication decisions. Neither mechanism yet covers general user state.
 
+`stateful_bag_map_named` exposes a keyed, windowed bag. It can keep, clear,
+append, or replace coded elements. Direct saves the bag with its source
+cursor; the portable worker reads and writes the declared Beam bag cell
+through Fn State. A two-key, two-batch unbounded fixture has matching counts
+on Direct and local Prism. Bag iteration order is unspecified.
+
 The distinction matters for retries. A source cursor says which input can be
 replayed. A grouped checkpoint contains values that have not yet formed a
 completed result. A sink finalization journal records which bundle attempts

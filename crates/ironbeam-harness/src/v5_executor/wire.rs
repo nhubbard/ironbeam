@@ -17,7 +17,7 @@ use beam_proto::fn_execution_v1::{
 use beam_proto::pipeline_v1::{is_bounded, FunctionSpec, MonitoringInfo};
 use ironbeam_core::{
     Boundedness, Envelope, Error as CoreError, Graph, Node, Operation, Pipeline, Registry, Replay,
-    SinkMode, SinkSession, Window, WindowInterval,
+    SinkMode, SinkSession, UserStateKind, Window, WindowInterval,
 };
 use ironbeam_graphx::v5::{
     cogroup_flatten_collection_id, cogroup_tag_collection_id, collection_id, execution_identity,
@@ -249,4 +249,22 @@ fn decode_length_prefix_partial(bytes: &[u8]) -> Result<Option<(&[u8], usize)>> 
         }
     }
     bail!("v5 keyed record length varint is too long")
+}
+
+fn decode_bag_elements(mut bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let mut elements = Vec::new();
+    while !bytes.is_empty() {
+        let (element, used) = decode_length_prefix(bytes)?;
+        elements.push(element.to_vec());
+        bytes = &bytes[used..];
+    }
+    Ok(elements)
+}
+
+fn encode_bag_elements(elements: &[Vec<u8>]) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    for element in elements {
+        encode_length_prefix(element, &mut bytes)?;
+    }
+    Ok(bytes)
 }

@@ -77,21 +77,36 @@ fn value_state_payload(
     let valid = payload.state_specs.len() == 1
         && payload.timer_family_specs.is_empty()
         && payload.on_window_expiration_timer_family_spec.is_empty()
-        && payload.state_specs.get("value").is_some_and(|spec| {
-            matches!(&spec.spec, Some(state_spec::Spec::ReadModifyWriteSpec(cell)) if pbd.coders.get(&cell.coder_id).is_some_and(|coder| {
-                coder.spec.as_ref().is_some_and(|spec| spec.urn == urns::CODER_LENGTH_PREFIX && spec.payload.is_empty())
-                    && coder.component_coder_ids.len() == 1
-                    && pbd.coders.get(&coder.component_coder_ids[0]).is_some_and(|child| {
-                        child.spec.as_ref().is_some_and(|spec| spec.urn == urns::CODER_BYTES && spec.payload.is_empty())
-                            && child.component_coder_ids.is_empty()
-                    })
-            }))
-                && spec.protocol.as_ref().is_some_and(|protocol| protocol.urn == "beam:user_state:bag:v1" && protocol.payload.is_empty())
-        });
+        && payload
+            .state_specs
+            .iter()
+            .next()
+            .is_some_and(|(name, spec)| {
+                let coder_id = match (name.as_str(), &spec.spec) {
+                    ("value", Some(state_spec::Spec::ReadModifyWriteSpec(cell))) => &cell.coder_id,
+                    ("bag", Some(state_spec::Spec::BagSpec(cell))) => &cell.element_coder_id,
+                    _ => return false,
+                };
+                pbd.coders.get(coder_id).is_some_and(|coder| {
+                    coder.spec.as_ref().is_some_and(|spec| {
+                        spec.urn == urns::CODER_LENGTH_PREFIX && spec.payload.is_empty()
+                    }) && coder.component_coder_ids.len() == 1
+                        && pbd
+                            .coders
+                            .get(&coder.component_coder_ids[0])
+                            .is_some_and(|child| {
+                                child.spec.as_ref().is_some_and(|spec| {
+                                    spec.urn == urns::CODER_BYTES && spec.payload.is_empty()
+                                }) && child.component_coder_ids.is_empty()
+                            })
+                }) && spec.protocol.as_ref().is_some_and(|protocol| {
+                    protocol.urn == "beam:user_state:bag:v1" && protocol.payload.is_empty()
+                })
+            });
     if !valid {
         return Err(PlanError::BadPayload {
             id: id.into(),
-            err: "v5 ParDo supports only the declared value cell without timers".into(),
+            err: "v5 ParDo supports one declared value or bag cell without timers".into(),
         });
     }
     Ok(true)

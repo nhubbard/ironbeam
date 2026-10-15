@@ -6,6 +6,7 @@ use ironbeam_core::{StatefulParDoContract, UserStateKind};
 
 use super::StateClient;
 
+mod bag_transition;
 mod value_transition;
 pub use value_transition::ValueStateMutation;
 

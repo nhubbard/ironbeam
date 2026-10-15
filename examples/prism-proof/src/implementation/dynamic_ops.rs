@@ -307,6 +307,40 @@ pub fn streaming_value_state_fixture(
         )
 }
 
+/// BagState retains all values for each key across unbounded element batches.
+pub fn streaming_bag_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "streaming-bag-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 0), ((2, 17), 0)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+                TestStreamEvent::Elements(vec![((1, 13), 2_000_000), ((2, 19), 2_000_000), ((1, 23), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(3_000_000),
+            ],
+        )?
+        .stateful_bag_map_named::<i32, (i32, i32)>(
+            "streaming-bag-count",
+            "prism-proof/streaming-key-bag-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior: Vec<i32>| {
+                let count = i32::try_from(prior.len()).expect("test bag fits i32") + 1;
+                Ok((BagStateMutation::Append(vec![value]), (value, count)))
+            },
+        )?
+        .map_named("streaming-bag-label", |(key, (value, count))| format!("{key}:{value}:{count}"))?
+        .sink_named_with_config(
+            "streaming-bag-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("streaming-bag-state:{}", directory.display()),
+            move || Ok(Box::new(IdempotentStateLabelSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
 /// Two unbounded element batches retain distinct value cells in fixed windows.
 pub fn streaming_windowed_value_state_fixture(
     pipeline: &Pipeline,

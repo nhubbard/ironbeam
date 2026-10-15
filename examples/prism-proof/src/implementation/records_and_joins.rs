@@ -1,7 +1,7 @@
 use ironbeam_cloud_objects::{LocalObjectIO, ObjectIO};
 use ironbeam_coder_postcard::impl_postcard_element;
 use ironbeam_core::{
-    CombineFn, DynOp, Element, ElementMetadata, Error, OrderedFoldFn, PCollection, Partition,
+    BagStateMutation, CombineFn, DynOp, Element, ElementMetadata, Error, OrderedFoldFn, PCollection, Partition,
     Pipeline, ProgressSignal, Replay, Sink, SinkMode, SinkSpec, SourceProgress, TestStreamEvent,
     Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
     UnboundedSource, Version, Window, WindowInterval,

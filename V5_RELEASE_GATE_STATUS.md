@@ -178,18 +178,19 @@ that checkout. This is the current accounting boundary:
 | Completion barriers | Bounded heterogeneous signals and a single windowed signal have Direct and Prism fixtures. A same-type multi-signal barrier uses one co-group; a three-source fixed-window job matches values, timestamps, and windows on Direct and pinned Prism. Differently typed text and Boolean branches use windowed handles and one co-group; three independently watermarked sources match both runners in two windows, including an empty signal window. A Direct checkpoint test retains the open heterogeneous barrier, reopens all three independent sources at cursor 1, then commits the main row once after their watermarks close the window. For one default unbounded fixed/sliding-window signal, Direct releases main values as soon as the signal window closes and restores buffered main rows after a checkpoint; portable Beam lowering uses a matching-window side view. Pinned Prism commits a fixed-window value while the main source remains open, and commits both overlapping sliding-window values after the signal source completes. Direct also proves that a sliding signal closes only one of two overlapping main windows at its first watermark. An unbounded main source waits for bounded signals on Direct; the same TestStream pipeline matches pinned Prism on values and event times. Direct rejects a failed signal before opening the main source, invalidates a completed checkpoint when the bounded signal's source content changes, and resumes a partially completed main source from its saved cursor after rerunning the bounded signal. A failed second-bundle sink commit restarts from the first bundle's checkpoint and retries the same bundle identity without repeating committed output. The tagged Prism TestStream payload still requires one source coder, so each source begins as an integer before the branches map to different types. | Pinned Prism did not release a partial sliding-window signal while that source stayed open at tested 11 ms and 16 ms watermarks. Multiple-signal early release and broader window schedules remain open. |
 | Rust-relevant I/O | Ten format crates, opt-in database helpers, provider-neutral objects, and four GCP clients have local tests. Portable JSONL object reading and publication use a local provider; a pinned-Prism Avro source binds a local object URI and reader schema in its worker and matches Direct on defaulted-field decoding. The existing portable format corpus covers the eager TFRecord source; a separate Prism fixture now proves its incremental streaming variant against Direct. The hosted object adapter now implements bounded-memory sequential reads; a chunked in-memory backend verifies short reads, provider lifetime, and missing-object errors. Direct Avro and Parquet streaming sources decode through that adapter and reject changed object bytes with recovery errors. | Bind hosted providers and credentials in the portable worker, then prove remote replay and service I/O, including Pub/Sub and BigQuery, with controlled services. The in-memory hosted-adapter tests do not establish live GCS behavior. |
 
-The harness now has a runner-scoped value-state callback primitive. It reads
-the declared cell, passes its encoded bytes to a callback, and applies Keep,
-Clear, or Set under the same bundle instruction. Fake Fn State tests verify
-Get→Clear→Append ordering and that callback errors or panics submit no
-mutation. A declared-family Fn Data dispatcher also reconstructs timer
+The harness executes declared value and bag cells through Fn State. It reads
+the cell, invokes the registered callback, and writes the new contents under
+the same bundle instruction. Fake Fn State tests verify Get→Clear→Append
+ordering. A two-key, two-batch unbounded bag fixture produces the same five
+counts on Direct and pinned Prism. Direct's coded checkpoint stores bag
+contents with the source cursor; a core test restores them and rejects
+malformed state atomically. Bag order is unspecified. A declared-family Fn
+Data dispatcher also reconstructs timer
 records split across arbitrary chunks and calls a handler as each record
 becomes complete. A fake-runner test confirms a callback runs before the
 timer stream closes; other tests cover two records, an undeclared family,
-and a callback error. These helpers are not yet pipeline execution proofs:
-the next gate is to register keyed user callbacks in the logical graph,
-dispatch them from a portable ParDo, connect their timer emissions and state
-scopes, and match Direct and Prism after retry.
+and a callback error. Timer callbacks and other state families still need
+pipeline execution and Direct/Prism retry proofs.
 
 These rows are not equally weighted. A percentage computed by counting URNs
 would hide the difference between a declared state spec and a working

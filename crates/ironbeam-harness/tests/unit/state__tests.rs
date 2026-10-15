@@ -177,6 +177,73 @@ async fn failed_value_clear_does_not_append() {
 }
 
 #[tokio::test]
+async fn bag_state_callback_reads_and_replaces_declared_cell() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "bag-bundle",
+        "bag-transform",
+        &contract,
+        vec![3],
+        vec![7],
+    )
+    .unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for expected in ["get", "clear", "append"] {
+            let request = requests.recv().await.unwrap();
+            assert_eq!(request.instruction_id, "bag-bundle");
+            let Some(state_key::Type::BagUserState(scope)) =
+                &request.state_key.as_ref().unwrap().r#type
+            else {
+                panic!("bag callback used a non-bag key");
+            };
+            assert_eq!(scope.user_state_id, "bag");
+            assert_eq!(scope.window, [3]);
+            assert_eq!(scope.key, [7]);
+            let response = match (expected, request.request) {
+                ("get", Some(state_request::Request::Get(_))) => {
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: b"prior".to_vec(),
+                    })
+                }
+                ("clear", Some(state_request::Request::Clear(_))) => {
+                    state_response::Response::Clear(StateClearResponse {})
+                }
+                ("append", Some(state_request::Request::Append(append))) => {
+                    assert_eq!(append.data, b"next");
+                    state_response::Response::Append(StateAppendResponse {})
+                }
+                _ => panic!("bag callback sent an unexpected request"),
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    let output = access
+        .apply_bag_state("bag", |current| {
+            assert_eq!(current, b"prior");
+            Ok((17, Some(b"next".to_vec())))
+        })
+        .await
+        .unwrap();
+    assert_eq!(output, 17);
+    responder.await.unwrap();
+}
+
+#[tokio::test]
 async fn value_state_callback_reads_then_replaces_under_one_bundle_scope() {
     let (client, mut requests) = test_client();
     let contract = user_contract();

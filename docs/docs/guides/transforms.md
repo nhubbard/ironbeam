@@ -298,7 +298,7 @@ appear in `ready`.
 
 Version 5 batch transforms use an explicit size rather than an implicit physical partition boundary. Registered custom handlers have semantic identifiers and versions; those values contribute to graph identity. The [migration guide](../migration/operations.md) describes the effect on v4 programs. Runner-specific capability checks determine whether a stateful graph can execute on Direct or the portable worker.
 
-## Bounded keyed value state
+## Keyed user state
 
 `stateful_value_map_named` gives each key and assigned window one optional
 value cell. The callback receives the current value and returns its replacement
@@ -331,3 +331,29 @@ A production unbounded source also recovers its keyed counts after child
 replacement during residual reopen. Direct and Prism also agree when a row
 arrives after its fixed window expires: it starts a fresh value cell.
 Other state families and timer callbacks remain open.
+
+`stateful_bag_map_named` gives each key and assigned window a bag of coded
+elements. The callback receives the current contents and returns one output
+with a mutation: `Keep`, `Clear`, `Append`, or `Replace`. Bag iteration order
+is unspecified. The callback should use explicit element keys if its result
+depends on order.
+
+```rust
+use ironbeam_core::{BagStateMutation, Version};
+
+let counts = pairs.stateful_bag_map_named::<i64, i64>(
+    "seen-amounts",
+    "orders/seen-amounts",
+    Version { major: 1, minor: 0 },
+    |_, amount, previous: Vec<i64>| {
+        let count = previous.len() as i64 + 1;
+        Ok((BagStateMutation::Append(vec![amount]), count))
+    },
+)?;
+```
+
+The Direct runner saves coded bag contents with the source cursor. The
+portable worker encodes each item with the declared Beam bag element coder
+and uses Fn State under the current bundle instruction. An unbounded
+TestStream with two keys and two element batches produces the same five
+counts on Direct and local Prism. The operation has no timer callback.

@@ -180,6 +180,10 @@ impl V5BundleExecutor {
                                 .ok_or_else(|| anyhow!("missing v5 collection {input_pc}"))?;
                             let state = inputs.state.ok_or_else(|| anyhow!("stateful ParDo {} has no State client", node.key))?;
                             let parent = node.input.as_deref().ok_or_else(|| anyhow!("stateful ParDo {} has no input", node.key))?;
+                            let bag_state = matches!(contract.states.get("bag"), Some(UserStateKind::Bag { .. }));
+                            if !bag_state && !matches!(contract.states.get("value"), Some(UserStateKind::Value { .. })) {
+                                bail!("stateful ParDo {} has no executable value or bag cell", node.key);
+                            }
                             let mut produced = Vec::with_capacity(input.len());
                             for wire in input {
                                 let (key, _) = self.registry.split_group_input(&node.key, &wire.bytes)?;
@@ -199,40 +203,41 @@ impl V5BundleExecutor {
                                     }
                                 };
                                 let access = UserStateAccess::new(state, instruction_id, transform_id, contract, window, encoded_key)?;
-                                let output = access.apply_value_state("value", |encoded| {
-                                    let prior = if encoded.is_empty() {
-                                        None
-                                    } else {
-                                        let (value, used) = decode_length_prefix(encoded)?;
-                                        if used != encoded.len() {
-                                            bail!("stateful value cell contains more than one encoded value");
-                                        }
-                                        Some(value)
-                                    };
-                                    let envelope = Envelope {
-                                        value: self.registry.decode_element(parent, &wire.bytes)?,
-                                        timestamp_ns: wire.timestamp_ns,
-                                        window: node.time.window.clone(),
-                                        assigned_window: wire.window,
-                                        pane: wire.pane,
-                                    };
-                                    let (next, result) = self.registry.apply_stateful_value(&node.key, envelope, prior)?;
-                                    let mutation = match next {
-                                        Some(bytes) => {
-                                            let mut encoded = Vec::new();
-                                            encode_length_prefix(&bytes, &mut encoded)?;
-                                            ValueStateMutation::Set(encoded)
-                                        }
-                                        None => ValueStateMutation::Clear,
-                                    };
-                                    Ok((WireValue {
-                                        bytes: self.registry.encode_element(&node.key, result.value.as_ref())?,
-                                        timestamp_ns: result.timestamp_ns,
-                                        window: result.assigned_window,
-                                        pane: result.pane,
-                                        element_metadata: wire.element_metadata.clone(),
-                                    }, mutation))
-                                }).await?;
+                                let output = if bag_state {
+                                    access.apply_bag_state("bag", |encoded| {
+                                        let elements = decode_bag_elements(encoded)?;
+                                        let internal = serde_json::to_vec(&elements)?;
+                                        let prior = (!elements.is_empty()).then_some(internal.as_slice());
+                                        let (next, output) = self.apply_stateful_cell(node, parent, wire, prior)?;
+                                        let replacement = next.map(|bytes| {
+                                            let items: Vec<Vec<u8>> = serde_json::from_slice(&bytes)?;
+                                            encode_bag_elements(&items)
+                                        }).transpose()?;
+                                        Ok((output, replacement))
+                                    }).await?
+                                } else {
+                                    access.apply_value_state("value", |encoded| {
+                                        let prior = if encoded.is_empty() {
+                                            None
+                                        } else {
+                                            let (value, used) = decode_length_prefix(encoded)?;
+                                            if used != encoded.len() {
+                                                bail!("stateful value cell contains more than one encoded value");
+                                            }
+                                            Some(value)
+                                        };
+                                        let (next, output) = self.apply_stateful_cell(node, parent, wire, prior)?;
+                                        let mutation = match next {
+                                            Some(bytes) => {
+                                                let mut encoded = Vec::new();
+                                                encode_length_prefix(&bytes, &mut encoded)?;
+                                                ValueStateMutation::Set(encoded)
+                                            }
+                                            None => ValueStateMutation::Clear,
+                                        };
+                                        Ok((output, mutation))
+                                    }).await?
+                                };
                                 produced.push(output);
                             }
                             produced

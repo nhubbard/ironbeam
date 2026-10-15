@@ -10,5 +10,6 @@ include!("v5_executor/v5_executor_map_windows.rs");
 include!("v5_executor/v5_executor_sdf_process.rs");
 include!("v5_executor/v5_executor_validate.rs");
 include!("v5_executor/v5_executor_apply.rs");
+include!("v5_executor/stateful_cell.rs");
 include!("v5_executor/v5_executor_records.rs");
 include!("v5_executor/bundle_runner.rs");
