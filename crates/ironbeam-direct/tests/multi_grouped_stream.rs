@@ -18,6 +18,68 @@ struct Script {
 }
 
 #[test]
+fn multi_source_early_count_emits_panes_from_both_inputs() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let make = |name: &str, value: i32| {
+        pipeline
+            .test_stream_source(
+                name,
+                vec![
+                    TestStreamEvent::Elements(vec![((1_i32, value), 1_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                ],
+            )
+            .unwrap()
+            .fixed_windows(&format!("{name}-window"), 10_000_000)
+            .unwrap()
+            .early_count_trigger_named(&format!("{name}-trigger"), 1)
+            .unwrap()
+    };
+    let sink = make("first", 2)
+        .co_group_homogeneous_named("group", &[make("second", 4)])
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("format", |(pane, (key, buckets))| {
+            format!("{key}:{buckets:?}:{:?}:{}", pane.timing, pane.index)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "multi-early-count-test-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        staged: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        ["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1",]
+    );
+}
+
+#[test]
 fn multi_source_group_retains_late_rows_until_expiry() {
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));
@@ -190,11 +252,23 @@ fn multi_source_accumulating_late_count_restores_values_cursors_and_panes() {
     assert_multi_source_late_group_restores_cursors_and_panes(LateMode::AccumulatingCount);
 }
 
+#[test]
+fn multi_source_early_count_restores_cursors_and_pane_indices() {
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::EarlyCount);
+}
+
+#[test]
+fn multi_source_accumulating_early_count_restores_values_and_panes() {
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::EarlyAccumulating);
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum LateMode {
     Default,
     DiscardingCount,
     AccumulatingCount,
+    EarlyCount,
+    EarlyAccumulating,
 }
 
 fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
@@ -225,7 +299,12 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                         None => (vec![if index == 0 { 2 } else { 4 }], 1, false),
                         Some([1]) if !hold.load(Ordering::SeqCst) => (
                             if index == 0 {
-                                if mode == LateMode::Default {
+                                if matches!(
+                                    mode,
+                                    LateMode::Default
+                                        | LateMode::EarlyCount
+                                        | LateMode::EarlyAccumulating
+                                ) {
                                     vec![3]
                                 } else {
                                     vec![3, 5]
@@ -258,7 +337,18 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                                 source_key: factory_key.clone(),
                                 split_id: "split-0".into(),
                                 checkpoint_position: Some(vec![position]),
-                                event_time_ns: Some(10_000_000),
+                                event_time_ns: Some(
+                                    if position == 1
+                                        && matches!(
+                                            mode,
+                                            LateMode::EarlyCount | LateMode::EarlyAccumulating
+                                        )
+                                    {
+                                        0
+                                    } else {
+                                        10_000_000
+                                    },
+                                ),
                                 completed,
                             },
                         })]
@@ -269,16 +359,26 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
             )
             .unwrap()
             .fixed_windows(&format!("window-{index}"), 10_000_000)
-            .unwrap()
-            .allowed_lateness_named(&format!("lateness-{index}"), 5_000_000)
             .unwrap();
         match mode {
-            LateMode::Default => windowed,
+            LateMode::Default => windowed
+                .allowed_lateness_named(&format!("lateness-{index}"), 5_000_000)
+                .unwrap(),
             LateMode::DiscardingCount => windowed
+                .allowed_lateness_named(&format!("lateness-{index}"), 5_000_000)
+                .unwrap()
                 .late_count_trigger_named(&format!("trigger-{index}"), 2)
                 .unwrap(),
             LateMode::AccumulatingCount => windowed
+                .allowed_lateness_named(&format!("lateness-{index}"), 5_000_000)
+                .unwrap()
                 .accumulating_late_count_trigger_named(&format!("trigger-{index}"), 2)
+                .unwrap(),
+            LateMode::EarlyCount => windowed
+                .early_count_trigger_named(&format!("trigger-{index}"), 1)
+                .unwrap(),
+            LateMode::EarlyAccumulating => windowed
+                .accumulating_count_trigger_named(&format!("trigger-{index}"), 1)
                 .unwrap(),
         }
     };
@@ -336,10 +436,12 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
         );
         std::thread::sleep(Duration::from_millis(1));
     }
-    assert_eq!(
-        committed.lock().unwrap().as_slice(),
-        ["1:[[2], [4]]:OnTime:0"]
-    );
+    let initial = match mode {
+        LateMode::EarlyCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
+        LateMode::EarlyAccumulating => vec!["1:[[2], []]:Early:0", "1:[[2], [4]]:Early:1"],
+        _ => vec!["1:[[2], [4]]:OnTime:0"],
+    };
+    assert_eq!(committed.lock().unwrap().as_slice(), initial);
     job.cancel();
     assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
     hold.store(false, Ordering::SeqCst);
@@ -352,11 +454,15 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
         LateMode::Default => "1:[[3], []]:Late:1",
         LateMode::DiscardingCount => "1:[[3, 5], []]:Late:1",
         LateMode::AccumulatingCount => "1:[[2, 3, 5], [4]]:Late:1",
+        LateMode::EarlyCount => "1:[[3], []]:Early:2",
+        LateMode::EarlyAccumulating => "1:[[2, 3], [4]]:Early:2",
     };
-    assert_eq!(
-        committed.lock().unwrap().as_slice(),
-        ["1:[[2], [4]]:OnTime:0", late_row]
-    );
+    let mut expected = initial;
+    expected.push(late_row);
+    if mode == LateMode::EarlyAccumulating {
+        expected.push("1:[[2, 3], [4]]:OnTime:3");
+    }
+    assert_eq!(committed.lock().unwrap().as_slice(), expected);
     assert_eq!(
         opens.lock().unwrap().as_slice(),
         [(0, None), (1, None), (0, Some(vec![1])), (1, Some(vec![1])),]

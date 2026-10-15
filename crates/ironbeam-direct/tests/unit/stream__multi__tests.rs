@@ -821,6 +821,9 @@ fn dual_stream_enforces_one_budget_across_both_open_sides() {
 #[derive(Clone, Copy)]
 enum FoldFault {
     AddPanic,
+    CountPanic,
+    CountOverrelease,
+    CountReleaseOne,
     ClosedPanic,
     ClosedOverrelease,
     ClosedReleaseOne,
@@ -845,6 +848,15 @@ impl FoldSession for FaultFold {
             FoldFault::ClosedPanic => panic!("closed fold failed"),
             FoldFault::ClosedOverrelease => Ok((Vec::new(), 2)),
             FoldFault::ClosedReleaseOne => Ok((Vec::new(), 1)),
+            _ => Ok((Vec::new(), 0)),
+        }
+    }
+
+    fn drain_ready_count(&mut self, _: u64) -> Result<(Vec<Envelope>, usize), Error> {
+        match self.0 {
+            FoldFault::CountPanic => panic!("count fold failed"),
+            FoldFault::CountOverrelease => Ok((Vec::new(), 2)),
+            FoldFault::CountReleaseOne => Ok((Vec::new(), 1)),
             _ => Ok((Vec::new(), 0)),
         }
     }
@@ -997,6 +1009,153 @@ fn multi_grouped_state_versions_and_empty_snapshots_are_distinct() {
             );
         }
     }
+    let early = MultiWindowState::early(2);
+    assert!(early.is_empty());
+    assert_eq!(early.version(), 3);
+    let bytes = early.encode(&registry, &route, 1024).unwrap();
+    let restored = MultiWindowState::restore_early(&registry, &route, &bytes, 3, 2, 10).unwrap();
+    assert!(restored.is_empty());
+    assert_eq!(restored.version(), 3);
+    assert_eq!(
+        MultiWindowState::restore_early(&registry, &route, &bytes, 2, 2, 10)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Incompatible
+    );
+    assert!(MultiWindowState::restore_early(&registry, &route, b"bad", 3, 2, 10).is_err());
+}
+
+#[test]
+fn multi_grouped_early_count_rejects_invalid_fold_accounting() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let window = (0, 10);
+    for (fault, buffered, expected) in [
+        (FoldFault::CountPanic, 1, ErrorKind::Execution),
+        (FoldFault::CountOverrelease, 1, ErrorKind::Recovery),
+        (FoldFault::CountReleaseOne, 0, ErrorKind::Recovery),
+    ] {
+        let mut state = MultiWindowState::Early {
+            folds: BTreeMap::from([(
+                window,
+                (Box::new(FaultFold(fault)) as Box<dyn FoldSession>, 1),
+            )]),
+            buffered,
+            count: 1,
+        };
+        assert_eq!(
+            state
+                .drain(&registry, &route, None, &fault_progress(0))
+                .err()
+                .unwrap()
+                .kind,
+            expected
+        );
+    }
+}
+
+#[test]
+fn multi_grouped_early_count_drops_closed_rows_and_enforces_budget() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let event = || Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, 2_i32)),
+        timestamp_ns: 2,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+    };
+    let mut early = MultiWindowState::early(1);
+    early.add(&registry, &route, event(), Some(10), 0).unwrap();
+    assert!(early.is_empty());
+    assert_eq!(
+        early
+            .add(&registry, &route, event(), None, 0)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Resource
+    );
+    assert_eq!(
+        early
+            .add(&registry, &route, event(), None, 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+    let mut panicking = MultiWindowState::Early {
+        folds: BTreeMap::from([(
+            (0, 10),
+            (
+                Box::new(FaultFold(FoldFault::AddPanic)) as Box<dyn FoldSession>,
+                0,
+            ),
+        )]),
+        buffered: 0,
+        count: 1,
+    };
+    assert_eq!(
+        panicking
+            .add(&registry, &route, event(), None, 1)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Execution
+    );
+}
+
+#[test]
+fn multi_grouped_early_count_releases_closed_windows_once() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let window = (0, 10);
+    let make = |buffered| MultiWindowState::Early {
+        folds: BTreeMap::from([(
+            window,
+            (
+                Box::new(FaultFold(FoldFault::ClosedPanic)) as Box<dyn FoldSession>,
+                1,
+            ),
+        )]),
+        buffered,
+        count: 1,
+    };
+    let mut waiting = make(1);
+    let mut no_watermark = fault_progress(0);
+    no_watermark.event_time_ns = None;
+    assert!(
+        waiting
+            .drain(&registry, &route, None, &no_watermark)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        waiting
+            .drain(&registry, &route, Some(10), &fault_progress(10))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(waiting.is_empty());
+    let mut undercounted = make(0);
+    assert_eq!(
+        undercounted
+            .drain(&registry, &route, None, &fault_progress(10))
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
 }
 
 #[test]
@@ -1178,4 +1337,25 @@ fn multi_grouped_state_waits_for_progress_and_skips_late_delivery_at_expiry() {
             .is_empty()
     );
     assert!(late.is_empty());
+    let mut completed = MultiWindowState::Late {
+        folds: BTreeMap::from([(
+            window,
+            (
+                Box::new(FaultFold(FoldFault::ClosedPanic)) as Box<dyn FoldSession>,
+                0,
+            ),
+        )]),
+        buffered: 0,
+        late_windows: BTreeSet::from([window]),
+        allowed_lateness_ns: 5,
+    };
+    let mut completed_progress = fault_progress(10);
+    completed_progress.completed = true;
+    assert!(
+        completed
+            .drain(&registry, &route, Some(10), &completed_progress)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(completed.is_empty());
 }

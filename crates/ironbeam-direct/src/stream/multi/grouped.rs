@@ -88,10 +88,14 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
         .node(&route.group_key)
         .ok_or_else(|| Error::graph(&route.group_key, "multi-source group node missing"))?;
     let allowed_lateness_ns = group.time.allowed_lateness_ns;
+    let early_count = group.time.trigger.early_count();
     if group.time.trigger != WindowTrigger::Default
         && !(allowed_lateness_ns > 0
             && group.time.trigger.late_count().is_some()
-            && group.time.trigger.early_count().is_none())
+            && early_count.is_none())
+        && !(allowed_lateness_ns == 0
+            && early_count.is_some()
+            && !matches!(route.window, Window::Session { .. }))
     {
         return Err(Error::unsupported(
             &route.group_key,
@@ -181,20 +185,34 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
                 "multi-group progress does not match cursors",
             ));
         }
-        let windows = MultiWindowState::restore(
-            &registry,
-            &route,
-            &state.windows,
-            state.version,
-            allowed_lateness_ns,
-            config.buffer_budget_elements,
-        )?;
+        let windows = if let Some(count) = early_count {
+            MultiWindowState::restore_early(
+                &registry,
+                &route,
+                &state.windows,
+                state.version,
+                count,
+                config.buffer_budget_elements,
+            )?
+        } else {
+            MultiWindowState::restore(
+                &registry,
+                &route,
+                &state.windows,
+                state.version,
+                allowed_lateness_ns,
+                config.buffer_budget_elements,
+            )?
+        };
         (sequence, state.sources, windows)
     } else {
         (
             0,
             vec![None; route.sources.len()],
-            MultiWindowState::empty(allowed_lateness_ns),
+            early_count.map_or_else(
+                || MultiWindowState::empty(allowed_lateness_ns),
+                MultiWindowState::early,
+            ),
         )
     };
     #[allow(unused_mut)]

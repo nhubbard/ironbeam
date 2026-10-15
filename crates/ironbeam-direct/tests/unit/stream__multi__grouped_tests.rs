@@ -305,7 +305,7 @@ fn grouped_start_rejects_missing_coder_and_prestart_cancellation() {
 }
 
 #[test]
-fn grouped_start_rejects_early_trigger_before_opening_sources() {
+fn grouped_start_rejects_early_trigger_combined_with_lateness() {
     let (mut graph, registry, plan, route, sink_key) = fixture();
     graph
         .nodes
@@ -328,6 +328,71 @@ fn grouped_start_rejects_early_trigger_before_opening_sources() {
         error.kind,
         ErrorKind::UnsupportedCapability { .. }
     ));
+}
+
+#[test]
+fn grouped_start_rejects_early_session_trigger_before_opening_sources() {
+    let (mut graph, registry, plan, mut route, sink_key) = fixture();
+    let group = graph
+        .nodes
+        .iter_mut()
+        .find(|node| node.key == route.group_key)
+        .unwrap();
+    group.time.allowed_lateness_ns = 0;
+    group.time.trigger = WindowTrigger::EarlyElementCount { count: 1 };
+    group.time.window = Window::Session { gap_ns: 5_000_000 };
+    route.window = group.time.window.clone();
+    let error = start_multi_grouped_stream_sink::<i32>(
+        &graph,
+        registry,
+        plan,
+        sink_key,
+        &JobConfig::default(),
+        route,
+    )
+    .err()
+    .unwrap();
+    assert!(matches!(
+        error.kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+}
+
+#[test]
+fn grouped_start_rejects_combined_count_and_late_count_without_lateness() {
+    for (trigger, lateness) in [
+        (
+            WindowTrigger::EarlyAndLateElementCount {
+                early_count: 1,
+                late_count: 1,
+            },
+            5_000_000,
+        ),
+        (WindowTrigger::LateElementCount { count: 1 }, 0),
+    ] {
+        let (mut graph, registry, plan, route, sink_key) = fixture();
+        let group = graph
+            .nodes
+            .iter_mut()
+            .find(|node| node.key == route.group_key)
+            .unwrap();
+        group.time.trigger = trigger;
+        group.time.allowed_lateness_ns = lateness;
+        let error = start_multi_grouped_stream_sink::<i32>(
+            &graph,
+            registry,
+            plan,
+            sink_key,
+            &JobConfig::default(),
+            route,
+        )
+        .err()
+        .unwrap();
+        assert!(matches!(
+            error.kind,
+            ErrorKind::UnsupportedCapability { .. }
+        ));
+    }
 }
 
 #[test]

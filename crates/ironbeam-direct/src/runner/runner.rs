@@ -30,6 +30,34 @@ fn validate_lateness(node: &ironbeam_core::Node, unbounded_source: bool) -> Resu
     Ok(())
 }
 
+const fn supports_trigger(node: &ironbeam_core::Node, unbounded_source: bool) -> bool {
+    matches!(
+        node.operation,
+        Operation::FixedWindow
+            | Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::GroupByKey
+            | Operation::Output
+            | Operation::Sink { .. }
+    ) || (matches!(node.operation, Operation::Flatten)
+        && (!unbounded_source
+            || (node.time.allowed_lateness_ns > 0
+                && node.time.trigger.late_count().is_some()
+                && node.time.trigger.early_count().is_none())
+            || (node.time.allowed_lateness_ns == 0
+                && node.time.trigger.early_count().is_some()
+                && !matches!(node.time.window, ironbeam_core::Window::Session { .. }))))
+        || (unbounded_source
+            && stateful_fanin_operation(&node.operation)
+            && matches!(
+                node.time.trigger,
+                WindowTrigger::LateElementCount { .. }
+                    | WindowTrigger::LateElementCountAccumulating { .. }
+            ))
+}
+
 impl DirectRunner {
     /// Validates every node before any source is opened.
     ///
@@ -65,30 +93,9 @@ impl DirectRunner {
         )?;
         for node in &graph.nodes {
             validate_lateness(node, unbounded_source)?;
-            let trigger_supported = matches!(
-                    node.operation,
-                    Operation::FixedWindow
-                        | Operation::Map
-                        | Operation::Filter
-                        | Operation::FlatMap
-                        | Operation::AssignTimestamp
-                        | Operation::GroupByKey
-                        | Operation::Output
-                        | Operation::Sink { .. }
-                )
-                || (matches!(node.operation, Operation::Flatten)
-                    && (!unbounded_source
-                        || (node.time.allowed_lateness_ns > 0
-                            && node.time.trigger.late_count().is_some()
-                            && node.time.trigger.early_count().is_none())))
-                || (unbounded_source
-                    && stateful_fanin_operation(&node.operation)
-                    && matches!(
-                        node.time.trigger,
-                        WindowTrigger::LateElementCount { .. }
-                            | WindowTrigger::LateElementCountAccumulating { .. }
-                    ));
-            if node.time.trigger != WindowTrigger::Default && !trigger_supported {
+            if node.time.trigger != WindowTrigger::Default
+                && !supports_trigger(node, unbounded_source)
+            {
                 return Err(Error::unsupported(&node.key, "direct", "early-count-trigger"));
             }
             if node.time.output_time != WindowOutputTime::EarliestInPane

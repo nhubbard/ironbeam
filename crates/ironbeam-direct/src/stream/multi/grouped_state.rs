@@ -22,9 +22,44 @@ pub(super) enum MultiWindowState {
         late_windows: BTreeSet<(i64, i64)>,
         allowed_lateness_ns: i64,
     },
+    Early {
+        folds: WindowFolds,
+        buffered: usize,
+        count: u64,
+    },
 }
 
 impl MultiWindowState {
+    pub(super) fn early(count: u64) -> Self {
+        Self::Early {
+            folds: BTreeMap::new(),
+            buffered: 0,
+            count,
+        }
+    }
+
+    pub(super) fn restore_early(
+        registry: &Registry,
+        route: &MultiGroupedStreamRoute,
+        bytes: &[u8],
+        version: u8,
+        count: u64,
+        budget_elements: usize,
+    ) -> Result<Self, Error> {
+        if version != 3 {
+            return Err(Error::incompatible(
+                "multi-group early state version mismatch",
+            ));
+        }
+        let (folds, buffered) =
+            restore_grouped_folds(registry, &route.group_key, bytes, budget_elements, true)?;
+        Ok(Self::Early {
+            folds,
+            buffered,
+            count,
+        })
+    }
+
     pub(super) fn empty(allowed_lateness_ns: i64) -> Self {
         if allowed_lateness_ns > 0 {
             Self::Late {
@@ -80,13 +115,14 @@ impl MultiWindowState {
         match self {
             Self::Rows { .. } => 1,
             Self::Late { .. } => 2,
+            Self::Early { .. } => 3,
         }
     }
 
     pub(super) fn is_empty(&self) -> bool {
         match self {
             Self::Rows { windows, .. } => windows.is_empty(),
-            Self::Late { folds, .. } => folds.is_empty(),
+            Self::Late { folds, .. } | Self::Early { folds, .. } => folds.is_empty(),
         }
     }
 
@@ -100,7 +136,9 @@ impl MultiWindowState {
             Self::Rows { windows, .. } => {
                 encode_window_rows(registry, &route.group_input_key, windows, max_bytes)
             }
-            Self::Late { folds, .. } => encode_grouped_folds(folds, max_bytes, &route.group_key),
+            Self::Late { folds, .. } | Self::Early { folds, .. } => {
+                encode_grouped_folds(folds, max_bytes, &route.group_key)
+            }
         }
     }
 
@@ -160,6 +198,33 @@ impl MultiWindowState {
                 };
                 catch_group_user(&route.group_key, "group fold panicked", || fold.add(event))?;
                 *count += 1;
+                *buffered += 1;
+            }
+            Self::Early {
+                folds, buffered, ..
+            } => {
+                if prior_watermark.is_some_and(|watermark| window.1 <= watermark) {
+                    return Ok(());
+                }
+                if *buffered >= budget_elements {
+                    return Err(Error::resource(
+                        &route.group_key,
+                        "stateful stream input exceeds buffer budget",
+                    ));
+                }
+                let (fold, rows) = match folds.entry(window) {
+                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        let fold = catch_group_user(
+                            &route.group_key,
+                            "group fold factory panicked",
+                            || registry.open_fold(&route.group_key),
+                        )?;
+                        entry.insert((fold, 0))
+                    }
+                };
+                catch_group_user(&route.group_key, "group fold panicked", || fold.add(event))?;
+                *rows += 1;
                 *buffered += 1;
             }
         }
@@ -313,6 +378,51 @@ impl MultiWindowState {
                         Error::recovery(&route.group_key, "group buffer count underflow")
                     })?;
                     panes.append(&mut late);
+                }
+                Ok(panes)
+            }
+            Self::Early {
+                folds,
+                buffered,
+                count,
+            } => {
+                let mut panes = Vec::new();
+                for (&(_, end), (fold, rows)) in folds.iter_mut() {
+                    if prior_watermark.is_some_and(|prior| end <= prior) {
+                        continue;
+                    }
+                    let (mut fired, released) =
+                        catch_group_user(&route.group_key, "group count trigger panicked", || {
+                            fold.drain_ready_count(*count)
+                        })?;
+                    *rows = rows.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "count trigger released too many rows")
+                    })?;
+                    *buffered = buffered.checked_sub(released).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    panes.append(&mut fired);
+                }
+                let watermark = if progress.completed {
+                    Some(i64::MAX)
+                } else {
+                    progress.event_time_ns
+                };
+                let closing = folds
+                    .keys()
+                    .copied()
+                    .filter(|(_, end)| watermark.is_some_and(|current| *end <= current))
+                    .collect::<Vec<_>>();
+                for window in closing {
+                    let (fold, rows) = folds.remove(&window).expect("closing fold exists");
+                    let mut closed =
+                        catch_group_user(&route.group_key, "group fold panicked", || {
+                            fold.finish()
+                        })?;
+                    *buffered = buffered.checked_sub(rows).ok_or_else(|| {
+                        Error::recovery(&route.group_key, "group buffer count underflow")
+                    })?;
+                    panes.append(&mut closed);
                 }
                 Ok(panes)
             }
