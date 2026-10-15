@@ -158,9 +158,11 @@ backend. The separate `ironbeam-cloud-gcp` client does not itself
 implement this registry's `ObjectIO` contract. A local Prism fixture now
 rebuilds the same `file://` provider binding in the worker and streams an Avro
 object with a reader schema that adds a defaulted field. Direct and Prism
-produce the same decoded rows. A worker using `gs://` still needs its own
-GCS provider configuration, credentials, and a controlled service proof. The
-root `cloud` feature
+produce the same decoded rows. In a separate local Prism test, the execution
+child is killed during the first decoded Avro row. Its replacement reopens the
+`file://` object and commits both rows once through an idempotent sink. A worker
+using `gs://` still needs its own GCS provider configuration, credentials, and a
+controlled service proof. The root `cloud` feature
 forwards to Avro's `cloud` feature when `v5-io-avro` is also enabled. With an
 enabled compression feature, object names such as `records.avro.gz` are
 decoded before Avro schema resolution.
