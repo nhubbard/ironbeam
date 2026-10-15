@@ -1,5 +1,5 @@
 use ironbeam_core::{
-    Error, ErrorKind, OrderedListStateMutation, Pipeline, ProgressSignal, Replay, SinkMode,
+    Error, ErrorKind, OrderedListStateMutation, Pipeline, ProgressSignal, Replay, Sink, SinkMode,
     SinkSpec, SourceProgress, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
     UnboundedPoll, UnboundedSource, Version,
 };
@@ -63,13 +63,12 @@ impl TypedSink<String> for IdempotentCapture {
     }
 }
 
-#[test]
-fn ordered_list_recovers_sorted_values_with_source_cursor() {
-    let directory = tempfile::tempdir().unwrap();
-    let opens = Arc::new(Mutex::new(Vec::new()));
-    let accepted = Arc::new(Mutex::new(HashSet::new()));
+fn ordered_list_pipeline(
+    opens: &Arc<Mutex<Vec<Option<Vec<u8>>>>>,
+    accepted: &Arc<Mutex<HashSet<String>>>,
+) -> Sink<String> {
     let pipeline = Pipeline::default();
-    let sink = pipeline
+    pipeline
         .unbounded_source_with_factory(
             "source",
             SourceProgress {
@@ -80,7 +79,7 @@ fn ordered_list_recovers_sorted_values_with_source_cursor() {
             "ordered-list-two-batches-v1".into(),
             0,
             {
-                let opens = Arc::clone(&opens);
+                let opens = Arc::clone(opens);
                 move |cursor| {
                     opens.lock().unwrap().push(cursor.clone());
                     Ok(Box::new(TwoBatchSource {
@@ -123,7 +122,7 @@ fn ordered_list_recovers_sorted_values_with_source_cursor() {
             },
             "ordered-list-idempotent-capture-v1".into(),
             {
-                let accepted = Arc::clone(&accepted);
+                let accepted = Arc::clone(accepted);
                 move || {
                     Ok(Box::new(IdempotentCapture {
                         accepted: Arc::clone(&accepted),
@@ -132,7 +131,15 @@ fn ordered_list_recovers_sorted_values_with_source_cursor() {
                 }
             },
         )
-        .unwrap();
+        .unwrap()
+}
+
+#[test]
+fn ordered_list_recovers_sorted_values_with_source_cursor() {
+    let directory = tempfile::tempdir().unwrap();
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let sink = ordered_list_pipeline(&opens, &accepted);
     let config = || JobConfig {
         checkpoint: Some(CheckpointConfig {
             directory: directory.path().into(),

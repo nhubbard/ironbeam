@@ -143,8 +143,11 @@ windows, checkpoint restart, and supervised worker replacement.
 
 The later completed Linux core coverage job on `8453b49` passed lines at
 **5843/6079 (96.12%)** but failed branches at **1200/1396 (85.96%)** against
-the unchanged **86.17%** floor. The subsequent MultimapState and OrderedListState
-tests have not yet been measured by Linux CI. A local macOS `cargo llvm-cov`
+the unchanged **86.17%** floor. The `b1fe930` Linux job measured the subsequent
+MultimapState and OrderedListState tests at **6007/6250 (96.11%)** lines and
+**1247/1448 (86.12%)** branches. After adding a lower-bound ordered-list range
+case, the `c92ba22` Linux job passed at **6007/6250 (96.11%)** lines and
+**1248/1448 (86.19%)** branches against the unchanged floor. A local macOS `cargo llvm-cov`
 run executed the exact package selection, but its source-location denominator
 differs substantially from Linux, so it is not evidence that the Linux gate
 passes. The branch floor has not been lowered.

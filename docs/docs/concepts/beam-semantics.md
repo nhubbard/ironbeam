@@ -448,13 +448,15 @@ expires a window's cell when the watermark reaches the end of its allowed
 lateness. Pinned Prism accepts a later row for that expired window and starts a
 fresh cell; Direct does the same. The worker accepts
 the matching single value cell, retrieves it with Fn State, invokes the
-registered callback, then clears or replaces the cell. Fake-runner tests cover
-successive writes and a KV input boundary. Other user-state shapes and timer
-declarations still fail worker planning. A supervised worker-child failure
-after replay output keeps the same keyed counts with an idempotent sink. A
-production unbounded source also retains its keyed counts when the execution
-child is replaced during residual reopen.
-Timer delivery, other state families, and broader recovery remain open.
+registered callback, then clears or replaces the cell. The same execution
+path handles bag, set, map, multimap, and ordered-list cells with their
+respective Beam State protocols. Fake-runner tests check the wire requests;
+bounded and unbounded jobs run on Direct and pinned Prism. A supervised
+worker-child failure after replay output keeps the same keyed counts with an
+idempotent sink. A production unbounded source also retains its keyed counts
+when the execution child is replaced during residual reopen. Combining state
+and user timer callbacks are declared and lowered, but worker planning does
+not yet execute them. Broader stateful recovery remains open.
 
 ## Bundles and committed output
 
