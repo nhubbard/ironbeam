@@ -125,6 +125,60 @@ pub fn dual_processing_time_cogroup_fixture(
     )
 }
 
+pub fn dual_count_or_time_cogroup_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let make_source = |key: &str, value, first: bool| {
+        let mut events = vec![TestStreamEvent::Elements(vec![((1_i32, value), 1_000_000)])];
+        events.push(TestStreamEvent::AdvanceWatermark(0));
+        if first {
+            events.push(TestStreamEvent::Elements(vec![((1_i32, 3_i32), 2_000_000)]));
+        }
+        events.push(TestStreamEvent::AdvanceProcessingTime(5_000_000));
+        events.push(TestStreamEvent::AdvanceProcessingTime(5_000_000));
+        events.push(TestStreamEvent::AdvanceWatermark(10_000_000));
+        pipeline
+            .test_stream_source(key, events)?
+            .fixed_windows(&format!("{key}-window"), 10_000_000)?
+            .accumulating_count_or_processing_time_trigger_named(
+                &format!("{key}-trigger"),
+                2,
+                5_000_000,
+            )
+    };
+    make_source("dual-count-time-first", 2, true)?
+        .co_group_homogeneous_named(
+            "dual-count-time-group",
+            &[make_source("dual-count-time-second", 4, false)?],
+        )?
+        .reify_panes_named("dual-count-time-pane")?
+        .map_named("dual-count-time-row", |(pane, (key, values))| {
+            format!("{key}:{values:?}:{:?}:{}", pane.timing, pane.index)
+        })
+}
+
+pub fn dual_count_or_time_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_count_or_time_cogroup_collection(pipeline)?.sink_named_with_config(
+        "dual-count-time-capture",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("dual-count-time:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 /// Two unbounded keyed sources keep a window for a late co-group pane.
 pub fn dual_late_cogroup_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
     dual_late_cogroup_collection_with_trigger(pipeline, false)
