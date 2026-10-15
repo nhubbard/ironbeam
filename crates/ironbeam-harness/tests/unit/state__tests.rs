@@ -122,7 +122,7 @@ async fn ordered_list_callback_reads_sorted_entries_and_replaces_one_bundle_cell
                     let Some(state_request::Request::Append(append)) = request.request else {
                         panic!("expected ordered-list append");
                     };
-                    assert_eq!(append.data, [10, 1, 1, 15, 1, 3, 20, 1, 2]);
+                    assert_eq!(append.data, [10, 1, 1, 15, 1, 3]);
                     state_response::Response::Append(StateAppendResponse {})
                 }
             };
@@ -143,11 +143,75 @@ async fn ordered_list_callback_reads_sorted_entries_and_replaces_one_bundle_cell
     let result = access
         .apply_ordered_state("ordered", |current| {
             assert_eq!(current, br"[[10,[1]],[20,[2]]]");
-            Ok((19, Some(br"[[10,[1]],[15,[3]],[20,[2]]]".to_vec())))
+            Ok((19, Some(br"[[10,[1]],[15,[3]]]".to_vec())))
         })
         .await
         .unwrap();
     assert_eq!(result, 19);
+    responder.await.unwrap();
+}
+
+#[tokio::test]
+async fn ordered_list_append_only_writes_new_entries_including_duplicates() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "append-ordered-bundle",
+        "ordered-transform",
+        &contract,
+        Vec::new(),
+        vec![7],
+    )
+    .unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for step in 0..2 {
+            let request = requests.recv().await.unwrap();
+            let Some(state_key::Type::OrderedListUserState(scope)) =
+                request.state_key.as_ref().unwrap().r#type.as_ref()
+            else {
+                panic!("expected ordered-list state key");
+            };
+            let response = if step == 0 {
+                assert!(scope.range.is_some());
+                assert!(matches!(
+                    request.request,
+                    Some(state_request::Request::Get(_))
+                ));
+                state_response::Response::Get(StateGetResponse {
+                    continuation_token: Vec::new(),
+                    data: vec![10, 1, 1],
+                })
+            } else {
+                assert!(scope.range.is_none());
+                let Some(state_request::Request::Append(append)) = request.request else {
+                    panic!("append-only update must not clear the cell");
+                };
+                assert_eq!(append.data, [10, 1, 1, 15, 1, 3]);
+                state_response::Response::Append(StateAppendResponse {})
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    access
+        .apply_ordered_state("ordered", |current| {
+            assert_eq!(current, br"[[10,[1]]]");
+            Ok(((), Some(br"[[10,[1]],[10,[1]],[15,[3]]]".to_vec())))
+        })
+        .await
+        .unwrap();
     responder.await.unwrap();
 }
 

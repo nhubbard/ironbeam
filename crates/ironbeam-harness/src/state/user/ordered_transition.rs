@@ -38,6 +38,27 @@ fn encode_wire(entries: &[(i64, Vec<u8>)]) -> Result<Vec<u8>> {
     Ok(wire)
 }
 
+/// Return the newly added multiset entries when no existing entry was
+/// removed. Ordered lists may contain duplicate sort-key/value pairs.
+fn additions<'a>(
+    old: &'a [(i64, Vec<u8>)],
+    new: &'a [(i64, Vec<u8>)],
+) -> Option<Vec<&'a (i64, Vec<u8>)>> {
+    let mut prior = old.iter().peekable();
+    let mut appended = Vec::new();
+    for entry in new {
+        if prior.peek().is_some_and(|candidate| *candidate < entry) {
+            return None;
+        }
+        if prior.peek().is_some_and(|candidate| *candidate == entry) {
+            prior.next();
+        } else {
+            appended.push(entry);
+        }
+    }
+    prior.peek().is_none().then_some(appended)
+}
+
 impl UserStateAccess<'_> {
     /// Read, update, and replace a declared ordered-list cell in one bundle.
     /// Runner commit or rollback owns the state transaction.
@@ -64,12 +85,16 @@ impl UserStateAccess<'_> {
             bail!("Beam ordered-list sort key cannot be i64::MAX");
         }
         new.sort();
-        if old != new {
+        if let Some(appended) = additions(&old, &new) {
+            if !appended.is_empty() {
+                let entries = appended.into_iter().cloned().collect::<Vec<_>>();
+                self.append_ordered(state_id, encode_wire(&entries)?)
+                    .await?;
+            }
+        } else {
             // Prism cannot clear an ordered-list cell before its first
             // append; an empty cell already has nothing to remove.
-            if !old.is_empty() {
-                self.clear_ordered(state_id, i64::MIN, i64::MAX).await?;
-            }
+            self.clear_ordered(state_id, i64::MIN, i64::MAX).await?;
             if !new.is_empty() {
                 self.append_ordered(state_id, encode_wire(&new)?).await?;
             }

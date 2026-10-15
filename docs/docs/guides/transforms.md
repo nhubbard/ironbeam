@@ -480,7 +480,8 @@ checkpoints the coded list with its source cursor. Bounded mutation and
 unbounded fixed-window fixtures agree with local Prism, and a Direct restart
 test resumes an open list from its checkpoint. A production unbounded Prism
 job retains the list through execution-child replacement; its two residual
-values may arrive in either order. The portable worker replaces
-the full cell within one bundle when it changes, so the cost of a mutation
-grows with the number of retained entries. Timer callbacks are not yet
+values may arrive in either order. The portable worker reads the current
+list for each callback. When a mutation only adds entries, it appends those
+entries to Fn State. A removal or replacement rewrites the cell within one
+bundle. Large lists therefore still increase read and callback cost. Timer callbacks are not yet
 available for this API.
