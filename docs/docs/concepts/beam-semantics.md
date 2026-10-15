@@ -44,7 +44,8 @@ count-or-processing-time trigger before the watermark and a repeated count
 trigger afterward. A late partial batch flushes when allowed lateness expires.
 The same count, timer, and late-count fixture produces matching panes on the
 Direct runner and local Prism. The portable graph carries both Beam trigger
-branches.
+branches. A Direct checkpoint test resumes after the count pane, fires the
+pending timer, and then emits the late batch once from the restored cursor.
 
 The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)
 records exact passing suites and remaining release constraints. The table is
