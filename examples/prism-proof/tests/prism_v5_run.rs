@@ -2474,6 +2474,64 @@ async fn prism_matches_direct_bag_mutations_and_duplicate_contents() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_unbounded_fixed_window_bag_state() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-windowed-bag-state");
+    let portable_path = directory.path().join("portable-windowed-bag-state");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::streaming_windowed_bag_state_fixture(
+        &direct_pipeline,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable_pipeline = Pipeline::default();
+    ironbeam_prism_proof::streaming_windowed_bag_state_fixture(
+        &portable_pipeline,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "unbounded-fixed-window-bag-state",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAMING_WINDOWED_BAG_STATE".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism fixed-window bag state failed: {terminal:?}"
+    );
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = [
+        "0:10000000:1:11:1",
+        "0:10000000:1:13:2",
+        "20000000:30000000:1:17:1",
+        "20000000:30000000:1:19:2",
+    ];
+    assert_eq!(read_rows(&direct_path), expected);
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_unbounded_bag_state() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

@@ -341,6 +341,43 @@ pub fn streaming_bag_state_fixture(
         )
 }
 
+/// Two unbounded element batches retain distinct bag cells by key and fixed window.
+pub fn streaming_windowed_bag_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "streaming-windowed-bag-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 0), ((1, 17), 20_000_000)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+                TestStreamEvent::Elements(vec![((1, 13), 2_000_000), ((1, 19), 22_000_000)]),
+                TestStreamEvent::AdvanceWatermark(30_000_000),
+            ],
+        )?
+        .fixed_windows("streaming-windowed-bag-window", 10_000_000)?
+        .stateful_bag_map_named::<i32, (i32, i32)>(
+            "streaming-windowed-bag-count",
+            "prism-proof/streaming-windowed-key-bag-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior: Vec<i32>| {
+                let count = i32::try_from(prior.len()).expect("fixture bag fits i32") + 1;
+                Ok((BagStateMutation::Append(vec![value]), (value, count)))
+            },
+        )?
+        .map_named("streaming-windowed-bag-label", |(key, (value, count))| format!("{key}:{value}:{count}"))?
+        .sink_named_with_config(
+            "streaming-windowed-bag-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("streaming-windowed-bag-state:{}", directory.display()),
+            move || Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                directory: sink_directory.clone(), pending: Vec::new(),
+            }))),
+        )
+}
+
 /// Mutation and duplicate-content contract for one Beam bag cell per key.
 pub fn bounded_bag_mutations_fixture(
     pipeline: &Pipeline,

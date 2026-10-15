@@ -188,7 +188,8 @@ malformed state atomically. A Direct stream restart resumes the bag at cursor
 1, and a production unbounded Prism job retains its counts after execution
 child replacement and residual reopen. Bag order is unspecified. A
 bounded Direct/Prism fixture verifies callback contents with duplicate
-entries and all four bag mutations. A declared-family Fn Data dispatcher also reconstructs timer records split
+entries and all four bag mutations. An unbounded fixed-window fixture proves
+two independent bag cells for the same key across batches. A declared-family Fn Data dispatcher also reconstructs timer records split
 across arbitrary chunks and calls a handler as each record
 becomes complete. A fake-runner test confirms a callback runs before the
 timer stream closes; other tests cover two records, an undeclared family,

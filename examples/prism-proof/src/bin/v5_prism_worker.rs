@@ -261,6 +261,11 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_WINDOWED_BAG_STATE") {
+        return ironbeam_prism_proof::streaming_windowed_bag_state_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_BAG_MUTATIONS") {
         return ironbeam_prism_proof::bounded_bag_mutations_fixture(pipeline, path.into())
             .map(|_| ())

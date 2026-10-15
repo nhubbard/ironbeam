@@ -360,5 +360,6 @@ counts on Direct and local Prism. A production unbounded source retains its
 bag contents after Prism replaces a failed execution child and reopens the
 source residual. Direct resumes its bag and source cursor from a checkpoint.
 A bounded fixture also checks the values presented to callbacks across all
-four mutation variants and duplicate entries on both runners. The operation
-has no timer callback.
+four mutation variants and duplicate entries on both runners. An unbounded
+fixed-window fixture keeps two independent bag cells for the same key across
+two element batches on both runners. The operation has no timer callback.
