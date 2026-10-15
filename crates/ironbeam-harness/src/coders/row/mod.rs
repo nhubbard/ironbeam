@@ -36,6 +36,45 @@ pub fn decode_row(schema: &Schema, bytes: &[u8]) -> Result<Row> {
     Ok(row)
 }
 
+/// Decode with the writer's schema, then project fields into a newer schema.
+/// Encoding positions identify fields across a reorder. Fields added by the
+/// reader are null; removed fields are ignored. Type changes are rejected.
+pub fn decode_row_evolved(writer: &Schema, reader: &Schema, bytes: &[u8]) -> Result<Row> {
+    let old = decode_row(writer, bytes)?;
+    let old_order = encoding_order(writer)?;
+    let new_order = encoding_order(reader)?;
+    let mut values = vec![FieldValue { field_value: None }; reader.fields.len()];
+    for (position, &new_index) in new_order.iter().enumerate() {
+        let Some(&old_index) = old_order.get(position) else {
+            if !reader.fields[new_index]
+                .r#type
+                .as_ref()
+                .ok_or_else(|| anyhow!("reader row field lacks type"))?
+                .nullable
+            {
+                bail!("new nonnullable row field has no encoded value");
+            }
+            continue;
+        };
+        let old_type = writer.fields[old_index]
+            .r#type
+            .as_ref()
+            .ok_or_else(|| anyhow!("writer row field lacks type"))?;
+        let new_type = reader.fields[new_index]
+            .r#type
+            .as_ref()
+            .ok_or_else(|| anyhow!("reader row field lacks type"))?;
+        if old_type.type_info != new_type.type_info {
+            bail!("row field type changed at encoding position {position}");
+        }
+        if old.values[old_index].field_value.is_none() && !new_type.nullable {
+            bail!("null projected into nonnullable row field");
+        }
+        values[new_index] = old.values[old_index].clone();
+    }
+    Ok(Row { values })
+}
+
 fn encoding_order(schema: &Schema) -> Result<Vec<usize>> {
     let count = schema.fields.len();
     if !schema.encoding_positions_set {

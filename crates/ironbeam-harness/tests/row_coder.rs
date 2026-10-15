@@ -3,7 +3,7 @@ use beam_proto::pipeline_v1::{
     AtomicTypeValue, Field, FieldType, FieldValue, LogicalType, LogicalTypeValue, MapType,
     MapTypeEntry, MapTypeValue, Row, RowType, Schema,
 };
-use ironbeam_harness::coders::row::{decode_row, encode_row};
+use ironbeam_harness::coders::row::{decode_row, decode_row_evolved, encode_row};
 use prost::Message;
 
 fn field(name: &str, ty: FieldType) -> Field {
@@ -259,6 +259,46 @@ fn beam_static_row_option_omits_field_count_and_null_mask() {
     let expected = b"\x2a\x0chello world!";
     assert_eq!(encode_row(&schema, &row).unwrap(), expected);
     assert_eq!(decode_row(&schema, expected).unwrap(), row);
+}
+
+#[test]
+fn row_schema_evolution_adds_removes_and_reorders_fields() {
+    use atomic_type_value::Value;
+    let old = schema(vec![
+        field("number", atomic(AtomicType::Int32, false)),
+        field("label", atomic(AtomicType::String, false)),
+    ]);
+    let row = Row {
+        values: vec![value(Value::Int32(42)), value(Value::String("beam".into()))],
+    };
+    let bytes = encode_row(&old, &row).unwrap();
+
+    let reduced = schema(vec![field("number", atomic(AtomicType::Int32, false))]);
+    assert_eq!(
+        decode_row_evolved(&old, &reduced, &bytes).unwrap().values,
+        [value(Value::Int32(42))]
+    );
+
+    let mut expanded = schema(vec![
+        field("extra", atomic(AtomicType::String, true)),
+        field("label", atomic(AtomicType::String, false)),
+        field("number", atomic(AtomicType::Int32, false)),
+    ]);
+    expanded.encoding_positions_set = true;
+    expanded.fields[0].encoding_position = 2;
+    expanded.fields[1].encoding_position = 1;
+    expanded.fields[2].encoding_position = 0;
+    assert_eq!(
+        decode_row_evolved(&old, &expanded, &bytes).unwrap().values,
+        [
+            null(),
+            value(Value::String("beam".into())),
+            value(Value::Int32(42))
+        ]
+    );
+
+    expanded.fields[2].r#type = Some(atomic(AtomicType::Int64, false));
+    assert!(decode_row_evolved(&old, &expanded, &bytes).is_err());
 }
 
 #[test]
