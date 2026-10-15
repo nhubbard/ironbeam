@@ -329,8 +329,9 @@ Direct and pinned Prism commit all four results with matching event timestamps
 and window bounds. Other expiration patterns remain open. A supervised Prism
 job also kills the execution child inside an expiration callback; the parent
 replays the runner-injected timer input and commits both window rows once.
-The twelve live local Prism timer fixtures and the full affected core, Direct,
-Graphx, harness, and proof-package suites pass after this change. At
+The twelve live local Prism timer fixtures, strict proof-package lint, and
+proof-package suite pass after this change. The full affected core, Direct,
+Graphx, and harness suites passed for the underlying expiration API. At
 `5b756bb`, the Linux core job reports **6567/6836 lines (96.06%)** and
 **1340/1552 branches (86.34%)**, while Direct reports **6191/6786 lines
 (91.23%)** and **1779/1976 branches (90.03%)**; all four unchanged floors
