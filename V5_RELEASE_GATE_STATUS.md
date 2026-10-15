@@ -243,9 +243,10 @@ duplicates, malformed windows, and non-millisecond timestamps without
 mutating the current queue. Unit tests cover those boundaries. Direct now uses
 the queue in its unbounded stream route. Element callbacks can set or clear
 tagged timers, and timer callbacks can update the same keyed state and emit
-through downstream transforms. Six Direct fixtures cover event and scripted
-processing clocks, idle wall-clock firing, dynamic-tag clearing, restore of
-armed timers with a source cursor, and retry after a failed sink commit. The
+through downstream transforms. Eight Direct fixtures cover event and scripted
+processing clocks, idle wall-clock firing, dynamic-tag clearing, fixed-window
+key isolation, a typed failure on callback panic, restore of armed timers with
+a source cursor, and retry after a failed sink commit. The
 public typed API currently requires
 unbounded input, default global/fixed/sliding windows, and zero lateness.
 Timer mutations returned by one callback are validated together before any

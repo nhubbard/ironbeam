@@ -2454,7 +2454,12 @@ fn run_stream(
                     let mut session = None;
                     let mut written = 0_u64;
                     let result = (|| {
-                        let outputs = registry.drain_stateful_timers(key, None, Some(now_ns))?;
+                        let outputs = catch_unwind(AssertUnwindSafe(|| {
+                            registry.drain_stateful_timers(key, None, Some(now_ns))
+                        }))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(key, "direct", "timer callback panicked"))
+                        })?;
                         write_stateful_timer_outputs(
                             registry,
                             route,
@@ -2598,11 +2603,16 @@ fn run_stream(
                 } else {
                     None
                 };
-                let firings = registry.drain_stateful_timers(
-                    key,
-                    batch.progress.event_time_ns,
-                    processing_time_ns,
-                )?;
+                let firings = catch_unwind(AssertUnwindSafe(|| {
+                    registry.drain_stateful_timers(
+                        key,
+                        batch.progress.event_time_ns,
+                        processing_time_ns,
+                    )
+                }))
+                .unwrap_or_else(|_| {
+                    Err(Error::execution(key, "direct", "timer callback panicked"))
+                })?;
                 write_stateful_timer_outputs(
                     registry,
                     route,

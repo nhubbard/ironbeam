@@ -224,6 +224,146 @@ fn event_timer_callback_emits_through_downstream_map() {
 }
 
 #[test]
+fn fixed_windows_keep_same_key_and_timer_tag_isolated() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "source",
+            vec![
+                TestStreamEvent::Elements(vec![((7_i32, 3_i32), 1_000_000)]),
+                TestStreamEvent::Elements(vec![((7_i32, 4_i32), 11_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/windowed-event-timer",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, metadata| {
+                let window = metadata.assigned_window.unwrap();
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: window.end_ns,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, event| {
+                let window = event.window.unwrap();
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![state.unwrap() + (window.start_ns / 1_000_000) as i32],
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/windowed-timer-capture-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*committed.lock().unwrap(), ["7:3", "7:14"]);
+}
+
+#[test]
+fn timer_callback_panic_fails_the_job_with_transform_context() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+            ],
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/panicking-timer",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "panic".into(),
+                        fire_timestamp_ns: 1_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, _, _| panic!("timer callback deliberately panicked"),
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/panicking-timer-capture-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let error = match DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+    {
+        Ok(_) => panic!("timer callback panic succeeded"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("timer callback panicked"));
+    assert!(committed.lock().unwrap().is_empty());
+}
+
+#[test]
 fn processing_timer_uses_the_source_clock_and_input_hold_timestamp() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let pipeline = Pipeline::default();
