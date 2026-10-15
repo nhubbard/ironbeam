@@ -23,9 +23,9 @@ use ironbeam_prism_proof::{
     dual_unbounded_late_join_fixture, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_fixture, dual_unbounded_session_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
-    finalization_probe_sink, global_count_fixture, global_fold_fixture,
-    global_keyed_batches_fixture, global_keyed_combine_fixture, global_vector_fixture,
-    group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
+    finalization_probe_sink, global_accumulating_early_cogroup_fixture, global_count_fixture,
+    global_fold_fixture, global_keyed_batches_fixture, global_keyed_combine_fixture,
+    global_vector_fixture, group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
     heterogeneous_late_count_cogroup_fixture, homogeneous_twelve_way_cogroup_fixture,
     homogeneous_twelve_way_session_fixture, invalid_dynop_fixture, invalid_keyed_batch_fixture,
     large_group_rows, large_group_summary, late_count_fixture, late_count_join_fixture,
@@ -263,6 +263,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SHARED_ACCUMULATING_EARLY") {
         return shared_accumulating_early_cogroup_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_ACCUMULATING_EARLY") {
+        return global_accumulating_early_cogroup_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

@@ -39,10 +39,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                     | Window::Sliding { .. }
                     | Window::Session { .. }
             )
+            && !(main.time.window == Window::Global
+                && main.time.trigger.early_count().is_some())
         {
             return Err(Error::graph(
                 key,
-                "unbounded homogeneous co-group requires a finite window",
+                "unbounded homogeneous co-group requires a finite window or early count trigger",
             ));
         }
         let tagged = std::iter::once(self)

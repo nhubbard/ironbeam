@@ -123,6 +123,35 @@ fn homogeneous_cogroup_accepts_finite_unbounded_and_mixed_inputs() {
 }
 
 #[test]
+fn unbounded_global_homogeneous_cogroup_requires_an_early_count() {
+    let pipeline = Pipeline::default();
+    let progress = SourceProgress {
+        stable_split_id: true,
+        replay: Replay::AtLeastOnce,
+        reports_event_time: true,
+    };
+    let first = pipeline
+        .unbounded_source::<(i32, i32)>("global-first", progress.clone(), 0)
+        .unwrap();
+    let second = pipeline
+        .unbounded_source::<(i32, i32)>("global-second", progress, 0)
+        .unwrap();
+    assert!(
+        first
+            .co_group_homogeneous_named("without-count", std::slice::from_ref(&second))
+            .is_err()
+    );
+    let first = first.early_count_trigger_named("first-count", 1).unwrap();
+    let second = second.early_count_trigger_named("second-count", 1).unwrap();
+    first
+        .co_group_homogeneous_named("global-group", &[second])
+        .unwrap()
+        .output("global-result")
+        .unwrap();
+    pipeline.snapshot().unwrap().0.validate().unwrap();
+}
+
+#[test]
 fn homogeneous_cogroup_rejects_an_undeclared_input_tag() {
     let pipeline = Pipeline::default();
     let input = pipeline.from_vec("input", vec![(1_i32, 2_i32)]).unwrap();

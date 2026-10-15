@@ -388,6 +388,11 @@ fn multi_source_accumulating_early_count_restores_values_and_panes() {
     assert_multi_source_late_group_restores_cursors_and_panes(LateMode::EarlyAccumulating);
 }
 
+#[test]
+fn global_multi_source_accumulating_count_restores_values_and_panes() {
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::GlobalEarlyAccumulating);
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum LateMode {
     Default,
@@ -395,6 +400,7 @@ enum LateMode {
     AccumulatingCount,
     EarlyCount,
     EarlyAccumulating,
+    GlobalEarlyAccumulating,
 }
 
 fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
@@ -430,6 +436,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                                     LateMode::Default
                                         | LateMode::EarlyCount
                                         | LateMode::EarlyAccumulating
+                                        | LateMode::GlobalEarlyAccumulating
                                 ) {
                                     vec![3]
                                 } else {
@@ -467,7 +474,9 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                                     if position == 1
                                         && matches!(
                                             mode,
-                                            LateMode::EarlyCount | LateMode::EarlyAccumulating
+                                            LateMode::EarlyCount
+                                                | LateMode::EarlyAccumulating
+                                                | LateMode::GlobalEarlyAccumulating
                                         )
                                     {
                                         0
@@ -483,9 +492,14 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                         as TypedUnboundedSourceReader<(i32, i32)>)
                 },
             )
-            .unwrap()
-            .fixed_windows(&format!("window-{index}"), 10_000_000)
             .unwrap();
+        let windowed = if mode == LateMode::GlobalEarlyAccumulating {
+            windowed
+        } else {
+            windowed
+                .fixed_windows(&format!("window-{index}"), 10_000_000)
+                .unwrap()
+        };
         match mode {
             LateMode::Default => windowed
                 .allowed_lateness_named(&format!("lateness-{index}"), 5_000_000)
@@ -503,7 +517,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
             LateMode::EarlyCount => windowed
                 .early_count_trigger_named(&format!("trigger-{index}"), 1)
                 .unwrap(),
-            LateMode::EarlyAccumulating => windowed
+            LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => windowed
                 .accumulating_count_trigger_named(&format!("trigger-{index}"), 1)
                 .unwrap(),
         }
@@ -564,7 +578,9 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
     }
     let initial = match mode {
         LateMode::EarlyCount => vec!["1:[[2], []]:Early:0", "1:[[], [4]]:Early:1"],
-        LateMode::EarlyAccumulating => vec!["1:[[2], []]:Early:0", "1:[[2], [4]]:Early:1"],
+        LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => {
+            vec!["1:[[2], []]:Early:0", "1:[[2], [4]]:Early:1"]
+        }
         _ => vec!["1:[[2], [4]]:OnTime:0"],
     };
     assert_eq!(committed.lock().unwrap().as_slice(), initial);
@@ -581,11 +597,16 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
         LateMode::DiscardingCount => "1:[[3, 5], []]:Late:1",
         LateMode::AccumulatingCount => "1:[[2, 3, 5], [4]]:Late:1",
         LateMode::EarlyCount => "1:[[3], []]:Early:2",
-        LateMode::EarlyAccumulating => "1:[[2, 3], [4]]:Early:2",
+        LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => {
+            "1:[[2, 3], [4]]:Early:2"
+        }
     };
     let mut expected = initial;
     expected.push(late_row);
-    if mode == LateMode::EarlyAccumulating {
+    if matches!(
+        mode,
+        LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating
+    ) {
         expected.push("1:[[2, 3], [4]]:OnTime:3");
     }
     assert_eq!(committed.lock().unwrap().as_slice(), expected);

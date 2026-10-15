@@ -253,6 +253,20 @@ pub fn shared_accumulating_late_cogroup_fixture(
 pub fn shared_accumulating_early_cogroup_collection(
     pipeline: &Pipeline,
 ) -> Result<PCollection<String>, Error> {
+    accumulating_early_cogroup_collection(pipeline, false)
+}
+
+/// Global count firings keep a multi-input group finite without a window end.
+pub fn global_accumulating_early_cogroup_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    accumulating_early_cogroup_collection(pipeline, true)
+}
+
+fn accumulating_early_cogroup_collection(
+    pipeline: &Pipeline,
+    global: bool,
+) -> Result<PCollection<String>, Error> {
     let source = pipeline
         .test_stream_source(
             "shared-early-source",
@@ -267,9 +281,13 @@ pub fn shared_accumulating_early_cogroup_collection(
                 )]),
                 TestStreamEvent::AdvanceWatermark(10_000_000),
             ],
-        )?
-        .fixed_windows("shared-early-window", 10_000_000)?
-        .accumulating_count_trigger_named("shared-early-trigger", 1)?;
+        )?;
+    let source = if global {
+        source
+    } else {
+        source.fixed_windows("shared-early-window", 10_000_000)?
+    };
+    let source = source.accumulating_count_trigger_named("shared-early-trigger", 1)?;
     let inputs = (0..2)
         .map(|index| {
             source
@@ -295,6 +313,28 @@ pub fn shared_accumulating_early_cogroup_fixture(
 ) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
     shared_accumulating_early_cogroup_collection(pipeline)?.sink_named_with_config(
+        "shared-early-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("shared-early-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
+pub fn global_accumulating_early_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    global_accumulating_early_cogroup_collection(pipeline)?.sink_named_with_config(
         "shared-early-result",
         SinkSpec {
             mode: SinkMode::Append,

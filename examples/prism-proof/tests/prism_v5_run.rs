@@ -45,10 +45,11 @@ use ironbeam_prism_proof::{
     dual_unbounded_session_cogroup_collection, dual_unbounded_session_cogroup_fixture,
     dual_unbounded_session_join_collection, dual_unbounded_session_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
-    finalization_probe_sink, finalization_probe_store, global_count_collection,
-    global_count_fixture, global_fold_fixture, global_keyed_batches_fixture,
-    global_keyed_combine_collection, global_keyed_combine_fixture, global_vector_fixture,
-    group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
+    finalization_probe_sink, finalization_probe_store,
+    global_accumulating_early_cogroup_collection, global_accumulating_early_cogroup_fixture,
+    global_count_collection, global_count_fixture, global_fold_fixture,
+    global_keyed_batches_fixture, global_keyed_combine_collection, global_keyed_combine_fixture,
+    global_vector_fixture, group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
     heterogeneous_late_count_cogroup_collection, heterogeneous_late_count_cogroup_fixture,
     homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
     invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
@@ -4068,6 +4069,15 @@ async fn prism_matches_direct_shared_accumulating_late_cogroup_values_and_indice
 
 #[tokio::test]
 async fn prism_characterizes_shared_accumulating_early_cogroup_panes() {
+    assert_accumulating_early_cogroup_panes(false).await;
+}
+
+#[tokio::test]
+async fn prism_matches_global_accumulating_early_cogroup_pane_identities() {
+    assert_accumulating_early_cogroup_panes(true).await;
+}
+
+async fn assert_accumulating_early_cogroup_panes(global: bool) {
     struct DirectRows {
         rows: Arc<Mutex<Vec<String>>>,
         accepted: Arc<Mutex<HashSet<String>>>,
@@ -4098,7 +4108,12 @@ async fn prism_characterizes_shared_accumulating_early_cogroup_panes() {
     let direct_rows = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let direct = Pipeline::default();
-    let sink = shared_accumulating_early_cogroup_collection(&direct)
+    let collection = if global {
+        global_accumulating_early_cogroup_collection(&direct)
+    } else {
+        shared_accumulating_early_cogroup_collection(&direct)
+    };
+    let sink = collection
         .unwrap()
         .sink_named_with_config(
             "shared-early-result",
@@ -4141,17 +4156,31 @@ async fn prism_characterizes_shared_accumulating_early_cogroup_panes() {
         return;
     };
     let _prism_job = prism_job_lock().lock().await;
-    let path = directory.path().join("prism-early.txt");
+    let path = directory.path().join(if global {
+        "prism-global-early.txt"
+    } else {
+        "prism-early.txt"
+    });
     let portable = Pipeline::default();
-    shared_accumulating_early_cogroup_fixture(&portable, path.clone()).unwrap();
+    if global {
+        global_accumulating_early_cogroup_fixture(&portable, path.clone()).unwrap();
+    } else {
+        shared_accumulating_early_cogroup_fixture(&portable, path.clone()).unwrap();
+    }
+    let env_key = if global {
+        "IRONBEAM_V5_PRISM_GLOBAL_ACCUMULATING_EARLY"
+    } else {
+        "IRONBEAM_V5_PRISM_SHARED_ACCUMULATING_EARLY"
+    };
     let terminal = run_shared_fixture(
         &endpoint,
         &portable,
-        "shared-accumulating-early",
-        HashMap::from([(
-            "IRONBEAM_V5_PRISM_SHARED_ACCUMULATING_EARLY".into(),
-            path.to_string_lossy().into_owned(),
-        )]),
+        if global {
+            "global-accumulating-early"
+        } else {
+            "shared-accumulating-early"
+        },
+        HashMap::from([(env_key.into(), path.to_string_lossy().into_owned())]),
     )
     .await;
     assert_eq!(terminal.0, 3, "Prism early fan-in state: {terminal:?}");

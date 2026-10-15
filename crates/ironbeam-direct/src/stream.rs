@@ -582,6 +582,7 @@ fn multi_grouped_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiGrou
                 | Window::FixedOffset { .. }
                 | Window::Sliding { .. }
                 | Window::Session { .. }
+                | Window::Global
         )
     {
         return None;
@@ -1292,6 +1293,9 @@ fn apply_grouped_stages(
 }
 
 fn stream_window(event: &Envelope, key: &str) -> Result<(i64, i64), Error> {
+    if event.window == Window::Global && event.assigned_window.is_none() {
+        return Ok((i64::MIN, i64::MAX));
+    }
     let interval = event.assigned_window.ok_or_else(|| {
         Error::execution(key, "direct", "stateful stream input needs a fixed window")
     })?;
