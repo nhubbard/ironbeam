@@ -339,7 +339,8 @@ Graphx, and harness suites passed for the underlying expiration API. At
 **1340/1552 branches (86.34%)**, while Direct reports **6191/6786 lines
 (91.23%)** and **1779/1976 branches (90.03%)**; all four unchanged floors
 pass. The full portable Prism workflow, feature matrix, and package check
-passed at `5b756bb`. The newer fixture batch at `8510c37` awaits CI results.
+passed at `5b756bb`. CI, the full Portable Prism workflow, and package
+verification also passed at `8510c37`.
 
 | Required execution boundary | Direct | Portable worker |
 | --- | --- | --- |
