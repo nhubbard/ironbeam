@@ -419,7 +419,9 @@ the matching single value cell, retrieves it with Fn State, invokes the
 registered callback, then clears or replaces the cell. Fake-runner tests cover
 successive writes and a KV input boundary. Other user-state shapes and timer
 declarations still fail worker planning. A supervised worker-child failure
-after replay output keeps the same keyed counts with an idempotent sink.
+after replay output keeps the same keyed counts with an idempotent sink. A
+production unbounded source also retains its keyed counts when the execution
+child is replaced during residual reopen.
 Timer delivery, other state families, and broader recovery remain open.
 
 ## Bundles and committed output

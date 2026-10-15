@@ -1,7 +1,7 @@
-struct ProductionSource(std::collections::VecDeque<UnboundedPoll<Timestamped<i32>>>);
+struct ProductionSource<T>(std::collections::VecDeque<UnboundedPoll<Timestamped<T>>>);
 
-impl UnboundedSource<Timestamped<i32>> for ProductionSource {
-    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+impl<T: Element> UnboundedSource<Timestamped<T>> for ProductionSource<T> {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<T>>, Error> {
         Ok(self.0.pop_front().unwrap_or(UnboundedPoll::Pending))
     }
 }

@@ -928,6 +928,11 @@ async fn main() -> anyhow::Result<()> {
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_CAPTURE") {
         return production_stream_fixture(pipeline, directory).map_err(Into::into);
     }
+    if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_VALUE_STATE") {
+        return ironbeam_prism_proof::production_value_state_fixture(pipeline, directory.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_FAIL_AFTER_STAGE") {
         return finalization_failure_fixture(pipeline, directory).map_err(Into::into);
     }

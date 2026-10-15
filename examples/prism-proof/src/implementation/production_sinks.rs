@@ -67,15 +67,45 @@ impl TypedSink<(i64, i32)> for IdempotentValueSink {
     }
 }
 
-/// Shared driver/worker graph for a production reader and idempotent sink.
-pub fn production_stream_fixture(
-    pipeline: &Pipeline,
-    directory: impl AsRef<Path>,
-) -> Result<(), Error> {
-    let directory = directory.as_ref().to_path_buf();
-    let sink_directory = directory.clone();
-    let increment_directory = directory.clone();
-    let timed = pipeline
+fn await_supervised_source_replacement(position: Option<&[u8]>) -> Result<(), Error> {
+    if position == Some(&[1][..]) {
+        if let (Some(trigger), Some(killed)) = (
+            std::env::var_os("IRONBEAM_V5_SUPERVISOR_TRIGGER"),
+            std::env::var_os("IRONBEAM_V5_SUPERVISOR_KILLED"),
+        ) {
+            if !Path::new(&killed).exists() {
+                let trigger = Path::new(&trigger);
+                use std::io::Write;
+                let mut pending = tempfile::NamedTempFile::new_in(
+                    trigger.parent().unwrap_or_else(|| Path::new(".")),
+                )
+                .map_err(|error| Error::incompatible(error.to_string()))?;
+                write!(pending, "{}", std::process::id())
+                    .and_then(|()| pending.as_file().sync_all())
+                    .map_err(|error| Error::incompatible(error.to_string()))?;
+                if let Err(error) = pending.persist_noclobber(trigger) {
+                    if error.error.kind() != std::io::ErrorKind::AlreadyExists {
+                        return Err(Error::incompatible(error.error.to_string()));
+                    }
+                }
+                let deadline =
+                    std::time::Instant::now() + std::time::Duration::from_secs(30);
+                while !Path::new(&killed).exists() {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(Error::incompatible(
+                            "supervised worker loss timed out",
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn production_events_source(pipeline: &Pipeline) -> Result<PCollection<i32>, Error> {
+    pipeline
         .unbounded_source_with_factory(
             "production-events",
             SourceProgress {
@@ -86,39 +116,7 @@ pub fn production_stream_fixture(
             "prism-production-source-v1".into(),
             0,
             move |position| {
-                if position.as_deref() == Some(&[1][..]) {
-                    if let (Some(trigger), Some(killed)) = (
-                        std::env::var_os("IRONBEAM_V5_SUPERVISOR_TRIGGER"),
-                        std::env::var_os("IRONBEAM_V5_SUPERVISOR_KILLED"),
-                    ) {
-                        if !Path::new(&killed).exists() {
-                            let trigger = Path::new(&trigger);
-                            use std::io::Write;
-                            let mut pending = tempfile::NamedTempFile::new_in(
-                                trigger.parent().unwrap_or_else(|| Path::new(".")),
-                            )
-                            .map_err(|error| Error::incompatible(error.to_string()))?;
-                            write!(pending, "{}", std::process::id())
-                                .and_then(|()| pending.as_file().sync_all())
-                                .map_err(|error| Error::incompatible(error.to_string()))?;
-                            if let Err(error) = pending.persist_noclobber(trigger) {
-                                if error.error.kind() != std::io::ErrorKind::AlreadyExists {
-                                    return Err(Error::incompatible(error.error.to_string()));
-                                }
-                            }
-                            let deadline =
-                                std::time::Instant::now() + std::time::Duration::from_secs(30);
-                            while !Path::new(&killed).exists() {
-                                if std::time::Instant::now() >= deadline {
-                                    return Err(Error::incompatible(
-                                        "supervised worker loss timed out",
-                                    ));
-                                }
-                                std::thread::sleep(std::time::Duration::from_millis(10));
-                            }
-                        }
-                    }
-                }
+                await_supervised_source_replacement(position.as_deref())?;
                 let (values, cursor, completed) = match position.as_deref() {
                     None => (vec![7, 9], 1, false),
                     Some([1]) => (vec![8], 2, true),
@@ -146,7 +144,71 @@ pub fn production_stream_fixture(
                         as TypedUnboundedSourceReader<i32>,
                 )
             },
+        )
+}
+
+/// Production unbounded source feeding one keyed value cell and idempotent output.
+pub fn production_value_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .unbounded_source_with_factory(
+            "production-state-events",
+            SourceProgress { stable_split_id: true, replay: Replay::AtLeastOnce, reports_event_time: true },
+            "prism-production-state-source-v1".into(),
+            0,
+            move |position| {
+                await_supervised_source_replacement(position.as_deref())?;
+                let (values, cursor, completed) = match position.as_deref() {
+                    None => (vec![7, 9], 1, false),
+                    Some([1]) => (vec![8], 2, true),
+                    _ => return Err(Error::incompatible("unexpected production state cursor")),
+                };
+                let batch = UnboundedPoll::Ready(UnboundedBatch {
+                    elements: values.into_iter().map(|value| Timestamped {
+                        value: (1_i32, value), timestamp_ns: i64::from(cursor) * 1_000_000,
+                    }).collect(),
+                    progress: ProgressSignal {
+                        source_key: "production-state-events".into(),
+                        split_id: "stable-state-split".into(),
+                        checkpoint_position: Some(vec![cursor]),
+                        event_time_ns: Some(i64::from(cursor) * 1_000_000),
+                        completed,
+                    },
+                });
+                Ok(Box::new(ProductionSource([UnboundedPoll::Pending, batch].into()))
+                    as TypedUnboundedSourceReader<(i32, i32)>)
+            },
         )?
+        .stateful_value_map_named::<i32, (i32, i32)>(
+            "production-state-count",
+            "prism-proof/production-key-count-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let count = prior.unwrap_or(0) + 1;
+                Ok((Some(count), (value, count)))
+            },
+        )?
+        .map_named("production-state-label", |(key, (value, count))| format!("{key}:{value}:{count}"))?
+        .sink_named_with_config(
+            "production-state-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("production-value-state:{}", directory.display()),
+            move || Ok(Box::new(IdempotentStateLabelSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
+/// Shared driver/worker graph for a production reader and idempotent sink.
+pub fn production_stream_fixture(
+    pipeline: &Pipeline,
+    directory: impl AsRef<Path>,
+) -> Result<(), Error> {
+    let directory = directory.as_ref().to_path_buf();
+    let sink_directory = directory.clone();
+    let increment_directory = directory.clone();
+    let timed = production_events_source(pipeline)?
         .fixed_windows("production-window", 2_000_000)?
         .reify_timestamps_named("production-time")?;
     timed

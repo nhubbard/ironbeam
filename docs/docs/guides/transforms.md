@@ -323,10 +323,11 @@ accepts bounded input with default global, fixed, or sliding window policy. It
 also accepts unbounded global, fixed, and sliding windows on one linear Direct
 stream route; Direct checkpoints the coded cells with the source cursor. Beam
 does not preserve encounter order across keyed shuffle; callbacks that require
-an order should carry an explicit order key. The portable worker uses Beam Fn State for
-this value cell. Bounded per-key and fixed-window counts, plus unbounded global,
+an order should carry an explicit order key. The portable worker uses Beam Fn
+State for this value cell. Bounded per-key and fixed-window counts, plus unbounded global,
 fixed-window, and overlapping sliding-window counts, match Direct on local Prism.
-A supervised child-loss fixture proves replay with an idempotent sink. Direct
-and Prism also agree when a row arrives after its fixed window expires: it
-starts a fresh value cell.
+A supervised child-loss fixture proves replay with an idempotent sink.
+A production unbounded source also recovers its keyed counts after child
+replacement during residual reopen. Direct and Prism also agree when a row
+arrives after its fixed window expires: it starts a fresh value cell.
 Other state families and timer callbacks remain open.
