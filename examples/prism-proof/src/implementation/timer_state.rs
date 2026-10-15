@@ -322,7 +322,7 @@ pub fn streaming_window_expiration_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
-    fixed_window_expiration_fixture(pipeline, directory, 0)
+    fixed_window_expiration_fixture(pipeline, directory, 0, false)
 }
 
 /// Runner-owned expiration callbacks for two offset fixed windows.
@@ -330,25 +330,42 @@ pub fn streaming_offset_window_expiration_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
-    fixed_window_expiration_fixture(pipeline, directory, 2_000_000)
+    fixed_window_expiration_fixture(pipeline, directory, 2_000_000, false)
+}
+
+/// Runner-owned expiration callbacks for two keys in each fixed window.
+pub fn streaming_multi_key_window_expiration_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<(i64, i32)>, Error> {
+    fixed_window_expiration_fixture(pipeline, directory, 0, true)
 }
 
 fn fixed_window_expiration_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
     offset_ns: i64,
+    multiple_keys: bool,
 ) -> Result<Sink<(i64, i32)>, Error> {
     let sink_directory = directory.clone();
     let source = pipeline.test_stream_source(
         "window-expiration-source",
         vec![
-            TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)]),
+            TestStreamEvent::Elements(if multiple_keys {
+                vec![((1_i32, 3_i32), 0), ((2_i32, 5_i32), 0)]
+            } else {
+                vec![((1_i32, 3_i32), 0)]
+            }),
             TestStreamEvent::AdvanceWatermark(if offset_ns == 0 {
                 11_000_000
             } else {
                 3_000_000
             }),
-            TestStreamEvent::Elements(vec![((1_i32, 4_i32), 20_000_000)]),
+            TestStreamEvent::Elements(if multiple_keys {
+                vec![((1_i32, 4_i32), 20_000_000), ((2_i32, 6_i32), 20_000_000)]
+            } else {
+                vec![((1_i32, 4_i32), 20_000_000)]
+            }),
             TestStreamEvent::AdvanceWatermark(if offset_ns == 0 {
                 31_000_000
             } else {
@@ -361,7 +378,9 @@ fn fixed_window_expiration_fixture(
     } else {
         source.fixed_windows_with_offset("window-expiration-assign", 10_000_000, offset_ns)?
     };
-    let semantic_id = if offset_ns == 0 {
+    let semantic_id = if multiple_keys {
+        "prism-proof/multi-key-window-expiration-state"
+    } else if offset_ns == 0 {
         "prism-proof/window-expiration-state"
     } else {
         "prism-proof/offset-window-expiration-state"
