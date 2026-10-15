@@ -356,6 +356,7 @@ impl Registry {
                 }
                 Ok(values.pop())
             }
+            Transform::StatefulValue(transform) => Ok(Some(transform.apply_direct(input)?)),
         }
     }
     pub fn apply_many(&self, key: &str, input: Envelope) -> Result<Vec<Envelope>, Error> {
@@ -366,6 +367,7 @@ impl Registry {
         {
             Transform::Single(transform) => Ok(transform(input)?.into_iter().collect()),
             Transform::Multi(transform) => transform(input),
+            Transform::StatefulValue(transform) => Ok(vec![transform.apply_direct(input)?]),
         }
     }
     #[must_use]
@@ -384,7 +386,25 @@ impl Registry {
         match self.transforms.get(key)? {
             Transform::Single(transform) => Some(transform.as_ref()),
             Transform::Multi(_) => None,
+            Transform::StatefulValue(_) => None,
         }
+    }
+    /// Invoke a registered value-state callback with runner-owned cell bytes.
+    /// The returned state replaces the cell; `None` clears it.
+    pub fn apply_stateful_value(
+        &self,
+        key: &str,
+        input: Envelope,
+        current: Option<&[u8]>,
+    ) -> Result<(Option<Vec<u8>>, Envelope), Error> {
+        match self.transforms.get(key) {
+            Some(Transform::StatefulValue(transform)) => transform.apply(input, current),
+            _ => Err(Error::execution(key, "runner", "stateful value handler missing")),
+        }
+    }
+    #[must_use]
+    pub fn has_stateful_value(&self, key: &str) -> bool {
+        matches!(self.transforms.get(key), Some(Transform::StatefulValue(_)))
     }
     /// Return a typed same-type map or filter when a route can avoid envelopes.
     #[must_use]

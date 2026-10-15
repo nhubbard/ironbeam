@@ -99,6 +99,48 @@ impl<T> TypedValueTransform<'_, T> {
 enum Transform {
     Single(SingleTransform),
     Multi(MultiTransform),
+    StatefulValue(StatefulValueTransform),
+}
+type StatefulValueCallback = Arc<
+    dyn Fn(Payload, Option<&[u8]>) -> Result<(Option<Vec<u8>>, Payload), Error> + Send + Sync,
+>;
+type StatefulValueCells = HashMap<(Option<WindowInterval>, Vec<u8>), Vec<u8>>;
+struct StatefulValueTransform {
+    key_bytes: fn(&(dyn Any + Send)) -> Result<Vec<u8>, Error>,
+    callback: StatefulValueCallback,
+    cells: Mutex<StatefulValueCells>,
+}
+impl Clone for StatefulValueTransform {
+    fn clone(&self) -> Self {
+        Self {
+            key_bytes: self.key_bytes,
+            callback: Arc::clone(&self.callback),
+            // Pipeline snapshots are separate executions. Never carry a
+            // previous Direct run's user state into the next one.
+            cells: Mutex::new(HashMap::new()),
+        }
+    }
+}
+impl StatefulValueTransform {
+    fn apply(
+        &self,
+        input: Envelope,
+        current: Option<&[u8]>,
+    ) -> Result<(Option<Vec<u8>>, Envelope), Error> {
+        let (next, value) = (self.callback)(input.value, current)?;
+        Ok((next, Envelope { value, ..input }))
+    }
+    fn apply_direct(&self, input: Envelope) -> Result<Envelope, Error> {
+        let key = (self.key_bytes)(input.value.as_ref())?;
+        let cell = (input.assigned_window, key);
+        let mut cells = self.cells.lock().map_err(|_| Error::execution("stateful-value", "direct", "state lock poisoned"))?;
+        let (next, output) = self.apply(input, cells.get(&cell).map(Vec::as_slice))?;
+        match next {
+            Some(bytes) => { cells.insert(cell, bytes); }
+            None => { cells.remove(&cell); }
+        }
+        Ok(output)
+    }
 }
 type Aggregate = Arc<dyn Fn(Vec<Vec<Envelope>>) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 type OrderedGlobalGroups<Q, T> =

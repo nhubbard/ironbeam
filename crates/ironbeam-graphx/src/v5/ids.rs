@@ -17,6 +17,7 @@ pub fn portable_order(graph: &Graph) -> Result<Vec<String>, V5Error> {
             fixed_window: true,
             assign_timestamp: true,
             append_sink: true,
+            stateful_value: true,
             // A FinalResult sink publishes at job commit, while this worker
             // currently commits each Fn API bundle independently.
             final_result_sink: false,

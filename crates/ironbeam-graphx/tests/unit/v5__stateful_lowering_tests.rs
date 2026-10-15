@@ -1,5 +1,5 @@
 use super::*;
-use ironbeam_core::{StatefulParDoContract, UserStateKind, Version};
+use ironbeam_core::{Element, StatefulParDoContract, UserStateKind, Version};
 use std::collections::BTreeMap;
 
 fn stateful_graph() -> (Graph, Registry) {
@@ -29,7 +29,15 @@ fn stateful_graph() -> (Graph, Registry) {
     let node = graph.nodes.iter_mut().find(|node| node.key == "running").unwrap();
     node.semantic_id = contract.semantic_id.clone();
     node.semantic_version = contract.version;
-    node.operation = Operation::StatefulParDo { contract };
+    node.operation = Operation::StatefulParDo {
+        contract: Box::new(contract),
+        state_element: ElementDescriptor {
+            type_id: i32::type_identity(),
+            coder_id: i32::coder_identity(),
+            coder_payload: i32::coder_payload(),
+            coder_version: i32::CODER_VERSION,
+        },
+    };
     (graph, registry)
 }
 
@@ -76,7 +84,7 @@ fn stateful_pardo_lowers_with_kv_input_state_spec_and_requirement() {
 fn stateful_pardo_rejects_mismatched_key_coder() {
     let (mut graph, registry) = stateful_graph();
     let node = graph.nodes.iter_mut().find(|node| node.key == "running").unwrap();
-    let Operation::StatefulParDo { contract } = &mut node.operation else { unreachable!() };
+    let Operation::StatefulParDo { contract, .. } = &mut node.operation else { unreachable!() };
     contract.key_coder_id = ids::CODER_BYTES.into();
     let identity = execution_identity(&graph, &registry, "stateful-build").unwrap();
     let error = lower(

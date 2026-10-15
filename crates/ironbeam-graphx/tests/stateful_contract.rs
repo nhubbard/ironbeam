@@ -1,8 +1,9 @@
 use beam_proto::pipeline_v1::{state_spec, time_domain, ParDoPayload};
 use ironbeam_core::{
-    StatefulParDoContract, UserStateKind, UserTimerDomain, UserTimerFamily, Version,
+    Pipeline, StatefulParDoContract, UserStateKind, UserTimerDomain, UserTimerFamily, Version,
 };
-use ironbeam_graphx::v5::attach_stateful_contract;
+use ironbeam_graphx::v5::{attach_stateful_contract, translate_v5, validate_beam_contract};
+use prost::Message;
 use std::collections::BTreeMap;
 
 fn contract() -> StatefulParDoContract {
@@ -77,6 +78,43 @@ fn contract() -> StatefulParDoContract {
         ]),
         on_window_expiration_timer: Some("event".into()),
     }
+}
+
+#[test]
+fn public_value_state_api_lowers_to_valid_beam_state_contract() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("pairs", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .stateful_value_map_named::<i32, i32>(
+            "running",
+            "example/running-total",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let total = prior.unwrap_or(0) + value;
+                Ok((Some(total), total))
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, "example/worker:v5", "value-state-build").unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let transform = components
+        .transforms
+        .values()
+        .find(|t| t.unique_name == "running")
+        .unwrap();
+    let payload =
+        ParDoPayload::decode(transform.spec.as_ref().unwrap().payload.as_slice()).unwrap();
+    assert!(payload.state_specs.contains_key("value"));
+    assert!(translated
+        .pipeline
+        .requirements
+        .iter()
+        .any(|urn| urn == "beam:requirement:pardo:stateful:v1"));
 }
 
 #[test]

@@ -159,6 +159,14 @@ pub fn translate_v5(
                 reason: "side input has no materialization contract".into(),
             });
         }
+        if matches!(node.operation, Operation::StatefulParDo { .. })
+            && (!registry.has_stateful_value(&node.key) || !registry.has_group_coder(&node.key))
+        {
+            return Err(V5Error::Unsupported {
+                key: node.key.clone(),
+                reason: "stateful ParDo needs a registered callback and keyed coder".into(),
+            });
+        }
     }
     for key in chain.iter().filter(|key| {
         graph
@@ -784,7 +792,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             let pardo = ParDoPayload::decode(spec.payload.as_slice())
                 .map_err(|error| V5Error::Wire(error.to_string()))?;
             let mut expected_state = ParDoPayload::default();
-            if let Operation::StatefulParDo { contract } = &node.operation {
+            if let Operation::StatefulParDo { contract, .. } = &node.operation {
                 let mut requirements = Vec::new();
                 attach_stateful_contract(&mut expected_state, &mut requirements, contract)?;
                 if requirements.iter().any(|urn| !translated.pipeline.requirements.contains(urn)) {
@@ -1039,7 +1047,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
     }
     let mut expected_requirements = Vec::new();
     for key in &expected_chain {
-        if let Some(Node { operation: Operation::StatefulParDo { contract }, .. }) = graph.node(key) {
+        if let Some(Node { operation: Operation::StatefulParDo { contract, .. }, .. }) = graph.node(key) {
             attach_stateful_contract(
                 &mut ParDoPayload::default(),
                 &mut expected_requirements,

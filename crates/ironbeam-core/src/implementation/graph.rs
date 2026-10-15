@@ -144,8 +144,15 @@ impl Graph {
                     "batch mapping requires a bounded input",
                 ));
             }
-            if let Operation::StatefulParDo { contract } = &node.operation {
+            if let Operation::StatefulParDo { contract, state_element } = &node.operation {
                 contract.validate()?;
+                if state_element.type_id.is_empty()
+                    || state_element.coder_id.is_empty()
+                    || state_element.coder_version.major != CODER_VERSION.major
+                    || state_element.coder_version.minor > CODER_VERSION.minor
+                {
+                    return Err(Error::graph(&node.key, "stateful ParDo requires a versioned state element coder"));
+                }
                 if node.semantic_id != contract.semantic_id
                     || node.semantic_version != contract.version
                 {
@@ -527,6 +534,9 @@ impl Graph {
                 }
                 Operation::BatchMapValues { .. } if !capabilities.batch_map_values => {
                     Some("batch-map-values".to_string())
+                }
+                Operation::StatefulParDo { .. } if !capabilities.stateful_value => {
+                    Some("stateful-value".to_string())
                 }
                 Operation::Sink { spec }
                     if spec.mode == SinkMode::Append && !capabilities.append_sink =>

@@ -297,3 +297,29 @@ appear in `ready`.
 ## Batches and custom handlers
 
 Version 5 batch transforms use an explicit size rather than an implicit physical partition boundary. Registered custom handlers have semantic identifiers and versions; those values contribute to graph identity. The [migration guide](../migration/operations.md) describes the effect on v4 programs. Runner-specific capability checks determine whether a stateful graph can execute on Direct or the portable worker.
+
+## Bounded keyed value state
+
+`stateful_value_map_named` gives each key and assigned window one optional
+value cell. The callback receives the current value and returns its replacement
+and one output. Returning `None` clears the cell.
+
+```rust
+use ironbeam_core::Version;
+
+let totals = pairs.stateful_value_map_named::<i64, i64>(
+    "running-total",
+    "orders/running-total",
+    Version { major: 1, minor: 0 },
+    |_, amount, prior| {
+        let total = prior.unwrap_or(0) + amount;
+        Ok((Some(total), total))
+    },
+)?;
+```
+
+`pairs` is a `PCollection<(K, i64)>` with coded keys. The operation currently
+accepts bounded input with default global, fixed, or sliding window policy on
+Direct. Beam does not preserve encounter order across keyed shuffle; callbacks
+that require an order should carry an explicit order key. The portable worker
+can translate this graph but cannot yet execute its stateful ParDo.

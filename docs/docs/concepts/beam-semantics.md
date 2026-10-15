@@ -387,8 +387,10 @@ but their storage and callback lifecycle belong to the runner contract.
 
 Ironbeam's Direct runner checkpoints coded open-window state for its supported
 grouping and join operations. The portable worker uses the Beam Fn State API
-for supported side inputs and state-backed grouped iterables. Ironbeam does not
-yet offer a general user-facing state cell or timer callback API. Source
+for supported side inputs and state-backed grouped iterables. A bounded
+`stateful_value_map_named` operation exposes one keyed, windowed value cell on
+Direct. It has no timer callback and is not yet executable on the portable
+worker. Source
 checkpoints and sink finalization journals solve different problems: they
 record progress and publication decisions, not arbitrary per-key application
 state.
@@ -404,11 +406,12 @@ read one value-state cell, invoke a callback, and submit its change under the
 same bundle instruction. Another helper assembles a declared timer family's
 fragmented Fn Data records and invokes each callback as its record becomes
 complete, before the stream closes. Both paths have fake-runner tests.
-The logical graph now has a versioned stateful ParDo operation. Graphx emits
-its Beam state specification after checking the KV input and coder IDs.
-Application transforms cannot yet register or invoke that operation through
-the v5 builder. Worker planning rejects a `ParDoPayload` with user state or
-timers until an executable handler and recovery path are connected.
+The logical graph carries the value-state operation's semantic ID, version,
+and state element coder. Graphx emits a Beam state specification after checking
+the KV input and coder IDs. Direct stores each bounded run's cells by encoded
+key and assigned window. A new run starts with empty cells. Worker planning
+still rejects a `ParDoPayload` with user state or timers until Fn State
+execution and recovery are connected.
 
 ## Bundles and committed output
 

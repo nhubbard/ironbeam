@@ -608,7 +608,7 @@ fn lower(
                 },
                 ..Default::default()
             };
-            if let Operation::StatefulParDo { contract } = &node.operation {
+            if let Operation::StatefulParDo { contract, .. } = &node.operation {
                 let parent = node.input.as_ref().ok_or_else(|| V5Error::Graph(format!("stateful node {key} has no input")))?;
                 if pcollections[&collection_id(parent)].coder_id != CODER_V5_KV {
                     return Err(V5Error::Wire(format!("stateful node {key} requires a Beam KV input coder")));

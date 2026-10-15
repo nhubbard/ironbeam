@@ -92,6 +92,7 @@ impl DirectRunner {
                 incremental_combine: true,
                 ordered_fold: true,
                 batch_map_values: true,
+                stateful_value: true,
                 append_sink: true,
                 final_result_sink: true,
                 ..Capabilities::default()
@@ -115,6 +116,11 @@ impl DirectRunner {
                 )
             {
                 return Err(Error::unsupported(&node.key, "direct", "group-output-time-policy"));
+            }
+            if matches!(node.operation, Operation::StatefulParDo { .. })
+                && node.boundedness != ironbeam_core::Boundedness::Bounded
+            {
+                return Err(Error::unsupported(&node.key, "direct", "unbounded-value-state"));
             }
             let capability = match &node.operation {
                 Operation::Source { .. }
@@ -141,6 +147,7 @@ impl DirectRunner {
                 | Operation::FoldOrderedGlobal
                 | Operation::FoldOrderedPerKey
                 | Operation::BatchMapValues { .. }
+                | Operation::StatefulParDo { .. }
                 | Operation::Output => None,
                 Operation::Sink { spec }
                     if matches!(spec.mode, SinkMode::Append | SinkMode::FinalResult) =>

@@ -536,7 +536,8 @@ pub enum Operation {
         batch_size: usize,
     },
     StatefulParDo {
-        contract: StatefulParDoContract,
+        contract: Box<StatefulParDoContract>,
+        state_element: ElementDescriptor,
     },
     Custom {
         semantic_id: String,
@@ -748,6 +749,7 @@ pub struct Capabilities {
     pub incremental_combine: bool,
     pub ordered_fold: bool,
     pub batch_map_values: bool,
+    pub stateful_value: bool,
     pub fixed_window: bool,
     pub assign_timestamp: bool,
     pub append_sink: bool,

@@ -327,6 +327,7 @@ fn lower_routes(
         | Operation::Filter
         | Operation::FlatMap
         | Operation::AssignTimestamp
+        | Operation::StatefulParDo { .. }
         | Operation::FixedWindow
         | Operation::SlidingWindow
         | Operation::SessionWindow => {
