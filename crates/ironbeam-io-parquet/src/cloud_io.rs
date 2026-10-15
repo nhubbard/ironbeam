@@ -187,19 +187,11 @@ pub fn cloud_parquet_streaming_uri_source<T: Element + DeserializeOwned>(
     )
 }
 
-/// Read every Parquet object under a URI prefix.
-///
-/// The matching object set is fixed when the graph is built. Each object has
-/// its own byte-bound source and stable key. Objects added later are not part
-/// of this graph; changed or removed objects fail when execution opens them.
-///
-/// # Errors
-///
-/// Returns an error for an invalid or empty prefix, missing provider, or
-/// failed object read.
 type CloudParquetSource<T> =
     fn(&Pipeline, &str, &ObjectStores, &str) -> Result<PCollection<T>, Error>;
 
+// A prefix binds a sorted object set at graph construction. Individual source
+// functions bind each object's content and validate it again when opened.
 fn prefix_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,

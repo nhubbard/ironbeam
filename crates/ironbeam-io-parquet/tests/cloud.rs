@@ -155,6 +155,15 @@ fn object_uri_source_rejects_invalid_or_unbound_locations() {
         )
         .is_err()
     );
+    assert!(
+        cloud_parquet_streaming_uri_source::<Row>(
+            &pipeline,
+            "missing-streaming-object",
+            &stores,
+            "file://bucket/missing.parquet"
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -170,6 +179,10 @@ fn prefix_source_binds_sorted_object_set_and_each_objects_bytes() {
     let prefix = "file://bucket/input/";
     let empty = Pipeline::default();
     assert!(cloud_parquet_uri_prefix_source::<Row>(&empty, "read", &stores, prefix).is_err());
+    assert!(
+        cloud_parquet_streaming_uri_prefix_source::<Row>(&empty, "streaming", &stores, prefix)
+            .is_err()
+    );
     assert_eq!(empty.snapshot().unwrap().0.nodes.len(), 0);
 
     let write = |id, name: &str| {
