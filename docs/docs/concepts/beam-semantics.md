@@ -393,7 +393,7 @@ global and fixed-window counts match Direct and local Prism. Unbounded global
 counts persist across separate element batches on both runners. Direct saves
 the coded cells and source cursor together for a single linear route. The
 operation has no timer callback. Direct's source checkpoint includes its
-supported value cells, while the sink finalization journal records output
+supported value and bag cells, while the sink finalization journal records output
 publication decisions. Neither mechanism yet covers general user state.
 
 `stateful_bag_map_named` exposes a keyed, windowed bag. It can keep, clear,
