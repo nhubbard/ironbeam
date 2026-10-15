@@ -8,6 +8,7 @@ use crate::basic_fold::{
     Average, Count, Distinct, DistinctBy, DistinctCount, Maximum, Mean, Minimum, Sum, Take,
 };
 use crate::collections::CollectVec;
+use crate::representative::MinimumEncoded;
 pub trait MeanOutput: Element + Default + Add<Output = Self> {
     fn divide_count(total: Self, count: usize) -> Self;
 }
@@ -206,17 +207,12 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
             ));
         }
         self.key_by_named(&format!("{key}/key"), by)?
-            .group_by_key_named(&format!("{key}/group"))?
-            .flat_map_fallible_named(key, |(_, values)| {
-                let mut chosen = None::<(Vec<u8>, T)>;
-                for value in values {
-                    let bytes = value.encode()?;
-                    if chosen.as_ref().is_none_or(|(prior, _)| bytes < *prior) {
-                        chosen = Some((bytes, value));
-                    }
-                }
-                Ok(chosen.into_iter().map(|(_, value)| value).collect())
-            })
+            .flat_map_fallible_named(&format!("{key}/encode"), |(group, value)| {
+                let bytes = value.encode()?;
+                Ok(vec![(group, (bytes, value))])
+            })?
+            .combine_values_lifted_named(&format!("{key}/minimum"), MinimumEncoded)?
+            .flat_map_named(key, |(_, values)| values)
     }
     fn sum_globally_named(&self, key: &str) -> Result<Self, Error>
     where

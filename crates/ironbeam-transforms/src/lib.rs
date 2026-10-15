@@ -2,6 +2,7 @@
 //! Composed convenience transforms over runner-neutral Ironbeam graph primitives.
 mod basic_fold;
 mod predicates;
+mod representative;
 pub use predicates::PredicateExt;
 mod selection;
 pub use selection::{KeyedSelectionExt, SelectionExt};
