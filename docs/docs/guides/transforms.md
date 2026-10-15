@@ -520,3 +520,52 @@ supervised execution child is replaced. If a runner returns several partial
 accumulators, the worker merges them before invoking the callback and writes
 back one coded accumulator. A fake Fn State runner verifies this case. Timer
 callbacks remain separate from this API.
+
+### Timers with value state
+
+`stateful_timer_map_named` attaches a value cell and one or more timer families
+to a keyed unbounded collection. The first callback receives each element and
+may arm a timer. The second callback receives the timer firing and may emit
+values. This example retains the latest integer for each key until the event
+watermark reaches the requested time:
+
+```rust
+use std::collections::BTreeMap;
+use ironbeam_core::{TimedStateResult, UserTimerDomain, UserTimerRequest, Version};
+
+let flushed = pairs.stateful_timer_map_named::<i64, i64>(
+    "flush",
+    "orders/event-flush",
+    Version { major: 1, minor: 0 },
+    BTreeMap::from([("event".to_string(), UserTimerDomain::EventTime)]),
+    |_, amount, _, metadata| {
+        Ok(TimedStateResult {
+            state: Some(amount),
+            outputs: Vec::new(),
+            timers: vec![UserTimerRequest::Set {
+                family_id: "event".into(),
+                dynamic_tag: "flush".into(),
+                fire_timestamp_ns: metadata.timestamp_ns + 5_000_000,
+                output_timestamp_ns: None,
+            }],
+        })
+    },
+    |_, state, _event| {
+        Ok(TimedStateResult {
+            state: None,
+            outputs: state.into_iter().collect(),
+            timers: Vec::new(),
+        })
+    },
+)?;
+```
+
+The deadline is expressed in nanoseconds and must align to a millisecond.
+Setting the same family and dynamic tag again replaces the earlier deadline
+for that key and window. `UserTimerRequest::Clear` removes one such timer.
+With no explicit output timestamp, an event timer uses its fire time; a
+processing-time timer uses the input timestamp as its output timestamp. The
+current callback execution path is available on Direct for one unbounded
+route with default global, fixed, or sliding windows and zero allowed
+lateness. Beam lowering records the timer families, but the portable worker
+does not yet execute their callbacks.
