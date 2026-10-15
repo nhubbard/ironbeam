@@ -213,7 +213,12 @@ closure; it does not revise a result that was already emitted when the side
 stream later changes.
 
 `wait_on_named` delays main output until a bounded signal collection
-completes. `wait_on_all_named` composes several bounded signal barriers of one
+completes, including when the main collection is unbounded. Direct drains the
+bounded signal before opening the main reader. On checkpoint recovery it
+repeats the signal and reopens the main reader at its saved cursor; the
+checkpoint rejects a changed signal source. A shared unbounded-main fixture
+produces the same values and event times on Direct and pinned Prism.
+`wait_on_all_named` composes several bounded signal barriers of one
 element type. `wait_on_signals_named` accepts different signal element types
 through `wait_signal` handles. `wait_on_windowed_named` accepts a watermarked signal stream and
 releases each main window after both input watermarks close it.
