@@ -46,7 +46,11 @@ fn hash_stream(
     let mut length = 0_u64;
     let mut buffer = [0_u8; 16 * 1024];
     loop {
-        let count = reader.read(&mut buffer)?;
+        let count = match reader.read(&mut buffer) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
         if count == 0 {
             break;
         }
@@ -60,8 +64,8 @@ fn hash_stream(
 }
 
 struct TempParquetRows<T> {
-    _temp: NamedTempFile,
     rows: TypedSourceIterator<T>,
+    _temp: NamedTempFile,
 }
 
 impl<T> Iterator for TempParquetRows<T> {
@@ -178,7 +182,7 @@ pub fn cloud_parquet_streaming_uri_source<T: Element + DeserializeOwned>(
                 ));
             }
             let rows = read_parquet_lazy::<T>(temp.path().to_path_buf())?;
-            Ok(Box::new(TempParquetRows { _temp: temp, rows }) as TypedSourceIterator<T>)
+            Ok(Box::new(TempParquetRows { rows, _temp: temp }) as TypedSourceIterator<T>)
         },
     )
 }
