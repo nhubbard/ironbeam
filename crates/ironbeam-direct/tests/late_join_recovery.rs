@@ -650,11 +650,20 @@ fn typed_late_join_restores_each_key_pane_and_both_source_cursors() {
 }
 
 #[test]
+fn typed_late_count_join_restores_partial_pane_and_source_cursors() {
+    assert_typed_late_count_join_restores_partial_pane_and_source_cursors(false);
+}
+
+#[test]
+fn typed_accumulating_late_count_join_restores_retained_values_and_cursors() {
+    assert_typed_late_count_join_restores_partial_pane_and_source_cursors(true);
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the count-trigger recovery fixture checks both source cursors and panes"
 )]
-fn typed_late_count_join_restores_partial_pane_and_source_cursors() {
+fn assert_typed_late_count_join_restores_partial_pane_and_source_cursors(accumulating: bool) {
     let main_opens = Arc::new(Mutex::new(Vec::new()));
     let side_opens = Arc::new(Mutex::new(Vec::new()));
     let rows = Arc::new(Mutex::new(Vec::new()));
@@ -691,9 +700,13 @@ fn typed_late_count_join_restores_partial_pane_and_source_cursors() {
         .fixed_windows("main-window", 10_000_000)
         .unwrap()
         .allowed_lateness_named("main-lateness", 5_000_000)
-        .unwrap()
-        .late_count_trigger_named("main-trigger", 2)
         .unwrap();
+    let main = if accumulating {
+        main.accumulating_late_count_trigger_named("main-trigger", 2)
+    } else {
+        main.late_count_trigger_named("main-trigger", 2)
+    }
+    .unwrap();
     let side = pipeline
         .unbounded_source_with_factory("side", progress, "late-count-side-v1".into(), 0, {
             let opens = Arc::clone(&side_opens);
@@ -718,9 +731,13 @@ fn typed_late_count_join_restores_partial_pane_and_source_cursors() {
         .fixed_windows("side-window", 10_000_000)
         .unwrap()
         .allowed_lateness_named("side-lateness", 5_000_000)
-        .unwrap()
-        .late_count_trigger_named("side-trigger", 2)
         .unwrap();
+    let side = if accumulating {
+        side.accumulating_late_count_trigger_named("side-trigger", 2)
+    } else {
+        side.late_count_trigger_named("side-trigger", 2)
+    }
+    .unwrap();
     let sink = main
         .join_full_named("join", &side)
         .unwrap()
@@ -797,12 +814,25 @@ fn typed_late_count_join_restores_partial_pane_and_source_cursors() {
     );
     let mut actual = rows.lock().unwrap().clone();
     actual.sort_unstable();
-    let mut expected = vec![
-        "1:(Some(2), Some(4)):OnTime:true:false:0:0",
-        "1:(Some(3), None):Late:false:false:1:1",
-        "1:(Some(5), None):Late:false:false:1:1",
-        "1:(Some(7), None):Late:false:true:2:2",
-    ];
+    let mut expected = if accumulating {
+        vec![
+            "1:(Some(2), Some(4)):OnTime:true:false:0:0",
+            "1:(Some(2), Some(4)):Late:false:false:1:1",
+            "1:(Some(3), Some(4)):Late:false:false:1:1",
+            "1:(Some(5), Some(4)):Late:false:false:1:1",
+            "1:(Some(2), Some(4)):Late:false:true:2:2",
+            "1:(Some(3), Some(4)):Late:false:true:2:2",
+            "1:(Some(5), Some(4)):Late:false:true:2:2",
+            "1:(Some(7), Some(4)):Late:false:true:2:2",
+        ]
+    } else {
+        vec![
+            "1:(Some(2), Some(4)):OnTime:true:false:0:0",
+            "1:(Some(3), None):Late:false:false:1:1",
+            "1:(Some(5), None):Late:false:false:1:1",
+            "1:(Some(7), None):Late:false:true:2:2",
+        ]
+    };
     expected.sort_unstable();
     assert_eq!(actual, expected);
 }

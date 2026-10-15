@@ -177,15 +177,27 @@ fn multi_source_late_count_waits_for_threshold_and_flushes_at_expiry() {
 
 #[test]
 fn multi_source_late_group_restores_cursors_and_panes() {
-    assert_multi_source_late_group_restores_cursors_and_panes(false);
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::Default);
 }
 
 #[test]
 fn multi_source_late_count_group_restores_cursors_and_panes() {
-    assert_multi_source_late_group_restores_cursors_and_panes(true);
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::DiscardingCount);
 }
 
-fn assert_multi_source_late_group_restores_cursors_and_panes(count_trigger: bool) {
+#[test]
+fn multi_source_accumulating_late_count_restores_values_cursors_and_panes() {
+    assert_multi_source_late_group_restores_cursors_and_panes(LateMode::AccumulatingCount);
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum LateMode {
+    Default,
+    DiscardingCount,
+    AccumulatingCount,
+}
+
+fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
     let directory = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
     let hold = Arc::new(AtomicBool::new(true));
@@ -213,7 +225,7 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(count_trigger: bool
                         None => (vec![if index == 0 { 2 } else { 4 }], 1, false),
                         Some([1]) if !hold.load(Ordering::SeqCst) => (
                             if index == 0 {
-                                if count_trigger { vec![3, 5] } else { vec![3] }
+                                if mode == LateMode::Default { vec![3] } else { vec![3, 5] }
                             } else {
                                 Vec::new()
                             },
@@ -256,12 +268,14 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(count_trigger: bool
             .unwrap()
             .allowed_lateness_named(&format!("lateness-{index}"), 5_000_000)
             .unwrap();
-        if count_trigger {
-            windowed
+        match mode {
+            LateMode::Default => windowed,
+            LateMode::DiscardingCount => windowed
                 .late_count_trigger_named(&format!("trigger-{index}"), 2)
-                .unwrap()
-        } else {
-            windowed
+                .unwrap(),
+            LateMode::AccumulatingCount => windowed
+                .accumulating_late_count_trigger_named(&format!("trigger-{index}"), 2)
+                .unwrap(),
         }
     };
     let first = make_source(0);
@@ -330,10 +344,10 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(count_trigger: bool
         .unwrap()
         .wait()
         .unwrap();
-    let late_row = if count_trigger {
-        "1:[[3, 5], []]:Late:1"
-    } else {
-        "1:[[3], []]:Late:1"
+    let late_row = match mode {
+        LateMode::Default => "1:[[3], []]:Late:1",
+        LateMode::DiscardingCount => "1:[[3, 5], []]:Late:1",
+        LateMode::AccumulatingCount => "1:[[2, 3, 5], [4]]:Late:1",
     };
     assert_eq!(
         committed.lock().unwrap().as_slice(),

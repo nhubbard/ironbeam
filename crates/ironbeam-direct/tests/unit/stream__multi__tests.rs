@@ -597,6 +597,7 @@ fn retained_dual_pane_checkpoint_rejects_invalid_keys_indices_and_expiry() {
         end_ns: 10,
         key: vec![1, 2],
         next_index: 2,
+        fired_value_count: 0,
     };
     let restored = dual_late::restore_closed(
         vec![CodedClosedPane {
@@ -604,13 +605,15 @@ fn retained_dual_pane_checkpoint_rejects_invalid_keys_indices_and_expiry() {
             end_ns: valid.end_ns,
             key: valid.key.clone(),
             next_index: valid.next_index,
+            fired_value_count: valid.fired_value_count,
         }],
         Some(10),
         5,
         1,
+        false,
     )
     .unwrap();
-    assert_eq!(restored.get(&(0, 10, vec![1, 2])), Some(&2));
+    assert_eq!(restored.get(&(0, 10, vec![1, 2])).map(|state| state.next_index), Some(2));
     assert_eq!(dual_late::encode_closed(&restored).len(), 1);
     assert!(matches!(
         dual_late::restore_closed(
@@ -619,10 +622,12 @@ fn retained_dual_pane_checkpoint_rejects_invalid_keys_indices_and_expiry() {
                 end_ns: 10,
                 key: vec![1],
                 next_index: 1,
+                fired_value_count: 0,
             }],
             Some(10),
             5,
             0,
+            false,
         ),
         Err(Error {
             kind: ErrorKind::Resource,
@@ -637,6 +642,7 @@ fn retained_dual_pane_checkpoint_rejects_invalid_keys_indices_and_expiry() {
                 end_ns: 10,
                 key: vec![1, 2],
                 next_index: 1,
+                fired_value_count: 0,
             },
         ],
         vec![CodedClosedPane {
@@ -644,16 +650,18 @@ fn retained_dual_pane_checkpoint_rejects_invalid_keys_indices_and_expiry() {
             end_ns: 10,
             key: vec![1],
             next_index: 1,
+            fired_value_count: 0,
         }],
         vec![CodedClosedPane {
             start_ns: 0,
             end_ns: 10,
             key: vec![1],
             next_index: 0,
+            fired_value_count: 0,
         }],
     ] {
         assert!(matches!(
-            dual_late::restore_closed(rows, Some(10), 5, 2),
+            dual_late::restore_closed(rows, Some(10), 5, 2, false),
             Err(Error {
                 kind: ErrorKind::Recovery,
                 ..
@@ -666,14 +674,30 @@ fn retained_dual_pane_checkpoint_rejects_invalid_keys_indices_and_expiry() {
                 start_ns: 0,
                 end_ns: 10,
                 key: vec![1],
-                next_index: 1
+                next_index: 1,
+                fired_value_count: 0,
             }],
             Some(15),
             5,
             1,
+            false,
         )
         .is_err()
     );
+}
+
+#[test]
+fn accumulating_dual_pane_checkpoint_requires_a_retained_row_count() {
+    let row = |fired_value_count| CodedClosedPane {
+        start_ns: 0,
+        end_ns: 10,
+        key: vec![1, 2],
+        next_index: 2,
+        fired_value_count,
+    };
+    assert!(dual_late::restore_closed(vec![row(2)], Some(10), 5, 1, true).is_ok());
+    assert!(dual_late::restore_closed(vec![row(2)], Some(10), 5, 1, false).is_err());
+    assert!(dual_late::restore_closed(vec![row(0)], Some(10), 5, 1, true).is_err());
 }
 
 #[test]

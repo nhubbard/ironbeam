@@ -83,7 +83,11 @@ impl DirectRunner {
                             && node.time.trigger.early_count().is_none())))
                 || (unbounded_source
                     && stateful_fanin_operation(&node.operation)
-                    && matches!(node.time.trigger, WindowTrigger::LateElementCount { .. }));
+                    && matches!(
+                        node.time.trigger,
+                        WindowTrigger::LateElementCount { .. }
+                            | WindowTrigger::LateElementCountAccumulating { .. }
+                    ));
             if node.time.trigger != WindowTrigger::Default && !trigger_supported {
                 return Err(Error::unsupported(&node.key, "direct", "early-count-trigger"));
             }

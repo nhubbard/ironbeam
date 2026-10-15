@@ -166,9 +166,10 @@ pub(super) fn start_dual_side_stream<T: Element>(
         .node(&route.aggregate_key)
         .ok_or_else(|| Error::graph(&route.aggregate_key, "dual-source aggregate missing"))?;
     let lateness_ns = aggregate.time.allowed_lateness_ns;
-    let late_count = match aggregate.time.trigger {
-        WindowTrigger::Default => None,
-        WindowTrigger::LateElementCount { count } if lateness_ns > 0 => Some(count),
+    let (late_count, accumulating) = match aggregate.time.trigger {
+        WindowTrigger::Default => (None, false),
+        WindowTrigger::LateElementCount { count } if lateness_ns > 0 => (Some(count), false),
+        WindowTrigger::LateElementCountAccumulating { count } if lateness_ns > 0 => (Some(count), true),
         _ => {
             return Err(Error::unsupported(
                 &route.aggregate_key,
@@ -235,7 +236,7 @@ pub(super) fn start_dual_side_stream<T: Element>(
         if let Some((combined, bytes)) = &saved {
             let state: DualWindowState = serde_json::from_slice(bytes)
                 .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
-            if state.version != if lateness_ns > 0 { 2 } else { 1 }
+            if state.version != if accumulating { 3 } else if lateness_ns > 0 { 2 } else { 1 }
                 || state.sources[0]
                     .as_ref()
                     .is_some_and(|p| p.source_key != route.source_key || p.split_id.is_empty())
@@ -290,6 +291,7 @@ pub(super) fn start_dual_side_stream<T: Element>(
                     dual_watermark(&state.sources),
                     lateness_ns,
                     config.buffer_budget_elements,
+                    accumulating,
                 )?
             } else if state.closed.is_empty() {
                 ClosedPanes::new()
@@ -304,6 +306,15 @@ pub(super) fn start_dual_side_stream<T: Element>(
                     "checkpoint",
                     "completed dual-source checkpoint retains panes",
                 ));
+            }
+            if accumulating {
+                dual_late::validate_retained_counts(
+                    &registry,
+                    &route,
+                    &main,
+                    &side,
+                    &closed,
+                )?;
             }
             (sequence, state.sources, main, side, buffered, closed)
         } else {
@@ -365,6 +376,7 @@ pub(super) fn start_dual_side_stream<T: Element>(
                     closed,
                     lateness_ns,
                     late_count,
+                    accumulating,
                 )
             }))
             .unwrap_or_else(|_| Err(Error::execution("job", "direct", "stream worker panicked")));
@@ -820,6 +832,7 @@ fn run_dual_side_stream(
     mut closed: ClosedPanes,
     lateness_ns: i64,
     late_count: Option<u64>,
+    accumulating: bool,
 ) -> Result<(), Error> {
     let shared_source = route.source_key == route.side_source_key;
     let source_keys = [&route.source_key, &route.side_source_key];
@@ -980,8 +993,8 @@ fn run_dual_side_stream(
                 .checked_add(1)
                 .ok_or_else(|| Error::resource("checkpoint", "dual stream sequence exhausted"))?;
             let combined = multi_progress(sequence, &progress);
-            let closing = if lateness_ns > 0 {
-                dual_late::drain_ready(
+            let (closing, dropped) = if lateness_ns > 0 {
+                let drained = dual_late::drain_ready(
                     registry,
                     route,
                     &mut main_windows,
@@ -993,11 +1006,13 @@ fn run_dual_side_stream(
                         lateness_ns,
                         budget_elements: config.buffer_budget_elements,
                         late_count,
+                        accumulating,
                     },
-                )?
+                )?;
+                (drained.firings, drained.dropped)
             } else if matches!(route.window, Window::Session { .. }) {
                 if let Some(watermark) = dual_watermark(&progress) {
-                    session::close_ready_sessions(
+                    let firings = session::close_ready_sessions(
                         registry,
                         route,
                         &mut main_windows,
@@ -1009,13 +1024,15 @@ fn run_dual_side_stream(
                         main,
                         side,
                         pane: None,
+                        retained: false,
                     })
-                    .collect()
+                    .collect();
+                    (firings, 0)
                 } else {
-                    Vec::new()
+                    (Vec::new(), 0)
                 }
             } else {
-                main_windows
+                let firings = main_windows
                     .keys()
                     .chain(side_windows.keys())
                     .copied()
@@ -1028,9 +1045,14 @@ fn run_dual_side_stream(
                         main: main_windows.remove(&window).unwrap_or_default(),
                         side: side_windows.remove(&window).unwrap_or_default(),
                         pane: None,
+                        retained: false,
                     })
-                    .collect()
+                    .collect();
+                (firings, 0)
             };
+            buffered = buffered.checked_sub(dropped).ok_or_else(|| {
+                Error::recovery(&route.aggregate_key, "dual-source retained row count underflow")
+            })?;
             let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &combined);
             let mut session = None;
             let mut written = 0_u64;
@@ -1040,9 +1062,14 @@ fn run_dual_side_stream(
                         mut main,
                         mut side,
                         pane,
+                        retained,
                     } in closing
                     {
-                        buffered -= main.len() + side.len();
+                        if !retained {
+                            buffered = buffered.checked_sub(main.len() + side.len()).ok_or_else(|| {
+                                Error::recovery(&route.aggregate_key, "dual-source buffered row count underflow")
+                            })?;
+                        }
                         let branches = std::iter::once((
                             route.aggregate_key.as_str(),
                             route.after_aggregate.as_slice(),
@@ -1134,7 +1161,7 @@ fn run_dual_side_stream(
             }
             if let Some(checkpoint) = checkpoint {
                 let state = serde_json::to_vec(&DualWindowState {
-                    version: if lateness_ns > 0 { 2 } else { 1 },
+                    version: if accumulating { 3 } else if lateness_ns > 0 { 2 } else { 1 },
                     sources: progress.clone(),
                     main: encode_window_rows(
                         registry,

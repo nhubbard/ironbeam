@@ -274,3 +274,92 @@ fn shared_source_can_split_before_window_assignment() {
         .unwrap();
     assert_eq!(rows.lock().unwrap().as_slice(), ["1:([2], [\"4\"])"]);
 }
+
+#[test]
+fn typed_shared_source_join_retains_on_time_values_in_accumulating_late_pane() {
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .test_stream_source(
+            "shared",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, 0_u8, 2_i32), 2_000_000),
+                    ((1, 1, 4), 4_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![
+                    ((1, 0, 3), 3_000_000),
+                    ((1, 1, 6), 6_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(11_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .accumulating_late_count_trigger_named("trigger", 2)
+        .unwrap();
+    let main = source
+        .filter_named("main-filter", |(_, tag, _)| *tag == 0)
+        .unwrap()
+        .map_named("main", |(key, _, value)| (key, value))
+        .unwrap();
+    let side = source
+        .filter_named("side-filter", |(_, tag, _)| *tag == 1)
+        .unwrap()
+        .map_named("side", |(key, _, value)| (key, value))
+        .unwrap();
+    let sink = main
+        .join_full_named("join", &side)
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (key, values))| {
+            format!("{key}:{values:?}:{:?}:{}", pane.timing, pane.index)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-accumulating-join-v1".into(),
+            {
+                let rows = Arc::clone(&rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut actual = rows.lock().unwrap().clone();
+    actual.sort_unstable();
+    assert_eq!(
+        actual,
+        [
+            "1:(Some(2), Some(4)):Late:1",
+            "1:(Some(2), Some(4)):OnTime:0",
+            "1:(Some(2), Some(6)):Late:1",
+            "1:(Some(3), Some(4)):Late:1",
+            "1:(Some(3), Some(6)):Late:1",
+        ]
+    );
+}
