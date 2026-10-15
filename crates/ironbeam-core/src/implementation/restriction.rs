@@ -303,7 +303,9 @@ impl OffsetRangeTracker {
             return Ok(None);
         }
         // The split lies between the range's i64 start and stop.
-        let split = split as i64;
+        let split = i64::try_from(split).map_err(|_| {
+            Error::execution("restriction", "sdf", "split exceeds signed offset range")
+        })?;
         let residual = OffsetRange {
             start: split,
             stop: state.range.stop,
