@@ -7,7 +7,7 @@ use ironbeam_coder_row::{BeamRow, RowSchema};
 
 struct CalendarRowSchema;
 
-fn int64_type() -> FieldType {
+const fn int64_type() -> FieldType {
     FieldType {
         nullable: false,
         type_info: Some(field_type::TypeInfo::AtomicType(AtomicType::Int64 as i32)),
@@ -73,7 +73,7 @@ impl RowSchema for CalendarRowSchema {
     }
 }
 
-fn int64(value: i64) -> FieldValue {
+const fn int64(value: i64) -> FieldValue {
     FieldValue {
         field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
             value: Some(atomic_type_value::Value::Int64(value)),
