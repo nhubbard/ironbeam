@@ -3,7 +3,7 @@
 use ironbeam_cloud_object_store::RemoteObjectIO;
 use ironbeam_cloud_objects::ObjectStores;
 use ironbeam_coder_postcard::impl_postcard_element;
-use ironbeam_core::Pipeline;
+use ironbeam_core::{ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_io_avro::{avro_sink, cloud_avro_streaming_uri_source};
 use ironbeam_io_parquet::{cloud_parquet_streaming_uri_source, parquet_sink};
@@ -68,20 +68,21 @@ fn hosted_adapter_streams_avro_and_parquet_into_direct() {
         .unwrap();
 
     let avro = Pipeline::default();
-    let output = cloud_avro_streaming_uri_source::<Record>(&avro, "read-avro", &stores, avro_uri)
-        .unwrap()
-        .output("avro-output")
-        .unwrap();
+    let avro_output =
+        cloud_avro_streaming_uri_source::<Record>(&avro, "read-avro", &stores, avro_uri)
+            .unwrap()
+            .output("avro-output")
+            .unwrap();
     assert_eq!(
         DirectRunner
-            .run_collect(&output, &JobConfig::default())
+            .run_collect(&avro_output, &JobConfig::default())
             .unwrap()
             .0,
         rows
     );
 
     let parquet = Pipeline::default();
-    let output = cloud_parquet_streaming_uri_source::<Record>(
+    let parquet_output = cloud_parquet_streaming_uri_source::<Record>(
         &parquet,
         "read-parquet",
         &stores,
@@ -92,9 +93,28 @@ fn hosted_adapter_streams_avro_and_parquet_into_direct() {
     .unwrap();
     assert_eq!(
         DirectRunner
-            .run_collect(&output, &JobConfig::default())
+            .run_collect(&parquet_output, &JobConfig::default())
             .unwrap()
             .0,
         rows
+    );
+
+    stores.write(avro_uri, b"changed").unwrap();
+    stores.write(parquet_uri, b"changed").unwrap();
+    assert_eq!(
+        DirectRunner
+            .run_collect(&avro_output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+    assert_eq!(
+        DirectRunner
+            .run_collect(&parquet_output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
     );
 }
