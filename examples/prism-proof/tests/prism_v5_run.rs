@@ -89,10 +89,11 @@ use ironbeam_prism_proof::{
     triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
     triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
     triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
-    unbounded_main_bounded_wait_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
+    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
+    PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -5344,6 +5345,69 @@ async fn prism_matches_direct_unbounded_main_bounded_wait() {
     )
     .await;
     assert_eq!(terminal.0, 3, "Prism stream wait state: {terminal:?}");
+    assert!(portable_marker.exists());
+    let rows = |path: &Path| {
+        let mut values = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    };
+    assert_eq!(rows(&direct_path), ["1000000:1", "2000000:2"]);
+    assert_eq!(rows(&portable_path), rows(&direct_path));
+}
+
+#[tokio::test]
+async fn prism_matches_direct_unbounded_main_grouped_wait() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-grouped-wait");
+    let direct_marker = directory.path().join("direct-grouped-ready");
+    let portable_path = directory.path().join("portable-grouped-wait");
+    let portable_marker = directory.path().join("portable-grouped-ready");
+
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = unbounded_main_grouped_wait_fixture(
+        &direct_pipeline,
+        direct_path.clone(),
+        direct_marker.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert!(direct_marker.exists());
+
+    let portable_pipeline = Pipeline::default();
+    unbounded_main_grouped_wait_fixture(
+        &portable_pipeline,
+        portable_path.clone(),
+        portable_marker.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "stream-wait-grouped-signal",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_GROUPED_WAIT_CONTRACT".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_GROUPED_WAIT_MARKER".into(),
+                portable_marker.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism grouped wait state: {terminal:?}");
     assert!(portable_marker.exists());
     let rows = |path: &Path| {
         let mut values = std::fs::read_dir(path)

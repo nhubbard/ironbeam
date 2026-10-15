@@ -483,6 +483,56 @@ pub fn unbounded_main_bounded_wait_fixture(
         )
 }
 
+/// A bounded keyed shuffle completes before an unbounded main source emits.
+pub fn unbounded_main_grouped_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    marker: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let signal_marker = marker.clone();
+    let first = pipeline.from_vec("grouped-wait-first", vec![(1_i32, 1_i32)])?;
+    let second = pipeline.from_vec("grouped-wait-second", vec![(1_i32, 2_i32)])?;
+    let signal = first
+        .flatten_named("grouped-wait-flatten", &[second])?
+        .group_by_key_named("grouped-wait-shuffle")?
+        .map_named("grouped-wait-complete", move |(_, values)| {
+            assert_eq!(values.into_iter().sum::<i32>(), 3);
+            std::fs::write(&signal_marker, b"complete").expect("write grouped signal marker");
+            1_i32
+        })?;
+    let sink_directory = path.clone();
+    pipeline
+        .test_stream_source(
+            "grouped-wait-main",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 1_000_000), (2, 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(3_000_000),
+            ],
+        )?
+        .wait_on_named("grouped-wait-barrier", &signal)?
+        .map_named("grouped-wait-check", move |value| {
+            assert!(marker.exists(), "grouped signal did not complete");
+            value
+        })?
+        .reify_timestamps_named("grouped-wait-time")?
+        .map_named("grouped-wait-row", |(time, value)| format!("{time}:{value}"))?
+        .sink_named_with_config(
+            "grouped-wait-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("grouped-wait-contract:{}", path.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Both independent bounded producers must finish before main output begins.
 pub fn bounded_multi_wait_fixture(
     pipeline: &Pipeline,

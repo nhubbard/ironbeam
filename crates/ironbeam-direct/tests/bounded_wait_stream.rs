@@ -178,6 +178,81 @@ fn bounded_signals_finish_before_unbounded_main_opens() {
 }
 
 #[test]
+fn grouped_bounded_signal_finishes_before_unbounded_main_opens() {
+    let pipeline = Pipeline::default();
+    let grouped = Arc::new(AtomicBool::new(false));
+    let grouped_flag = Arc::clone(&grouped);
+    let first = pipeline
+        .from_vec("signal-first", vec![(1_i32, 1_i32)])
+        .unwrap();
+    let second = pipeline
+        .from_vec("signal-second", vec![(1_i32, 2_i32)])
+        .unwrap();
+    let signal = first
+        .flatten_named("signal-flatten", &[second])
+        .unwrap()
+        .group_by_key_named("signal-group")
+        .unwrap()
+        .map_named("signal-effect", move |(_, values)| {
+            assert_eq!(values.into_iter().sum::<i32>(), 3);
+            grouped_flag.store(true, Ordering::SeqCst);
+            1_i32
+        })
+        .unwrap();
+    let source_grouped = Arc::clone(&grouped);
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "main-source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "grouped-signal-main-v1".into(),
+            0,
+            move |_| {
+                assert!(source_grouped.load(Ordering::SeqCst));
+                Ok(Box::new(Once(Some(UnboundedBatch {
+                    elements: vec![Timestamped {
+                        value: 7,
+                        timestamp_ns: 1,
+                    }],
+                    progress: ProgressSignal {
+                        source_key: "main-source".into(),
+                        split_id: "split-0".into(),
+                        checkpoint_position: Some(vec![1]),
+                        event_time_ns: Some(1),
+                        completed: true,
+                    },
+                }))) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let capture = Arc::clone(&values);
+    let sink = main
+        .wait_on_named("wait", &signal)
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "grouped-signal-sink-v1".into(),
+            move || Ok(Box::new(Capture(Arc::clone(&capture)))),
+        )
+        .unwrap();
+    let job = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap();
+    assert_eq!(job.wait().unwrap().status(), JobStatus::Succeeded);
+    assert!(grouped.load(Ordering::SeqCst));
+    assert_eq!(*values.lock().unwrap(), vec![7]);
+}
+
+#[test]
 fn failed_bounded_signal_never_opens_unbounded_main() {
     let pipeline = Pipeline::default();
     let signal = pipeline
@@ -230,8 +305,20 @@ fn checkpoint_rejects_changed_bounded_signal_before_opening_main() {
     let opened = Arc::new(AtomicBool::new(false));
     let make_sink = |signal_value, opened: Arc<AtomicBool>| {
         let pipeline = Pipeline::default();
-        let signal = pipeline
-            .from_vec("signal-source", vec![signal_value])
+        let first = pipeline
+            .from_vec("signal-first", vec![(1_i32, 1_i32)])
+            .unwrap();
+        let second = pipeline
+            .from_vec("signal-second", vec![(1_i32, signal_value)])
+            .unwrap();
+        let signal = first
+            .flatten_named("signal-flatten", &[second])
+            .unwrap()
+            .group_by_key_named("signal-group")
+            .unwrap()
+            .map_named("signal-marker", |(_, values)| {
+                values.into_iter().sum::<i32>()
+            })
             .unwrap();
         let main = pipeline
             .unbounded_source_with_factory(

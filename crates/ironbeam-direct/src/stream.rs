@@ -59,7 +59,13 @@ struct BoundedSideStreamRoute {
 struct BoundedWaitStreamRoute {
     source_key: String,
     operations: Vec<String>,
-    signals: Vec<(String, Vec<String>)>,
+    signals: Vec<BoundedWaitSignal>,
+}
+
+struct BoundedWaitSignal {
+    key: String,
+    sources: Vec<String>,
+    linear: Option<(String, Vec<String>)>,
 }
 
 struct MultiGroupedStreamRoute {
@@ -429,6 +435,25 @@ fn linear_stream_input(graph: &Graph, input_key: &str) -> Option<(String, Vec<St
     }
 }
 
+fn bounded_signal_sources(graph: &Graph, key: &str) -> Option<Vec<String>> {
+    let mut pending = vec![key];
+    let mut visited = BTreeSet::new();
+    let mut sources = BTreeSet::new();
+    while let Some(key) = pending.pop() {
+        if !visited.insert(key) {
+            continue;
+        }
+        let node = graph.node(key)?;
+        if matches!(node.operation, Operation::Source { .. }) {
+            sources.insert(key.to_owned());
+        } else {
+            pending.extend(node.input.iter().map(String::as_str));
+            pending.extend(node.additional_inputs.iter().map(|edge| edge.key.as_str()));
+        }
+    }
+    Some(sources.into_iter().collect())
+}
+
 fn bounded_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<BoundedWaitStreamRoute> {
     // start_stream_sink validates the graph before matching this physical route.
     let mut key = sink_key;
@@ -451,8 +476,11 @@ fn bounded_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<BoundedWai
             }
             Operation::WaitOn => {
                 let signal = &node.additional_inputs[0];
-                let (source, stages) = linear_stream_input(graph, &signal.key)?;
-                signals.push((source, stages));
+                signals.push(BoundedWaitSignal {
+                    key: signal.key.clone(),
+                    sources: bounded_signal_sources(graph, &signal.key)?,
+                    linear: linear_stream_input(graph, &signal.key),
+                });
             }
             Operation::Sink { .. } | Operation::Output => {}
             Operation::Map
@@ -915,14 +943,15 @@ impl DirectRunner {
                 let source_digest = if let Some(wait) = &bounded_wait {
                     use std::fmt::Write as _;
                     let mut digest = format!("{}:{main_source_digest}", main_source_digest.len());
-                    for (signal_source, _) in &wait.signals {
-                        let signal_digest = registry
-                            .source_config_digest(signal_source)
-                            .ok_or_else(|| {
-                                Error::unsupported(signal_source, "direct", "source-config-digest")
-                            })?;
-                        write!(&mut digest, "{}:{signal_digest}", signal_digest.len())
-                            .expect("writing to String cannot fail");
+                    for signal in &wait.signals {
+                        for source in &signal.sources {
+                            let signal_digest =
+                                registry.source_config_digest(source).ok_or_else(|| {
+                                    Error::unsupported(source, "direct", "source-config-digest")
+                                })?;
+                            write!(&mut digest, "{}:{signal_digest}", signal_digest.len())
+                                .expect("writing to String cannot fail");
+                        }
                     }
                     digest
                 } else if let Some(side) = &bounded_side {
@@ -1077,14 +1106,45 @@ impl DirectRunner {
                         )
                     } else {
                         if let Some(wait) = &bounded_wait {
-                            for (source, stages) in &wait.signals {
-                                crate::materialized::drain_linear_signal(
-                                    &registry,
-                                    source,
-                                    stages,
-                                    &worker_config,
-                                    &worker_handle.metrics,
-                                )?;
+                            let pool = wait
+                                .signals
+                                .iter()
+                                .any(|signal| signal.linear.is_none())
+                                .then(|| {
+                                    rayon::ThreadPoolBuilder::new()
+                                        .num_threads(worker_config.parallelism)
+                                        .build()
+                                        .map_err(|error| {
+                                            Error::execution("job", "direct", error.to_string())
+                                        })
+                                })
+                                .transpose()?;
+                            for signal in &wait.signals {
+                                if let Some((source, stages)) = &signal.linear {
+                                    crate::materialized::drain_linear_signal(
+                                        &registry,
+                                        source,
+                                        stages,
+                                        &worker_config,
+                                        &worker_handle.metrics,
+                                    )?;
+                                } else {
+                                    let pool = pool.as_ref().ok_or_else(|| {
+                                        Error::execution(
+                                            "job",
+                                            "direct",
+                                            "materialized signal pool was not initialized",
+                                        )
+                                    })?;
+                                    crate::materialized::eval(
+                                        pool,
+                                        &graph,
+                                        &registry,
+                                        &signal.key,
+                                        &worker_config,
+                                        &worker_handle.metrics,
+                                    )?;
+                                }
                             }
                         }
                         run_stream(
