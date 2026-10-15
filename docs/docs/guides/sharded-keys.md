@@ -62,6 +62,7 @@ the selected shard ID. The batch size applies separately to every key and
 shard. The helper expands into ordinary portable elementwise, grouping, and
 batching transforms; it does not require a special runner operation. A bounded
 fixture with two shards of one hot key produces the same batches on Direct and
-the pinned local Prism runner. Streaming shard assignment and byte-limited
-batches need further runner proofs. The
+the pinned local Prism runner. A fixed-window TestStream also produces one
+full batch per shard on both runners. Checkpoint recovery for this shape and
+byte-limited unbounded batches need further proofs. The
 [Beam semantics inventory](../concepts/beam-semantics.md) tracks those cases.
