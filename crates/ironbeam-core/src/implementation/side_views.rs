@@ -371,6 +371,7 @@ impl<T: Element> PCollection<T> {
                 element: ElementDescriptor {
                     type_id: S::type_identity(),
                     coder_id: S::coder_identity(),
+                    coder_payload: S::coder_payload(),
                     coder_version: S::CODER_VERSION,
                 },
             }],

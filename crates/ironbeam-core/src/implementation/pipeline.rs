@@ -565,6 +565,7 @@ impl Pipeline {
                 semantic_version,
                 type_id: T::type_identity(),
                 coder_id: T::coder_identity(),
+                coder_payload: T::coder_payload(),
                 coder_version: T::CODER_VERSION,
                 boundedness,
                 time: Time {

@@ -1410,6 +1410,7 @@ macro_rules! define_cogroup {
                     element: ElementDescriptor {
                         type_id: <(K, $other_ty)>::type_identity(),
                         coder_id: <(K, $other_ty)>::coder_identity(),
+                        coder_payload: <(K, $other_ty)>::coder_payload(),
                         coder_version: <(K, $other_ty)>::CODER_VERSION,
                     },
                 }),+],

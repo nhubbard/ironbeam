@@ -1,6 +1,8 @@
 include!("records_and_joins.rs");
 mod distinct;
 pub use distinct::*;
+mod row;
+pub use row::*;
 include!("object_avro.rs");
 include!("object_parquet.rs");
 include!("multiway_and_batches.rs");

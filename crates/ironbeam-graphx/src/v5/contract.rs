@@ -15,7 +15,7 @@ pub fn execution_identity(
     let mut sinks = Vec::new();
     for node in &graph.nodes {
         semantic.push((&node.key, &node.semantic_id, node.semantic_version));
-        coders.push((&node.key, &node.type_id, &node.coder_id, node.coder_version));
+        coders.push((&node.key, &node.type_id, &node.coder_id, &node.coder_payload, node.coder_version));
         if matches!(node.operation, Operation::Source { .. }) {
             let config =
                 registry
@@ -939,12 +939,15 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             .spec
             .as_ref()
             .ok_or_else(|| V5Error::Wire(format!("missing element coder spec for {key}")))?;
-        if inner_spec.urn != urns::CODER_IRONBEAM_V5
-            || !inner.component_coder_ids.is_empty()
-            || serde_json::from_slice::<ElementDescriptor>(&inner_spec.payload)
-                .map_err(|error| V5Error::Wire(error.to_string()))?
-                != descriptor(node)
-        {
+        let matches_element = if node.coder_id == urns::CODER_ROW {
+            inner_spec.urn == urns::CODER_ROW && inner_spec.payload == node.coder_payload
+        } else {
+            inner_spec.urn == urns::CODER_IRONBEAM_V5
+                && serde_json::from_slice::<ElementDescriptor>(&inner_spec.payload)
+                    .map_err(|error| V5Error::Wire(error.to_string()))?
+                    == descriptor(node)
+        };
+        if !inner.component_coder_ids.is_empty() || !matches_element {
             return Err(V5Error::Wire(format!("element coder differs for {key}")));
         }
     }

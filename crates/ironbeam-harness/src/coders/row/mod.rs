@@ -4,6 +4,8 @@
 //! not register a PCollection coder: the graph must carry the schema payload
 //! before a row can cross an SDK boundary as `beam:coder:row:v1`.
 
+use std::marker::PhantomData;
+
 use anyhow::{anyhow, bail, Result};
 
 mod atomic;
@@ -13,11 +15,83 @@ use atomic::{read_varint, take};
 use beam_proto::pipeline_v1::{
     atomic_type_value, field_value, AtomicTypeValue, FieldValue, Row, Schema,
 };
+use ironbeam_core::{Element, Error};
+use prost::Message;
 use values::{decode_value, encode_value};
 
 use super::encode_varint;
 
 pub(super) const MAX_DEPTH: usize = 64;
+
+/// A schema fixed by the application binary. Its type ID must change when a
+/// semantic row type changes; the serialized schema also enters graph identity.
+pub trait RowSchema: Send + Sync + 'static {
+    const TYPE_ID: &'static str;
+    fn schema() -> Schema;
+}
+
+/// A row whose bytes and portable coder use Beam's schema row format.
+pub struct BeamRow<S: RowSchema> {
+    value: Row,
+    marker: PhantomData<S>,
+}
+
+impl<S: RowSchema> Clone for BeamRow<S> {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<S: RowSchema> BeamRow<S> {
+    /// Validate a value against the schema before admitting it to a pipeline.
+    pub fn new(value: Row) -> Result<Self> {
+        encode_row(&S::schema(), &value)?;
+        Ok(Self {
+            value,
+            marker: PhantomData,
+        })
+    }
+
+    #[must_use]
+    pub fn as_row(&self) -> &Row {
+        &self.value
+    }
+
+    #[must_use]
+    pub fn into_row(self) -> Row {
+        self.value
+    }
+}
+
+impl<S: RowSchema> Element for BeamRow<S> {
+    const TYPE_ID: &'static str = S::TYPE_ID;
+    const CODER_ID: &'static str = "beam:coder:row:v1";
+
+    fn supports_coder() -> bool {
+        true
+    }
+
+    fn coder_payload() -> Vec<u8> {
+        S::schema().encode_to_vec()
+    }
+
+    fn encode(&self) -> std::result::Result<Vec<u8>, Error> {
+        encode_row(&S::schema(), &self.value)
+            .map_err(|error| Error::incompatible(error.to_string()))
+    }
+
+    fn decode(bytes: &[u8]) -> std::result::Result<Self, Error> {
+        let value = decode_row(&S::schema(), bytes)
+            .map_err(|error| Error::incompatible(error.to_string()))?;
+        Ok(Self {
+            value,
+            marker: PhantomData,
+        })
+    }
+}
 
 /// Encode one Beam row using the schema's declared field order and encoding positions.
 pub fn encode_row(schema: &Schema, row: &Row) -> Result<Vec<u8>> {

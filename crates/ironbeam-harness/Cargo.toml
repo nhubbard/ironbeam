@@ -30,6 +30,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
 ironbeam-io-csv = { version = "5.0.0", path = "../ironbeam-io-csv", default-features = false }
 ironbeam-io-xml = { version = "5.0.0", path = "../ironbeam-io-xml", default-features = false }
 ironbeam-io-protobuf = { version = "5.0.0", path = "../ironbeam-io-protobuf", default-features = false }

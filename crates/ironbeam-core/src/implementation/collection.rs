@@ -75,6 +75,7 @@ impl<T: Element> PCollection<T> {
             input_element: Some(ElementDescriptor {
                 type_id: T::type_identity(),
                 coder_id: T::coder_identity(),
+                coder_payload: T::coder_payload(),
                 coder_version: T::CODER_VERSION,
             }),
             additional_inputs: Vec::new(),
@@ -83,6 +84,7 @@ impl<T: Element> PCollection<T> {
             semantic_version,
             type_id: U::type_identity(),
             coder_id: U::coder_identity(),
+            coder_payload: U::coder_payload(),
             coder_version: U::CODER_VERSION,
             boundedness: parent.boundedness,
             time: Time {
@@ -121,6 +123,7 @@ impl<T: Element> PCollection<T> {
             input_element: Some(ElementDescriptor {
                 type_id: T::type_identity(),
                 coder_id: T::coder_identity(),
+                coder_payload: T::coder_payload(),
                 coder_version: T::CODER_VERSION,
             }),
             additional_inputs,
@@ -129,6 +132,7 @@ impl<T: Element> PCollection<T> {
             semantic_version,
             type_id: U::type_identity(),
             coder_id: U::coder_identity(),
+            coder_payload: U::coder_payload(),
             coder_version: U::CODER_VERSION,
             boundedness,
             time: parent.time,
@@ -157,6 +161,7 @@ impl<T: Element> PCollection<T> {
             input_element: Some(ElementDescriptor {
                 type_id: T::type_identity(),
                 coder_id: T::coder_identity(),
+                coder_payload: T::coder_payload(),
                 coder_version: T::CODER_VERSION,
             }),
             additional_inputs: Vec::new(),
@@ -165,6 +170,7 @@ impl<T: Element> PCollection<T> {
             semantic_version,
             type_id: U::type_identity(),
             coder_id: U::coder_identity(),
+            coder_payload: U::coder_payload(),
             coder_version: U::CODER_VERSION,
             boundedness: parent.boundedness,
             time: parent.time,
@@ -371,6 +377,7 @@ impl<T: Element> PCollection<T> {
                 element: ElementDescriptor {
                     type_id: T::type_identity(),
                     coder_id: T::coder_identity(),
+                    coder_payload: T::coder_payload(),
                     coder_version: T::CODER_VERSION,
                 },
             });
@@ -383,6 +390,7 @@ impl<T: Element> PCollection<T> {
             input_element: Some(ElementDescriptor {
                 type_id: T::type_identity(),
                 coder_id: T::coder_identity(),
+                coder_payload: T::coder_payload(),
                 coder_version: T::CODER_VERSION,
             }),
             additional_inputs,
@@ -391,6 +399,7 @@ impl<T: Element> PCollection<T> {
             semantic_version,
             type_id: T::type_identity(),
             coder_id: T::coder_identity(),
+            coder_payload: T::coder_payload(),
             coder_version: T::CODER_VERSION,
             boundedness: if unbounded {
                 Boundedness::Unbounded
@@ -419,6 +428,7 @@ impl<T: Element> PCollection<T> {
             element: ElementDescriptor {
                 type_id: T::type_identity(),
                 coder_id: T::coder_identity(),
+                coder_payload: T::coder_payload(),
                 coder_version: T::CODER_VERSION,
             },
         }
@@ -449,6 +459,7 @@ impl<T: Element> PCollection<T> {
             input_element: Some(ElementDescriptor {
                 type_id: T::type_identity(),
                 coder_id: T::coder_identity(),
+                coder_payload: T::coder_payload(),
                 coder_version: T::CODER_VERSION,
             }),
             additional_inputs: vec![InputEdge {
@@ -460,6 +471,7 @@ impl<T: Element> PCollection<T> {
             semantic_version,
             type_id: T::type_identity(),
             coder_id: T::coder_identity(),
+            coder_payload: T::coder_payload(),
             coder_version: T::CODER_VERSION,
             boundedness: parent.boundedness,
             time: parent.time,
@@ -1116,6 +1128,7 @@ impl<T: Element> PCollection<T> {
             input_element: Some(ElementDescriptor {
                 type_id: T::type_identity(),
                 coder_id: T::coder_identity(),
+                coder_payload: T::coder_payload(),
                 coder_version: T::CODER_VERSION,
             }),
             additional_inputs: Vec::new(),
@@ -1124,6 +1137,7 @@ impl<T: Element> PCollection<T> {
             semantic_version,
             type_id: T::type_identity(),
             coder_id: T::coder_identity(),
+            coder_payload: T::coder_payload(),
             coder_version: T::CODER_VERSION,
             boundedness: parent.boundedness,
             time: parent.time,

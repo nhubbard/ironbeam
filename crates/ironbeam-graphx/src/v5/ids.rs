@@ -236,6 +236,7 @@ fn descriptor(node: &Node) -> ElementDescriptor {
     ElementDescriptor {
         type_id: node.type_id.clone(),
         coder_id: node.coder_id.clone(),
+        coder_payload: node.coder_payload.clone(),
         coder_version: node.coder_version,
     }
 }

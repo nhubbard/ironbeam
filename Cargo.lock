@@ -2984,6 +2984,7 @@ dependencies = [
  "futures-util",
  "ironbeam-cloud-objects",
  "ironbeam-core",
+ "ironbeam-direct",
  "ironbeam-graphx",
  "ironbeam-io-csv",
  "ironbeam-io-protobuf",

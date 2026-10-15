@@ -17,6 +17,12 @@ pub trait Element: Send + 'static {
     fn coder_identity() -> String {
         Self::CODER_ID.into()
     }
+    /// Beam coder payload, such as the serialized Schema for `beam:coder:row:v1`.
+    /// This is part of graph identity and must be stable for a given type.
+    #[must_use]
+    fn coder_payload() -> Vec<u8> {
+        Vec::new()
+    }
     #[must_use]
     fn supports_coder() -> bool {
         false

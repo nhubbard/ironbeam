@@ -54,6 +54,9 @@ impl Graph {
                     node.key
                 )));
             }
+            if node.coder_id == "beam:coder:row:v1" && node.coder_payload.is_empty() {
+                return Err(Error::graph(&node.key, "Beam RowCoder requires a schema payload"));
+            }
             if matches!(node.time.window, Window::Fixed { size_ns } | Window::FixedOffset { size_ns, .. } if size_ns <= 0)
             {
                 return Err(Error::graph(
@@ -202,6 +205,7 @@ impl Graph {
                         .ok_or_else(|| Error::graph(&node.key, "missing input node"))?;
                     if expected.type_id != upstream.type_id
                         || expected.coder_id != upstream.coder_id
+                        || expected.coder_payload != upstream.coder_payload
                         || expected.coder_version != upstream.coder_version
                     {
                         return Err(Error::graph(&node.key, "input edge type/coder mismatch"));
@@ -220,6 +224,7 @@ impl Graph {
                             | Operation::Sink { .. }
                     ) && (node.type_id != upstream.type_id
                         || node.coder_id != upstream.coder_id
+                        || node.coder_payload != upstream.coder_payload
                         || node.coder_version != upstream.coder_version)
                     {
                         return Err(Error::graph(&node.key, "input type/coder mismatch"));
@@ -318,6 +323,7 @@ impl Graph {
                             })?;
                             if edge.element.type_id != other.type_id
                                 || edge.element.coder_id != other.coder_id
+                                || edge.element.coder_payload != other.coder_payload
                                 || edge.element.coder_version != other.coder_version
                             {
                                 return Err(Error::graph(
@@ -328,6 +334,7 @@ impl Graph {
                             if matches!(node.operation, Operation::Flatten)
                                 && (node.type_id != other.type_id
                                     || node.coder_id != other.coder_id
+                                    || node.coder_payload != other.coder_payload
                                     || node.coder_version != other.coder_version)
                             {
                                 return Err(Error::graph(

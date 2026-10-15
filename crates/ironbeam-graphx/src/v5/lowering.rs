@@ -470,10 +470,17 @@ fn lower(
             serde_json::to_vec(&spec).map_err(|e| V5Error::Wire(e.to_string()))?;
         let coder_key = id("v5_c", &hex::encode(&descriptor_payload));
         let lp_key = format!("{coder_key}_lp");
+        let (urn, payload) = if node.coder_id == urns::CODER_ROW {
+            Schema::decode(node.coder_payload.as_slice())
+                .map_err(|error| V5Error::Wire(format!("invalid RowCoder schema at {key}: {error}")))?;
+            (urns::CODER_ROW, node.coder_payload.clone())
+        } else {
+            (urns::CODER_IRONBEAM_V5, descriptor_payload)
+        };
         coders.entry(coder_key.clone()).or_insert_with(|| Coder {
             spec: Some(FunctionSpec {
-                urn: urns::CODER_IRONBEAM_V5.into(),
-                payload: descriptor_payload,
+                urn: urn.into(),
+                payload,
             }),
             component_coder_ids: Vec::new(),
         });
@@ -630,6 +637,9 @@ fn lower(
     let mut env = docker_environment(container_image);
     env.capabilities.push(urns::DOFN_IRONBEAM_V5.into());
     env.capabilities.push(urns::CODER_IRONBEAM_V5.into());
+    if graph.nodes.iter().any(|node| node.coder_id == urns::CODER_ROW) {
+        env.capabilities.push(urns::CODER_ROW.into());
+    }
     let identity_payload =
         serde_json::to_vec(identity).map_err(|e| V5Error::Wire(e.to_string()))?;
     Ok((

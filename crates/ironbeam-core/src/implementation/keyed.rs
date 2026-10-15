@@ -1233,6 +1233,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 element: ElementDescriptor {
                     type_id: <(K, W)>::type_identity(),
                     coder_id: <(K, W)>::coder_identity(),
+                    coder_payload: <(K, W)>::coder_payload(),
                     coder_version: <(K, W)>::CODER_VERSION,
                 },
             }],

@@ -501,6 +501,8 @@ pub enum Operation {
 pub struct ElementDescriptor {
     pub type_id: String,
     pub coder_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coder_payload: Vec<u8>,
     pub coder_version: Version,
 }
 
@@ -522,6 +524,8 @@ pub struct Node {
     pub semantic_version: Version,
     pub type_id: String,
     pub coder_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub coder_payload: Vec<u8>,
     pub coder_version: Version,
     pub boundedness: Boundedness,
     pub time: Time,

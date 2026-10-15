@@ -236,6 +236,11 @@ async fn main() -> anyhow::Result<()> {
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_BOUNDED_CONTRACT") {
         return bounded_map_filter_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_BEAM_ROW") {
+        return ironbeam_prism_proof::beam_row_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DISTINCT_WINDOW") {
         return distinct_window_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
     }

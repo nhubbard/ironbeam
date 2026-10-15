@@ -17,6 +17,7 @@ ironbeam-transforms = { workspace = true }
 ironbeam-coder-postcard = { workspace = true }
 ironbeam-io = { workspace = true, default-features = false, features = ["file"] }
 ironbeam-dataflow = { workspace = true }
+ironbeam-harness = { workspace = true }
 ironbeam-cloud-objects = { workspace = true }
 ironbeam-io-jsonl = { workspace = true }
 ironbeam-io-avro = { workspace = true, features = ["cloud"] }
@@ -45,6 +46,5 @@ bson = { version = "3", optional = true }
 
 [dev-dependencies]
 ironbeam-direct = { workspace = true }
-ironbeam-harness = { workspace = true }
 prost-types = { workspace = true }
 tonic = { workspace = true }

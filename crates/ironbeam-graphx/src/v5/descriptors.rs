@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use beam_proto::pipeline_v1::{
     is_bounded, output_time, test_stream_payload, Coder, Components, DisplayData, FunctionSpec, PCollection,
-    PTransform, ParDoPayload, Pipeline as BeamPipeline, SideInput, TestStreamPayload,
+    PTransform, ParDoPayload, Pipeline as BeamPipeline, Schema, SideInput, TestStreamPayload,
     WindowIntoPayload,
 };
 use ironbeam_core::{
