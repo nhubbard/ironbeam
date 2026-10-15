@@ -2960,7 +2960,6 @@ version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-metrics",
- "ironbeam-transforms",
  "rayon",
  "serde",
  "serde_json",
@@ -3297,6 +3296,7 @@ dependencies = [
  "ironbeam-direct",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
