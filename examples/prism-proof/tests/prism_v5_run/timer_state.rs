@@ -148,3 +148,53 @@ async fn prism_recovers_an_armed_event_timer_after_execution_child_loss() {
     };
     assert_eq!(read_rows(&portable_path), ["1:24"]);
 }
+
+#[tokio::test]
+async fn prism_matches_direct_fixed_window_timer_output_hold_and_metadata() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-windowed-timers");
+    let portable_path = directory.path().join("portable-windowed-timers");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::streaming_windowed_timer_hold_fixture(
+        &direct_pipeline,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable_pipeline = Pipeline::default();
+    ironbeam_prism_proof::streaming_windowed_timer_hold_fixture(
+        &portable_pipeline,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "windowed-timer-output-hold",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_WINDOWED_TIMER_HOLD".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism windowed timers failed: {terminal:?}");
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = ["2000000:3:0:10000000\n", "22000000:4:20000000:30000000\n"];
+    assert_eq!(read_rows(&direct_path), expected);
+    assert_eq!(read_rows(&portable_path), expected);
+}

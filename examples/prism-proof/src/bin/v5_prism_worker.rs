@@ -256,6 +256,11 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_WINDOWED_TIMER_HOLD") {
+        return ironbeam_prism_proof::streaming_windowed_timer_hold_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_COMBINING_STATE") {
         return ironbeam_prism_proof::bounded_combining_state_fixture(pipeline, path.into())
             .map(|_| ())

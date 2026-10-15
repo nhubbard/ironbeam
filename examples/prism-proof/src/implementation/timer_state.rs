@@ -1,4 +1,4 @@
-use super::{production_state_source, IdempotentStateLabelSink};
+use super::{production_state_source, IdempotentStateLabelSink, IdempotentValueSink};
 use ironbeam_core::{
     Error, Pipeline, Replay, Sink, SinkMode, SinkSpec, TestStreamEvent, TimedStateResult,
     UserTimerDomain, UserTimerRequest, Version,
@@ -179,6 +179,76 @@ pub fn production_recovered_event_timer_fixture(
             format!("production-event-timer-result:{}", directory.display()),
             move || {
                 Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
+/// Fixed-window timers with an output timestamp before the firing deadline.
+pub fn streaming_windowed_timer_hold_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<(i64, i32)>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "windowed-timer-source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0), ((1, 4), 20_000_000)]),
+                TestStreamEvent::AdvanceWatermark(30_000_000),
+            ],
+        )?
+        .fixed_windows("windowed-timer-assign", 10_000_000)?
+        .stateful_timer_map_named::<i32, (i64, i32)>(
+            "windowed-timer-state",
+            "prism-proof/windowed-timer-hold",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, metadata| {
+                let window = metadata
+                    .assigned_window
+                    .ok_or_else(|| Error::incompatible("windowed timer has no interval"))?;
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: window.start_ns + 5_000_000,
+                        output_timestamp_ns: Some(window.start_ns + 2_000_000),
+                    }],
+                })
+            },
+            |_, state, event| {
+                let window = event
+                    .window
+                    .ok_or_else(|| Error::incompatible("windowed timer firing has no interval"))?;
+                let hold = window.start_ns + 2_000_000;
+                if event.fire_timestamp_ns != window.start_ns + 5_000_000
+                    || event.output_timestamp_ns != hold
+                {
+                    return Err(Error::incompatible("windowed timer metadata differs"));
+                }
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().map(|value| (hold, value)).collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )?
+        .map_named("windowed-timer-unkey", |(_, value)| value)?
+        .sink_named_with_config(
+            "windowed-timer-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("windowed-timer-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentValueSink {
                     directory: sink_directory.clone(),
                     pending: Vec::new(),
                 }))
