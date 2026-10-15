@@ -581,5 +581,6 @@ bounds, and sink rows.
 A production event timer also survives replacement of the Prism execution
 child after it is armed. A separate local Prism job replaces the execution
 child during a timer callback; the supervisor replays that timer input and
-commits each output once. Other failure points and timer callback shapes need
-further tests.
+commits each output once. A second recovery job checks the same boundary for
+fixed-window timers and their output timestamps. Other failure points and
+timer callback shapes need further tests.

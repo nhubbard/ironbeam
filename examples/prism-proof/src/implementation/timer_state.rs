@@ -279,6 +279,9 @@ fn windowed_timer_hold_fixture(
                 if event.fire_timestamp_ns != fire || event.output_timestamp_ns != hold {
                     return Err(Error::incompatible("windowed timer metadata differs"));
                 }
+                if std::env::var_os("IRONBEAM_V5_PRISM_KILL_WINDOWED_TIMER_CALLBACK").is_some() {
+                    super::await_supervised_source_replacement(Some(&[1]))?;
+                }
                 Ok(TimedStateResult {
                     state: None,
                     outputs: state

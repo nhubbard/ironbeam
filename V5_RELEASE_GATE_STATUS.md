@@ -291,6 +291,9 @@ callback. Its parent replays the declared timer-family input to a replacement
 child. The job reaches `DONE`, the kill witness matches the selected child,
 and both keyed timer outputs appear once. This covers a timer-input replay
 boundary in addition to recovery after a source batch.
+The same child-loss point also passes for two fixed-window timer firings:
+Prism commits both rows once with their exact hold timestamps and interval
+bounds after replay.
 
 A separate local Prism job fires event timers in `[0, 10)` and `[20, 30)`
 millisecond fixed windows. The callback checks each firing deadline and its
