@@ -100,6 +100,7 @@ enum Transform {
     Single(SingleTransform),
     Multi(MultiTransform),
     StatefulValue(StatefulValueTransform),
+    StatefulTimer(Box<StatefulTimerTransform>),
 }
 type StatefulValueCallback = Arc<
     dyn Fn(Payload, Option<&[u8]>) -> Result<(Option<Vec<u8>>, Payload), Error> + Send + Sync,

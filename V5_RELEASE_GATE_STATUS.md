@@ -216,8 +216,9 @@ separately from element data, including bundles with timer input and no element
 input. For a set operation, the pinned Python worker uses the fire timestamp
 as the hold timestamp for event-time timers and the current input timestamp as
 the hold for processing-time timers. A clear operation has no timestamps or
-pane. The harness already routes and decodes these records; no registered
-pipeline callback receives them yet.
+pane. The harness routes and decodes these records. Direct now invokes
+registered element and timer callbacks; the portable bundle executor does not
+yet invoke a timer callback.
 
 The pinned Prism worker sends timer blocks under the owning ParDo transform
 and family IDs, then sends an `IsLast` marker for every declared family even
@@ -230,8 +231,8 @@ Graphx now registers each declared timer family as a standard
 `beam:coder:timer:v1` coder over the contract's key and window coders. Its
 portable contract validator rejects missing or changed timer coder
 definitions, and tests cover lowering and coder-ID collisions. This closes a
-wire-format prerequisite only; timer callbacks, scheduling, and recovery
-remain open.
+wire-format prerequisite for the portable worker. Direct callback execution is
+described below; portable callback scheduling and recovery remain open.
 
 Core now has a runner-owned timer queue for declared event- and
 processing-time families. It replaces or clears a keyed/windowed/tagged slot,
@@ -239,8 +240,14 @@ fires against the two clocks in stable deadline order, and checkpoints its
 slots with the complete versioned function contract. Restore validates coder
 bytes through a caller-supplied key decoder and rejects changed contracts,
 duplicates, malformed windows, and non-millisecond timestamps without
-mutating the current queue. Unit tests cover those boundaries. No runner
-uses this queue yet, so this is not an executable timer proof.
+mutating the current queue. Unit tests cover those boundaries. Direct now uses
+the queue in its unbounded stream route. Element callbacks can set or clear
+tagged timers, and timer callbacks can update the same keyed state and emit
+through downstream transforms. Six Direct fixtures cover event and scripted
+processing clocks, idle wall-clock firing, dynamic-tag clearing, restore of
+armed timers with a source cursor, and retry after a failed sink commit. The
+public typed API currently requires
+unbounded input, default global/fixed/sliding windows, and zero lateness.
 Timer mutations returned by one callback are validated together before any
 slot changes; a test checks that a bad later mutation leaves earlier clears
 and sets unapplied. The queue exposes the next deadline by time domain so a
@@ -256,9 +263,9 @@ boundary; the bundle executor still needs to invoke the callback.
 
 | Required execution boundary | Direct | Portable worker |
 | --- | --- | --- |
-| Element callback schedules or clears a keyed timer | Save the mutation with coded state and the source cursor; replay it only if the bundle commits. | Emit the declared family record before acknowledging the bundle. |
-| Timer callback produces state and output | Fire at an event watermark or processing clock deadline; route output with its key, window, timestamp, and pane. | Drain a timer-only or mixed bundle, bind the decoded key and window to the registered callback, and send output through the normal sink path. |
-| Recovery and expiry | Checkpoint armed timers with source progress and use stable commit IDs; reject malformed restored keys and windows. | Fail the bundle on callback or State RPC error; prove worker-child replacement and a window-expiration callback. |
+| Element callback schedules or clears a keyed timer | Implemented for the single-route unbounded stream path, with atomic timer mutations and coded state checkpointed with source progress. | Emit the declared family record before acknowledging the bundle. |
+| Timer callback produces state and output | Event-watermark, scripted processing-clock, and idle wall-clock fixtures pass. Output traverses downstream transforms to the sink. | Drain a timer-only or mixed bundle, bind the decoded key and window to the registered callback, and send output through the normal sink path. |
+| Recovery and expiry | A fresh Direct run restores an armed timer and value cell from one source checkpoint. A failed timer sink commit retries from that checkpoint and emits once. Corrupt combined state is rejected atomically. Multi-route state and window-expiration callbacks need proofs. | Fail the bundle on callback or State RPC error; prove worker-child replacement and a window-expiration callback. |
 
 The harness executes declared value, bag, set, map, multimap, and ordered-list
 cells through Fn State. It reads the cell, invokes the registered callback,

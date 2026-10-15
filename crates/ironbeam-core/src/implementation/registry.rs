@@ -357,6 +357,13 @@ impl Registry {
                 Ok(values.pop())
             }
             Transform::StatefulValue(transform) => Ok(Some(transform.apply_direct(input)?)),
+            Transform::StatefulTimer(transform) => {
+                let mut values = transform.apply_element(input)?;
+                if values.len() > 1 {
+                    return Err(Error::execution(key, "direct", "operation emits multiple elements"));
+                }
+                Ok(values.pop())
+            }
         }
     }
     pub fn apply_many(&self, key: &str, input: Envelope) -> Result<Vec<Envelope>, Error> {
@@ -368,6 +375,7 @@ impl Registry {
             Transform::Single(transform) => Ok(transform(input)?.into_iter().collect()),
             Transform::Multi(transform) => transform(input),
             Transform::StatefulValue(transform) => Ok(vec![transform.apply_direct(input)?]),
+            Transform::StatefulTimer(transform) => transform.apply_element(input),
         }
     }
     #[must_use]
@@ -385,7 +393,7 @@ impl Registry {
     ) -> Option<&(dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync)> {
         match self.transforms.get(key)? {
             Transform::Single(transform) => Some(transform.as_ref()),
-            Transform::Multi(_) | Transform::StatefulValue(_) => None,
+            Transform::Multi(_) | Transform::StatefulValue(_) | Transform::StatefulTimer(_) => None,
         }
     }
     /// Invoke a registered value-state callback with runner-owned cell bytes.
@@ -403,7 +411,28 @@ impl Registry {
     }
     #[must_use]
     pub fn has_stateful_value(&self, key: &str) -> bool {
-        matches!(self.transforms.get(key), Some(Transform::StatefulValue(_)))
+        matches!(self.transforms.get(key), Some(Transform::StatefulValue(_) | Transform::StatefulTimer(_)))
+    }
+    /// Fire due user timers after a source clock or watermark advances.
+    pub fn drain_stateful_timers(
+        &self,
+        key: &str,
+        event_watermark_ns: Option<i64>,
+        processing_time_ns: Option<i64>,
+    ) -> Result<Vec<Envelope>, Error> {
+        match self.transforms.get(key) {
+            Some(Transform::StatefulTimer(transform)) => {
+                transform.take_ready(event_watermark_ns, processing_time_ns)
+            }
+            _ => Ok(Vec::new()),
+        }
+    }
+    /// Earliest pending processing-time user timer on one stateful node.
+    pub fn next_stateful_timer_deadline(&self, key: &str) -> Result<Option<i64>, Error> {
+        match self.transforms.get(key) {
+            Some(Transform::StatefulTimer(transform)) => transform.next_processing_deadline(),
+            _ => Ok(None),
+        }
     }
     /// Merge the coded accumulator elements returned by one Beam combining-state bag.
     pub fn merge_combining_accumulators(
@@ -419,6 +448,7 @@ impl Registry {
     pub fn expire_stateful_value(&self, key: &str, watermark: Option<i64>) -> Result<(), Error> {
         match self.transforms.get(key) {
             Some(Transform::StatefulValue(transform)) => transform.expire(watermark),
+            Some(Transform::StatefulTimer(transform)) => transform.expire(watermark),
             _ => Err(Error::recovery(key, "stateful value handler missing")),
         }
     }
@@ -426,6 +456,7 @@ impl Registry {
     pub fn checkpoint_stateful_value(&self, key: &str) -> Result<Vec<u8>, Error> {
         match self.transforms.get(key) {
             Some(Transform::StatefulValue(transform)) => transform.checkpoint(),
+            Some(Transform::StatefulTimer(transform)) => transform.checkpoint(),
             _ => Err(Error::recovery(key, "stateful value handler missing")),
         }
     }
@@ -433,6 +464,7 @@ impl Registry {
     pub fn restore_stateful_value(&self, key: &str, bytes: &[u8]) -> Result<(), Error> {
         match self.transforms.get(key) {
             Some(Transform::StatefulValue(transform)) => transform.restore(bytes),
+            Some(Transform::StatefulTimer(transform)) => transform.restore(bytes),
             _ => Err(Error::recovery(key, "stateful value handler missing")),
         }
     }

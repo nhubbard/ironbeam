@@ -1,6 +1,7 @@
 use beam_proto::pipeline_v1::{state_spec, time_domain, ParDoPayload};
 use ironbeam_core::{
-    Pipeline, StatefulParDoContract, UserStateKind, UserTimerDomain, UserTimerFamily, Version,
+    Pipeline, StatefulParDoContract, TestStreamEvent, TimedStateResult, UserStateKind,
+    UserTimerDomain, UserTimerFamily, UserTimerRequest, Version,
 };
 use ironbeam_graphx::v5::{attach_stateful_contract, translate_v5, validate_beam_contract};
 use prost::Message;
@@ -165,6 +166,60 @@ fn public_combining_state_api_lowers_versioned_merge_to_beam() {
         serde_json::from_slice::<Version>(&merge.payload).unwrap(),
         Version { major: 2, minor: 1 }
     );
+}
+
+#[test]
+fn public_timed_state_api_declares_a_standard_timer_coder() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "pairs",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "running",
+            "example/timed-total",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: String::new(),
+                        fire_timestamp_ns: 1_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![state.unwrap()],
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, "example/worker:v5", "timed-state-build").unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let transform = components
+        .transforms
+        .values()
+        .find(|transform| transform.unique_name == "running")
+        .unwrap();
+    let payload =
+        ParDoPayload::decode(transform.spec.as_ref().unwrap().payload.as_slice()).unwrap();
+    let family = &payload.timer_family_specs["event"];
+    let coder = &components.coders[&family.timer_family_coder_id];
+    assert_eq!(coder.spec.as_ref().unwrap().urn, "beam:coder:timer:v1");
+    assert_eq!(coder.component_coder_ids, ["v5_lp_bytes", "c_gw"]);
 }
 
 #[test]

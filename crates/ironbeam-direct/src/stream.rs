@@ -2335,6 +2335,70 @@ fn run_grouped_stream(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn write_stateful_timer_outputs(
+    registry: &Registry,
+    route: &Route,
+    stateful_key: &str,
+    sink_key: &str,
+    instruction_id: &str,
+    config: &JobConfig,
+    outputs: Vec<Envelope>,
+    session: &mut Option<Box<dyn SinkSession>>,
+    written: &mut u64,
+) -> Result<(), Error> {
+    let tail = route
+        .operations
+        .iter()
+        .skip_while(|operation| operation.as_str() != stateful_key)
+        .skip(1);
+    for output in outputs {
+        let mut events = vec![output];
+        for operation in tail.clone() {
+            let mut next = Vec::new();
+            for event in events {
+                if config.cancellation.load(Ordering::Acquire) {
+                    return Err(cancelled());
+                }
+                let produced =
+                    catch_unwind(AssertUnwindSafe(|| registry.apply_many(operation, event)))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(
+                                operation,
+                                "direct",
+                                "timer output transform panicked",
+                            ))
+                        })?;
+                if next.len().saturating_add(produced.len()) > config.buffer_budget_elements {
+                    return Err(Error::resource(
+                        operation,
+                        "timer output exceeds buffer budget",
+                    ));
+                }
+                next.extend(produced);
+            }
+            events = next;
+        }
+        for event in events {
+            if session.is_none() {
+                *session = Some(begin_sink_bundle(registry, sink_key, instruction_id)?);
+            }
+            catch_unwind(AssertUnwindSafe(|| {
+                session.as_mut().expect("opened sink").write(event)
+            }))
+            .unwrap_or_else(|_| {
+                Err(Error::execution(
+                    sink_key,
+                    "direct",
+                    "timer sink writer panicked",
+                ))
+            })?;
+            *written = written.saturating_add(1);
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)] // Poll, sink commit, and cursor save form one replay state machine.
 fn run_stream(
     registry: &Registry,
@@ -2374,6 +2438,82 @@ fn run_stream(
                 ))
             })?;
         let UnboundedPoll::Ready(batch) = polled else {
+            if let (Some(key), Some(current_progress)) = (stateful_key, progress.as_ref()) {
+                let now_ns = processing_time_now_ns(source.as_ref())?;
+                if registry
+                    .next_stateful_timer_deadline(key)?
+                    .is_some_and(|deadline| deadline <= now_ns)
+                {
+                    let prior_state = registry.checkpoint_stateful_value(key)?;
+                    let instruction_id = timer_bundle_id(
+                        &plan.summary.graph_fingerprint,
+                        sink_key,
+                        current_progress,
+                        &prior_state,
+                    );
+                    let mut session = None;
+                    let mut written = 0_u64;
+                    let result = (|| {
+                        let outputs = registry.drain_stateful_timers(key, None, Some(now_ns))?;
+                        write_stateful_timer_outputs(
+                            registry,
+                            route,
+                            key,
+                            sink_key,
+                            &instruction_id,
+                            config,
+                            outputs,
+                            &mut session,
+                            &mut written,
+                        )?;
+                        if config.cancellation.load(Ordering::Acquire) {
+                            return Err(cancelled());
+                        }
+                        let state = registry.checkpoint_stateful_value(key)?;
+                        if state.len() > config.memory_budget_bytes {
+                            return Err(Error::resource(
+                                key,
+                                "stream timer state exceeds memory budget",
+                            ));
+                        }
+                        if let Some(session) = &mut session {
+                            catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(
+                                |_| {
+                                    Err(Error::execution(
+                                        sink_key,
+                                        "direct",
+                                        "timer sink commit panicked",
+                                    ))
+                                },
+                            )?;
+                        }
+                        Ok(state)
+                    })();
+                    let state = match result {
+                        Ok(state) => state,
+                        Err(error) => {
+                            if let Some(session) = &mut session {
+                                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                            }
+                            return Err(error);
+                        }
+                    };
+                    if let Some(checkpoint) = checkpoint {
+                        checkpoint.save_state(
+                            current_progress,
+                            &state,
+                            config.memory_budget_bytes,
+                        )?;
+                    }
+                    let total = handle
+                        .metrics
+                        .output_elements
+                        .fetch_add(written, Ordering::Relaxed)
+                        .saturating_add(written);
+                    handle.processed.store(total, Ordering::Relaxed);
+                    continue;
+                }
+            }
             std::thread::sleep(Duration::from_millis(10));
             continue;
         };
@@ -2451,6 +2591,29 @@ fn run_stream(
                     })?;
                     written = written.saturating_add(1);
                 }
+            }
+            if let Some(key) = stateful_key {
+                let processing_time_ns = if registry.next_stateful_timer_deadline(key)?.is_some() {
+                    Some(processing_time_now_ns(source.as_ref())?)
+                } else {
+                    None
+                };
+                let firings = registry.drain_stateful_timers(
+                    key,
+                    batch.progress.event_time_ns,
+                    processing_time_ns,
+                )?;
+                write_stateful_timer_outputs(
+                    registry,
+                    route,
+                    key,
+                    sink_key,
+                    &instruction_id,
+                    config,
+                    firings,
+                    &mut session,
+                    &mut written,
+                )?;
             }
             if config.cancellation.load(Ordering::Acquire) {
                 return Err(cancelled());

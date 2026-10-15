@@ -67,6 +67,41 @@ pub struct UserTimerFamily {
     pub coder_id: String,
 }
 
+/// A timer change requested by a stateful callback. The runner supplies the
+/// current key, window, and pane when it binds this request to a timer slot.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UserTimerRequest {
+    Set {
+        family_id: String,
+        dynamic_tag: String,
+        fire_timestamp_ns: i64,
+        output_timestamp_ns: Option<i64>,
+    },
+    Clear {
+        family_id: String,
+        dynamic_tag: String,
+    },
+}
+
+/// State, zero or more outputs, and timer changes from one callback.
+pub struct TimedStateResult<S, O> {
+    pub state: Option<S>,
+    pub outputs: Vec<O>,
+    pub timers: Vec<UserTimerRequest>,
+}
+
+/// Metadata delivered when one keyed timer fires.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UserTimerEvent {
+    pub family_id: String,
+    pub dynamic_tag: String,
+    pub domain: UserTimerDomain,
+    pub fire_timestamp_ns: i64,
+    pub output_timestamp_ns: i64,
+    pub window: Option<WindowInterval>,
+    pub pane: PaneInfo,
+}
+
 /// Stable declaration of one keyed, windowed stateful function. The map keys
 /// become Beam user-state and timer-family IDs in a `ParDo` payload.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
