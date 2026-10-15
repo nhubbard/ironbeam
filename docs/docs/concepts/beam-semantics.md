@@ -33,6 +33,10 @@ This page does not assign a percentage while those tests are incomplete.
 | I/O formats | Separate CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord crates. Native Avro reader schemas resolve defaults, projections, numeric promotion, and field aliases through nested and named schemas across local files, globs, shards, and provider-neutral object URIs. Avro and Parquet accept object URIs and prefixes through a registered provider; their streaming variants spool and verify each object before decoding records incrementally. A local Prism worker rebuilds `file://` providers for both formats and reads their rows. | Expand schema evolution beyond the tested Avro cases and prove remote object providers in portable workers. |
 | External services | SQL, MongoDB, object storage, and opt-in GCP clients | Provider emulator and hosted service behavior, authentication, and streaming commit guarantees |
 
+Bounded keyed batching can also use encoded-value byte and count limits. The
+byte-limited method rejects unbounded input until a stateful streaming
+implementation exists.
+
 The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)
 records exact passing suites and remaining release constraints. The table is
 an inventory of work, not a weighted feature score.
@@ -385,5 +389,9 @@ commit decision or the sink's durable finalization record.
 | Control-owner process replacement | Pending; Prism fails active instructions when that connection disconnects. |
 
 The [portable execution guide](../guides/portable.md) describes how to run the
-local proof. The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)
+local proof. Bounded keyed batching can also use encoded-value byte and count limits. The
+byte-limited method rejects unbounded input until a stateful streaming
+implementation exists.
+
+The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)
 records the exact test corpus and unresolved gates.

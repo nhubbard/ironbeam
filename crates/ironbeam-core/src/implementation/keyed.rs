@@ -519,6 +519,52 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         )?
         .group_into_batches_named(key, batch_size)
     }
+    /// Split a bounded keyed group when either its element count or encoded
+    /// value bytes reach a limit. A single oversized value forms one batch.
+    pub fn group_into_batches_with_limits_named(
+        &self,
+        key: &str,
+        max_count: usize,
+        max_encoded_bytes: usize,
+    ) -> Result<PCollection<(K, Vec<V>)>, Error> {
+        if max_count == 0 || max_encoded_bytes == 0 {
+            return Err(Error::graph(key, "batch count and encoded byte limits must be positive"));
+        }
+        if self.parent()?.boundedness != Boundedness::Bounded {
+            return Err(Error::graph(key, "encoded byte batching currently requires a bounded input"));
+        }
+        let semantic_id = format!("ironbeam/group-into-batches/limits/{max_count}/{max_encoded_bytes}");
+        self.group_by_key_named(&format!("{key}/group"))?
+            .flat_map_registered(
+                key,
+                Some((&semantic_id, BUILTIN_OPERATION_VERSION)),
+                move |(group_key, values)| {
+                    let mut batches = Vec::new();
+                    let mut current = Vec::new();
+                    let mut bytes = 0_usize;
+                    for value in values {
+                        let encoded_len = value.encoded_len()?;
+                        if !current.is_empty()
+                            && (current.len() >= max_count
+                                || bytes.saturating_add(encoded_len) > max_encoded_bytes)
+                        {
+                            batches.push((group_key.clone(), std::mem::take(&mut current)));
+                            bytes = 0;
+                        }
+                        bytes = bytes.saturating_add(encoded_len);
+                        current.push(value);
+                        if current.len() >= max_count || bytes >= max_encoded_bytes {
+                            batches.push((group_key.clone(), std::mem::take(&mut current)));
+                            bytes = 0;
+                        }
+                    }
+                    if !current.is_empty() {
+                        batches.push((group_key, current));
+                    }
+                    Ok(batches)
+                },
+            )
+    }
     pub fn combine_per_key_and_window_named<U: Element>(
         &self,
         key: &str,

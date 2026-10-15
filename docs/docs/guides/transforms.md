@@ -106,6 +106,14 @@ retains earlier values in each pane. Apply either trigger before
 `group_by_key_named`. The accumulating form is separate from batching because
 repeating earlier batch values would duplicate application records.
 
+For bounded input, `group_into_batches_with_limits_named("batches", 2, 4096)`
+splits a key's values at two elements or 4,096 encoded value bytes, whichever
+comes first. The byte count excludes the key and Beam's window envelope. A
+single value larger than the limit forms a one-value batch. Direct and local
+Prism produce the same batch values in the tested bounded job. The method
+rejects unbounded input because byte-triggered streaming requires keyed
+state and timers that this helper does not yet provide.
+
 `co_group_homogeneous_named` groups collections whose keys and values have
 the same types. The result is a key and one value vector
 per input. The first vector belongs to the collection on which the method is

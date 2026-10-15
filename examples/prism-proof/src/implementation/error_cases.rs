@@ -137,8 +137,23 @@ pub fn bounded_batch_helpers_fixture(
                     .join("+")
             )
         })?;
+    let short_bytes = "a".to_owned().encoded_len()?;
+    let keyed_byte_rows = pipeline
+        .from_vec(
+            "batch-keyed-byte-input",
+            vec![
+                (3_i32, "a".to_owned()),
+                (3, "a".to_owned()),
+                (3, "bbbb".to_owned()),
+                (3, "a".to_owned()),
+            ],
+        )?
+        .group_into_batches_with_limits_named("batch-by-key-and-bytes", 2, short_bytes * 2)?
+        .map_named("batch-key-byte-label", |(key, values)| {
+            format!("key-bytes:{key}:{}", values.join("+"))
+        })?;
     byte_rows
-        .flatten_named("batch-merge", &[keyed_rows])?
+        .flatten_named("batch-merge", &[keyed_rows, keyed_byte_rows])?
         .sink_named_with_config(
             "batch-result",
             SinkSpec {

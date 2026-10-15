@@ -22,6 +22,20 @@ fn keyed_batches_reject_zero_and_unrepresentable_portable_sizes() {
     }
 }
 
+#[test]
+fn encoded_byte_batch_limits_change_graph_identity() {
+    let make = |max_bytes| {
+        let pipeline = Pipeline::default();
+        pipeline
+            .from_vec("source", vec![(1_i32, "a".to_owned())])
+            .unwrap()
+            .group_into_batches_with_limits_named("batches", 2, max_bytes)
+            .unwrap();
+        pipeline.snapshot().unwrap().0.fingerprint().unwrap()
+    };
+    assert_ne!(make(4), make(5));
+}
+
 struct ScriptedUnbounded {
     polls: std::collections::VecDeque<UnboundedPoll<Timestamped<i32>>>,
 }
