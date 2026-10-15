@@ -188,6 +188,14 @@ fixture. It crosses a reshuffle boundary and matches decoded values on Direct
 and pinned local Prism. This proves these three logical representations in a
 portable job, not general logical-type support or cross-SDK schema evolution.
 
+The new `RestrictionTracker` contract and `OffsetRangeTracker` implement
+strictly increasing claims, fractional dynamic splits, zero-fraction
+checkpoints, progress, and completion checks. The tracker serializes claims and
+splits through a shared lock; tests cover concurrent claims and splits,
+residual recovery, invalid fractions, and extreme offset ranges. It is not yet
+registered as an executable splittable transform on either runner, so the
+splittable-processing parity row remains open.
+
 The provider-neutral Pub/Sub extension contract now exposes acknowledgment
 IDs separately from message IDs. Its in-memory provider delivers published
 messages to each subscription, supports acknowledgment after processing, and

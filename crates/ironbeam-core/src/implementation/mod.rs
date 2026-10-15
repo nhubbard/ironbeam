@@ -10,6 +10,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 mod ordered_f64;
 pub use ordered_f64::OrdF64;
+mod restriction;
+pub use restriction::{OffsetRange, OffsetRangeTracker, RestrictionSplit, RestrictionTracker};
 
 include!("element.rs");
 include!("descriptors.rs");
