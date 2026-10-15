@@ -114,7 +114,13 @@ fn count_or_processing_time_batch_policy_validates_and_identifies_duration() {
 fn unbounded_batches_preserve_allowed_lateness_with_their_own_counts() {
     let pipeline = Pipeline::default();
     let values = pipeline
-        .test_stream_source("source", vec![ironbeam_core::TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)])])
+        .test_stream_source(
+            "source",
+            vec![ironbeam_core::TestStreamEvent::Elements(vec![(
+                (1_i32, 2_i32),
+                1_000_000,
+            )])],
+        )
         .unwrap()
         .fixed_windows("window", 10_000_000)
         .unwrap()
@@ -123,13 +129,21 @@ fn unbounded_batches_preserve_allowed_lateness_with_their_own_counts() {
         .accumulating_early_and_late_count_trigger_named("upstream", 1, 1)
         .unwrap();
     values.group_into_batches_named("batches", 2).unwrap();
-    assert!(values
-        .group_into_batches_with_max_buffering_duration_named("unsupported", 2, 5_000_000)
-        .is_err());
+    assert!(
+        values
+            .group_into_batches_with_max_buffering_duration_named("unsupported", 2, 5_000_000)
+            .is_err()
+    );
     let (graph, _) = pipeline.snapshot().unwrap();
     let batch = graph.node("batches/group").unwrap();
     assert_eq!(batch.time.allowed_lateness_ns, 5_000_000);
-    assert_eq!(batch.time.trigger, WindowTrigger::EarlyAndLateElementCount { early_count: 2, late_count: 2 });
+    assert_eq!(
+        batch.time.trigger,
+        WindowTrigger::EarlyAndLateElementCount {
+            early_count: 2,
+            late_count: 2
+        }
+    );
 }
 
 #[test]

@@ -6,7 +6,15 @@ use ironbeam_transforms::{ElementwiseExt, KeyedExt};
 fn portable_distinct_emits_one_value_per_window() {
     let pipeline = Pipeline::default();
     let output = pipeline
-        .from_vec("input", vec![("a".to_owned(), 1_000_000_i64), ("a".to_owned(), 2_000_000), ("a".to_owned(), 11_000_000), ("b".to_owned(), 12_000_000)])
+        .from_vec(
+            "input",
+            vec![
+                ("a".to_owned(), 1_000_000_i64),
+                ("a".to_owned(), 2_000_000),
+                ("a".to_owned(), 11_000_000),
+                ("b".to_owned(), 12_000_000),
+            ],
+        )
         .unwrap()
         .assign_timestamps_named("timestamps", |row| row.1)
         .unwrap()
@@ -20,13 +28,20 @@ fn portable_distinct_emits_one_value_per_window() {
         .unwrap()
         .output("result")
         .unwrap();
-    let (mut rows, _) = DirectRunner.run_collect(&output, &JobConfig::default()).unwrap();
+    let (mut rows, _) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
     rows.sort_by(|a, b| (&a.0.start_ns, &a.1).cmp(&(&b.0.start_ns, &b.1)));
-    assert_eq!(rows.into_iter().map(|(window, value)| (window.start_ns, value)).collect::<Vec<_>>(), [
-        (0, "a".to_owned()),
-        (10_000_000, "a".to_owned()),
-        (10_000_000, "b".to_owned()),
-    ]);
+    assert_eq!(
+        rows.into_iter()
+            .map(|(window, value)| (window.start_ns, value))
+            .collect::<Vec<_>>(),
+        [
+            (0, "a".to_owned()),
+            (10_000_000, "a".to_owned()),
+            (10_000_000, "b".to_owned()),
+        ]
+    );
 }
 
 #[test]

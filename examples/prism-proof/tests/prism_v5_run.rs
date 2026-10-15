@@ -31,8 +31,8 @@ use ironbeam_prism_proof::{
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
     bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
-    distinct_window_fixture, dual_count_or_time_cogroup_fixture, dual_late_cogroup_collection, dual_late_cogroup_fixture,
-    dual_late_count_cogroup_collection, dual_late_count_cogroup_fixture,
+    distinct_window_fixture, dual_count_or_time_cogroup_fixture, dual_late_cogroup_collection,
+    dual_late_cogroup_fixture, dual_late_count_cogroup_collection, dual_late_count_cogroup_fixture,
     dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
     dual_positive_late_join_time_fixture, dual_processing_time_cogroup_collection,
     dual_processing_time_cogroup_fixture, dual_stream_windowed_side_collection,
@@ -51,16 +51,17 @@ use ironbeam_prism_proof::{
     global_accumulating_early_cogroup_collection, global_accumulating_early_cogroup_fixture,
     global_count_collection, global_count_fixture, global_fold_fixture,
     global_keyed_batches_fixture, global_keyed_batches_with_upstream_trigger_fixture,
-    global_keyed_combine_collection, global_keyed_combine_fixture,
-    global_vector_fixture, group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
+    global_keyed_combine_collection, global_keyed_combine_fixture, global_vector_fixture,
+    group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
     heterogeneous_late_count_cogroup_collection, heterogeneous_late_count_cogroup_fixture,
     heterogeneous_windowed_wait_collection, heterogeneous_windowed_wait_fixture,
     homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
     invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
     late_count_fixture, late_count_join_fixture, late_count_join_kind_collection,
-    late_count_join_kind_fixture, late_distinct_window_fixture, late_keyed_batches_fixture, latest_tie_duplicate_fixture, latest_tie_empty_fixture,
-    latest_tie_fixture, mixed_boundedness_join_cogroup_fixture, mixed_flatten_collection,
-    mixed_flatten_fixture, mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
+    late_count_join_kind_fixture, late_distinct_window_fixture, late_keyed_batches_fixture,
+    latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
+    mixed_boundedness_join_cogroup_fixture, mixed_flatten_collection, mixed_flatten_fixture,
+    mixed_homogeneous_cogroup_collection, mixed_homogeneous_cogroup_fixture,
     offset_window_group_fixture, ordered_batch_duplicate_fixture, ordered_global_duplicate_fixture,
     ordered_global_fixture, ordered_keyed_duplicate_fixture, ordered_keyed_fixture,
     pane_metadata_fixture_for, pane_metadata_fixture_with_accumulating_count,
@@ -69,12 +70,13 @@ use ironbeam_prism_proof::{
     partition_fixture, portable_object_avro_collection, portable_object_avro_fixture,
     portable_object_parquet_collection, portable_object_parquet_fixture,
     processing_time_trigger_collection, processing_time_trigger_fixture,
-    production_join_cogroup_fixture, production_stream_fixture, representative_distinct_fixture, session_group_fixture,
-    shared_accumulating_early_cogroup_collection, shared_accumulating_early_cogroup_fixture,
-    shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
-    shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
-    side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
-    sliding_window_group_fixture, streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
+    production_join_cogroup_fixture, production_stream_fixture, representative_distinct_fixture,
+    session_group_fixture, shared_accumulating_early_cogroup_collection,
+    shared_accumulating_early_cogroup_fixture, shared_accumulating_late_cogroup_collection,
+    shared_accumulating_late_cogroup_fixture, shared_unbounded_homogeneous_cogroup_collection,
+    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
+    sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
+    streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
     streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
     streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
     streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
@@ -5696,9 +5698,15 @@ async fn prism_matches_direct_per_window_distinct() {
     let portable_path = directory.path().join("portable-distinct.txt");
     let direct_pipeline = Pipeline::default();
     let direct_sink = distinct_window_fixture(&direct_pipeline, direct_path.clone()).unwrap();
-    DirectRunner.run_sink(&direct_sink, &JobConfig::default()).unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
     let read_rows = |path: &Path| {
-        let mut rows = std::fs::read_to_string(path).unwrap().lines().map(str::to_owned).collect::<Vec<_>>();
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
         rows.sort();
         rows
     };
@@ -5714,8 +5722,12 @@ async fn prism_matches_direct_per_window_distinct() {
         &endpoint,
         &portable_pipeline,
         "distinct-window",
-        HashMap::from([("IRONBEAM_V5_PRISM_DISTINCT_WINDOW".into(), portable_path.to_string_lossy().into_owned())]),
-    ).await;
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_DISTINCT_WINDOW".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
     assert_eq!(terminal.0, 3, "distinct-window job state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), expected);
 }
@@ -5726,10 +5738,17 @@ async fn prism_matches_direct_representative_distinct() {
     let direct_path = directory.path().join("direct-representatives.txt");
     let portable_path = directory.path().join("portable-representatives.txt");
     let direct_pipeline = Pipeline::default();
-    let direct_sink = representative_distinct_fixture(&direct_pipeline, direct_path.clone()).unwrap();
-    DirectRunner.run_sink(&direct_sink, &JobConfig::default()).unwrap();
+    let direct_sink =
+        representative_distinct_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
     let read_rows = |path: &Path| {
-        let mut rows = std::fs::read_to_string(path).unwrap().lines().map(str::to_owned).collect::<Vec<_>>();
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
         rows.sort();
         rows
     };
@@ -5745,9 +5764,16 @@ async fn prism_matches_direct_representative_distinct() {
         &endpoint,
         &portable_pipeline,
         "representative-distinct",
-        HashMap::from([("IRONBEAM_V5_PRISM_REPRESENTATIVE_DISTINCT".into(), portable_path.to_string_lossy().into_owned())]),
-    ).await;
-    assert_eq!(terminal.0, 3, "representative distinct job state: {terminal:?}");
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_REPRESENTATIVE_DISTINCT".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "representative distinct job state: {terminal:?}"
+    );
     assert_eq!(read_rows(&portable_path), expected);
 }
 
@@ -5757,16 +5783,26 @@ async fn prism_matches_direct_triggered_per_window_distinct() {
     let direct_path = directory.path().join("direct-stream-distinct");
     let portable_path = directory.path().join("portable-stream-distinct");
     let direct_pipeline = Pipeline::default();
-    let direct_sink = streaming_distinct_window_fixture(&direct_pipeline, direct_path.clone()).unwrap();
-    DirectRunner.start_stream_sink(&direct_sink, &JobConfig::default()).unwrap().wait().unwrap();
+    let direct_sink =
+        streaming_distinct_window_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
     let read_rows = |path: &Path| {
-        let mut rows = std::fs::read_dir(path).unwrap().map(|entry| {
-            std::fs::read_to_string(entry.unwrap().path()).unwrap()
-        }).collect::<Vec<_>>();
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
         rows.sort();
         rows
     };
-    let expected = ["a:1000000:Early:0", "a:3000000:Early:1", "b:5000000:OnTime:0"];
+    let expected = [
+        "a:1000000:Early:0",
+        "a:3000000:Early:1",
+        "b:5000000:OnTime:0",
+    ];
     assert_eq!(read_rows(&direct_path), expected);
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
@@ -5778,8 +5814,12 @@ async fn prism_matches_direct_triggered_per_window_distinct() {
         &endpoint,
         &portable_pipeline,
         "stream-distinct-window",
-        HashMap::from([("IRONBEAM_V5_PRISM_STREAMING_DISTINCT_WINDOW".into(), portable_path.to_string_lossy().into_owned())]),
-    ).await;
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAMING_DISTINCT_WINDOW".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
     assert_eq!(terminal.0, 3, "streaming distinct job state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), expected);
 }
@@ -5791,11 +5831,16 @@ async fn prism_matches_direct_late_per_window_distinct() {
     let portable_path = directory.path().join("portable-late-distinct");
     let direct_pipeline = Pipeline::default();
     let direct_sink = late_distinct_window_fixture(&direct_pipeline, direct_path.clone()).unwrap();
-    DirectRunner.start_stream_sink(&direct_sink, &JobConfig::default()).unwrap().wait().unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
     let read_rows = |path: &Path| {
-        let mut rows = std::fs::read_dir(path).unwrap().map(|entry| {
-            std::fs::read_to_string(entry.unwrap().path()).unwrap()
-        }).collect::<Vec<_>>();
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
         rows.sort();
         rows
     };
@@ -5811,8 +5856,12 @@ async fn prism_matches_direct_late_per_window_distinct() {
         &endpoint,
         &portable_pipeline,
         "late-distinct-window",
-        HashMap::from([("IRONBEAM_V5_PRISM_LATE_DISTINCT_WINDOW".into(), portable_path.to_string_lossy().into_owned())]),
-    ).await;
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_LATE_DISTINCT_WINDOW".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
     assert_eq!(terminal.0, 3, "late distinct job state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), expected);
 }
@@ -7766,7 +7815,11 @@ async fn prism_emits_full_and_final_partial_unbounded_keyed_batches() {
     for (windowed, upstream_trigger, variable) in [
         (false, false, "IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES"),
         (true, false, "IRONBEAM_V5_PRISM_WINDOWED_KEYED_BATCHES"),
-        (false, true, "IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES_UPSTREAM_TRIGGER"),
+        (
+            false,
+            true,
+            "IRONBEAM_V5_PRISM_GLOBAL_KEYED_BATCHES_UPSTREAM_TRIGGER",
+        ),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("batches.txt");
@@ -7817,11 +7870,25 @@ async fn prism_flushes_late_keyed_batches_at_the_batch_count() {
         &endpoint,
         &pipeline,
         "late-keyed-batches",
-        HashMap::from([("IRONBEAM_V5_PRISM_LATE_KEYED_BATCHES".into(), path.to_string_lossy().into_owned())]),
-    ).await;
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_LATE_KEYED_BATCHES".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
     assert_eq!(terminal.0, 3, "late keyed batch job state: {terminal:?}");
-    let rows = std::fs::read_to_string(path).unwrap().lines().map(str::to_owned).collect::<Vec<_>>();
-    assert_eq!(rows, ["a:[2, 3]:Early:true:false:0:-1", "a:[4, 5]:Late:false:false:1:0"]);
+    let rows = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            "a:[2, 3]:Early:true:false:0:-1",
+            "a:[4, 5]:Late:false:false:1:0"
+        ]
+    );
 }
 
 #[tokio::test]

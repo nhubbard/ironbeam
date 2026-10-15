@@ -76,7 +76,10 @@ fn assert_batch_count_trigger(upstream_trigger: bool) {
     assert!(
         matches!(repeat.subtrigger.as_ref().and_then(|sub| sub.trigger.as_ref()), Some(trigger::Trigger::ElementCount(count)) if count.element_count == 2)
     );
-    assert_eq!(strategy.accumulation_mode, accumulation_mode::Enum::Discarding as i32);
+    assert_eq!(
+        strategy.accumulation_mode,
+        accumulation_mode::Enum::Discarding as i32
+    );
 }
 
 #[test]
@@ -709,7 +712,13 @@ fn combined_count_trigger_lowers_early_and_late_firings() {
 fn late_keyed_batches_lower_equal_discarding_early_and_late_counts() {
     let pipeline = Pipeline::default();
     pipeline
-        .test_stream_source("values", vec![TestStreamEvent::Elements(vec![(("a".to_owned(), 2_i32), 1_000_000)])])
+        .test_stream_source(
+            "values",
+            vec![TestStreamEvent::Elements(vec![(
+                ("a".to_owned(), 2_i32),
+                1_000_000,
+            )])],
+        )
         .unwrap()
         .fixed_windows("windows", 10_000_000)
         .unwrap()
@@ -725,17 +734,30 @@ fn late_keyed_batches_lower_equal_discarding_early_and_late_counts() {
     let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
     validate_beam_contract(&graph, &translated).unwrap();
     let components = translated.pipeline.components.as_ref().unwrap();
-    let pc = components.pcollections.values().find(|pc| pc.unique_name == "batches/count-trigger").unwrap();
+    let pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "batches/count-trigger")
+        .unwrap();
     let strategy = &components.windowing_strategies[&pc.windowing_strategy_id];
-    assert_eq!(strategy.accumulation_mode, accumulation_mode::Enum::Discarding as i32);
-    let Some(trigger::Trigger::AfterEndOfWindow(end)) = strategy.trigger.as_ref().and_then(|t| t.trigger.as_ref()) else {
+    assert_eq!(
+        strategy.accumulation_mode,
+        accumulation_mode::Enum::Discarding as i32
+    );
+    let Some(trigger::Trigger::AfterEndOfWindow(end)) =
+        strategy.trigger.as_ref().and_then(|t| t.trigger.as_ref())
+    else {
         panic!("expected end-of-window trigger");
     };
     for firing in [&end.early_firings, &end.late_firings] {
-        let Some(trigger::Trigger::Repeat(repeat)) = firing.as_ref().and_then(|t| t.trigger.as_ref()) else {
+        let Some(trigger::Trigger::Repeat(repeat)) =
+            firing.as_ref().and_then(|t| t.trigger.as_ref())
+        else {
             panic!("expected repeated count trigger");
         };
-        assert!(matches!(repeat.subtrigger.as_ref().and_then(|t| t.trigger.as_ref()), Some(trigger::Trigger::ElementCount(count)) if count.element_count == 2));
+        assert!(
+            matches!(repeat.subtrigger.as_ref().and_then(|t| t.trigger.as_ref()), Some(trigger::Trigger::ElementCount(count)) if count.element_count == 2)
+        );
     }
 }
 

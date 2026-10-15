@@ -43,14 +43,18 @@ async fn cancelled_state_request_releases_only_its_pending_response() {
     {
         let mut pending = client.pending.lock().unwrap();
         assert!(!pending.contains_key(&first.id));
-        pending.remove(&second.id).unwrap().send(StateResponse {
-            id: second.id,
-            error: String::new(),
-            response: Some(state_response::Response::Get(StateGetResponse {
-                continuation_token: Vec::new(),
-                data: b"retained".to_vec(),
-            })),
-        }).unwrap();
+        pending
+            .remove(&second.id)
+            .unwrap()
+            .send(StateResponse {
+                id: second.id,
+                error: String::new(),
+                response: Some(state_response::Response::Get(StateGetResponse {
+                    continuation_token: Vec::new(),
+                    data: b"retained".to_vec(),
+                })),
+            })
+            .unwrap();
     }
     assert_eq!(surviving.await.unwrap().unwrap(), b"retained");
     assert!(client.pending.lock().unwrap().is_empty());

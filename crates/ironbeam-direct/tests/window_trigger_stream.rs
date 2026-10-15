@@ -426,9 +426,15 @@ fn keyed_batches_flush_late_values_at_their_own_count() {
         .test_stream_source(
             "values",
             vec![
-                TestStreamEvent::Elements(vec![(("a".to_owned(), 2_i32), 1_000_000), (("a".to_owned(), 3), 2_000_000)]),
+                TestStreamEvent::Elements(vec![
+                    (("a".to_owned(), 2_i32), 1_000_000),
+                    (("a".to_owned(), 3), 2_000_000),
+                ]),
                 TestStreamEvent::AdvanceWatermark(10_000_000),
-                TestStreamEvent::Elements(vec![(("a".to_owned(), 4), 3_000_000), (("a".to_owned(), 5), 4_000_000)]),
+                TestStreamEvent::Elements(vec![
+                    (("a".to_owned(), 4), 3_000_000),
+                    (("a".to_owned(), 5), 4_000_000),
+                ]),
                 TestStreamEvent::AdvanceWatermark(15_000_000),
             ],
         )
@@ -443,32 +449,47 @@ fn keyed_batches_flush_late_values_at_their_own_count() {
         .unwrap()
         .reify_panes_named("pane")
         .unwrap()
-        .map_named("row", |(pane, (key, values))| format!(
-            "{key}:{values:?}:{:?}:{}:{}:{}:{}",
-            pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
-        ))
+        .map_named("row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
         .unwrap()
         .sink_named_with_config(
             "sink",
-            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
             "late-keyed-batches-v1".into(),
             {
                 let committed = Arc::clone(&committed);
                 let accepted = Arc::clone(&accepted);
-                move || Ok(Box::new(Capture {
-                    committed: Arc::clone(&committed),
-                    accepted: Arc::clone(&accepted),
-                    staged: Vec::new(),
-                    bundle: None,
-                }))
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
             },
         )
         .unwrap();
-    DirectRunner.start_stream_sink(&sink, &JobConfig::default()).unwrap().wait().unwrap();
-    assert_eq!(committed.lock().unwrap().as_slice(), [
-        "a:[2, 3]:Early:true:false:0:-1",
-        "a:[4, 5]:Late:false:false:1:0",
-    ]);
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "a:[2, 3]:Early:true:false:0:-1",
+            "a:[4, 5]:Late:false:false:1:0",
+        ]
+    );
 }
 
 #[test]
