@@ -6,6 +6,9 @@ use ironbeam_core::{StatefulParDoContract, UserStateKind};
 
 use super::StateClient;
 
+mod value_transition;
+pub use value_transition::ValueStateMutation;
+
 #[derive(Clone)]
 pub struct UserStateScope {
     transform_id: String,

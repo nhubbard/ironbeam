@@ -177,6 +177,187 @@ async fn failed_value_clear_does_not_append() {
 }
 
 #[tokio::test]
+async fn value_state_callback_reads_then_replaces_under_one_bundle_scope() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "callback-bundle",
+        "callback-transform",
+        &contract,
+        vec![3],
+        vec![7],
+    )
+    .unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        let mut prior_key = None;
+        for (index, expected) in ["get", "clear", "append"].iter().enumerate() {
+            let request = requests.recv().await.unwrap();
+            assert_eq!(request.instruction_id, "callback-bundle");
+            let key = request.state_key.unwrap();
+            let Some(state_key::Type::BagUserState(scope)) = &key.r#type else {
+                panic!("value callback used a non-bag key");
+            };
+            assert_eq!(scope.transform_id, "callback-transform");
+            assert_eq!(scope.user_state_id, "value");
+            assert_eq!(
+                (scope.window.as_slice(), scope.key.as_slice()),
+                (&[3][..], &[7][..])
+            );
+            if let Some(previous) = prior_key.replace(key) {
+                assert_eq!(previous, prior_key.as_ref().unwrap().clone());
+            }
+            let response = match (expected, request.request) {
+                (&"get", Some(state_request::Request::Get(_))) => {
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: b"prior".to_vec(),
+                    })
+                }
+                (&"clear", Some(state_request::Request::Clear(_))) => {
+                    state_response::Response::Clear(StateClearResponse {})
+                }
+                (&"append", Some(state_request::Request::Append(append))) => {
+                    assert_eq!(append.data, b"next");
+                    state_response::Response::Append(StateAppendResponse {})
+                }
+                _ => panic!("value callback sent the wrong state request at {index}"),
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    let output = access
+        .apply_value_state("value", |current| {
+            assert_eq!(current, b"prior");
+            Ok((
+                b"result".to_vec(),
+                ValueStateMutation::Set(b"next".to_vec()),
+            ))
+        })
+        .await
+        .unwrap();
+    assert_eq!(output, b"result");
+    responder.await.unwrap();
+}
+
+#[tokio::test]
+async fn value_state_callback_error_and_panic_submit_no_mutation() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access =
+        UserStateAccess::new(&client, "bundle", "transform", &contract, vec![], vec![7]).unwrap();
+    assert!(access
+        .apply_value_state("bag", |_| Ok(((), ValueStateMutation::Keep)))
+        .await
+        .is_err());
+    assert!(requests.try_recv().is_err());
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for _ in 0..2 {
+            let request = requests.recv().await.unwrap();
+            assert!(matches!(
+                request.request,
+                Some(state_request::Request::Get(_))
+            ));
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: b"unchanged".to_vec(),
+                    })),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    assert!(access
+        .apply_value_state("value", |_| -> anyhow::Result<((), ValueStateMutation)> {
+            anyhow::bail!("callback failed")
+        })
+        .await
+        .is_err());
+    assert!(access
+        .apply_value_state("value", |_| -> anyhow::Result<((), ValueStateMutation)> {
+            panic!("callback failed")
+        })
+        .await
+        .is_err());
+    responder.await.unwrap();
+}
+
+#[tokio::test]
+async fn value_state_callback_keep_and_clear_use_distinct_runner_sequences() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access =
+        UserStateAccess::new(&client, "bundle", "transform", &contract, vec![], vec![7]).unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for expected in ["get", "get", "clear"] {
+            let request = requests.recv().await.unwrap();
+            let response = match (expected, request.request) {
+                ("get", Some(state_request::Request::Get(_))) => {
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: b"value".to_vec(),
+                    })
+                }
+                ("clear", Some(state_request::Request::Clear(_))) => {
+                    state_response::Response::Clear(StateClearResponse {})
+                }
+                _ => panic!("unexpected value-state mutation request"),
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    let kept = access
+        .apply_value_state("value", |current| {
+            assert_eq!(current, b"value");
+            Ok((1, ValueStateMutation::Keep))
+        })
+        .await
+        .unwrap();
+    let cleared = access
+        .apply_value_state("value", |current| {
+            assert_eq!(current, b"value");
+            Ok((2, ValueStateMutation::Clear))
+        })
+        .await
+        .unwrap();
+    assert_eq!((kept, cleared), (1, 2));
+    responder.await.unwrap();
+}
+
+#[tokio::test]
 async fn scoped_user_state_routes_only_declared_protocol_families() {
     let (client, mut requests) = test_client();
     let contract = user_contract();
