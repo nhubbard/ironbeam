@@ -316,3 +316,69 @@ fn windowed_timer_hold_fixture(
             },
         )
 }
+
+/// Runner-owned expiration callbacks for two disjoint fixed windows.
+pub fn streaming_window_expiration_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<(i64, i32)>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "window-expiration-source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)]),
+                TestStreamEvent::AdvanceWatermark(11_000_000),
+                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 20_000_000)]),
+                TestStreamEvent::AdvanceWatermark(31_000_000),
+            ],
+        )?
+        .fixed_windows("window-expiration-assign", 10_000_000)?
+        .stateful_timer_map_with_window_expiration_named::<i32, (i64, i32)>(
+            "window-expiration-state",
+            "prism-proof/window-expiration-state",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("expiry".into(), UserTimerDomain::EventTime)]),
+            "expiry",
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+            |_, state, event| {
+                let window = event
+                    .window
+                    .ok_or_else(|| Error::incompatible("expiration has no interval"))?;
+                let timestamp = window.end_ns - 1_000_000;
+                if event.family_id != "expiry"
+                    || event.fire_timestamp_ns != timestamp
+                    || event.output_timestamp_ns != timestamp
+                {
+                    return Err(Error::incompatible("window-expiration metadata differs"));
+                }
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().map(|value| (timestamp, value)).collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )?
+        .map_named("window-expiration-unkey", |(_, value)| value)?
+        .sink_named_with_config(
+            "window-expiration-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("window-expiration-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentValueSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}

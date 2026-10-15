@@ -320,6 +320,81 @@ fn fixed_windows_keep_same_key_and_timer_tag_isolated() {
 }
 
 #[test]
+fn window_expiration_callback_sees_each_key_and_window_before_state_cleanup() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "source",
+            vec![
+                TestStreamEvent::Elements(vec![((7_i32, 3_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(9_000_000),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((7_i32, 4_i32), 11_000_000)]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .stateful_timer_map_with_window_expiration_named::<i32, i32>(
+            "timer",
+            "tests/window-expiration-callback",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("expiry".into(), UserTimerDomain::EventTime)]),
+            "expiry",
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+            |_, state, event| {
+                let window = event.window.unwrap();
+                assert_eq!(event.family_id, "expiry");
+                assert_eq!(event.fire_timestamp_ns, window.end_ns - 1_000_000);
+                assert_eq!(event.output_timestamp_ns, event.fire_timestamp_ns);
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![
+                        state.unwrap() + i32::try_from(window.start_ns / 1_000_000).unwrap(),
+                    ],
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/window-expiration-capture-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*committed.lock().unwrap(), ["7:3", "7:14"]);
+}
+
+#[test]
 fn timer_callback_panic_fails_the_job_with_transform_context() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let pipeline = Pipeline::default();

@@ -491,6 +491,38 @@ fn plans_only_a_value_cell_with_length_prefixed_bytes() {
             ..
         }
     ));
+    payload.on_window_expiration_timer_family_spec = "event".into();
+    pbd.transforms
+        .get_mut("stateful")
+        .unwrap()
+        .spec
+        .as_mut()
+        .unwrap()
+        .payload = payload.encode_to_vec();
+    assert!(matches!(
+        plan(&pbd).unwrap().steps[1],
+        Step::V5ParDo {
+            stateful_value: true,
+            ..
+        }
+    ));
+    payload.on_window_expiration_timer_family_spec = "missing".into();
+    pbd.transforms
+        .get_mut("stateful")
+        .unwrap()
+        .spec
+        .as_mut()
+        .unwrap()
+        .payload = payload.encode_to_vec();
+    assert!(matches!(plan(&pbd), Err(PlanError::BadPayload { .. })));
+    payload.on_window_expiration_timer_family_spec = "event".into();
+    pbd.transforms
+        .get_mut("stateful")
+        .unwrap()
+        .spec
+        .as_mut()
+        .unwrap()
+        .payload = payload.encode_to_vec();
     pbd.coders
         .insert("timer-coder".into(), leaf_coder(urns::CODER_BYTES));
     assert!(matches!(plan(&pbd), Err(PlanError::BadPayload { .. })));

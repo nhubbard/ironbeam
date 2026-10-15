@@ -163,7 +163,16 @@ impl TimerQueue {
                     UserTimerDomain::EventTime => event_watermark_ns,
                     UserTimerDomain::ProcessingTime => processing_time_ns,
                 };
-                (clock.is_some_and(|now| schedule.fire_timestamp_ns <= now)).then(|| TimerFiring {
+                (clock.is_some_and(|now| {
+                    if self.contract.on_window_expiration_timer.as_deref()
+                        == Some(identity.family_id.as_str())
+                    {
+                        schedule.fire_timestamp_ns < now
+                    } else {
+                        schedule.fire_timestamp_ns <= now
+                    }
+                }))
+                .then(|| TimerFiring {
                     identity: identity.clone(),
                     schedule: *schedule,
                     domain,

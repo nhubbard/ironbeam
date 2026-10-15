@@ -122,7 +122,14 @@ fn value_state_payload(
         });
     let valid = payload.state_specs.len() == 1
         && timers_valid
-        && payload.on_window_expiration_timer_family_spec.is_empty()
+        && (payload.on_window_expiration_timer_family_spec.is_empty()
+            || payload
+                .timer_family_specs
+                .get(&payload.on_window_expiration_timer_family_spec)
+                .is_some_and(|family| {
+                    time_domain::Enum::try_from(family.time_domain)
+                        == Ok(time_domain::Enum::EventTime)
+                }))
         && payload
             .state_specs
             .iter()

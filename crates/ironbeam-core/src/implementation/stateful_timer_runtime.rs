@@ -216,6 +216,9 @@ impl StatefulTimerTransform {
             };
             let family = self.contract.timers.get(&family_id)
                 .ok_or_else(|| Error::execution(&self.contract.semantic_id, "timer", "undeclared timer family"))?;
+            if self.contract.on_window_expiration_timer.as_deref() == Some(family_id.as_str()) {
+                return Err(Error::execution(&self.contract.semantic_id, "timer", "window-expiration family is runner owned"));
+            }
             let identity = TimerIdentity {
                 family_id,
                 dynamic_tag,
@@ -241,13 +244,32 @@ impl StatefulTimerTransform {
 
     fn apply_element(&self, input: Envelope) -> Result<Vec<Envelope>, Error> {
         let key = (self.key_bytes)(input.value.as_ref())?;
-        let cell = (input.assigned_window, key);
+        let cell = (input.assigned_window, key.clone());
         let mut cells = self.cells.lock()
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timed state lock poisoned"))?;
         let change = self.invoke_element(input, cells.get(&cell).map(Vec::as_slice))?;
+        let mut mutations = change.timers;
+        if let Some(family_id) = &self.contract.on_window_expiration_timer {
+            let window = cell.0.ok_or_else(|| Error::incompatible("expiration timer has no window"))?;
+            let fire_timestamp_ns = window.end_ns.checked_sub(1_000_000)
+                .ok_or_else(|| Error::incompatible("expiration timestamp underflows"))?;
+            mutations.push(TimerMutation::Set(
+                TimerIdentity {
+                    family_id: family_id.clone(),
+                    dynamic_tag: String::new(),
+                    encoded_key: key,
+                    window: Some(window),
+                },
+                TimerSchedule {
+                    fire_timestamp_ns,
+                    hold_timestamp_ns: fire_timestamp_ns,
+                    pane: PaneInfo::NO_FIRING,
+                },
+            ));
+        }
         self.timers.lock()
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timer lock poisoned"))?
-            .apply_mutations(change.timers)?;
+            .apply_mutations(mutations)?;
         match change.state {
             Some(bytes) => { cells.insert(cell, bytes); }
             None => { cells.remove(&cell); }

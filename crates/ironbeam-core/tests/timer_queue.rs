@@ -255,3 +255,24 @@ fn callback_mutations_validate_before_changing_any_timer() {
         identity("event", 2, "new")
     );
 }
+
+#[test]
+fn expiration_family_waits_until_watermark_passes_window_max_timestamp() {
+    let mut expiration_contract = contract();
+    expiration_contract.on_window_expiration_timer = Some("event".into());
+    let mut queue = TimerQueue::new(expiration_contract, false).unwrap();
+    let expiration = identity("event", 1, "");
+    let ordinary = identity("process", 2, "");
+    queue.set(expiration.clone(), schedule(9_000_000)).unwrap();
+    queue.set(ordinary.clone(), schedule(9_000_000)).unwrap();
+    assert_eq!(queue.take_ready(Some(9_000_000), None), []);
+    assert_eq!(
+        queue.take_ready(None, Some(9_000_000))[0].identity,
+        ordinary
+    );
+    assert_eq!(
+        queue.take_ready(Some(10_000_000), None)[0].identity,
+        expiration
+    );
+    assert!(queue.is_empty());
+}

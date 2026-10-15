@@ -596,3 +596,190 @@ fn poisoned_windowed_timer_cell_returns_recovery_errors() {
             .is_err()
     );
 }
+
+#[test]
+fn expiration_timer_and_value_cell_restore_together_before_window_cleanup() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)])],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .stateful_timer_map_with_window_expiration_named::<i32, i32>(
+            "expiry",
+            "tests/checkpointed-window-expiration",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("expire".into(), UserTimerDomain::EventTime)]),
+            "expire",
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+            |_, state, event| {
+                assert_eq!(event.family_id, "expire");
+                assert_eq!(event.fire_timestamp_ns, 9_000_000);
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let windowed = registry.apply_many("window", input(3)).unwrap();
+    assert!(
+        registry
+            .apply_many("expiry", windowed.into_iter().next().unwrap())
+            .unwrap()
+            .is_empty()
+    );
+    let snapshot = registry.checkpoint_stateful_value("expiry").unwrap();
+    let (_, restored) = pipeline.snapshot().unwrap();
+    restored
+        .restore_stateful_value("expiry", &snapshot)
+        .unwrap();
+    assert!(
+        restored
+            .drain_stateful_timers("expiry", Some(9_000_000), None)
+            .unwrap()
+            .is_empty()
+    );
+    let output = restored
+        .drain_stateful_timers("expiry", Some(10_000_000), None)
+        .unwrap();
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0].timestamp_ns, 9_000_000);
+    assert_eq!(
+        *output[0].value.downcast_ref::<(i32, i32)>().unwrap(),
+        (1, 3)
+    );
+    restored
+        .expire_stateful_value("expiry", Some(10_000_000))
+        .unwrap();
+    let finished: serde_json::Value =
+        serde_json::from_slice(&restored.checkpoint_stateful_value("expiry").unwrap()).unwrap();
+    assert_eq!(finished["cells"].as_array().unwrap().len(), 0);
+    assert!(
+        restored
+            .drain_stateful_timers("expiry", Some(11_000_000), None)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn expiration_registration_requires_aligned_finite_windows_and_event_family() {
+    let register = |input: &PCollection<(i32, i32)>, families, expiration_family_id, key: &str| {
+        input.stateful_timer_map_with_window_expiration_named::<i32, i32>(
+            key,
+            &format!("tests/expiration-contract/{key}"),
+            Version { major: 1, minor: 0 },
+            families,
+            expiration_family_id,
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+    };
+    let pipeline = Pipeline::default();
+    let stream = pipeline
+        .test_stream_source("source", vec![TestStreamEvent::Elements(vec![((1, 2), 0)])])
+        .unwrap();
+    let event = || BTreeMap::from([("expire".into(), UserTimerDomain::EventTime)]);
+    assert!(register(&stream, event(), "expire", "global").is_err());
+    let submillisecond = stream.fixed_windows("tiny", 500_000).unwrap();
+    assert!(register(&submillisecond, event(), "expire", "tiny-expiry").is_err());
+    let fixed = stream.fixed_windows("fixed", 10_000_000).unwrap();
+    assert!(register(&fixed, event(), "missing", "missing-expiry").is_err());
+    assert!(
+        register(
+            &fixed,
+            BTreeMap::from([("expire".into(), UserTimerDomain::ProcessingTime)]),
+            "expire",
+            "process-expiry",
+        )
+        .is_err()
+    );
+    let offset = stream
+        .fixed_windows_with_offset("offset", 10_000_000, 2_000_000)
+        .unwrap();
+    assert!(register(&offset, event(), "expire", "offset-expiry").is_ok());
+    let unaligned_offset = stream
+        .fixed_windows_with_offset("unaligned-offset", 10_000_000, 500_000)
+        .unwrap();
+    assert!(register(&unaligned_offset, event(), "expire", "bad-offset-expiry").is_err());
+    let sliding = stream
+        .sliding_windows("sliding", 10_000_000, 5_000_000, 0)
+        .unwrap();
+    assert!(register(&sliding, event(), "expire", "sliding-expiry").is_ok());
+    let unaligned_slide = stream
+        .sliding_windows("unaligned-slide", 10_000_000, 500_000, 0)
+        .unwrap();
+    assert!(register(&unaligned_slide, event(), "expire", "bad-slide-expiry").is_err());
+}
+
+#[test]
+fn user_callback_cannot_set_runner_owned_expiration_timer() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .stateful_timer_map_with_window_expiration_named::<i32, i32>(
+            "expiry",
+            "tests/reject-user-expiration-mutation",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("expire".into(), UserTimerDomain::EventTime)]),
+            "expire",
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "expire".into(),
+                        dynamic_tag: String::new(),
+                        fire_timestamp_ns: 9_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, _, _| unreachable!(),
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let before = registry.checkpoint_stateful_value("expiry").unwrap();
+    let windowed = registry.apply_many("window", input(2)).unwrap();
+    let error = registry
+        .apply_many("expiry", windowed.into_iter().next().unwrap())
+        .err()
+        .expect("runner-owned family must reject user mutations");
+    assert!(error.to_string().contains("runner owned"));
+    assert_eq!(
+        registry.checkpoint_stateful_value("expiry").unwrap(),
+        before
+    );
+}

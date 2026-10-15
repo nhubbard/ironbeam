@@ -17,6 +17,57 @@ where
         on_timer: impl Fn(&K, Option<S>, UserTimerEvent) -> Result<TimedStateResult<S, O>, Error>
             + Send + Sync + 'static,
     ) -> Result<PCollection<(K, O)>, Error> {
+        self.register_stateful_timer_map(
+            key,
+            semantic_id,
+            version,
+            families,
+            None,
+            on_element,
+            on_timer,
+        )
+    }
+
+    /// Run the timer callback once for each key when its finite window expires.
+    /// `expiration_family_id` must name a declared event-time family. The
+    /// callback receives that family ID and the window's maximum timestamp.
+    #[allow(clippy::too_many_arguments)]
+    pub fn stateful_timer_map_with_window_expiration_named<S: Element, O: Element>(
+        &self,
+        key: &str,
+        semantic_id: &str,
+        version: Version,
+        families: BTreeMap<String, UserTimerDomain>,
+        expiration_family_id: &str,
+        on_element: impl Fn(&K, V, Option<S>, ElementMetadata) -> Result<TimedStateResult<S, O>, Error>
+            + Send + Sync + 'static,
+        on_timer: impl Fn(&K, Option<S>, UserTimerEvent) -> Result<TimedStateResult<S, O>, Error>
+            + Send + Sync + 'static,
+    ) -> Result<PCollection<(K, O)>, Error> {
+        self.register_stateful_timer_map(
+            key,
+            semantic_id,
+            version,
+            families,
+            Some(expiration_family_id.to_owned()),
+            on_element,
+            on_timer,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn register_stateful_timer_map<S: Element, O: Element>(
+        &self,
+        key: &str,
+        semantic_id: &str,
+        version: Version,
+        families: BTreeMap<String, UserTimerDomain>,
+        expiration_family_id: Option<String>,
+        on_element: impl Fn(&K, V, Option<S>, ElementMetadata) -> Result<TimedStateResult<S, O>, Error>
+            + Send + Sync + 'static,
+        on_timer: impl Fn(&K, Option<S>, UserTimerEvent) -> Result<TimedStateResult<S, O>, Error>
+            + Send + Sync + 'static,
+    ) -> Result<PCollection<(K, O)>, Error> {
         Self::validate_semantic_handler(key, semantic_id, version)?;
         let parent = self.parent()?;
         if parent.boundedness != Boundedness::Unbounded
@@ -25,6 +76,26 @@ where
             || parent.time.allowed_lateness_ns != 0
         {
             return Err(Error::graph(key, "timer state requires unbounded input and default global, fixed, or sliding windows"));
+        }
+        if expiration_family_id.is_some() {
+            let aligned = match &parent.time.window {
+                Window::Fixed { size_ns } => *size_ns >= 1_000_000 && size_ns % 1_000_000 == 0,
+                Window::FixedOffset { size_ns, offset_ns } => {
+                    *size_ns >= 1_000_000
+                        && size_ns % 1_000_000 == 0
+                        && offset_ns % 1_000_000 == 0
+                }
+                Window::Sliding { size_ns, period_ns, offset_ns } => {
+                    *size_ns >= 1_000_000
+                        && size_ns % 1_000_000 == 0
+                        && period_ns % 1_000_000 == 0
+                        && offset_ns % 1_000_000 == 0
+                }
+                Window::Global | Window::Session { .. } => false,
+            };
+            if !aligned {
+                return Err(Error::graph(key, "window expiration requires millisecond-aligned finite windows"));
+            }
         }
         if families.is_empty() || !K::supports_coder() || !V::supports_coder()
             || !S::supports_coder() || !O::supports_coder()
@@ -53,7 +124,7 @@ where
             window_coder_id: if parent.time.window == Window::Global { "c_gw" } else { "c_iw" }.into(),
             states: BTreeMap::from([("value".into(), UserStateKind::Value { coder_id: "v5_lp_bytes".into() })]),
             timers,
-            on_window_expiration_timer: None,
+            on_window_expiration_timer: expiration_family_id,
         };
         contract.validate()?;
         let on_element: TimedElementCallback = Arc::new(move |payload, prior, metadata| {
