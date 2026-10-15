@@ -59,6 +59,72 @@ pub fn processing_time_trigger_fixture(
     )
 }
 
+pub fn dual_processing_time_cogroup_collection(
+    pipeline: &Pipeline,
+    accumulating: bool,
+) -> Result<PCollection<String>, Error> {
+    let make_source = |key: &str, value| {
+        let source = pipeline
+            .test_stream_source(
+                key,
+                vec![
+                    TestStreamEvent::Elements(vec![((1_i32, value), 1_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(0),
+                    TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                ],
+            )?
+            .fixed_windows(&format!("{key}-window"), 10_000_000)?;
+        if accumulating {
+            source.accumulating_processing_time_trigger_named(
+                &format!("{key}-trigger"),
+                5_000_000,
+            )
+        } else {
+            source.early_processing_time_trigger_named(&format!("{key}-trigger"), 5_000_000)
+        }
+    };
+    make_source("dual-processing-first", 2)?
+        .co_group_homogeneous_named(
+            "dual-processing-group",
+            &[make_source("dual-processing-second", 4)?],
+        )?
+        .reify_panes_named("dual-processing-pane")?
+        .map_named("dual-processing-row", |(pane, (key, values))| {
+            format!(
+                "group:{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+                pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn dual_processing_time_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_processing_time_cogroup_collection(pipeline, accumulating)?.sink_named_with_config(
+        "dual-processing-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("dual-processing-result:{}:{accumulating}", path.display()),
+        move || {
+            Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })))
+        },
+    )
+}
+
 /// Two unbounded keyed sources keep a window for a late co-group pane.
 pub fn dual_late_cogroup_collection(pipeline: &Pipeline) -> Result<PCollection<String>, Error> {
     dual_late_cogroup_collection_with_trigger(pipeline, false)

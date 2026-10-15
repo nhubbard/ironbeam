@@ -18,9 +18,10 @@ use ironbeam_prism_proof::{
     combined_count_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
     dual_late_cogroup_fixture, dual_late_count_cogroup_fixture, dual_positive_late_cogroup_fixture,
     dual_positive_late_full_join_fixture, dual_positive_late_join_time_fixture,
-    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_fixture,
-    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_fixture,
-    dual_unbounded_flatten_fixture, dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
+    dual_processing_time_cogroup_fixture, dual_stream_windowed_side_fixture,
+    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_fixture,
+    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_fixture,
+    dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_fixture, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_fixture, dual_unbounded_session_join_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
@@ -644,6 +645,14 @@ async fn main() -> anyhow::Result<()> {
             .as_deref()
             == Ok("1");
         return processing_time_trigger_fixture(pipeline, path.into(), accumulating)
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_PROCESSING_TIME") {
+        let accumulating = std::env::var("IRONBEAM_V5_PRISM_DUAL_PROCESSING_ACCUMULATING")
+            .as_deref()
+            == Ok("1");
+        return dual_processing_time_cogroup_fixture(pipeline, path.into(), accumulating)
             .map(|_| ())
             .map_err(Into::into);
     }

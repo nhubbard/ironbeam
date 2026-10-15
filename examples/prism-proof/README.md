@@ -49,6 +49,14 @@ Prism runs during characterization. Direct's single-input keyed grouping path
 emits the corresponding bounded and streaming panes and restores pane indices
 from a checkpoint.
 
+Two independent TestStream sources can feed a fixed-window homogeneous
+co-group with a processing-time early trigger. The translator interleaves
+tagged events and advances Beam's shared processing clock to the greatest
+clock reached by either source. Discarding and accumulating panes match
+Direct on the pinned Prism runner in three consecutive local runs. Each tag
+reports an initial watermark before the first timer advance; without it,
+the pinned Prism runner fails while constructing its timer bundle.
+
 A separate small job runs versioned `DynOp` partition transforms, including a
 row-type change, followed by map/filter/flat-map on Direct and the local Prism
 worker. Both reach successful completion and emit the same values, independent

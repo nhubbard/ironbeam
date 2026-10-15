@@ -869,7 +869,69 @@ fn unbounded_test_stream_lowers_with_time_and_payload_validation() {
         .unwrap()
         .output("second-out")
         .unwrap();
-    assert!(translate_v5(&timed, IMAGE, BUILD).is_err());
+    let (timed_graph, _) = timed.snapshot().unwrap();
+    let timed_translation = translate_v5(&timed, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&timed_graph, &timed_translation).unwrap();
+    assert!(timed_translation.test_stream_payloads["first"]
+        .events
+        .iter()
+        .any(|event| matches!(event.event, Some(StreamEvent::ProcessingTimeEvent(_)))));
+}
+
+#[test]
+fn tagged_test_stream_uses_the_greatest_source_processing_clock() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "first",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 0)]),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::Elements(vec![(2_i32, 1_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+            ],
+        )
+        .unwrap()
+        .output("first-output")
+        .unwrap();
+    pipeline
+        .test_stream_source(
+            "second",
+            vec![
+                TestStreamEvent::Elements(vec![(3_i32, 0)]),
+                TestStreamEvent::AdvanceProcessingTime(3_000_000),
+                TestStreamEvent::AdvanceProcessingTime(7_000_000),
+            ],
+        )
+        .unwrap()
+        .output("second-output")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let sequence = translated.test_stream_payloads["first"]
+        .events
+        .iter()
+        .map(|event| match event.event.as_ref().unwrap() {
+            StreamEvent::ElementEvent(row) => format!("{}:element", row.tag),
+            StreamEvent::WatermarkEvent(watermark) => {
+                format!("{}:watermark", watermark.tag)
+            }
+            StreamEvent::ProcessingTimeEvent(clock) => {
+                format!("processing:{}", clock.advance_duration)
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sequence,
+        [
+            "first:element",
+            "second:element",
+            "processing:5",
+            "first:element",
+            "processing:5",
+        ]
+    );
 }
 
 #[test]

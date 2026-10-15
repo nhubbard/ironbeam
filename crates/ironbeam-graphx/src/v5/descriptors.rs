@@ -289,31 +289,40 @@ fn combine_test_stream_payloads(
             reason: "tagged local TestStream sources require the same element coder".into(),
         });
     }
-    if keys.iter().any(|key| {
-        payloads[*key]
-            .events
-            .iter()
-            .any(|event| matches!(event.event, Some(Event::ProcessingTimeEvent(_))))
-    }) {
-        return Err(V5Error::Unsupported {
-            key: "test-stream".into(),
-            reason: "tagged TestStream sources cannot advance shared processing time".into(),
-        });
-    }
     let mut events = Vec::new();
+    // Beam has one processing clock for every tag in a TestStream. Direct
+    // observes the greatest clock reached by an independent source reader.
+    let mut source_time_ms = vec![0_i64; keys.len()];
+    let mut shared_time_ms = 0_i64;
     let max_events = keys
         .iter()
         .map(|key| payloads[*key].events.len())
         .max()
         .unwrap_or(0);
     for index in 0..max_events {
-        for key in &keys {
+        for (source_index, key) in keys.iter().enumerate() {
             let Some(mut event) = payloads[*key].events.get(index).cloned() else {
                 continue;
             };
             match event.event.as_mut() {
                 Some(Event::ElementEvent(element)) => element.tag.clone_from(key),
                 Some(Event::WatermarkEvent(watermark)) => watermark.tag.clone_from(key),
+                Some(Event::ProcessingTimeEvent(processing)) => {
+                    let next = source_time_ms[source_index]
+                        .checked_add(processing.advance_duration)
+                        .ok_or_else(|| V5Error::Wire("tagged TestStream clock overflow".into()))?;
+                    if processing.advance_duration <= 0 {
+                        return Err(V5Error::Wire(
+                            "tagged TestStream processing time must advance".into(),
+                        ));
+                    }
+                    source_time_ms[source_index] = next;
+                    if next <= shared_time_ms {
+                        continue;
+                    }
+                    processing.advance_duration = next - shared_time_ms;
+                    shared_time_ms = next;
+                }
                 _ => return Err(V5Error::Wire("unexpected tagged TestStream event".into())),
             }
             events.push(event);
