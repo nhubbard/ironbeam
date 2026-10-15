@@ -30,7 +30,7 @@ impl UnboundedSource<Timestamped<(i32, i32)>> for AdvancingRecoverySource {
         };
         let polled = source.poll(limit)?;
         if let UnboundedPoll::Ready(batch) = &polled {
-            self.cursor = batch.progress.checkpoint_position.clone();
+            self.cursor.clone_from(&batch.progress.checkpoint_position);
         }
         Ok(polled)
     }
@@ -103,6 +103,26 @@ struct FailOnceCapture {
     committed: Arc<Mutex<Vec<String>>>,
     attempts: Arc<AtomicUsize>,
     pending: Vec<String>,
+}
+
+struct TimerDeliverySink {
+    mode: u8,
+}
+
+impl TypedSink<String> for TimerDeliverySink {
+    fn write(&mut self, _: String) -> Result<(), Error> {
+        assert_ne!(self.mode, 0, "injected timer writer panic");
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        assert_ne!(self.mode, 1, "injected timer commit panic");
+        Ok(())
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 impl TypedSink<String> for FailOnceCapture {
@@ -262,7 +282,9 @@ fn fixed_windows_keep_same_key_and_timer_tag_isolated() {
                 let window = event.window.unwrap();
                 Ok(TimedStateResult {
                     state: None,
-                    outputs: vec![state.unwrap() + (window.start_ns / 1_000_000) as i32],
+                    outputs: vec![
+                        state.unwrap() + i32::try_from(window.start_ns / 1_000_000).unwrap(),
+                    ],
                     timers: Vec::new(),
                 })
             },
@@ -351,13 +373,12 @@ fn timer_callback_panic_fails_the_job_with_transform_context() {
             },
         )
         .unwrap();
-    let error = match DirectRunner
+    let Err(error) = DirectRunner
         .start_stream_sink(&sink, &JobConfig::default())
         .unwrap()
         .wait()
-    {
-        Ok(_) => panic!("timer callback panic succeeded"),
-        Err(error) => error,
+    else {
+        panic!("timer callback panic succeeded");
     };
     assert!(error.to_string().contains("timer callback panicked"));
     assert!(committed.lock().unwrap().is_empty());
@@ -434,6 +455,7 @@ fn processing_timer_uses_the_source_clock_and_input_hold_timestamp() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // The saved source cursor and timer state must be checked together.
 fn armed_event_timer_and_state_resume_from_one_source_checkpoint() {
     let directory = tempfile::tempdir().unwrap();
     let committed = Arc::new(Mutex::new(Vec::new()));
@@ -817,4 +839,368 @@ fn clearing_one_tag_preserves_another_and_timer_callback_can_emit_many() {
         .wait()
         .unwrap();
     assert_eq!(*committed.lock().unwrap(), ["3:10", "3:11"]);
+}
+
+#[test]
+fn timer_outputs_obey_downstream_failure_and_buffer_limits() {
+    for panic_in_map in [false, true] {
+        let committed = Arc::new(Mutex::new(Vec::new()));
+        let pipeline = Pipeline::default();
+        let sink = pipeline
+            .test_stream_source(
+                "source",
+                vec![
+                    TestStreamEvent::Elements(vec![((3_i32, 10_i32), 0)]),
+                    TestStreamEvent::AdvanceWatermark(5_000_000),
+                ],
+            )
+            .unwrap()
+            .stateful_timer_map_named::<i32, i32>(
+                "timer",
+                "tests/timer-output-failure",
+                Version { major: 1, minor: 0 },
+                BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+                |_, value, _, _| {
+                    Ok(TimedStateResult {
+                        state: Some(value),
+                        outputs: Vec::new(),
+                        timers: vec![UserTimerRequest::Set {
+                            family_id: "event".into(),
+                            dynamic_tag: "flush".into(),
+                            fire_timestamp_ns: 5_000_000,
+                            output_timestamp_ns: None,
+                        }],
+                    })
+                },
+                |_, state, _| {
+                    let value = state.unwrap();
+                    Ok(TimedStateResult {
+                        state: None,
+                        outputs: vec![value],
+                        timers: Vec::new(),
+                    })
+                },
+            )
+            .unwrap()
+            .flat_map_named("label", move |(key, value)| {
+                assert!(!panic_in_map, "injected timer output failure");
+                vec![format!("{key}:{value}"), format!("{key}:{}", value + 1)]
+            })
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "tests/timer-output-failure-capture-v1".into(),
+                {
+                    let committed = Arc::clone(&committed);
+                    move || {
+                        Ok(Box::new(Capture {
+                            committed: Arc::clone(&committed),
+                            pending: Vec::new(),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        let config = JobConfig {
+            buffer_budget_elements: if panic_in_map { 16 } else { 1 },
+            ..JobConfig::default()
+        };
+        let Err(error) = DirectRunner
+            .start_stream_sink(&sink, &config)
+            .unwrap()
+            .wait()
+        else {
+            panic!("timer output failure was accepted");
+        };
+        let expected = if panic_in_map {
+            "timer output transform panicked"
+        } else {
+            "timer output exceeds buffer budget"
+        };
+        assert!(error.to_string().contains(expected), "{error}");
+        assert!(committed.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // Each case crosses the timer callback and sink delivery boundary.
+fn timer_sink_panics_and_filtered_results_preserve_job_outcomes() {
+    for mode in 0..3_u8 {
+        let pipeline = Pipeline::default();
+        let sink = pipeline
+            .test_stream_source(
+                "source",
+                vec![
+                    TestStreamEvent::Elements(vec![((3_i32, 10_i32), 0)]),
+                    TestStreamEvent::AdvanceWatermark(5_000_000),
+                ],
+            )
+            .unwrap()
+            .stateful_timer_map_named::<i32, i32>(
+                "timer",
+                "tests/timer-sink-fault",
+                Version { major: 1, minor: 0 },
+                BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+                |_, value, _, _| {
+                    Ok(TimedStateResult {
+                        state: Some(value),
+                        outputs: Vec::new(),
+                        timers: vec![UserTimerRequest::Set {
+                            family_id: "event".into(),
+                            dynamic_tag: "flush".into(),
+                            fire_timestamp_ns: 5_000_000,
+                            output_timestamp_ns: None,
+                        }],
+                    })
+                },
+                |_, state, _| {
+                    Ok(TimedStateResult {
+                        state: None,
+                        outputs: vec![state.unwrap()],
+                        timers: Vec::new(),
+                    })
+                },
+            )
+            .unwrap()
+            .filter_named("filter", move |_| mode != 2)
+            .unwrap()
+            .map_named("label", |(key, value)| format!("{key}:{value}"))
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "tests/timer-sink-fault-v1".into(),
+                move || Ok(Box::new(TimerDeliverySink { mode })),
+            )
+            .unwrap();
+        let result = DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait();
+        match mode {
+            0 => assert!(
+                result
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("timer sink writer panicked")
+            ),
+            1 => {
+                let error = result.err().unwrap();
+                assert!(
+                    error.to_string().contains("sink commit panicked"),
+                    "{error}"
+                );
+            }
+            2 => assert!(result.is_ok()),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // A pending source must let its timer run through a separate sink commit.
+fn idle_processing_timer_reports_sink_commit_panic() {
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "idle-timer-commit-panic-source-v1".into(),
+            0,
+            move |_| {
+                Ok(Box::new(WallPendingSource {
+                    emitted: false,
+                    polls: Arc::new(AtomicUsize::new(0)),
+                }) as TypedUnboundedSourceReader<(i32, i32)>)
+            },
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/idle-timer-commit-panic",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("process".into(), UserTimerDomain::ProcessingTime)]),
+            |_, value, _, _| {
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                let fire_timestamp_ns = i64::try_from(now.as_nanos()).unwrap() + 20_000_000;
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "process".into(),
+                        dynamic_tag: "idle".into(),
+                        fire_timestamp_ns: fire_timestamp_ns - fire_timestamp_ns % 1_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![state.unwrap()],
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/idle-timer-commit-panic-v1".into(),
+            move || Ok(Box::new(TimerDeliverySink { mode: 1 })),
+        )
+        .unwrap();
+    let job = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job.handle().status() != JobStatus::Failed {
+        assert!(
+            Instant::now() < deadline,
+            "idle timer did not reach sink commit"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let Err(error) = job.wait() else {
+        panic!("panicking timer sink commit was accepted");
+    };
+    assert!(error.to_string().contains("timer sink commit panicked"));
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // The two callbacks distinguish empty delivery from excess timer state.
+fn idle_processing_timer_handles_no_output_and_state_budget() {
+    for exceed_budget in [false, true] {
+        let fired = Arc::new(AtomicUsize::new(0));
+        let pipeline = Pipeline::default();
+        let sink = pipeline
+            .unbounded_source_with_factory(
+                "source",
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                "idle-timer-state-budget-source-v1".into(),
+                0,
+                move |_| {
+                    Ok(Box::new(WallPendingSource {
+                        emitted: false,
+                        polls: Arc::new(AtomicUsize::new(0)),
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                },
+            )
+            .unwrap()
+            .stateful_timer_map_named::<i32, i32>(
+                "timer",
+                "tests/idle-timer-state-budget",
+                Version { major: 1, minor: 0 },
+                BTreeMap::from([("process".into(), UserTimerDomain::ProcessingTime)]),
+                |_, value, _, _| {
+                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                    let fire_timestamp_ns = i64::try_from(now.as_nanos()).unwrap() + 20_000_000;
+                    Ok(TimedStateResult {
+                        state: Some(value),
+                        outputs: Vec::new(),
+                        timers: vec![UserTimerRequest::Set {
+                            family_id: "process".into(),
+                            dynamic_tag: "idle".into(),
+                            fire_timestamp_ns: fire_timestamp_ns - fire_timestamp_ns % 1_000_000,
+                            output_timestamp_ns: None,
+                        }],
+                    })
+                },
+                {
+                    let fired = Arc::clone(&fired);
+                    move |_, state, event| {
+                        fired.fetch_add(1, Ordering::SeqCst);
+                        let timers = if exceed_budget {
+                            (0..100)
+                                .map(|index| UserTimerRequest::Set {
+                                    family_id: "process".into(),
+                                    dynamic_tag: format!("future-{index}"),
+                                    fire_timestamp_ns: event.fire_timestamp_ns + 10_000_000_000,
+                                    output_timestamp_ns: None,
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
+                        Ok(TimedStateResult {
+                            state,
+                            outputs: Vec::new(),
+                            timers,
+                        })
+                    }
+                },
+            )
+            .unwrap()
+            .map_named("label", |(key, value)| format!("{key}:{value}"))
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "tests/idle-timer-state-budget-sink-v1".into(),
+                move || Ok(Box::new(TimerDeliverySink { mode: 2 })),
+            )
+            .unwrap();
+        let config = JobConfig {
+            memory_budget_bytes: 5000,
+            ..JobConfig::default()
+        };
+        let job = DirectRunner.start_stream_sink(&sink, &config).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while fired.load(Ordering::SeqCst) == 0
+            || (exceed_budget && job.handle().status() != JobStatus::Failed)
+        {
+            assert!(
+                fired.load(Ordering::SeqCst) != 0 || job.handle().status() != JobStatus::Failed,
+                "idle timer failed before callback"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "idle timer did not finish callback"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        if exceed_budget {
+            let Err(error) = job.wait() else {
+                panic!("oversized timer state was accepted");
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("stream timer state exceeds memory budget")
+            );
+        } else {
+            assert_ne!(job.handle().status(), JobStatus::Failed);
+            job.cancel();
+            assert!(job.wait().is_err());
+        }
+    }
 }

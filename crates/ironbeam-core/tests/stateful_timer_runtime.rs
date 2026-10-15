@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use ironbeam_core::{
-    Element, ElementMetadata, Envelope, PaneInfo, Pipeline, TestStreamEvent, TimedStateResult,
-    TimerFiring, TimerMutation, UserTimerDomain, UserTimerRequest, Version, Window,
+    Element, ElementMetadata, Envelope, PCollection, PaneInfo, Pipeline, TestStreamEvent,
+    TimedStateResult, TimerFiring, TimerMutation, UserTimerDomain, UserTimerRequest, Version,
+    Window,
 };
 
 fn input(value: i32) -> Envelope {
@@ -16,6 +17,7 @@ fn input(value: i32) -> Envelope {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // The checkpoint and recovery assertions share one stateful pipeline.
 fn timed_state_and_timer_restore_atomically_and_fire_once() {
     let pipeline = Pipeline::default();
     pipeline
@@ -93,7 +95,7 @@ fn timed_state_and_timer_restore_atomically_and_fire_once() {
         *fired.outputs[0].value.downcast_ref::<(i32, i32)>().unwrap(),
         (1, 2)
     );
-    assert!(fired.timers.is_empty());
+    assert_eq!(fired.timers.len(), 0);
     assert_eq!(registry.checkpoint_stateful_value("timer").unwrap(), before);
     assert!(registry.apply_many("timer", input(2)).unwrap().is_empty());
     let snapshot = registry.checkpoint_stateful_value("timer").unwrap();
@@ -104,6 +106,30 @@ fn timed_state_and_timer_restore_atomically_and_fire_once() {
         restored.checkpoint_stateful_value("timer").unwrap(),
         snapshot
     );
+    for variant in 0..5 {
+        let mut corrupt: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();
+        match variant {
+            0 => corrupt["version"] = serde_json::json!(2),
+            1 => corrupt["cells"][0][0] = serde_json::json!({"start_ns": 0, "end_ns": 1}),
+            2 => corrupt["cells"][0][1] = serde_json::json!([0]),
+            3 => {
+                let duplicate = corrupt["cells"][0].clone();
+                corrupt["cells"].as_array_mut().unwrap().push(duplicate);
+            }
+            4 => corrupt["timers"] = serde_json::json!([0]),
+            _ => unreachable!(),
+        }
+        assert!(
+            restored
+                .restore_stateful_value("timer", &serde_json::to_vec(&corrupt).unwrap())
+                .is_err(),
+            "corrupt checkpoint variant {variant} was accepted"
+        );
+        assert_eq!(
+            restored.checkpoint_stateful_value("timer").unwrap(),
+            snapshot
+        );
+    }
     let mut malformed: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();
     malformed["cells"][0][2] = serde_json::json!([1]);
     assert!(
@@ -168,4 +194,305 @@ fn invalid_timer_request_does_not_change_value_cell() {
     let before = registry.checkpoint_stateful_value("timer").unwrap();
     assert!(registry.apply_many("timer", input(2)).is_err());
     assert_eq!(registry.checkpoint_stateful_value("timer").unwrap(), before);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // Valid and invalid firings use the same registered callback.
+fn registered_processing_timer_callbacks_keep_explicit_holds_and_validate_firings() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/processing-timer-callback",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("process".into(), UserTimerDomain::ProcessingTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: vec![value],
+                    timers: vec![
+                        UserTimerRequest::Clear {
+                            family_id: "process".into(),
+                            dynamic_tag: "old".into(),
+                        },
+                        UserTimerRequest::Set {
+                            family_id: "process".into(),
+                            dynamic_tag: "new".into(),
+                            fire_timestamp_ns: 5_000_000,
+                            output_timestamp_ns: Some(2_000_000),
+                        },
+                    ],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![state.unwrap()],
+                    timers: vec![UserTimerRequest::Clear {
+                        family_id: "process".into(),
+                        dynamic_tag: "new".into(),
+                    }],
+                })
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(
+        registry
+            .invoke_timed_element(
+                "timer",
+                Envelope {
+                    value: Box::new(2_i32),
+                    ..input(2)
+                },
+                None,
+            )
+            .is_err()
+    );
+    assert!(
+        registry
+            .invoke_timed_element("timer", input(2), Some(&[1]))
+            .is_err()
+    );
+    let change = registry
+        .invoke_timed_element("timer", input(2), None)
+        .unwrap();
+    assert_eq!(change.outputs.len(), 1);
+    assert_eq!(change.outputs[0].timestamp_ns, 0);
+    assert!(matches!(change.timers[0], TimerMutation::Clear(_)));
+    let TimerMutation::Set(identity, schedule) = &change.timers[1] else {
+        panic!("processing timer was not set");
+    };
+    assert_eq!(identity.dynamic_tag, "new");
+    assert_eq!(schedule.hold_timestamp_ns, 2_000_000);
+    let firing = TimerFiring {
+        identity: identity.clone(),
+        schedule: *schedule,
+        domain: UserTimerDomain::ProcessingTime,
+    };
+    assert!(
+        registry
+            .invoke_timed_firing("timer", &firing, Some(&[1]))
+            .is_err()
+    );
+    let fired = registry
+        .invoke_timed_firing("timer", &firing, change.state.as_deref())
+        .unwrap();
+    assert_eq!(fired.outputs.len(), 1);
+    assert_eq!(fired.outputs[0].timestamp_ns, 2_000_000);
+    assert!(matches!(fired.timers[0], TimerMutation::Clear(_)));
+
+    for variant in 0..3 {
+        let mut invalid = firing.clone();
+        match variant {
+            0 => invalid.identity.family_id = "undeclared".into(),
+            1 => invalid.identity.encoded_key = vec![0],
+            2 => invalid.schedule.fire_timestamp_ns = 1,
+            _ => unreachable!(),
+        }
+        assert!(
+            registry
+                .invoke_timed_firing("timer", &invalid, change.state.as_deref())
+                .is_err(),
+            "invalid firing variant {variant} was accepted"
+        );
+    }
+}
+
+#[test]
+fn windowed_timer_state_requires_window_and_expires_at_watermark() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/windowed-timer-state",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, _, _| unreachable!(),
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(
+        registry
+            .invoke_timed_element("timer", input(2), None)
+            .is_err()
+    );
+    let windowed = registry.apply_many("window", input(2)).unwrap();
+    assert_eq!(windowed.len(), 1);
+    assert!(
+        registry
+            .apply_many("timer", windowed.into_iter().next().unwrap())
+            .unwrap()
+            .is_empty()
+    );
+    let snapshot = registry.checkpoint_stateful_value("timer").unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();
+    assert_eq!(saved["cells"].as_array().unwrap().len(), 1);
+    let mut malformed = saved;
+    malformed["cells"][0][0] = serde_json::json!({"start_ns": 5, "end_ns": 5});
+    assert!(
+        registry
+            .restore_stateful_value("timer", &serde_json::to_vec(&malformed).unwrap())
+            .is_err()
+    );
+    assert_eq!(
+        registry.checkpoint_stateful_value("timer").unwrap(),
+        snapshot
+    );
+    registry.expire_stateful_value("timer", Some(0)).unwrap();
+    assert_eq!(
+        registry.checkpoint_stateful_value("timer").unwrap(),
+        snapshot
+    );
+    registry
+        .expire_stateful_value("timer", Some(10_000_000))
+        .unwrap();
+    let expired: serde_json::Value =
+        serde_json::from_slice(&registry.checkpoint_stateful_value("timer").unwrap()).unwrap();
+    assert_eq!(expired["cells"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn timer_key_coder_handles_long_and_malformed_length_prefixes() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![(
+                ("a".repeat(200), 2_i32),
+                0,
+            )])],
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/long-timer-key",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: String::new(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, _, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let change = registry
+        .invoke_timed_element(
+            "timer",
+            Envelope {
+                value: Box::new(("a".repeat(200), 2_i32)),
+                ..input(2)
+            },
+            None,
+        )
+        .unwrap();
+    let TimerMutation::Set(identity, schedule) = &change.timers[0] else {
+        panic!("long timer key was not encoded");
+    };
+    assert_ne!(identity.encoded_key[0] & 0x80, 0);
+    for invalid_key in [vec![0x80; 10], vec![2, 1], vec![0x80]] {
+        let mut invalid = identity.clone();
+        invalid.encoded_key = invalid_key;
+        assert!(
+            registry
+                .invoke_timed_firing(
+                    "timer",
+                    &TimerFiring {
+                        identity: invalid,
+                        schedule: *schedule,
+                        domain: UserTimerDomain::EventTime,
+                    },
+                    change.state.as_deref(),
+                )
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn timer_registration_rejects_unsupported_input_time_contracts() {
+    let register = |input: &PCollection<(i32, i32)>, families| {
+        input.stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/invalid-timer-time-contract",
+            Version { major: 1, minor: 0 },
+            families,
+            |_, _, _, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+            |_, _, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: Vec::new(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+    };
+    let family = || BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]);
+    let pipeline = Pipeline::default();
+    let bounded = pipeline.from_vec("bounded", vec![(1_i32, 2_i32)]).unwrap();
+    assert!(register(&bounded, family()).is_err());
+    let stream = pipeline
+        .test_stream_source("source", vec![TestStreamEvent::Elements(vec![((1, 2), 0)])])
+        .unwrap();
+    assert!(register(&stream, BTreeMap::new()).is_err());
+    let sessions = stream
+        .session_windows_named("sessions", 10_000_000)
+        .unwrap();
+    assert!(register(&sessions, family()).is_err());
+    let fixed = stream.fixed_windows("fixed", 10_000_000).unwrap();
+    let triggered = fixed.early_count_trigger_named("early", 1).unwrap();
+    assert!(register(&triggered, family()).is_err());
+    let late = fixed.allowed_lateness_named("late", 1_000_000).unwrap();
+    assert!(register(&late, family()).is_err());
 }

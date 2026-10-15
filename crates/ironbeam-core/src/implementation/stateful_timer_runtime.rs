@@ -10,10 +10,10 @@ fn encode_timer_key<K: Element>(key: &K) -> Result<Vec<u8>, Error> {
         .map_err(|_| Error::resource("timer-key", "encoded key length overflow"))?;
     let mut encoded = Vec::new();
     while length >= 0x80 {
-        encoded.push((length as u8) | 0x80);
+        encoded.push(u8::try_from(length & 0x7f).expect("seven-bit value") | 0x80);
         length >>= 7;
     }
-    encoded.push(length as u8);
+    encoded.push(u8::try_from(length).expect("final seven-bit value"));
     encoded.extend_from_slice(&bytes);
     Ok(encoded)
 }
@@ -46,9 +46,10 @@ struct TimedCallbackOutput {
     timers: Vec<UserTimerRequest>,
 }
 
-/// Encoded value-state change, produced elements, and runner-owned timer
-/// mutations from one registered callback. The runner applies them under one
-/// bundle instruction; invoking a callback does not mutate Direct's cells.
+/// The effects of one registered timed callback.
+///
+/// The runner applies the encoded state, output elements, and timer mutations
+/// under one bundle instruction. Invocation does not mutate Direct's cells.
 pub struct TimedCallbackChange {
     pub state: Option<Vec<u8>>,
     pub outputs: Vec<Envelope>,
@@ -251,14 +252,15 @@ impl StatefulTimerTransform {
             Some(bytes) => { cells.insert(cell, bytes); }
             None => { cells.remove(&cell); }
         }
+        drop(cells);
         Ok(change.outputs)
     }
 
-    fn apply_timer(&self, firing: TimerFiring) -> Result<Vec<Envelope>, Error> {
+    fn apply_timer(&self, firing: &TimerFiring) -> Result<Vec<Envelope>, Error> {
         let cell = (firing.identity.window, firing.identity.encoded_key.clone());
         let mut cells = self.cells.lock()
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timed state lock poisoned"))?;
-        let change = self.invoke_timer(&firing, cells.get(&cell).map(Vec::as_slice))?;
+        let change = self.invoke_timer(firing, cells.get(&cell).map(Vec::as_slice))?;
         self.timers.lock()
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timer lock poisoned"))?
             .apply_mutations(change.timers)?;
@@ -266,6 +268,7 @@ impl StatefulTimerTransform {
             Some(bytes) => { cells.insert(cell, bytes); }
             None => { cells.remove(&cell); }
         }
+        drop(cells);
         Ok(change.outputs)
     }
 
@@ -274,7 +277,7 @@ impl StatefulTimerTransform {
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timer lock poisoned"))?
             .take_ready(event_watermark_ns, processing_time_ns);
         firings.into_iter().try_fold(Vec::new(), |mut outputs, firing| {
-            outputs.extend(self.apply_timer(firing)?);
+            outputs.extend(self.apply_timer(&firing)?);
             Ok(outputs)
         })
     }
@@ -303,6 +306,7 @@ impl StatefulTimerTransform {
         let mut entries = cells.iter()
             .map(|((window, key), value)| (*window, key.clone(), value.clone()))
             .collect::<Vec<_>>();
+        drop(cells);
         entries.sort_by(|left, right| {
             (left.0.map(|window| (window.start_ns, window.end_ns)), &left.1)
                 .cmp(&(right.0.map(|window| (window.start_ns, window.end_ns)), &right.1))
@@ -341,6 +345,8 @@ impl StatefulTimerTransform {
             .map_err(|_| Error::recovery(&self.contract.semantic_id, "timer lock poisoned"))?;
         *cell_guard = cells;
         *timer_guard = timers;
+        drop(timer_guard);
+        drop(cell_guard);
         Ok(())
     }
 }

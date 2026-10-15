@@ -49,7 +49,7 @@ fn identity(family: &str, key: u8, tag: &str) -> TimerIdentity {
     }
 }
 
-fn schedule(fire_timestamp_ns: i64) -> TimerSchedule {
+const fn schedule(fire_timestamp_ns: i64) -> TimerSchedule {
     TimerSchedule {
         fire_timestamp_ns,
         hold_timestamp_ns: 1_000_000,
@@ -98,7 +98,7 @@ fn timers_replace_clear_and_fire_in_independent_domains() {
         queue.next_deadline(UserTimerDomain::ProcessingTime),
         Some(2_000_000)
     );
-    assert!(queue.take_ready(Some(3_000_000), None).is_empty());
+    assert_eq!(queue.take_ready(Some(3_000_000), None).len(), 0);
     let first = queue.take_ready(Some(4_000_000), None);
     assert_eq!(first.len(), 2);
     assert_eq!(first[0].identity, identity("event", 0, "z"));
@@ -217,7 +217,7 @@ fn callback_mutations_validate_before_changing_any_timer() {
         ])
         .unwrap();
     assert_eq!(queue.len(), 1);
-    assert!(queue.take_ready(Some(3_000_000), None).is_empty());
+    assert_eq!(queue.take_ready(Some(3_000_000), None).len(), 0);
     assert_eq!(
         queue.take_ready(Some(5_000_000), None)[0].identity,
         identity("event", 2, "new")
