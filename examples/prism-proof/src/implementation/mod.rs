@@ -9,6 +9,7 @@ mod row_projection;
 pub use row_projection::*;
 include!("object_avro.rs");
 include!("object_parquet.rs");
+include!("tfrecord_source.rs");
 include!("multiway_and_batches.rs");
 include!("homogeneous_cogroup.rs");
 include!("dynamic_ops.rs");

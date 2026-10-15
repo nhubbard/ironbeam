@@ -72,28 +72,28 @@ use ironbeam_prism_proof::{
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
     partition_fixture, portable_object_avro_collection, portable_object_avro_fixture,
     portable_object_parquet_collection, portable_object_parquet_fixture,
-    processing_time_trigger_collection, processing_time_trigger_fixture,
-    production_join_cogroup_fixture, production_stream_fixture, representative_distinct_fixture,
-    session_group_fixture, shared_accumulating_early_cogroup_collection,
-    shared_accumulating_early_cogroup_fixture, shared_accumulating_late_cogroup_collection,
-    shared_accumulating_late_cogroup_fixture, shared_unbounded_homogeneous_cogroup_collection,
-    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
-    sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
-    streaming_count_per_element_fixture, streaming_distinct_window_fixture,
-    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
-    streaming_partition_fixture, streaming_representative_distinct_fixture,
-    streaming_session_group_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
-    timed_keyed_batches_fixture, timed_late_keyed_batches_fixture,
-    triple_stream_windowed_wait_collection, triple_stream_windowed_wait_fixture,
-    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
-    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
-    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
-    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
-    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
-    PRODUCTION_AVRO_SCHEMA,
+    portable_tfrecord_collection, portable_tfrecord_fixture, processing_time_trigger_collection,
+    processing_time_trigger_fixture, production_join_cogroup_fixture, production_stream_fixture,
+    representative_distinct_fixture, session_group_fixture,
+    shared_accumulating_early_cogroup_collection, shared_accumulating_early_cogroup_fixture,
+    shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
+    shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
+    side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
+    sliding_window_group_fixture, streaming_count_per_element_fixture,
+    streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
+    streaming_ordered_keyed_fixture, streaming_partition_fixture,
+    streaming_representative_distinct_fixture, streaming_session_group_fixture,
+    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
+    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
+    timed_late_keyed_batches_fixture, triple_stream_windowed_wait_collection,
+    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_collection,
+    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
+    triple_unbounded_session_homogeneous_fixture, unbounded_main_bounded_wait_fixture,
+    unbounded_main_grouped_wait_fixture, validation_fail_fixture, validation_skip_fixture,
+    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -4209,6 +4209,61 @@ async fn assert_accumulating_early_cogroup_panes(global: bool) {
     let mut direct_rows_sorted = direct_rows;
     direct_rows_sorted.sort();
     assert_eq!(prism_rows, direct_rows_sorted);
+}
+
+#[tokio::test]
+async fn prism_reads_tfrecord_source_in_separate_worker() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("records.tfrecord");
+    let seed = Pipeline::default()
+        .from_vec("tfrecord-seed", vec![b"first".to_vec(), b"second".to_vec()])
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &ironbeam_io_tfrecord::tfrecord_sink(&seed, "tfrecord-seed-sink", &input).unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let direct_pipeline = Pipeline::default();
+    let direct = portable_tfrecord_collection(&direct_pipeline, &input)
+        .unwrap()
+        .output("tfrecord-direct-output")
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(direct, ["first", "second"]);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let result = directory.path().join("tfrecord-result.txt");
+    let portable = Pipeline::default();
+    portable_tfrecord_fixture(&portable, &input, result.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "tfrecord-source",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_TFRECORD_INPUT".into(),
+                input.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_TFRECORD_RESULT".into(),
+                result.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "portable TFRecord job: {terminal:?}");
+    assert_eq!(
+        std::fs::read_to_string(result)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        ["first", "second"]
+    );
 }
 
 #[tokio::test]

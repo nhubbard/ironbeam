@@ -48,6 +48,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The source key identifies the graph node; the file path identifies the data. A relative path is resolved from the program's working directory.
 
+## Reading TFRecord frames
+
+`tfrecord_streaming_source` reads frames incrementally and checks their length
+and data checksums. Each collection element is the frame's byte payload; an
+application can decode a TensorFlow `Example` or another payload format in a
+subsequent transform.
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+use ironbeam_io_tfrecord::tfrecord_streaming_source;
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let frames = tfrecord_streaming_source(&pipeline, "input", "records.tfrecord")?
+        .collect_seq()?;
+    println!("{} frames", frames.len());
+    Ok(())
+}
+```
+
+The file's content hash is part of the source configuration. A worker opening
+the source after submission rejects changed file bytes. In a portable job,
+the worker must be able to read the same path as the submitting process. A
+local Prism job has exercised this source in a separate worker process and
+matched Direct's decoded records.
+
 ## Reading Avro with a reader schema
 
 An Avro container stores its writer schema. A reader schema can select fields
