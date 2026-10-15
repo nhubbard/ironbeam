@@ -1,4 +1,6 @@
-use ironbeam_core::{Element, Envelope, PaneInfo, Pipeline, Version, Window, WindowInterval};
+use ironbeam_core::{
+    Element, Envelope, ErrorKind, PaneInfo, Pipeline, Version, Window, WindowInterval,
+};
 
 fn pipeline() -> Pipeline {
     let pipeline = Pipeline::default();
@@ -42,6 +44,12 @@ fn keyed_cells_survive_coded_snapshot_and_restore() {
     assert_eq!(apply(&first, 1), 1);
     assert_eq!(apply(&first, 1), 2);
     assert_eq!(apply(&first, 2), 1);
+    let before_expiration = first.checkpoint_stateful_value("count").unwrap();
+    first.expire_stateful_value("count", Some(100)).unwrap();
+    assert_eq!(
+        first.checkpoint_stateful_value("count").unwrap(),
+        before_expiration
+    );
     let bytes = first.checkpoint_stateful_value("count").unwrap();
     let (_, restored) = pipeline.snapshot().unwrap();
     restored.restore_stateful_value("count", &bytes).unwrap();
@@ -99,6 +107,20 @@ fn malformed_value_state_snapshots_fail_before_mutation() {
     assert!(registry.checkpoint_stateful_value("missing").is_err());
     assert!(registry.restore_stateful_value("missing", b"{}").is_err());
     assert!(registry.expire_stateful_value("missing", Some(10)).is_err());
+    let wrong_type = registry
+        .apply_many(
+            "count",
+            Envelope {
+                value: Box::new(1_i32),
+                timestamp_ns: 0,
+                window: Window::Global,
+                assigned_window: None,
+                pane: PaneInfo::NO_FIRING,
+            },
+        )
+        .err()
+        .unwrap();
+    assert_eq!(wrong_type.kind, ErrorKind::Incompatible);
 }
 
 #[test]
@@ -189,6 +211,7 @@ fn windowed_cells_expire_at_the_watermark_and_restore_independently() {
     };
     assert_eq!(apply_window(&registry, 0), 1);
     assert_eq!(apply_window(&registry, 20), 1);
+    registry.expire_stateful_value("count", None).unwrap();
     registry.expire_stateful_value("count", Some(10)).unwrap();
     let snapshot = registry.checkpoint_stateful_value("count").unwrap();
     let parsed: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();

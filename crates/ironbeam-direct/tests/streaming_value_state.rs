@@ -227,13 +227,12 @@ impl TypedSink<String> for WindowCapture {
     }
 }
 
-#[test]
-fn windowed_value_state_recovers_each_window_with_source_cursor() {
+fn run_windowed_state_recovery(sliding: bool) {
     let directory = tempfile::tempdir().unwrap();
     let opens = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
     let pipeline = Pipeline::default();
-    let sink = pipeline
+    let source = pipeline
         .unbounded_source_with_factory(
             "source",
             SourceProgress {
@@ -255,9 +254,15 @@ fn windowed_value_state_recovers_each_window_with_source_cursor() {
                 }
             },
         )
-        .unwrap()
-        .fixed_windows("window", 10_000_000)
-        .unwrap()
+        .unwrap();
+    let windowed = if sliding {
+        source
+            .sliding_windows("window", 10_000_000, 5_000_000, 0)
+            .unwrap()
+    } else {
+        source.fixed_windows("window", 10_000_000).unwrap()
+    };
+    let sink = windowed
         .stateful_value_map_named::<i32, i32>(
             "count",
             "tests/windowed-value-state",
@@ -321,11 +326,29 @@ fn windowed_value_state_recovers_each_window_with_source_cursor() {
         .wait()
         .unwrap();
     assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
-    let expected = "0:1:1 0:1:2 20000000:1:1 20000000:1:2 40000000:1:1"
+    assert_window_counts(&accepted, sliding);
+}
+
+fn assert_window_counts(accepted: &Arc<Mutex<HashSet<String>>>, sliding: bool) {
+    let expected = if sliding {
+        "-5000000:1:1 -5000000:1:2 0:1:1 0:1:2 15000000:1:1 15000000:1:2 20000000:1:1 20000000:1:2 35000000:1:1 40000000:1:1"
+    } else {
+        "0:1:1 0:1:2 20000000:1:1 20000000:1:2 40000000:1:1"
+    }
         .split_whitespace()
         .map(str::to_owned)
         .collect::<HashSet<_>>();
     assert_eq!(*accepted.lock().unwrap(), expected);
+}
+
+#[test]
+fn fixed_value_state_recovers_each_window_with_source_cursor() {
+    run_windowed_state_recovery(false);
+}
+
+#[test]
+fn sliding_value_state_recovers_each_window_with_source_cursor() {
+    run_windowed_state_recovery(true);
 }
 
 #[test]

@@ -240,6 +240,7 @@ impl V5BundleExecutor {
                                     candidate.operation,
                                     Operation::Flatten
                                         | Operation::FixedWindow
+                                        | Operation::SlidingWindow
                                         | Operation::Reshuffle
                                         | Operation::Source { .. }
                                 ) || candidate.semantic_id == "ironbeam/test-stream"

@@ -226,6 +226,27 @@ impl TypedSink<String> for IdempotentStateLabelSink {
     }
 }
 
+struct WindowedStateLabelSink(IdempotentStateLabelSink);
+
+impl TypedSink<String> for WindowedStateLabelSink {
+    fn write(&mut self, value: String) -> Result<(), Error> {
+        self.0.write(value)
+    }
+
+    fn write_with_metadata(&mut self, value: String, metadata: ElementMetadata) -> Result<(), Error> {
+        let window = metadata.assigned_window.ok_or_else(|| Error::incompatible("state result has no assigned window"))?;
+        self.0.write(format!("{}:{}:{value}", window.start_ns, window.end_ns))
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        self.0.commit()
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.0.abort()
+    }
+}
+
 /// The same keyed count with replay-safe output for a supervised worker retry.
 pub fn replay_value_state_fixture(
     pipeline: &Pipeline,
@@ -320,6 +341,45 @@ pub fn streaming_windowed_value_state_fixture(
             SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
             format!("streaming-windowed-value-state:{}", directory.display()),
             move || Ok(Box::new(IdempotentStateLabelSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
+/// One keyed cell per assigned sliding window across three unbounded batches.
+pub fn streaming_sliding_value_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "streaming-sliding-state-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 6_000_000)]),
+                TestStreamEvent::AdvanceWatermark(8_000_000),
+                TestStreamEvent::Elements(vec![((1, 13), 12_000_000)]),
+                TestStreamEvent::AdvanceWatermark(16_000_000),
+                TestStreamEvent::Elements(vec![((1, 17), 18_000_000)]),
+                TestStreamEvent::AdvanceWatermark(26_000_000),
+            ],
+        )?
+        .sliding_windows("streaming-sliding-state-window", 10_000_000, 5_000_000, 0)?
+        .stateful_value_map_named::<i32, (i32, i32)>(
+            "streaming-sliding-state-count",
+            "prism-proof/streaming-sliding-key-count-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let count = prior.unwrap_or(0) + 1;
+                Ok((Some(count), (value, count)))
+            },
+        )?
+        .map_named("streaming-sliding-state-label", |(key, (value, count))| format!("{key}:{value}:{count}"))?
+        .sink_named_with_config(
+            "streaming-sliding-state-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("streaming-sliding-value-state:{}", directory.display()),
+            move || Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                directory: sink_directory.clone(), pending: Vec::new(),
+            }))),
         )
 }
 
