@@ -146,6 +146,39 @@ fn clearing_a_value_cell_restarts_its_count() {
 }
 
 #[test]
+fn runner_owned_value_cell_callback_checks_types_and_coder_bytes() {
+    let pipeline = pipeline();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let input = |value: Box<dyn std::any::Any + Send>| Envelope {
+        value,
+        timestamp_ns: 0,
+        window: Window::Global,
+        assigned_window: None,
+        pane: PaneInfo::NO_FIRING,
+    };
+    assert!(
+        registry
+            .apply_stateful_value("missing", input(Box::new((1_i32, 1_i32))), None)
+            .is_err()
+    );
+    assert!(
+        registry
+            .apply_stateful_value("count", input(Box::new(1_i32)), None)
+            .is_err()
+    );
+    assert!(
+        registry
+            .apply_stateful_value("count", input(Box::new((1_i32, 1_i32))), Some(&[1]))
+            .is_err()
+    );
+    let (next, output) = registry
+        .apply_stateful_value("count", input(Box::new((1_i32, 1_i32))), None)
+        .unwrap();
+    assert_eq!(i32::decode(&next.unwrap()).unwrap(), 1);
+    assert_eq!(*output.value.downcast::<(i32, i32)>().unwrap(), (1, 1));
+}
+
+#[test]
 fn windowed_cells_expire_at_the_watermark_and_restore_independently() {
     let pipeline = Pipeline::default();
     pipeline
