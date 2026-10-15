@@ -52,6 +52,7 @@ use ironbeam_prism_proof::{
     global_keyed_batches_fixture, global_keyed_combine_collection, global_keyed_combine_fixture,
     global_vector_fixture, group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
     heterogeneous_late_count_cogroup_collection, heterogeneous_late_count_cogroup_fixture,
+    heterogeneous_windowed_wait_collection, heterogeneous_windowed_wait_fixture,
     homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
     invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
     late_count_fixture, late_count_join_fixture, late_count_join_kind_collection,
@@ -5127,6 +5128,97 @@ async fn prism_matches_direct_three_stream_windowed_wait_on() {
             "4000000..6000000:5000000:3",
         ]
     );
+}
+
+#[tokio::test]
+async fn prism_matches_direct_heterogeneous_windowed_wait_on() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        accepted: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.accepted.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let portable_path = directory.path().join("heterogeneous-wait.txt");
+    let direct_rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = heterogeneous_windowed_wait_collection(&direct_pipeline)
+        .unwrap()
+        .sink_named_with_config(
+            "heterogeneous-wait-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "heterogeneous-wait-direct-v1".into(),
+            {
+                let rows = Arc::clone(&direct_rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(DirectRows {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let pipeline = Pipeline::default();
+    heterogeneous_windowed_wait_fixture(&pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "stream-wait-heterogeneous-signals",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_HETEROGENEOUS_WINDOWED_WAIT".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism stream wait state: {terminal:?}");
+    let mut rows = std::fs::read_to_string(&portable_path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    rows.sort();
+    let mut direct = direct_rows.lock().unwrap().clone();
+    direct.sort();
+    assert_eq!(rows, direct);
+    assert_eq!(rows, ["0..2000000:1000000:1", "2000000..4000000:3000000:2"]);
 }
 
 #[tokio::test]

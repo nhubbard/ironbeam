@@ -184,8 +184,23 @@ It uses one keyed co-group to wait for the main input and every signal watermark
 to close the matching window. Direct and local Prism agree in a three-source
 fixed-window test, including windows without signal elements.
 
+For signals with different element types, convert each collection with
+`windowed_wait_signal_named` and pass the handles to
+`wait_on_windowed_signals_named`. This also uses one keyed co-group. A shared
+job checks a watermarked main stream against text and Boolean signals on
+Direct and local Prism.
+
 ```rust
 let ready = main.wait_on_all_windowed_named(
+    "after-windowed-imports",
+    &[users_done, orders_done],
+)?;
+```
+
+```rust
+let users_done = users.windowed_wait_signal_named("users-done")?;
+let orders_done = orders.windowed_wait_signal_named("orders-done")?;
+let ready = main.wait_on_windowed_signals_named(
     "after-windowed-imports",
     &[users_done, orders_done],
 )?;

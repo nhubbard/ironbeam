@@ -32,7 +32,21 @@ fn multimap_side_view<K: Eq + Hash, V>(values: Vec<(K, V)>) -> HashMap<K, Vec<V>
     view
 }
 
+/// A typed collection reduced to a watermark-bearing windowed signal.
+/// Its original values are discarded; its windows and source progress remain.
+#[derive(Clone)]
+pub struct WindowedWaitSignal {
+    marker: PCollection<u8>,
+}
+
 impl<T: Element> PCollection<T> {
+    /// Convert this collection into a windowed completion signal.
+    /// A distinct key is required because the signal is a graph transform.
+    pub fn windowed_wait_signal_named(&self, key: &str) -> Result<WindowedWaitSignal, Error> {
+        Ok(WindowedWaitSignal {
+            marker: self.map_named(key, |_| 0_u8)?,
+        })
+    }
     pub fn map_with_side_named<S: Element, U: Element>(
         &self,
         key: &str,
@@ -170,6 +184,20 @@ impl<T: Element> PCollection<T> {
                     .collect::<Vec<_>>()
             })?
             .timestamps_from_pairs_in_window_named(key)
+    }
+    /// Wait for matching windows from signals with different element types.
+    /// Create each handle with `windowed_wait_signal_named`. Every source
+    /// watermark must close the window before main values are released.
+    pub fn wait_on_windowed_signals_named(
+        &self,
+        key: &str,
+        signals: &[WindowedWaitSignal],
+    ) -> Result<Self, Error> {
+        let markers = signals
+            .iter()
+            .map(|signal| signal.marker.clone())
+            .collect::<Vec<_>>();
+        self.wait_on_all_windowed_named(key, &markers)
     }
     /// Materialize one side view for each closed window. The side collection
     /// may be unbounded if both source watermarks can close the window.

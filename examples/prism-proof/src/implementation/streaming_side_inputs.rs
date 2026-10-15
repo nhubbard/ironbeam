@@ -235,6 +235,58 @@ pub fn triple_stream_windowed_wait_fixture(
     )
 }
 
+/// One watermarked main stream and two differently typed bounded signals.
+pub fn heterogeneous_windowed_wait_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let main = pipeline
+        .test_stream_source(
+            "heterogeneous-wait-main",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 1_000_000), (2, 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(2_000_000),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+            ],
+        )?
+        .fixed_windows("heterogeneous-wait-main-window", 2_000_000)?;
+    let text = pipeline
+        .from_vec("heterogeneous-wait-text", vec!["ready".to_owned()])?
+        .fixed_windows("heterogeneous-wait-text-window", 2_000_000)?
+        .windowed_wait_signal_named("heterogeneous-wait-text-marker")?;
+    let flag = pipeline
+        .from_vec("heterogeneous-wait-flag", vec![true])?
+        .fixed_windows("heterogeneous-wait-flag-window", 2_000_000)?
+        .windowed_wait_signal_named("heterogeneous-wait-flag-marker")?;
+    main.wait_on_windowed_signals_named("heterogeneous-wait-barrier", &[text, flag])?
+        .reify_timestamps_named("heterogeneous-wait-time")?
+        .with_window_named("heterogeneous-wait-window")?
+        .map_named("heterogeneous-wait-row", |(window, (time, value))| {
+            format!("{}..{}:{time}:{value}", window.start_ns, window.end_ns)
+        })
+}
+
+pub fn heterogeneous_windowed_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    heterogeneous_windowed_wait_collection(pipeline)?.sink_named_with_config(
+        "heterogeneous-wait-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("heterogeneous-wait-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
+
 type KeyedStream = PCollection<(String, i32)>;
 
 fn dual_unbounded_sources(pipeline: &Pipeline) -> Result<(KeyedStream, KeyedStream), Error> {

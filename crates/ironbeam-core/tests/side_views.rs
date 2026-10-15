@@ -55,6 +55,61 @@ fn multiple_windowed_signals_have_distinct_dependencies() {
 }
 
 #[test]
+fn heterogeneous_windowed_signals_build_one_group_boundary() {
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .from_vec("main", vec![1_i32])
+        .unwrap()
+        .fixed_windows("main-window", 10)
+        .unwrap();
+    let text = pipeline
+        .from_vec("text", vec!["ready".to_owned()])
+        .unwrap()
+        .fixed_windows("text-window", 10)
+        .unwrap()
+        .windowed_wait_signal_named("text-marker")
+        .unwrap();
+    let flag = pipeline
+        .from_vec("flag", vec![true])
+        .unwrap()
+        .fixed_windows("flag-window", 10)
+        .unwrap()
+        .windowed_wait_signal_named("flag-marker")
+        .unwrap();
+    assert!(main.wait_on_windowed_signals_named("empty", &[]).is_err());
+    let foreign = Pipeline::default()
+        .from_vec("foreign", vec![false])
+        .unwrap()
+        .fixed_windows("foreign-window", 10)
+        .unwrap()
+        .windowed_wait_signal_named("foreign-marker")
+        .unwrap();
+    assert!(
+        main.wait_on_windowed_signals_named("foreign-barrier", &[foreign])
+            .is_err()
+    );
+    let mismatched = pipeline
+        .from_vec("mismatched", vec![false])
+        .unwrap()
+        .fixed_windows("mismatched-window", 20)
+        .unwrap()
+        .windowed_wait_signal_named("mismatched-marker")
+        .unwrap();
+    assert!(
+        main.wait_on_windowed_signals_named("mismatched-barrier", &[mismatched])
+            .is_err()
+    );
+    let waited = main
+        .wait_on_windowed_signals_named("barrier", &[text, flag])
+        .unwrap();
+    assert_eq!(waited.key(), "barrier");
+    let (graph, _) = pipeline.snapshot().unwrap();
+    graph.validate().unwrap();
+    assert!(graph.node("barrier/group/flatten").is_some());
+    assert!(graph.node("barrier/group/group").is_some());
+}
+
+#[test]
 fn singleton_side_view_requires_exactly_one_value() {
     let pipeline = Pipeline::default();
     let main = pipeline.from_vec("main", vec![1_i32]).unwrap();
