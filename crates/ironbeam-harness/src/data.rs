@@ -15,8 +15,8 @@
 //! - `open_timer_read(...)` routes encoded timer-family chunks independently
 //!   of element chunks, including those received before reader registration.
 //! - `write_chunk(...)` and `write_timer_chunk(...)` send element or timer
-//!   messages out, batched one-per-call. Executable timer callbacks remain
-//!   unsupported.
+//!   messages out, batched one-per-call. Declared-family callbacks can be
+//!   dispatched from these streams; pipeline ParDo wiring remains pending.
 //!
 //! A single bundle typically opens one read (DataSource) and one write
 //! (DataSink), both on the same `DataClient`. Reader registration is atomic
@@ -41,6 +41,9 @@ use tonic::transport::Channel;
 use tracing::{debug, warn};
 
 use crate::endpoints::{normalize_endpoint, worker_request};
+
+mod timer_dispatch;
+pub use timer_dispatch::TimerFamilyScope;
 
 type Key = (String, String); // (instruction_id, transform_id)
 type TimerKey = (String, String, String); // (instruction_id, transform_id, timer_family_id)

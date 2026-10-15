@@ -182,9 +182,13 @@ The harness now has a runner-scoped value-state callback primitive. It reads
 the declared cell, passes its encoded bytes to a callback, and applies Keep,
 Clear, or Set under the same bundle instruction. Fake Fn State tests verify
 Get→Clear→Append ordering and that callback errors or panics submit no
-mutation. This is not yet a pipeline execution proof: the next gate is to
-register keyed user callbacks in the logical graph, dispatch them from a
-portable ParDo, deliver timer firings, and match Direct and Prism after retry.
+mutation. A declared-family Fn Data dispatcher also reconstructs timer
+records split across arbitrary chunks, then calls a handler after the timer
+stream closes. Fake-runner tests cover two records, an undeclared family,
+and a callback error. These helpers are not yet pipeline execution proofs:
+the next gate is to register keyed user callbacks in the logical graph,
+dispatch them from a portable ParDo, connect their timer emissions and state
+scopes, and match Direct and Prism after retry.
 
 These rows are not equally weighted. A percentage computed by counting URNs
 would hide the difference between a declared state spec and a working

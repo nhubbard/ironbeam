@@ -1,6 +1,26 @@
 // Unit tests for src/data.rs.
 use super::*;
+use ironbeam_core::{StatefulParDoContract, UserTimerDomain, UserTimerFamily, Version};
+use std::collections::BTreeMap;
 use std::sync::Barrier;
+
+fn timer_contract() -> StatefulParDoContract {
+    StatefulParDoContract {
+        semantic_id: "tests/timer-callback".into(),
+        version: Version { major: 1, minor: 0 },
+        key_coder_id: "beam:coder:bytes:v1".into(),
+        window_coder_id: "beam:coder:global_window:v1".into(),
+        states: BTreeMap::new(),
+        timers: BTreeMap::from([(
+            "expiry".into(),
+            UserTimerFamily {
+                domain: UserTimerDomain::EventTime,
+                coder_id: "timer-coder".into(),
+            },
+        )]),
+        on_window_expiration_timer: None,
+    }
+}
 
 #[test]
 fn concurrent_reader_registration_keeps_the_complete_runner_chunk() {
@@ -199,6 +219,136 @@ fn outbound_timer_record_uses_beam_timer_codec_and_family_route() {
     )
     .unwrap();
     assert_eq!(used, sent.timers[0].timers.len());
+    assert_eq!(decoded, record);
+    assert!(outbound.try_recv().unwrap().timers[0].is_last);
+}
+
+#[tokio::test]
+async fn declared_timer_family_dispatches_fragmented_records_to_callbacks() {
+    let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
+    let inbound = Arc::new(Mutex::new(InboundState::default()));
+    let client = DataClient {
+        outbound_tx,
+        inbound: Arc::clone(&inbound),
+        replay: false,
+        replay_output_budget: None,
+        outbound_progress: None,
+    };
+    let records = [5_i64, 8].map(|fire| TimerRecord {
+        encoded_key: vec![1, b'k'],
+        dynamic_tag: "tag".into(),
+        encoded_windows: vec![Vec::new()],
+        clear: false,
+        fire_timestamp_millis: Some(fire),
+        hold_timestamp_millis: Some(fire),
+        pane: Some(ironbeam_core::PaneInfo::NO_FIRING),
+    });
+    let mut encoded = Vec::new();
+    for record in &records {
+        record.encode(&mut encoded).unwrap();
+    }
+    for (index, part) in encoded.chunks(3).enumerate() {
+        inbound.lock().unwrap().route_timer(ElemTimers {
+            instruction_id: "bundle".into(),
+            transform_id: "pardo".into(),
+            timer_family_id: "expiry".into(),
+            timers: part.to_vec(),
+            is_last: index == (encoded.len() - 1) / 3,
+        });
+    }
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let callback_received = Arc::clone(&received);
+    let contract = timer_contract();
+    let family = TimerFamilyScope::new(&client, &contract, "bundle", "pardo", "expiry").unwrap();
+    let count = family
+        .dispatch(
+            |bytes| Ok(crate::coders::decode_length_prefix(bytes)?.1),
+            |_| Ok(0),
+            move |record| {
+                let received = Arc::clone(&callback_received);
+                async move {
+                    received.lock().unwrap().push(record);
+                    Ok(())
+                }
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(*received.lock().unwrap(), records);
+}
+
+#[tokio::test]
+async fn timer_dispatch_rejects_undeclared_family_and_callback_failure() {
+    let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
+    let inbound = Arc::new(Mutex::new(InboundState::default()));
+    let client = DataClient {
+        outbound_tx,
+        inbound: Arc::clone(&inbound),
+        replay: false,
+        replay_output_budget: None,
+        outbound_progress: None,
+    };
+    let contract = timer_contract();
+    assert!(TimerFamilyScope::new(&client, &contract, "bundle", "pardo", "missing").is_err());
+    let mut encoded = Vec::new();
+    TimerRecord {
+        encoded_key: vec![1, b'k'],
+        dynamic_tag: String::new(),
+        encoded_windows: vec![Vec::new()],
+        clear: false,
+        fire_timestamp_millis: Some(5),
+        hold_timestamp_millis: Some(5),
+        pane: Some(ironbeam_core::PaneInfo::NO_FIRING),
+    }
+    .encode(&mut encoded)
+    .unwrap();
+    inbound.lock().unwrap().route_timer(ElemTimers {
+        instruction_id: "bundle".into(),
+        transform_id: "pardo".into(),
+        timer_family_id: "expiry".into(),
+        timers: encoded,
+        is_last: true,
+    });
+    let family = TimerFamilyScope::new(&client, &contract, "bundle", "pardo", "expiry").unwrap();
+    let error = family
+        .dispatch(
+            |bytes| Ok(crate::coders::decode_length_prefix(bytes)?.1),
+            |_| Ok(0),
+            |_| async { anyhow::bail!("callback failed") },
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("callback failed"));
+}
+
+#[test]
+fn declared_timer_scope_emits_and_closes_its_family() {
+    let (client, mut outbound) = DataClient::for_replay("bundle", "source", vec![]);
+    let contract = timer_contract();
+    let family = TimerFamilyScope::new(&client, &contract, "bundle", "pardo", "expiry").unwrap();
+    let record = TimerRecord {
+        encoded_key: vec![1, b'k'],
+        dynamic_tag: String::new(),
+        encoded_windows: vec![Vec::new()],
+        clear: false,
+        fire_timestamp_millis: Some(5),
+        hold_timestamp_millis: Some(5),
+        pane: Some(ironbeam_core::PaneInfo::NO_FIRING),
+    };
+    family.emit(&record).unwrap();
+    family.finish_output().unwrap();
+    let first = outbound.try_recv().unwrap();
+    assert_eq!(first.timers[0].instruction_id, "bundle");
+    assert_eq!(first.timers[0].transform_id, "pardo");
+    assert_eq!(first.timers[0].timer_family_id, "expiry");
+    let (decoded, used) = crate::timer_coder::decode_timer_record(
+        &first.timers[0].timers,
+        |bytes| Ok(crate::coders::decode_length_prefix(bytes)?.1),
+        |_| Ok(0),
+    )
+    .unwrap();
+    assert_eq!(used, first.timers[0].timers.len());
     assert_eq!(decoded, record);
     assert!(outbound.try_recv().unwrap().timers[0].is_last);
 }
