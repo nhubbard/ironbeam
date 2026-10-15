@@ -322,12 +322,20 @@ impl UnboundedSource<Timestamped<UserRow>> for SdfScript {
 }
 
 fn sdf_polling_pipeline(opened: Arc<std::sync::Mutex<Vec<Option<Vec<u8>>>>>) -> Pipeline {
-    sdf_polling_pipeline_with_branch(opened, false)
+    sdf_polling_pipeline_with_pending(opened, false, 12)
 }
 
 fn sdf_polling_pipeline_with_branch(
     opened: Arc<std::sync::Mutex<Vec<Option<Vec<u8>>>>>,
     branch: bool,
+) -> Pipeline {
+    sdf_polling_pipeline_with_pending(opened, branch, 12)
+}
+
+fn sdf_polling_pipeline_with_pending(
+    opened: Arc<std::sync::Mutex<Vec<Option<Vec<u8>>>>>,
+    branch: bool,
+    pending_polls: usize,
 ) -> Pipeline {
     let pipeline = Pipeline::default();
     let source = pipeline
@@ -362,7 +370,7 @@ fn sdf_polling_pipeline_with_branch(
                 });
                 let mut polls: std::collections::VecDeque<_> =
                     std::iter::repeat_with(|| UnboundedPoll::Pending)
-                        .take(12)
+                        .take(pending_polls)
                         .collect();
                 polls.push_back(ready);
                 Ok(Box::new(SdfScript(polls)) as TypedUnboundedSourceReader<UserRow>)
@@ -523,12 +531,19 @@ async fn run_sdf_process_bundle_with_branch(
                 .await
                 .unwrap();
             assert!(split.residual_roots.is_empty());
+            tokio::time::sleep(Duration::from_millis(12)).await;
             assert!(!task.is_finished(), "unsupported split must not checkpoint");
         }
         let split = runner
             .split_bundle(&ProcessBundleSplitRequest {
                 instruction_id: "bundle".into(),
-                desired_splits: HashMap::from([("input".into(), DesiredSplit::default())]),
+                desired_splits: HashMap::from([(
+                    "input".into(),
+                    DesiredSplit {
+                        estimated_input_elements: 1,
+                        ..Default::default()
+                    },
+                )]),
             })
             .await
             .unwrap();
@@ -857,7 +872,7 @@ async fn fn_data_sdf_rejects_wrong_restriction_before_opening_reader() {
 #[tokio::test]
 async fn fn_data_sdf_split_request_checkpoints_a_pending_reader() {
     let opened = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let pipeline = sdf_polling_pipeline(Arc::clone(&opened));
+    let pipeline = sdf_polling_pipeline_with_pending(Arc::clone(&opened), false, 100);
     let initial = encode_sized(&SizedSourcePair {
         pair: SourcePair {
             element: Vec::new(),
