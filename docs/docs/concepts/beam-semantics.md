@@ -46,6 +46,8 @@ The same count, timer, and late-count fixture produces matching panes on the
 Direct runner and local Prism. The portable graph carries both Beam trigger
 branches. A Direct checkpoint test resumes after the count pane, fires the
 pending timer, and then emits the late batch once from the restored cursor.
+The accumulating variant retains the window's earlier values in its timed,
+on-time, and late panes in a separate Direct fixture.
 
 The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)
 records exact passing suites and remaining release constraints. The table is

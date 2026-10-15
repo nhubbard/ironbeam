@@ -913,6 +913,87 @@ fn timed_batches_with_allowed_lateness_emit_late_count_pane() {
 }
 
 #[test]
+fn accumulating_count_or_time_and_late_count_retains_window_values() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "values",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("a".to_owned(), 2_i32), 2_000_000),
+                    (("a".to_owned(), 3), 3_000_000),
+                ]),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 4), 4_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![
+                    (("a".to_owned(), 5), 5_000_000),
+                    (("a".to_owned(), 7), 7_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .accumulating_count_or_processing_time_and_late_count_trigger_named(
+            "trigger", 2, 5_000_000, 2,
+        )
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "accumulating-timed-late-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "a:[2, 3]:Early:true:false:0:-1",
+            "a:[2, 3, 4]:Early:false:false:1:-1",
+            "a:[2, 3, 4]:OnTime:false:false:2:0",
+            "a:[2, 3, 4, 5, 7]:Late:false:false:3:1",
+        ]
+    );
+}
+
+#[test]
 fn unbounded_fixed_window_group_into_batches_flushes_partial_batch_at_watermark() {
     assert_eq!(
         run_unbounded_keyed_batches(true, false),
