@@ -584,3 +584,45 @@ child during a timer callback; the supervisor replays that timer input and
 commits each output once. A second recovery job checks the same boundary for
 fixed-window timers and their output timestamps. Other failure points and
 timer callback shapes need further tests.
+
+### Window expiration
+
+`stateful_timer_map_with_window_expiration_named` invokes the timer callback
+for each key used in a finite window when that window expires. The expiration
+family is owned by the runner; user callbacks cannot set or clear it. The
+family must be declared as event time, and fixed or sliding window boundaries
+must align to whole milliseconds.
+
+```rust
+use std::collections::BTreeMap;
+use ironbeam_core::{TimedStateResult, UserTimerDomain, Version};
+
+let expired = pairs
+    .fixed_windows("ten-second-windows", 10_000_000_000)?
+    .stateful_timer_map_with_window_expiration_named::<i64, i64>(
+        "sum-at-expiration",
+        "orders/window-sum-at-expiration",
+        Version { major: 1, minor: 0 },
+        BTreeMap::from([("expiry".to_string(), UserTimerDomain::EventTime)]),
+        "expiry",
+        |_, amount, prior, _| Ok(TimedStateResult {
+            state: Some(prior.unwrap_or(0) + amount),
+            outputs: Vec::new(),
+            timers: Vec::new(),
+        }),
+        |_, state, event| {
+            assert_eq!(event.family_id, "expiry");
+            Ok(TimedStateResult {
+                state: None,
+                outputs: state.into_iter().collect(),
+                timers: Vec::new(),
+            })
+        },
+    )?;
+```
+
+The callback can read the value cell before Direct removes the expired
+window. Its output carries the window's maximum event timestamp. A local
+Direct/Prism fixture passes for two fixed windows with separate source
+watermark advances; other interleavings and allowed lateness have not been
+proved.
