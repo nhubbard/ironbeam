@@ -127,6 +127,7 @@ impl DirectRunner {
                 | Operation::Flatten
                 | Operation::Reshuffle
                 | Operation::WaitOn
+                | Operation::WaitOnWindowed
                 | Operation::GroupByKey
                 | Operation::CoGroupByKey
                 | Operation::JoinInner

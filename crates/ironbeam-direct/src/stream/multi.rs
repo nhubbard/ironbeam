@@ -926,7 +926,11 @@ fn run_dual_side_stream(
                 .peak_batch_elements
                 .fetch_max(count, Ordering::Relaxed);
             handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
-            let old_watermark = dual_watermark(&progress);
+            let old_watermark = if route.wait_on_signal {
+                progress[0].as_ref().and_then(|signal| signal.event_time_ns)
+            } else {
+                dual_watermark(&progress)
+            };
             for input in batch.elements {
                 let common_outputs = if shared_source {
                     apply_grouped_stages(
@@ -953,6 +957,18 @@ fn run_dual_side_stream(
                         vec![(index, common_output)]
                     };
                     for (branch, input) in branch_inputs {
+                        if route.wait_on_signal && branch == 1 {
+                            // The signal's values carry no barrier data. Its
+                            // watermark alone decides readiness.
+                            apply_grouped_stages(
+                                registry,
+                                &stages[1][if shared_source { shared_prefix_len } else { 0 }..],
+                                input,
+                                config,
+                                handle,
+                            )?;
+                            continue;
+                        }
                         let windows = if branch == 0 {
                             &mut main_windows
                         } else {
@@ -996,7 +1012,28 @@ fn run_dual_side_stream(
                 .checked_add(1)
                 .ok_or_else(|| Error::resource("checkpoint", "dual stream sequence exhausted"))?;
             let combined = multi_progress(sequence, &progress);
-            let (closing, dropped) = if lateness_ns > 0 {
+            let (closing, dropped) = if route.wait_on_signal {
+                let signal_watermark = progress[1].as_ref().and_then(|signal| {
+                    signal
+                        .completed
+                        .then_some(i64::MAX)
+                        .or(signal.event_time_ns)
+                });
+                let firings = main_windows
+                    .keys()
+                    .copied()
+                    .filter(|(_, end)| signal_watermark.is_some_and(|watermark| *end <= watermark))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .map(|window| DualFiring {
+                        main: main_windows.remove(&window).unwrap_or_default(),
+                        side: Vec::new(),
+                        pane: None,
+                        retained: false,
+                    })
+                    .collect();
+                (firings, 0)
+            } else if lateness_ns > 0 {
                 let drained = dual_late::drain_ready(
                     registry,
                     route,

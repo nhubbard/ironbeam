@@ -284,8 +284,12 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
                 reject_unsupported_state_and_timers(id, &pardo)?;
                 let input_pc = if t.inputs.len() == 2 {
                     if pardo.side_inputs.len() != 1
-                        || pardo.side_inputs.get("side")
-                            != Some(&ironbeam_graphx::v5::side_input_spec())
+                        || !matches!(
+                            pardo.side_inputs.get("side"),
+                            Some(spec)
+                                if spec == &ironbeam_graphx::v5::side_input_spec()
+                                    || spec == &ironbeam_graphx::v5::windowed_wait_side_input_spec()
+                        )
                     {
                         return Err(PlanError::BadPayload {
                             id: id.to_string(),

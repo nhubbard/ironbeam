@@ -516,6 +516,7 @@ pub enum Operation {
     Flatten,
     Reshuffle,
     WaitOn,
+    WaitOnWindowed,
     GroupByKey,
     CoGroupByKey,
     JoinInner,

@@ -158,7 +158,7 @@ impl V5BundleExecutor {
                     } else if output_pc != &collection_id(&node.key) {
                         bail!("v5 node {} output differs from worker graph", node.key);
                     }
-                    if matches!(node.operation, Operation::SideInputMap | Operation::WaitOn) {
+                    if matches!(node.operation, Operation::SideInputMap | Operation::WaitOn | Operation::WaitOnWindowed) {
                         let side = node.additional_inputs.first().ok_or_else(|| {
                             anyhow!("v5 side input {} has no graph edge", node.key)
                         })?;
@@ -168,7 +168,8 @@ impl V5BundleExecutor {
                                 != Some(&if self
                                     .graph
                                     .node(&side.key)
-                                    .is_some_and(|side| side.time.window == Window::Global)
+                                .is_some_and(|side| side.time.window == Window::Global)
+                                || matches!(node.operation, Operation::WaitOnWindowed)
                                 {
                                     collection_id(&side.key)
                                 } else {
@@ -267,6 +268,7 @@ impl V5BundleExecutor {
                             | Operation::GlobalCombine
                             | Operation::SideInputMap
                             | Operation::WaitOn
+                            | Operation::WaitOnWindowed
                             | Operation::Sink { .. }
                     ) {
                         bail!("v5 Fn API executor does not support node {}", node.key);

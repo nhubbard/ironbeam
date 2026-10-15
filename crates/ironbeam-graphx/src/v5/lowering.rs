@@ -25,7 +25,7 @@ fn beam_inputs(graph: &Graph, node: &Node, impulse_pc: &str) -> HashMap<String, 
         Operation::FoldPerKey | Operation::FoldGlobal | Operation::GlobalCombine
     ) {
         HashMap::from([("in".into(), fold_group_collection_id(&node.key))])
-    } else if matches!(node.operation, Operation::SideInputMap | Operation::WaitOn) {
+    } else if matches!(node.operation, Operation::SideInputMap | Operation::WaitOn | Operation::WaitOnWindowed) {
         HashMap::from([
             ("in".into(), primary),
             (
@@ -571,9 +571,16 @@ fn lower(
                 }),
                 side_inputs: if matches!(
                     node.operation,
-                    Operation::SideInputMap | Operation::WaitOn
+                    Operation::SideInputMap | Operation::WaitOn | Operation::WaitOnWindowed
                 ) {
-                    HashMap::from([(SIDE_INPUT_LOCAL_ID.into(), side_input_spec())])
+                    HashMap::from([(
+                        SIDE_INPUT_LOCAL_ID.into(),
+                        if matches!(node.operation, Operation::WaitOnWindowed) {
+                            windowed_wait_side_input_spec()
+                        } else {
+                            side_input_spec()
+                        },
+                    )])
                 } else {
                     HashMap::new()
                 },

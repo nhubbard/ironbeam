@@ -532,6 +532,7 @@ pub(crate) fn eval(
         | Operation::JoinRight
         | Operation::JoinFull
         | Operation::SideInputMap
+        | Operation::WaitOnWindowed
         | Operation::GlobalCombine
         | Operation::BatchMapValues { .. } => {
             let mut inputs = vec![first];

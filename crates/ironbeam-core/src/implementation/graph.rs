@@ -149,6 +149,7 @@ impl Graph {
             let requires_additional = matches!(
                 node.operation,
                 Operation::WaitOn
+                    | Operation::WaitOnWindowed
                     | Operation::CoGroupByKey
                     | Operation::JoinInner
                     | Operation::JoinLeft
@@ -173,6 +174,7 @@ impl Graph {
                     | Operation::JoinRight
                     | Operation::JoinFull
                     | Operation::WaitOn
+                    | Operation::WaitOnWindowed
                     | Operation::SideInputMap
             ) && node.additional_inputs.len() != 1
             {
@@ -217,6 +219,7 @@ impl Graph {
                             | Operation::Flatten
                             | Operation::Reshuffle
                             | Operation::WaitOn
+                            | Operation::WaitOnWindowed
                             | Operation::FixedWindow
                             | Operation::SlidingWindow
                             | Operation::SessionWindow
@@ -238,6 +241,7 @@ impl Graph {
                             | Operation::JoinRight
                             | Operation::JoinFull
                             | Operation::WaitOn
+                            | Operation::WaitOnWindowed
                             | Operation::SideInputMap
                     ) && node.boundedness != upstream.boundedness
                     {
@@ -252,6 +256,7 @@ impl Graph {
                             | Operation::Flatten
                             | Operation::Reshuffle
                             | Operation::WaitOn
+                            | Operation::WaitOnWindowed
                             | Operation::GroupByKey
                             | Operation::CoGroupByKey
                             | Operation::JoinInner
@@ -309,6 +314,7 @@ impl Graph {
                         node.operation,
                         Operation::Flatten
                             | Operation::WaitOn
+                            | Operation::WaitOnWindowed
                             | Operation::CoGroupByKey
                             | Operation::JoinInner
                             | Operation::JoinLeft
@@ -352,7 +358,7 @@ impl Graph {
                             }
                             unbounded |= other.boundedness == Boundedness::Unbounded;
                         }
-                        let expected = if matches!(node.operation, Operation::WaitOn) {
+                        let expected = if matches!(node.operation, Operation::WaitOn | Operation::WaitOnWindowed) {
                             upstream.boundedness
                         } else if unbounded {
                             Boundedness::Unbounded
@@ -393,6 +399,25 @@ impl Graph {
                             })
                         {
                             return Err(Error::graph(&node.key, "wait signal must be bounded"));
+                        }
+                        if matches!(node.operation, Operation::WaitOnWindowed)
+                            && (upstream.boundedness != Boundedness::Unbounded
+                                || node.additional_inputs.iter().any(|edge| {
+                                    by_key[edge.key.as_str()].boundedness != Boundedness::Unbounded
+                                })
+                                || !matches!(
+                                    node.time.window,
+                                    Window::Fixed { .. }
+                                        | Window::FixedOffset { .. }
+                                        | Window::Sliding { .. }
+                                )
+                                || node.time.trigger != WindowTrigger::Default
+                                || node.time.allowed_lateness_ns != 0)
+                        {
+                            return Err(Error::graph(
+                                &node.key,
+                                "windowed wait requires default unbounded fixed/sliding inputs",
+                            ));
                         }
                     }
                 }
@@ -450,7 +475,7 @@ impl Graph {
                 }
                 Operation::Flatten if !capabilities.flatten => Some("flatten".to_string()),
                 Operation::Reshuffle if !capabilities.reshuffle => Some("reshuffle".to_string()),
-                Operation::WaitOn if !capabilities.wait_on => Some("wait-on".to_string()),
+                Operation::WaitOn | Operation::WaitOnWindowed if !capabilities.wait_on => Some("wait-on".to_string()),
                 Operation::GroupByKey if !capabilities.group_by_key => {
                     Some("group-by-key".to_string())
                 }

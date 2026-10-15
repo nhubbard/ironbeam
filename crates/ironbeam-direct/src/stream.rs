@@ -43,6 +43,7 @@ struct GroupedStreamRoute {
 }
 
 struct BoundedSideStreamRoute {
+    wait_on_signal: bool,
     window: Window,
     source_key: String,
     main_stages: Vec<String>,
@@ -514,6 +515,7 @@ fn side_stream_route(
                     | Operation::JoinLeft
                     | Operation::JoinRight
                     | Operation::JoinFull
+                    | Operation::WaitOnWindowed
             )
         {
             let [side] = node.additional_inputs.as_slice() else {
@@ -536,6 +538,7 @@ fn side_stream_route(
             }
             downstream.reverse();
             return Some(BoundedSideStreamRoute {
+                wait_on_signal: matches!(node.operation, Operation::WaitOnWindowed),
                 window: node.time.window.clone(),
                 source_key,
                 main_stages,

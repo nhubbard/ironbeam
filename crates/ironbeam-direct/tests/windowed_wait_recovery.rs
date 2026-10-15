@@ -30,6 +30,242 @@ struct Capture {
     staged: Vec<String>,
 }
 
+#[test]
+fn one_windowed_signal_releases_main_before_main_watermark() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "main",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "main-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![UnboundedPoll::Ready(UnboundedBatch {
+                        elements: vec![Timestamped {
+                            value: 7,
+                            timestamp_ns: 1_000_000,
+                        }],
+                        progress: ProgressSignal {
+                            source_key: "main".into(),
+                            split_id: "main-split".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(1_000_000),
+                            completed: false,
+                        },
+                    })]
+                    .into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .fixed_windows("main-window", 10_000_000)
+        .unwrap();
+    let signal = pipeline
+        .unbounded_source_with_factory(
+            "signal",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "signal-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![UnboundedPoll::Ready(UnboundedBatch {
+                        elements: Vec::new(),
+                        progress: ProgressSignal {
+                            source_key: "signal".into(),
+                            split_id: "signal-split".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(10_000_000),
+                            completed: false,
+                        },
+                    })]
+                    .into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .fixed_windows("signal-window", 10_000_000)
+        .unwrap();
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
+    let sink = main
+        .wait_on_windowed_named("barrier", &signal)
+        .unwrap()
+        .map_named("format", |value| value.to_string())
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "early-windowed-wait-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let job = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while committed.lock().unwrap().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(*committed.lock().unwrap(), ["7".to_owned()]);
+    assert_eq!(job.progress().unwrap().event_time_ns, Some(1_000_000));
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+}
+
+#[test]
+fn early_windowed_wait_releases_after_checkpoint_recovery() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let signal_ready = Arc::new(AtomicBool::new(false));
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "main",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "checkpoint-main-v1".into(),
+            0,
+            |cursor| {
+                let polls = if cursor.is_none() {
+                    vec![UnboundedPoll::Ready(UnboundedBatch {
+                        elements: vec![Timestamped {
+                            value: 7_i32,
+                            timestamp_ns: 1_000_000,
+                        }],
+                        progress: ProgressSignal {
+                            source_key: "main".into(),
+                            split_id: "main-split".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(1_000_000),
+                            completed: false,
+                        },
+                    })]
+                } else {
+                    assert_eq!(cursor, Some(vec![1]));
+                    Vec::new()
+                };
+                Ok(Box::new(Script {
+                    polls: polls.into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .fixed_windows("main-window", 10_000_000)
+        .unwrap();
+    let ready = Arc::clone(&signal_ready);
+    let signal = pipeline
+        .unbounded_source_with_factory(
+            "signal",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "checkpoint-signal-v1".into(),
+            0,
+            move |cursor| {
+                assert!(cursor.is_none());
+                let polls = if ready.load(Ordering::SeqCst) {
+                    vec![UnboundedPoll::Ready(UnboundedBatch {
+                        elements: Vec::new(),
+                        progress: ProgressSignal {
+                            source_key: "signal".into(),
+                            split_id: "signal-split".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(10_000_000),
+                            completed: true,
+                        },
+                    })]
+                } else {
+                    Vec::new()
+                };
+                Ok(Box::new(Script {
+                    polls: polls.into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .fixed_windows("signal-window", 10_000_000)
+        .unwrap();
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
+    let sink = main
+        .wait_on_windowed_named("barrier", &signal)
+        .unwrap()
+        .map_named("format", |value| value.to_string())
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "checkpoint-early-wait-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            binary_build_id: "checkpoint-early-wait-build".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let first = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while first.progress().is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(first.progress().is_some());
+    assert!(committed.lock().unwrap().is_empty());
+    first.cancel();
+    assert_eq!(first.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    signal_ready.store(true, Ordering::SeqCst);
+    let resumed = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while committed.lock().unwrap().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(*committed.lock().unwrap(), ["7".to_owned()]);
+    resumed.cancel();
+    assert_eq!(resumed.wait().err().unwrap().kind, ErrorKind::Cancelled);
+}
+
 impl TypedSink<String> for Capture {
     fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
         self.bundle = Some(id.to_owned());

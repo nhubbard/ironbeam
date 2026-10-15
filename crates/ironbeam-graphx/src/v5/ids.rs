@@ -66,6 +66,7 @@ pub fn portable_order(graph: &Graph) -> Result<Vec<String>, V5Error> {
                     | Operation::JoinFull
                     | Operation::SideInputMap
                     | Operation::WaitOn
+                    | Operation::WaitOnWindowed
             )
         {
             return Err(V5Error::Unsupported {
@@ -97,6 +98,7 @@ pub fn portable_order(graph: &Graph) -> Result<Vec<String>, V5Error> {
             | Operation::Reshuffle
             | Operation::SideInputMap
             | Operation::WaitOn
+            | Operation::WaitOnWindowed
             | Operation::Output
             | Operation::Sink { .. } => {
                 let parent = node

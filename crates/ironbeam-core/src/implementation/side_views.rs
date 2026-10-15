@@ -124,15 +124,53 @@ impl<T: Element> PCollection<T> {
             move |value, values: &Vec<S>| Ok(f(value, values)),
         )
     }
-    /// Release each main value after its matching window closes on both inputs.
-    /// The signal may be unbounded; its values are ignored. This barrier uses
-    /// a co-group and therefore waits for the main watermark as well as the
-    /// signal watermark. It does not provide early per-window release.
+    /// Release main values when their signal window closes. Signal values are
+    /// ignored. Default, zero-lateness fixed and sliding windows with two
+    /// unbounded inputs use a distinct barrier operation, so the main
+    /// watermark need not close the window first.
     pub fn wait_on_windowed_named<S: Element>(
         &self,
         key: &str,
         signal: &PCollection<S>,
     ) -> Result<Self, Error> {
+        if !Arc::ptr_eq(&self.pipeline.inner, &signal.pipeline.inner) {
+            return Err(Error::graph(key, "wait inputs belong to different pipelines"));
+        }
+        let main = self.parent()?;
+        let other = signal.parent()?;
+        if main.time != other.time {
+            return Err(Error::graph(key, "signal time/window declaration mismatch"));
+        }
+        if main.boundedness == Boundedness::Unbounded
+            && other.boundedness == Boundedness::Unbounded
+            && matches!(main.time.window, Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. })
+            && main.time.trigger == WindowTrigger::Default
+            && main.time.allowed_lateness_ns == 0
+        {
+            let key_owned = key.to_owned();
+            let aggregate: Aggregate = Arc::new(move |mut inputs| {
+                if inputs.len() != 2 {
+                    return Err(Error::execution(&key_owned, "direct", "windowed wait requires two inputs"));
+                }
+                Ok(inputs.remove(0))
+            });
+            return self.next_aggregate(
+                key,
+                Operation::WaitOnWindowed,
+                vec![InputEdge {
+                    key: signal.key.clone(),
+                    element: ElementDescriptor {
+                        type_id: S::type_identity(),
+                        coder_id: S::coder_identity(),
+                        coder_payload: S::coder_payload(),
+                        coder_version: S::CODER_VERSION,
+                    },
+                }],
+                main.boundedness,
+                aggregate,
+                None,
+            );
+        }
         self.map_with_windowed_side_named(key, signal, |value, _| value)
     }
     /// Release each main window after it and every matching signal window close.

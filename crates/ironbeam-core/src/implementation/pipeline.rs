@@ -70,6 +70,9 @@ impl Pipeline {
             Operation::Flatten => ("ironbeam/flatten".into(), BUILTIN_OPERATION_VERSION),
             Operation::Reshuffle => ("ironbeam/reshuffle".into(), BUILTIN_OPERATION_VERSION),
             Operation::WaitOn => ("ironbeam/wait-on".into(), BUILTIN_OPERATION_VERSION),
+            Operation::WaitOnWindowed => {
+                ("ironbeam/wait-on-windowed".into(), BUILTIN_OPERATION_VERSION)
+            }
             Operation::GroupByKey => ("ironbeam/group-by-key".into(), BUILTIN_OPERATION_VERSION),
             Operation::CoGroupByKey => {
                 ("ironbeam/co-group-by-key".into(), BUILTIN_OPERATION_VERSION)

@@ -1254,6 +1254,85 @@ fn translator_lowers_wait_on_as_a_global_bounded_signal_view() {
 }
 
 #[test]
+fn translator_lowers_unbounded_windowed_wait_as_identity_side_view() {
+    use ironbeam_core::TestStreamEvent;
+
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .test_stream_source(
+            "main",
+            vec![TestStreamEvent::Elements(vec![(1_i32, 1_000_000)])],
+        )
+        .unwrap()
+        .fixed_windows("main-window", 10_000_000)
+        .unwrap();
+    let signal = pipeline
+        .test_stream_source::<i32>(
+            "signal",
+            vec![TestStreamEvent::AdvanceWatermark(10_000_000)],
+        )
+        .unwrap()
+        .fixed_windows("signal-window", 10_000_000)
+        .unwrap();
+    main.wait_on_windowed_named("wait-window", &signal)
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert!(matches!(
+        graph.node("wait-window").unwrap().operation,
+        ironbeam_core::Operation::WaitOnWindowed
+    ));
+    validate_beam_contract(&graph, &translated).unwrap();
+    let transforms = &translated.pipeline.components.as_ref().unwrap().transforms;
+    let wait = transforms
+        .values()
+        .find(|transform| transform.unique_name == "wait-window")
+        .unwrap();
+    assert_eq!(
+        wait.inputs["side"],
+        ironbeam_graphx::v5::collection_id("signal-window")
+    );
+    assert!(!transforms
+        .values()
+        .any(|transform| transform.unique_name == "wait-window:side-global"));
+    let payload: beam_proto::pipeline_v1::ParDoPayload =
+        beam_prost::Message::decode(wait.spec.as_ref().unwrap().payload.as_slice()).unwrap();
+    assert_eq!(
+        payload.side_inputs["side"]
+            .window_mapping_fn
+            .as_ref()
+            .unwrap()
+            .urn,
+        "ironbeam:windowmapping:identity:v5"
+    );
+
+    let mut tampered = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    let wait = tampered
+        .pipeline
+        .components
+        .as_mut()
+        .unwrap()
+        .transforms
+        .values_mut()
+        .find(|transform| transform.unique_name == "wait-window")
+        .unwrap();
+    let mut payload: beam_proto::pipeline_v1::ParDoPayload =
+        beam_prost::Message::decode(wait.spec.as_ref().unwrap().payload.as_slice()).unwrap();
+    payload
+        .side_inputs
+        .get_mut("side")
+        .unwrap()
+        .window_mapping_fn
+        .as_mut()
+        .unwrap()
+        .urn = "ironbeam:windowmapping:global:v5".into();
+    wait.spec.as_mut().unwrap().payload = beam_prost::Message::encode_to_vec(&payload);
+    assert!(validate_beam_contract(&graph, &tampered).is_err());
+}
+
+#[test]
 fn event_time_is_reified_after_v5_worker_coder_boundaries() {
     let pipeline = Pipeline::default();
     pipeline

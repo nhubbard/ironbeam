@@ -267,6 +267,7 @@ const fn requires_materialization(operation: &Operation) -> bool {
         Operation::GroupByKey
             | Operation::Reshuffle
             | Operation::WaitOn
+            | Operation::WaitOnWindowed
             | Operation::CoGroupByKey
             | Operation::JoinInner
             | Operation::JoinLeft

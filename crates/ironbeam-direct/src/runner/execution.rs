@@ -21,6 +21,7 @@ fn ensure_aggregates(
                 | Operation::JoinRight
                 | Operation::JoinFull
                 | Operation::SideInputMap
+                | Operation::WaitOnWindowed
                 | Operation::GlobalCombine
                 | Operation::BatchMapValues { .. }
         ) && !registry.has_aggregate(key)

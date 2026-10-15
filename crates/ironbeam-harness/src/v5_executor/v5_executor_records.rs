@@ -165,7 +165,7 @@ impl V5BundleExecutor {
                             }
                             produced
                         }
-                        Operation::WaitOn => collections
+                        Operation::WaitOn | Operation::WaitOnWindowed => collections
                             .get(input_pc.as_str())
                             .ok_or_else(|| anyhow!("missing v5 collection {input_pc}"))?
                             .clone(),
