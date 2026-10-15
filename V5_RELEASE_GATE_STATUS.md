@@ -219,6 +219,13 @@ the hold for processing-time timers. A clear operation has no timestamps or
 pane. The harness already routes and decodes these records; no registered
 pipeline callback receives them yet.
 
+The pinned Prism worker sends timer blocks under the owning ParDo transform
+and family IDs, then sends an `IsLast` marker for every declared family even
+when that family has no firing. It rewrites the timer coder in the bundle
+descriptor before execution. The v5 worker must therefore open each declared
+timer stream, drain a timer-only bundle, and close each outbound family stream
+even when no callback sets or clears a timer.
+
 Graphx now registers each declared timer family as a standard
 `beam:coder:timer:v1` coder over the contract's key and window coders. Its
 portable contract validator rejects missing or changed timer coder
@@ -234,6 +241,13 @@ bytes through a caller-supplied key decoder and rejects changed contracts,
 duplicates, malformed windows, and non-millisecond timestamps without
 mutating the current queue. Unit tests cover those boundaries. No runner
 uses this queue yet, so this is not an executable timer proof.
+
+The harness now converts a core timer firing or clear into the standard
+TimerCoder record and expands an inbound record with several windows into
+one firing per window. The conversion tests cross the actual wire encoder and
+decoder, check dynamic tags and negative intervals, and reject overflow,
+trailing window bytes, and clear records on a firing input. It is a wire
+boundary; the bundle executor still needs to invoke the callback.
 
 | Required execution boundary | Direct | Portable worker |
 | --- | --- | --- |

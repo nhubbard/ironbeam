@@ -1,5 +1,6 @@
 use super::*;
 use crate::coders::{decode_interval_window, decode_length_prefix, encode_interval_window};
+use ironbeam_core::{TimerFiring, TimerIdentity, TimerSchedule, UserTimerDomain, WindowInterval};
 
 fn nested_string(value: &str) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -156,4 +157,97 @@ fn partial_timer_decoder_waits_at_each_field_boundary() {
         .unwrap();
     assert_eq!(used, bytes.len());
     assert_eq!(decoded, record);
+}
+
+#[test]
+fn core_timer_firing_crosses_beam_timer_coder_with_window_and_tag() {
+    let firing = TimerFiring {
+        identity: TimerIdentity {
+            family_id: "event".into(),
+            dynamic_tag: "retry".into(),
+            encoded_key: nested_string("key"),
+            window: Some(WindowInterval {
+                start_ns: -5_000_000,
+                end_ns: 10_000_000,
+            }),
+        },
+        schedule: TimerSchedule {
+            fire_timestamp_ns: 8_000_000,
+            hold_timestamp_ns: 7_000_000,
+            pane: PaneInfo::FIRST_LAST_ON_TIME,
+        },
+        domain: UserTimerDomain::EventTime,
+    };
+    let record = TimerRecord::from_firing(&firing).unwrap();
+    let mut bytes = Vec::new();
+    record.encode(&mut bytes).unwrap();
+    let (decoded, used) = decode_timer_record(
+        &bytes,
+        |input| Ok(decode_length_prefix(input)?.1),
+        |input| Ok(decode_interval_window(input)?.1),
+    )
+    .unwrap();
+    assert_eq!(used, bytes.len());
+    let restored = decoded
+        .to_firings("event", UserTimerDomain::EventTime, false)
+        .unwrap();
+    assert_eq!(restored.len(), 1);
+    assert_eq!(restored[0], firing);
+
+    let clear = TimerRecord::from_clear(&firing.identity).unwrap();
+    assert!(clear.clear);
+    assert_eq!(clear.dynamic_tag, "retry");
+    assert_eq!(clear.encoded_windows, record.encoded_windows);
+    assert!(clear
+        .to_firings("event", UserTimerDomain::EventTime, false)
+        .is_err());
+}
+
+#[test]
+fn grouped_beam_timer_windows_expand_and_invalid_times_fail() {
+    let mut first = Vec::new();
+    let mut second = Vec::new();
+    encode_interval_window(0, 10, &mut first).unwrap();
+    encode_interval_window(10, 20, &mut second).unwrap();
+    let record = TimerRecord {
+        encoded_key: nested_string("key"),
+        dynamic_tag: "".into(),
+        encoded_windows: vec![first, second],
+        clear: false,
+        fire_timestamp_millis: Some(15),
+        hold_timestamp_millis: Some(12),
+        pane: Some(PaneInfo::NO_FIRING),
+    };
+    let firings = record
+        .to_firings("process", UserTimerDomain::ProcessingTime, false)
+        .unwrap();
+    assert_eq!(firings.len(), 2);
+    assert_eq!(firings[0].identity.window.unwrap().end_ns, 10_000_000);
+    assert_eq!(firings[1].identity.window.unwrap().start_ns, 10_000_000);
+    assert!(record
+        .to_firings("process", UserTimerDomain::ProcessingTime, true)
+        .is_err());
+    let duplicate = TimerRecord {
+        encoded_windows: vec![
+            record.encoded_windows[0].clone(),
+            record.encoded_windows[0].clone(),
+        ],
+        ..record.clone()
+    };
+    assert!(duplicate
+        .to_firings("process", UserTimerDomain::ProcessingTime, false)
+        .is_err());
+
+    let overflow = TimerRecord {
+        fire_timestamp_millis: Some(i64::MAX),
+        ..record.clone()
+    };
+    assert!(overflow
+        .to_firings("process", UserTimerDomain::ProcessingTime, false)
+        .is_err());
+    let mut malformed = record;
+    malformed.encoded_windows[0].push(0);
+    assert!(malformed
+        .to_firings("process", UserTimerDomain::ProcessingTime, false)
+        .is_err());
 }
