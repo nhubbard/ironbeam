@@ -47,8 +47,9 @@ use ironbeam_prism_proof::{
     panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
     panicking_side_input_fixture, partition_fixture, portable_object_avro_fixture,
     portable_object_avro_replay_fixture, portable_object_parquet_fixture,
-    portable_tfrecord_fixture, processing_time_trigger_fixture, production_join_cogroup_fixture,
-    production_stream_fixture, representative_distinct_fixture, session_group_fixture,
+    portable_object_parquet_replay_fixture, portable_tfrecord_fixture,
+    processing_time_trigger_fixture, production_join_cogroup_fixture, production_stream_fixture,
+    representative_distinct_fixture, session_group_fixture,
     shared_accumulating_early_cogroup_fixture, shared_accumulating_late_cogroup_fixture,
     shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
     sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
@@ -583,6 +584,18 @@ async fn main() -> anyhow::Result<()> {
         return portable_object_avro_fixture(pipeline, std::path::Path::new(&root), path.into())
             .map(|_| ())
             .map_err(Into::into);
+    }
+    if let (Ok(root), Ok(path)) = (
+        std::env::var("IRONBEAM_V5_PRISM_OBJECT_PARQUET_REPLAY_ROOT"),
+        std::env::var("IRONBEAM_V5_PRISM_OBJECT_PARQUET_REPLAY_RESULT"),
+    ) {
+        return portable_object_parquet_replay_fixture(
+            pipeline,
+            std::path::Path::new(&root),
+            path.into(),
+        )
+        .map(|_| ())
+        .map_err(Into::into);
     }
     if let (Ok(root), Ok(path)) = (
         std::env::var("IRONBEAM_V5_PRISM_OBJECT_PARQUET_ROOT"),

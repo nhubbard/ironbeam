@@ -89,29 +89,29 @@ use ironbeam_prism_proof::{
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
     partition_fixture, portable_object_avro_collection, portable_object_avro_fixture,
     portable_object_avro_replay_fixture, portable_object_parquet_collection,
-    portable_object_parquet_fixture, portable_tfrecord_collection, portable_tfrecord_fixture,
-    processing_time_trigger_collection, processing_time_trigger_fixture,
-    production_join_cogroup_fixture, production_stream_fixture, representative_distinct_fixture,
-    session_group_fixture, shared_accumulating_early_cogroup_collection,
-    shared_accumulating_early_cogroup_fixture, shared_accumulating_late_cogroup_collection,
-    shared_accumulating_late_cogroup_fixture, shared_unbounded_homogeneous_cogroup_collection,
-    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
-    sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
-    streaming_count_per_element_fixture, streaming_distinct_window_fixture,
-    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
-    streaming_partition_fixture, streaming_representative_distinct_fixture,
-    streaming_session_group_fixture, streaming_sliding_group_fixture,
-    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
-    timed_keyed_batches_fixture, timed_late_keyed_batches_fixture,
-    triple_stream_windowed_wait_collection, triple_stream_windowed_wait_fixture,
-    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
-    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
-    unbounded_main_bounded_wait_fixture, unbounded_main_grouped_wait_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
-    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
-    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
-    PRODUCTION_AVRO_SCHEMA,
+    portable_object_parquet_fixture, portable_object_parquet_replay_fixture,
+    portable_tfrecord_collection, portable_tfrecord_fixture, processing_time_trigger_collection,
+    processing_time_trigger_fixture, production_join_cogroup_fixture, production_stream_fixture,
+    representative_distinct_fixture, session_group_fixture,
+    shared_accumulating_early_cogroup_collection, shared_accumulating_early_cogroup_fixture,
+    shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
+    shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
+    side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
+    sliding_window_group_fixture, streaming_count_per_element_fixture,
+    streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
+    streaming_ordered_keyed_fixture, streaming_partition_fixture,
+    streaming_representative_distinct_fixture, streaming_session_group_fixture,
+    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
+    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
+    timed_late_keyed_batches_fixture, triple_stream_windowed_wait_collection,
+    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_collection,
+    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
+    triple_unbounded_session_homogeneous_fixture, unbounded_main_bounded_wait_fixture,
+    unbounded_main_grouped_wait_fixture, validation_fail_fixture, validation_skip_fixture,
+    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -4940,6 +4940,120 @@ async fn prism_reads_provider_bound_parquet_rows() {
     let mut portable_rows = result.lines().collect::<Vec<_>>();
     portable_rows.sort_unstable();
     assert_eq!(portable_rows, ["10:fifth", "8:third", "9:fourth"]);
+}
+
+#[tokio::test]
+async fn prism_reopens_provider_bound_parquet_prefix_after_execution_child_loss() {
+    let directory = tempfile::tempdir().unwrap();
+    let object_root = directory.path().join("objects");
+    let mut stores = ObjectStores::new();
+    stores
+        .register("file", LocalObjectIO::new(&object_root).unwrap())
+        .unwrap();
+    for (name, rows) in [
+        (
+            "a.parquet",
+            vec![
+                ProductionAvroRow {
+                    id: 8,
+                    label: "third".into(),
+                },
+                ProductionAvroRow {
+                    id: 9,
+                    label: "fourth".into(),
+                },
+            ],
+        ),
+        (
+            "b.parquet",
+            vec![ProductionAvroRow {
+                id: 10,
+                label: "fifth".into(),
+            }],
+        ),
+    ] {
+        let seed_path = directory.path().join(name);
+        let seed = Pipeline::default()
+            .from_vec(&format!("seed-{name}"), rows)
+            .unwrap();
+        DirectRunner
+            .run_sink(
+                &ironbeam_io_parquet::parquet_sink(&seed, &format!("sink-{name}"), &seed_path)
+                    .unwrap(),
+                &JobConfig::default(),
+            )
+            .unwrap();
+        stores
+            .write(
+                &format!("file://bucket/input/{name}"),
+                &std::fs::read(seed_path).unwrap(),
+            )
+            .unwrap();
+    }
+    let direct_path = directory.path().join("direct-parquet-rows");
+    let direct = Pipeline::default();
+    let direct_sink =
+        portable_object_parquet_replay_fixture(&direct, &object_root, direct_path.clone()).unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    assert_eq!(read_rows(&direct_path), ["10:fifth", "8:third", "9:fourth"]);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_path = directory.path().join("portable-parquet-rows");
+    let trigger = directory.path().join("parquet-replay-trigger");
+    let killed = directory.path().join("killed-parquet-child");
+    let portable = Pipeline::default();
+    portable_object_parquet_replay_fixture(&portable, &object_root, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "replayed-provider-bound-parquet-prefix",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_PARQUET_REPLAY_ROOT".into(),
+                object_root.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_PARQUET_REPLAY_RESULT".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_PRISM_KILL_OBJECT_PARQUET".into(), "1".into()),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism provider Parquet replay failed: {terminal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap()
+    );
+    assert_eq!(
+        read_rows(&portable_path),
+        ["10:fifth", "8:third", "9:fourth"]
+    );
 }
 
 #[tokio::test]
