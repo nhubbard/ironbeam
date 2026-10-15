@@ -53,10 +53,16 @@ impl V5BundleExecutor {
                     break;
                 };
                 let body = &windowed.element[..body_len];
-                let mapped = match mapping {
-                    WindowMapping::Global => &body[..key_len],
-                    WindowMapping::Identity => body,
-                };
+                let mut mapped = body[..key_len].to_vec();
+                match mapping {
+                    WindowMapping::Global => {}
+                    WindowMapping::Identity => mapped.extend_from_slice(&body[key_len..]),
+                    WindowMapping::Fixed { .. } | WindowMapping::Sliding { .. } => {
+                        let ((_, input_end), _) = decode_interval_window(&body[key_len..])?;
+                        let (start, end) = mapped_target_window(input_end, *mapping)?;
+                        encode_interval_window(start, end, &mut mapped)?;
+                    }
+                }
                 let mut encoded = Vec::new();
                 match windowed.interval_millis {
                     Some((start, end)) => encode_interval_windowed_value_with_metadata(
@@ -65,14 +71,14 @@ impl V5BundleExecutor {
                         end,
                         windowed.pane,
                         windowed.element_metadata,
-                        mapped,
+                        &mapped,
                         &mut encoded,
                     )?,
                     None => encode_windowed_value_with_metadata(
                         windowed.timestamp_millis,
                         windowed.pane,
                         windowed.element_metadata,
-                        mapped,
+                        &mapped,
                         &mut encoded,
                     )?,
                 }
@@ -103,6 +109,40 @@ impl V5BundleExecutor {
             ..Default::default()
         })
     }
+}
+
+/// Beam maps an interval using its max timestamp (the exclusive end minus
+/// one millisecond). Sliding assignment returns the earliest window that
+/// contains that timestamp, matching the final item of Beam's assignment.
+fn mapped_target_window(input_end: i64, mapping: WindowMapping) -> Result<(i64, i64)> {
+    let timestamp = i128::from(input_end) - 1;
+    let (size, period, offset, sliding) = match mapping {
+        WindowMapping::Fixed { size_millis, offset_millis } => {
+            (i128::from(size_millis), i128::from(size_millis), i128::from(offset_millis), false)
+        }
+        WindowMapping::Sliding { size_millis, period_millis, offset_millis } => {
+            (i128::from(size_millis), i128::from(period_millis), i128::from(offset_millis), true)
+        }
+        _ => bail!("target-window mapping requires a fixed or sliding function"),
+    };
+    if size <= 0 || period <= 0 {
+        bail!("target-window mapping size and period must be positive");
+    }
+    let latest_start = timestamp - (timestamp - offset).rem_euclid(period);
+    let distance = timestamp - latest_start;
+    if size <= distance {
+        bail!("sliding side-window mapping has no target for the main window");
+    }
+    let first_start = if sliding {
+        latest_start - ((size - 1 - distance) / period) * period
+    } else {
+        latest_start
+    };
+    let end = first_start + size;
+    Ok((
+        i64::try_from(first_start).context("mapped window start exceeds i64")?,
+        i64::try_from(end).context("mapped window end exceeds i64")?,
+    ))
 }
 
 fn try_map_window_body_len(

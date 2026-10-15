@@ -161,6 +161,15 @@ pub enum WindowCoder {
 pub enum WindowMapping {
     Global,
     Identity,
+    Fixed {
+        size_millis: i64,
+        offset_millis: i64,
+    },
+    Sliding {
+        size_millis: i64,
+        period_millis: i64,
+        offset_millis: i64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

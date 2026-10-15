@@ -174,6 +174,72 @@ fn plans_global_and_identity_map_windows_with_exact_kv_coders() {
     assert!(plan(&wrong_port).is_err());
 }
 
+#[test]
+fn plans_fixed_and_sliding_side_window_mappings_from_beam_payloads() {
+    for (mut spec, expected) in [
+        (
+            ironbeam_graphx::windowing::fixed_window_fn(100_000_000, 20_000_000).unwrap(),
+            WindowMapping::Fixed {
+                size_millis: 100,
+                offset_millis: 20,
+            },
+        ),
+        (
+            ironbeam_graphx::windowing::sliding_window_fn(150_000_000, 100_000_000, 20_000_000)
+                .unwrap(),
+            WindowMapping::Sliding {
+                size_millis: 150,
+                period_millis: 100,
+                offset_millis: 20,
+            },
+        ),
+    ] {
+        spec.urn = match expected {
+            WindowMapping::Fixed { .. } => urns::WINDOW_MAPPING_FIXED,
+            _ => urns::WINDOW_MAPPING_SLIDING,
+        }
+        .into();
+        let mut pbd = map_windows_pbd(&spec.urn, urns::CODER_INTERVAL_WINDOW);
+        let mapping = pbd
+            .transforms
+            .get_mut("mapping")
+            .unwrap()
+            .spec
+            .as_mut()
+            .unwrap();
+        mapping.payload = spec.encode_to_vec();
+        assert!(
+            matches!(&plan(&pbd).unwrap().steps[1], Step::MapWindows { mapping, .. } if *mapping == expected)
+        );
+
+        let mut wrong_output = map_windows_pbd(&spec.urn, urns::CODER_GLOBAL_WINDOW);
+        wrong_output
+            .transforms
+            .get_mut("mapping")
+            .unwrap()
+            .spec
+            .as_mut()
+            .unwrap()
+            .payload = spec.encode_to_vec();
+        assert!(plan(&wrong_output).is_err());
+
+        let mut bad_payload = pbd;
+        bad_payload
+            .transforms
+            .get_mut("mapping")
+            .unwrap()
+            .spec
+            .as_mut()
+            .unwrap()
+            .payload = FunctionSpec {
+            urn: spec.urn,
+            payload: Vec::new(),
+        }
+        .encode_to_vec();
+        assert!(plan(&bad_payload).is_err());
+    }
+}
+
 fn mk_pardo_ptransform(key: &str, input_pc: &str, output_pc: &str) -> PTransform {
     let pardo = ParDoPayload {
         do_fn: Some(FunctionSpec {

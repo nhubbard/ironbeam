@@ -1151,8 +1151,20 @@ async fn fn_data_drain_discards_unbounded_sized_restriction() {
 }
 
 #[tokio::test]
-async fn fn_data_maps_interval_side_windows_to_global_and_identity_values() {
-    for mapping in [WindowMapping::Global, WindowMapping::Identity] {
+async fn fn_data_maps_interval_side_windows_to_global_identity_fixed_and_sliding_values() {
+    for mapping in [
+        WindowMapping::Global,
+        WindowMapping::Identity,
+        WindowMapping::Fixed {
+            size_millis: 150,
+            offset_millis: 0,
+        },
+        WindowMapping::Sliding {
+            size_millis: 250,
+            period_millis: 100,
+            offset_millis: 0,
+        },
+    ] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);
@@ -1222,11 +1234,13 @@ async fn fn_data_maps_interval_side_windows_to_global_and_identity_values() {
         let (mapped, header_len) = try_decode_windowed_value(&output.data, true)
             .unwrap()
             .expect("complete interval header");
-        let expected = if mapping == WindowMapping::Global {
-            &body[..key_len]
-        } else {
-            body.as_slice()
-        };
+        let mut expected = body[..key_len].to_vec();
+        match mapping {
+            WindowMapping::Global => {}
+            WindowMapping::Identity => expected.extend_from_slice(&body[key_len..]),
+            WindowMapping::Fixed { .. } => encode_interval_window(150, 300, &mut expected).unwrap(),
+            WindowMapping::Sliding { .. } => encode_interval_window(0, 250, &mut expected).unwrap(),
+        }
         assert_eq!(&mapped.element[..expected.len()], expected);
         assert_eq!(output.data.len(), header_len + expected.len());
         assert_eq!(mapped.interval_millis, Some((100, 200)));

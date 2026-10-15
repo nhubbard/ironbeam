@@ -1,6 +1,7 @@
 //! Validate a runner-issued Beam `MapWindows` bundle against its coder tree.
 
 use super::*;
+use beam_proto::pipeline_v1::{FixedWindowsPayload, SlidingWindowsPayload};
 
 pub(super) fn plan_map_windows(
     pbd: &ProcessBundleDescriptor,
@@ -23,6 +24,69 @@ pub(super) fn plan_map_windows(
     let mapping = match mapping_spec.urn.as_str() {
         urns::WINDOW_MAPPING_GLOBAL => WindowMapping::Global,
         urns::WINDOW_MAPPING_IDENTITY => WindowMapping::Identity,
+        urns::WINDOW_MAPPING_FIXED => {
+            let payload =
+                FixedWindowsPayload::decode(mapping_spec.payload.as_slice()).map_err(|error| {
+                    PlanError::BadPayload {
+                        id: id.to_string(),
+                        err: error.to_string(),
+                    }
+                })?;
+            let size_millis =
+                duration_millis(payload.size.as_ref()).map_err(|err| PlanError::BadPayload {
+                    id: id.to_string(),
+                    err,
+                })?;
+            let offset_millis =
+                timestamp_millis(payload.offset.as_ref()).map_err(|err| PlanError::BadPayload {
+                    id: id.to_string(),
+                    err,
+                })?;
+            if size_millis <= 0 {
+                return Err(PlanError::BadPayload {
+                    id: id.to_string(),
+                    err: "fixed mapping size must be positive".into(),
+                });
+            }
+            WindowMapping::Fixed {
+                size_millis,
+                offset_millis: offset_millis.rem_euclid(size_millis),
+            }
+        }
+        urns::WINDOW_MAPPING_SLIDING => {
+            let payload = SlidingWindowsPayload::decode(mapping_spec.payload.as_slice()).map_err(
+                |error| PlanError::BadPayload {
+                    id: id.to_string(),
+                    err: error.to_string(),
+                },
+            )?;
+            let size_millis =
+                duration_millis(payload.size.as_ref()).map_err(|err| PlanError::BadPayload {
+                    id: id.to_string(),
+                    err,
+                })?;
+            let period_millis =
+                duration_millis(payload.period.as_ref()).map_err(|err| PlanError::BadPayload {
+                    id: id.to_string(),
+                    err,
+                })?;
+            let offset_millis =
+                timestamp_millis(payload.offset.as_ref()).map_err(|err| PlanError::BadPayload {
+                    id: id.to_string(),
+                    err,
+                })?;
+            if size_millis <= 0 || period_millis <= 0 {
+                return Err(PlanError::BadPayload {
+                    id: id.to_string(),
+                    err: "sliding mapping size and period must be positive".into(),
+                });
+            }
+            WindowMapping::Sliding {
+                size_millis,
+                period_millis,
+                offset_millis: offset_millis.rem_euclid(period_millis),
+            }
+        }
         _ => {
             return Err(PlanError::BadPayload {
                 id: id.to_string(),
@@ -30,7 +94,9 @@ pub(super) fn plan_map_windows(
             });
         }
     };
-    if !mapping_spec.payload.is_empty() {
+    if matches!(mapping, WindowMapping::Global | WindowMapping::Identity)
+        && !mapping_spec.payload.is_empty()
+    {
         return Err(PlanError::BadPayload {
             id: id.to_string(),
             err: "MapWindows function has an unexpected payload".into(),
@@ -44,6 +110,10 @@ pub(super) fn plan_map_windows(
         || key_coder != output_key_coder
         || (mapping == WindowMapping::Identity && input_window != output_window)
         || (mapping == WindowMapping::Global && output_window != WindowCoder::Global)
+        || (matches!(
+            mapping,
+            WindowMapping::Fixed { .. } | WindowMapping::Sliding { .. }
+        ) && (input_window != WindowCoder::Interval || output_window != WindowCoder::Interval))
     {
         return Err(PlanError::BadPayload {
             id: id.to_string(),
@@ -58,6 +128,24 @@ pub(super) fn plan_map_windows(
         outer_window,
         input_window,
     })
+}
+
+fn duration_millis(value: Option<&prost_types::Duration>) -> Result<i64, String> {
+    let value = value.ok_or("window mapping is missing a duration")?;
+    whole_millis(value.seconds, value.nanos)
+}
+
+fn timestamp_millis(value: Option<&prost_types::Timestamp>) -> Result<i64, String> {
+    let value = value.ok_or("window mapping is missing an offset")?;
+    whole_millis(value.seconds, value.nanos)
+}
+
+fn whole_millis(seconds: i64, nanos: i32) -> Result<i64, String> {
+    if !(0..1_000_000_000).contains(&nanos) || nanos % 1_000_000 != 0 {
+        return Err("window mapping requires whole-millisecond values".into());
+    }
+    let total = i128::from(seconds) * 1000 + i128::from(nanos / 1_000_000);
+    i64::try_from(total).map_err(|_| "window mapping value exceeds i64 milliseconds".into())
 }
 
 fn map_windows_coder(

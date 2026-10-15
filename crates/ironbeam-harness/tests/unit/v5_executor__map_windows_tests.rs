@@ -26,3 +26,21 @@ fn map_windows_body_waits_for_complete_key_and_interval() {
     );
     assert!(try_map_window_body_len(&[0xff; 10], WindowCoder::Global).is_err());
 }
+
+#[test]
+fn fixed_and_sliding_mapping_use_main_window_max_timestamp() {
+    let fixed = WindowMapping::Fixed { size_millis: 100, offset_millis: 20 };
+    assert_eq!(mapped_target_window(121, fixed).unwrap(), (120, 220));
+    assert_eq!(mapped_target_window(120, fixed).unwrap(), (20, 120));
+    assert_eq!(mapped_target_window(-1, fixed).unwrap(), (-80, 20));
+
+    let sliding = WindowMapping::Sliding { size_millis: 150, period_millis: 100, offset_millis: 20 };
+    assert_eq!(mapped_target_window(221, sliding).unwrap(), (120, 270));
+    assert_eq!(mapped_target_window(220, sliding).unwrap(), (120, 270));
+    assert_eq!(mapped_target_window(-1, sliding).unwrap(), (-80, 70));
+    assert!(mapped_target_window(
+        75,
+        WindowMapping::Sliding { size_millis: 50, period_millis: 100, offset_millis: 0 }
+    ).is_err());
+    assert!(mapped_target_window(i64::MAX, WindowMapping::Fixed { size_millis: 100, offset_millis: 0 }).is_err());
+}

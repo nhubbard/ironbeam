@@ -28,7 +28,7 @@ use ironbeam_graphx::windowing::{fixed_window_fn, session_window_fn, sliding_win
 
 use crate::bundle::{BundlePlan, SdfStage, SinkWire, SourceWire, Step, WindowCoder, WindowMapping};
 use crate::coders::{
-    decode_interval_window, decode_length_prefix, decode_windowed_value,
+    decode_interval_window, decode_length_prefix, decode_windowed_value, encode_interval_window,
     encode_interval_windowed_value_with_metadata,
     encode_length_prefix, encode_varint, encode_windowed_value, encode_windowed_value_with_metadata,
     try_decode_windowed_value, PaneInfo,
