@@ -181,8 +181,9 @@ impl V5BundleExecutor {
                             let state = inputs.state.ok_or_else(|| anyhow!("stateful ParDo {} has no State client", node.key))?;
                             let parent = node.input.as_deref().ok_or_else(|| anyhow!("stateful ParDo {} has no input", node.key))?;
                             let bag_state = matches!(contract.states.get("bag"), Some(UserStateKind::Bag { .. }));
-                            if !bag_state && !matches!(contract.states.get("value"), Some(UserStateKind::Value { .. })) {
-                                bail!("stateful ParDo {} has no executable value or bag cell", node.key);
+                            let set_state = matches!(contract.states.get("set"), Some(UserStateKind::Set { .. }));
+                            if !bag_state && !set_state && !matches!(contract.states.get("value"), Some(UserStateKind::Value { .. })) {
+                                bail!("stateful ParDo {} has no executable value, bag, or set cell", node.key);
                             }
                             let mut produced = Vec::with_capacity(input.len());
                             for wire in input {
@@ -205,6 +206,18 @@ impl V5BundleExecutor {
                                 let access = UserStateAccess::new(state, instruction_id, transform_id, contract, window, encoded_key)?;
                                 let output = if bag_state {
                                     access.apply_bag_state("bag", |encoded| {
+                                        let elements = decode_bag_elements(encoded)?;
+                                        let internal = serde_json::to_vec(&elements)?;
+                                        let prior = (!elements.is_empty()).then_some(internal.as_slice());
+                                        let (next, output) = self.apply_stateful_cell(node, parent, wire, prior)?;
+                                        let replacement = next.map(|bytes| {
+                                            let items: Vec<Vec<u8>> = serde_json::from_slice(&bytes)?;
+                                            encode_bag_elements(&items)
+                                        }).transpose()?;
+                                        Ok((output, replacement))
+                                    }).await?
+                                } else if set_state {
+                                    access.apply_set_state("set", |encoded| {
                                         let elements = decode_bag_elements(encoded)?;
                                         let internal = serde_json::to_vec(&elements)?;
                                         let prior = (!elements.is_empty()).then_some(internal.as_slice());

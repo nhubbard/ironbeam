@@ -202,6 +202,18 @@ timer stream closes; other tests cover two records, an undeclared family,
 and a callback error. Timer callbacks and other state families still need
 pipeline execution and Direct/Prism retry proofs.
 
+`SetState` now has an executable keyed API with `Keep`, `Clear`, `Insert`,
+`Remove`, and `Replace`. Direct tests deduplication and coded restoration.
+The portable worker lowers Beam's Set spec and uses the multimap Fn State
+protocol; a bounded Direct/Prism fixture agrees on membership and all five
+mutations. Pinned Prism keeps individually cleared multimap keys visible
+within the bundle, so the adapter clears the keys cell and writes the new
+set when contents change. That makes mutation work proportional to set size.
+An unbounded two-batch fixture agrees on membership for two keys. Direct
+restores a coded set and source cursor after cancellation. A production
+unbounded Prism job retains the set through execution-child replacement and
+residual reopen. Timer callbacks remain unproved.
+
 These rows are not equally weighted. A percentage computed by counting URNs
 would hide the difference between a declared state spec and a working
 stateful pipeline. The target remains open until the missing behaviors have

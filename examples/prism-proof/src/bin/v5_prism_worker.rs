@@ -271,6 +271,16 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SET_MUTATIONS") {
+        return ironbeam_prism_proof::bounded_set_mutations_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_SET_STATE") {
+        return ironbeam_prism_proof::streaming_set_state_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_WINDOWED_VALUE_STATE") {
         return ironbeam_prism_proof::streaming_windowed_value_state_fixture(pipeline, path.into())
             .map(|_| ())
@@ -950,6 +960,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_BAG_STATE") {
         return ironbeam_prism_proof::production_bag_state_fixture(pipeline, directory.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_SET_STATE") {
+        return ironbeam_prism_proof::production_set_state_fixture(pipeline, directory.into())
             .map(|_| ())
             .map_err(Into::into);
     }

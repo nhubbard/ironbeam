@@ -402,6 +402,15 @@ cursor; the portable worker reads and writes the declared Beam bag cell
 through Fn State. A two-key, two-batch unbounded fixture has matching counts
 on Direct and local Prism. Bag iteration order is unspecified.
 
+`stateful_set_map_named` exposes a keyed, windowed set. Equal elements occupy
+one cell entry, and callbacks can test membership before changing the set.
+The portable worker uses Beam's multimap Fn State protocol. A bounded
+mutation fixture matches Direct and local Prism, including duplicate
+insertion, removal, clearing, replacement, and unchanged contents. The
+element coder must encode equal values identically. Unbounded membership
+persists across element batches on both runners; Direct checkpoint restart
+and Prism execution-child replacement have separate proofs.
+
 The distinction matters for retries. A source cursor says which input can be
 replayed. A grouped checkpoint contains values that have not yet formed a
 completed result. A sink finalization journal records which bundle attempts

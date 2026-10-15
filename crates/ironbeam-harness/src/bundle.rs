@@ -82,9 +82,16 @@ fn value_state_payload(
             .iter()
             .next()
             .is_some_and(|(name, spec)| {
-                let coder_id = match (name.as_str(), &spec.spec) {
-                    ("value", Some(state_spec::Spec::ReadModifyWriteSpec(cell))) => &cell.coder_id,
-                    ("bag", Some(state_spec::Spec::BagSpec(cell))) => &cell.element_coder_id,
+                let (coder_id, protocol_urn) = match (name.as_str(), &spec.spec) {
+                    ("value", Some(state_spec::Spec::ReadModifyWriteSpec(cell))) => {
+                        (&cell.coder_id, "beam:user_state:bag:v1")
+                    }
+                    ("bag", Some(state_spec::Spec::BagSpec(cell))) => {
+                        (&cell.element_coder_id, "beam:user_state:bag:v1")
+                    }
+                    ("set", Some(state_spec::Spec::SetSpec(cell))) => {
+                        (&cell.element_coder_id, "beam:user_state:multimap:v1")
+                    }
                     _ => return false,
                 };
                 pbd.coders.get(coder_id).is_some_and(|coder| {
@@ -100,13 +107,13 @@ fn value_state_payload(
                                 }) && child.component_coder_ids.is_empty()
                             })
                 }) && spec.protocol.as_ref().is_some_and(|protocol| {
-                    protocol.urn == "beam:user_state:bag:v1" && protocol.payload.is_empty()
+                    protocol.urn == protocol_urn && protocol.payload.is_empty()
                 })
             });
     if !valid {
         return Err(PlanError::BadPayload {
             id: id.into(),
-            err: "v5 ParDo supports one declared value or bag cell without timers".into(),
+            err: "v5 ParDo supports one declared value, bag, or set cell without timers".into(),
         });
     }
     Ok(true)

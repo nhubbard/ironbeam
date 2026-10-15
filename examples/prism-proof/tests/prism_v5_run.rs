@@ -2,6 +2,8 @@
 
 #[path = "prism_v5_run/bag_state.rs"]
 mod bag_state;
+#[path = "prism_v5_run/set_state.rs"]
+mod set_state;
 
 extern crate prost_v5 as prost;
 

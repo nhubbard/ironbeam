@@ -1,6 +1,8 @@
 include!("records_and_joins.rs");
 mod distinct;
 pub use distinct::*;
+mod set_state;
+pub use set_state::*;
 mod row;
 pub use row::*;
 mod row_calendar;

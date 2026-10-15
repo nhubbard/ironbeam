@@ -46,6 +46,12 @@ fn user_contract() -> StatefulParDoContract {
                 },
             ),
             (
+                "set".into(),
+                UserStateKind::Set {
+                    element_coder_id: "beam:coder:bytes:v1".into(),
+                },
+            ),
+            (
                 "map".into(),
                 UserStateKind::Map {
                     key_coder_id: "beam:coder:bytes:v1".into(),
@@ -173,6 +179,165 @@ async fn failed_value_clear_does_not_append() {
         assert!(requests.try_recv().is_err());
     });
     assert!(access.write_value("value", vec![9]).await.is_err());
+    responder.await.unwrap();
+}
+
+#[tokio::test]
+async fn set_state_callback_replaces_multimap_keys_under_one_instruction() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "set-bundle",
+        "set-transform",
+        &contract,
+        vec![3],
+        vec![7],
+    )
+    .unwrap();
+    let old = [10_u8, 20]
+        .into_iter()
+        .flat_map(|value| [1, value])
+        .collect::<Vec<_>>();
+    let next = [10_u8, 30]
+        .into_iter()
+        .flat_map(|value| [1, value])
+        .collect::<Vec<_>>();
+    let old_for_runner = old.clone();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for expected in ["get", "clear", "append-10", "append-30"] {
+            let request = requests.recv().await.unwrap();
+            assert_eq!(request.instruction_id, "set-bundle");
+            let key = request.state_key.as_ref().unwrap();
+            let response = match (expected, &key.r#type, request.request) {
+                (
+                    "get",
+                    Some(state_key::Type::MultimapKeysUserState(scope)),
+                    Some(state_request::Request::Get(_)),
+                ) => {
+                    assert_eq!(scope.user_state_id, "set");
+                    assert_eq!(scope.window, [3]);
+                    assert_eq!(scope.key, [7]);
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: old_for_runner.clone(),
+                    })
+                }
+                (
+                    "clear",
+                    Some(state_key::Type::MultimapKeysUserState(scope)),
+                    Some(state_request::Request::Clear(_)),
+                ) => {
+                    assert_eq!(scope.user_state_id, "set");
+                    state_response::Response::Clear(StateClearResponse {})
+                }
+                (
+                    label,
+                    Some(state_key::Type::MultimapUserState(scope)),
+                    Some(state_request::Request::Append(append)),
+                ) if label.starts_with("append") => {
+                    assert_eq!(scope.user_state_id, "set");
+                    assert_eq!(
+                        scope.map_key,
+                        [1, if label == "append-10" { 10 } else { 30 }]
+                    );
+                    assert!(append.data.is_empty());
+                    state_response::Response::Append(StateAppendResponse {})
+                }
+                _ => panic!("unexpected set-state RPC"),
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    let result = access
+        .apply_set_state("set", |current| {
+            assert_eq!(current, old);
+            Ok((19, Some(next)))
+        })
+        .await
+        .unwrap();
+    assert_eq!(result, 19);
+    responder.await.unwrap();
+}
+
+#[tokio::test]
+async fn set_state_callback_keeps_equal_keys_and_rejects_failed_mutations() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "set-bundle",
+        "set-transform",
+        &contract,
+        vec![],
+        vec![7],
+    )
+    .unwrap();
+    assert!(access
+        .apply_set_state("bag", |_| Ok(((), None)))
+        .await
+        .is_err());
+    assert!(requests.try_recv().is_err());
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for _ in 0..3 {
+            let request = requests.recv().await.unwrap();
+            assert!(matches!(
+                request.state_key.as_ref().unwrap().r#type,
+                Some(state_key::Type::MultimapKeysUserState(_))
+            ));
+            assert!(matches!(
+                request.request,
+                Some(state_request::Request::Get(_))
+            ));
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: vec![1, 10],
+                    })),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    assert_eq!(
+        access
+            .apply_set_state("set", |_| Ok((7, Some(vec![1, 10]))))
+            .await
+            .unwrap(),
+        7
+    );
+    assert!(access
+        .apply_set_state("set", |_| -> anyhow::Result<((), Option<Vec<u8>>)> {
+            anyhow::bail!("callback failed")
+        })
+        .await
+        .is_err());
+    assert!(access
+        .apply_set_state("set", |_| -> anyhow::Result<((), Option<Vec<u8>>)> {
+            panic!("callback panicked")
+        })
+        .await
+        .is_err());
     responder.await.unwrap();
 }
 

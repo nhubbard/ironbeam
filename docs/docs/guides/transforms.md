@@ -363,3 +363,32 @@ A bounded fixture also checks the values presented to callbacks across all
 four mutation variants and duplicate entries on both runners. An unbounded
 fixed-window fixture keeps two independent bag cells for the same key across
 two element batches on both runners. The operation has no timer callback.
+
+`stateful_set_map_named` stores unique coded elements for each key and
+window. The callback receives a borrowed `HashSet` and returns one output
+with `Keep`, `Clear`, `Insert`, `Remove`, or `Replace`.
+
+```rust
+use ironbeam_core::{SetStateMutation, Version};
+
+let membership = pairs.stateful_set_map_named::<i64, bool>(
+    "seen-ids",
+    "orders/seen-ids",
+    Version { major: 1, minor: 0 },
+    |_, id, previous| {
+        let already_seen = previous.contains(&id);
+        Ok((SetStateMutation::Insert(id), already_seen))
+    },
+)?;
+```
+
+The element coder must give the same bytes for equal values. Direct stores a
+coded set in its state snapshot. Portable execution declares Beam `SetState`
+and uses multimap Fn State keys; each changed set replaces the runner's key
+set within the bundle. This can cost work proportional to the set size. A
+bounded fixture checks membership, duplicate insertion, and every mutation
+variant on Direct and local Prism. An unbounded two-batch fixture retains
+membership across batches on both runners. Direct restores a set with its
+source cursor, and a production Prism job retains the set after a failed
+execution child is replaced and the source residual reopens. SetState has no
+timer callback yet.
