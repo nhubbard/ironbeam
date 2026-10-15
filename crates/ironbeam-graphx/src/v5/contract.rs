@@ -947,14 +947,27 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             .as_ref()
             .ok_or_else(|| V5Error::Wire(format!("missing element coder spec for {key}")))?;
         let matches_element = if node.coder_id == urns::CODER_ROW {
-            inner_spec.urn == urns::CODER_ROW && inner_spec.payload == node.coder_payload
+            inner_spec.urn == urns::CODER_ROW
+                && inner_spec.payload == node.coder_payload
+                && inner.component_coder_ids.is_empty()
+        } else if node.coder_id == urns::CODER_SHARDED_KEY {
+            inner_spec.urn == urns::CODER_SHARDED_KEY
+                && inner_spec.payload.is_empty()
+                && inner.component_coder_ids.len() == 1
+                && components.coders.get(&inner.component_coder_ids[0]).is_some_and(|key_coder| {
+                    key_coder.component_coder_ids.is_empty()
+                        && key_coder.spec.as_ref().is_some_and(|spec| {
+                            spec.urn.as_bytes() == node.coder_payload && spec.payload.is_empty()
+                        })
+                })
         } else {
             inner_spec.urn == urns::CODER_IRONBEAM_V5
+                && inner.component_coder_ids.is_empty()
                 && serde_json::from_slice::<ElementDescriptor>(&inner_spec.payload)
                     .map_err(|error| V5Error::Wire(error.to_string()))?
                     == descriptor(node)
         };
-        if !inner.component_coder_ids.is_empty() || !matches_element {
+        if !matches_element {
             return Err(V5Error::Wire(format!("element coder differs for {key}")));
         }
     }

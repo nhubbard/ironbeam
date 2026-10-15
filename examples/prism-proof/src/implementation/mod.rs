@@ -9,6 +9,8 @@ mod row_decimal;
 pub use row_decimal::*;
 mod row_projection;
 pub use row_projection::*;
+mod sharded_key;
+pub use sharded_key::*;
 include!("object_avro.rs");
 include!("object_parquet.rs");
 include!("tfrecord_source.rs");

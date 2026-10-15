@@ -34,6 +34,7 @@ pub const CODER_VARINT: &str = "beam:coder:varint:v1";
 pub const CODER_DOUBLE: &str = "beam:coder:double:v1";
 pub const CODER_BOOL: &str = "beam:coder:bool:v1";
 pub const CODER_ROW: &str = "beam:coder:row:v1";
+pub const CODER_SHARDED_KEY: &str = "beam:coder:sharded_key:v1";
 pub const CODER_KV: &str = "beam:coder:kv:v1";
 pub const CODER_ITERABLE: &str = "beam:coder:iterable:v1";
 /// Dataflow runner-v2 substitutes this URN for GBK-output iterables so the

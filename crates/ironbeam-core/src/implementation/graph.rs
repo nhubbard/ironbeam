@@ -57,6 +57,15 @@ impl Graph {
             if node.coder_id == "beam:coder:row:v1" && node.coder_payload.is_empty() {
                 return Err(Error::graph(&node.key, "Beam RowCoder requires a schema payload"));
             }
+            if node.coder_id == "beam:coder:sharded_key:v1"
+                && node.coder_payload != b"beam:coder:string_utf8:v1"
+                && node.coder_payload != b"beam:coder:bytes:v1"
+            {
+                return Err(Error::graph(
+                    &node.key,
+                    "Beam sharded key requires a supported key coder payload",
+                ));
+            }
             if matches!(node.time.window, Window::Fixed { size_ns } | Window::FixedOffset { size_ns, .. } if size_ns <= 0)
             {
                 return Err(Error::graph(

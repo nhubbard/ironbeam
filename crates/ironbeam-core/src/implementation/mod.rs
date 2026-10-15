@@ -14,6 +14,8 @@ mod restriction;
 pub use restriction::{
     OffsetRange, OffsetRangeChunks, OffsetRangeTracker, RestrictionSplit, RestrictionTracker,
 };
+mod sharded_key;
+pub use sharded_key::{BeamPortableKey, BeamShardedKey};
 
 include!("element.rs");
 include!("descriptors.rs");

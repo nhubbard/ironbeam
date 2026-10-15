@@ -470,19 +470,34 @@ fn lower(
             serde_json::to_vec(&spec).map_err(|e| V5Error::Wire(e.to_string()))?;
         let coder_key = id("v5_c", &hex::encode(&descriptor_payload));
         let lp_key = format!("{coder_key}_lp");
-        let (urn, payload) = if node.coder_id == urns::CODER_ROW {
+        let (urn, payload, components) = if node.coder_id == urns::CODER_ROW {
             Schema::decode(node.coder_payload.as_slice())
                 .map_err(|error| V5Error::Wire(format!("invalid RowCoder schema at {key}: {error}")))?;
-            (urns::CODER_ROW, node.coder_payload.clone())
+            (urns::CODER_ROW, node.coder_payload.clone(), Vec::new())
+        } else if node.coder_id == urns::CODER_SHARDED_KEY {
+            let key_coder_urn = std::str::from_utf8(&node.coder_payload)
+                .map_err(|error| V5Error::Wire(format!("invalid sharded key coder at {key}: {error}")))?;
+            if !matches!(key_coder_urn, urns::CODER_BYTES | urns::CODER_STRING_UTF8) {
+                return Err(V5Error::Wire(format!("unsupported sharded key coder at {key}")));
+            }
+            let component_id = format!("{coder_key}_key");
+            coders.insert(component_id.clone(), Coder {
+                spec: Some(FunctionSpec {
+                    urn: key_coder_urn.into(),
+                    payload: Vec::new(),
+                }),
+                component_coder_ids: Vec::new(),
+            });
+            (urns::CODER_SHARDED_KEY, Vec::new(), vec![component_id])
         } else {
-            (urns::CODER_IRONBEAM_V5, descriptor_payload)
+            (urns::CODER_IRONBEAM_V5, descriptor_payload, Vec::new())
         };
         coders.entry(coder_key.clone()).or_insert_with(|| Coder {
             spec: Some(FunctionSpec {
                 urn: urn.into(),
                 payload,
             }),
-            component_coder_ids: Vec::new(),
+            component_coder_ids: components,
         });
         coders.entry(lp_key.clone()).or_insert_with(|| Coder {
             spec: Some(FunctionSpec {
@@ -647,6 +662,9 @@ fn lower(
     if graph.nodes.iter().any(|node| node.coder_id == urns::CODER_ROW) {
         env.capabilities.push(urns::CODER_ROW.into());
     }
+    if graph.nodes.iter().any(|node| node.coder_id == urns::CODER_SHARDED_KEY) {
+        env.capabilities.push(urns::CODER_SHARDED_KEY.into());
+    }
     let identity_payload =
         serde_json::to_vec(identity).map_err(|e| V5Error::Wire(e.to_string()))?;
     Ok((
@@ -680,3 +698,6 @@ fn lower(
 #[cfg(test)]
 #[path = "../../tests/unit/v5__sdf_lowering_tests.rs"]
 mod sdf_lowering_tests;
+#[cfg(test)]
+#[path = "../../tests/unit/v5__sharded_key_tests.rs"]
+mod sharded_key_tests;
