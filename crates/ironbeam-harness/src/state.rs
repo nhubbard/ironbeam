@@ -17,7 +17,7 @@ use tonic::transport::Channel;
 use crate::endpoints::{normalize_endpoint, worker_request};
 
 mod user;
-pub use user::UserStateScope;
+pub use user::{UserStateAccess, UserStateScope};
 
 #[derive(Clone)]
 pub struct StateClient {

@@ -3,6 +3,8 @@ use super::*;
 use beam_proto::fn_execution_v1::{
     state_key, StateAppendResponse, StateClearResponse, StateGetResponse,
 };
+use ironbeam_core::{StatefulParDoContract, UserStateKind, Version};
+use std::collections::BTreeMap;
 
 fn test_client() -> (StateClient, mpsc::UnboundedReceiver<StateRequest>) {
     let (outbound, receiver) = mpsc::unbounded_channel();
@@ -22,6 +24,136 @@ fn runner_key() -> StateKey {
             key: b"ref".to_vec(),
         })),
     }
+}
+
+fn user_contract() -> StatefulParDoContract {
+    StatefulParDoContract {
+        semantic_id: "tests/stateful".into(),
+        version: Version { major: 1, minor: 0 },
+        key_coder_id: "beam:coder:bytes:v1".into(),
+        window_coder_id: "beam:coder:global_window:v1".into(),
+        states: BTreeMap::from([
+            (
+                "bag".into(),
+                UserStateKind::Bag {
+                    element_coder_id: "beam:coder:bytes:v1".into(),
+                },
+            ),
+            (
+                "map".into(),
+                UserStateKind::Map {
+                    key_coder_id: "beam:coder:bytes:v1".into(),
+                    value_coder_id: "beam:coder:bytes:v1".into(),
+                },
+            ),
+            (
+                "ordered".into(),
+                UserStateKind::OrderedList {
+                    element_coder_id: "beam:coder:bytes:v1".into(),
+                },
+            ),
+        ]),
+        timers: BTreeMap::new(),
+        on_window_expiration_timer: None,
+    }
+}
+
+#[tokio::test]
+async fn scoped_user_state_routes_only_declared_protocol_families() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "bundle-1",
+        "transform-1",
+        &contract,
+        vec![],
+        vec![7],
+    )
+    .unwrap();
+    assert!(access.read_bag("missing").await.is_err());
+    assert!(access.read_bag("map").await.is_err());
+    assert!(access.read_map_keys("bag").await.is_err());
+    assert!(access.read_ordered("bag", 0, 10).await.is_err());
+    assert!(access.read_ordered("ordered", 10, 10).await.is_err());
+    assert!(requests.try_recv().is_err());
+
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        let bag = requests.recv().await.unwrap();
+        assert_eq!(bag.instruction_id, "bundle-1");
+        let Some(state_key::Type::BagUserState(key)) = bag.state_key.unwrap().r#type else {
+            panic!("expected bag state key");
+        };
+        assert_eq!(
+            (key.transform_id.as_str(), key.user_state_id.as_str()),
+            ("transform-1", "bag")
+        );
+        assert_eq!(key.key, vec![7]);
+        pending
+            .lock()
+            .unwrap()
+            .remove(&bag.id)
+            .unwrap()
+            .send(StateResponse {
+                id: bag.id,
+                error: String::new(),
+                response: Some(state_response::Response::Get(StateGetResponse {
+                    continuation_token: Vec::new(),
+                    data: b"stored".to_vec(),
+                })),
+            })
+            .unwrap();
+
+        let map = requests.recv().await.unwrap();
+        let Some(state_key::Type::MultimapUserState(key)) = map.state_key.unwrap().r#type else {
+            panic!("expected multimap value state key");
+        };
+        assert_eq!(key.user_state_id, "map");
+        assert_eq!(key.map_key, vec![9]);
+        let Some(state_request::Request::Append(write)) = map.request else {
+            panic!("expected map append");
+        };
+        assert_eq!(write.data, vec![8]);
+        pending
+            .lock()
+            .unwrap()
+            .remove(&map.id)
+            .unwrap()
+            .send(StateResponse {
+                id: map.id,
+                error: String::new(),
+                response: Some(state_response::Response::Append(StateAppendResponse {})),
+            })
+            .unwrap();
+
+        let ordered = requests.recv().await.unwrap();
+        let Some(state_key::Type::OrderedListUserState(key)) = ordered.state_key.unwrap().r#type
+        else {
+            panic!("expected ordered-list state key");
+        };
+        let range = key.range.unwrap();
+        assert_eq!((range.start, range.end), (0, 10));
+        pending
+            .lock()
+            .unwrap()
+            .remove(&ordered.id)
+            .unwrap()
+            .send(StateResponse {
+                id: ordered.id,
+                error: String::new(),
+                response: Some(state_response::Response::Clear(StateClearResponse {})),
+            })
+            .unwrap();
+    });
+
+    assert_eq!(access.read_bag("bag").await.unwrap(), b"stored");
+    access
+        .append_map_value("map", vec![9], vec![8])
+        .await
+        .unwrap();
+    access.clear_ordered("ordered", 0, 10).await.unwrap();
+    responder.await.unwrap();
 }
 
 #[tokio::test]

@@ -2,6 +2,9 @@
 
 use anyhow::{bail, Result};
 use beam_proto::fn_execution_v1::{state_key, OrderedListRange, StateKey};
+use ironbeam_core::{StatefulParDoContract, UserStateKind};
+
+use super::StateClient;
 
 #[derive(Clone)]
 pub struct UserStateScope {
@@ -97,5 +100,179 @@ impl UserStateScope {
                 },
             )),
         })
+    }
+}
+
+/// Runner-backed state cells for one keyed, windowed bundle instruction.
+/// The declared contract determines which Fn State key family each method may
+/// use. The runner owns commit or rollback of mutations when the bundle ends.
+pub struct UserStateAccess<'a> {
+    client: &'a StateClient,
+    instruction_id: &'a str,
+    transform_id: &'a str,
+    contract: &'a StatefulParDoContract,
+    window: Vec<u8>,
+    key: Vec<u8>,
+}
+
+impl<'a> UserStateAccess<'a> {
+    /// Bind the application declaration to the runner's current bundle scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid contract or missing instruction or
+    /// transform ID. Empty window and key bytes are valid coder outputs.
+    pub fn new(
+        client: &'a StateClient,
+        instruction_id: &'a str,
+        transform_id: &'a str,
+        contract: &'a StatefulParDoContract,
+        window: Vec<u8>,
+        key: Vec<u8>,
+    ) -> Result<Self> {
+        contract.validate()?;
+        if instruction_id.is_empty() || transform_id.is_empty() {
+            bail!("Beam user state needs an instruction ID and transform ID");
+        }
+        Ok(Self {
+            client,
+            instruction_id,
+            transform_id,
+            contract,
+            window,
+            key,
+        })
+    }
+
+    fn scope(
+        &self,
+        state_id: &str,
+        expected: fn(&UserStateKind) -> bool,
+    ) -> Result<UserStateScope> {
+        let kind = self
+            .contract
+            .states
+            .get(state_id)
+            .ok_or_else(|| anyhow::anyhow!("undeclared Beam user state {state_id}"))?;
+        if !expected(kind) {
+            bail!("Beam user state {state_id} uses a different protocol");
+        }
+        UserStateScope::new(
+            self.transform_id,
+            state_id,
+            self.window.clone(),
+            self.key.clone(),
+        )
+    }
+
+    fn bag_kind(kind: &UserStateKind) -> bool {
+        matches!(
+            kind,
+            UserStateKind::Value { .. }
+                | UserStateKind::Bag { .. }
+                | UserStateKind::Combining { .. }
+        )
+    }
+
+    fn multimap_kind(kind: &UserStateKind) -> bool {
+        matches!(
+            kind,
+            UserStateKind::Set { .. } | UserStateKind::Map { .. } | UserStateKind::Multimap { .. }
+        )
+    }
+
+    fn ordered_kind(kind: &UserStateKind) -> bool {
+        matches!(kind, UserStateKind::OrderedList { .. })
+    }
+
+    /// Read all encoded bag bytes for a value, bag, or combining state cell.
+    pub async fn read_bag(&self, state_id: &str) -> Result<Vec<u8>> {
+        let key = self.scope(state_id, Self::bag_kind)?.bag();
+        self.client.get_all(self.instruction_id, key).await
+    }
+
+    /// Append encoded bag bytes in the current bundle.
+    pub async fn append_bag(&self, state_id: &str, data: Vec<u8>) -> Result<()> {
+        let key = self.scope(state_id, Self::bag_kind)?.bag();
+        self.client.append(self.instruction_id, key, data).await
+    }
+
+    /// Clear a bag cell in the current bundle.
+    pub async fn clear_bag(&self, state_id: &str) -> Result<()> {
+        let key = self.scope(state_id, Self::bag_kind)?.bag();
+        self.client.clear(self.instruction_id, key).await
+    }
+
+    /// Read encoded multimap keys for set, map, or multimap state.
+    pub async fn read_map_keys(&self, state_id: &str) -> Result<Vec<u8>> {
+        let key = self.scope(state_id, Self::multimap_kind)?.multimap_keys();
+        self.client.get_all(self.instruction_id, key).await
+    }
+
+    /// Read the encoded entries of a set, map, or multimap state cell.
+    pub async fn read_map_entries(&self, state_id: &str) -> Result<Vec<u8>> {
+        let key = self
+            .scope(state_id, Self::multimap_kind)?
+            .multimap_entries();
+        self.client.get_all(self.instruction_id, key).await
+    }
+
+    /// Read encoded values at one encoded multimap key.
+    pub async fn read_map_value(&self, state_id: &str, map_key: Vec<u8>) -> Result<Vec<u8>> {
+        let key = self
+            .scope(state_id, Self::multimap_kind)?
+            .multimap_value(map_key);
+        self.client.get_all(self.instruction_id, key).await
+    }
+
+    /// Append encoded values at one encoded multimap key.
+    pub async fn append_map_value(
+        &self,
+        state_id: &str,
+        map_key: Vec<u8>,
+        data: Vec<u8>,
+    ) -> Result<()> {
+        let key = self
+            .scope(state_id, Self::multimap_kind)?
+            .multimap_value(map_key);
+        self.client.append(self.instruction_id, key, data).await
+    }
+
+    /// Clear one encoded multimap key.
+    pub async fn clear_map_value(&self, state_id: &str, map_key: Vec<u8>) -> Result<()> {
+        let key = self
+            .scope(state_id, Self::multimap_kind)?
+            .multimap_value(map_key);
+        self.client.clear(self.instruction_id, key).await
+    }
+
+    /// Read encoded ordered-list entries in a half-open sort range.
+    pub async fn read_ordered(&self, state_id: &str, start: i64, end: i64) -> Result<Vec<u8>> {
+        let key = self
+            .scope(state_id, Self::ordered_kind)?
+            .ordered_list(start, end)?;
+        self.client.get_all(self.instruction_id, key).await
+    }
+
+    /// Append encoded entries to an ordered-list state cell.
+    pub async fn append_ordered(
+        &self,
+        state_id: &str,
+        start: i64,
+        end: i64,
+        data: Vec<u8>,
+    ) -> Result<()> {
+        let key = self
+            .scope(state_id, Self::ordered_kind)?
+            .ordered_list(start, end)?;
+        self.client.append(self.instruction_id, key, data).await
+    }
+
+    /// Clear an ordered-list range in the current bundle.
+    pub async fn clear_ordered(&self, state_id: &str, start: i64, end: i64) -> Result<()> {
+        let key = self
+            .scope(state_id, Self::ordered_kind)?
+            .ordered_list(start, end)?;
+        self.client.clear(self.instruction_id, key).await
     }
 }
