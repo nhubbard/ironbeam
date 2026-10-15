@@ -128,6 +128,50 @@ pub fn streaming_representative_distinct_fixture(
         )
 }
 
+/// Count repeated values in each closed window of a watermarked source.
+pub fn streaming_count_per_element_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "count-stream",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ("a".to_owned(), 1_000_000),
+                    ("a".to_owned(), 2_000_000),
+                    ("b".to_owned(), 3_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![("a".to_owned(), 11_000_000)]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )?
+        .fixed_windows("count-windows", 10_000_000)?
+        .count_per_element_named("counts")?
+        .reify_timestamps_named("count-output-time")?
+        .with_window_named("count-window-label")?
+        .map_named("count-row", |(window, (timestamp, (value, count)))| {
+            format!("{}:{timestamp}:{value}:{count}", window.start_ns)
+        })?
+        .sink_named_with_config(
+            "count-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("count-stream:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 pub fn streaming_distinct_window_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,

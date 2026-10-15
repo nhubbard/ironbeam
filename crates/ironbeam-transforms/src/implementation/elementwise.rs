@@ -1,4 +1,4 @@
-use ironbeam_core::{Element, Error, PCollection};
+use ironbeam_core::{Boundedness, Element, Error, PCollection};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -177,8 +177,16 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
     where
         T: Eq + Hash + Clone,
     {
-        self.map_named(&format!("{key}/key"), |value| (value, 1_u8))?
-            .combine_values_lifted_named(key, Count)
+        let keyed = self.map_named(&format!("{key}/key"), |value| (value, 1_u8))?;
+        if self.boundedness()? == Boundedness::Unbounded {
+            keyed
+                .group_by_key_named(&format!("{key}/group"))?
+                .map_named(key, |(value, occurrences)| {
+                    (value, u64::try_from(occurrences.len()).unwrap_or(u64::MAX))
+                })
+        } else {
+            keyed.combine_values_lifted_named(key, Count)
+        }
     }
     fn distinct_count_globally_named(&self, key: &str) -> Result<PCollection<u64>, Error>
     where

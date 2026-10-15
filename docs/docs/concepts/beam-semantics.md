@@ -170,6 +170,14 @@ that can process inputs incrementally; users should choose one when they do
 not need the entire grouped value list. An explicit order key is still
 required when the reducer's result depends on sequence.
 
+`count_per_element_named` uses a lifted combiner on bounded collections. On
+unbounded collections, it groups each value in its window so Direct can
+checkpoint the open group and release it when the watermark closes the window.
+A two-window TestStream job has matching counts and output timestamps on
+Direct and local Prism. This streaming path retains the values for each open
+key and window; a count with a very large key may reach the configured state
+budget.
+
 ## Side inputs and completion signals
 
 A side input supplies a view of another collection to a transform. Its values

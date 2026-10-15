@@ -47,8 +47,9 @@ use ironbeam_prism_proof::{
     session_group_fixture, shared_accumulating_early_cogroup_fixture,
     shared_accumulating_late_cogroup_fixture, shared_unbounded_homogeneous_cogroup_fixture,
     side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
-    sliding_window_group_fixture, streaming_distinct_window_fixture, streaming_group_fixture,
-    streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture, streaming_partition_fixture,
+    sliding_window_group_fixture, streaming_count_per_element_fixture,
+    streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
+    streaming_ordered_keyed_fixture, streaming_partition_fixture,
     streaming_representative_distinct_fixture, streaming_session_group_fixture,
     streaming_sliding_group_fixture, streaming_windowed_side_input_fixture,
     timed_keyed_batches_fixture, triple_stream_windowed_wait_fixture,
@@ -245,6 +246,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAM_REPRESENTATIVE_DISTINCT") {
         return streaming_representative_distinct_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAM_COUNT_PER_ELEMENT") {
+        return streaming_count_per_element_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

@@ -76,19 +76,19 @@ use ironbeam_prism_proof::{
     shared_accumulating_late_cogroup_fixture, shared_unbounded_homogeneous_cogroup_collection,
     shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
     sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
-    streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_partition_fixture,
-    streaming_representative_distinct_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
-    streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
-    triple_stream_windowed_wait_collection, triple_stream_windowed_wait_fixture,
-    triple_unbounded_flatten_collection, triple_unbounded_flatten_fixture,
-    triple_unbounded_homogeneous_cogroup_collection, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_collection, triple_unbounded_session_homogeneous_fixture,
-    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
-    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
-    ExpandSingleton, PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow,
-    PRODUCTION_AVRO_SCHEMA,
+    streaming_count_per_element_fixture, streaming_distinct_window_fixture,
+    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_partition_fixture, streaming_representative_distinct_fixture,
+    streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_collection, streaming_windowed_side_input_fixture,
+    timed_keyed_batches_fixture, triple_stream_windowed_wait_collection,
+    triple_stream_windowed_wait_fixture, triple_unbounded_flatten_collection,
+    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_collection,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_collection,
+    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
+    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
+    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
+    PaneFixtureWindow, ProductionAvroRow, ProductionProtoRow, PRODUCTION_AVRO_SCHEMA,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture, MongoRow};
@@ -5820,6 +5820,52 @@ async fn prism_matches_direct_streaming_representative_distinct() {
     assert_eq!(
         terminal.0, 3,
         "stream representative distinct job state: {terminal:?}"
+    );
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_streaming_count_per_element() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-stream-counts");
+    let portable_path = directory.path().join("portable-stream-counts");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        streaming_count_per_element_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = ["0:1000000:a:2", "0:3000000:b:1", "10000000:11000000:a:1"];
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    streaming_count_per_element_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "stream-count-per-element",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_STREAM_COUNT_PER_ELEMENT".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "stream count-per-element job state: {terminal:?}"
     );
     assert_eq!(read_rows(&portable_path), expected);
 }

@@ -12,6 +12,11 @@ impl<T: Element> PCollection<T> {
     pub fn key(&self) -> &str {
         &self.key
     }
+    /// Whether this collection can have more elements after its source's
+    /// current output. A transform may retain unboundedness after windowing.
+    pub fn boundedness(&self) -> Result<Boundedness, Error> {
+        Ok(self.parent()?.boundedness)
+    }
     fn parent(&self) -> Result<Node, Error> {
         let inner = self
             .pipeline
