@@ -627,6 +627,8 @@ The callback can read the value cell before Direct removes the expired
 window. Its output carries the window's maximum event timestamp. Local
 Direct/Prism fixtures pass for two fixed windows and two offset fixed
 windows, including a negative window start. Each source advances its
-watermark after a window; other interleavings and allowed lateness have not
-been proved. A supervised local Prism job also replaces the execution child
-during the expiration callback and commits each window result once.
+watermark after a window. A fixture with two keys in each fixed window
+commits four distinct expiration results on both runners. Other interleavings
+and allowed lateness have not been proved. A supervised local Prism job also
+replaces the execution child during the expiration callback and commits each
+window result once.
