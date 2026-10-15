@@ -212,11 +212,11 @@ async fn scoped_user_state_routes_remaining_cell_operations() {
                 (
                     Some(state_key::Type::OrderedListUserState(key)),
                     Some(state_request::Request::Get(_)),
-                ) if key.user_state_id == "ordered" => "ordered-read",
+                ) if key.user_state_id == "ordered" && key.range.is_some() => "ordered-read",
                 (
                     Some(state_key::Type::OrderedListUserState(key)),
                     Some(state_request::Request::Append(_)),
-                ) if key.user_state_id == "ordered" => "ordered-append",
+                ) if key.user_state_id == "ordered" && key.range.is_none() => "ordered-append",
                 _ => panic!("wrong scoped state request"),
             };
             assert_eq!(actual, expected);
@@ -252,10 +252,7 @@ async fn scoped_user_state_routes_remaining_cell_operations() {
     assert_eq!(access.read_map_value("map", vec![9]).await.unwrap(), b"ok");
     access.clear_map_value("map", vec![9]).await.unwrap();
     assert_eq!(access.read_ordered("ordered", 0, 10).await.unwrap(), b"ok");
-    access
-        .append_ordered("ordered", 0, 10, vec![2])
-        .await
-        .unwrap();
+    access.append_ordered("ordered", vec![2]).await.unwrap();
     responder.await.unwrap();
 }
 
@@ -328,6 +325,11 @@ fn user_state_scope_builds_each_beam_fn_state_key_shape() {
     };
     let range = ordered.range.unwrap();
     assert_eq!((range.start, range.end), (-5, 10));
+    let Some(state_key::Type::OrderedListUserState(append_key)) = scope.ordered_list_all().r#type
+    else {
+        panic!("expected ordered-list append key");
+    };
+    assert!(append_key.range.is_none());
     assert!(scope.ordered_list(10, 10).is_err());
     assert!(scope.ordered_list(11, 10).is_err());
     assert!(UserStateScope::new("", "cell", Vec::new(), Vec::new()).is_err());

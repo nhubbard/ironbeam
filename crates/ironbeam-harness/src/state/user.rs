@@ -101,6 +101,22 @@ impl UserStateScope {
             )),
         })
     }
+
+    /// Base ordered-list key used for append. The encoded entries carry their
+    /// own sort timestamps; range is only present on read and clear requests.
+    pub fn ordered_list_all(&self) -> StateKey {
+        StateKey {
+            r#type: Some(state_key::Type::OrderedListUserState(
+                state_key::OrderedListUserState {
+                    transform_id: self.transform_id.clone(),
+                    user_state_id: self.state_id.clone(),
+                    window: self.window.clone(),
+                    key: self.key.clone(),
+                    range: None,
+                },
+            )),
+        }
+    }
 }
 
 /// Runner-backed state cells for one keyed, windowed bundle instruction.
@@ -254,17 +270,10 @@ impl<'a> UserStateAccess<'a> {
         self.client.get_all(self.instruction_id, key).await
     }
 
-    /// Append encoded entries to an ordered-list state cell.
-    pub async fn append_ordered(
-        &self,
-        state_id: &str,
-        start: i64,
-        end: i64,
-        data: Vec<u8>,
-    ) -> Result<()> {
-        let key = self
-            .scope(state_id, Self::ordered_kind)?
-            .ordered_list(start, end)?;
+    /// Append encoded timestamped entries to an ordered-list state cell.
+    /// Each entry carries its own sort timestamp; the StateKey has no range.
+    pub async fn append_ordered(&self, state_id: &str, data: Vec<u8>) -> Result<()> {
+        let key = self.scope(state_id, Self::ordered_kind)?.ordered_list_all();
         self.client.append(self.instruction_id, key, data).await
     }
 
