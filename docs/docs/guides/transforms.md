@@ -628,7 +628,9 @@ window. Its output carries the window's maximum event timestamp. Local
 Direct/Prism fixtures pass for two fixed windows and two offset fixed
 windows, including a negative window start. Each source advances its
 watermark after a window. A fixture with two keys in each fixed window
-commits four distinct expiration results on both runners. Other interleavings
-and allowed lateness have not been proved. A supervised local Prism job also
-replaces the execution child during the expiration callback and commits each
-window result once.
+commits four distinct expiration results on both runners. Two different keys
+in two windows also expire when their elements arrive in one source batch.
+Pinned Prism committed only the first expiration when the same key appeared
+in both windows in that batch. Other interleavings and allowed lateness have
+not been proved. A supervised local Prism job also replaces the execution
+child during the expiration callback and commits each window result once.
