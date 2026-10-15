@@ -396,6 +396,13 @@ Residual work can resume in a new process after an accepted split. Final-result
 sinks keep a durable record of accepted bundle attempts so publication can be
 checked after worker restart.
 
+The source adapter accepts a Fn API checkpoint request when it names the
+active gRPC read transform, requests fraction zero, and supplies no allowed
+split points. It returns the residual when the bundle finishes. A request for
+another transform, an arbitrary fraction, or a constrained split point does
+not checkpoint this source. Dynamic splitting of user transforms remains
+unavailable.
+
 Prism treats a disconnected Fn Control stream with active instructions as a
 bundle failure. Starting another process under the same worker ID does not
 resend the failed instruction. Ironbeam's optional supervised worker keeps the

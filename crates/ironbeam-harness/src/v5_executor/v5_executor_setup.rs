@@ -1,5 +1,10 @@
+struct ActiveSdfBundle {
+    source_id: String,
+    requested: Arc<AtomicBool>,
+}
+
 struct ActiveSdfGuard<'a> {
-    entries: &'a Mutex<HashMap<String, Arc<AtomicBool>>>,
+    entries: &'a Mutex<HashMap<String, ActiveSdfBundle>>,
     instruction_id: String,
 }
 
@@ -271,6 +276,7 @@ impl V5BundleExecutor {
     fn register_sdf_bundle(
         &self,
         instruction_id: &str,
+        source_id: &str,
     ) -> Result<(Arc<AtomicBool>, ActiveSdfGuard<'_>)> {
         let requested = Arc::new(AtomicBool::new(false));
         let mut active = self
@@ -280,7 +286,13 @@ impl V5BundleExecutor {
         if active.contains_key(instruction_id) {
             bail!("v5 SDF bundle instruction id is already active");
         }
-        active.insert(instruction_id.into(), Arc::clone(&requested));
+        active.insert(
+            instruction_id.into(),
+            ActiveSdfBundle {
+                source_id: source_id.into(),
+                requested: Arc::clone(&requested),
+            },
+        );
         Ok((
             requested,
             ActiveSdfGuard {

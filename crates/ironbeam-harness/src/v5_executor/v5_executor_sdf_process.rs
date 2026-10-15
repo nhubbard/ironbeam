@@ -234,7 +234,7 @@ impl V5BundleExecutor {
             bail!("v5 SDF process bundle has a branch without a terminal sink");
         }
 
-        let (split_requested, _active_guard) = self.register_sdf_bundle(instruction_id)?;
+        let (split_requested, _active_guard) = self.register_sdf_bundle(instruction_id, source_id)?;
 
         let source_client = self.data_client(source_port).await?;
         let mut reader = source_client.open_read(instruction_id, source_id);

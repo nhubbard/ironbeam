@@ -494,10 +494,41 @@ async fn run_sdf_process_bundle_with_branch(
         let running = Arc::clone(&runner);
         let task = tokio::spawn(async move { running.run("bundle", &plan).await });
         tokio::time::sleep(Duration::from_millis(35)).await;
+        use beam_proto::fn_execution_v1::process_bundle_split_request::DesiredSplit;
+        use beam_proto::fn_execution_v1::ProcessBundleSplitRequest;
+        let refused = [
+            HashMap::new(),
+            HashMap::from([("other".into(), DesiredSplit::default())]),
+            HashMap::from([(
+                "input".into(),
+                DesiredSplit {
+                    fraction_of_remainder: 0.5,
+                    ..Default::default()
+                },
+            )]),
+            HashMap::from([(
+                "input".into(),
+                DesiredSplit {
+                    allowed_split_points: vec![0],
+                    ..Default::default()
+                },
+            )]),
+        ];
+        for desired_splits in refused {
+            let split = runner
+                .split_bundle(&ProcessBundleSplitRequest {
+                    instruction_id: "bundle".into(),
+                    desired_splits,
+                })
+                .await
+                .unwrap();
+            assert!(split.residual_roots.is_empty());
+            assert!(!task.is_finished(), "unsupported split must not checkpoint");
+        }
         let split = runner
-            .split_bundle(&beam_proto::fn_execution_v1::ProcessBundleSplitRequest {
+            .split_bundle(&ProcessBundleSplitRequest {
                 instruction_id: "bundle".into(),
-                ..Default::default()
+                desired_splits: HashMap::from([("input".into(), DesiredSplit::default())]),
             })
             .await
             .unwrap();

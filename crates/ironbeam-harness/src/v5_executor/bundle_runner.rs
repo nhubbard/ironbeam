@@ -8,11 +8,18 @@ impl BundleRunner for V5BundleExecutor {
             .active_sdf
             .lock()
             .map_err(|_| anyhow!("v5 SDF active bundle registry poisoned"))?;
-        if let Some(requested) = active.get(&request.instruction_id) {
-            // A source checkpoint is emitted with ProcessBundleResponse after
-            // this bundle relinquishes its current restriction. The split
-            // instruction itself does not claim roots twice.
-            requested.store(true, Ordering::Release);
+        if let Some(bundle) = active.get(&request.instruction_id) {
+            if let Some(desired) = request.desired_splits.get(&bundle.source_id) {
+                if desired.fraction_of_remainder == 0.0
+                    && desired.allowed_split_points.is_empty()
+                {
+                    // This source adapter can self-checkpoint but cannot partition
+                    // its opaque cursor at an arbitrary fraction or channel index.
+                    // The residual is emitted with ProcessBundleResponse after the
+                    // active bundle relinquishes its current restriction.
+                    bundle.requested.store(true, Ordering::Release);
+                }
+            }
         }
         Ok(ProcessBundleSplitResponse::default())
     }

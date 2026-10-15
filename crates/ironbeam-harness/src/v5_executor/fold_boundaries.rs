@@ -239,6 +239,6 @@ pub struct V5BundleExecutor {
     identity: ironbeam_core::ExecutionIdentity,
     worker_id: Option<String>,
     data_clients: AsyncMutex<HashMap<String, DataClient>>,
-    active_sdf: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    active_sdf: Mutex<HashMap<String, ActiveSdfBundle>>,
     finalizations: BundleFinalizations,
 }
