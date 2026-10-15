@@ -183,6 +183,11 @@ would hide the difference between a declared state spec and a working
 stateful pipeline. The target remains open until the missing behaviors have
 executable fixtures and a documented weighting method.
 
+The RowCoder date, time, and UUID wire tests also have a bounded execution
+fixture. It crosses a reshuffle boundary and matches decoded values on Direct
+and pinned local Prism. This proves these three logical representations in a
+portable job, not general logical-type support or cross-SDK schema evolution.
+
 The provider-neutral Pub/Sub extension contract now exposes acknowledgment
 IDs separately from message IDs. Its in-memory provider delivers published
 messages to each subscription, supports acknowledgment after processing, and

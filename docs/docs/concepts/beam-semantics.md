@@ -38,6 +38,12 @@ Bounded keyed batching can also use encoded-value byte and count limits. The
 byte-limited method rejects unbounded input until a stateful streaming
 implementation exists.
 
+A bounded RowCoder fixture carries Beam date, time, and UUID logical fields
+through a reshuffle. Direct and the pinned local Prism job produce the same
+decoded values after that wire boundary. The date uses epoch days, the time
+uses nanoseconds since midnight, and the UUID uses a nested row containing
+its most and least significant 64-bit halves.
+
 For an unbounded fixed or sliding window with allowed lateness,
 `group_into_batches_with_max_buffering_duration_named` uses a repeated
 count-or-processing-time trigger before the watermark and a repeated count

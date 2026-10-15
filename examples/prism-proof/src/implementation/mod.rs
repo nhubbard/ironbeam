@@ -3,6 +3,8 @@ mod distinct;
 pub use distinct::*;
 mod row;
 pub use row::*;
+mod row_calendar;
+pub use row_calendar::*;
 mod row_decimal;
 pub use row_decimal::*;
 mod row_projection;
