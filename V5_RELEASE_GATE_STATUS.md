@@ -183,6 +183,14 @@ would hide the difference between a declared state spec and a working
 stateful pipeline. The target remains open until the missing behaviors have
 executable fixtures and a documented weighting method.
 
+The provider-neutral Pub/Sub extension contract now exposes acknowledgment
+IDs separately from message IDs. Its in-memory provider delivers published
+messages to each subscription, supports acknowledgment after processing, and
+assigns a new handle when an unacknowledged delivery is retried. Tests cover
+fanout, retry, invalid handles, and the legacy provider's fail-closed default.
+This is a service-contract proof, not a Beam Pub/Sub source or a live GCP
+service proof.
+
 The bounded completion barrier now accepts a materialized signal branch on
 Direct. A two-source `Flatten` followed by `GroupByKey` finishes before an
 unbounded main source opens; pinned Prism runs the same graph and agrees on

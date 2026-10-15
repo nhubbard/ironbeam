@@ -87,6 +87,16 @@ Fully qualified `projects/PROJECT/topics/NAME` and
 `projects/PROJECT/subscriptions/NAME` names are also accepted. The publisher
 is reused for subsequent calls to the same topic.
 
+The provider-neutral `PubSubIO` contract has a separate synchronous
+`pull_with_ack` method for extension authors. It returns a `ReceivedMessage`
+with a message ID and an acknowledgment ID. The latter belongs to one
+delivery attempt and must be passed to `acknowledge` after processing. A
+redelivery may retain the message ID and use a new acknowledgment ID. The
+in-memory provider in `ironbeam-cloud-fakes` can simulate this sequence for
+tests. The Google Cloud client above uses its native asynchronous message
+handler. Ironbeam does not yet provide a Pub/Sub pipeline source that ties an
+acknowledgment to a committed bundle.
+
 ## BigQuery
 
 `query_rows` waits for the query job and collects its rows in memory. Read

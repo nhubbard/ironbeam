@@ -1,5 +1,46 @@
 // Unit tests for src/lib.rs.
-use super::{CloudConfig, CloudCredentials, CloudResult, ResourceId};
+use super::{CloudConfig, CloudCredentials, CloudResult, ErrorKind, Message, PubSubIO, ResourceId};
+use std::collections::HashMap;
+
+struct LegacyPubSub;
+
+impl PubSubIO for LegacyPubSub {
+    fn publish(&self, _: &str, _: &[u8], _: HashMap<String, String>) -> CloudResult<String> {
+        Ok(String::new())
+    }
+
+    fn publish_batch(
+        &self,
+        _: &str,
+        _: Vec<(Vec<u8>, HashMap<String, String>)>,
+    ) -> CloudResult<Vec<String>> {
+        Ok(Vec::new())
+    }
+
+    fn subscribe(&self, _: &str, _: &str) -> CloudResult<()> {
+        Ok(())
+    }
+
+    fn pull(&self, _: &str, _: u32) -> CloudResult<Vec<Message>> {
+        Ok(Vec::new())
+    }
+
+    fn acknowledge(&self, _: &str, _: Vec<String>) -> CloudResult<()> {
+        Ok(())
+    }
+
+    fn topic_exists(&self, _: &str) -> CloudResult<bool> {
+        Ok(false)
+    }
+}
+
+#[test]
+fn legacy_pubsub_provider_cannot_claim_acknowledged_delivery() {
+    assert_eq!(
+        LegacyPubSub.pull_with_ack("sub", 1).unwrap_err().kind,
+        ErrorKind::InvalidInput
+    );
+}
 
 struct MinimalCredentials;
 
