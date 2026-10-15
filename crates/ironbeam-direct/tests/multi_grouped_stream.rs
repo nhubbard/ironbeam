@@ -18,6 +18,64 @@ struct Script {
 }
 
 #[test]
+fn bounded_multi_source_group_finishes_during_materialization() {
+    let pipeline = Pipeline::default();
+    let make = |key: &str, value| {
+        pipeline
+            .from_vec(key, vec![(1_000_000_i64, (1_i32, value))])
+            .unwrap()
+            .timestamps_from_pairs_named(&format!("{key}-time"))
+            .unwrap()
+            .fixed_windows(&format!("{key}-window"), 10_000_000)
+            .unwrap()
+            .early_count_trigger_named(&format!("{key}-trigger"), 1)
+            .unwrap()
+    };
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let sink = make("first", 2)
+        .co_group_homogeneous_named("group", &[make("second", 4)])
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("format", |(pane, (key, values))| {
+            format!("{key}:{values:?}:{:?}:{}", pane.timing, pane.index)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "bounded-multi-early-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        staged: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        ["1:[[2], [4]]:Early:0"]
+    );
+}
+
+#[test]
 fn multi_source_early_count_emits_panes_from_both_inputs() {
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));

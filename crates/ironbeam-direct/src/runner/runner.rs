@@ -47,7 +47,8 @@ const fn supports_trigger(node: &ironbeam_core::Node, unbounded_source: bool) ->
                 && node.time.trigger.late_count().is_some()
                 && node.time.trigger.early_count().is_none())
             || (node.time.allowed_lateness_ns == 0
-                && node.time.trigger.early_count().is_some()
+                && (node.time.trigger.early_count().is_some()
+                    || node.time.trigger.early_processing_time().is_some())
                 && !matches!(node.time.window, ironbeam_core::Window::Session { .. }))))
         || (unbounded_source
             && stateful_fanin_operation(&node.operation)
@@ -56,6 +57,11 @@ const fn supports_trigger(node: &ironbeam_core::Node, unbounded_source: bool) ->
                 WindowTrigger::LateElementCount { .. }
                     | WindowTrigger::LateElementCountAccumulating { .. }
             ))
+        || (unbounded_source
+            && matches!(node.operation, Operation::CoGroupByKey)
+            && node.time.allowed_lateness_ns == 0
+            && node.time.trigger.early_processing_time().is_some()
+            && !matches!(node.time.window, ironbeam_core::Window::Session { .. }))
 }
 
 impl DirectRunner {

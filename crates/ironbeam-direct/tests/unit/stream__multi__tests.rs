@@ -833,6 +833,10 @@ enum FoldFault {
     FinalPanic,
     FinalOverrelease,
     FinalReleaseOne,
+    TimerPanic,
+    TimerOverrelease,
+    TimerReleaseOne,
+    TimerEmpty,
 }
 
 struct FaultFold(FoldFault);
@@ -857,6 +861,33 @@ impl FoldSession for FaultFold {
             FoldFault::CountPanic => panic!("count fold failed"),
             FoldFault::CountOverrelease => Ok((Vec::new(), 2)),
             FoldFault::CountReleaseOne => Ok((Vec::new(), 1)),
+            _ => Ok((Vec::new(), 0)),
+        }
+    }
+
+    fn arm_processing_time(&mut self, _: i64, _: i64) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn next_processing_time_deadline(&self) -> Option<i64> {
+        if matches!(
+            self.0,
+            FoldFault::TimerPanic
+                | FoldFault::TimerOverrelease
+                | FoldFault::TimerReleaseOne
+                | FoldFault::TimerEmpty
+        ) {
+            Some(5)
+        } else {
+            None
+        }
+    }
+
+    fn drain_ready_processing_time(&mut self, _: i64) -> Result<(Vec<Envelope>, usize), Error> {
+        match self.0 {
+            FoldFault::TimerPanic => panic!("timer fold failed"),
+            FoldFault::TimerOverrelease => Ok((Vec::new(), 2)),
+            FoldFault::TimerReleaseOne => Ok((Vec::new(), 1)),
             _ => Ok((Vec::new(), 0)),
         }
     }
@@ -979,8 +1010,17 @@ fn multi_grouped_state_versions_and_empty_snapshots_are_distinct() {
     let registry = Registry::default();
     let route = fault_group_route();
     for lateness in [0, 5] {
-        let state = MultiWindowState::empty(lateness);
+        let mut state = MultiWindowState::empty(lateness);
         assert!(state.is_empty());
+        assert!(!state.is_processing_time());
+        state.arm_processing_time(0).unwrap();
+        assert_eq!(state.next_processing_time_deadline(), None);
+        assert!(
+            state
+                .drain_ready_processing_time(&route, 0)
+                .unwrap()
+                .is_empty()
+        );
         let version = state.version();
         assert_eq!(version, if lateness == 0 { 1 } else { 2 });
         let bytes = state.encode(&registry, &route, 1024).unwrap();
@@ -1009,21 +1049,46 @@ fn multi_grouped_state_versions_and_empty_snapshots_are_distinct() {
             );
         }
     }
-    let early = MultiWindowState::early(2);
+    let early = MultiWindowState::early(grouped_state::EarlyPolicy::Count(2));
     assert!(early.is_empty());
     assert_eq!(early.version(), 3);
     let bytes = early.encode(&registry, &route, 1024).unwrap();
-    let restored = MultiWindowState::restore_early(&registry, &route, &bytes, 3, 2, 10).unwrap();
+    let restored = MultiWindowState::restore_early(
+        &registry,
+        &route,
+        &bytes,
+        3,
+        grouped_state::EarlyPolicy::Count(2),
+        10,
+    )
+    .unwrap();
     assert!(restored.is_empty());
     assert_eq!(restored.version(), 3);
     assert_eq!(
-        MultiWindowState::restore_early(&registry, &route, &bytes, 2, 2, 10)
-            .err()
-            .unwrap()
-            .kind,
+        MultiWindowState::restore_early(
+            &registry,
+            &route,
+            &bytes,
+            2,
+            grouped_state::EarlyPolicy::Count(2),
+            10,
+        )
+        .err()
+        .unwrap()
+        .kind,
         ErrorKind::Incompatible
     );
-    assert!(MultiWindowState::restore_early(&registry, &route, b"bad", 3, 2, 10).is_err());
+    assert!(
+        MultiWindowState::restore_early(
+            &registry,
+            &route,
+            b"bad",
+            3,
+            grouped_state::EarlyPolicy::Count(2),
+            10
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -1044,7 +1109,7 @@ fn multi_grouped_early_count_rejects_invalid_fold_accounting() {
                 (Box::new(FaultFold(fault)) as Box<dyn FoldSession>, 1),
             )]),
             buffered,
-            count: 1,
+            policy: grouped_state::EarlyPolicy::Count(1),
         };
         assert_eq!(
             state
@@ -1055,6 +1120,70 @@ fn multi_grouped_early_count_rejects_invalid_fold_accounting() {
             expected
         );
     }
+}
+
+#[test]
+fn multi_grouped_processing_timer_rejects_fold_faults() {
+    use grouped_state::{EarlyPolicy, MultiWindowState};
+
+    let route = fault_group_route();
+    for (fault, buffered, expected) in [
+        (FoldFault::TimerPanic, 1, ErrorKind::Execution),
+        (FoldFault::TimerOverrelease, 1, ErrorKind::Recovery),
+        (FoldFault::TimerReleaseOne, 0, ErrorKind::Recovery),
+        (FoldFault::TimerEmpty, 0, ErrorKind::Recovery),
+    ] {
+        let mut state = MultiWindowState::Early {
+            folds: BTreeMap::from([(
+                (0, 10),
+                (Box::new(FaultFold(fault)) as Box<dyn FoldSession>, 1),
+            )]),
+            buffered,
+            policy: EarlyPolicy::ProcessingTime(5),
+        };
+        assert!(state.is_processing_time());
+        state.arm_processing_time(0).unwrap();
+        assert_eq!(state.next_processing_time_deadline(), Some(5));
+        assert_eq!(
+            state
+                .drain_ready_processing_time(&route, 5)
+                .err()
+                .unwrap()
+                .kind,
+            expected
+        );
+    }
+}
+
+#[test]
+fn completed_multi_group_discards_pending_late_trigger_before_expiry() {
+    use grouped_state::MultiWindowState;
+
+    let registry = Registry::default();
+    let route = fault_group_route();
+    let window = (0, 10);
+    let mut state = MultiWindowState::Late {
+        folds: BTreeMap::from([(
+            window,
+            (
+                Box::new(FaultFold(FoldFault::FinalReleaseOne)) as Box<dyn FoldSession>,
+                1,
+            ),
+        )]),
+        buffered: 1,
+        late_windows: BTreeSet::from([window]),
+        allowed_lateness_ns: 5,
+    };
+    let mut complete = fault_progress(10);
+    complete.event_time_ns = None;
+    complete.completed = true;
+    assert!(
+        state
+            .drain(&registry, &route, Some(10), &complete)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(state.is_empty());
 }
 
 #[test]
@@ -1073,7 +1202,7 @@ fn multi_grouped_early_count_drops_closed_rows_and_enforces_budget() {
             end_ns: 10,
         }),
     };
-    let mut early = MultiWindowState::early(1);
+    let mut early = MultiWindowState::early(grouped_state::EarlyPolicy::Count(1));
     early.add(&registry, &route, event(), Some(10), 0).unwrap();
     assert!(early.is_empty());
     assert_eq!(
@@ -1101,7 +1230,7 @@ fn multi_grouped_early_count_drops_closed_rows_and_enforces_budget() {
             ),
         )]),
         buffered: 0,
-        count: 1,
+        policy: grouped_state::EarlyPolicy::Count(1),
     };
     assert_eq!(
         panicking
@@ -1129,7 +1258,7 @@ fn multi_grouped_early_count_releases_closed_windows_once() {
             ),
         )]),
         buffered,
-        count: 1,
+        policy: grouped_state::EarlyPolicy::Count(1),
     };
     let mut waiting = make(1);
     let mut no_watermark = fault_progress(0);

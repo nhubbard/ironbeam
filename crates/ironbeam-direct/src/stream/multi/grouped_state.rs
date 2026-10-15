@@ -25,16 +25,32 @@ pub(super) enum MultiWindowState {
     Early {
         folds: WindowFolds,
         buffered: usize,
-        count: u64,
+        policy: EarlyPolicy,
     },
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum EarlyPolicy {
+    Count(u64),
+    ProcessingTime(i64),
+}
+
 impl MultiWindowState {
-    pub(super) fn early(count: u64) -> Self {
+    pub(super) const fn is_processing_time(&self) -> bool {
+        matches!(
+            self,
+            Self::Early {
+                policy: EarlyPolicy::ProcessingTime(_),
+                ..
+            }
+        )
+    }
+
+    pub(super) fn early(policy: EarlyPolicy) -> Self {
         Self::Early {
             folds: BTreeMap::new(),
             buffered: 0,
-            count,
+            policy,
         }
     }
 
@@ -43,7 +59,7 @@ impl MultiWindowState {
         route: &MultiGroupedStreamRoute,
         bytes: &[u8],
         version: u8,
-        count: u64,
+        policy: EarlyPolicy,
         budget_elements: usize,
     ) -> Result<Self, Error> {
         if version != 3 {
@@ -56,8 +72,76 @@ impl MultiWindowState {
         Ok(Self::Early {
             folds,
             buffered,
-            count,
+            policy,
         })
+    }
+
+    pub(super) fn arm_processing_time(&mut self, now_ns: i64) -> Result<(), Error> {
+        if let Self::Early {
+            folds,
+            policy: EarlyPolicy::ProcessingTime(delay_ns),
+            ..
+        } = self
+        {
+            for (fold, _) in folds.values_mut() {
+                fold.arm_processing_time(now_ns, *delay_ns)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn next_processing_time_deadline(&self) -> Option<i64> {
+        if let Self::Early {
+            folds,
+            policy: EarlyPolicy::ProcessingTime(_),
+            ..
+        } = self
+        {
+            folds
+                .values()
+                .filter_map(|(fold, _)| fold.next_processing_time_deadline())
+                .min()
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn drain_ready_processing_time(
+        &mut self,
+        route: &MultiGroupedStreamRoute,
+        deadline_ns: i64,
+    ) -> Result<Vec<Envelope>, Error> {
+        let Self::Early {
+            folds, buffered, ..
+        } = self
+        else {
+            return Ok(Vec::new());
+        };
+        let mut panes = Vec::new();
+        for (fold, rows) in folds.values_mut() {
+            let (mut fired, released) = catch_group_user(
+                &route.group_key,
+                "group processing trigger panicked",
+                || fold.drain_ready_processing_time(deadline_ns),
+            )?;
+            *rows = rows.checked_sub(released).ok_or_else(|| {
+                Error::recovery(
+                    &route.group_key,
+                    "processing trigger released too many rows",
+                )
+            })?;
+            *buffered = buffered
+                .checked_sub(released)
+                .ok_or_else(|| Error::recovery(&route.group_key, "group buffer count underflow"))?;
+            panes.append(&mut fired);
+        }
+        if panes.is_empty() {
+            return Err(Error::recovery(
+                &route.group_key,
+                "armed processing timer produced no pane",
+            ));
+        }
+        Ok(panes)
     }
 
     pub(super) fn empty(allowed_lateness_ns: i64) -> Self {
@@ -384,24 +468,30 @@ impl MultiWindowState {
             Self::Early {
                 folds,
                 buffered,
-                count,
+                policy,
             } => {
                 let mut panes = Vec::new();
-                for (&(_, end), (fold, rows)) in folds.iter_mut() {
-                    if prior_watermark.is_some_and(|prior| end <= prior) {
-                        continue;
-                    }
-                    let (mut fired, released) =
-                        catch_group_user(&route.group_key, "group count trigger panicked", || {
-                            fold.drain_ready_count(*count)
+                if let EarlyPolicy::Count(count) = policy {
+                    for (&(_, end), (fold, rows)) in folds.iter_mut() {
+                        if prior_watermark.is_some_and(|prior| end <= prior) {
+                            continue;
+                        }
+                        let (mut fired, released) = catch_group_user(
+                            &route.group_key,
+                            "group count trigger panicked",
+                            || fold.drain_ready_count(*count),
+                        )?;
+                        *rows = rows.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(
+                                &route.group_key,
+                                "count trigger released too many rows",
+                            )
                         })?;
-                    *rows = rows.checked_sub(released).ok_or_else(|| {
-                        Error::recovery(&route.group_key, "count trigger released too many rows")
-                    })?;
-                    *buffered = buffered.checked_sub(released).ok_or_else(|| {
-                        Error::recovery(&route.group_key, "group buffer count underflow")
-                    })?;
-                    panes.append(&mut fired);
+                        *buffered = buffered.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "group buffer count underflow")
+                        })?;
+                        panes.append(&mut fired);
+                    }
                 }
                 let watermark = if progress.completed {
                     Some(i64::MAX)

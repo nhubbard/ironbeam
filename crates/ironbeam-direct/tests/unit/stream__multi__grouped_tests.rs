@@ -9,6 +9,66 @@ use std::collections::VecDeque;
 
 struct NullSink;
 
+struct ClockSource(Option<i64>);
+
+impl UnboundedSource<Envelope> for ClockSource {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Envelope>, Error> {
+        Ok(UnboundedPoll::Pending)
+    }
+
+    fn processing_time_ns(&self) -> Option<i64> {
+        self.0
+    }
+}
+
+#[test]
+fn multi_source_clock_tracks_scripted_progress_and_rejects_mixed_domains() {
+    let readers = vec![
+        Some(Box::new(ClockSource(Some(2))) as Box<dyn UnboundedSource<Envelope>>),
+        None,
+        Some(Box::new(ClockSource(Some(7))) as Box<dyn UnboundedSource<Envelope>>),
+    ];
+    assert_eq!(multi_processing_now_ns(&readers, None).unwrap(), 7);
+    assert_eq!(multi_processing_now_ns(&readers, Some(11)).unwrap(), 11);
+    assert_eq!(
+        multi_processing_now_ns(
+            &[Some(
+                Box::new(ClockSource(Some(-1))) as Box<dyn UnboundedSource<Envelope>>
+            )],
+            None,
+        )
+        .err()
+        .unwrap()
+        .kind,
+        ErrorKind::Incompatible
+    );
+    assert_eq!(
+        multi_processing_now_ns(
+            &[
+                Some(Box::new(ClockSource(Some(0))) as Box<dyn UnboundedSource<Envelope>>),
+                Some(Box::new(ClockSource(None)) as Box<dyn UnboundedSource<Envelope>>),
+            ],
+            None,
+        )
+        .err()
+        .unwrap()
+        .kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "mixed-scripted-and-wall-clocks".into(),
+        }
+    );
+    assert!(
+        multi_processing_now_ns(
+            &[Some(
+                Box::new(ClockSource(None)) as Box<dyn UnboundedSource<Envelope>>
+            )],
+            None,
+        )
+        .unwrap()
+            > 0
+    );
+}
+
 impl TypedSink<i32> for NullSink {
     fn write(&mut self, _: i32) -> Result<(), Error> {
         Ok(())
@@ -166,6 +226,7 @@ fn empty_checkpoint_state(
 ) -> MultiGroupedState {
     MultiGroupedState {
         version: 2,
+        processing_clock_ns: None,
         sources: route
             .sources
             .iter()
@@ -194,6 +255,7 @@ fn grouped_start_rejects_mismatched_coded_checkpoints() {
         "split",
         "progress",
         "cursor-length",
+        "clock",
     ] {
         let temporary = tempfile::tempdir().unwrap();
         let config = checkpoint_config(temporary.path());
@@ -209,6 +271,7 @@ fn grouped_start_rejects_mismatched_coded_checkpoints() {
             "split" => state.sources[0].as_mut().unwrap().split_id.clear(),
             "progress" => progress.event_time_ns = Some(99),
             "cursor-length" => progress.checkpoint_position = Some(vec![1]),
+            "clock" => state.processing_clock_ns = Some(-1),
             _ => unreachable!(),
         }
         save_grouped_state(
@@ -224,6 +287,20 @@ fn grouped_start_rejects_mismatched_coded_checkpoints() {
             "{fault}: {error:?}"
         );
     }
+}
+
+#[test]
+fn grouped_start_honors_preexisting_cancellation() {
+    let (graph, registry, plan, route, sink_key) = fixture();
+    let config = JobConfig::default();
+    config.cancellation.store(true, Ordering::SeqCst);
+    assert_eq!(
+        start_multi_grouped_stream_sink::<i32>(&graph, registry, plan, sink_key, &config, route,)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Cancelled
+    );
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! Independent unbounded sources feeding one fixed or sliding window group.
 
-use super::grouped_state::MultiWindowState;
+use super::grouped_state::{EarlyPolicy, MultiWindowState};
 use super::*;
 
 #[derive(Serialize, Deserialize)]
@@ -8,6 +8,8 @@ struct MultiGroupedState {
     version: u8,
     sources: Vec<Option<ProgressSignal>>,
     windows: Vec<u8>,
+    #[serde(default)]
+    processing_clock_ns: Option<i64>,
 }
 
 fn apply_branch_paths(
@@ -89,12 +91,16 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
         .ok_or_else(|| Error::graph(&route.group_key, "multi-source group node missing"))?;
     let allowed_lateness_ns = group.time.allowed_lateness_ns;
     let early_count = group.time.trigger.early_count();
+    let early_processing_time = group.time.trigger.early_processing_time();
+    let early_policy = early_count
+        .map(EarlyPolicy::Count)
+        .or_else(|| early_processing_time.map(EarlyPolicy::ProcessingTime));
     if group.time.trigger != WindowTrigger::Default
         && !(allowed_lateness_ns > 0
             && group.time.trigger.late_count().is_some()
             && early_count.is_none())
         && !(allowed_lateness_ns == 0
-            && early_count.is_some()
+            && early_policy.is_some()
             && !matches!(route.window, Window::Session { .. }))
     {
         return Err(Error::unsupported(
@@ -152,7 +158,7 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
         .map(|checkpoint| checkpoint.load_state(config.memory_budget_bytes))
         .transpose()?
         .flatten();
-    let (sequence, sources, state) = if let Some((progress, bytes)) = &saved {
+    let (sequence, sources, state, processing_clock_ns) = if let Some((progress, bytes)) = &saved {
         let state: MultiGroupedState = serde_json::from_slice(bytes)
             .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
         if state.sources.len() != route.sources.len()
@@ -170,6 +176,15 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
                 "multi-group stream checkpoint identity mismatch",
             ));
         }
+        if state
+            .processing_clock_ns
+            .is_some_and(|clock_ns| clock_ns < 0)
+        {
+            return Err(Error::recovery(
+                "checkpoint",
+                "negative multi-group processing clock",
+            ));
+        }
         let cursor = progress
             .checkpoint_position
             .as_deref()
@@ -185,13 +200,13 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
                 "multi-group progress does not match cursors",
             ));
         }
-        let windows = if let Some(count) = early_count {
+        let windows = if let Some(policy) = early_policy {
             MultiWindowState::restore_early(
                 &registry,
                 &route,
                 &state.windows,
                 state.version,
-                count,
+                policy,
                 config.buffer_budget_elements,
             )?
         } else {
@@ -204,15 +219,16 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
                 config.buffer_budget_elements,
             )?
         };
-        (sequence, state.sources, windows)
+        (sequence, state.sources, windows, state.processing_clock_ns)
     } else {
         (
             0,
             vec![None; route.sources.len()],
-            early_count.map_or_else(
+            early_policy.map_or_else(
                 || MultiWindowState::empty(allowed_lateness_ns),
                 MultiWindowState::early,
             ),
+            None,
         )
     };
     #[allow(unused_mut)]
@@ -265,6 +281,7 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
                     sequence,
                     sources,
                     state,
+                    processing_clock_ns,
                 )
             }))
             .unwrap_or_else(|_| Err(Error::execution("job", "direct", "stream worker panicked")));
@@ -296,6 +313,7 @@ fn run_multi_grouped_stream(
     mut sequence: u64,
     mut sources: Vec<Option<ProgressSignal>>,
     mut state: MultiWindowState,
+    mut processing_clock_ns: Option<i64>,
 ) -> Result<(), Error> {
     let mut materialized_bounded = false;
     for (index, source) in route.sources.iter().enumerate() {
@@ -350,27 +368,6 @@ fn run_multi_grouped_stream(
             .ok_or_else(|| Error::resource("checkpoint", "multi-group sequence exhausted"))?;
         materialized_bounded = true;
     }
-    if materialized_bounded {
-        let combined = multi_progress(sequence, &sources);
-        let panes = state.drain(registry, route, None, &combined)?;
-        publish_multi_grouped_step(
-            registry,
-            route,
-            graph_fingerprint,
-            sink_key,
-            config,
-            handle,
-            shared_progress,
-            checkpoint,
-            &state,
-            &sources,
-            &combined,
-            panes,
-        )?;
-        if combined.completed {
-            return Ok(());
-        }
-    }
     let mut readers = route
         .sources
         .iter()
@@ -399,6 +396,32 @@ fn run_multi_grouped_stream(
             }
         })
         .collect::<Result<Vec<_>, Error>>()?;
+    if materialized_bounded {
+        if state.is_processing_time() {
+            processing_clock_ns = Some(multi_processing_now_ns(&readers, processing_clock_ns)?);
+            state.arm_processing_time(processing_clock_ns.expect("processing clock set"))?;
+        }
+        let combined = multi_progress(sequence, &sources);
+        let panes = state.drain(registry, route, None, &combined)?;
+        publish_multi_grouped_step(
+            registry,
+            route,
+            graph_fingerprint,
+            sink_key,
+            config,
+            handle,
+            shared_progress,
+            checkpoint,
+            &state,
+            &sources,
+            &combined,
+            processing_clock_ns,
+            panes,
+        )?;
+        if combined.completed {
+            return Ok(());
+        }
+    }
     loop {
         let mut ready = false;
         for (index, source) in route.sources.iter().enumerate() {
@@ -419,6 +442,25 @@ fn run_multi_grouped_stream(
                     "source poll panicked",
                 ))
             })?;
+            if state.is_processing_time() {
+                let now_ns = multi_processing_now_ns(&readers, processing_clock_ns)?;
+                processing_clock_ns = Some(now_ns);
+                fire_multi_processing_timers(
+                    registry,
+                    route,
+                    graph_fingerprint,
+                    sink_key,
+                    config,
+                    handle,
+                    shared_progress,
+                    checkpoint,
+                    &mut sequence,
+                    &sources,
+                    &mut state,
+                    processing_clock_ns,
+                    now_ns,
+                )?;
+            }
             let UnboundedPoll::Ready(batch) = polled else {
                 continue;
             };
@@ -492,6 +534,9 @@ fn run_multi_grouped_stream(
                     )?;
                 }
             }
+            if let Some(now_ns) = processing_clock_ns {
+                state.arm_processing_time(now_ns)?;
+            }
             let next = merge_progress(sources[index].as_ref(), batch.progress);
             if next.completed {
                 readers[index] = None;
@@ -514,6 +559,7 @@ fn run_multi_grouped_stream(
                 &state,
                 &sources,
                 &combined,
+                processing_clock_ns,
                 closing,
             )?;
             if combined.completed {
@@ -524,6 +570,79 @@ fn run_multi_grouped_stream(
             std::thread::sleep(Duration::from_millis(10));
         }
     }
+}
+
+fn multi_processing_now_ns(
+    readers: &[Option<Box<dyn UnboundedSource<Envelope>>>],
+    floor_ns: Option<i64>,
+) -> Result<i64, Error> {
+    let mut scripted = false;
+    let mut wall = false;
+    let mut now_ns = floor_ns.unwrap_or(0);
+    for reader in readers.iter().flatten() {
+        if let Some(clock_ns) = reader.processing_time_ns() {
+            scripted = true;
+            if clock_ns < 0 {
+                return Err(Error::incompatible("negative processing-time source clock"));
+            }
+            now_ns = now_ns.max(clock_ns);
+        } else {
+            wall = true;
+            now_ns = now_ns.max(processing_time_now_ns(reader.as_ref())?);
+        }
+    }
+    if scripted && wall {
+        return Err(Error::unsupported(
+            "processing-clock",
+            "direct",
+            "mixed-scripted-and-wall-clocks",
+        ));
+    }
+    Ok(now_ns)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fire_multi_processing_timers(
+    registry: &Registry,
+    route: &MultiGroupedStreamRoute,
+    graph_fingerprint: &str,
+    sink_key: &str,
+    config: &JobConfig,
+    handle: &JobHandle,
+    shared_progress: &Arc<Mutex<Option<ProgressSignal>>>,
+    checkpoint: Option<&StreamCheckpoint>,
+    sequence: &mut u64,
+    sources: &[Option<ProgressSignal>],
+    state: &mut MultiWindowState,
+    processing_clock_ns: Option<i64>,
+    now_ns: i64,
+) -> Result<(), Error> {
+    while let Some(deadline_ns) = state
+        .next_processing_time_deadline()
+        .filter(|deadline_ns| *deadline_ns <= now_ns)
+    {
+        let panes = state.drain_ready_processing_time(route, deadline_ns)?;
+        *sequence = sequence
+            .checked_add(1)
+            .ok_or_else(|| Error::resource("checkpoint", "multi-group sequence exhausted"))?;
+        let combined = multi_progress(*sequence, sources);
+        publish_multi_grouped_step(
+            registry,
+            route,
+            graph_fingerprint,
+            sink_key,
+            config,
+            handle,
+            shared_progress,
+            checkpoint,
+            state,
+            sources,
+            &combined,
+            processing_clock_ns,
+            panes,
+        )?;
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -539,6 +658,7 @@ fn publish_multi_grouped_step(
     state: &MultiWindowState,
     sources: &[Option<ProgressSignal>],
     progress: &ProgressSignal,
+    processing_clock_ns: Option<i64>,
     panes: Vec<Envelope>,
 ) -> Result<(), Error> {
     let instruction_id = bundle_id(graph_fingerprint, &[sink_key], progress);
@@ -581,6 +701,7 @@ fn publish_multi_grouped_step(
             version: state.version(),
             sources: sources.to_vec(),
             windows: state.encode(registry, route, config.memory_budget_bytes)?,
+            processing_clock_ns,
         })
         .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
         checkpoint.save_state(progress, &state, config.memory_budget_bytes)?;
