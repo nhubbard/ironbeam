@@ -200,9 +200,11 @@ fn late_distinct_resumes_partly_filled_threshold_without_replaying_on_time_pane(
         .and_then(|progress| progress.checkpoint_position)
         != Some(vec![3])
     {
-        if job.handle().status() == JobStatus::Failed {
-            panic!("late distinct job failed: {}", job.wait().err().unwrap());
-        }
+        assert_ne!(
+            job.handle().status(),
+            JobStatus::Failed,
+            "late distinct job failed before checkpoint"
+        );
         assert!(
             Instant::now() < deadline,
             "late distinct pane was not checkpointed: status={:?}, progress={:?}, committed={:?}",
