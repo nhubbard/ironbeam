@@ -135,6 +135,12 @@ core ratchet on `16e3b22`: **5704/5935 lines (96.11%)** against 96.04%, and
 denominators include the new core API. This measures source coverage, not
 Beam feature parity.
 
+The SetState implementation, fixed-window case, and coder-failure tests passed
+the same unchanged Linux core ratchet on `3b11207`: **5769/6002 lines
+(96.12%)** and **1184/1372 branches (86.30%)**. The local Direct and pinned
+Prism SetState corpus includes bounded mutations, unbounded global and fixed
+windows, checkpoint restart, and supervised worker replacement.
+
 The 2026-10-15 local Direct package measurement after the sequential trigger
 and multi-source progress tests is **5946/6521 source lines (91.18%)** and
 **1711/1900 source branches (90.05%)**. Both unchanged floors pass. Core's
