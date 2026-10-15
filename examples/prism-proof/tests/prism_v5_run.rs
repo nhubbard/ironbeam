@@ -30,7 +30,8 @@ use ironbeam_prism_proof::{
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
     bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
-    combined_count_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
+    combined_count_fixture, completion_signal, count_and_processing_time_trigger_collection,
+    count_and_processing_time_trigger_fixture, count_trigger_stream_fixture, dead_letter_fixture,
     distinct_window_fixture, dual_count_or_time_cogroup_fixture, dual_late_cogroup_collection,
     dual_late_cogroup_fixture, dual_late_count_cogroup_collection, dual_late_count_cogroup_fixture,
     dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
@@ -6863,6 +6864,108 @@ async fn prism_and_direct_count_trigger_match_overlapping_sliding_windows() {
             .collect::<Vec<_>>();
         direct_rows.sort();
         assert_eq!(direct_rows, rows, "sliding {mode} panes differ");
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_count_and_processing_time_panes() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        accepted: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.accepted.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    for accumulating in [false, true] {
+        let portable_path = directory
+            .path()
+            .join(format!("count-and-time-{accumulating}.txt"));
+        let direct_rows = Arc::new(Mutex::new(Vec::new()));
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink =
+            count_and_processing_time_trigger_collection(&direct_pipeline, accumulating)
+                .unwrap()
+                .sink_named_with_config(
+                    "count-and-time-result",
+                    SinkSpec {
+                        mode: SinkMode::Append,
+                        replay: Replay::Idempotent,
+                        commit: true,
+                    },
+                    format!("count-and-time-direct-{accumulating}-v1"),
+                    {
+                        let rows = Arc::clone(&direct_rows);
+                        let accepted = Arc::clone(&accepted);
+                        move || {
+                            Ok(Box::new(DirectRows {
+                                rows: Arc::clone(&rows),
+                                accepted: Arc::clone(&accepted),
+                                staged: Vec::new(),
+                                bundle: String::new(),
+                            }))
+                        }
+                    },
+                )
+                .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let pipeline = Pipeline::default();
+        count_and_processing_time_trigger_fixture(&pipeline, portable_path.clone(), accumulating)
+            .unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &pipeline,
+            &format!("count-and-time-{accumulating}"),
+            HashMap::from([
+                (
+                    "IRONBEAM_V5_PRISM_COUNT_AND_TIME".into(),
+                    portable_path.to_string_lossy().into_owned(),
+                ),
+                (
+                    "IRONBEAM_V5_PRISM_COUNT_AND_TIME_ACCUMULATING".into(),
+                    if accumulating { "1" } else { "0" }.into(),
+                ),
+            ]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "count-and-time job state: {terminal:?}");
+        let mut direct = direct_rows.lock().unwrap().clone();
+        let mut portable = std::fs::read_to_string(&portable_path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        direct.sort();
+        portable.sort();
+        assert_eq!(portable, direct, "count-and-time panes differ");
     }
 }
 

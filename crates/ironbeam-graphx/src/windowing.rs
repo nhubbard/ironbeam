@@ -47,7 +47,11 @@ pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrig
                 trigger::AfterEndOfWindow {
                     early_firings: match (policy.early_count(), policy.early_processing_time()) {
                         (Some(count), Some(delay_ns)) => {
-                            Some(repeated_count_or_processing_time_trigger(count, delay_ns))
+                            Some(if policy.is_count_and_processing_time() {
+                                repeated_count_and_processing_time_trigger(count, delay_ns)
+                            } else {
+                                repeated_count_or_processing_time_trigger(count, delay_ns)
+                            })
                         }
                         (Some(count), None) => Some(repeated_count_trigger(count)),
                         (None, Some(delay_ns)) => Some(repeated_processing_time_trigger(delay_ns)),
@@ -58,6 +62,19 @@ pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrig
             ))),
         });
     }
+}
+
+fn repeated_count_and_processing_time_trigger(count: u64, delay_ns: i64) -> Box<Trigger> {
+    let count_trigger = Trigger {
+        trigger: Some(trigger::Trigger::ElementCount(trigger::ElementCount {
+            element_count: count as i32,
+        })),
+    };
+    repeated_trigger(Trigger {
+        trigger: Some(trigger::Trigger::AfterAll(trigger::AfterAll {
+            subtriggers: vec![count_trigger, processing_time_trigger(delay_ns)],
+        })),
+    })
 }
 
 fn repeated_count_or_processing_time_trigger(count: u64, delay_ns: i64) -> Box<Trigger> {

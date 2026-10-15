@@ -17,6 +17,63 @@ const IMAGE: &str = "example.test/ironbeam:v5";
 const BUILD: &str = "graphx-test-build";
 
 #[test]
+fn count_and_processing_time_lowers_to_repeated_beam_after_all() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)])],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .count_and_processing_time_trigger_named("trigger", 2, 5_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "trigger")
+        .unwrap();
+    let strategy = &components.windowing_strategies[&pc.windowing_strategy_id];
+    let Some(trigger::Trigger::AfterEndOfWindow(end)) = strategy
+        .trigger
+        .as_ref()
+        .and_then(|trigger| trigger.trigger.as_ref())
+    else {
+        panic!("expected end-of-window trigger");
+    };
+    let Some(trigger::Trigger::Repeat(repeat)) = end
+        .early_firings
+        .as_ref()
+        .and_then(|trigger| trigger.trigger.as_ref())
+    else {
+        panic!("expected repeated early trigger");
+    };
+    let Some(trigger::Trigger::AfterAll(all)) = repeat
+        .subtrigger
+        .as_ref()
+        .and_then(|trigger| trigger.trigger.as_ref())
+    else {
+        panic!("expected count-and-processing-time trigger");
+    };
+    assert!(
+        matches!(all.subtriggers[0].trigger, Some(trigger::Trigger::ElementCount(ref count)) if count.element_count == 2)
+    );
+    assert!(matches!(
+        all.subtriggers[1].trigger,
+        Some(trigger::Trigger::AfterProcessingTime(_))
+    ));
+}
+
+#[test]
 fn unbounded_group_into_batches_adds_portable_count_trigger() {
     assert_batch_count_trigger(false);
 }

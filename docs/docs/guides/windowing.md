@@ -104,6 +104,39 @@ must have bounded retained state.
 To combine early and late count firings, set allowed lateness and use the combined policy
 described below.
 
+### Count and processing time together
+
+`count_and_processing_time_trigger_named` waits for both a positive element
+count and a positive processing-time delay before each early firing. The delay
+starts when the first element arrives for a key and window. The order of the
+two conditions does not matter: if the clock reaches the deadline first, the
+group waits for enough elements; if the count is reached first, it waits for
+the clock. After a firing, the next element starts a new delay. The
+`accumulating_count_and_processing_time_trigger_named` variant retains values
+from earlier panes.
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let _grouped = pipeline
+        .from_vec("values", vec![("a".to_owned(), 2_i32), ("a".to_owned(), 3)])?
+        .fixed_windows("windows", 10_000_000)?
+        .count_and_processing_time_trigger_named("both", 2, 5_000_000)?
+        .group_by_key_named("group")?;
+    Ok(())
+}
+```
+
+The delay is expressed in nanoseconds and must be a whole number of
+milliseconds. Direct checkpoints both an armed deadline and a deadline that
+has elapsed while the count is still pending. A local Prism test uses the same
+fixed-window pipeline in discarding and accumulating modes and compares pane
+contents with Direct. Processing-time firings depend on the runner clock and
+bundle schedule, so a different schedule can change which elements share a
+pane.
+
 ### Group output timestamps
 
 By default, GroupByKey uses the earliest event timestamp in its pane. A

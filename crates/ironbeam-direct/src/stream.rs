@@ -1678,7 +1678,7 @@ fn run_grouped_stream(
                         })?;
                         panes.append(&mut fired);
                     }
-                    if panes.is_empty() {
+                    if panes.is_empty() && !route.trigger.is_count_and_processing_time() {
                         return Err(Error::recovery(
                             &route.group_key,
                             "armed processing timer produced no pane",

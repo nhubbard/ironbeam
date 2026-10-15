@@ -617,7 +617,7 @@ impl<T: Element> PCollection<T> {
         count: u64,
         delay_ns: i64,
     ) -> Result<Self, Error> {
-        self.count_or_processing_time_trigger_with_mode_named(key, count, delay_ns, false)
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, false, false)
     }
 
     /// Repeated count-or-processing-time firings that retain values from
@@ -628,15 +628,37 @@ impl<T: Element> PCollection<T> {
         count: u64,
         delay_ns: i64,
     ) -> Result<Self, Error> {
-        self.count_or_processing_time_trigger_with_mode_named(key, count, delay_ns, true)
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, true, false)
     }
 
-    fn count_or_processing_time_trigger_with_mode_named(
+    /// Repeatedly fire a discarding pane once both `count` elements have
+    /// arrived and `delay_ns` has elapsed since the first pending element.
+    pub fn count_and_processing_time_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+    ) -> Result<Self, Error> {
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, false, true)
+    }
+
+    /// Repeated count-and-processing-time firings that retain earlier values.
+    pub fn accumulating_count_and_processing_time_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+    ) -> Result<Self, Error> {
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, true, true)
+    }
+
+    fn count_processing_time_trigger_with_mode_named(
         &self,
         key: &str,
         count: u64,
         delay_ns: i64,
         accumulating: bool,
+        conjunctive: bool,
     ) -> Result<Self, Error> {
         if count == 0 || count > i32::MAX as u64 {
             return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));
@@ -649,7 +671,7 @@ impl<T: Element> PCollection<T> {
             Window::Fixed { .. } | Window::FixedOffset { .. } => Operation::FixedWindow,
             Window::Sliding { .. } | Window::Global => Operation::Map,
             Window::Session { .. } => {
-                return Err(Error::graph(key, "count-or-processing-time trigger requires global, fixed, or sliding windows"));
+                return Err(Error::graph(key, "count/processing-time trigger requires global, fixed, or sliding windows"));
             }
         };
         self.next_with_time_policy(
@@ -659,10 +681,11 @@ impl<T: Element> PCollection<T> {
             Some(window),
             None,
             TimePolicyOverride {
-                trigger: Some(if accumulating {
-                    WindowTrigger::EarlyCountOrProcessingTimeAccumulating { count, delay_ns }
-                } else {
-                    WindowTrigger::EarlyCountOrProcessingTime { count, delay_ns }
+                trigger: Some(match (conjunctive, accumulating) {
+                    (false, false) => WindowTrigger::EarlyCountOrProcessingTime { count, delay_ns },
+                    (false, true) => WindowTrigger::EarlyCountOrProcessingTimeAccumulating { count, delay_ns },
+                    (true, false) => WindowTrigger::EarlyCountAndProcessingTime { count, delay_ns },
+                    (true, true) => WindowTrigger::EarlyCountAndProcessingTimeAccumulating { count, delay_ns },
                 }),
                 output_time: None,
                 allowed_lateness_ns: None,

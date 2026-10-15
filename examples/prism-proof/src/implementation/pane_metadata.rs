@@ -1,5 +1,55 @@
 struct PaneCheckingSink(GlobalFoldSink<String>);
 
+pub fn count_and_processing_time_trigger_collection(
+    pipeline: &Pipeline,
+    accumulating: bool,
+) -> Result<PCollection<String>, Error> {
+    let values = pipeline
+        .test_stream_source(
+            "count-and-time-events",
+            vec![
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 3_i32), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("count-and-time-windows", 10_000_000)?;
+    let values = if accumulating {
+        values.accumulating_count_and_processing_time_trigger_named(
+            "count-and-time-trigger", 2, 5_000_000,
+        )?
+    } else {
+        values.count_and_processing_time_trigger_named("count-and-time-trigger", 2, 5_000_000)?
+    };
+    values
+        .group_by_key_named("count-and-time-group")?
+        .reify_panes_named("count-and-time-pane")?
+        .map_named("count-and-time-row", |(pane, (key, values))| {
+            format!(
+                "group:{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn count_and_processing_time_trigger_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    count_and_processing_time_trigger_collection(pipeline, accumulating)?.sink_named_with_config(
+        "count-and-time-result",
+        SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+        format!("count-and-time-result:{}:{accumulating}", path.display()),
+        move || Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+            path: sink_path.clone(),
+            values: Vec::new(),
+        }))),
+    )
+}
+
 pub fn processing_time_trigger_collection(
     pipeline: &Pipeline,
     accumulating: bool,

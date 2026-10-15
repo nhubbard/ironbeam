@@ -34,6 +34,7 @@ pub(super) enum EarlyPolicy {
     Count(u64),
     ProcessingTime(i64),
     CountOrProcessingTime(u64, i64),
+    CountAndProcessingTime(u64, i64),
 }
 
 impl MultiWindowState {
@@ -41,7 +42,9 @@ impl MultiWindowState {
         matches!(
             self,
             Self::Early {
-                policy: EarlyPolicy::ProcessingTime(_) | EarlyPolicy::CountOrProcessingTime(_, _),
+                policy: EarlyPolicy::ProcessingTime(_)
+                    | EarlyPolicy::CountOrProcessingTime(_, _)
+                    | EarlyPolicy::CountAndProcessingTime(_, _),
                 ..
             }
         )
@@ -81,7 +84,8 @@ impl MultiWindowState {
         if let Self::Early { folds, policy, .. } = self {
             let delay_ns = match policy {
                 EarlyPolicy::ProcessingTime(delay_ns)
-                | EarlyPolicy::CountOrProcessingTime(_, delay_ns) => *delay_ns,
+                | EarlyPolicy::CountOrProcessingTime(_, delay_ns)
+                | EarlyPolicy::CountAndProcessingTime(_, delay_ns) => *delay_ns,
                 EarlyPolicy::Count(_) => return Ok(()),
             };
             for (fold, _) in folds.values_mut() {
@@ -94,7 +98,10 @@ impl MultiWindowState {
     pub(super) fn next_processing_time_deadline(&self) -> Option<i64> {
         if let Self::Early {
             folds,
-            policy: EarlyPolicy::ProcessingTime(_) | EarlyPolicy::CountOrProcessingTime(_, _),
+            policy:
+                EarlyPolicy::ProcessingTime(_)
+                | EarlyPolicy::CountOrProcessingTime(_, _)
+                | EarlyPolicy::CountAndProcessingTime(_, _),
             ..
         } = self
         {
@@ -113,7 +120,9 @@ impl MultiWindowState {
         deadline_ns: i64,
     ) -> Result<Vec<Envelope>, Error> {
         let Self::Early {
-            folds, buffered, ..
+            folds,
+            buffered,
+            policy,
         } = self
         else {
             return Ok(Vec::new());
@@ -136,7 +145,7 @@ impl MultiWindowState {
                 .ok_or_else(|| Error::recovery(&route.group_key, "group buffer count underflow"))?;
             panes.append(&mut fired);
         }
-        if panes.is_empty() {
+        if panes.is_empty() && !matches!(policy, EarlyPolicy::CountAndProcessingTime(_, _)) {
             return Err(Error::recovery(
                 &route.group_key,
                 "armed processing timer produced no pane",
@@ -472,8 +481,9 @@ impl MultiWindowState {
                 policy,
             } => {
                 let mut panes = Vec::new();
-                if let EarlyPolicy::Count(count) | EarlyPolicy::CountOrProcessingTime(count, _) =
-                    policy
+                if let EarlyPolicy::Count(count)
+                | EarlyPolicy::CountOrProcessingTime(count, _)
+                | EarlyPolicy::CountAndProcessingTime(count, _) = policy
                 {
                     for (&(_, end), (fold, rows)) in folds.iter_mut() {
                         if prior_watermark.is_some_and(|prior| end <= prior) {

@@ -890,6 +890,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 nonspeculative_base: HashMap::new(),
                 fired_value_counts: HashMap::new(),
                 processing_deadlines: HashMap::new(),
+                processing_ready: HashSet::new(),
                 latest_timestamps: HashMap::new(),
                 groups: Vec::new(),
             })
@@ -910,6 +911,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 nonspeculative_base: HashMap::new(),
                 fired_value_counts: HashMap::new(),
                 processing_deadlines: HashMap::new(),
+                processing_ready: HashSet::new(),
                 latest_timestamps: HashMap::new(),
                 groups: Vec::new(),
             });

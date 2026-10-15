@@ -111,6 +111,64 @@ fn count_or_processing_time_batch_policy_validates_and_identifies_duration() {
 }
 
 #[test]
+fn count_and_processing_time_policy_has_distinct_identity_and_validation() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .from_vec("source", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap();
+    assert!(
+        source
+            .count_and_processing_time_trigger_named("zero", 0, 5_000_000)
+            .is_err()
+    );
+    assert!(
+        source
+            .count_and_processing_time_trigger_named("submillis", 2, 1)
+            .is_err()
+    );
+    let and = source
+        .count_and_processing_time_trigger_named("and", 2, 5_000_000)
+        .unwrap()
+        .group_by_key_named("and-group")
+        .unwrap();
+    let or = source
+        .count_or_processing_time_trigger_named("or", 2, 5_000_000)
+        .unwrap()
+        .group_by_key_named("or-group")
+        .unwrap();
+    let accumulating = source
+        .accumulating_count_and_processing_time_trigger_named("and-accumulating", 2, 5_000_000)
+        .unwrap()
+        .group_by_key_named("and-accumulating-group")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node(and.key()).unwrap().time.trigger,
+        WindowTrigger::EarlyCountAndProcessingTime {
+            count: 2,
+            delay_ns: 5_000_000
+        }
+    );
+    assert_ne!(
+        graph.node(and.key()).unwrap().time.trigger,
+        graph.node(or.key()).unwrap().time.trigger
+    );
+    assert_eq!(
+        graph.node(accumulating.key()).unwrap().time.trigger,
+        WindowTrigger::EarlyCountAndProcessingTimeAccumulating {
+            count: 2,
+            delay_ns: 5_000_000
+        }
+    );
+    assert_ne!(
+        graph.node(and.key()).unwrap().time.trigger,
+        graph.node(accumulating.key()).unwrap().time.trigger
+    );
+}
+
+#[test]
 fn unbounded_batches_preserve_allowed_lateness_with_their_own_counts() {
     let pipeline = Pipeline::default();
     let values = pipeline

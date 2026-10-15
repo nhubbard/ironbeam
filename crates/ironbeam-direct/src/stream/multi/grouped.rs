@@ -93,7 +93,13 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
     let early_count = group.time.trigger.early_count();
     let early_processing_time = group.time.trigger.early_processing_time();
     let early_policy = match (early_count, early_processing_time) {
-        (Some(count), Some(delay_ns)) => Some(EarlyPolicy::CountOrProcessingTime(count, delay_ns)),
+        (Some(count), Some(delay_ns)) => {
+            Some(if group.time.trigger.is_count_and_processing_time() {
+                EarlyPolicy::CountAndProcessingTime(count, delay_ns)
+            } else {
+                EarlyPolicy::CountOrProcessingTime(count, delay_ns)
+            })
+        }
         (Some(count), None) => Some(EarlyPolicy::Count(count)),
         (None, Some(delay_ns)) => Some(EarlyPolicy::ProcessingTime(delay_ns)),
         (None, None) => None,

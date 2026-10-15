@@ -245,6 +245,7 @@ struct GroupByKeyFoldState<K, V> {
     nonspeculative_base: HashMap<(K, WindowInterval), i64>,
     fired_value_counts: HashMap<(K, WindowInterval), usize>,
     processing_deadlines: HashMap<(K, WindowInterval), i64>,
+    processing_ready: HashSet<(K, WindowInterval)>,
     latest_timestamps: HashMap<(K, WindowInterval), i64>,
     groups: GroupBuffer<K, V>,
 }
@@ -297,6 +298,8 @@ struct GroupFoldCheckpointRow {
     assigned_window: Option<WindowInterval>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     processing_deadline_ns: Option<i64>,
+    #[serde(default)]
+    processing_ready: bool,
 }
 
 const GROUP_FOLD_CHECKPOINT_VERSION: Version = Version { major: 3, minor: 0 };
@@ -453,7 +456,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
                 let scope = (key.clone(), interval);
                 let prior = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
-                if values.len().saturating_sub(prior) < threshold {
+                if values.len().saturating_sub(prior) < threshold
+                    || (self.trigger.is_count_and_processing_time()
+                        && !self.processing_ready.contains(&scope))
+                {
                     continue;
                 }
                 let copied = Vec::<V>::decode(&values.encode()?)?;
@@ -464,6 +470,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
                 self.fired_value_counts.insert(scope.clone(), values.len());
                 self.processing_deadlines.remove(&scope);
+                self.processing_ready.remove(&scope);
                 fired.push(Envelope {
                     pane: PaneInfo {
                         is_first: index == 0,
@@ -490,13 +497,18 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let mut fired = Vec::new();
         let mut released = 0_usize;
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
-            if values.len() < threshold {
+            let scope = (key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+            if values.len() < threshold
+                || (self.trigger.is_count_and_processing_time()
+                    && !self.processing_ready.contains(&scope))
+            {
                 remaining.push((key, values, timestamp_ns, window, assigned_window));
                 continue;
             }
             let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
             let latest = self.latest_timestamps.remove(&(key.clone(), interval));
             self.processing_deadlines.remove(&(key.clone(), interval));
+            self.processing_ready.remove(&(key.clone(), interval));
             let next_index = self.fired_panes.entry((key.clone(), interval)).or_insert(0);
             let index = *next_index;
             *next_index = next_index
@@ -530,7 +542,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         for (key, values, _, _, assigned_window) in &self.groups {
             let scope = (key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
             let fired_count = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
-            if values.len() > fired_count && !self.processing_deadlines.contains_key(&scope) {
+            if values.len() > fired_count
+                && !self.processing_deadlines.contains_key(&scope)
+                && !self.processing_ready.contains(&scope)
+            {
                 let deadline = now_ns.checked_add(delay_ns).ok_or_else(|| {
                     Error::resource(&self.key, "processing-time trigger deadline overflows")
                 })?;
@@ -547,6 +562,18 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
     fn drain_ready_processing_time(&mut self, now_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
         if self.trigger.early_processing_time().is_none() {
             return Err(Error::incompatible("fold has no processing-time trigger"));
+        }
+        if self.trigger.is_count_and_processing_time() {
+            let expired = self
+                .processing_deadlines
+                .iter()
+                .filter_map(|(scope, deadline)| (*deadline <= now_ns).then_some(scope.clone()))
+                .collect::<Vec<_>>();
+            for scope in expired {
+                self.processing_deadlines.remove(&scope);
+                self.processing_ready.insert(scope);
+            }
+            return self.drain_ready_count(self.trigger.early_count().expect("conjunctive count"));
         }
         let mut fired = Vec::new();
         if self.trigger.is_accumulating() {
@@ -701,6 +728,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             self.fired_panes.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         }
         self.processing_deadlines.retain(|(_, interval), _| interval.end_ns > watermark_ns);
+        self.processing_ready.retain(|(_, interval)| interval.end_ns > watermark_ns);
         if !accumulating_late {
             self.fired_value_counts.retain(|(_, interval), _| interval.end_ns > watermark_ns);
         }
@@ -820,6 +848,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         .processing_deadlines
                         .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
                         .copied(),
+                    processing_ready: self
+                        .processing_ready
+                        .contains(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE))),
                 })
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -879,6 +910,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             nonspeculative_base: HashMap::new(),
             fired_value_counts: HashMap::new(),
             processing_deadlines: HashMap::new(),
+            processing_ready: HashSet::new(),
             latest_timestamps: HashMap::new(),
             groups: Vec::with_capacity(checkpoint.groups.len()),
         };
@@ -943,6 +975,17 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 let scope = (key.clone(), row.assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
                 if restored.processing_deadlines.insert(scope, deadline).is_some() {
                     return Err(Error::recovery(&self.key, "duplicate processing deadline in fold checkpoint"));
+                }
+            }
+            if row.processing_ready {
+                if !self.trigger.is_count_and_processing_time()
+                    || row.processing_deadline_ns.is_some()
+                {
+                    return Err(Error::recovery(&self.key, "invalid reached processing timer in fold checkpoint"));
+                }
+                let scope = (key.clone(), row.assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
+                if !restored.processing_ready.insert(scope) {
+                    return Err(Error::recovery(&self.key, "duplicate reached processing timer in fold checkpoint"));
                 }
             }
             if self.output_time == WindowOutputTime::LatestInPane {
@@ -1212,6 +1255,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for LatestPerKeyFol
                     window: window.clone(),
                     assigned_window: *assigned_window,
                     processing_deadline_ns: None,
+                    processing_ready: false,
                 })
             })
             .collect::<Result<Vec<_>, Error>>()?;
