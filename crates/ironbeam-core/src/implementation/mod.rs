@@ -14,6 +14,8 @@ mod restriction;
 pub use restriction::{
     OffsetRange, OffsetRangeChunks, OffsetRangeTracker, RestrictionSplit, RestrictionTracker,
 };
+mod timer_queue;
+pub use timer_queue::{TimerFiring, TimerIdentity, TimerQueue, TimerSchedule};
 mod sharded_key;
 pub use sharded_key::{BeamPortableKey, BeamShardedBatch, BeamShardedKey};
 
