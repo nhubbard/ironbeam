@@ -14,7 +14,8 @@ mod values;
 
 use atomic::{read_varint, take};
 use beam_proto::pipeline_v1::{
-    atomic_type_value, field_type, field_value, AtomicTypeValue, FieldType, FieldValue, Row, Schema,
+    atomic_type_value, field_type, field_value, ArrayTypeValue, AtomicTypeValue, FieldType,
+    FieldValue, IterableTypeValue, MapTypeEntry, MapTypeValue, Row, Schema,
 };
 use ironbeam_core::{Element, Error};
 use prost::Message;
@@ -188,9 +189,6 @@ fn project_row(writer: &Schema, reader: &Schema, old: &Row, depth: usize) -> Res
             .r#type
             .as_ref()
             .ok_or_else(|| anyhow!("reader row field lacks type"))?;
-        if old.values[old_index].field_value.is_none() && !new_type.nullable {
-            bail!("null projected into nonnullable row field");
-        }
         values[new_index] =
             project_field_value(old_type, new_type, &old.values[old_index], depth + 1)
                 .map_err(|error| anyhow!("row field at encoding position {position}: {error}"))?;
@@ -204,6 +202,9 @@ fn project_field_value(
     value: &FieldValue,
     depth: usize,
 ) -> Result<FieldValue> {
+    if value.field_value.is_none() && !reader.nullable {
+        bail!("null projected into nonnullable row field");
+    }
     match (&writer.type_info, &reader.type_info, &value.field_value) {
         (
             Some(field_type::TypeInfo::RowType(writer_row)),
@@ -230,9 +231,115 @@ fn project_field_value(
         (Some(field_type::TypeInfo::RowType(_)), Some(field_type::TypeInfo::RowType(_)), None) => {
             Ok(value.clone())
         }
+        (
+            Some(field_type::TypeInfo::ArrayType(_)),
+            Some(field_type::TypeInfo::ArrayType(_)),
+            None,
+        )
+        | (
+            Some(field_type::TypeInfo::IterableType(_)),
+            Some(field_type::TypeInfo::IterableType(_)),
+            None,
+        )
+        | (Some(field_type::TypeInfo::MapType(_)), Some(field_type::TypeInfo::MapType(_)), None) => {
+            Ok(value.clone())
+        }
+        (
+            Some(field_type::TypeInfo::ArrayType(writer_array)),
+            Some(field_type::TypeInfo::ArrayType(reader_array)),
+            Some(field_value::FieldValue::ArrayValue(values)),
+        ) => Ok(FieldValue {
+            field_value: Some(field_value::FieldValue::ArrayValue(ArrayTypeValue {
+                element: project_sequence(
+                    writer_array.element_type.as_deref(),
+                    reader_array.element_type.as_deref(),
+                    &values.element,
+                    depth,
+                )?,
+            })),
+        }),
+        (
+            Some(field_type::TypeInfo::IterableType(writer_iterable)),
+            Some(field_type::TypeInfo::IterableType(reader_iterable)),
+            Some(field_value::FieldValue::IterableValue(values)),
+        ) => Ok(FieldValue {
+            field_value: Some(field_value::FieldValue::IterableValue(IterableTypeValue {
+                element: project_sequence(
+                    writer_iterable.element_type.as_deref(),
+                    reader_iterable.element_type.as_deref(),
+                    &values.element,
+                    depth,
+                )?,
+            })),
+        }),
+        (
+            Some(field_type::TypeInfo::MapType(writer_map)),
+            Some(field_type::TypeInfo::MapType(reader_map)),
+            Some(field_value::FieldValue::MapValue(values)),
+        ) => {
+            let writer_key = writer_map
+                .key_type
+                .as_deref()
+                .ok_or_else(|| anyhow!("writer map lacks key type"))?;
+            let reader_key = reader_map
+                .key_type
+                .as_deref()
+                .ok_or_else(|| anyhow!("reader map lacks key type"))?;
+            let writer_value = writer_map
+                .value_type
+                .as_deref()
+                .ok_or_else(|| anyhow!("writer map lacks value type"))?;
+            let reader_value = reader_map
+                .value_type
+                .as_deref()
+                .ok_or_else(|| anyhow!("reader map lacks value type"))?;
+            let entries = values
+                .entries
+                .iter()
+                .map(|entry| {
+                    Ok(MapTypeEntry {
+                        key: Some(project_field_value(
+                            writer_key,
+                            reader_key,
+                            entry
+                                .key
+                                .as_ref()
+                                .ok_or_else(|| anyhow!("map key missing"))?,
+                            depth + 1,
+                        )?),
+                        value: Some(project_field_value(
+                            writer_value,
+                            reader_value,
+                            entry
+                                .value
+                                .as_ref()
+                                .ok_or_else(|| anyhow!("map value missing"))?,
+                            depth + 1,
+                        )?),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok(FieldValue {
+                field_value: Some(field_value::FieldValue::MapValue(MapTypeValue { entries })),
+            })
+        }
         _ if writer.type_info == reader.type_info => Ok(value.clone()),
         _ => bail!("row field type changed"),
     }
+}
+
+fn project_sequence(
+    writer: Option<&FieldType>,
+    reader: Option<&FieldType>,
+    values: &[FieldValue],
+    depth: usize,
+) -> Result<Vec<FieldValue>> {
+    let writer = writer.ok_or_else(|| anyhow!("writer sequence lacks element type"))?;
+    let reader = reader.ok_or_else(|| anyhow!("reader sequence lacks element type"))?;
+    values
+        .iter()
+        .map(|value| project_field_value(writer, reader, value, depth + 1))
+        .collect()
 }
 
 fn encoding_order(schema: &Schema) -> Result<Vec<usize>> {

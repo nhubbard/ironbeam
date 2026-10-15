@@ -1,7 +1,7 @@
 use beam_proto::pipeline_v1::{
     atomic_type_value, field_type, field_value, ArrayType, ArrayTypeValue, AtomicType,
-    AtomicTypeValue, Field, FieldType, FieldValue, LogicalType, LogicalTypeValue, MapType,
-    MapTypeEntry, MapTypeValue, Row, RowType, Schema,
+    AtomicTypeValue, Field, FieldType, FieldValue, IterableType, IterableTypeValue, LogicalType,
+    LogicalTypeValue, MapType, MapTypeEntry, MapTypeValue, Row, RowType, Schema,
 };
 use ironbeam_coder_row::{decode_row, decode_row_evolved, encode_row};
 use prost::Message;
@@ -526,6 +526,149 @@ fn explicit_writer_schema_projects_nested_rows() {
         &encode_row(&writer, &null_row).unwrap()
     )
     .is_err());
+}
+
+#[test]
+fn explicit_writer_schema_projects_rows_inside_containers() {
+    use atomic_type_value::Value;
+    let nested = |added: bool| {
+        let mut fields = vec![field("number", atomic(AtomicType::Int32, false))];
+        if added {
+            fields.push(field("note", atomic(AtomicType::String, true)));
+        }
+        FieldType {
+            nullable: true,
+            type_info: Some(field_type::TypeInfo::RowType(RowType {
+                schema: Some(schema(fields)),
+            })),
+        }
+    };
+    let container = |added: bool| {
+        schema(vec![
+            field(
+                "array",
+                FieldType {
+                    nullable: false,
+                    type_info: Some(field_type::TypeInfo::ArrayType(Box::new(ArrayType {
+                        element_type: Some(Box::new(nested(added))),
+                    }))),
+                },
+            ),
+            field(
+                "iterable",
+                FieldType {
+                    nullable: false,
+                    type_info: Some(field_type::TypeInfo::IterableType(Box::new(IterableType {
+                        element_type: Some(Box::new(nested(added))),
+                    }))),
+                },
+            ),
+            field(
+                "map",
+                FieldType {
+                    nullable: false,
+                    type_info: Some(field_type::TypeInfo::MapType(Box::new(MapType {
+                        key_type: Some(Box::new(atomic(AtomicType::String, false))),
+                        value_type: Some(Box::new(nested(added))),
+                    }))),
+                },
+            ),
+        ])
+    };
+    let old_inner = FieldValue {
+        field_value: Some(field_value::FieldValue::RowValue(Row {
+            values: vec![value(Value::Int32(42))],
+        })),
+    };
+    let old = Row {
+        values: vec![
+            FieldValue {
+                field_value: Some(field_value::FieldValue::ArrayValue(ArrayTypeValue {
+                    element: vec![old_inner.clone(), null()],
+                })),
+            },
+            FieldValue {
+                field_value: Some(field_value::FieldValue::IterableValue(IterableTypeValue {
+                    element: vec![old_inner.clone()],
+                })),
+            },
+            FieldValue {
+                field_value: Some(field_value::FieldValue::MapValue(MapTypeValue {
+                    entries: vec![MapTypeEntry {
+                        key: Some(value(Value::String("item".into()))),
+                        value: Some(old_inner),
+                    }],
+                })),
+            },
+        ],
+    };
+    let writer = container(false);
+    let reader = container(true);
+    let projected =
+        decode_row_evolved(&writer, &reader, &encode_row(&writer, &old).unwrap()).unwrap();
+    let expected_inner = FieldValue {
+        field_value: Some(field_value::FieldValue::RowValue(Row {
+            values: vec![value(Value::Int32(42)), null()],
+        })),
+    };
+    assert_eq!(
+        projected.values,
+        vec![
+            FieldValue {
+                field_value: Some(field_value::FieldValue::ArrayValue(ArrayTypeValue {
+                    element: vec![expected_inner.clone(), null()],
+                })),
+            },
+            FieldValue {
+                field_value: Some(field_value::FieldValue::IterableValue(IterableTypeValue {
+                    element: vec![expected_inner.clone()],
+                })),
+            },
+            FieldValue {
+                field_value: Some(field_value::FieldValue::MapValue(MapTypeValue {
+                    entries: vec![MapTypeEntry {
+                        key: Some(value(Value::String("item".into()))),
+                        value: Some(expected_inner),
+                    }],
+                })),
+            },
+        ]
+    );
+    assert_eq!(
+        decode_row(&reader, &encode_row(&reader, &projected).unwrap()).unwrap(),
+        projected
+    );
+
+    let old_bytes = encode_row(&writer, &old).unwrap();
+    let mut missing_array_element = reader.clone();
+    if let Some(field_type::TypeInfo::ArrayType(array)) = &mut missing_array_element.fields[0]
+        .r#type
+        .as_mut()
+        .unwrap()
+        .type_info
+    {
+        array.element_type = None;
+    }
+    assert!(decode_row_evolved(&writer, &missing_array_element, &old_bytes).is_err());
+
+    let mut missing_map_key = reader.clone();
+    if let Some(field_type::TypeInfo::MapType(map)) =
+        &mut missing_map_key.fields[2].r#type.as_mut().unwrap().type_info
+    {
+        map.key_type = None;
+    }
+    assert!(decode_row_evolved(&writer, &missing_map_key, &old_bytes).is_err());
+
+    let mut missing_map_value = reader;
+    if let Some(field_type::TypeInfo::MapType(map)) = &mut missing_map_value.fields[2]
+        .r#type
+        .as_mut()
+        .unwrap()
+        .type_info
+    {
+        map.value_type = None;
+    }
+    assert!(decode_row_evolved(&writer, &missing_map_value, &old_bytes).is_err());
 }
 
 #[test]
