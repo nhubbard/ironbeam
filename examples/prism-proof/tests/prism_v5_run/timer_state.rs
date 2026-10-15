@@ -579,6 +579,60 @@ async fn prism_matches_direct_distinct_key_same_batch_expiration_callbacks() {
 }
 
 #[tokio::test]
+#[ignore = "pinned Prism omits the later expiration for one key in two windows in one source batch"]
+async fn prism_same_key_same_batch_expiration_matches_direct() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-same-key-expiration");
+    let portable_path = directory.path().join("portable-same-key-expiration");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::streaming_same_key_batch_expiration_fixture(
+        &direct_pipeline,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable_pipeline = Pipeline::default();
+    ironbeam_prism_proof::streaming_same_key_batch_expiration_fixture(
+        &portable_pipeline,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "same-key-same-batch-expiration",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_SAME_KEY_EXPIRATION".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism same-key expiration failed: {terminal:?}"
+    );
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = ["29000000:6:20000000:30000000\n", "9000000:3:0:10000000\n"];
+    assert_eq!(read_rows(&direct_path), expected);
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_offset_window_expiration_callbacks() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

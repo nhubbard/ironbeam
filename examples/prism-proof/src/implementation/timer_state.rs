@@ -322,7 +322,7 @@ pub fn streaming_window_expiration_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
-    fixed_window_expiration_fixture(pipeline, directory, 0, false, false)
+    fixed_window_expiration_fixture(pipeline, directory, 0, false, None)
 }
 
 /// Runner-owned expiration callbacks for two offset fixed windows.
@@ -330,7 +330,7 @@ pub fn streaming_offset_window_expiration_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
-    fixed_window_expiration_fixture(pipeline, directory, 2_000_000, false, false)
+    fixed_window_expiration_fixture(pipeline, directory, 2_000_000, false, None)
 }
 
 /// Runner-owned expiration callbacks for two keys in each fixed window.
@@ -338,7 +338,7 @@ pub fn streaming_multi_key_window_expiration_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
-    fixed_window_expiration_fixture(pipeline, directory, 0, true, false)
+    fixed_window_expiration_fixture(pipeline, directory, 0, true, None)
 }
 
 /// Two distinct keys in different fixed windows from one source batch.
@@ -346,7 +346,15 @@ pub fn streaming_same_batch_distinct_key_expiration_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
-    fixed_window_expiration_fixture(pipeline, directory, 0, false, true)
+    fixed_window_expiration_fixture(pipeline, directory, 0, false, Some(2))
+}
+
+/// One key in two fixed windows from one source batch.
+pub fn streaming_same_key_batch_expiration_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<(i64, i32)>, Error> {
+    fixed_window_expiration_fixture(pipeline, directory, 0, false, Some(1))
 }
 
 fn fixed_window_expiration_fixture(
@@ -354,12 +362,12 @@ fn fixed_window_expiration_fixture(
     directory: PathBuf,
     offset_ns: i64,
     multiple_keys: bool,
-    same_batch_distinct_keys: bool,
+    same_batch_second_key: Option<i32>,
 ) -> Result<Sink<(i64, i32)>, Error> {
     let sink_directory = directory.clone();
-    let events = if same_batch_distinct_keys {
+    let events = if let Some(second_key) = same_batch_second_key {
         vec![
-            TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0), ((2_i32, 6_i32), 20_000_000)]),
+            TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0), ((second_key, 6_i32), 20_000_000)]),
             TestStreamEvent::AdvanceWatermark(31_000_000),
         ]
     } else {
@@ -392,8 +400,12 @@ fn fixed_window_expiration_fixture(
     } else {
         source.fixed_windows_with_offset("window-expiration-assign", 10_000_000, offset_ns)?
     };
-    let semantic_id = if same_batch_distinct_keys {
-        "prism-proof/same-batch-distinct-key-expiration-state"
+    let semantic_id = if let Some(second_key) = same_batch_second_key {
+        if second_key == 1 {
+            "prism-proof/same-batch-same-key-expiration-state"
+        } else {
+            "prism-proof/same-batch-distinct-key-expiration-state"
+        }
     } else if multiple_keys {
         "prism-proof/multi-key-window-expiration-state"
     } else if offset_ns == 0 {
