@@ -208,6 +208,19 @@ read it on the next keyed element, fire an event-time timer, and survive a
 failed bundle and a Direct checkpoint. Both Direct and pinned Prism must agree
 on committed output before this family can count toward parity.
 
+The open sliding-window completion-barrier discrepancy has a runner-stage
+cause in the pinned Prism checkout. Its optimizer fuses the SDF main source,
+window assignment, and side-input wait into one stage whose restriction input
+has an infinite watermark. The signal source can report an 11 ms watermark,
+with or without a signal element, but the stage waits for the side watermark
+to catch up with infinity. A diagnostic main-side `Reshuffle` separates the
+stages, but then Prism releases both `[0, 10)` and `[5, 15)` main windows at
+the 11 ms signal watermark. The second window is premature. The experiment
+was reverted; the shipped lowering still passes the fixed-window early-release
+proof and the completed-signal sliding proof. This case requires per-window
+readiness or a runner scheduling change before portable early sliding release
+can be claimed.
+
 | Family | Current evidence | Next completion proof |
 | --- | --- | --- |
 | Default panes and windows | Fixed and sliding default panes agree on values, event times, intervals, timing, and indices on Direct and pinned Prism. Single-input grouped Direct streams retain windows through positive allowed lateness and restore their coded pane state after restart. | Merged-session timing differs: Direct reports `OnTime`; pinned Prism reports `Early` for the same group. |
