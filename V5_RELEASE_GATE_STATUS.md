@@ -197,7 +197,7 @@ the worker can execute it.
 | `MapWindows`, `MergeWindows` | Global and identity side-input window mapping plus keyed session merging have tested cases. | General side-window mapping, merging with late panes, and exact multi-source session behavior. |
 | `CombinePerKey`, `CombineGlobally`, and lifted combine components | Ironbeam uses registered folds and portable grouping rather than native combine URNs. Tested outputs and timestamps cover the documented fold corpus. | Portable accumulator merging and compact hot-key execution without full group materialization. |
 | SDF pair, split/size, process, and truncate | The first three stages execute for one-split resumable sources. The worker also accepts `sdf_truncate_sized_restrictions:v1` and applies Beam's default drain rule to the unbounded source restriction; a Fn Data fixture confirms that it validates the sized input and closes its output without a work item. `OffsetRangeTracker` supplies a claim/split/progress contract and Beam Java-compatible restriction bytes. | Execute registered user functions with offset restrictions, deliver dynamic splits and timer/watermark state, and prove runner-orchestrated drain plus custom finite truncation. |
-| Native `GroupIntoBatches` and sharded-key batching | Count and buffering-time helpers expand to grouping and Beam triggers; tested Direct and Prism cases agree. An explicit, versioned shard selector assigns one hot key to two opaque shards before batching; bounded and fixed-window TestStream jobs agree on both batches. Direct restores two open shard batches from one source checkpoint and commits each once. | Stateful byte-limited unbounded batches, automatic hot-key sharding, and portable failed-bundle recovery for sharded batches. Native URN emission is optional if the expansion preserves behavior. |
+| Native `GroupIntoBatches` and sharded-key batching | Count and buffering-time helpers expand to grouping and Beam triggers; tested Direct and Prism cases agree. An explicit, versioned shard selector assigns one hot key to two opaque shards before batching; bounded and fixed-window TestStream jobs agree on both batches. Direct restores two open shard batches from one source checkpoint and commits each once. A supervised Prism job kills its execution child inside the sharded-batch output callback, replays the failed bundle, and publishes the same two batches as Direct with no duplicate rows. | Stateful byte-limited unbounded batches and automatic hot-key sharding. Native URN emission is optional if the expansion preserves behavior. |
 | `WriteFiles`, Pub/Sub read/write, and provider operations | Format-specific worker sinks and provider-neutral/GCP clients exist. Local provider object I/O has portable jobs. | Portable service source and sink bindings, worker re-creation, and replay-safe publication under a controlled service or emulator. |
 | Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. `BeamShardedKey<String>` matches pinned standard coder examples and has a reshuffle job on Direct and local Prism. Binary-key bytes and graph components have tests. Timer records and Fn State access have codec tests; state-backed iterables can be read from runner state. | Executable timer callbacks and state mutation, schema-coder and live binary-key jobs, and cross-SDK row evolution cases. |
 
@@ -215,8 +215,11 @@ key into two shards, then batches each shard separately. Direct and pinned
 Prism agree on the batch values. A third job uses a fixed-window TestStream
 and emits one early full batch per shard on both runners; unbounded checkpoint
 recovery on Direct restores both open shards from one saved cursor without
-reopening the original source. A portable failed-bundle recovery proof remains
-open.
+reopening the original source. A separate pinned-Prism job kills the supervised
+execution child inside the sharded-batch output callback. The replacement
+completes in the same job, and its two published batches match Direct without
+duplication. This covers that failure point; other fused bundle boundaries
+and runner crash schedules remain untested.
 
 The RowCoder date, time, and UUID wire tests also have a bounded execution
 fixture. It crosses a reshuffle boundary and matches decoded values on Direct

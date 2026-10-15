@@ -77,6 +77,16 @@ pub fn beam_sharded_batches_stream_fixture(
             |_, (shard, _)| vec![*shard],
         )?
         .map_named("sharded-stream-output", |(key, values)| {
+            if let Some(path) = std::env::var_os("IRONBEAM_TEST_KILL_SHARDED_BATCH_CHILD") {
+                if let Ok(file) = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(path)
+                {
+                    let _ = file.sync_all();
+                    std::process::exit(88);
+                }
+            }
             let mut values = values
                 .into_iter()
                 .map(|(_, value)| value)

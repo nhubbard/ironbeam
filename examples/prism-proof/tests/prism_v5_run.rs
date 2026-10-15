@@ -6356,6 +6356,62 @@ async fn prism_matches_direct_streaming_explicit_sharded_batches() {
 }
 
 #[tokio::test]
+async fn prism_recovers_streaming_sharded_batches_after_child_failure() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-sharded-recovery");
+    let portable_path = directory.path().join("portable-sharded-recovery");
+    let witness = directory.path().join("killed-sharded-child");
+
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::beam_sharded_batches_stream_fixture(
+        &direct_pipeline,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+
+    let portable_pipeline = Pipeline::default();
+    ironbeam_prism_proof::beam_sharded_batches_stream_fixture(
+        &portable_pipeline,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "beam-sharded-recovery",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_BEAM_SHARDED_STREAM".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_TEST_KILL_SHARDED_BATCH_CHILD".into(),
+                witness.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "sharded recovery job failed: {terminal:?}");
+    assert!(witness.exists(), "the first execution child did not fail");
+    let mut direct_rows = read_open_rows(&direct_path);
+    let mut portable_rows = read_open_rows(&portable_path);
+    direct_rows.sort();
+    portable_rows.sort();
+    assert_eq!(direct_rows, ["hot:[1]:[10, 30]", "hot:[2]:[20, 40]"]);
+    assert_eq!(portable_rows, direct_rows);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_beam_calendar_row_after_reshuffle() {
     let directory = tempfile::tempdir().unwrap();
     let direct_path = directory.path().join("direct-beam-calendar.txt");
