@@ -283,7 +283,7 @@ the worker can execute it.
 | SDF pair, split/size, process, and truncate | The first three stages execute for one-split resumable sources. The worker also accepts `sdf_truncate_sized_restrictions:v1` and applies Beam's default drain rule to the unbounded source restriction; a Fn Data fixture confirms that it validates the sized input and closes its output without a work item. `OffsetRangeTracker` supplies a claim/split/progress contract and Beam Java-compatible restriction bytes. | Execute registered user functions with offset restrictions, deliver dynamic splits and timer/watermark state, and prove runner-orchestrated drain plus custom finite truncation. |
 | Native `GroupIntoBatches` and sharded-key batching | Count and buffering-time helpers expand to grouping and Beam triggers; tested Direct and Prism cases agree. An explicit, versioned shard selector assigns one hot key to two opaque shards before batching; bounded and fixed-window TestStream jobs agree on both batches. Direct restores two open shard batches from one source checkpoint and commits each once. A supervised Prism job kills its execution child inside the sharded-batch output callback, replays the failed bundle, and publishes the same two batches as Direct with no duplicate rows. | Stateful byte-limited unbounded batches and automatic hot-key sharding. Native URN emission is optional if the expansion preserves behavior. |
 | `WriteFiles`, Pub/Sub read/write, and provider operations | Format-specific worker sinks and provider-neutral/GCP clients exist. Local provider object I/O has portable jobs. | Portable service source and sink bindings, worker re-creation, and replay-safe publication under a controlled service or emulator. |
-| Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. `BeamShardedKey<String>` matches pinned standard coder examples and has a reshuffle job on Direct and local Prism. Binary-key bytes and graph components have tests. Ordered-list Fn State has a byte-level test and bounded plus unbounded Direct/Prism jobs. Timer records have codec tests; state-backed iterables can be read from runner state. | Executable timer callbacks, combining-state execution, schema-coder and live binary-key jobs, and cross-SDK row evolution cases. |
+| Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. `BeamShardedKey<String>` matches pinned standard coder examples and crosses a reshuffle on Direct and local Prism. The `Vec<u8>` key form now also crosses that boundary with non-UTF-8 bytes and exact shard IDs on both runners. Ordered-list Fn State has a byte-level test and bounded plus unbounded Direct/Prism jobs. Timer records have codec tests; state-backed iterables can be read from runner state. | Executable timer callbacks, combining-state execution, schema-coder jobs, and cross-SDK row evolution cases. |
 
 These are evidence categories, not equal-sized percentage points. A scored
 99% claim still requires per-case inventory, runner agreement, and an explicit
@@ -291,8 +291,9 @@ weight for each user-visible behavior.
 
 The sharded-key proof uses Beam's native `sharded_key:v1` coder with a
 `string_utf8:v1` child on a reshuffle boundary. The pinned local Prism job and
-Direct produce the same two user keys and opaque shard identifiers. The
-separate binary-key coder passes local byte and graph-contract tests. Neither
+Direct produce the same two user keys and opaque shard identifiers. A second
+job sends the `bytes:v1` child form through the same boundary with a `0xff`
+key byte; Direct and pinned Prism agree on both keys and shard IDs. Neither
 case proves automatic hot-key sharding or streaming `GroupIntoBatches`. A
 second bounded job uses an application-versioned selector to split one hot
 key into two shards, then batches each shard separately. Direct and pinned

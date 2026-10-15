@@ -366,6 +366,11 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_BEAM_BINARY_SHARDED_KEY") {
+        return ironbeam_prism_proof::beam_binary_sharded_key_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_BEAM_SHARDED_BATCHES") {
         return ironbeam_prism_proof::beam_sharded_batches_fixture(pipeline, path.into())
             .map(|_| ())

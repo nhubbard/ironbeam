@@ -6639,6 +6639,58 @@ async fn prism_matches_direct_beam_sharded_key_after_reshuffle() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_binary_sharded_key_after_reshuffle() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-binary-sharded-keys.txt");
+    let portable_path = directory.path().join("portable-binary-sharded-keys.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::beam_binary_sharded_key_fixture(
+        &direct_pipeline,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = ["[0, 255]:[9, 0]", "[1, 255]:[9, 1]"];
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    ironbeam_prism_proof::beam_binary_sharded_key_fixture(
+        &portable_pipeline,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "beam-binary-sharded-key",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_BEAM_BINARY_SHARDED_KEY".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Beam binary sharded key job state: {terminal:?}"
+    );
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_explicit_sharded_batches() {
     let directory = tempfile::tempdir().unwrap();
     let direct_path = directory.path().join("direct-sharded-batches.txt");
