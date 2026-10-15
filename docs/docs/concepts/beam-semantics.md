@@ -159,8 +159,8 @@ variant, but that local behavior is not a portable ordering guarantee.
 representative in each window. It chooses the value with the smallest encoded
 bytes, so its result does not depend on bundle arrival order. The value and
 derived-key types need registered coders, and the value coder must encode the
-same value consistently. The shared Direct and Prism fixture checks the
-chosen values and group timestamps in two fixed windows. The older
+same value consistently. Shared bounded and watermarked Direct/Prism jobs
+check the chosen values and group timestamps in two fixed windows. The older
 `distinct_by_named` retains its encounter-order behavior for local use.
 
 Grouping may retain all values for a key and window until the window closes.

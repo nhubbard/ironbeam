@@ -83,6 +83,51 @@ pub fn representative_distinct_fixture(
         )
 }
 
+/// Read representatives from a watermarked source in two fixed windows.
+pub fn streaming_representative_distinct_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "representative-stream",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ("a2".to_owned(), 1_000_000),
+                    ("a1".to_owned(), 2_000_000),
+                    ("b2".to_owned(), 3_000_000),
+                    ("b1".to_owned(), 4_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![("a3".to_owned(), 11_000_000)]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )?
+        .fixed_windows("representative-windows", 10_000_000)?
+        .distinct_by_per_window_named("representatives", |value| value[..1].to_owned())?
+        .reify_timestamps_named("representative-output-time")?
+        .with_window_named("representative-window-label")?
+        .map_named("representative-row", |(window, (timestamp, value))| {
+            format!("{}:{timestamp}:{value}", window.start_ns)
+        })?
+        .sink_named_with_config(
+            "representative-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("representative-stream:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 pub fn streaming_distinct_window_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
