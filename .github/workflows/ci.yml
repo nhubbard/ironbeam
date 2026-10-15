@@ -317,6 +317,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - name: Install protobuf compiler for Beam row coverage
+        if: matrix.package == 'ironbeam-coder-row'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Install Rust nightly
         run: |
           rustup toolchain install nightly --component llvm-tools-preview --no-self-update
