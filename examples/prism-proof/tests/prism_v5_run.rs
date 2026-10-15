@@ -39,8 +39,8 @@ use ironbeam_harness::finalization_journal::FileFinalizationJournal;
 use ironbeam_prism_proof::{
     accumulating_combined_count_fixture, accumulating_count_trigger_stream_fixture,
     accumulating_late_count_fixture, accumulating_late_join_fixture,
-    accumulating_latest_count_trigger_stream_fixture, allowed_lateness_fixture,
-    bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
+    accumulating_latest_count_trigger_stream_fixture, accumulating_timed_late_group_fixture,
+    allowed_lateness_fixture, bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
@@ -9692,6 +9692,56 @@ async fn prism_flushes_timed_and_late_keyed_batches() {
             "a:[5, 7]:Late:false:false:2:0",
         ]
     );
+}
+
+#[tokio::test]
+#[ignore = "pinned Prism emits extra Early and OnTime panes before the final Late pane"]
+async fn prism_matches_direct_accumulating_timed_and_late_group_panes() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-accumulating-timed-late");
+    let portable_path = directory.path().join("portable-accumulating-timed-late");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        accumulating_timed_late_group_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let mut expected = [
+        "a:[2, 3]:Early:true:false:0:-1",
+        "a:[2, 3, 4]:Early:false:false:1:-1",
+        "a:[2, 3, 4]:OnTime:false:false:2:0",
+        "a:[2, 3, 4, 5, 7]:Late:false:false:3:1",
+    ];
+    expected.sort();
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    accumulating_timed_late_group_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "accumulating-timed-late-group",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_ACCUMULATING_TIMED_LATE_GROUP".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism timed-late group failed: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), expected);
 }
 
 #[tokio::test]
