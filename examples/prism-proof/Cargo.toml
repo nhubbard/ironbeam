@@ -19,7 +19,6 @@ ironbeam-io = { workspace = true, default-features = false, features = ["file"] 
 ironbeam-dataflow = { workspace = true }
 ironbeam-coder-row = { workspace = true }
 ironbeam-cloud-objects = { workspace = true }
-ironbeam-cloud-object-store = { version = "5.0.0", path = "../../crates/ironbeam-cloud-object-store" }
 ironbeam-io-jsonl = { workspace = true }
 ironbeam-io-avro = { workspace = true, features = ["cloud"] }
 ironbeam-io-msgpack = { workspace = true }
@@ -46,6 +45,7 @@ mongodb = { version = "3", features = ["bson-3"], optional = true }
 bson = { version = "3", optional = true }
 
 [dev-dependencies]
+ironbeam-cloud-object-store = { version = "5.0.0", path = "../../crates/ironbeam-cloud-object-store" }
 ironbeam-direct = { workspace = true }
 object_store = { version = "0.14.2", default-features = false }
 ironbeam-graphx = { workspace = true }
