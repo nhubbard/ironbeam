@@ -34,6 +34,12 @@ fn user_contract() -> StatefulParDoContract {
         window_coder_id: "beam:coder:global_window:v1".into(),
         states: BTreeMap::from([
             (
+                "value".into(),
+                UserStateKind::Value {
+                    coder_id: "beam:coder:bytes:v1".into(),
+                },
+            ),
+            (
                 "bag".into(),
                 UserStateKind::Bag {
                     element_coder_id: "beam:coder:bytes:v1".into(),
@@ -56,6 +62,118 @@ fn user_contract() -> StatefulParDoContract {
         timers: BTreeMap::new(),
         on_window_expiration_timer: None,
     }
+}
+
+#[tokio::test]
+async fn scoped_value_and_map_replacement_clear_before_append() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "replace-bundle",
+        "replace-transform",
+        &contract,
+        vec![3],
+        vec![7],
+    )
+    .unwrap();
+    assert!(access.write_value("bag", vec![1]).await.is_err());
+    assert!(access
+        .write_map_value("bag", vec![4], vec![1])
+        .await
+        .is_err());
+    assert!(access.clear_value("map").await.is_err());
+    assert!(requests.try_recv().is_err());
+
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        let mut prior_key = None;
+        for (index, expected_id) in ["value", "value", "map", "map"].iter().enumerate() {
+            let request = requests.recv().await.unwrap();
+            assert_eq!(request.instruction_id, "replace-bundle");
+            let key = request.state_key.unwrap();
+            match &key.r#type {
+                Some(state_key::Type::BagUserState(scope)) if *expected_id == "value" => {
+                    assert_eq!(scope.transform_id, "replace-transform");
+                    assert_eq!(scope.user_state_id, "value");
+                    assert_eq!(
+                        (scope.window.as_slice(), scope.key.as_slice()),
+                        (&[3][..], &[7][..])
+                    );
+                }
+                Some(state_key::Type::MultimapUserState(scope)) if *expected_id == "map" => {
+                    assert_eq!(scope.user_state_id, "map");
+                    assert_eq!(scope.map_key, [4]);
+                }
+                _ => panic!("replacement used the wrong state key"),
+            }
+            if index % 2 == 0 {
+                assert!(matches!(
+                    request.request,
+                    Some(state_request::Request::Clear(_))
+                ));
+                prior_key = Some(key.clone());
+            } else {
+                assert_eq!(prior_key.take(), Some(key));
+                let Some(state_request::Request::Append(append)) = request.request else {
+                    panic!("replacement must append after clearing");
+                };
+                assert_eq!(append.data, if index == 1 { &[9][..] } else { &[8][..] });
+            }
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(if index % 2 == 0 {
+                        state_response::Response::Clear(StateClearResponse {})
+                    } else {
+                        state_response::Response::Append(StateAppendResponse {})
+                    }),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    access.write_value("value", vec![9]).await.unwrap();
+    access
+        .write_map_value("map", vec![4], vec![8])
+        .await
+        .unwrap();
+    responder.await.unwrap();
+}
+
+#[tokio::test]
+async fn failed_value_clear_does_not_append() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access =
+        UserStateAccess::new(&client, "bundle", "transform", &contract, vec![], vec![7]).unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        let clear = requests.recv().await.unwrap();
+        assert!(matches!(
+            clear.request,
+            Some(state_request::Request::Clear(_))
+        ));
+        pending
+            .lock()
+            .unwrap()
+            .remove(&clear.id)
+            .unwrap()
+            .send(StateResponse {
+                id: clear.id,
+                error: "runner rejected clear".into(),
+                response: None,
+            })
+            .unwrap();
+        assert!(requests.try_recv().is_err());
+    });
+    assert!(access.write_value("value", vec![9]).await.is_err());
+    responder.await.unwrap();
 }
 
 #[tokio::test]

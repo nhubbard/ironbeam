@@ -190,6 +190,14 @@ impl<'a> UserStateAccess<'a> {
         )
     }
 
+    fn value_kind(kind: &UserStateKind) -> bool {
+        matches!(kind, UserStateKind::Value { .. })
+    }
+
+    fn map_only_kind(kind: &UserStateKind) -> bool {
+        matches!(kind, UserStateKind::Map { .. })
+    }
+
     fn multimap_kind(kind: &UserStateKind) -> bool {
         matches!(
             kind,
@@ -216,6 +224,25 @@ impl<'a> UserStateAccess<'a> {
     /// Clear a bag cell in the current bundle.
     pub async fn clear_bag(&self, state_id: &str) -> Result<()> {
         let key = self.scope(state_id, Self::bag_kind)?.bag();
+        self.client.clear(self.instruction_id, key).await
+    }
+
+    /// Replace one encoded value-state cell in the current bundle.
+    ///
+    /// Beam represents value state with a bag key. Replacement clears that
+    /// key before appending one coder-encoded element. The runner commits or
+    /// rolls back both requests with the enclosing bundle.
+    pub async fn write_value(&self, state_id: &str, encoded_value: Vec<u8>) -> Result<()> {
+        let key = self.scope(state_id, Self::value_kind)?.bag();
+        self.client.clear(self.instruction_id, key.clone()).await?;
+        self.client
+            .append(self.instruction_id, key, encoded_value)
+            .await
+    }
+
+    /// Clear a declared value-state cell in the current bundle.
+    pub async fn clear_value(&self, state_id: &str) -> Result<()> {
+        let key = self.scope(state_id, Self::value_kind)?.bag();
         self.client.clear(self.instruction_id, key).await
     }
 
@@ -260,6 +287,22 @@ impl<'a> UserStateAccess<'a> {
             .scope(state_id, Self::multimap_kind)?
             .multimap_value(map_key);
         self.client.clear(self.instruction_id, key).await
+    }
+
+    /// Replace one map entry. Other keys in the same map remain untouched.
+    pub async fn write_map_value(
+        &self,
+        state_id: &str,
+        map_key: Vec<u8>,
+        encoded_value: Vec<u8>,
+    ) -> Result<()> {
+        let key = self
+            .scope(state_id, Self::map_only_kind)?
+            .multimap_value(map_key);
+        self.client.clear(self.instruction_id, key.clone()).await?;
+        self.client
+            .append(self.instruction_id, key, encoded_value)
+            .await
     }
 
     /// Read encoded ordered-list entries in a half-open sort range.
