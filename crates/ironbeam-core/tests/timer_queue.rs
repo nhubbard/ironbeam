@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use ironbeam_core::{
-    Error, PaneInfo, StatefulParDoContract, TimerIdentity, TimerQueue, TimerSchedule,
-    UserStateKind, UserTimerDomain, UserTimerFamily, Version, WindowInterval,
+    Error, PaneInfo, StatefulParDoContract, TimerIdentity, TimerMutation, TimerQueue,
+    TimerSchedule, UserStateKind, UserTimerDomain, UserTimerFamily, Version, WindowInterval,
 };
 
 fn contract() -> StatefulParDoContract {
@@ -90,6 +90,14 @@ fn timers_replace_clear_and_fire_in_independent_domains() {
     queue.clear(&identity("event", 9, "absent")).unwrap();
 
     assert_eq!(queue.len(), 4);
+    assert_eq!(
+        queue.next_deadline(UserTimerDomain::EventTime),
+        Some(4_000_000)
+    );
+    assert_eq!(
+        queue.next_deadline(UserTimerDomain::ProcessingTime),
+        Some(2_000_000)
+    );
     assert!(queue.take_ready(Some(3_000_000), None).is_empty());
     let first = queue.take_ready(Some(4_000_000), None);
     assert_eq!(first.len(), 2);
@@ -100,6 +108,7 @@ fn timers_replace_clear_and_fire_in_independent_domains() {
     assert_eq!(second.len(), 1);
     assert_eq!(second[0].identity, identity("process", 3, ""));
     assert_eq!(second[0].domain, UserTimerDomain::ProcessingTime);
+    assert_eq!(queue.next_deadline(UserTimerDomain::ProcessingTime), None);
     assert_eq!(
         queue.take_ready(Some(5_000_000), None)[0].identity,
         identity("event", 2, "b")
@@ -180,4 +189,37 @@ fn timer_slots_require_declared_family_window_and_portable_timestamps() {
     );
     global.set(no_window, schedule(1_000_000)).unwrap();
     assert_eq!(global.take_ready(Some(1_000_000), None).len(), 1);
+}
+
+#[test]
+fn callback_mutations_validate_before_changing_any_timer() {
+    let mut queue = TimerQueue::new(contract(), false).unwrap();
+    queue
+        .set(identity("event", 1, "old"), schedule(2_000_000))
+        .unwrap();
+    let before = queue.checkpoint().unwrap();
+    assert!(
+        queue
+            .apply_mutations([
+                TimerMutation::Clear(identity("event", 1, "old")),
+                TimerMutation::Set(identity("event", 2, "new"), schedule(3_000_000)),
+                TimerMutation::Set(identity("missing", 3, "bad"), schedule(4_000_000)),
+            ])
+            .is_err()
+    );
+    assert_eq!(queue.checkpoint().unwrap(), before);
+
+    queue
+        .apply_mutations([
+            TimerMutation::Clear(identity("event", 1, "old")),
+            TimerMutation::Set(identity("event", 2, "new"), schedule(3_000_000)),
+            TimerMutation::Set(identity("event", 2, "new"), schedule(5_000_000)),
+        ])
+        .unwrap();
+    assert_eq!(queue.len(), 1);
+    assert!(queue.take_ready(Some(3_000_000), None).is_empty());
+    assert_eq!(
+        queue.take_ready(Some(5_000_000), None)[0].identity,
+        identity("event", 2, "new")
+    );
 }

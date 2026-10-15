@@ -30,6 +30,14 @@ pub struct TimerFiring {
     pub domain: UserTimerDomain,
 }
 
+/// A callback's requested timer change. Mutations are applied together after
+/// the callback succeeds, in the order returned by the callback.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TimerMutation {
+    Set(TimerIdentity, TimerSchedule),
+    Clear(TimerIdentity),
+}
+
 /// Coded timer slots owned by a runner, independent of user state cells.
 pub struct TimerQueue {
     contract: StatefulParDoContract,
@@ -77,9 +85,12 @@ impl TimerQueue {
         Ok(family.domain)
     }
 
-    /// Set or replace one timer. Beam timer wire timestamps have millisecond precision.
-    pub fn set(&mut self, identity: TimerIdentity, schedule: TimerSchedule) -> Result<(), Error> {
-        self.validate_identity(&identity)?;
+    fn validate_schedule(
+        &self,
+        identity: &TimerIdentity,
+        schedule: TimerSchedule,
+    ) -> Result<(), Error> {
+        self.validate_identity(identity)?;
         if schedule.fire_timestamp_ns % 1_000_000 != 0
             || schedule.hold_timestamp_ns % 1_000_000 != 0
         {
@@ -89,6 +100,12 @@ impl TimerQueue {
             ));
         }
         schedule.pane.validate()?;
+        Ok(())
+    }
+
+    /// Set or replace one timer. Beam timer wire timestamps have millisecond precision.
+    pub fn set(&mut self, identity: TimerIdentity, schedule: TimerSchedule) -> Result<(), Error> {
+        self.validate_schedule(&identity, schedule)?;
         self.timers.insert(identity, schedule);
         Ok(())
     }
@@ -97,6 +114,36 @@ impl TimerQueue {
     pub fn clear(&mut self, identity: &TimerIdentity) -> Result<(), Error> {
         self.validate_identity(identity)?;
         self.timers.remove(identity);
+        Ok(())
+    }
+
+    /// Validate a callback's complete timer batch before changing any slot.
+    /// Later mutations to one slot take precedence over earlier ones.
+    pub fn apply_mutations(
+        &mut self,
+        mutations: impl IntoIterator<Item = TimerMutation>,
+    ) -> Result<(), Error> {
+        let mutations = mutations.into_iter().collect::<Vec<_>>();
+        for mutation in &mutations {
+            match mutation {
+                TimerMutation::Set(identity, schedule) => {
+                    self.validate_schedule(identity, *schedule)?;
+                }
+                TimerMutation::Clear(identity) => {
+                    self.validate_identity(identity)?;
+                }
+            }
+        }
+        for mutation in mutations {
+            match mutation {
+                TimerMutation::Set(identity, schedule) => {
+                    self.timers.insert(identity, schedule);
+                }
+                TimerMutation::Clear(identity) => {
+                    self.timers.remove(&identity);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -148,6 +195,17 @@ impl TimerQueue {
             self.timers.remove(&firing.identity);
         }
         ready
+    }
+
+    /// Earliest armed deadline in one clock domain. Direct uses the
+    /// processing-time deadline to wake even when its source is idle.
+    #[must_use]
+    pub fn next_deadline(&self, domain: UserTimerDomain) -> Option<i64> {
+        self.timers
+            .iter()
+            .filter(|(identity, _)| self.contract.timers[&identity.family_id].domain == domain)
+            .map(|(_, schedule)| schedule.fire_timestamp_ns)
+            .min()
     }
 
     #[must_use]

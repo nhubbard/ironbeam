@@ -241,6 +241,11 @@ bytes through a caller-supplied key decoder and rejects changed contracts,
 duplicates, malformed windows, and non-millisecond timestamps without
 mutating the current queue. Unit tests cover those boundaries. No runner
 uses this queue yet, so this is not an executable timer proof.
+Timer mutations returned by one callback are validated together before any
+slot changes; a test checks that a bad later mutation leaves earlier clears
+and sets unapplied. The queue exposes the next deadline by time domain so a
+Direct source that returns `Pending` can wake for an armed processing-time
+timer without waiting for another element.
 
 The harness now converts a core timer firing or clear into the standard
 TimerCoder record and expands an inbound record with several windows into
