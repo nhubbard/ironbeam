@@ -486,3 +486,35 @@ list for each callback. When a mutation only adds entries, it appends those
 entries to Fn State. A removal or replacement rewrites the cell within one
 bundle. Large lists therefore still increase read and callback cost. Timer callbacks are not yet
 available for this API.
+
+`stateful_combining_map_named` keeps one coded accumulator for each key and
+window. The callback reads the previous accumulator and can keep it, clear it,
+replace it, or add a new accumulator through a named merge function. The merge
+function must be associative for its result to remain meaningful when runner
+work is split or replayed. Its semantic ID and version are included in the
+Beam combining-state declaration.
+
+```rust
+use ironbeam_core::{CombiningFunction, CombiningStateMutation, Version};
+
+let previous = pairs.stateful_combining_map_named::<i64, i64>(
+    "running-sum",
+    "orders/running-sum",
+    Version { major: 1, minor: 0 },
+    CombiningFunction {
+        semantic_id: "orders/checked-add",
+        version: Version { major: 1, minor: 0 },
+    },
+    |left, right| left.checked_add(right).ok_or_else(|| ironbeam_core::Error::incompatible("sum overflow")),
+    |_, amount, prior| {
+        Ok((CombiningStateMutation::Add(amount), prior.copied().unwrap_or_default()))
+    },
+)?;
+```
+
+Here `pairs` contains `(key, amount)` values. Each output is the sum before
+the current amount is added. Direct and pinned local Prism agree on bounded
+add, clear, and replace operations and on two unbounded fixed windows. Direct
+checkpoints the coded accumulator; a local Prism job retains it after a
+supervised execution child is replaced. Timer callbacks remain separate from
+this API.

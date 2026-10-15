@@ -1,10 +1,12 @@
 include!("records_and_joins.rs");
 mod distinct;
 pub use distinct::*;
+mod combining_state;
 mod map_state;
 mod multimap_state;
 mod ordered_list_state;
 mod set_state;
+pub use combining_state::*;
 pub use map_state::*;
 pub use multimap_state::*;
 pub use ordered_list_state::*;

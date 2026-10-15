@@ -2,6 +2,8 @@
 
 #[path = "prism_v5_run/bag_state.rs"]
 mod bag_state;
+#[path = "prism_v5_run/combining_state.rs"]
+mod combining_state;
 #[path = "prism_v5_run/map_state.rs"]
 mod map_state;
 #[path = "prism_v5_run/multimap_state.rs"]
