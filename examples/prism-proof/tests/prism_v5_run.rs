@@ -5735,6 +5735,50 @@ async fn prism_matches_direct_per_window_distinct() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_unbounded_beam_rows_through_keyed_shuffle() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-stream-rows");
+    let portable_path = directory.path().join("portable-stream-rows");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        ironbeam_prism_proof::beam_row_stream_fixture(&direct_pipeline, direct_path.clone())
+            .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = ["a:1000000:[1, 2]", "a:11000000:[3]"];
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::beam_row_stream_fixture(&pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "beam-row-stream",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_BEAM_ROW_STREAM".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Beam row stream job state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_beam_row_coder_pipeline() {
     let directory = tempfile::tempdir().unwrap();
     let direct_path = directory.path().join("direct-beam-rows.txt");

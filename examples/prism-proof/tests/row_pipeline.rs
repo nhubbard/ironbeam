@@ -123,3 +123,26 @@ fn writer_and_reader_row_schemas_lower_to_distinct_beam_coders() {
     });
     assert_ne!(payloads[0], payloads[1]);
 }
+
+#[test]
+fn unbounded_beam_row_source_lowers_with_row_coder() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::beam_row_stream_fixture(&pipeline, directory.path().join("stream-rows"))
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated =
+        translate_v5(&pipeline, "example.test/ironbeam:v5", "row-stream-build").unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let source = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "beam-row-stream")
+        .unwrap();
+    let outer = &components.coders[&source.coder_id];
+    assert_eq!(outer.spec.as_ref().unwrap().urn, urns::CODER_LENGTH_PREFIX);
+    let row = &components.coders[&outer.component_coder_ids[0]];
+    assert_eq!(row.spec.as_ref().unwrap().urn, urns::CODER_ROW);
+    assert!(!row.spec.as_ref().unwrap().payload.is_empty());
+}

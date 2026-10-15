@@ -241,6 +241,11 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_BEAM_ROW_STREAM") {
+        return ironbeam_prism_proof::beam_row_stream_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_BEAM_DECIMAL_ROW") {
         return ironbeam_prism_proof::beam_decimal_row_fixture(pipeline, path.into())
             .map(|_| ())
