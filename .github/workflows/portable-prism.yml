@@ -12,6 +12,9 @@ jobs:
   prism:
     name: Beam worker and Prism
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-prism-${{ github.ref }}
+      cancel-in-progress: true
     timeout-minutes: 90
     permissions:
       contents: read
