@@ -705,7 +705,7 @@ pub(crate) fn try_wait_sink_route(
     }))
 }
 
-fn drain_linear_signal(
+pub(crate) fn drain_linear_signal(
     registry: &Registry,
     source_key: &str,
     stages: &[String],

@@ -443,6 +443,46 @@ pub fn bounded_wait_on_fixture(
         )
 }
 
+/// A bounded completion signal gates an unbounded main source.
+pub fn unbounded_main_bounded_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    marker: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let signal = completion_signal(pipeline, marker.clone())?;
+    let sink_directory = path.clone();
+    pipeline
+        .test_stream_source(
+            "stream-wait-main",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 1_000_000), (2, 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(3_000_000),
+            ],
+        )?
+        .wait_on_named("stream-wait-barrier", &signal)?
+        .map_named("stream-wait-check", move |value| {
+            assert!(marker.exists(), "bounded signal did not complete");
+            value
+        })?
+        .reify_timestamps_named("stream-wait-time")?
+        .map_named("stream-wait-row", |(time, value)| format!("{time}:{value}"))?
+        .sink_named_with_config(
+            "stream-wait-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("stream-wait-contract:{}", path.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Both independent bounded producers must finish before main output begins.
 pub fn bounded_multi_wait_fixture(
     pipeline: &Pipeline,

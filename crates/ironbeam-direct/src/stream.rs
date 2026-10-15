@@ -1,7 +1,7 @@
 //! Direct execution for resumable unbounded sources.
 
 use crate::multi_output::{self, PairPlan};
-use crate::planner::{self, PhysicalPlan};
+use crate::planner::{self, PhysicalPlan, Route};
 use crate::stream_checkpoint::{StreamCheckpoint, hex_bytes};
 use crate::{
     DirectRunner, JobConfig, JobHandle, JobStatus, cancelled, open_source_safe, read_source_batch,
@@ -54,6 +54,12 @@ struct BoundedSideStreamRoute {
     after_aggregate: Vec<String>,
     other_aggregates: Vec<(String, Vec<String>)>,
     after_fanout: Vec<String>,
+}
+
+struct BoundedWaitStreamRoute {
+    source_key: String,
+    operations: Vec<String>,
+    signals: Vec<(String, Vec<String>)>,
 }
 
 struct MultiGroupedStreamRoute {
@@ -423,6 +429,58 @@ fn linear_stream_input(graph: &Graph, input_key: &str) -> Option<(String, Vec<St
     }
 }
 
+fn bounded_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<BoundedWaitStreamRoute> {
+    let mut key = sink_key;
+    let mut operations = Vec::new();
+    let mut signals = Vec::new();
+    loop {
+        let node = graph.node(key)?;
+        match node.operation {
+            Operation::Source { .. } => {
+                if node.boundedness != ironbeam_core::Boundedness::Unbounded || signals.is_empty() {
+                    return None;
+                }
+                operations.reverse();
+                signals.reverse();
+                return Some(BoundedWaitStreamRoute {
+                    source_key: key.to_owned(),
+                    operations,
+                    signals,
+                });
+            }
+            Operation::WaitOn => {
+                let [signal] = node.additional_inputs.as_slice() else {
+                    return None;
+                };
+                let (source, stages) = linear_stream_input(graph, &signal.key)?;
+                if graph.node(&source)?.boundedness != ironbeam_core::Boundedness::Bounded {
+                    return None;
+                }
+                signals.push((source, stages));
+            }
+            Operation::Sink { .. } | Operation::Output => {
+                if !node.additional_inputs.is_empty() {
+                    return None;
+                }
+            }
+            Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::FixedWindow
+            | Operation::SlidingWindow
+            | Operation::SessionWindow => {
+                if !node.additional_inputs.is_empty() {
+                    return None;
+                }
+                operations.push(key.to_owned());
+            }
+            _ => return None,
+        }
+        key = node.input.as_deref()?;
+    }
+}
+
 fn side_stream_route(
     graph: &Graph,
     sink_key: &str,
@@ -700,7 +758,7 @@ impl DirectRunner {
         if config.spill.is_some() {
             return Err(Error::unsupported(&sink_key, "direct", "stream-spill"));
         }
-        let plan = planner::lower(&graph, &registry, &sink_key, config.buffer_budget_elements)?;
+        let mut plan = planner::lower(&graph, &registry, &sink_key, config.buffer_budget_elements)?;
         if !plan.materialized && plan.routes.len() > 1 {
             return start_multi_stream_sink::<T>(&graph, registry, plan, sink_key, config);
         }
@@ -714,7 +772,23 @@ impl DirectRunner {
         } else {
             None
         };
-        if plan.materialized && grouped.is_none() && bounded_side.is_none() {
+        let bounded_wait = if plan.materialized && grouped.is_none() && bounded_side.is_none() {
+            bounded_wait_stream_route(&graph, &sink_key)
+        } else {
+            None
+        };
+        if let Some(wait) = &bounded_wait {
+            plan.summary.source_key.clone_from(&wait.source_key);
+            plan.routes = vec![Route {
+                source_key: wait.source_key.clone(),
+                operations: wait.operations.clone(),
+            }];
+        }
+        if plan.materialized
+            && grouped.is_none()
+            && bounded_side.is_none()
+            && bounded_wait.is_none()
+        {
             if let Some(grouped_fan_in) = multi_grouped_stream_route(&graph, &sink_key) {
                 return start_multi_grouped_stream_sink::<T>(
                     &graph,
@@ -764,6 +838,8 @@ impl DirectRunner {
             grouped.source_key.as_str()
         } else if let Some(side) = &bounded_side {
             side.source_key.as_str()
+        } else if let Some(wait) = &bounded_wait {
+            wait.source_key.as_str()
         } else {
             let [route] = plan.routes.as_slice() else {
                 return Err(Error::unsupported(
@@ -847,7 +923,18 @@ impl DirectRunner {
                     registry.source_config_digest(source_key).ok_or_else(|| {
                         Error::unsupported(source_key, "direct", "source-config-digest")
                     })?;
-                let source_digest = if let Some(side) = &bounded_side {
+                let source_digest = if let Some(wait) = &bounded_wait {
+                    let mut digest = format!("{}:{main_source_digest}", main_source_digest.len());
+                    for (signal_source, _) in &wait.signals {
+                        let signal_digest = registry
+                            .source_config_digest(signal_source)
+                            .ok_or_else(|| {
+                                Error::unsupported(signal_source, "direct", "source-config-digest")
+                            })?;
+                        digest.push_str(&format!("{}:{signal_digest}", signal_digest.len()));
+                    }
+                    digest
+                } else if let Some(side) = &bounded_side {
                     let side_digest = registry
                         .source_config_digest(&side.side_source_key)
                         .ok_or_else(|| {
@@ -998,6 +1085,17 @@ impl DirectRunner {
                             side_buffered,
                         )
                     } else {
+                        if let Some(wait) = &bounded_wait {
+                            for (source, stages) in &wait.signals {
+                                crate::materialized::drain_linear_signal(
+                                    &registry,
+                                    source,
+                                    stages,
+                                    &worker_config,
+                                    &worker_handle.metrics,
+                                )?;
+                            }
+                        }
                         run_stream(
                             &registry,
                             &plan,
