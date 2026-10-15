@@ -322,21 +322,54 @@ pub fn streaming_window_expiration_fixture(
     pipeline: &Pipeline,
     directory: PathBuf,
 ) -> Result<Sink<(i64, i32)>, Error> {
+    fixed_window_expiration_fixture(pipeline, directory, 0)
+}
+
+/// Runner-owned expiration callbacks for two offset fixed windows.
+pub fn streaming_offset_window_expiration_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<(i64, i32)>, Error> {
+    fixed_window_expiration_fixture(pipeline, directory, 2_000_000)
+}
+
+fn fixed_window_expiration_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+    offset_ns: i64,
+) -> Result<Sink<(i64, i32)>, Error> {
     let sink_directory = directory.clone();
-    pipeline
-        .test_stream_source(
-            "window-expiration-source",
-            vec![
-                TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)]),
-                TestStreamEvent::AdvanceWatermark(11_000_000),
-                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 20_000_000)]),
-                TestStreamEvent::AdvanceWatermark(31_000_000),
-            ],
-        )?
-        .fixed_windows("window-expiration-assign", 10_000_000)?
+    let source = pipeline.test_stream_source(
+        "window-expiration-source",
+        vec![
+            TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)]),
+            TestStreamEvent::AdvanceWatermark(if offset_ns == 0 {
+                11_000_000
+            } else {
+                3_000_000
+            }),
+            TestStreamEvent::Elements(vec![((1_i32, 4_i32), 20_000_000)]),
+            TestStreamEvent::AdvanceWatermark(if offset_ns == 0 {
+                31_000_000
+            } else {
+                23_000_000
+            }),
+        ],
+    )?;
+    let windowed = if offset_ns == 0 {
+        source.fixed_windows("window-expiration-assign", 10_000_000)?
+    } else {
+        source.fixed_windows_with_offset("window-expiration-assign", 10_000_000, offset_ns)?
+    };
+    let semantic_id = if offset_ns == 0 {
+        "prism-proof/window-expiration-state"
+    } else {
+        "prism-proof/offset-window-expiration-state"
+    };
+    windowed
         .stateful_timer_map_with_window_expiration_named::<i32, (i64, i32)>(
             "window-expiration-state",
-            "prism-proof/window-expiration-state",
+            semantic_id,
             Version { major: 1, minor: 0 },
             BTreeMap::from([("expiry".into(), UserTimerDomain::EventTime)]),
             "expiry",
