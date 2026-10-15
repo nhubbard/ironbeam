@@ -330,7 +330,7 @@ A supervised child-loss fixture proves replay with an idempotent sink.
 A production unbounded source also recovers its keyed counts after child
 replacement during residual reopen. Direct and Prism also agree when a row
 arrives after its fixed window expires: it starts a fresh value cell.
-Other state families and timer callbacks remain open.
+Timer callbacks and some state families remain open.
 
 `stateful_bag_map_named` gives each key and assigned window a bag of coded
 elements. The callback receives the current contents and returns one output
@@ -451,3 +451,36 @@ changes, so a mutation can cost work proportional to its total values.
 Bounded, unbounded, fixed-window, checkpoint restart, and Prism worker
 replacement fixtures have matching results. Timer callbacks remain
 unavailable.
+
+`stateful_ordered_list_map_named` keeps coded values by an explicit millisecond
+sort key for each pipeline key and window. The callback reads a slice of
+`(sort_key, value)` pairs and returns one output with `Keep`, `Clear`,
+`Append`, `ClearRange`, or `Replace`. A clear range includes its start and
+excludes its end. Equal sort keys are presented in encoded-value order.
+
+```rust
+use ironbeam_core::{OrderedListStateMutation, Version};
+
+let previous = pairs.stateful_ordered_list_map_named::<i64, Vec<i64>>(
+    "recent-amounts",
+    "orders/recent-amounts",
+    Version { major: 1, minor: 0 },
+    |_, amount, entries| {
+        let seen = entries.iter().map(|(_, value)| *value).collect();
+        Ok((OrderedListStateMutation::Append(amount, amount), seen))
+    },
+)?;
+```
+
+Here `pairs` contains `(pipeline_key, amount)` values. The sort key in this
+example is the amount; event-time ordering instead requires the caller to
+provide an event-time millisecond key. The maximum signed 64-bit sort key is
+reserved because Beam's full-range read uses a half-open upper bound. Direct
+checkpoints the coded list with its source cursor. Bounded mutation and
+unbounded fixed-window fixtures agree with local Prism, and a Direct restart
+test resumes an open list from its checkpoint. A production unbounded Prism
+job retains the list through execution-child replacement; its two residual
+values may arrive in either order. The portable worker replaces
+the full cell within one bundle when it changes, so the cost of a mutation
+grows with the number of retained entries. Timer callbacks are not yet
+available for this API.

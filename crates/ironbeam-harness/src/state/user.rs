@@ -8,6 +8,7 @@ use super::StateClient;
 
 mod bag_transition;
 mod map_transition;
+mod ordered_transition;
 mod set_transition;
 mod value_transition;
 pub use value_transition::ValueStateMutation;

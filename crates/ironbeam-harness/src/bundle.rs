@@ -100,6 +100,10 @@ fn value_state_payload(
                         vec![&cell.key_coder_id, &cell.value_coder_id],
                         "beam:user_state:multimap:v1",
                     ),
+                    ("ordered_list", Some(state_spec::Spec::OrderedListSpec(cell))) => (
+                        vec![&cell.element_coder_id],
+                        "beam:user_state:ordered_list:v1",
+                    ),
                     _ => return false,
                 };
                 coder_ids.into_iter().all(|coder_id| {
@@ -123,7 +127,7 @@ fn value_state_payload(
     if !valid {
         return Err(PlanError::BadPayload {
             id: id.into(),
-            err: "v5 ParDo supports one declared value, bag, set, map, or multimap cell without timers"
+            err: "v5 ParDo supports one declared value, bag, set, map, multimap, or ordered-list cell without timers"
                 .into(),
         });
     }

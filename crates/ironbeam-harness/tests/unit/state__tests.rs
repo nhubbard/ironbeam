@@ -71,6 +71,151 @@ fn user_contract() -> StatefulParDoContract {
 }
 
 #[tokio::test]
+async fn ordered_list_callback_reads_sorted_entries_and_replaces_one_bundle_cell() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "ordered-bundle",
+        "ordered-transform",
+        &contract,
+        vec![3],
+        vec![7],
+    )
+    .unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for step in 0..3 {
+            let request = requests.recv().await.unwrap();
+            assert_eq!(request.instruction_id, "ordered-bundle");
+            let Some(state_key::Type::OrderedListUserState(scope)) =
+                request.state_key.as_ref().unwrap().r#type.as_ref()
+            else {
+                panic!("expected ordered-list state key");
+            };
+            assert_eq!(scope.transform_id, "ordered-transform");
+            assert_eq!(scope.user_state_id, "ordered");
+            let response = match step {
+                0 => {
+                    let range = scope.range.as_ref().unwrap();
+                    assert_eq!((range.start, range.end), (i64::MIN, i64::MAX));
+                    assert!(matches!(
+                        request.request,
+                        Some(state_request::Request::Get(_))
+                    ));
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: vec![20, 1, 2, 10, 1, 1],
+                    })
+                }
+                1 => {
+                    let range = scope.range.as_ref().unwrap();
+                    assert_eq!((range.start, range.end), (i64::MIN, i64::MAX));
+                    assert!(matches!(
+                        request.request,
+                        Some(state_request::Request::Clear(_))
+                    ));
+                    state_response::Response::Clear(StateClearResponse {})
+                }
+                _ => {
+                    assert!(scope.range.is_none());
+                    let Some(state_request::Request::Append(append)) = request.request else {
+                        panic!("expected ordered-list append");
+                    };
+                    assert_eq!(append.data, [10, 1, 1, 15, 1, 3, 20, 1, 2]);
+                    state_response::Response::Append(StateAppendResponse {})
+                }
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    let result = access
+        .apply_ordered_state("ordered", |current| {
+            assert_eq!(current, br"[[10,[1]],[20,[2]]]");
+            Ok((19, Some(br"[[10,[1]],[15,[3]],[20,[2]]]".to_vec())))
+        })
+        .await
+        .unwrap();
+    assert_eq!(result, 19);
+    responder.await.unwrap();
+}
+
+#[tokio::test]
+async fn ordered_list_first_append_does_not_clear_missing_runner_cell() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "first-ordered-bundle",
+        "ordered-transform",
+        &contract,
+        Vec::new(),
+        vec![7],
+    )
+    .unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for step in 0..2 {
+            let request = requests.recv().await.unwrap();
+            let Some(state_key::Type::OrderedListUserState(scope)) =
+                request.state_key.as_ref().unwrap().r#type.as_ref()
+            else {
+                panic!("expected ordered-list state key");
+            };
+            let response = if step == 0 {
+                assert!(scope.range.is_some());
+                assert!(matches!(
+                    request.request,
+                    Some(state_request::Request::Get(_))
+                ));
+                state_response::Response::Get(StateGetResponse {
+                    continuation_token: Vec::new(),
+                    data: Vec::new(),
+                })
+            } else {
+                assert!(scope.range.is_none());
+                let Some(state_request::Request::Append(append)) = request.request else {
+                    panic!("first ordered-list mutation should append without clear");
+                };
+                assert_eq!(append.data, [10, 1, 1]);
+                state_response::Response::Append(StateAppendResponse {})
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    access
+        .apply_ordered_state("ordered", |current| {
+            assert_eq!(current, b"[]");
+            Ok(((), Some(br"[[10,[1]]]".to_vec())))
+        })
+        .await
+        .unwrap();
+    responder.await.unwrap();
+}
+
+#[tokio::test]
 async fn scoped_value_and_map_replacement_clear_before_append() {
     let (client, mut requests) = test_client();
     let contract = user_contract();

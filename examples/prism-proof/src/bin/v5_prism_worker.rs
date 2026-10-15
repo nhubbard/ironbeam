@@ -286,6 +286,21 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_ORDERED_LIST_MUTATIONS") {
+        return ironbeam_prism_proof::bounded_ordered_list_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_WINDOWED_ORDERED_LIST") {
+        return ironbeam_prism_proof::streaming_windowed_ordered_list_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_ORDERED_LIST") {
+        return ironbeam_prism_proof::production_ordered_list_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_MULTIMAP_STATE") {
         return ironbeam_prism_proof::streaming_multimap_state_fixture(pipeline, path.into())
             .map(|_| ())

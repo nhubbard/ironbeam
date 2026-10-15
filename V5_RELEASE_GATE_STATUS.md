@@ -245,6 +245,23 @@ The portable worker uses Beam's multimap Fn State keys; a changed cell is
 rewritten within the bundle. Timer callbacks and broader error boundaries
 remain open.
 
+`OrderedListState` now has `Keep`, `Clear`, `Append`, half-open `ClearRange`,
+and `Replace`, with explicit millisecond sort keys. Equal sort keys are
+ordered by coder bytes for deterministic callback input. Core tests cover
+duplicate keys, sorted reads, mutations, malformed state, callback rollback,
+and coded restoration. Direct executes the bounded fixture and restores an
+unbounded global cell with its source cursor. The harness reads and replaces
+Beam ordered-list Fn State entries inside one bundle; a fake-runner test
+checks range-scoped read and clear, base-key append, and wire bytes. Bounded
+mutations and two-batch fixed-window cells agree on Direct and pinned local
+Prism. A production unbounded source retains the cell after the supervised
+execution child is replaced and its residual reopens. Prism may process the
+two residual values in either order, so that fixture checks both corresponding
+sorted-state observations. The pinned Prism build panics if a worker clears an ordered-list cell
+before its first append, so the adapter skips that needless clear. Each
+mutation currently rewrites the full cell. Timer callbacks and large-cell
+performance remain open.
+
 These rows are not equally weighted. A percentage computed by counting URNs
 would hide the difference between a declared state spec and a working
 stateful pipeline. The target remains open until the missing behaviors have
@@ -266,7 +283,7 @@ the worker can execute it.
 | SDF pair, split/size, process, and truncate | The first three stages execute for one-split resumable sources. The worker also accepts `sdf_truncate_sized_restrictions:v1` and applies Beam's default drain rule to the unbounded source restriction; a Fn Data fixture confirms that it validates the sized input and closes its output without a work item. `OffsetRangeTracker` supplies a claim/split/progress contract and Beam Java-compatible restriction bytes. | Execute registered user functions with offset restrictions, deliver dynamic splits and timer/watermark state, and prove runner-orchestrated drain plus custom finite truncation. |
 | Native `GroupIntoBatches` and sharded-key batching | Count and buffering-time helpers expand to grouping and Beam triggers; tested Direct and Prism cases agree. An explicit, versioned shard selector assigns one hot key to two opaque shards before batching; bounded and fixed-window TestStream jobs agree on both batches. Direct restores two open shard batches from one source checkpoint and commits each once. A supervised Prism job kills its execution child inside the sharded-batch output callback, replays the failed bundle, and publishes the same two batches as Direct with no duplicate rows. | Stateful byte-limited unbounded batches and automatic hot-key sharding. Native URN emission is optional if the expansion preserves behavior. |
 | `WriteFiles`, Pub/Sub read/write, and provider operations | Format-specific worker sinks and provider-neutral/GCP clients exist. Local provider object I/O has portable jobs. | Portable service source and sink bindings, worker re-creation, and replay-safe publication under a controlled service or emulator. |
-| Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. `BeamShardedKey<String>` matches pinned standard coder examples and has a reshuffle job on Direct and local Prism. Binary-key bytes and graph components have tests. Timer records and Fn State access have codec tests; state-backed iterables can be read from runner state. | Executable timer callbacks and state mutation, schema-coder and live binary-key jobs, and cross-SDK row evolution cases. |
+| Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. `BeamShardedKey<String>` matches pinned standard coder examples and has a reshuffle job on Direct and local Prism. Binary-key bytes and graph components have tests. Ordered-list Fn State has a byte-level test and bounded plus unbounded Direct/Prism jobs. Timer records have codec tests; state-backed iterables can be read from runner state. | Executable timer callbacks, combining-state execution, schema-coder and live binary-key jobs, and cross-SDK row evolution cases. |
 
 These are evidence categories, not equal-sized percentage points. A scored
 99% claim still requires per-case inventory, runner agreement, and an explicit

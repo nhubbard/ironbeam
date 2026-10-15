@@ -33,6 +33,7 @@ include!("stateful_bag_collection.rs");
 include!("stateful_set_collection.rs");
 include!("stateful_map_collection.rs");
 include!("stateful_multimap_collection.rs");
+include!("stateful_ordered_list_collection.rs");
 include!("keyed.rs");
 include!("co_group_homogeneous.rs");
 include!("output.rs");
