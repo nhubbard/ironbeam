@@ -1,5 +1,6 @@
 include!("records_and_joins.rs");
 include!("object_avro.rs");
+include!("object_parquet.rs");
 include!("multiway_and_batches.rs");
 include!("homogeneous_cogroup.rs");
 include!("dynamic_ops.rs");

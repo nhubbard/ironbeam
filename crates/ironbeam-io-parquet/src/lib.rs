@@ -3,3 +3,8 @@
 
 mod implementation;
 pub use implementation::*;
+
+#[cfg(feature = "cloud")]
+mod cloud_io;
+#[cfg(feature = "cloud")]
+pub use cloud_io::cloud_parquet_uri_source;

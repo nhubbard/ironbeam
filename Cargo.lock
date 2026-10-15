@@ -3121,6 +3121,7 @@ version = "5.0.0"
 dependencies = [
  "arrow",
  "bytes",
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
@@ -3128,6 +3129,7 @@ dependencies = [
  "serde",
  "serde_arrow 0.15.0",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
 ]
 

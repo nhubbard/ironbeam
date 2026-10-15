@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-fn read_parquet<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
+pub(crate) fn read_parquet<T: DeserializeOwned>(bytes: &[u8]) -> Result<Vec<T>, Error> {
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     let data = bytes::Bytes::copy_from_slice(bytes);
     let reader = ParquetRecordBatchReaderBuilder::try_new(data)

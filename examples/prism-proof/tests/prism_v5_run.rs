@@ -63,6 +63,7 @@ use ironbeam_prism_proof::{
     pane_metadata_fixture_with_trigger, panicking_global_combine_fixture,
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
     partition_fixture, portable_object_avro_collection, portable_object_avro_fixture,
+    portable_object_parquet_collection, portable_object_parquet_fixture,
     production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
     shared_accumulating_early_cogroup_collection, shared_accumulating_early_cogroup_fixture,
     shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
@@ -4276,6 +4277,85 @@ async fn prism_reads_provider_bound_avro_with_a_defaulted_reader_field() {
             .lines()
             .collect::<Vec<_>>(),
         ["6:first:5", "7:second:5"]
+    );
+}
+
+#[tokio::test]
+async fn prism_reads_provider_bound_parquet_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let object_root = directory.path().join("objects");
+    let seed_path = directory.path().join("seed.parquet");
+    let seed = Pipeline::default()
+        .from_vec(
+            "object-parquet-seed",
+            vec![
+                ProductionAvroRow {
+                    id: 8,
+                    label: "third".into(),
+                },
+                ProductionAvroRow {
+                    id: 9,
+                    label: "fourth".into(),
+                },
+            ],
+        )
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &ironbeam_io_parquet::parquet_sink(&seed, "object-parquet-seed-sink", &seed_path)
+                .unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let mut stores = ObjectStores::new();
+    stores
+        .register("file", LocalObjectIO::new(&object_root).unwrap())
+        .unwrap();
+    stores
+        .write(
+            "file://bucket/input/rows.parquet",
+            &std::fs::read(seed_path).unwrap(),
+        )
+        .unwrap();
+    let direct_pipeline = Pipeline::default();
+    let direct = portable_object_parquet_collection(&direct_pipeline, &object_root)
+        .unwrap()
+        .output("object-parquet-direct-output")
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    assert_eq!(direct, ["8:third", "9:fourth"]);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let path = directory.path().join("object-parquet-result.txt");
+    let portable = Pipeline::default();
+    portable_object_parquet_fixture(&portable, &object_root, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "provider-bound-parquet",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_PARQUET_ROOT".into(),
+                object_root.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_OBJECT_PARQUET_RESULT".into(),
+                path.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "portable object Parquet job: {terminal:?}");
+    assert_eq!(
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        ["8:third", "9:fourth"]
     );
 }
 

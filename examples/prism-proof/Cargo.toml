@@ -24,7 +24,7 @@ ironbeam-io-msgpack = { workspace = true }
 ironbeam-io-cbor = { workspace = true }
 ironbeam-io-csv = { workspace = true }
 ironbeam-io-xml = { workspace = true }
-ironbeam-io-parquet = { workspace = true }
+ironbeam-io-parquet = { workspace = true, features = ["cloud"] }
 ironbeam-io-arrow = { workspace = true }
 ironbeam-io-protobuf = { workspace = true }
 ironbeam-io-tfrecord = { workspace = true }
