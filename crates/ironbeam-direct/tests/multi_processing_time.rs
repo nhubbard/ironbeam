@@ -112,7 +112,28 @@ fn two_independent_sources_fire_one_processing_time_pane() {
 }
 
 #[test]
+fn two_sources_accumulate_count_or_processing_time_panes() {
+    run_two_sources_accumulating_count_and_timer(CountTimerMode::Any);
+}
+
+#[test]
 fn two_sources_accumulate_count_then_processing_time_panes() {
+    run_two_sources_accumulating_count_and_timer(CountTimerMode::Each);
+}
+
+#[test]
+fn two_sources_accumulate_count_and_processing_time_panes() {
+    run_two_sources_accumulating_count_and_timer(CountTimerMode::All);
+}
+
+#[derive(Clone, Copy)]
+enum CountTimerMode {
+    Any,
+    All,
+    Each,
+}
+
+fn run_two_sources_accumulating_count_and_timer(mode: CountTimerMode) {
     let pipeline = Pipeline::default();
     let make_source = |key: &str, value, first: bool| {
         let mut events = vec![TestStreamEvent::Elements(vec![((1_i32, value), 1_000_000)])];
@@ -123,17 +144,29 @@ fn two_sources_accumulate_count_then_processing_time_panes() {
         }
         events.push(TestStreamEvent::AdvanceProcessingTime(5_000_000));
         events.push(TestStreamEvent::AdvanceWatermark(10_000_000));
-        pipeline
+        let source = pipeline
             .test_stream_source(key, events)
             .unwrap()
             .fixed_windows(&format!("{key}-window"), 10_000_000)
-            .unwrap()
-            .accumulating_count_or_processing_time_trigger_named(
+            .unwrap();
+        match mode {
+            CountTimerMode::Each => source.accumulating_count_then_processing_time_trigger_named(
                 &format!("{key}-trigger"),
                 2,
                 5_000_000,
-            )
-            .unwrap()
+            ),
+            CountTimerMode::Any => source.accumulating_count_or_processing_time_trigger_named(
+                &format!("{key}-trigger"),
+                2,
+                5_000_000,
+            ),
+            CountTimerMode::All => source.accumulating_count_and_processing_time_trigger_named(
+                &format!("{key}-trigger"),
+                2,
+                5_000_000,
+            ),
+        }
+        .unwrap()
     };
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
@@ -153,7 +186,7 @@ fn two_sources_accumulate_count_then_processing_time_panes() {
                 replay: Replay::Idempotent,
                 commit: true,
             },
-            "multi-count-or-time-v1".into(),
+            format!("multi-count-timer-{}-v1", mode.name()),
             {
                 let committed = Arc::clone(&committed);
                 let accepted = Arc::clone(&accepted);
@@ -177,14 +210,25 @@ fn two_sources_accumulate_count_then_processing_time_panes() {
         .unwrap()
         .wait()
         .unwrap();
-    assert_eq!(
-        committed.lock().unwrap().as_slice(),
-        [
+    let expected: &[&str] = match mode {
+        CountTimerMode::All => &["1:[[2, 3], [4]]:Early:0", "1:[[2, 3], [4]]:OnTime:1"],
+        CountTimerMode::Any | CountTimerMode::Each => &[
             "1:[[2], [4]]:Early:0",
             "1:[[2, 3], [4]]:Early:1",
             "1:[[2, 3], [4]]:OnTime:2",
-        ]
-    );
+        ],
+    };
+    assert_eq!(committed.lock().unwrap().as_slice(), expected);
+}
+
+impl CountTimerMode {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Any => "any",
+            Self::All => "all",
+            Self::Each => "each",
+        }
+    }
 }
 
 #[test]

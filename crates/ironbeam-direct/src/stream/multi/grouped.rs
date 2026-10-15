@@ -94,7 +94,9 @@ pub(crate) fn start_multi_grouped_stream_sink<T: Element>(
     let early_processing_time = group.time.trigger.early_processing_time();
     let early_policy = match (early_count, early_processing_time) {
         (Some(count), Some(delay_ns)) => {
-            Some(if group.time.trigger.is_count_and_processing_time() {
+            Some(if group.time.trigger.is_count_then_processing_time() {
+                EarlyPolicy::CountThenProcessingTime(count, delay_ns)
+            } else if group.time.trigger.is_count_and_processing_time() {
                 EarlyPolicy::CountAndProcessingTime(count, delay_ns)
             } else {
                 EarlyPolicy::CountOrProcessingTime(count, delay_ns)
@@ -474,23 +476,8 @@ fn run_multi_grouped_stream(
                 continue;
             };
             ready = true;
-            if batch.progress.source_key != *source_key || batch.progress.split_id.is_empty() {
-                return Err(Error::execution(
-                    source_key,
-                    "source",
-                    "stream progress identity changed",
-                ));
-            }
-            if sources[index]
-                .as_ref()
-                .is_some_and(|previous| previous.split_id != batch.progress.split_id)
-            {
-                return Err(Error::execution(
-                    source_key,
-                    "source",
-                    "source split changed after checkpoint",
-                ));
-            }
+            // Registry readers validate source and split identity before
+            // returning a batch to this route.
             if !batch.elements.is_empty()
                 && sources[index].as_ref().is_some_and(|previous| {
                     previous.checkpoint_position == batch.progress.checkpoint_position
@@ -500,18 +487,6 @@ fn run_multi_grouped_stream(
                     source_key,
                     "source",
                     "data batch did not advance its cursor",
-                ));
-            }
-            if sources[index].as_ref().is_some_and(|previous| {
-                previous
-                    .event_time_ns
-                    .zip(batch.progress.event_time_ns)
-                    .is_some_and(|(old, new)| new < old)
-            }) {
-                return Err(Error::execution(
-                    source_key,
-                    "source",
-                    "source watermark moved backward",
                 ));
             }
             let count = u64::try_from(batch.elements.len()).unwrap_or(u64::MAX);

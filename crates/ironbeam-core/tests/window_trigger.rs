@@ -169,6 +169,55 @@ fn count_and_processing_time_policy_has_distinct_identity_and_validation() {
 }
 
 #[test]
+fn count_then_processing_time_has_distinct_validated_identity() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .from_vec("source", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap();
+    assert!(
+        source
+            .count_then_processing_time_trigger_named("zero", 0, 5_000_000)
+            .is_err()
+    );
+    assert!(
+        source
+            .count_then_processing_time_trigger_named("fraction", 2, 1)
+            .is_err()
+    );
+    let each = source
+        .count_then_processing_time_trigger_named("each", 2, 5_000_000)
+        .unwrap();
+    let all = source
+        .count_and_processing_time_trigger_named("all", 2, 5_000_000)
+        .unwrap();
+    let accumulating = source
+        .accumulating_count_then_processing_time_trigger_named("each-accumulating", 2, 5_000_000)
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node(each.key()).unwrap().time.trigger,
+        WindowTrigger::EarlyCountThenProcessingTime {
+            count: 2,
+            delay_ns: 5_000_000
+        }
+    );
+    assert_ne!(
+        graph.node(each.key()).unwrap().time.trigger,
+        graph.node(all.key()).unwrap().time.trigger
+    );
+    assert!(
+        graph
+            .node(accumulating.key())
+            .unwrap()
+            .time
+            .trigger
+            .is_accumulating()
+    );
+}
+
+#[test]
 fn unbounded_batches_preserve_allowed_lateness_with_their_own_counts() {
     let pipeline = Pipeline::default();
     let values = pipeline

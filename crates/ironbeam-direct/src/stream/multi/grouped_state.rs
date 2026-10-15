@@ -35,6 +35,7 @@ pub(super) enum EarlyPolicy {
     ProcessingTime(i64),
     CountOrProcessingTime(u64, i64),
     CountAndProcessingTime(u64, i64),
+    CountThenProcessingTime(u64, i64),
 }
 
 impl MultiWindowState {
@@ -44,7 +45,8 @@ impl MultiWindowState {
             Self::Early {
                 policy: EarlyPolicy::ProcessingTime(_)
                     | EarlyPolicy::CountOrProcessingTime(_, _)
-                    | EarlyPolicy::CountAndProcessingTime(_, _),
+                    | EarlyPolicy::CountAndProcessingTime(_, _)
+                    | EarlyPolicy::CountThenProcessingTime(_, _),
                 ..
             }
         )
@@ -85,7 +87,8 @@ impl MultiWindowState {
             let delay_ns = match policy {
                 EarlyPolicy::ProcessingTime(delay_ns)
                 | EarlyPolicy::CountOrProcessingTime(_, delay_ns)
-                | EarlyPolicy::CountAndProcessingTime(_, delay_ns) => *delay_ns,
+                | EarlyPolicy::CountAndProcessingTime(_, delay_ns)
+                | EarlyPolicy::CountThenProcessingTime(_, delay_ns) => *delay_ns,
                 EarlyPolicy::Count(_) => return Ok(()),
             };
             for (fold, _) in folds.values_mut() {
@@ -101,7 +104,8 @@ impl MultiWindowState {
             policy:
                 EarlyPolicy::ProcessingTime(_)
                 | EarlyPolicy::CountOrProcessingTime(_, _)
-                | EarlyPolicy::CountAndProcessingTime(_, _),
+                | EarlyPolicy::CountAndProcessingTime(_, _)
+                | EarlyPolicy::CountThenProcessingTime(_, _),
             ..
         } = self
         {
@@ -483,7 +487,8 @@ impl MultiWindowState {
                 let mut panes = Vec::new();
                 if let EarlyPolicy::Count(count)
                 | EarlyPolicy::CountOrProcessingTime(count, _)
-                | EarlyPolicy::CountAndProcessingTime(count, _) = policy
+                | EarlyPolicy::CountAndProcessingTime(count, _)
+                | EarlyPolicy::CountThenProcessingTime(count, _) = policy
                 {
                     for (&(_, end), (fold, rows)) in folds.iter_mut() {
                         if prior_watermark.is_some_and(|prior| end <= prior) {

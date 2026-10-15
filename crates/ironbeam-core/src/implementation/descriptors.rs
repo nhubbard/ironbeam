@@ -40,6 +40,10 @@ pub enum WindowTrigger {
     EarlyCountAndProcessingTime { count: u64, delay_ns: i64 },
     /// Count-and-processing-time firings that retain earlier values.
     EarlyCountAndProcessingTimeAccumulating { count: u64, delay_ns: i64 },
+    /// Repeated count pane followed by a processing-time pane for later input.
+    EarlyCountThenProcessingTime { count: u64, delay_ns: i64 },
+    /// Sequential count and processing-time panes that retain earlier values.
+    EarlyCountThenProcessingTimeAccumulating { count: u64, delay_ns: i64 },
     /// Repeated late firings after `count` new elements; panes discard prior values.
     LateElementCount { count: u64 },
     /// Repeated late firings after `count` new elements; panes retain prior values.
@@ -65,7 +69,9 @@ impl WindowTrigger {
             | Self::EarlyCountOrProcessingTime { count, .. }
             | Self::EarlyCountOrProcessingTimeAccumulating { count, .. }
             | Self::EarlyCountAndProcessingTime { count, .. }
-            | Self::EarlyCountAndProcessingTimeAccumulating { count, .. } => {
+            | Self::EarlyCountAndProcessingTimeAccumulating { count, .. }
+            | Self::EarlyCountThenProcessingTime { count, .. }
+            | Self::EarlyCountThenProcessingTimeAccumulating { count, .. } => {
                 Some(*count)
             }
             Self::EarlyAndLateElementCount { early_count, .. }
@@ -81,7 +87,9 @@ impl WindowTrigger {
             | Self::EarlyCountOrProcessingTime { delay_ns, .. }
             | Self::EarlyCountOrProcessingTimeAccumulating { delay_ns, .. }
             | Self::EarlyCountAndProcessingTime { delay_ns, .. }
-            | Self::EarlyCountAndProcessingTimeAccumulating { delay_ns, .. } => Some(*delay_ns),
+            | Self::EarlyCountAndProcessingTimeAccumulating { delay_ns, .. }
+            | Self::EarlyCountThenProcessingTime { delay_ns, .. }
+            | Self::EarlyCountThenProcessingTimeAccumulating { delay_ns, .. } => Some(*delay_ns),
             _ => None,
         }
     }
@@ -92,6 +100,15 @@ impl WindowTrigger {
             self,
             Self::EarlyCountAndProcessingTime { .. }
                 | Self::EarlyCountAndProcessingTimeAccumulating { .. }
+        )
+    }
+
+    #[must_use]
+    pub const fn is_count_then_processing_time(&self) -> bool {
+        matches!(
+            self,
+            Self::EarlyCountThenProcessingTime { .. }
+                | Self::EarlyCountThenProcessingTimeAccumulating { .. }
         )
     }
 
@@ -113,6 +130,7 @@ impl WindowTrigger {
                 | Self::EarlyProcessingTimeAccumulating { .. }
                 | Self::EarlyCountOrProcessingTimeAccumulating { .. }
                 | Self::EarlyCountAndProcessingTimeAccumulating { .. }
+                | Self::EarlyCountThenProcessingTimeAccumulating { .. }
                 | Self::LateElementCountAccumulating { .. }
                 | Self::EarlyAndLateElementCountAccumulating { .. }
         )

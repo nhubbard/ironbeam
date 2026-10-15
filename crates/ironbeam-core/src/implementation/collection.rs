@@ -7,6 +7,13 @@ struct TimePolicyOverride {
     allowed_lateness_ns: Option<i64>,
 }
 
+#[derive(Clone, Copy)]
+enum CompositeTriggerMode {
+    Any,
+    All,
+    Each,
+}
+
 impl<T: Element> PCollection<T> {
     #[must_use]
     pub fn key(&self) -> &str {
@@ -617,7 +624,7 @@ impl<T: Element> PCollection<T> {
         count: u64,
         delay_ns: i64,
     ) -> Result<Self, Error> {
-        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, false, false)
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, false, CompositeTriggerMode::Any)
     }
 
     /// Repeated count-or-processing-time firings that retain values from
@@ -628,7 +635,7 @@ impl<T: Element> PCollection<T> {
         count: u64,
         delay_ns: i64,
     ) -> Result<Self, Error> {
-        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, true, false)
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, true, CompositeTriggerMode::Any)
     }
 
     /// Repeatedly fire a discarding pane once both `count` elements have
@@ -639,7 +646,7 @@ impl<T: Element> PCollection<T> {
         count: u64,
         delay_ns: i64,
     ) -> Result<Self, Error> {
-        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, false, true)
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, false, CompositeTriggerMode::All)
     }
 
     /// Repeated count-and-processing-time firings that retain earlier values.
@@ -649,7 +656,28 @@ impl<T: Element> PCollection<T> {
         count: u64,
         delay_ns: i64,
     ) -> Result<Self, Error> {
-        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, true, true)
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, true, CompositeTriggerMode::All)
+    }
+
+    /// Repeatedly fire a count pane, then a processing-time pane for later
+    /// input. Each phase starts when the preceding phase has fired.
+    pub fn count_then_processing_time_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+    ) -> Result<Self, Error> {
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, false, CompositeTriggerMode::Each)
+    }
+
+    /// Sequential count and processing-time panes that retain earlier values.
+    pub fn accumulating_count_then_processing_time_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+    ) -> Result<Self, Error> {
+        self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, true, CompositeTriggerMode::Each)
     }
 
     fn count_processing_time_trigger_with_mode_named(
@@ -658,7 +686,7 @@ impl<T: Element> PCollection<T> {
         count: u64,
         delay_ns: i64,
         accumulating: bool,
-        conjunctive: bool,
+        mode: CompositeTriggerMode,
     ) -> Result<Self, Error> {
         if count == 0 || count > i32::MAX as u64 {
             return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));
@@ -681,11 +709,13 @@ impl<T: Element> PCollection<T> {
             Some(window),
             None,
             TimePolicyOverride {
-                trigger: Some(match (conjunctive, accumulating) {
-                    (false, false) => WindowTrigger::EarlyCountOrProcessingTime { count, delay_ns },
-                    (false, true) => WindowTrigger::EarlyCountOrProcessingTimeAccumulating { count, delay_ns },
-                    (true, false) => WindowTrigger::EarlyCountAndProcessingTime { count, delay_ns },
-                    (true, true) => WindowTrigger::EarlyCountAndProcessingTimeAccumulating { count, delay_ns },
+                trigger: Some(match (mode, accumulating) {
+                    (CompositeTriggerMode::Any, false) => WindowTrigger::EarlyCountOrProcessingTime { count, delay_ns },
+                    (CompositeTriggerMode::Any, true) => WindowTrigger::EarlyCountOrProcessingTimeAccumulating { count, delay_ns },
+                    (CompositeTriggerMode::All, false) => WindowTrigger::EarlyCountAndProcessingTime { count, delay_ns },
+                    (CompositeTriggerMode::All, true) => WindowTrigger::EarlyCountAndProcessingTimeAccumulating { count, delay_ns },
+                    (CompositeTriggerMode::Each, false) => WindowTrigger::EarlyCountThenProcessingTime { count, delay_ns },
+                    (CompositeTriggerMode::Each, true) => WindowTrigger::EarlyCountThenProcessingTimeAccumulating { count, delay_ns },
                 }),
                 output_time: None,
                 allowed_lateness_ns: None,
