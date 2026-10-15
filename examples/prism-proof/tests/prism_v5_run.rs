@@ -7259,6 +7259,56 @@ async fn prism_matches_direct_late_per_window_distinct() {
 }
 
 #[tokio::test]
+async fn prism_replays_late_distinct_pane_after_execution_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let portable_path = directory.path().join("portable-replayed-late-distinct");
+    let trigger = directory.path().join("late-distinct-trigger");
+    let killed = directory.path().join("killed-late-distinct-child");
+    let pipeline = Pipeline::default();
+    late_distinct_window_fixture(&pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-late-distinct",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_LATE_DISTINCT_WINDOW".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_PRISM_KILL_LATE_DISTINCT".into(), "1".into()),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism late Distinct replay failed: {terminal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap()
+    );
+    let mut rows = std::fs::read_dir(&portable_path)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(rows, ["a:1000000:OnTime:0", "a:2000000:Late:1"]);
+}
+
+#[tokio::test]
 async fn prism_and_direct_reject_keyed_batch_length_change() {
     let directory = tempfile::tempdir().unwrap();
     let direct_path = directory.path().join("direct-invalid-keyed-batch.txt");

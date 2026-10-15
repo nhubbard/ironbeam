@@ -1,4 +1,5 @@
 use super::*;
+use ironbeam_core::PaneTiming;
 use ironbeam_transforms::ElementwiseExt;
 
 /// One value per window, including the earliest event timestamp.
@@ -226,26 +227,40 @@ fn streaming_distinct_fixture(
         windowed.early_count_trigger_named("distinct-trigger", 2)?
     };
     let sink_directory = directory.clone();
-    triggered
+    let annotated = triggered
         .distinct_per_window_named("distinct")?
         .reify_timestamps_named("distinct-time")?
-        .reify_panes_named("distinct-pane")?
-        .map_named("distinct-row", |(pane, (timestamp, value))| {
+        .reify_panes_named("distinct-pane")?;
+    let rows = if late {
+        annotated.flat_map_fallible_named("distinct-row", |(pane, (timestamp, value))| {
+            if pane.timing == PaneTiming::Late
+                && std::env::var_os("IRONBEAM_V5_PRISM_KILL_LATE_DISTINCT").is_some()
+            {
+                super::await_supervised_source_replacement(Some(&[1]))?;
+            }
+            Ok(vec![format!(
+                "{value}:{timestamp}:{:?}:{}",
+                pane.timing, pane.index
+            )])
+        })?
+    } else {
+        annotated.map_named("distinct-row", |(pane, (timestamp, value))| {
             format!("{value}:{timestamp}:{:?}:{}", pane.timing, pane.index)
         })?
-        .sink_named_with_config(
-            "distinct-capture",
-            SinkSpec {
-                mode: SinkMode::Append,
-                replay: Replay::Idempotent,
-                commit: true,
-            },
-            format!("distinct-stream:{late}:{}", directory.display()),
-            move || {
-                Ok(Box::new(IdempotentRowSink {
-                    directory: sink_directory.clone(),
-                    pending: Vec::new(),
-                }))
-            },
-        )
+    };
+    rows.sink_named_with_config(
+        "distinct-capture",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::Idempotent,
+            commit: true,
+        },
+        format!("distinct-stream:{late}:{}", directory.display()),
+        move || {
+            Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            }))
+        },
+    )
 }
