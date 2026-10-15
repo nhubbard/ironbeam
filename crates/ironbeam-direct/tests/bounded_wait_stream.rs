@@ -1,7 +1,7 @@
 use ironbeam_core::{
-    Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
-    Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
-    UnboundedSource,
+    Element, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
+    SourceProgress, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
+    UnboundedPoll, UnboundedSource,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::{HashSet, VecDeque};
@@ -12,6 +12,14 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 struct Once(Option<UnboundedBatch<Timestamped<i32>>>);
+
+#[derive(Clone)]
+struct UncodedSignal;
+
+impl Element for UncodedSignal {
+    const TYPE_ID: &'static str = "tests/uncoded-wait-signal";
+    const CODER_ID: &'static str = "tests/uncoded-wait-signal-none";
+}
 
 impl UnboundedSource<Timestamped<i32>> for Once {
     fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
@@ -286,6 +294,66 @@ fn checkpoint_rejects_changed_bounded_signal_before_opening_main() {
         .err()
         .unwrap();
     assert_eq!(error.kind, ErrorKind::Incompatible);
+    assert!(!opened.load(Ordering::SeqCst));
+}
+
+#[test]
+fn checkpoint_requires_bounded_signal_source_identity_before_opening_main() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let signal = pipeline
+        .from_vec("signal-source", vec![UncodedSignal])
+        .unwrap();
+    let opened = Arc::new(AtomicBool::new(false));
+    let source_opened = Arc::clone(&opened);
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "main-source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "uncoded-signal-main-v1".into(),
+            0,
+            move |_| {
+                source_opened.store(true, Ordering::SeqCst);
+                Ok(Box::new(Once(None)) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap();
+    let sink = main
+        .wait_on_named("wait", &signal)
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "uncoded-signal-sink-v1".into(),
+            || Ok(Box::new(Capture(Arc::new(Mutex::new(Vec::new()))))),
+        )
+        .unwrap();
+    let config = JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            binary_build_id: "uncoded-signal-build-v1".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let error = DirectRunner
+        .start_stream_sink(&sink, &config)
+        .err()
+        .unwrap();
+    assert_eq!(
+        error.kind,
+        ErrorKind::UnsupportedCapability {
+            capability: "source-config-digest".into(),
+        }
+    );
     assert!(!opened.load(Ordering::SeqCst));
 }
 

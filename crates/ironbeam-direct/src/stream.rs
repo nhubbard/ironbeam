@@ -430,6 +430,7 @@ fn linear_stream_input(graph: &Graph, input_key: &str) -> Option<(String, Vec<St
 }
 
 fn bounded_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<BoundedWaitStreamRoute> {
+    // start_stream_sink validates the graph before matching this physical route.
     let mut key = sink_key;
     let mut operations = Vec::new();
     let mut signals = Vec::new();
@@ -437,7 +438,7 @@ fn bounded_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<BoundedWai
         let node = graph.node(key)?;
         match node.operation {
             Operation::Source { .. } => {
-                if node.boundedness != ironbeam_core::Boundedness::Unbounded || signals.is_empty() {
+                if signals.is_empty() {
                     return None;
                 }
                 operations.reverse();
@@ -449,20 +450,11 @@ fn bounded_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<BoundedWai
                 });
             }
             Operation::WaitOn => {
-                let [signal] = node.additional_inputs.as_slice() else {
-                    return None;
-                };
+                let signal = &node.additional_inputs[0];
                 let (source, stages) = linear_stream_input(graph, &signal.key)?;
-                if graph.node(&source)?.boundedness != ironbeam_core::Boundedness::Bounded {
-                    return None;
-                }
                 signals.push((source, stages));
             }
-            Operation::Sink { .. } | Operation::Output => {
-                if !node.additional_inputs.is_empty() {
-                    return None;
-                }
-            }
+            Operation::Sink { .. } | Operation::Output => {}
             Operation::Map
             | Operation::Filter
             | Operation::FlatMap
@@ -470,9 +462,6 @@ fn bounded_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<BoundedWai
             | Operation::FixedWindow
             | Operation::SlidingWindow
             | Operation::SessionWindow => {
-                if !node.additional_inputs.is_empty() {
-                    return None;
-                }
                 operations.push(key.to_owned());
             }
             _ => return None,
