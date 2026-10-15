@@ -286,6 +286,16 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_WINDOWED_MAP_STATE") {
+        return ironbeam_prism_proof::streaming_windowed_map_state_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_MAP_STATE") {
+        return ironbeam_prism_proof::production_map_state_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_SET_STATE") {
         return ironbeam_prism_proof::streaming_set_state_fixture(pipeline, path.into())
             .map(|_| ())

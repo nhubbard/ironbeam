@@ -418,4 +418,6 @@ distinct bytes. Direct snapshots the coded map with the source cursor. The
 portable worker uses Beam's multimap Fn State protocol. When a callback
 changes the map, the worker replaces all entries within its bundle; the
 work grows with the number of entries. A bounded mutation fixture matches
-Direct and local Prism. Timer callbacks remain unavailable.
+Direct and local Prism. Unbounded global and fixed-window fixtures agree
+across two batches, and a production Prism job retains its map after worker
+replacement. Timer callbacks remain unavailable.

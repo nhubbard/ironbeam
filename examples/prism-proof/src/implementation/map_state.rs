@@ -1,4 +1,4 @@
-use super::IdempotentStateLabelSink;
+use super::{production_state_source, IdempotentStateLabelSink, WindowedStateLabelSink};
 use ironbeam_core::{
     Error, MapStateMutation, Pipeline, Replay, Sink, SinkMode, SinkSpec, TestStreamEvent, Version,
 };
@@ -111,6 +111,98 @@ pub fn streaming_map_state_fixture(
                 commit: true,
             },
             format!("streaming-map-state:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
+/// Two fixed windows keep separate maps for the same pipeline key.
+pub fn streaming_windowed_map_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "streaming-windowed-map-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 0), ((1, 17), 20_000_000)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 2_000_000), ((1, 17), 22_000_000)]),
+                TestStreamEvent::AdvanceWatermark(30_000_000),
+            ],
+        )?
+        .fixed_windows("streaming-windowed-map-window", 10_000_000)?
+        .stateful_map_map_named::<i32, i32, (i32, i32, i32)>(
+            "streaming-windowed-map-membership",
+            "prism-proof/streaming-windowed-key-map-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let observation = (
+                    value,
+                    prior.get(&value).copied().unwrap_or(-1),
+                    i32::try_from(prior.len()).expect("fixture map fits i32"),
+                );
+                Ok((MapStateMutation::Put(value, value * 10), observation))
+            },
+        )?
+        .map_named(
+            "streaming-windowed-map-label",
+            |(key, (value, old, size))| format!("{key}:{value}:{old}:{size}"),
+        )?
+        .sink_named_with_config(
+            "streaming-windowed-map-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("streaming-windowed-map-state:{}", directory.display()),
+            move || {
+                Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                })))
+            },
+        )
+}
+
+/// Production unbounded source with a keyed map and idempotent output.
+pub fn production_map_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    production_state_source(pipeline)?
+        .stateful_map_map_named::<i32, i32, (i32, i32, i32)>(
+            "production-map-state",
+            "prism-proof/production-key-map-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let map_key = value % 2;
+                let observation = (
+                    value,
+                    prior.get(&map_key).copied().unwrap_or(-1),
+                    i32::try_from(prior.len()).expect("fixture map fits i32"),
+                );
+                Ok((MapStateMutation::Put(map_key, value), observation))
+            },
+        )?
+        .map_named("production-map-label", |(key, (value, old, size))| {
+            format!("{key}:{value}:{old}:{size}")
+        })?
+        .sink_named_with_config(
+            "production-map-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("production-map-state:{}", directory.display()),
             move || {
                 Ok(Box::new(IdempotentStateLabelSink {
                     directory: sink_directory.clone(),

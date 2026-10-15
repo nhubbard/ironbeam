@@ -97,4 +97,186 @@ fn map_state_rejects_bad_contents_and_preserves_cell_on_error() {
             .apply_stateful_value("map", input(-1), Some(&[1]))
             .is_err()
     );
+    let malformed_key = serde_json::to_vec(&vec![(vec![1_u8], 20_i32.encode().unwrap())]).unwrap();
+    assert!(
+        registry
+            .apply_stateful_value("map", input(-1), Some(&malformed_key))
+            .is_err()
+    );
+    let malformed_value =
+        serde_json::to_vec(&vec![(10_i32.encode().unwrap(), vec![1_u8])]).unwrap();
+    assert!(
+        registry
+            .apply_stateful_value("map", input(-1), Some(&malformed_value))
+            .is_err()
+    );
+    let wrong_input = Envelope {
+        value: Box::new(1_i32),
+        ..input(-1)
+    };
+    assert!(
+        registry
+            .apply_stateful_value("map", wrong_input, None)
+            .is_err()
+    );
+}
+
+#[derive(Eq, Hash, PartialEq)]
+struct CollidingKey(i32);
+
+impl Element for CollidingKey {
+    const TYPE_ID: &'static str = "tests/colliding-map-key";
+    const CODER_ID: &'static str = "tests/colliding-map-key-v1";
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        Ok(vec![0])
+    }
+    fn decode(_: &[u8]) -> Result<Self, Error> {
+        Ok(Self(0))
+    }
+}
+
+#[derive(Eq, PartialEq)]
+struct FailingValue;
+
+impl Element for FailingValue {
+    const TYPE_ID: &'static str = "tests/failing-map-value";
+    const CODER_ID: &'static str = "tests/failing-map-value-v1";
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        Err(Error::incompatible("map value encode failed"))
+    }
+    fn decode(_: &[u8]) -> Result<Self, Error> {
+        Ok(Self)
+    }
+}
+
+#[derive(Eq, Hash, PartialEq)]
+struct FailingKey;
+
+impl Element for FailingKey {
+    const TYPE_ID: &'static str = "tests/failing-map-key";
+    const CODER_ID: &'static str = "tests/failing-map-key-v1";
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        Err(Error::incompatible("map key encode failed"))
+    }
+    fn decode(_: &[u8]) -> Result<Self, Error> {
+        Ok(Self)
+    }
+}
+
+#[derive(Eq, Hash, PartialEq)]
+struct Uncoded;
+
+impl Element for Uncoded {
+    const TYPE_ID: &'static str = "tests/uncoded-map-key";
+    const CODER_ID: &'static str = "tests/uncoded-map-key-v1";
+}
+
+#[test]
+fn map_state_rejects_coder_collisions_and_failed_value_encoding_atomically() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("pairs", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .stateful_map_map_named::<CollidingKey, i32, i32>(
+            "colliding-map",
+            "tests/colliding-map",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                Ok((
+                    MapStateMutation::Put(CollidingKey(value), value),
+                    i32::try_from(prior.len()).unwrap(),
+                ))
+            },
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(registry.apply_many("colliding-map", input(1)).is_ok());
+    let before = registry.checkpoint_stateful_value("colliding-map").unwrap();
+    assert!(registry.apply_many("colliding-map", input(2)).is_err());
+    assert_eq!(
+        registry.checkpoint_stateful_value("colliding-map").unwrap(),
+        before
+    );
+
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("pairs", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .stateful_map_map_named::<i32, FailingValue, i32>(
+            "failing-value-map",
+            "tests/failing-value-map",
+            Version { major: 1, minor: 0 },
+            |_, _, _| Ok((MapStateMutation::Put(1, FailingValue), 0)),
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let before = registry
+        .checkpoint_stateful_value("failing-value-map")
+        .unwrap();
+    assert!(registry.apply_many("failing-value-map", input(1)).is_err());
+    assert_eq!(
+        registry
+            .checkpoint_stateful_value("failing-value-map")
+            .unwrap(),
+        before
+    );
+
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("pairs", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .stateful_map_map_named::<FailingKey, i32, i32>(
+            "failing-key-map",
+            "tests/failing-key-map",
+            Version { major: 1, minor: 0 },
+            |_, _, _| Ok((MapStateMutation::Put(FailingKey, 1), 0)),
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let before = registry
+        .checkpoint_stateful_value("failing-key-map")
+        .unwrap();
+    assert!(registry.apply_many("failing-key-map", input(1)).is_err());
+    assert_eq!(
+        registry
+            .checkpoint_stateful_value("failing-key-map")
+            .unwrap(),
+        before
+    );
+}
+
+#[test]
+fn map_state_requires_coders_and_default_window_policy() {
+    let pipeline = Pipeline::default();
+    let pairs = pipeline.from_vec("pairs", vec![(1_i32, 1_i32)]).unwrap();
+    assert!(
+        pairs
+            .stateful_map_map_named::<Uncoded, i32, i32>(
+                "uncoded-map",
+                "tests/uncoded-map",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((MapStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    let session = pairs.session_windows_named("sessions", 10_000_000).unwrap();
+    assert!(
+        session
+            .stateful_map_map_named::<i32, i32, i32>(
+                "session-map",
+                "tests/session-map",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((MapStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
 }

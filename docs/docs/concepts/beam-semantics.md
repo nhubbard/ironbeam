@@ -416,7 +416,9 @@ It keeps one value per coded map key and supports put, remove, clear, and
 replacement mutations. Direct checkpoints the map. Portable execution uses
 Beam's multimap state keys and replaces the entries when a mutation changes
 the cell. A bounded mutation fixture has matching Direct and local Prism
-results. The map key coder must distinguish unequal keys.
+results. Unbounded global and fixed-window cases agree across batches; a
+production source also retains its map through Prism execution-child
+replacement. The map key coder must distinguish unequal keys.
 
 The distinction matters for retries. A source cursor says which input can be
 replayed. A grouped checkpoint contains values that have not yet formed a

@@ -226,11 +226,13 @@ separate windows for the same key across element batches.
 `Replace`. Core tests coded checkpoint restoration, duplicate-key rejection,
 and callback rollback. A Direct stream test restores map values with its
 source cursor. Bounded and two-batch unbounded fixtures agree on values and
-key isolation between Direct and pinned local Prism. The portable worker
-uses Beam's multimap Fn State protocol and replaces the keys cell when the
-map changes; mutation work grows with map size. Fixed/sliding-window,
-supervised worker replacement, timer callbacks, and broader map error
-boundaries still need proof.
+key isolation between Direct and pinned local Prism. An unbounded fixed-window
+fixture confirms separate cells for the same key. A production source job
+retains its map after Prism replaces a failed execution child and reopens the
+source residual. The portable worker uses Beam's multimap Fn State protocol
+and replaces the keys cell when the map changes; mutation work grows with map
+size. Sliding-window, timer callbacks, and broader map error boundaries still
+need proof.
 
 These rows are not equally weighted. A percentage computed by counting URNs
 would hide the difference between a declared state spec and a working

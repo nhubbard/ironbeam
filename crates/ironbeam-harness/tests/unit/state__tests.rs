@@ -342,6 +342,95 @@ async fn set_state_callback_keeps_equal_keys_and_rejects_failed_mutations() {
 }
 
 #[tokio::test]
+async fn map_state_callback_reads_entries_and_replaces_keys() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "map-bundle",
+        "map-transform",
+        &contract,
+        vec![3],
+        vec![7],
+    )
+    .unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for step in 0..5 {
+            let request = requests.recv().await.unwrap();
+            let response = match (step, request.state_key.as_ref().unwrap().r#type.as_ref()) {
+                (0, Some(state_key::Type::MultimapKeysUserState(scope))) => {
+                    assert_eq!(scope.user_state_id, "map");
+                    assert_eq!(scope.window, [3]);
+                    assert_eq!(scope.key, [7]);
+                    assert!(matches!(
+                        request.request,
+                        Some(state_request::Request::Get(_))
+                    ));
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: vec![1, 10],
+                    })
+                }
+                (1, Some(state_key::Type::MultimapUserState(scope))) => {
+                    assert_eq!(scope.map_key, [1, 10]);
+                    assert!(matches!(
+                        request.request,
+                        Some(state_request::Request::Get(_))
+                    ));
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: vec![1, 20],
+                    })
+                }
+                (2, Some(state_key::Type::MultimapKeysUserState(_))) => {
+                    assert!(matches!(
+                        request.request,
+                        Some(state_request::Request::Clear(_))
+                    ));
+                    state_response::Response::Clear(StateClearResponse {})
+                }
+                (3 | 4, Some(state_key::Type::MultimapUserState(scope))) => {
+                    let Some(state_request::Request::Append(append)) = request.request else {
+                        panic!("expected map append");
+                    };
+                    if step == 3 {
+                        assert_eq!(scope.map_key, [1, 10]);
+                        assert_eq!(append.data, [1, 30]);
+                    } else {
+                        assert_eq!(scope.map_key, [1, 40]);
+                        assert_eq!(append.data, [1, 50]);
+                    }
+                    state_response::Response::Append(StateAppendResponse {})
+                }
+                _ => panic!("unexpected map-state RPC"),
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    let result = access
+        .apply_map_state("map", |current| {
+            assert_eq!(current, br"[[[10],[20]]]");
+            Ok((19, Some(br"[[[10],[30]],[[40],[50]]]".to_vec())))
+        })
+        .await
+        .unwrap();
+    assert_eq!(result, 19);
+    responder.await.unwrap();
+}
+
+#[tokio::test]
 async fn bag_state_callback_reads_and_replaces_declared_cell() {
     let (client, mut requests) = test_client();
     let contract = user_contract();
