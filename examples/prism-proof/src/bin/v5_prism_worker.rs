@@ -38,16 +38,16 @@ use ironbeam_prism_proof::{
     panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
     panicking_side_input_fixture, partition_fixture, portable_object_avro_fixture,
     production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
-    shared_accumulating_late_cogroup_fixture, shared_unbounded_homogeneous_cogroup_fixture,
-    side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
-    streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
-    streaming_sliding_group_fixture, streaming_windowed_side_input_fixture,
-    triple_unbounded_flatten_fixture, triple_unbounded_homogeneous_cogroup_fixture,
-    triple_unbounded_session_homogeneous_fixture, validation_fail_fixture, validation_skip_fixture,
-    windowed_duplicate_map_side_fixture, windowed_keyed_batches_fixture,
-    windowed_side_input_fixture, windowed_side_view_shapes_fixture, ExpandSingleton,
-    PaneFixtureWindow,
+    shared_accumulating_early_cogroup_fixture, shared_accumulating_late_cogroup_fixture,
+    shared_unbounded_homogeneous_cogroup_fixture, side_view_shapes_fixture,
+    sliding_allowed_lateness_fixture, sliding_late_join_fixture, sliding_window_group_fixture,
+    streaming_group_fixture, streaming_ordered_batch_fixture, streaming_ordered_keyed_fixture,
+    streaming_partition_fixture, streaming_session_group_fixture, streaming_sliding_group_fixture,
+    streaming_windowed_side_input_fixture, triple_unbounded_flatten_fixture,
+    triple_unbounded_homogeneous_cogroup_fixture, triple_unbounded_session_homogeneous_fixture,
+    validation_fail_fixture, validation_skip_fixture, windowed_duplicate_map_side_fixture,
+    windowed_keyed_batches_fixture, windowed_side_input_fixture, windowed_side_view_shapes_fixture,
+    ExpandSingleton, PaneFixtureWindow,
 };
 #[cfg(feature = "database-proofs")]
 use ironbeam_prism_proof::{mongodb_round_trip_fixture, sqlite_round_trip_fixture};
@@ -258,6 +258,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SHARED_ACCUMULATING_LATE") {
         return shared_accumulating_late_cogroup_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SHARED_ACCUMULATING_EARLY") {
+        return shared_accumulating_early_cogroup_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

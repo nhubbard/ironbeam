@@ -63,6 +63,7 @@ use ironbeam_prism_proof::{
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
     partition_fixture, portable_object_avro_collection, portable_object_avro_fixture,
     production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
+    shared_accumulating_early_cogroup_collection, shared_accumulating_early_cogroup_fixture,
     shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
     shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
     side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
@@ -4063,6 +4064,106 @@ async fn prism_matches_direct_shared_accumulating_late_cogroup_values_and_indice
         .map(str::to_owned)
         .collect::<Vec<_>>();
     assert_eq!(rows, expected);
+}
+
+#[tokio::test]
+async fn prism_characterizes_shared_accumulating_early_cogroup_panes() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        accepted: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.accepted.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let direct_rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let direct = Pipeline::default();
+    let sink = shared_accumulating_early_cogroup_collection(&direct)
+        .unwrap()
+        .sink_named_with_config(
+            "shared-early-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-early-direct-v1".into(),
+            {
+                let rows = Arc::clone(&direct_rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(DirectRows {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let direct_rows = direct_rows.lock().unwrap().clone();
+    assert_eq!(
+        direct_rows,
+        [
+            "a:[[2], []]:Early:0",
+            "a:[[2], [4]]:Early:1",
+            "a:[[2], [4]]:OnTime:2",
+        ]
+    );
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let path = directory.path().join("prism-early.txt");
+    let portable = Pipeline::default();
+    shared_accumulating_early_cogroup_fixture(&portable, path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "shared-accumulating-early",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_SHARED_ACCUMULATING_EARLY".into(),
+            path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism early fan-in state: {terminal:?}");
+    let mut prism_rows = std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    prism_rows.sort();
+    let mut direct_rows_sorted = direct_rows;
+    direct_rows_sorted.sort();
+    assert_eq!(prism_rows, direct_rows_sorted);
 }
 
 #[tokio::test]

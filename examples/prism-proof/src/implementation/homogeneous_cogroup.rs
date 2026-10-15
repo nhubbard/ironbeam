@@ -248,3 +248,65 @@ pub fn shared_accumulating_late_cogroup_fixture(
         },
     )
 }
+
+/// Two branches of one unbounded source retain values across early count panes.
+pub fn shared_accumulating_early_cogroup_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let source = pipeline
+        .test_stream_source(
+            "shared-early-source",
+            vec![
+                TestStreamEvent::Elements(vec![(
+                    ("a".to_owned(), (0_i32, 2_i32)),
+                    2_000_000,
+                )]),
+                TestStreamEvent::Elements(vec![(
+                    ("a".to_owned(), (1_i32, 4_i32)),
+                    4_000_000,
+                )]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("shared-early-window", 10_000_000)?
+        .accumulating_count_trigger_named("shared-early-trigger", 1)?;
+    let inputs = (0..2)
+        .map(|index| {
+            source
+                .filter_named(&format!("shared-early-branch-{index}"), move |(_, (branch, _))| {
+                    *branch == index
+                })?
+                .map_named(&format!("shared-early-value-{index}"), |(key, (_, value))| {
+                    (key, value)
+                })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    inputs[0]
+        .co_group_homogeneous_named("shared-early-group", &inputs[1..])?
+        .reify_panes_named("shared-early-pane")?
+        .map_named("shared-early-row", |(pane, (key, buckets))| {
+            format!("{key}:{buckets:?}:{:?}:{}", pane.timing, pane.index)
+        })
+}
+
+pub fn shared_accumulating_early_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    shared_accumulating_early_cogroup_collection(pipeline)?.sink_named_with_config(
+        "shared-early-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("shared-early-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}
