@@ -1,7 +1,7 @@
 //! Beam's schema row bytes for fixed, known schemas.
 //!
 //! This codec operates on Beam's protobuf `Schema` and `Row` values. It does
-//! not register a PCollection coder: the graph must carry the schema payload
+//! not register a `PCollection` coder: the graph must carry the schema payload
 //! before a row can cross an SDK boundary as `beam:coder:row:v1`.
 
 use std::marker::PhantomData;
@@ -19,9 +19,9 @@ use ironbeam_core::{Element, Error};
 use prost::Message;
 use values::{decode_value, encode_value};
 
-use super::encode_varint;
+use crate::encode_varint;
 
-pub(super) const MAX_DEPTH: usize = 64;
+const MAX_DEPTH: usize = 64;
 
 /// A schema fixed by the application binary. Its type ID must change when a
 /// semantic row type changes; the serialized schema also enters graph identity.
@@ -47,6 +47,10 @@ impl<S: RowSchema> Clone for BeamRow<S> {
 
 impl<S: RowSchema> BeamRow<S> {
     /// Validate a value against the schema before admitting it to a pipeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the row does not match the declared schema.
     pub fn new(value: Row) -> Result<Self> {
         encode_row(&S::schema(), &value)?;
         Ok(Self {
@@ -56,7 +60,7 @@ impl<S: RowSchema> BeamRow<S> {
     }
 
     #[must_use]
-    pub fn as_row(&self) -> &Row {
+    pub const fn as_row(&self) -> &Row {
         &self.value
     }
 
@@ -94,6 +98,10 @@ impl<S: RowSchema> Element for BeamRow<S> {
 }
 
 /// Encode one Beam row using the schema's declared field order and encoding positions.
+///
+/// # Errors
+///
+/// Returns an error for a malformed schema or a value that does not match it.
 pub fn encode_row(schema: &Schema, row: &Row) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     encode_row_into(schema, row, &mut output, 0)?;
@@ -101,6 +109,10 @@ pub fn encode_row(schema: &Schema, row: &Row) -> Result<Vec<u8>> {
 }
 
 /// Decode one complete Beam row. Trailing bytes are rejected.
+///
+/// # Errors
+///
+/// Returns an error for malformed bytes or a malformed schema.
 pub fn decode_row(schema: &Schema, bytes: &[u8]) -> Result<Row> {
     let mut input = bytes;
     let row = decode_row_from(schema, &mut input, 0)?;
@@ -111,8 +123,13 @@ pub fn decode_row(schema: &Schema, bytes: &[u8]) -> Result<Row> {
 }
 
 /// Decode with the writer's schema, then project fields into a newer schema.
+///
 /// Encoding positions identify fields across a reorder. Fields added by the
 /// reader are null; removed fields are ignored. Type changes are rejected.
+///
+/// # Errors
+///
+/// Returns an error for malformed bytes or incompatible schemas.
 pub fn decode_row_evolved(writer: &Schema, reader: &Schema, bytes: &[u8]) -> Result<Row> {
     let old = decode_row(writer, bytes)?;
     let old_order = encoding_order(writer)?;

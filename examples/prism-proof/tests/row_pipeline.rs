@@ -2,12 +2,12 @@ use beam_proto::pipeline_v1::{
     atomic_type_value, field_type, field_value, AtomicType, AtomicTypeValue, Field, FieldType,
     FieldValue, Row, Schema,
 };
+use ironbeam_coder_row::{BeamRow, RowSchema};
 use ironbeam_core::{Element, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_graphx::urns;
 use ironbeam_graphx::v5::{translate_v5, validate_beam_contract};
-use ironbeam_harness::coders::row::{BeamRow, RowSchema};
-use prost::Message;
+use prost_beam::Message;
 
 struct DemoSchema;
 

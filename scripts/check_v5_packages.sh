@@ -83,6 +83,7 @@ fi
 "$cargo_bin" test -p ironbeam --no-default-features --test v5_facade_core --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam --no-default-features --features coders --test v5_facade_core
 "$cargo_bin" test -p ironbeam-coder-postcard
+"$cargo_bin" test -p ironbeam-coder-row
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-regex --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-approx --test v5_facade_prelude
 "$cargo_bin" test -p ironbeam --no-default-features --features v5-io-csv --test v5_facade_prelude
@@ -120,7 +121,7 @@ for package in "${packages[@]}"; do
   patches=()
   case "$package" in
     ironbeam-compression|ironbeam-cloud-objects|ironbeam-core|ironbeam-metrics) ;;
-    beam-proto|ironbeam-graphx|ironbeam-harness|ironbeam-dataflow) patches=("${root_patches[@]}") ;;
+    beam-proto|ironbeam-graphx|ironbeam-harness|ironbeam-dataflow|ironbeam-coder-row) patches=("${root_patches[@]}") ;;
     ironbeam-coder-postcard) patches=("${core_patch[@]}" "${direct_patch[@]}") ;;
     ironbeam-cloud-service-api) patches=("${cloud_objects_patch[@]}") ;;
     ironbeam-cloud-fakes) patches=("${cloud_objects_patch[@]}" "${cloud_service_api_patch[@]}") ;;

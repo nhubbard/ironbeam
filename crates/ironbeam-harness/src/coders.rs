@@ -18,7 +18,7 @@
 
 use std::io::{Read, Write};
 
-pub mod row;
+pub use ironbeam_coder_row as row;
 
 use anyhow::{anyhow, Context, Result};
 pub use ironbeam_core::{PaneInfo, PaneTiming};

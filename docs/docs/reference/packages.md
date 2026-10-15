@@ -18,7 +18,7 @@ Ironbeam 5 is a workspace of small crates. Applications can depend on the root f
 | `ironbeam-cloud-object-store` | Optional S3, GCS, and Azure Blob clients |
 | `ironbeam-cloud-gcp` | Official Google Cloud Storage, Pub/Sub, BigQuery, and Secret Manager clients |
 | `ironbeam-testing`, `ironbeam-metrics` | Test helpers and metrics |
-| `ironbeam-coder-postcard`, `ironbeam-compression` | Optional coding and compression |
+| `ironbeam-coder-postcard`, `ironbeam-coder-row`, `ironbeam-compression` | Optional coding, Beam schema rows, and compression |
 | `beam-proto`, `ironbeam-graphx` | Beam protocol types and portable graph lowering |
 | `ironbeam-harness`, `ironbeam-dataflow` | Fn API worker and Dataflow job driver |
 

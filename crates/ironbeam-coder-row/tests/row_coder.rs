@@ -3,7 +3,7 @@ use beam_proto::pipeline_v1::{
     AtomicTypeValue, Field, FieldType, FieldValue, LogicalType, LogicalTypeValue, MapType,
     MapTypeEntry, MapTypeValue, Row, RowType, Schema,
 };
-use ironbeam_harness::coders::row::{decode_row, decode_row_evolved, encode_row};
+use ironbeam_coder_row::{decode_row, decode_row_evolved, encode_row};
 use prost::Message;
 
 fn field(name: &str, ty: FieldType) -> Field {
@@ -14,14 +14,14 @@ fn field(name: &str, ty: FieldType) -> Field {
     }
 }
 
-fn atomic(kind: AtomicType, nullable: bool) -> FieldType {
+const fn atomic(kind: AtomicType, nullable: bool) -> FieldType {
     FieldType {
         nullable,
         type_info: Some(field_type::TypeInfo::AtomicType(kind as i32)),
     }
 }
 
-fn value(atom: atomic_type_value::Value) -> FieldValue {
+const fn value(atom: atomic_type_value::Value) -> FieldValue {
     FieldValue {
         field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
             value: Some(atom),
@@ -29,7 +29,7 @@ fn value(atom: atomic_type_value::Value) -> FieldValue {
     }
 }
 
-fn null() -> FieldValue {
+const fn null() -> FieldValue {
     FieldValue { field_value: None }
 }
 

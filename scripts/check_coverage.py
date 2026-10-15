@@ -8,13 +8,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINES = ROOT / "coverage-baselines.json"
-V5_PACKAGES = {"ironbeam-compression", "ironbeam-coder-postcard", "ironbeam-cloud-objects", "ironbeam-cloud-service-api", "ironbeam-cloud-ops", "ironbeam-core", "ironbeam-direct", "ironbeam-metrics", "ironbeam-testing", "ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-transform-approx", "ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
+V5_PACKAGES = {"ironbeam-compression", "ironbeam-coder-postcard", "ironbeam-coder-row", "ironbeam-cloud-objects", "ironbeam-cloud-service-api", "ironbeam-cloud-ops", "ironbeam-core", "ironbeam-direct", "ironbeam-metrics", "ironbeam-testing", "ironbeam-transforms", "ironbeam-transform-regex", "ironbeam-transform-approx", "ironbeam-io", "ironbeam-io-jsonl", "ironbeam-io-protobuf", "ironbeam-io-tfrecord", "ironbeam-io-csv", "ironbeam-io-xml", "ironbeam-io-msgpack", "ironbeam-io-cbor", "ironbeam-io-avro", "ironbeam-io-parquet", "ironbeam-io-arrow", "ironbeam-compat"}
 
 
 def area_for(package: str, _relative: Path) -> str:
     if package == "ironbeam-compression":
         return "compression"
-    if package == "ironbeam-coder-postcard":
+    if package in {"ironbeam-coder-postcard", "ironbeam-coder-row"}:
         return "element-coder"
     if package == "ironbeam-cloud-objects":
         return "cloud-objects"

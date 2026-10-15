@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-metrics", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-compression", "crates/ironbeam-coder-postcard", "crates/ironbeam-cloud-objects", "crates/ironbeam-cloud-service-api", "crates/ironbeam-cloud-fakes", "crates/ironbeam-cloud-ops", "crates/ironbeam-cloud-object-store", "crates/ironbeam-cloud-gcp", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests", "crates/beam-proto", "crates/ironbeam-graphx", "crates/ironbeam-harness", "crates/ironbeam-dataflow", "examples/prism-proof", "examples/dataflow-wordcount"]
+members = [".", "crates/ironbeam-core", "crates/ironbeam-direct", "crates/ironbeam-metrics", "crates/ironbeam-transforms", "crates/ironbeam-transform-regex", "crates/ironbeam-transform-approx", "crates/ironbeam-io", "crates/ironbeam-io-jsonl", "crates/ironbeam-io-protobuf", "crates/ironbeam-io-tfrecord", "crates/ironbeam-io-csv", "crates/ironbeam-io-xml", "crates/ironbeam-io-msgpack", "crates/ironbeam-io-cbor", "crates/ironbeam-io-avro", "crates/ironbeam-io-parquet", "crates/ironbeam-io-arrow", "crates/ironbeam-io-sql", "crates/ironbeam-io-mongodb", "crates/ironbeam-compression", "crates/ironbeam-coder-postcard", "crates/ironbeam-coder-row", "crates/ironbeam-cloud-objects", "crates/ironbeam-cloud-service-api", "crates/ironbeam-cloud-fakes", "crates/ironbeam-cloud-ops", "crates/ironbeam-cloud-object-store", "crates/ironbeam-cloud-gcp", "crates/ironbeam-testing", "crates/ironbeam-compat", "crates/ironbeam-runner-contract-tests", "crates/beam-proto", "crates/ironbeam-graphx", "crates/ironbeam-harness", "crates/ironbeam-dataflow", "examples/prism-proof", "examples/dataflow-wordcount"]
 default-members = ["."]
 resolver = "3"
 
@@ -16,6 +16,7 @@ ironbeam-harness = { version = "5.0.0", path = "crates/ironbeam-harness" }
 ironbeam-dataflow = { version = "5.0.0", path = "crates/ironbeam-dataflow" }
 ironbeam-core = { version = "5.0.0", path = "crates/ironbeam-core" }
 ironbeam-coder-postcard = { version = "5.0.0", path = "crates/ironbeam-coder-postcard" }
+ironbeam-coder-row = { version = "5.0.0", path = "crates/ironbeam-coder-row" }
 ironbeam-direct = { version = "5.0.0", path = "crates/ironbeam-direct" }
 ironbeam-transforms = { version = "5.0.0", path = "crates/ironbeam-transforms" }
 ironbeam-cloud-objects = { version = "5.0.0", path = "crates/ironbeam-cloud-objects" }

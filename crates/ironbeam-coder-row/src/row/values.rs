@@ -80,7 +80,7 @@ pub(super) fn encode_value(
                 else {
                     bail!("millis instant requires an int64 representation");
                 };
-                out.extend_from_slice(&((*millis as u64) ^ (1_u64 << 63)).to_be_bytes());
+                out.extend_from_slice(&(millis.cast_unsigned() ^ (1_u64 << 63)).to_be_bytes());
                 return Ok(());
             }
             if logical.urn == "beam:logical_type:decimal:v1" {
@@ -157,7 +157,7 @@ pub(super) fn decode_value(ty: &FieldType, input: &mut &[u8], depth: usize) -> R
                 FieldValue {
                     field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
                         value: Some(atomic_type_value::Value::Int64(
-                            (encoded ^ (1_u64 << 63)) as i64,
+                            (encoded ^ (1_u64 << 63)).cast_signed(),
                         )),
                     })),
                 }

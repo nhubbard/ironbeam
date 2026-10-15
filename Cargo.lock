@@ -2852,6 +2852,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironbeam-coder-row"
+version = "5.0.0"
+dependencies = [
+ "anyhow",
+ "beam-proto",
+ "ironbeam-core",
+ "prost 0.13.5",
+]
+
+[[package]]
 name = "ironbeam-compat"
 version = "5.0.0"
 dependencies = [
@@ -2983,8 +2993,8 @@ dependencies = [
  "beam-proto",
  "futures-util",
  "ironbeam-cloud-objects",
+ "ironbeam-coder-row",
  "ironbeam-core",
- "ironbeam-direct",
  "ironbeam-graphx",
  "ironbeam-io-csv",
  "ironbeam-io-protobuf",
@@ -3204,9 +3214,11 @@ dependencies = [
  "hex",
  "ironbeam-cloud-objects",
  "ironbeam-coder-postcard",
+ "ironbeam-coder-row",
  "ironbeam-core",
  "ironbeam-dataflow",
  "ironbeam-direct",
+ "ironbeam-graphx",
  "ironbeam-harness",
  "ironbeam-io",
  "ironbeam-io-arrow",

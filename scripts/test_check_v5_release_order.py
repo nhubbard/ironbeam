@@ -25,7 +25,9 @@ class ReleaseOrderTests(unittest.TestCase):
 
     def test_current_workspace_has_public_facade_last(self):
         order = release_order()
-        self.assertEqual(len(order), 34)
+        self.assertEqual(len(order), 35)
+        packages = [name for name, _ in order]
+        self.assertLess(packages.index("ironbeam-coder-row"), packages.index("ironbeam-harness"))
         self.assertEqual(order[-1], ("ironbeam", "5.0.0"))
 
     def workspace(self, dependency_version="5.0.0", reverse_dependency=False):

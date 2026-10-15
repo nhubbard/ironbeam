@@ -1,27 +1,29 @@
 use anyhow::{anyhow, bail, Result};
 use beam_proto::pipeline_v1::{atomic_type_value, AtomicType, AtomicTypeValue};
 
-use super::super::{decode_varint, encode_varint};
+use crate::{decode_varint, encode_varint};
 
 pub(super) fn encode_atomic(kind: i32, atom: &AtomicTypeValue, out: &mut Vec<u8>) -> Result<()> {
     use atomic_type_value::Value;
     match (AtomicType::try_from(kind).ok(), atom.value.as_ref()) {
         (Some(AtomicType::Byte), Some(Value::Byte(value))) => out.push(u8::try_from(*value)?),
         (Some(AtomicType::Int16), Some(Value::Int16(value))) => {
-            out.extend_from_slice(&i16::try_from(*value)?.to_be_bytes())
+            out.extend_from_slice(&i16::try_from(*value)?.to_be_bytes());
         }
         (Some(AtomicType::Int32), Some(Value::Int32(value))) => {
-            encode_varint((*value as i64) as u64, out)?
+            encode_varint(i64::from(*value).cast_unsigned(), out)?;
         }
-        (Some(AtomicType::Int64), Some(Value::Int64(value))) => encode_varint(*value as u64, out)?,
+        (Some(AtomicType::Int64), Some(Value::Int64(value))) => {
+            encode_varint(value.cast_unsigned(), out)?;
+        }
         (Some(AtomicType::Float), Some(Value::Float(value))) => {
-            out.extend_from_slice(&value.to_be_bytes())
+            out.extend_from_slice(&value.to_be_bytes());
         }
         (Some(AtomicType::Double), Some(Value::Double(value))) => {
-            out.extend_from_slice(&value.to_be_bytes())
+            out.extend_from_slice(&value.to_be_bytes());
         }
         (Some(AtomicType::String), Some(Value::String(value))) => {
-            encode_bytes(value.as_bytes(), out)?
+            encode_bytes(value.as_bytes(), out)?;
         }
         (Some(AtomicType::Boolean), Some(Value::Boolean(value))) => out.push(u8::from(*value)),
         (Some(AtomicType::Bytes), Some(Value::Bytes(value))) => encode_bytes(value, out)?,
@@ -37,8 +39,8 @@ pub(super) fn decode_atomic(kind: i32, input: &mut &[u8]) -> Result<AtomicTypeVa
         AtomicType::Int16 => {
             Value::Int16(i32::from(i16::from_be_bytes(take(input, 2)?.try_into()?)))
         }
-        AtomicType::Int32 => Value::Int32(i32::try_from(read_varint(input)? as i64)?),
-        AtomicType::Int64 => Value::Int64(read_varint(input)? as i64),
+        AtomicType::Int32 => Value::Int32(i32::try_from(read_varint(input)?.cast_signed())?),
+        AtomicType::Int64 => Value::Int64(read_varint(input)?.cast_signed()),
         AtomicType::Float => Value::Float(f32::from_be_bytes(take(input, 4)?.try_into()?)),
         AtomicType::Double => Value::Double(f64::from_be_bytes(take(input, 8)?.try_into()?)),
         AtomicType::String => Value::String(String::from_utf8(read_bytes(input)?.to_vec())?),

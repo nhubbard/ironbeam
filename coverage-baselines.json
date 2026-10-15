@@ -263,6 +263,17 @@
       "count": 0
     }
   },
+  "ironbeam-coder-row": {
+    "source": "crates/ironbeam-coder-row/src",
+    "lines": {
+      "covered": 312,
+      "count": 365
+    },
+    "branches": {
+      "covered": 61,
+      "count": 82
+    }
+  },
   "ironbeam-compression": {
     "source": "crates/ironbeam-compression/src",
     "lines": {
