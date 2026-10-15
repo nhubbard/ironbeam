@@ -236,11 +236,9 @@ fn unbounded_batches_preserve_allowed_lateness_with_their_own_counts() {
         .accumulating_early_and_late_count_trigger_named("upstream", 1, 1)
         .unwrap();
     values.group_into_batches_named("batches", 2).unwrap();
-    assert!(
-        values
-            .group_into_batches_with_max_buffering_duration_named("unsupported", 2, 5_000_000)
-            .is_err()
-    );
+    values
+        .group_into_batches_with_max_buffering_duration_named("timed-batches", 2, 5_000_000)
+        .unwrap();
     let (graph, _) = pipeline.snapshot().unwrap();
     let batch = graph.node("batches/group").unwrap();
     assert_eq!(batch.time.allowed_lateness_ns, 5_000_000);
@@ -250,6 +248,70 @@ fn unbounded_batches_preserve_allowed_lateness_with_their_own_counts() {
             early_count: 2,
             late_count: 2
         }
+    );
+    assert_eq!(
+        graph.node("timed-batches/group").unwrap().time.trigger,
+        WindowTrigger::EarlyCountOrProcessingTimeAndLateCount {
+            count: 2,
+            delay_ns: 5_000_000,
+            late_count: 2,
+        }
+    );
+}
+
+#[test]
+fn count_or_time_and_late_count_requires_finite_lateness_and_unique_identity() {
+    let pipeline = Pipeline::default();
+    let values = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
+    assert!(
+        values
+            .count_or_processing_time_and_late_count_trigger_named("global", 2, 5_000_000, 2)
+            .is_err()
+    );
+    let windowed = values.fixed_windows("window", 10_000_000).unwrap();
+    assert!(
+        windowed
+            .count_or_processing_time_and_late_count_trigger_named("no-lateness", 2, 5_000_000, 2)
+            .is_err()
+    );
+    let late = windowed
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap();
+    for (early, delay, late_count) in [(0, 5_000_000, 2), (2, 0, 2), (2, 1, 2), (2, 5_000_000, 0)] {
+        assert!(
+            late.count_or_processing_time_and_late_count_trigger_named(
+                "invalid", early, delay, late_count
+            )
+            .is_err()
+        );
+    }
+    let discarding = late
+        .count_or_processing_time_and_late_count_trigger_named("discarding", 2, 5_000_000, 2)
+        .unwrap();
+    let accumulating = late
+        .accumulating_count_or_processing_time_and_late_count_trigger_named(
+            "accumulating",
+            2,
+            5_000_000,
+            2,
+        )
+        .unwrap();
+    discarding.group_by_key_named("discarding-group").unwrap();
+    accumulating
+        .group_by_key_named("accumulating-group")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node("accumulating").unwrap().time.trigger,
+        WindowTrigger::EarlyCountOrProcessingTimeAndLateCountAccumulating {
+            count: 2,
+            delay_ns: 5_000_000,
+            late_count: 2,
+        }
+    );
+    assert_ne!(
+        graph.node("discarding").unwrap().time.trigger,
+        graph.node("accumulating").unwrap().time.trigger
     );
 }
 

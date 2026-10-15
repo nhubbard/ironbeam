@@ -455,6 +455,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             for (key, values, timestamp_ns, window, assigned_window) in &self.groups {
                 let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
                 let scope = (key.clone(), interval);
+                if self.nonspeculative_base.contains_key(&scope) {
+                    continue;
+                }
                 let prior = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
                 if (self.trigger.is_count_then_processing_time()
                     && self.fired_panes.get(&scope).is_some_and(|index| index % 2 == 1))
@@ -500,7 +503,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         let mut released = 0_usize;
         for (key, values, timestamp_ns, window, assigned_window) in std::mem::take(&mut self.groups) {
             let scope = (key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
-            if (self.trigger.is_count_then_processing_time()
+            if self.nonspeculative_base.contains_key(&scope)
+                || (self.trigger.is_count_then_processing_time()
                 && self.fired_panes.get(&scope).is_some_and(|index| index % 2 == 1))
                 || values.len() < threshold
                 || (self.trigger.is_count_and_processing_time()
@@ -546,7 +550,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         for (key, values, _, _, assigned_window) in &self.groups {
             let scope = (key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
             let fired_count = self.fired_value_counts.get(&scope).copied().unwrap_or(0);
-            if (!self.trigger.is_count_then_processing_time()
+            if !self.nonspeculative_base.contains_key(&scope)
+                && (!self.trigger.is_count_then_processing_time()
                 || self.fired_panes.get(&scope).is_some_and(|index| index % 2 == 1))
                 && values.len() > fired_count
                 && !self.processing_deadlines.contains_key(&scope)

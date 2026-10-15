@@ -36,6 +36,10 @@ pub enum WindowTrigger {
     EarlyCountOrProcessingTime { count: u64, delay_ns: i64 },
     /// Count-or-processing-time firings that retain earlier values.
     EarlyCountOrProcessingTimeAccumulating { count: u64, delay_ns: i64 },
+    /// Count-or-time early panes and count-based late panes after window end.
+    EarlyCountOrProcessingTimeAndLateCount { count: u64, delay_ns: i64, late_count: u64 },
+    /// Count-or-time early and count-based late panes retain prior values.
+    EarlyCountOrProcessingTimeAndLateCountAccumulating { count: u64, delay_ns: i64, late_count: u64 },
     /// Repeated early firings after both a count and processing-time delay.
     EarlyCountAndProcessingTime { count: u64, delay_ns: i64 },
     /// Count-and-processing-time firings that retain earlier values.
@@ -68,6 +72,8 @@ impl WindowTrigger {
             Self::EarlyElementCount { count } | Self::EarlyElementCountAccumulating { count }
             | Self::EarlyCountOrProcessingTime { count, .. }
             | Self::EarlyCountOrProcessingTimeAccumulating { count, .. }
+            | Self::EarlyCountOrProcessingTimeAndLateCount { count, .. }
+            | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { count, .. }
             | Self::EarlyCountAndProcessingTime { count, .. }
             | Self::EarlyCountAndProcessingTimeAccumulating { count, .. }
             | Self::EarlyCountThenProcessingTime { count, .. }
@@ -86,6 +92,8 @@ impl WindowTrigger {
             | Self::EarlyProcessingTimeAccumulating { delay_ns }
             | Self::EarlyCountOrProcessingTime { delay_ns, .. }
             | Self::EarlyCountOrProcessingTimeAccumulating { delay_ns, .. }
+            | Self::EarlyCountOrProcessingTimeAndLateCount { delay_ns, .. }
+            | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { delay_ns, .. }
             | Self::EarlyCountAndProcessingTime { delay_ns, .. }
             | Self::EarlyCountAndProcessingTimeAccumulating { delay_ns, .. }
             | Self::EarlyCountThenProcessingTime { delay_ns, .. }
@@ -117,7 +125,9 @@ impl WindowTrigger {
         match self {
             Self::LateElementCount { count } | Self::LateElementCountAccumulating { count } => Some(*count),
             Self::EarlyAndLateElementCount { late_count, .. }
-            | Self::EarlyAndLateElementCountAccumulating { late_count, .. } => Some(*late_count),
+            | Self::EarlyAndLateElementCountAccumulating { late_count, .. }
+            | Self::EarlyCountOrProcessingTimeAndLateCount { late_count, .. }
+            | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { late_count, .. } => Some(*late_count),
             _ => None,
         }
     }
@@ -129,6 +139,7 @@ impl WindowTrigger {
             Self::EarlyElementCountAccumulating { .. }
                 | Self::EarlyProcessingTimeAccumulating { .. }
                 | Self::EarlyCountOrProcessingTimeAccumulating { .. }
+                | Self::EarlyCountOrProcessingTimeAndLateCountAccumulating { .. }
                 | Self::EarlyCountAndProcessingTimeAccumulating { .. }
                 | Self::EarlyCountThenProcessingTimeAccumulating { .. }
                 | Self::LateElementCountAccumulating { .. }

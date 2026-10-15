@@ -503,12 +503,13 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             (Boundedness::Unbounded, None) => {
                 self.early_count_trigger_named(&format!("{key}/count-trigger"), count)?
             }
-            (Boundedness::Unbounded, Some(_)) if parent.time.allowed_lateness_ns > 0 => {
-                return Err(Error::graph(
-                    key,
-                    "count-or-time batches with allowed lateness require a late trigger policy",
-                ));
-            }
+            (Boundedness::Unbounded, Some(delay_ns)) if parent.time.allowed_lateness_ns > 0 => self
+                .count_or_processing_time_and_late_count_trigger_named(
+                    &format!("{key}/count-or-time-trigger"),
+                    count,
+                    delay_ns,
+                    count,
+                )?,
             (_, Some(delay_ns)) => self.count_or_processing_time_trigger_named(
                 &format!("{key}/count-or-time-trigger"),
                 count,

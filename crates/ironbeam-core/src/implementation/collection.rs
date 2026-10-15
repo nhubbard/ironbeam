@@ -638,6 +638,70 @@ impl<T: Element> PCollection<T> {
         self.count_processing_time_trigger_with_mode_named(key, count, delay_ns, true, CompositeTriggerMode::Any)
     }
 
+    /// Fire early panes on a count or processing-time delay, then fire late
+    /// panes after `late_count` new values. Requires positive allowed lateness.
+    pub fn count_or_processing_time_and_late_count_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+        late_count: u64,
+    ) -> Result<Self, Error> {
+        self.count_or_time_and_late_count_named(key, count, delay_ns, late_count, false)
+    }
+
+    /// Retain values across early and late count-or-time panes.
+    pub fn accumulating_count_or_processing_time_and_late_count_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+        late_count: u64,
+    ) -> Result<Self, Error> {
+        self.count_or_time_and_late_count_named(key, count, delay_ns, late_count, true)
+    }
+
+    fn count_or_time_and_late_count_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+        late_count: u64,
+        accumulating: bool,
+    ) -> Result<Self, Error> {
+        if count == 0 || count > i32::MAX as u64 || late_count == 0 || late_count > i32::MAX as u64 {
+            return Err(Error::graph(key, "early and late counts must be positive 32-bit values"));
+        }
+        if delay_ns <= 0 || delay_ns % 1_000_000 != 0 {
+            return Err(Error::graph(key, "processing-time trigger requires a positive whole-millisecond delay"));
+        }
+        let time = self.parent()?.time;
+        if time.allowed_lateness_ns == 0 || !time.window.is_millisecond_aligned_fixed_or_sliding() {
+            return Err(Error::graph(key, "combined count-or-time and late count trigger requires allowed lateness and millisecond-aligned fixed or sliding windows"));
+        }
+        let operation = match time.window {
+            Window::Fixed { .. } | Window::FixedOffset { .. } => Operation::FixedWindow,
+            Window::Sliding { .. } => Operation::Map,
+            _ => unreachable!("validated finite window"),
+        };
+        self.next_with_time_policy(
+            key,
+            operation,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(time.window),
+            None,
+            TimePolicyOverride {
+                trigger: Some(if accumulating {
+                    WindowTrigger::EarlyCountOrProcessingTimeAndLateCountAccumulating { count, delay_ns, late_count }
+                } else {
+                    WindowTrigger::EarlyCountOrProcessingTimeAndLateCount { count, delay_ns, late_count }
+                }),
+                output_time: None,
+                allowed_lateness_ns: None,
+            },
+        )
+    }
+
     /// Repeatedly fire a discarding pane once both `count` elements have
     /// arrived and `delay_ns` has elapsed since the first pending element.
     pub fn count_and_processing_time_trigger_named(

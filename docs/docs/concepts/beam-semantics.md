@@ -38,6 +38,14 @@ Bounded keyed batching can also use encoded-value byte and count limits. The
 byte-limited method rejects unbounded input until a stateful streaming
 implementation exists.
 
+For an unbounded fixed or sliding window with allowed lateness,
+`group_into_batches_with_max_buffering_duration_named` uses a repeated
+count-or-processing-time trigger before the watermark and a repeated count
+trigger afterward. A late partial batch flushes when allowed lateness expires.
+The same count, timer, and late-count fixture produces matching panes on the
+Direct runner and local Prism. The portable graph carries both Beam trigger
+branches.
+
 The [release gate report](https://github.com/nhubbard/ironbeam/blob/main/V5_RELEASE_GATE_STATUS.md)
 records exact passing suites and remaining release constraints. The table is
 an inventory of work, not a weighted feature score.
