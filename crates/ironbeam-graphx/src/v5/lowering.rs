@@ -173,6 +173,36 @@ fn lower(
             );
         }
     }
+    for node in &graph.nodes {
+        let Operation::StatefulParDo { contract, .. } = &node.operation else {
+            continue;
+        };
+        for family in contract.timers.values() {
+            let timer_coder = Coder {
+                spec: Some(FunctionSpec {
+                    urn: urns::CODER_TIMER.into(),
+                    payload: Vec::new(),
+                }),
+                component_coder_ids: vec![
+                    contract.key_coder_id.clone(),
+                    contract.window_coder_id.clone(),
+                ],
+            };
+            match coders.entry(family.coder_id.clone()) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(timer_coder);
+                }
+                std::collections::hash_map::Entry::Occupied(entry)
+                    if entry.get() == &timer_coder => {}
+                std::collections::hash_map::Entry::Occupied(_) => {
+                    return Err(V5Error::Wire(format!(
+                        "stateful node {} reuses a timer coder ID with a different definition",
+                        node.key
+                    )));
+                }
+            }
+        }
+    }
     let impulse_pc = "v5_impulse_pc".to_string();
     pcollections.insert(
         impulse_pc.clone(),

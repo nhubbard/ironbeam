@@ -799,6 +799,23 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
                 if requirements.iter().any(|urn| !translated.pipeline.requirements.contains(urn)) {
                     return Err(V5Error::Wire(format!("stateful requirement missing for {key}")));
                 }
+                for family in contract.timers.values() {
+                    let expected_coder = Coder {
+                        spec: Some(FunctionSpec {
+                            urn: urns::CODER_TIMER.into(),
+                            payload: Vec::new(),
+                        }),
+                        component_coder_ids: vec![
+                            contract.key_coder_id.clone(),
+                            contract.window_coder_id.clone(),
+                        ],
+                    };
+                    if components.coders.get(&family.coder_id) != Some(&expected_coder) {
+                        return Err(V5Error::Wire(format!(
+                            "timer family coder differs for {key}"
+                        )));
+                    }
+                }
             }
             if pardo.state_specs != expected_state.state_specs
                 || pardo.timer_family_specs != expected_state.timer_family_specs

@@ -1,5 +1,7 @@
 use super::*;
-use ironbeam_core::{Element, StatefulParDoContract, UserStateKind, Version};
+use ironbeam_core::{
+    Element, StatefulParDoContract, UserStateKind, UserTimerDomain, UserTimerFamily, Version,
+};
 use std::collections::BTreeMap;
 
 fn stateful_graph() -> (Graph, Registry) {
@@ -99,4 +101,80 @@ fn stateful_pardo_rejects_mismatched_key_coder() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("coder IDs differ"));
+}
+
+#[test]
+fn stateful_pardo_registers_beam_timer_coder() {
+    let (mut graph, registry) = stateful_graph();
+    let node = graph.nodes.iter_mut().find(|node| node.key == "running").unwrap();
+    let Operation::StatefulParDo { contract, .. } = &mut node.operation else { unreachable!() };
+    contract.timers.insert(
+        "event".into(),
+        UserTimerFamily {
+            domain: UserTimerDomain::EventTime,
+            coder_id: "v5_timer_global".into(),
+        },
+    );
+    let identity = execution_identity(&graph, &registry, "timer-build").unwrap();
+    let (beam, _) = lower(
+        &graph,
+        &registry,
+        &["pairs".into(), "running".into(), "result".into()],
+        &identity,
+        "example/worker:v5",
+        &HashSet::new(),
+        &HashMap::new(),
+    )
+    .unwrap();
+    let mut translated = TranslatedV5 {
+        pipeline: beam,
+        identity,
+        chain: vec!["pairs".into(), "running".into(), "result".into()],
+        finalization_sinks: HashSet::new(),
+        test_stream_payloads: HashMap::new(),
+    };
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let coder = &components.coders["v5_timer_global"];
+    assert_eq!(coder.spec.as_ref().unwrap().urn, urns::CODER_TIMER);
+    assert_eq!(
+        coder.component_coder_ids,
+        [CODER_V5_LP_BYTES, ids::CODER_GLOBAL_WINDOW]
+    );
+    let transform = &components.transforms[&id("v5_t", "running")];
+    let payload = ParDoPayload::decode(transform.spec.as_ref().unwrap().payload.as_slice()).unwrap();
+    assert_eq!(
+        payload.timer_family_specs["event"].timer_family_coder_id,
+        "v5_timer_global"
+    );
+    translated.pipeline.components.as_mut().unwrap().coders
+        .get_mut("v5_timer_global").unwrap().component_coder_ids.swap(0, 1);
+    assert!(validate_beam_contract(&graph, &translated).unwrap_err()
+        .to_string().contains("timer family coder differs"));
+}
+
+#[test]
+fn stateful_pardo_rejects_timer_coder_id_collision() {
+    let (mut graph, registry) = stateful_graph();
+    let node = graph.nodes.iter_mut().find(|node| node.key == "running").unwrap();
+    let Operation::StatefulParDo { contract, .. } = &mut node.operation else { unreachable!() };
+    contract.timers.insert(
+        "event".into(),
+        UserTimerFamily {
+            domain: UserTimerDomain::EventTime,
+            coder_id: CODER_V5_LP_BYTES.into(),
+        },
+    );
+    let identity = execution_identity(&graph, &registry, "timer-collision").unwrap();
+    let error = lower(
+        &graph,
+        &registry,
+        &["pairs".into(), "running".into(), "result".into()],
+        &identity,
+        "example/worker:v5",
+        &HashSet::new(),
+        &HashMap::new(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("reuses a timer coder ID"));
 }

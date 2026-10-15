@@ -219,6 +219,13 @@ the hold for processing-time timers. A clear operation has no timestamps or
 pane. The harness already routes and decodes these records; no registered
 pipeline callback receives them yet.
 
+Graphx now registers each declared timer family as a standard
+`beam:coder:timer:v1` coder over the contract's key and window coders. Its
+portable contract validator rejects missing or changed timer coder
+definitions, and tests cover lowering and coder-ID collisions. This closes a
+wire-format prerequisite only; timer callbacks, scheduling, and recovery
+remain open.
+
 | Required execution boundary | Direct | Portable worker |
 | --- | --- | --- |
 | Element callback schedules or clears a keyed timer | Save the mutation with coded state and the source cursor; replay it only if the bundle commits. | Emit the declared family record before acknowledging the bundle. |

@@ -53,6 +53,7 @@ pub const CODER_WINDOWED_VALUE: &str = "beam:coder:windowed_value:v1";
 pub const CODER_PARAM_WINDOWED_VALUE: &str = "beam:coder:param_windowed_value:v1";
 pub const CODER_GLOBAL_WINDOW: &str = "beam:coder:global_window:v1";
 pub const CODER_INTERVAL_WINDOW: &str = "beam:coder:interval_window:v1";
+pub const CODER_TIMER: &str = "beam:coder:timer:v1";
 pub const CODER_NULLABLE: &str = "beam:coder:nullable:v1";
 
 pub const CODER_IRONBEAM_V5: &str = "beam:coder:ironbeam:element:v5";
