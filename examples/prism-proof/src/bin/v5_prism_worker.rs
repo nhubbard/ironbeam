@@ -8,6 +8,7 @@ use ironbeam_core::{
 };
 use ironbeam_prism_proof::{
     accumulating_count_trigger_stream_fixture, accumulating_late_count_fixture,
+    accumulating_late_join_fixture,
     accumulating_latest_count_trigger_stream_fixture, allowed_lateness_fixture,
     bounded_batch_helpers_fixture, bounded_join_cogroup_fixture,
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
@@ -37,7 +38,8 @@ use ironbeam_prism_proof::{
     pane_metadata_fixture_with_accumulating_count, pane_metadata_fixture_with_trigger,
     panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
     panicking_side_input_fixture, partition_fixture, production_join_cogroup_fixture,
-    production_stream_fixture, session_group_fixture, shared_unbounded_homogeneous_cogroup_fixture,
+    production_stream_fixture, session_group_fixture, shared_accumulating_late_cogroup_fixture,
+    shared_unbounded_homogeneous_cogroup_fixture,
     side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
     sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
     streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
@@ -255,6 +257,11 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SHARED_ACCUMULATING_LATE") {
+        return shared_accumulating_late_cogroup_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DEAD_LETTER") {
         return dead_letter_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
     }
@@ -342,6 +349,11 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_LATE_COUNT_JOIN") {
         return late_count_join_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_ACCUMULATING_LATE_JOIN") {
+        return accumulating_late_join_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

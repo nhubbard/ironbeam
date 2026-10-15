@@ -181,3 +181,70 @@ pub fn shared_unbounded_homogeneous_cogroup_fixture(
         },
     )
 }
+
+/// A single TestStream branches into three inputs with retained late values.
+pub fn shared_accumulating_late_cogroup_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    let source = pipeline
+        .test_stream_source(
+            "shared-accumulating-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("a".to_owned(), (0_i32, 2_i32)), 2_000_000),
+                    (("a".to_owned(), (1, 4)), 4_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![(("a".to_owned(), (0, 3)), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(11_000_000),
+                TestStreamEvent::Elements(vec![(("a".to_owned(), (0, 5)), 5_000_000)]),
+                TestStreamEvent::AdvanceWatermark(12_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )?
+        .fixed_windows("shared-accumulating-window", 10_000_000)?
+        .allowed_lateness_named("shared-accumulating-lateness", 5_000_000)?
+        .accumulating_late_count_trigger_named("shared-accumulating-trigger", 2)?;
+    let inputs = (0..3)
+        .map(|index| {
+            source
+                .filter_named(&format!("shared-accumulating-branch-{index}"), move |(_, (branch, _))| {
+                    *branch == index
+                })?
+                .map_named(&format!("shared-accumulating-value-{index}"), |(key, (_, value))| {
+                    (key, value)
+                })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    inputs[0]
+        .co_group_homogeneous_named("shared-accumulating-group", &inputs[1..])?
+        .reify_panes_named("shared-accumulating-pane")?
+        .map_named("shared-accumulating-row", |(pane, (key, mut buckets))| {
+            for bucket in &mut buckets {
+                bucket.sort_unstable();
+            }
+            format!("{key}:{buckets:?}:{:?}:{}", pane.timing, pane.index)
+        })
+}
+
+pub fn shared_accumulating_late_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    shared_accumulating_late_cogroup_collection(pipeline)?.sink_named_with_config(
+        "shared-accumulating-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("shared-accumulating-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
+}

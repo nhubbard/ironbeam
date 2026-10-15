@@ -209,8 +209,9 @@ the closing behavior emits that partial pane when the window expires at
 15 ms. The local Prism and Direct fixtures agree on the values, timestamps,
 timing, pane indices, and final flag for this schedule. Direct stores a
 partial late pane with the source cursor, so a restart does not lose the
-count or emit the pane twice. The policy uses discarding panes and currently
-supports single-input GroupByKey in fixed and sliding windows.
+count or emit the pane twice. The policy uses discarding panes. The tested
+fixed-window paths include single-input GroupByKey, homogeneous and
+heterogeneous co-groups, and typed joins.
 
 `accumulating_late_count_trigger_named` retains the on-time values in every
 later pane. Direct fires after two new late elements and checkpoints the
@@ -218,7 +219,12 @@ retained values and count. In the pinned local Prism runner, the same
 TestStream schedule coalesces the late elements and fires one final pane at
 expiry. Both runners retain the same values, but applications that act on
 intermediate accumulating late panes must account for this scheduling
-difference. Direct requires a value coder for the retained group.
+difference. Direct requires coders for retained values. Checkpointed Direct
+fixtures cover both a multi-source homogeneous co-group and a typed full
+join. A shared-source three-input co-group has matching values, timing
+labels, and pane indices on Direct and Prism. In the typed join fixture,
+Direct emits a threshold pane and a later final pane, while Prism coalesces
+the late rows into one final pane; both include the on-time join rows again.
 
 `early_and_late_count_trigger_named` combines repeated early and late
 thresholds in one Beam `AfterEndOfWindow` trigger. The call follows

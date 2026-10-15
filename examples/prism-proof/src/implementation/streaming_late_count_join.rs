@@ -7,6 +7,20 @@ pub fn late_count_join_kind_collection(
     pipeline: &Pipeline,
     kind: &str,
 ) -> Result<PCollection<String>, Error> {
+    late_count_join_kind_collection_with_mode(pipeline, kind, false)
+}
+
+pub fn accumulating_late_join_collection(
+    pipeline: &Pipeline,
+) -> Result<PCollection<String>, Error> {
+    late_count_join_kind_collection_with_mode(pipeline, "full", true)
+}
+
+fn late_count_join_kind_collection_with_mode(
+    pipeline: &Pipeline,
+    kind: &str,
+    accumulating: bool,
+) -> Result<PCollection<String>, Error> {
     let main = pipeline
         .test_stream_source(
             "late-count-main",
@@ -21,8 +35,12 @@ pub fn late_count_join_kind_collection(
             ],
         )?
         .fixed_windows("late-count-main-window", 10_000_000)?
-        .allowed_lateness_named("late-count-main-policy", 5_000_000)?
-        .late_count_trigger_named("late-count-main-trigger", 2)?;
+        .allowed_lateness_named("late-count-main-policy", 5_000_000)?;
+    let main = if accumulating {
+        main.accumulating_late_count_trigger_named("late-count-main-trigger", 2)?
+    } else {
+        main.late_count_trigger_named("late-count-main-trigger", 2)?
+    };
     let side = pipeline
         .test_stream_source(
             "late-count-side",
@@ -35,8 +53,12 @@ pub fn late_count_join_kind_collection(
             ],
         )?
         .fixed_windows("late-count-side-window", 10_000_000)?
-        .allowed_lateness_named("late-count-side-policy", 5_000_000)?
-        .late_count_trigger_named("late-count-side-trigger", 2)?;
+        .allowed_lateness_named("late-count-side-policy", 5_000_000)?;
+    let side = if accumulating {
+        side.accumulating_late_count_trigger_named("late-count-side-trigger", 2)?
+    } else {
+        side.late_count_trigger_named("late-count-side-trigger", 2)?
+    };
     match kind {
         "inner" => main.join_inner_named("late-count-inner", &side)?
             .reify_panes_named("late-count-inner-pane")?
@@ -60,6 +82,28 @@ pub fn late_count_join_kind_collection(
             }),
         _ => Err(Error::graph("late-count-join-kind", "unknown join kind")),
     }
+}
+
+pub fn accumulating_late_join_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    accumulating_late_join_collection(pipeline)?.sink_named_with_config(
+        "accumulating-late-join-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::AtLeastOnce,
+            commit: true,
+        },
+        format!("accumulating-late-join-result:{}", path.display()),
+        move || {
+            Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            }))
+        },
+    )
 }
 
 pub fn late_count_join_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
