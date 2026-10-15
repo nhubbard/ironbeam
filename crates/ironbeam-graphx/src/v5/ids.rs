@@ -99,6 +99,7 @@ pub fn portable_order(graph: &Graph) -> Result<Vec<String>, V5Error> {
             | Operation::SideInputMap
             | Operation::WaitOn
             | Operation::WaitOnWindowed
+            | Operation::StatefulParDo { .. }
             | Operation::Output
             | Operation::Sink { .. } => {
                 let parent = node

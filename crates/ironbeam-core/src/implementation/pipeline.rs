@@ -104,6 +104,8 @@ impl Pipeline {
                 "ironbeam/batch-map-values".into(),
                 BUILTIN_OPERATION_VERSION,
             ),
+            Operation::StatefulParDo { contract } =>
+                (contract.semantic_id.clone(), contract.version),
             Operation::Custom {
                 semantic_id,
                 version,

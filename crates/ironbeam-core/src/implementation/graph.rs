@@ -144,6 +144,17 @@ impl Graph {
                     "batch mapping requires a bounded input",
                 ));
             }
+            if let Operation::StatefulParDo { contract } = &node.operation {
+                contract.validate()?;
+                if node.semantic_id != contract.semantic_id
+                    || node.semantic_version != contract.version
+                {
+                    return Err(Error::graph(&node.key, "stateful operation identity differs from its contract"));
+                }
+                if node.input.is_none() {
+                    return Err(Error::graph(&node.key, "stateful ParDo requires keyed input"));
+                }
+            }
             if let Operation::Custom {
                 semantic_id,
                 version,
@@ -279,6 +290,7 @@ impl Graph {
                             | Operation::FoldOrderedGlobal
                             | Operation::FoldOrderedPerKey
                             | Operation::BatchMapValues { .. }
+                            | Operation::StatefulParDo { .. }
                             | Operation::Output
                             | Operation::Sink { .. }
                     ) && node.time != upstream.time

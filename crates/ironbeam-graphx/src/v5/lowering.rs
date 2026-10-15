@@ -61,6 +61,7 @@ fn lower(
     let mut coders = HashMap::new();
     let mut root_ids = Vec::new();
     let mut test_stream_payloads = HashMap::new();
+    let mut requirements = Vec::new();
     let kv_inputs = keyed_inputs(graph);
     let mut windowing_strategies =
         HashMap::from([(ids::WINDOWING_ID.into(), global_windowing_strategy())]);
@@ -125,6 +126,7 @@ fn lower(
                 | Operation::JoinLeft
                 | Operation::JoinRight
                 | Operation::JoinFull
+                | Operation::StatefulParDo { .. }
         )
     }) {
         for (key, urn, components) in [
@@ -344,8 +346,7 @@ fn lower(
                     payload: node_ref.encode()?,
                 }),
                 ..Default::default()
-            }
-            .encode_to_vec();
+            }.encode_to_vec();
             transforms.insert(
                 tag_transform.clone(),
                 PTransform {
@@ -579,7 +580,7 @@ fn lower(
                 identity: identity.clone(),
                 co_group_input: None,
             };
-            let payload = ParDoPayload {
+            let mut payload = ParDoPayload {
                 do_fn: Some(FunctionSpec {
                     urn: urns::DOFN_IRONBEAM_V5.into(),
                     payload: node_ref.encode()?,
@@ -606,8 +607,42 @@ fn lower(
                     String::new()
                 },
                 ..Default::default()
+            };
+            if let Operation::StatefulParDo { contract } = &node.operation {
+                let parent = node.input.as_ref().ok_or_else(|| V5Error::Graph(format!("stateful node {key} has no input")))?;
+                if pcollections[&collection_id(parent)].coder_id != CODER_V5_KV {
+                    return Err(V5Error::Wire(format!("stateful node {key} requires a Beam KV input coder")));
+                }
+                let expected_window_coder = if matches!(node.time.window, Window::Global) {
+                    ids::CODER_GLOBAL_WINDOW
+                } else {
+                    ids::CODER_INTERVAL_WINDOW
+                };
+                if contract.key_coder_id != CODER_V5_LP_BYTES
+                    || contract.window_coder_id != expected_window_coder
+                {
+                    return Err(V5Error::Wire(format!("stateful node {key} coder IDs differ from its input key or window")));
+                }
+                for coder_id in std::iter::once(&contract.key_coder_id)
+                    .chain(std::iter::once(&contract.window_coder_id))
+                    .chain(contract.states.values().flat_map(|kind| match kind {
+                        ironbeam_core::UserStateKind::Value { coder_id } => vec![coder_id],
+                        ironbeam_core::UserStateKind::Bag { element_coder_id }
+                        | ironbeam_core::UserStateKind::Set { element_coder_id }
+                        | ironbeam_core::UserStateKind::OrderedList { element_coder_id } => vec![element_coder_id],
+                        ironbeam_core::UserStateKind::Combining { accumulator_coder_id, .. } => vec![accumulator_coder_id],
+                        ironbeam_core::UserStateKind::Map { key_coder_id, value_coder_id }
+                        | ironbeam_core::UserStateKind::Multimap { key_coder_id, value_coder_id } => vec![key_coder_id, value_coder_id],
+                    }))
+                    .chain(contract.timers.values().map(|timer| &timer.coder_id))
+                {
+                    if !coders.contains_key(coder_id) {
+                        return Err(V5Error::Wire(format!("stateful node {key} references missing coder {coder_id}")));
+                    }
+                }
+                attach_stateful_contract(&mut payload, &mut requirements, contract)?;
             }
-            .encode_to_vec();
+            let payload = payload.encode_to_vec();
             FunctionSpec {
                 urn: urns::TRANSFORM_PARDO.into(),
                 payload,
@@ -681,14 +716,15 @@ fn lower(
                 urn: IDENTITY_URN.into(),
                 payload: identity_payload,
             }],
-            requirements: if graph.nodes.iter().any(|node| {
+            requirements: {
+                if graph.nodes.iter().any(|node| {
                 matches!(node.operation, Operation::Source { .. })
                     && node.boundedness == Boundedness::Unbounded
                     && node.semantic_id != "ironbeam/test-stream"
-            }) {
-                vec![urns::REQUIREMENT_SDF.into()]
-            } else {
-                Vec::new()
+                }) {
+                    requirements.push(urns::REQUIREMENT_SDF.into());
+                }
+                requirements
             },
         },
         test_stream_payloads,
@@ -698,6 +734,9 @@ fn lower(
 #[cfg(test)]
 #[path = "../../tests/unit/v5__sdf_lowering_tests.rs"]
 mod sdf_lowering_tests;
+#[cfg(test)]
+#[path = "../../tests/unit/v5__stateful_lowering_tests.rs"]
+mod stateful_lowering_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/v5__sharded_key_tests.rs"]
 mod sharded_key_tests;

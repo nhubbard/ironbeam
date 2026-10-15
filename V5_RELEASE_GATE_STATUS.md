@@ -286,6 +286,14 @@ read it on the next keyed element, fire an event-time timer, and survive a
 failed bundle and a Direct checkpoint. Both Direct and pinned Prism must agree
 on committed output before this family can count toward parity.
 
+A stateful operation can now carry its versioned contract in the logical graph.
+Graphx lowers that operation to a Beam ParDo with state specifications and the
+stateful requirement. Lowering checks that its input is Beam KV, that the
+declared key and window coders match, and that referenced coders exist. Focused
+tests cover the emitted specification and a mismatched key coder. The builder
+does not yet register a callable stateful transform, and worker planning still
+rejects the resulting ParDo; this is a graph and wire-contract step only.
+
 The open sliding-window completion-barrier discrepancy has a runner-stage
 cause in the pinned Prism checkout. Its optimizer fuses the SDF main source,
 window assignment, and side-input wait into one stage whose restriction input

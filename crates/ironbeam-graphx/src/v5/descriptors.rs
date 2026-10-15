@@ -153,7 +153,7 @@ fn keyed_inputs(graph: &Graph) -> HashSet<&str> {
     for group in graph
         .nodes
         .iter()
-        .filter(|node| matches!(node.operation, Operation::GroupByKey))
+        .filter(|node| matches!(node.operation, Operation::GroupByKey | Operation::StatefulParDo { .. }))
     {
         let mut pending = group.input.iter().map(String::as_str).collect::<Vec<_>>();
         while let Some(key) = pending.pop() {

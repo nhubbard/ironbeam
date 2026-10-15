@@ -783,13 +783,20 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             }
             let pardo = ParDoPayload::decode(spec.payload.as_slice())
                 .map_err(|error| V5Error::Wire(error.to_string()))?;
-            if !pardo.state_specs.is_empty()
-                || !pardo.timer_family_specs.is_empty()
-                || !pardo.on_window_expiration_timer_family_spec.is_empty()
+            let mut expected_state = ParDoPayload::default();
+            if let Operation::StatefulParDo { contract } = &node.operation {
+                let mut requirements = Vec::new();
+                attach_stateful_contract(&mut expected_state, &mut requirements, contract)?;
+                if requirements.iter().any(|urn| !translated.pipeline.requirements.contains(urn)) {
+                    return Err(V5Error::Wire(format!("stateful requirement missing for {key}")));
+                }
+            }
+            if pardo.state_specs != expected_state.state_specs
+                || pardo.timer_family_specs != expected_state.timer_family_specs
+                || pardo.on_window_expiration_timer_family_spec
+                    != expected_state.on_window_expiration_timer_family_spec
             {
-                return Err(V5Error::Wire(format!(
-                    "stateful DoFn contract differs for {key}"
-                )));
+                return Err(V5Error::Wire(format!("stateful DoFn contract differs for {key}")));
             }
             let expected_restriction = if is_production_source(node) {
                 ids::CODER_BYTES
@@ -1001,6 +1008,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
                     | Operation::JoinLeft
                     | Operation::JoinRight
                     | Operation::JoinFull
+                    | Operation::StatefulParDo { .. }
             )
         }) {
             let coder = components
@@ -1029,13 +1037,21 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             return Err(V5Error::Wire("wrong interval-window coder".into()));
         }
     }
-    let expected_requirements = if graph.nodes.iter().any(is_production_source) {
-        vec![urns::REQUIREMENT_SDF.to_string()]
-    } else {
-        Vec::new()
-    };
+    let mut expected_requirements = Vec::new();
+    for key in &expected_chain {
+        if let Some(Node { operation: Operation::StatefulParDo { contract }, .. }) = graph.node(key) {
+            attach_stateful_contract(
+                &mut ParDoPayload::default(),
+                &mut expected_requirements,
+                contract,
+            )?;
+        }
+    }
+    if graph.nodes.iter().any(is_production_source) {
+        expected_requirements.push(urns::REQUIREMENT_SDF.to_string());
+    }
     if translated.pipeline.requirements != expected_requirements {
-        return Err(V5Error::Wire("Beam SDF requirements differ".into()));
+        return Err(V5Error::Wire("Beam pipeline requirements differ".into()));
     }
     Ok(())
 }

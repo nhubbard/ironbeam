@@ -535,6 +535,9 @@ pub enum Operation {
     BatchMapValues {
         batch_size: usize,
     },
+    StatefulParDo {
+        contract: StatefulParDoContract,
+    },
     Custom {
         semantic_id: String,
         version: Version,
