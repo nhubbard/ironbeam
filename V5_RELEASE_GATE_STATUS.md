@@ -320,6 +320,9 @@ both windows' elements for the same key arrived in one TestStream batch
 before a single final watermark, pinned Prism committed only the first
 expiration output. A control fixture with different keys in the two windows
 and the same batch committed both outputs on Direct and pinned Prism.
+An ignored live test retains the same-key two-row expectation. Running it
+explicitly against pinned Prism reproduces one committed row, while Direct
+commits both.
 An overlapping sliding-window experiment likewise emitted only the first
 expiration callback on pinned Prism while Direct emitted both, even with
 separate watermarks after the two window ends. The public API rejects sliding
