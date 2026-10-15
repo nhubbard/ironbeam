@@ -183,6 +183,10 @@ impl V5BundleExecutor {
                             let mut produced = Vec::with_capacity(input.len());
                             for wire in input {
                                 let (key, _) = self.registry.split_group_input(&node.key, &wire.bytes)?;
+                                let mut encoded_key = Vec::new();
+                                // Fn State is scoped by the Beam key coder's bytes,
+                                // which include this length prefix.
+                                encode_length_prefix(&key, &mut encoded_key)?;
                                 let window = match wire.window {
                                     None => Vec::new(),
                                     Some(interval) => {
@@ -194,7 +198,7 @@ impl V5BundleExecutor {
                                         encoded
                                     }
                                 };
-                                let access = UserStateAccess::new(state, instruction_id, transform_id, contract, window, key)?;
+                                let access = UserStateAccess::new(state, instruction_id, transform_id, contract, window, encoded_key)?;
                                 let output = access.apply_value_state("value", |encoded| {
                                     let prior = if encoded.is_empty() {
                                         None

@@ -252,6 +252,40 @@ pub fn replay_value_state_fixture(
         )
 }
 
+/// Global keyed state across two unbounded TestStream element batches.
+pub fn streaming_value_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "streaming-state-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 0), ((2, 17), 0)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+                TestStreamEvent::Elements(vec![((1, 13), 2_000_000), ((2, 19), 2_000_000), ((1, 23), 2_000_000)]),
+                TestStreamEvent::AdvanceWatermark(3_000_000),
+            ],
+        )?
+        .stateful_value_map_named::<i32, (i32, i32)>(
+            "streaming-state-count",
+            "prism-proof/streaming-key-count-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let count = prior.unwrap_or(0) + 1;
+                Ok((Some(count), (value, count)))
+            },
+        )?
+        .map_named("streaming-state-label", |(key, (value, count))| format!("{key}:{value}:{count}"))?
+        .sink_named_with_config(
+            "streaming-state-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("streaming-value-state:{}", directory.display()),
+            move || Ok(Box::new(IdempotentStateLabelSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
 /// Both arms of a fallible helper must survive portable fanout and rejoin.
 pub fn dead_letter_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();

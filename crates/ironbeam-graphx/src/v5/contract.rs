@@ -206,6 +206,7 @@ pub fn translate_v5(
         .collect::<Result<HashMap<_, _>, V5Error>>()?;
     let (beam, payloads) = lower(
         &graph,
+        &registry,
         &chain,
         &identity,
         container_image,

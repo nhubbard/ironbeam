@@ -385,8 +385,7 @@ impl Registry {
     ) -> Option<&(dyn Fn(Envelope) -> Result<Option<Envelope>, Error> + Send + Sync)> {
         match self.transforms.get(key)? {
             Transform::Single(transform) => Some(transform.as_ref()),
-            Transform::Multi(_) => None,
-            Transform::StatefulValue(_) => None,
+            Transform::Multi(_) | Transform::StatefulValue(_) => None,
         }
     }
     /// Invoke a registered value-state callback with runner-owned cell bytes.
@@ -405,6 +404,20 @@ impl Registry {
     #[must_use]
     pub fn has_stateful_value(&self, key: &str) -> bool {
         matches!(self.transforms.get(key), Some(Transform::StatefulValue(_)))
+    }
+    /// Encode one keyed value-state transform for a Direct stream checkpoint.
+    pub fn checkpoint_stateful_value(&self, key: &str) -> Result<Vec<u8>, Error> {
+        match self.transforms.get(key) {
+            Some(Transform::StatefulValue(transform)) => transform.checkpoint(),
+            _ => Err(Error::recovery(key, "stateful value handler missing")),
+        }
+    }
+    /// Restore one keyed value-state transform before opening a stream source.
+    pub fn restore_stateful_value(&self, key: &str, bytes: &[u8]) -> Result<(), Error> {
+        match self.transforms.get(key) {
+            Some(Transform::StatefulValue(transform)) => transform.restore(bytes),
+            _ => Err(Error::recovery(key, "stateful value handler missing")),
+        }
     }
     /// Return a typed same-type map or filter when a route can avoid envelopes.
     #[must_use]

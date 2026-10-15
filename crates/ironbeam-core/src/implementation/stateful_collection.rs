@@ -1,6 +1,8 @@
-/// A keyed, bounded value-state transform. The callback receives the current
+/// A keyed value-state transform. The callback receives the current
 /// cell for this key and window and returns its replacement plus one output.
 /// It must be registered with the same semantic identity in every worker.
+/// Unbounded input currently uses the global window; Direct checkpoints its
+/// cells with the source cursor on a single linear stream route.
 impl<K, V> PCollection<(K, V)>
 where
     K: Element + Eq + Hash + Clone,
@@ -15,8 +17,8 @@ where
     ) -> Result<PCollection<(K, O)>, Error> {
         Self::validate_semantic_handler(key, semantic_id, version)?;
         let parent = self.parent()?;
-        if parent.boundedness != Boundedness::Bounded {
-            return Err(Error::graph(key, "value-state transform currently requires bounded input"));
+        if parent.boundedness == Boundedness::Unbounded && parent.time.window != Window::Global {
+            return Err(Error::graph(key, "unbounded value state currently requires the global window"));
         }
         if matches!(parent.time.window, Window::Session { .. })
             || parent.time.trigger != WindowTrigger::Default
@@ -50,6 +52,9 @@ where
             key_bytes: |payload| payload.downcast_ref::<(K, V)>()
                 .ok_or_else(|| Error::incompatible("stateful value key type differs from registration"))?
                 .0.encode(),
+            validate_key: |bytes| K::decode(bytes).map(|_| ()),
+            validate_state: |bytes| S::decode(bytes).map(|_| ()),
+            global_window: parent.time.window == Window::Global,
             callback,
             cells: Mutex::new(HashMap::new()),
         };

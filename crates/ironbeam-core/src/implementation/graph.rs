@@ -153,9 +153,10 @@ impl Graph {
                 {
                     return Err(Error::graph(&node.key, "stateful ParDo requires a versioned state element coder"));
                 }
-                if node.semantic_id != contract.semantic_id
-                    || node.semantic_version != contract.version
-                {
+                if node.semantic_id != contract.semantic_id {
+                    return Err(Error::graph(&node.key, "stateful operation identity differs from its contract"));
+                }
+                if node.semantic_version != contract.version {
                     return Err(Error::graph(&node.key, "stateful operation identity differs from its contract"));
                 }
                 if node.input.is_none() {

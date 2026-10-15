@@ -1497,3 +1497,33 @@ fn mixed_boundedness_join_and_cogroup_preserve_each_tagged_input() {
         );
     }
 }
+
+#[test]
+fn keyed_test_stream_uses_beam_kv_component_framing() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "pairs",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .stateful_value_map_named::<i32, i32>(
+            "state",
+            "tests/keyed-stream-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| Ok((Some(prior.unwrap_or(0) + value), value)),
+        )
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    let payload = &translated.test_stream_payloads["pairs"];
+    let Some(StreamEvent::ElementEvent(elements)) = payload.events[0].event.as_ref() else {
+        panic!("expected keyed TestStream element event");
+    };
+    assert_eq!(elements.elements.len(), 1);
+    assert_eq!(
+        elements.elements[0].encoded_element,
+        [4, 1, 0, 0, 0, 2, 0, 0, 0]
+    );
+}

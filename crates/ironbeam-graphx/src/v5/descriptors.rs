@@ -257,6 +257,7 @@ fn build_test_stream_payload(
     key: &str,
     coder_id: String,
     events: &[EncodedTestStreamEvent],
+    keyed_input: Option<(&Registry, &str)>,
 ) -> Result<TestStreamPayload, V5Error> {
     use test_stream_payload::event::{
         AddElements, AdvanceProcessingTime, AdvanceWatermark, Event as EventKind,
@@ -270,7 +271,15 @@ fn build_test_stream_payload(
                         .iter()
                         .map(|(bytes, timestamp)| {
                             Ok(test_stream_payload::TimestampedElement {
-                                encoded_element: length_prefixed(bytes),
+                                encoded_element: if let Some((registry, group)) = keyed_input {
+                                    let (encoded_key, encoded_value) =
+                                        registry.split_group_input(group, bytes)?;
+                                    // Beam KV frames its nested key, then writes the
+                                    // final value component in the outer context.
+                                    [length_prefixed(&encoded_key), encoded_value].concat()
+                                } else {
+                                    length_prefixed(bytes)
+                                },
                                 timestamp: test_stream_millis(key, *timestamp)?,
                             })
                         })

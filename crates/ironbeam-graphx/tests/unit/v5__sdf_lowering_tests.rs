@@ -217,6 +217,7 @@ fn production_source_declares_splittable_pardo_for_runner_expansion() {
     let identity = execution_identity(&graph, &registry, "sdf-build").unwrap();
     let (beam, payloads) = lower(
         &graph,
+        &registry,
         &["events".into()],
         &identity,
         "image",

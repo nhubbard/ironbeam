@@ -1546,7 +1546,9 @@ async fn stateful_value_bundle_reads_prior_writes_by_key() {
     let cells = cells.lock().await;
     assert_eq!(cells.len(), 2);
     for (key, expected) in [(1_i32, 10_i32), (2, 4)] {
-        let encoded = &cells[&(Vec::new(), Element::encode(&key).unwrap())];
+        let mut encoded_key = Vec::new();
+        encode_length_prefix(&Element::encode(&key).unwrap(), &mut encoded_key).unwrap();
+        let encoded = &cells[&(Vec::new(), encoded_key)];
         let (body, used) = decode_length_prefix(encoded).unwrap();
         assert_eq!(used, encoded.len());
         assert_eq!(<i32 as Element>::decode(body).unwrap(), expected);

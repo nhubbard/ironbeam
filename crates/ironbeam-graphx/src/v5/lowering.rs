@@ -5,6 +5,19 @@ fn needs_side_global(graph: &Graph, node: &Node) -> bool {
             .is_some_and(|side| side.time.window != Window::Global)
 }
 
+fn keyed_input_reaches(graph: &Graph, current: &str, target: &str) -> bool {
+    if current == target {
+        return true;
+    }
+    let Some(node) = graph.node(current) else {
+        return false;
+    };
+    matches!(node.operation, Operation::Flatten)
+        && node.input.iter().map(String::as_str)
+            .chain(node.additional_inputs.iter().map(|edge| edge.key.as_str()))
+            .any(|input| keyed_input_reaches(graph, input, target))
+}
+
 fn beam_inputs(graph: &Graph, node: &Node, impulse_pc: &str) -> HashMap<String, String> {
     let primary = node
         .input
@@ -50,6 +63,7 @@ fn beam_inputs(graph: &Graph, node: &Node, impulse_pc: &str) -> HashMap<String, 
 
 fn lower(
     graph: &Graph,
+    registry: &Registry,
     chain: &[String],
     identity: &ExecutionIdentity,
     container_image: &str,
@@ -538,8 +552,20 @@ fn lower(
             let events = test_streams
                 .get(key)
                 .ok_or_else(|| V5Error::Graph(format!("missing test stream script for {key}")))?;
-            let payload =
-                build_test_stream_payload(key, pcollections[&output_pc].coder_id.clone(), events)?;
+            let keyed_input = if pcollections[&output_pc].coder_id == CODER_V5_KV {
+                Some(graph.nodes.iter().find(|candidate| {
+                    matches!(candidate.operation, Operation::GroupByKey | Operation::StatefulParDo { .. })
+                        && candidate.input.as_deref().is_some_and(|input| keyed_input_reaches(graph, input, key))
+                }).ok_or_else(|| V5Error::Graph(format!("keyed test stream {key} has no typed key/value consumer")))?.key.as_str())
+            } else {
+                None
+            };
+            let payload = build_test_stream_payload(
+                key,
+                pcollections[&output_pc].coder_id.clone(),
+                events,
+                keyed_input.map(|group| (registry, group)),
+            )?;
             test_stream_payloads.insert(key.clone(), payload.clone());
             FunctionSpec {
                 urn: urns::TRANSFORM_TEST_STREAM.into(),

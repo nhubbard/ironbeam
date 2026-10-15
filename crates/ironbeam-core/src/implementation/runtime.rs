@@ -107,6 +107,9 @@ type StatefulValueCallback = Arc<
 type StatefulValueCells = HashMap<(Option<WindowInterval>, Vec<u8>), Vec<u8>>;
 struct StatefulValueTransform {
     key_bytes: fn(&(dyn Any + Send)) -> Result<Vec<u8>, Error>,
+    validate_key: fn(&[u8]) -> Result<(), Error>,
+    validate_state: fn(&[u8]) -> Result<(), Error>,
+    global_window: bool,
     callback: StatefulValueCallback,
     cells: Mutex<StatefulValueCells>,
 }
@@ -114,6 +117,9 @@ impl Clone for StatefulValueTransform {
     fn clone(&self) -> Self {
         Self {
             key_bytes: self.key_bytes,
+            validate_key: self.validate_key,
+            validate_state: self.validate_state,
+            global_window: self.global_window,
             callback: Arc::clone(&self.callback),
             // Pipeline snapshots are separate executions. Never carry a
             // previous Direct run's user state into the next one.
@@ -122,6 +128,42 @@ impl Clone for StatefulValueTransform {
     }
 }
 impl StatefulValueTransform {
+    fn checkpoint(&self) -> Result<Vec<u8>, Error> {
+        let cells = self.cells.lock().map_err(|_| Error::recovery("stateful-value", "state lock poisoned"))?;
+        let mut entries = cells.iter()
+            .map(|((window, key), value)| (*window, key.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        drop(cells);
+        entries.sort_by(|left, right| {
+            (left.0.map(|window| (window.start_ns, window.end_ns)), &left.1)
+                .cmp(&(right.0.map(|window| (window.start_ns, window.end_ns)), &right.1))
+        });
+        serde_json::to_vec(&StatefulValueSnapshot { version: 1, entries })
+            .map_err(|error| Error::recovery("stateful-value", error.to_string()))
+    }
+
+    fn restore(&self, bytes: &[u8]) -> Result<(), Error> {
+        let snapshot: StatefulValueSnapshot = serde_json::from_slice(bytes)
+            .map_err(|error| Error::recovery("stateful-value", error.to_string()))?;
+        if snapshot.version != 1 {
+            return Err(Error::incompatible("stateful value checkpoint version mismatch"));
+        }
+        let mut restored = HashMap::new();
+        for (window, key, value) in snapshot.entries {
+            if window.is_some_and(|window| window.end_ns <= window.start_ns)
+                || (self.global_window && window.is_some())
+            {
+                return Err(Error::recovery("stateful-value", "invalid state window"));
+            }
+            (self.validate_key)(&key)?;
+            (self.validate_state)(&value)?;
+            if restored.insert((window, key), value).is_some() {
+                return Err(Error::recovery("stateful-value", "duplicate keyed state cell"));
+            }
+        }
+        *self.cells.lock().map_err(|_| Error::recovery("stateful-value", "state lock poisoned"))? = restored;
+        Ok(())
+    }
     fn apply(
         &self,
         input: Envelope,
@@ -139,8 +181,14 @@ impl StatefulValueTransform {
             Some(bytes) => { cells.insert(cell, bytes); }
             None => { cells.remove(&cell); }
         }
+        drop(cells);
         Ok(output)
     }
+}
+#[derive(Serialize, Deserialize)]
+struct StatefulValueSnapshot {
+    version: u8,
+    entries: Vec<(Option<WindowInterval>, Vec<u8>, Vec<u8>)>,
 }
 type Aggregate = Arc<dyn Fn(Vec<Vec<Envelope>>) -> Result<Vec<Envelope>, Error> + Send + Sync>;
 type OrderedGlobalGroups<Q, T> =

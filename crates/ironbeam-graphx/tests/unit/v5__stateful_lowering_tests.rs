@@ -48,6 +48,7 @@ fn stateful_pardo_lowers_with_kv_input_state_spec_and_requirement() {
     let identity = execution_identity(&graph, &registry, "stateful-build").unwrap();
     let (beam, _) = lower(
         &graph,
+        &registry,
         &["pairs".into(), "running".into(), "result".into()],
         &identity,
         "example/worker:v5",
@@ -89,6 +90,7 @@ fn stateful_pardo_rejects_mismatched_key_coder() {
     let identity = execution_identity(&graph, &registry, "stateful-build").unwrap();
     let error = lower(
         &graph,
+        &registry,
         &["pairs".into(), "running".into(), "result".into()],
         &identity,
         "example/worker:v5",

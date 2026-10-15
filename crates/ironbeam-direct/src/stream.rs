@@ -779,6 +779,17 @@ impl DirectRunner {
             return Err(Error::unsupported(&sink_key, "direct", "stream-spill"));
         }
         let mut plan = planner::lower(&graph, &registry, &sink_key, config.buffer_budget_elements)?;
+        if graph.nodes.iter().any(|node| {
+            node.boundedness == ironbeam_core::Boundedness::Unbounded
+                && matches!(node.operation, Operation::StatefulParDo { .. })
+        }) && (plan.materialized || plan.routes.len() != 1)
+        {
+            return Err(Error::unsupported(
+                &sink_key,
+                "direct",
+                "unbounded-value-state-route",
+            ));
+        }
         if !plan.materialized && plan.routes.len() > 1 {
             return start_multi_stream_sink::<T>(&graph, registry, plan, sink_key, config);
         }
@@ -1048,6 +1059,34 @@ impl DirectRunner {
         } else {
             (recovered, BTreeMap::new(), 0)
         };
+        let stateful_keys = if plan.materialized {
+            Vec::new()
+        } else {
+            plan.routes
+                .iter()
+                .flat_map(|route| route.operations.iter())
+                .filter(|key| registry.has_stateful_value(key))
+                .collect::<Vec<_>>()
+        };
+        if stateful_keys.len() > 1 {
+            return Err(Error::unsupported(
+                &sink_key,
+                "direct",
+                "multiple-stream-value-state",
+            ));
+        }
+        let recovered =
+            if let (Some(key), Some(checkpoint)) = (stateful_keys.first(), checkpoint.as_ref()) {
+                let saved = checkpoint.load_state(config.memory_budget_bytes)?;
+                if let Some((progress, state)) = saved {
+                    registry.restore_stateful_value(key, &state)?;
+                    Some(progress)
+                } else {
+                    None
+                }
+            } else {
+                recovered
+            };
         #[allow(unused_mut)] // Metrics feature installs a collector before the worker starts.
         let mut handle = JobHandle::new(config.cancellation.clone(), JobStatus::Submitted);
         #[cfg(feature = "metrics")]
@@ -2308,6 +2347,10 @@ fn run_stream(
     mut progress: Option<ProgressSignal>,
 ) -> Result<(), Error> {
     let route = &plan.routes[0];
+    let stateful_key = route
+        .operations
+        .iter()
+        .find(|key| registry.has_stateful_value(key));
     let mut source = catch_unwind(AssertUnwindSafe(|| {
         registry.open_unbounded_source(&route.source_key, progress.clone())
     }))
@@ -2412,24 +2455,43 @@ fn run_stream(
             if config.cancellation.load(Ordering::Acquire) {
                 return Err(cancelled());
             }
+            let state = stateful_key
+                .map(|key| registry.checkpoint_stateful_value(key))
+                .transpose()?;
+            if state
+                .as_ref()
+                .is_some_and(|bytes| bytes.len() > config.memory_budget_bytes)
+            {
+                return Err(Error::resource(
+                    "stateful-value",
+                    "stream value state exceeds memory budget",
+                ));
+            }
             if let Some(session) = &mut session {
                 catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(|_| {
                     Err(Error::execution(sink_key, "direct", "sink commit panicked"))
                 })?;
             }
-            Ok(())
+            Ok(state)
         })();
-        if let Err(error) = result {
-            if let Some(session) = &mut session {
-                let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+        let state = match result {
+            Ok(state) => state,
+            Err(error) => {
+                if let Some(session) = &mut session {
+                    let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
+        };
         let next_progress = merge_progress(progress.as_ref(), batch.progress);
         if let Some(checkpoint) = &checkpoint
             && (next_progress.checkpoint_position.is_some() || next_progress.completed)
         {
-            checkpoint.save(&next_progress)?;
+            if let Some(state) = state {
+                checkpoint.save_state(&next_progress, &state, config.memory_budget_bytes)?;
+            } else {
+                checkpoint.save(&next_progress)?;
+            }
         }
         let total = handle
             .metrics
