@@ -279,6 +279,14 @@ async fn main() -> anyhow::Result<()> {
         .map(|_| ())
         .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SAME_BATCH_EXPIRATION") {
+        return ironbeam_prism_proof::streaming_same_batch_distinct_key_expiration_fixture(
+            pipeline,
+            path.into(),
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_OFFSET_EXPIRATION") {
         return ironbeam_prism_proof::streaming_offset_window_expiration_fixture(
             pipeline,
