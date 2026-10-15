@@ -4,7 +4,7 @@ use beam_proto::pipeline_v1::{
 };
 use ironbeam_coder_row::{decode_row, encode_row};
 
-fn atomic(kind: AtomicType) -> FieldType {
+const fn atomic(kind: AtomicType) -> FieldType {
     FieldType {
         nullable: false,
         type_info: Some(field_type::TypeInfo::AtomicType(kind as i32)),

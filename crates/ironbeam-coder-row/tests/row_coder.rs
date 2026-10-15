@@ -345,7 +345,7 @@ fn implicit_row_evolution_uses_encoded_field_count() {
             null()
         ]
     );
-    let mut required_new = reader_new.clone();
+    let mut required_new = reader_new;
     required_new.fields[2].r#type.as_mut().unwrap().nullable = false;
     assert!(decode_row(&required_new, &bytes).is_err());
 
@@ -413,6 +413,7 @@ fn nested_row_rejects_unknown_trailing_fields_without_writer_schema() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // One nested projection fixture checks additions, removals, and nullability.
 fn explicit_writer_schema_projects_nested_rows() {
     use atomic_type_value::Value;
     let inner_writer = schema(vec![
@@ -529,6 +530,7 @@ fn explicit_writer_schema_projects_nested_rows() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Container projection checks arrays, iterables, and maps together.
 fn explicit_writer_schema_projects_rows_inside_containers() {
     use atomic_type_value::Value;
     let nested = |added: bool| {
