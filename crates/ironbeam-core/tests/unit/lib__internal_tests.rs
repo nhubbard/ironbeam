@@ -410,7 +410,8 @@ fn direct_test_stream_splits_and_resumes_with_watermarks() {
             vec![
                 TestStreamEvent::Elements(vec![(1_i32, 1), (2, 2), (3, 3)]),
                 TestStreamEvent::AdvanceWatermark(10),
-                TestStreamEvent::AdvanceProcessingTime(5),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::AdvanceProcessingTime(7_000_000),
                 TestStreamEvent::Elements(vec![(4, 11)]),
                 TestStreamEvent::AdvanceWatermark(20),
             ],
@@ -418,6 +419,7 @@ fn direct_test_stream_splits_and_resumes_with_watermarks() {
         .unwrap();
     let (_, registry) = pipeline.snapshot().unwrap();
     let mut reader = registry.open_unbounded_source("events", None).unwrap();
+    assert_eq!(reader.processing_time_ns(), Some(0));
     let UnboundedPoll::Ready(first) = reader.poll(2).unwrap() else {
         panic!("first test stream poll must be ready");
     };
@@ -443,6 +445,25 @@ fn direct_test_stream_splits_and_resumes_with_watermarks() {
     let mut resumed = registry
         .open_unbounded_source("events", Some(first_watermark.progress))
         .unwrap();
+    assert_eq!(resumed.processing_time_ns(), Some(0));
+    let UnboundedPoll::Ready(processing_advance) = resumed.poll(2).unwrap() else {
+        panic!("processing-time advance must be ready");
+    };
+    assert!(processing_advance.elements.is_empty());
+    assert_eq!(resumed.processing_time_ns(), Some(5_000_000));
+    let mut resumed = registry
+        .open_unbounded_source("events", Some(processing_advance.progress))
+        .unwrap();
+    assert_eq!(resumed.processing_time_ns(), Some(5_000_000));
+    let UnboundedPoll::Ready(second_advance) = resumed.poll(2).unwrap() else {
+        panic!("second processing-time advance must be ready");
+    };
+    assert!(second_advance.elements.is_empty());
+    assert_eq!(resumed.processing_time_ns(), Some(12_000_000));
+    let mut resumed = registry
+        .open_unbounded_source("events", Some(second_advance.progress))
+        .unwrap();
+    assert_eq!(resumed.processing_time_ns(), Some(12_000_000));
     let mut seen = Vec::new();
     loop {
         let UnboundedPoll::Ready(batch) = resumed.poll(2).unwrap() else {

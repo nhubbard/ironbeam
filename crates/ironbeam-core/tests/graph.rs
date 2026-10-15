@@ -3374,6 +3374,17 @@ fn test_stream_registers_replayable_unbounded_events() {
     assert!(
         pipeline
             .test_stream_source::<i32>(
+                "overflow-duration",
+                vec![
+                    TestStreamEvent::AdvanceProcessingTime(i64::MAX),
+                    TestStreamEvent::AdvanceProcessingTime(1),
+                ]
+            )
+            .is_err()
+    );
+    assert!(
+        pipeline
+            .test_stream_source::<i32>(
                 "bad",
                 vec![
                     TestStreamEvent::AdvanceWatermark(2),

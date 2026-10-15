@@ -40,6 +40,12 @@ pub struct UnboundedBatch<T> {
 /// and schedule another poll without trapping a worker thread in the source.
 pub trait UnboundedSource<T>: Send {
     fn poll(&mut self, max_elements: usize) -> Result<UnboundedPoll<T>, Error>;
+
+    /// Cumulative processing time advanced by a scripted source, if known.
+    /// Runners may use this clock to evaluate processing-time triggers.
+    fn processing_time_ns(&self) -> Option<i64> {
+        None
+    }
 }
 
 pub type UnboundedSourceReader = Box<dyn UnboundedSource<Envelope>>;
@@ -493,6 +499,7 @@ struct DirectTestStream<T> {
     index: usize,
     offset: usize,
     watermark: Option<i64>,
+    processing_time_ns: i64,
     finished: bool,
     marker: PhantomData<T>,
 }
@@ -535,12 +542,24 @@ impl<T: Element> DirectTestStream<T> {
                 }
             })
             .next_back();
+        let processing_time_ns = events[..index]
+            .iter()
+            .filter_map(|event| {
+                if let EncodedTestStreamEvent::AdvanceProcessingTime(duration) = event {
+                    Some(*duration)
+                } else {
+                    None
+                }
+            })
+            .try_fold(0_i64, i64::checked_add)
+            .ok_or_else(|| Error::recovery(&key, "test stream processing time overflow"))?;
         Ok(Self {
             key,
             events,
             index,
             offset,
             watermark,
+            processing_time_ns,
             finished: false,
             marker: PhantomData,
         })
@@ -596,7 +615,11 @@ impl<T: Element> UnboundedSource<Timestamped<T>> for DirectTestStream<T> {
                 self.index += 1;
                 Vec::new()
             }
-            EncodedTestStreamEvent::AdvanceProcessingTime(_) => {
+            EncodedTestStreamEvent::AdvanceProcessingTime(duration) => {
+                self.processing_time_ns = self
+                    .processing_time_ns
+                    .checked_add(*duration)
+                    .ok_or_else(|| Error::recovery(&self.key, "test stream processing time overflow"))?;
                 self.index += 1;
                 Vec::new()
             }
@@ -605,6 +628,10 @@ impl<T: Element> UnboundedSource<Timestamped<T>> for DirectTestStream<T> {
             elements,
             progress: self.progress(false),
         }))
+    }
+
+    fn processing_time_ns(&self) -> Option<i64> {
+        Some(self.processing_time_ns)
     }
 }
 
@@ -627,6 +654,10 @@ impl<T: Element> UnboundedSource<Envelope> for TypedUnboundedAdapter<T> {
                 progress: batch.progress,
             })),
         }
+    }
+
+    fn processing_time_ns(&self) -> Option<i64> {
+        self.inner.processing_time_ns()
     }
 }
 
@@ -718,6 +749,10 @@ impl UnboundedSource<Envelope> for ValidatingUnboundedSource {
             self.completed = signal.completed;
         }
         Ok(result)
+    }
+
+    fn processing_time_ns(&self) -> Option<i64> {
+        self.inner.processing_time_ns()
     }
 }
 

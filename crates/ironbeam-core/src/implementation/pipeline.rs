@@ -467,6 +467,7 @@ impl Pipeline {
         }
         let mut encoded = Vec::with_capacity(events.len());
         let mut watermark = i64::MIN;
+        let mut processing_time_ns = 0_i64;
         for event in events {
             encoded.push(match event {
                 TestStreamEvent::Elements(values) => EncodedTestStreamEvent::Elements(
@@ -489,6 +490,9 @@ impl Pipeline {
                             "test stream processing time must advance",
                         ));
                     }
+                    processing_time_ns = processing_time_ns.checked_add(duration).ok_or_else(|| {
+                        Error::graph(key, "test stream processing time overflows i64 nanoseconds")
+                    })?;
                     EncodedTestStreamEvent::AdvanceProcessingTime(duration)
                 }
             });
