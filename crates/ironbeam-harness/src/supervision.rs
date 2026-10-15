@@ -8,9 +8,10 @@ use std::sync::Mutex;
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use beam_proto::fn_execution_v1::{
-    ProcessBundleDescriptor, ProcessBundleResponse, ProcessBundleSplitRequest,
-    ProcessBundleSplitResponse,
+    elements::Timers as ElemTimers, ProcessBundleDescriptor, ProcessBundleResponse,
+    ProcessBundleSplitRequest, ProcessBundleSplitResponse,
 };
+use beam_proto::pipeline_v1::ParDoPayload;
 use ironbeam_core::{Operation, Pipeline, Replay};
 use prost::Message;
 use tokio::process::Command;
@@ -40,6 +41,8 @@ struct ReplayRequest {
     input_chunks: Vec<Vec<u8>>,
     #[prost(bool, tag = "4")]
     finalize: bool,
+    #[prost(message, repeated, tag = "5")]
+    timer_inputs: Vec<ElemTimers>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -50,6 +53,8 @@ struct ReplayOutput {
     data: Vec<u8>,
     #[prost(bool, tag = "3")]
     is_last: bool,
+    #[prost(string, tag = "4")]
+    timer_family_id: String,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -60,6 +65,39 @@ struct ReplayResult {
     outputs: Vec<ReplayOutput>,
     #[prost(string, tag = "3")]
     error: String,
+}
+
+fn declared_timer_families(
+    plan: &BundlePlan,
+    pbd: &ProcessBundleDescriptor,
+) -> Result<Vec<(String, String)>> {
+    let mut families = Vec::new();
+    for step in &plan.steps {
+        let Step::V5ParDo {
+            transform_id,
+            stateful_value: true,
+            ..
+        } = step
+        else {
+            continue;
+        };
+        let transform = pbd
+            .transforms
+            .get(transform_id)
+            .ok_or_else(|| anyhow!("missing timed transform {transform_id}"))?;
+        let spec = transform
+            .spec
+            .as_ref()
+            .ok_or_else(|| anyhow!("timed transform {transform_id} has no spec"))?;
+        let payload = ParDoPayload::decode(spec.payload.as_slice())
+            .with_context(|| format!("decode timed transform {transform_id}"))?;
+        for family_id in payload.timer_family_specs.keys() {
+            families.push((transform_id.clone(), family_id.clone()));
+        }
+    }
+    families.sort();
+    families.dedup();
+    Ok(families)
 }
 
 /// The supervisor owns the Prism Control stream. Its child executes one
@@ -224,6 +262,33 @@ impl SupervisedV5Runner {
             }
             input_chunks.push(chunk);
         }
+        let timer_families = declared_timer_families(plan, pbd)?;
+        let mut timer_inputs = Vec::new();
+        for (transform_id, family_id) in &timer_families {
+            let mut reader = source_client.open_timer_read(instruction_id, transform_id, family_id);
+            while let Some(chunk) = reader.recv().await {
+                input_bytes = input_bytes
+                    .checked_add(chunk.len())
+                    .ok_or_else(|| anyhow!("supervised bundle input length overflow"))?;
+                if input_bytes > MAX_REPLAY_INPUT_BYTES {
+                    bail!("supervised bundle input exceeds 64 MiB replay limit");
+                }
+                timer_inputs.push(ElemTimers {
+                    instruction_id: instruction_id.into(),
+                    transform_id: transform_id.clone(),
+                    timer_family_id: family_id.clone(),
+                    timers: chunk,
+                    is_last: false,
+                });
+            }
+            timer_inputs.push(ElemTimers {
+                instruction_id: instruction_id.into(),
+                transform_id: transform_id.clone(),
+                timer_family_id: family_id.clone(),
+                timers: Vec::new(),
+                is_last: true,
+            });
+        }
 
         let result = self
             .run_attempts(
@@ -232,6 +297,7 @@ impl SupervisedV5Runner {
                     pbd: pbd.encode_to_vec(),
                     input_chunks,
                     finalize: false,
+                    timer_inputs,
                 },
                 split_signal,
             )
@@ -258,7 +324,28 @@ impl SupervisedV5Runner {
             }
         }
         let mut closed = HashSet::new();
+        let allowed_timers = timer_families.into_iter().collect::<HashSet<_>>();
+        let mut closed_timers = HashSet::new();
         for output in &result.outputs {
+            if !output.timer_family_id.is_empty() {
+                let timer = (output.transform_id.clone(), output.timer_family_id.clone());
+                if !allowed_timers.contains(&timer) {
+                    bail!(
+                        "child emitted undeclared timer family {}",
+                        output.timer_family_id
+                    );
+                }
+                if closed_timers.contains(&timer) {
+                    bail!("child emitted timer data after closing a family");
+                }
+                if output.is_last {
+                    if !output.data.is_empty() {
+                        bail!("child closed timer family with a nonempty payload");
+                    }
+                    closed_timers.insert(timer);
+                }
+                continue;
+            }
             if !clients.contains_key(output.transform_id.as_str()) {
                 bail!("child emitted an unknown sink {}", output.transform_id);
             }
@@ -281,7 +368,27 @@ impl SupervisedV5Runner {
         if closed.len() != clients.len() {
             bail!("child left a runner sink open");
         }
+        if closed_timers != allowed_timers {
+            bail!("child left a timer family open");
+        }
         for output in result.outputs {
+            if !output.timer_family_id.is_empty() {
+                if output.is_last {
+                    source_client.close_timer_write(
+                        instruction_id,
+                        &output.transform_id,
+                        &output.timer_family_id,
+                    )?;
+                } else {
+                    source_client.write_timer_chunk(
+                        instruction_id,
+                        &output.transform_id,
+                        &output.timer_family_id,
+                        output.data,
+                    )?;
+                }
+                continue;
+            }
             let client = clients
                 .get(output.transform_id.as_str())
                 .expect("validated runner sink");
@@ -294,6 +401,7 @@ impl SupervisedV5Runner {
         for client in clients.values() {
             client.flush_outbound().await?;
         }
+        source_client.flush_outbound().await?;
         Ok(response)
     }
 
@@ -369,6 +477,7 @@ impl BundleRunner for SupervisedV5Runner {
                     pbd: Vec::new(),
                     input_chunks: Vec::new(),
                     finalize: true,
+                    timer_inputs: Vec::new(),
                 },
                 None,
             )
@@ -412,20 +521,28 @@ pub(crate) async fn run_child(
                 _ => None,
             })
             .ok_or_else(|| anyhow!("replayed bundle has no source"))?;
-        let (client, mut outbound) =
-            DataClient::for_replay(&request.instruction_id, source_id, request.input_chunks);
+        let (client, mut outbound) = DataClient::for_replay_with_timers(
+            &request.instruction_id,
+            source_id,
+            request.input_chunks,
+            request.timer_inputs,
+        );
         runner.use_replay_client(&plan, client).await?;
         match runner.run(&request.instruction_id, &plan).await {
             Ok(response) => {
                 let mut outputs = Vec::new();
                 while let Ok(elements) = outbound.try_recv() {
-                    if !elements.timers.is_empty() {
-                        bail!("supervised bundle emitted unsupported Fn Data timers");
-                    }
                     outputs.extend(elements.data.into_iter().map(|data| ReplayOutput {
                         transform_id: data.transform_id,
                         data: data.data,
                         is_last: data.is_last,
+                        timer_family_id: String::new(),
+                    }));
+                    outputs.extend(elements.timers.into_iter().map(|timer| ReplayOutput {
+                        transform_id: timer.transform_id,
+                        data: timer.timers,
+                        is_last: timer.is_last,
+                        timer_family_id: timer.timer_family_id,
                     }));
                 }
                 ReplayResult {

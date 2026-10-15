@@ -570,4 +570,6 @@ route with default global, fixed, or sliding windows and zero allowed
 lateness. Beam lowering records the timer families, and the portable worker
 executes them through Fn State and Fn Data. Global-window event- and
 processing-time timers have matching Direct and pinned local Prism fixtures.
-Worker replacement during timer firing needs further tests.
+A production event timer also survives replacement of the Prism execution
+child after it is armed. Other failure points and timer callback shapes need
+further tests.

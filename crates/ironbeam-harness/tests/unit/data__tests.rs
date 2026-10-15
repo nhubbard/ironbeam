@@ -154,8 +154,43 @@ fn replay_client_delivers_input_once_and_keeps_output_local() {
 }
 
 #[test]
+fn replay_client_restores_fragmented_timer_families_and_closes_empty_family() {
+    let timer = |family: &str, bytes: Vec<u8>, is_last| ElemTimers {
+        instruction_id: "bundle".into(),
+        transform_id: "pardo".into(),
+        timer_family_id: family.into(),
+        timers: bytes,
+        is_last,
+    };
+    let (client, _) = DataClient::for_replay_with_timers(
+        "bundle",
+        "source",
+        vec![],
+        vec![
+            timer("event", vec![1, 2], false),
+            timer("event", vec![3], false),
+            timer("event", Vec::new(), true),
+            timer("process", Vec::new(), true),
+        ],
+    );
+    let mut event = client.open_timer_read("bundle", "pardo", "event");
+    assert_eq!(event.try_recv().unwrap(), [1, 2]);
+    assert_eq!(event.try_recv().unwrap(), [3]);
+    assert!(matches!(
+        event.try_recv(),
+        Err(mpsc::error::TryRecvError::Disconnected)
+    ));
+    let mut process = client.open_timer_read("bundle", "pardo", "process");
+    assert!(matches!(
+        process.try_recv(),
+        Err(mpsc::error::TryRecvError::Disconnected)
+    ));
+}
+
+#[test]
 fn replay_output_budget_is_shared_by_cloned_clients() {
-    let (client, mut outbound) = DataClient::for_replay_with_limit("bundle", "source", vec![], 3);
+    let (client, mut outbound) =
+        DataClient::for_replay_with_limit("bundle", "source", vec![], vec![], 3);
     client.write_chunk("bundle", "sink", vec![1, 2]).unwrap();
     let clone = client.clone();
     assert!(clone.write_chunk("bundle", "sink", vec![3, 4]).is_err());
@@ -168,7 +203,8 @@ fn replay_output_budget_is_shared_by_cloned_clients() {
 
 #[test]
 fn outbound_timer_stream_keeps_family_identity_and_shares_replay_budget() {
-    let (client, mut outbound) = DataClient::for_replay_with_limit("bundle", "source", vec![], 3);
+    let (client, mut outbound) =
+        DataClient::for_replay_with_limit("bundle", "source", vec![], vec![], 3);
     client
         .write_timer_chunk("bundle", "pardo", "expiry", vec![1, 2])
         .unwrap();
@@ -203,7 +239,8 @@ fn outbound_timer_record_uses_beam_timer_codec_and_family_route() {
         hold_timestamp_millis: Some(4),
         pane: Some(ironbeam_core::PaneInfo::NO_FIRING),
     };
-    let (client, mut outbound) = DataClient::for_replay_with_limit("bundle", "source", vec![], 128);
+    let (client, mut outbound) =
+        DataClient::for_replay_with_limit("bundle", "source", vec![], vec![], 128);
     client
         .write_timer_record("bundle", "pardo", "expiry", &record)
         .unwrap();

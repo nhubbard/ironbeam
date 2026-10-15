@@ -1,4 +1,4 @@
-use super::IdempotentStateLabelSink;
+use super::{production_state_source, IdempotentStateLabelSink};
 use ironbeam_core::{
     Error, Pipeline, Replay, Sink, SinkMode, SinkSpec, TestStreamEvent, TimedStateResult,
     UserTimerDomain, UserTimerRequest, Version,
@@ -122,6 +122,61 @@ pub fn streaming_processing_timer_fixture(
                 commit: true,
             },
             format!("processing-timer-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
+/// Production event timer armed before a supervised execution child is replaced.
+pub fn production_recovered_event_timer_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    production_state_source(pipeline)?
+        .stateful_timer_map_named::<i32, i32>(
+            "production-event-timer-state",
+            "prism-proof/production-recovered-event-timer",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, prior, _| {
+                Ok(TimedStateResult {
+                    state: Some(prior.unwrap_or(0) + value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 2_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, event| {
+                if event.dynamic_tag != "flush" || event.fire_timestamp_ns != 2_000_000 {
+                    return Err(Error::incompatible("unexpected recovered event timer"));
+                }
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )?
+        .map_named("production-event-timer-label", |(key, total)| {
+            format!("{key}:{total}")
+        })?
+        .sink_named_with_config(
+            "production-event-timer-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("production-event-timer-result:{}", directory.display()),
             move || {
                 Ok(Box::new(IdempotentStateLabelSink {
                     directory: sink_directory.clone(),

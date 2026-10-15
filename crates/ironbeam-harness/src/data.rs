@@ -15,8 +15,8 @@
 //! - `open_timer_read(...)` routes encoded timer-family chunks independently
 //!   of element chunks, including those received before reader registration.
 //! - `write_chunk(...)` and `write_timer_chunk(...)` send element or timer
-//!   messages out, batched one-per-call. Declared-family callbacks can be
-//!   dispatched from these streams; pipeline ParDo wiring remains pending.
+//!   messages out, batched one-per-call. Declared-family callbacks consume
+//!   these streams, including timer-only bundles.
 //!
 //! A single bundle typically opens one read (DataSource) and one write
 //! (DataSink), both on the same `DataClient`. Reader registration is atomic
@@ -153,18 +153,35 @@ pub struct DataClient {
 impl DataClient {
     /// Construct an isolated Fn Data client for one replayable bundle attempt.
     /// Outbound chunks remain local until the supervisor accepts the attempt.
+    #[cfg(test)]
     pub(crate) fn for_replay(
         instruction_id: &str,
         source_id: &str,
         chunks: Vec<Vec<u8>>,
     ) -> (Self, mpsc::UnboundedReceiver<Elements>) {
-        Self::for_replay_with_limit(instruction_id, source_id, chunks, MAX_REPLAY_OUTPUT_BYTES)
+        Self::for_replay_with_timers(instruction_id, source_id, chunks, Vec::new())
+    }
+
+    pub(crate) fn for_replay_with_timers(
+        instruction_id: &str,
+        source_id: &str,
+        chunks: Vec<Vec<u8>>,
+        timers: Vec<ElemTimers>,
+    ) -> (Self, mpsc::UnboundedReceiver<Elements>) {
+        Self::for_replay_with_limit(
+            instruction_id,
+            source_id,
+            chunks,
+            timers,
+            MAX_REPLAY_OUTPUT_BYTES,
+        )
     }
 
     fn for_replay_with_limit(
         instruction_id: &str,
         source_id: &str,
         chunks: Vec<Vec<u8>>,
+        timers: Vec<ElemTimers>,
         output_limit: usize,
     ) -> (Self, mpsc::UnboundedReceiver<Elements>) {
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
@@ -176,6 +193,9 @@ impl DataClient {
                 is_last: true,
             },
         );
+        for timer in timers {
+            inbound.route_timer(timer);
+        }
         (
             Self {
                 outbound_tx,
