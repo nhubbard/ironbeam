@@ -391,6 +391,9 @@ fn fixed_window_expiration_fixture(
                 {
                     return Err(Error::incompatible("window-expiration metadata differs"));
                 }
+                if std::env::var_os("IRONBEAM_V5_PRISM_KILL_EXPIRATION_CALLBACK").is_some() {
+                    super::await_supervised_source_replacement(Some(&[1]))?;
+                }
                 Ok(TimedStateResult {
                     state: None,
                     outputs: state.into_iter().map(|value| (timestamp, value)).collect(),
