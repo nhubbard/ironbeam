@@ -157,6 +157,109 @@ async fn scoped_user_state_routes_only_declared_protocol_families() {
 }
 
 #[tokio::test]
+async fn scoped_user_state_routes_remaining_cell_operations() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "bundle-2",
+        "transform-2",
+        &contract,
+        vec![3],
+        vec![7],
+    )
+    .unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for expected in [
+            "bag-append",
+            "bag-clear",
+            "map-keys",
+            "map-entries",
+            "map-value",
+            "map-clear",
+            "ordered-read",
+            "ordered-append",
+        ] {
+            let request = requests.recv().await.unwrap();
+            assert_eq!(request.instruction_id, "bundle-2");
+            let state_key = request.state_key.as_ref().unwrap();
+            let actual = match (&state_key.r#type, &request.request) {
+                (
+                    Some(state_key::Type::BagUserState(key)),
+                    Some(state_request::Request::Append(_)),
+                ) if key.user_state_id == "bag" => "bag-append",
+                (
+                    Some(state_key::Type::BagUserState(key)),
+                    Some(state_request::Request::Clear(_)),
+                ) if key.user_state_id == "bag" => "bag-clear",
+                (
+                    Some(state_key::Type::MultimapKeysUserState(key)),
+                    Some(state_request::Request::Get(_)),
+                ) if key.user_state_id == "map" => "map-keys",
+                (
+                    Some(state_key::Type::MultimapEntriesUserState(key)),
+                    Some(state_request::Request::Get(_)),
+                ) if key.user_state_id == "map" => "map-entries",
+                (
+                    Some(state_key::Type::MultimapUserState(key)),
+                    Some(state_request::Request::Get(_)),
+                ) if key.user_state_id == "map" && key.map_key == [9] => "map-value",
+                (
+                    Some(state_key::Type::MultimapUserState(key)),
+                    Some(state_request::Request::Clear(_)),
+                ) if key.user_state_id == "map" && key.map_key == [9] => "map-clear",
+                (
+                    Some(state_key::Type::OrderedListUserState(key)),
+                    Some(state_request::Request::Get(_)),
+                ) if key.user_state_id == "ordered" => "ordered-read",
+                (
+                    Some(state_key::Type::OrderedListUserState(key)),
+                    Some(state_request::Request::Append(_)),
+                ) if key.user_state_id == "ordered" => "ordered-append",
+                _ => panic!("wrong scoped state request"),
+            };
+            assert_eq!(actual, expected);
+            let response = match request.request.unwrap() {
+                state_request::Request::Get(_) => state_response::Response::Get(StateGetResponse {
+                    continuation_token: Vec::new(),
+                    data: b"ok".to_vec(),
+                }),
+                state_request::Request::Append(_) => {
+                    state_response::Response::Append(StateAppendResponse {})
+                }
+                state_request::Request::Clear(_) => {
+                    state_response::Response::Clear(StateClearResponse {})
+                }
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+    });
+    access.append_bag("bag", vec![1]).await.unwrap();
+    access.clear_bag("bag").await.unwrap();
+    assert_eq!(access.read_map_keys("map").await.unwrap(), b"ok");
+    assert_eq!(access.read_map_entries("map").await.unwrap(), b"ok");
+    assert_eq!(access.read_map_value("map", vec![9]).await.unwrap(), b"ok");
+    access.clear_map_value("map", vec![9]).await.unwrap();
+    assert_eq!(access.read_ordered("ordered", 0, 10).await.unwrap(), b"ok");
+    access
+        .append_ordered("ordered", 0, 10, vec![2])
+        .await
+        .unwrap();
+    responder.await.unwrap();
+}
+
+#[tokio::test]
 async fn cancelled_state_request_releases_only_its_pending_response() {
     let (client, mut requests) = test_client();
     let cancelled = {
