@@ -286,6 +286,43 @@ pub fn streaming_value_state_fixture(
         )
 }
 
+/// Two unbounded element batches retain distinct value cells in fixed windows.
+pub fn streaming_windowed_value_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "streaming-windowed-state-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 0), ((1, 17), 20_000_000)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+                TestStreamEvent::Elements(vec![((1, 13), 2_000_000), ((1, 19), 22_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![((1, 23), 0)]),
+                TestStreamEvent::AdvanceWatermark(30_000_000),
+            ],
+        )?
+        .fixed_windows("streaming-windowed-state-window", 10_000_000)?
+        .stateful_value_map_named::<i32, (i32, i32)>(
+            "streaming-windowed-state-count",
+            "prism-proof/streaming-windowed-key-count-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let count = prior.unwrap_or(0) + 1;
+                Ok((Some(count), (value, count)))
+            },
+        )?
+        .map_named("streaming-windowed-state-label", |(key, (value, count))| format!("{key}:{value}:{count}"))?
+        .sink_named_with_config(
+            "streaming-windowed-state-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("streaming-windowed-value-state:{}", directory.display()),
+            move || Ok(Box::new(IdempotentStateLabelSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
 /// Both arms of a fallible helper must survive portable fanout and rejoin.
 pub fn dead_letter_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();

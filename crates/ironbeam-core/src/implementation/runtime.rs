@@ -110,6 +110,7 @@ struct StatefulValueTransform {
     validate_key: fn(&[u8]) -> Result<(), Error>,
     validate_state: fn(&[u8]) -> Result<(), Error>,
     global_window: bool,
+    allowed_lateness_ns: i64,
     callback: StatefulValueCallback,
     cells: Mutex<StatefulValueCells>,
 }
@@ -120,6 +121,7 @@ impl Clone for StatefulValueTransform {
             validate_key: self.validate_key,
             validate_state: self.validate_state,
             global_window: self.global_window,
+            allowed_lateness_ns: self.allowed_lateness_ns,
             callback: Arc::clone(&self.callback),
             // Pipeline snapshots are separate executions. Never carry a
             // previous Direct run's user state into the next one.
@@ -128,6 +130,17 @@ impl Clone for StatefulValueTransform {
     }
 }
 impl StatefulValueTransform {
+    fn expire(&self, watermark: Option<i64>) -> Result<(), Error> {
+        let Some(watermark) = watermark.filter(|_| !self.global_window) else {
+            return Ok(());
+        };
+        self.cells.lock().map_err(|_| Error::recovery("stateful-value", "state lock poisoned"))?
+            .retain(|(window, _), _| window.is_some_and(|interval| {
+                interval.end_ns.saturating_add(self.allowed_lateness_ns) > watermark
+            }));
+        Ok(())
+    }
+
     fn checkpoint(&self) -> Result<Vec<u8>, Error> {
         let cells = self.cells.lock().map_err(|_| Error::recovery("stateful-value", "state lock poisoned"))?;
         let mut entries = cells.iter()
@@ -152,6 +165,7 @@ impl StatefulValueTransform {
         for (window, key, value) in snapshot.entries {
             if window.is_some_and(|window| window.end_ns <= window.start_ns)
                 || (self.global_window && window.is_some())
+                || (!self.global_window && window.is_none())
             {
                 return Err(Error::recovery("stateful-value", "invalid state window"));
             }
@@ -173,6 +187,9 @@ impl StatefulValueTransform {
         Ok((next, Envelope { value, ..input }))
     }
     fn apply_direct(&self, input: Envelope) -> Result<Envelope, Error> {
+        if !self.global_window && input.assigned_window.is_none() {
+            return Err(Error::execution("stateful-value", "direct", "windowed state has no assigned window"));
+        }
         let key = (self.key_bytes)(input.value.as_ref())?;
         let cell = (input.assigned_window, key);
         let mut cells = self.cells.lock().map_err(|_| Error::execution("stateful-value", "direct", "state lock poisoned"))?;

@@ -405,6 +405,13 @@ impl Registry {
     pub fn has_stateful_value(&self, key: &str) -> bool {
         matches!(self.transforms.get(key), Some(Transform::StatefulValue(_)))
     }
+    /// Remove value cells whose window has expired at the source watermark.
+    pub fn expire_stateful_value(&self, key: &str, watermark: Option<i64>) -> Result<(), Error> {
+        match self.transforms.get(key) {
+            Some(Transform::StatefulValue(transform)) => transform.expire(watermark),
+            _ => Err(Error::recovery(key, "stateful value handler missing")),
+        }
+    }
     /// Encode one keyed value-state transform for a Direct stream checkpoint.
     pub fn checkpoint_stateful_value(&self, key: &str) -> Result<Vec<u8>, Error> {
         match self.transforms.get(key) {

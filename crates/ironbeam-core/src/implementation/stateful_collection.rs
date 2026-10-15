@@ -1,8 +1,8 @@
 /// A keyed value-state transform. The callback receives the current
 /// cell for this key and window and returns its replacement plus one output.
 /// It must be registered with the same semantic identity in every worker.
-/// Unbounded input currently uses the global window; Direct checkpoints its
-/// cells with the source cursor on a single linear stream route.
+/// Unbounded input supports global, fixed, and sliding windows on a single
+/// linear Direct route. Direct checkpoints cells with the source cursor.
 impl<K, V> PCollection<(K, V)>
 where
     K: Element + Eq + Hash + Clone,
@@ -17,9 +17,6 @@ where
     ) -> Result<PCollection<(K, O)>, Error> {
         Self::validate_semantic_handler(key, semantic_id, version)?;
         let parent = self.parent()?;
-        if parent.boundedness == Boundedness::Unbounded && parent.time.window != Window::Global {
-            return Err(Error::graph(key, "unbounded value state currently requires the global window"));
-        }
         if matches!(parent.time.window, Window::Session { .. })
             || parent.time.trigger != WindowTrigger::Default
             || parent.time.allowed_lateness_ns != 0
@@ -55,6 +52,7 @@ where
             validate_key: |bytes| K::decode(bytes).map(|_| ()),
             validate_state: |bytes| S::decode(bytes).map(|_| ()),
             global_window: parent.time.window == Window::Global,
+            allowed_lateness_ns: parent.time.allowed_lateness_ns,
             callback,
             cells: Mutex::new(HashMap::new()),
         };

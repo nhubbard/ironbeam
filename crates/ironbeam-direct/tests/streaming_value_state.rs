@@ -1,7 +1,7 @@
 use ironbeam_core::{
-    Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
-    TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
-    UnboundedPoll, UnboundedSource, Version,
+    ElementMetadata, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
+    SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
+    UnboundedBatch, UnboundedPoll, UnboundedSource, Version,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::HashSet;
@@ -167,10 +167,73 @@ fn global_value_state_recovers_with_source_cursor() {
     );
 }
 
+struct WindowedSource {
+    cursor: Option<Vec<u8>>,
+    emitted: bool,
+}
+
+impl UnboundedSource<Timestamped<(i32, i32)>> for WindowedSource {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<(i32, i32)>>, Error> {
+        if self.emitted {
+            return Ok(UnboundedPoll::Pending);
+        }
+        self.emitted = true;
+        let (times, position, watermark, completed) = match self.cursor.as_deref() {
+            None => (vec![0, 20_000_000], 1, 0, false),
+            Some([1]) => (vec![1_000_000, 21_000_000, 40_000_000], 2, 40_000_000, true),
+            _ => return Err(Error::incompatible("unexpected windowed state cursor")),
+        };
+        Ok(UnboundedPoll::Ready(UnboundedBatch {
+            elements: times
+                .into_iter()
+                .map(|timestamp_ns| Timestamped {
+                    value: (1, 1),
+                    timestamp_ns,
+                })
+                .collect(),
+            progress: ProgressSignal {
+                source_key: "source".into(),
+                split_id: "default".into(),
+                checkpoint_position: Some(vec![position]),
+                event_time_ns: Some(watermark),
+                completed,
+            },
+        }))
+    }
+}
+
+struct WindowCapture(IdempotentCapture);
+
+impl TypedSink<String> for WindowCapture {
+    fn write(&mut self, value: String) -> Result<(), Error> {
+        self.0.write(value)
+    }
+    fn write_with_metadata(
+        &mut self,
+        value: String,
+        metadata: ElementMetadata,
+    ) -> Result<(), Error> {
+        let start = metadata
+            .assigned_window
+            .ok_or_else(|| Error::incompatible("window missing"))?
+            .start_ns;
+        self.0.write(format!("{start}:{value}"))
+    }
+    fn commit(&mut self) -> Result<(), Error> {
+        self.0.commit()
+    }
+    fn abort(&mut self) -> Result<(), Error> {
+        self.0.abort()
+    }
+}
+
 #[test]
-fn unbounded_windowed_value_state_fails_at_graph_construction() {
+fn windowed_value_state_recovers_each_window_with_source_cursor() {
+    let directory = tempfile::tempdir().unwrap();
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
     let pipeline = Pipeline::default();
-    let stream = pipeline
+    let sink = pipeline
         .unbounded_source_with_factory(
             "source",
             SourceProgress {
@@ -178,31 +241,91 @@ fn unbounded_windowed_value_state_fails_at_graph_construction() {
                 replay: Replay::AtLeastOnce,
                 reports_event_time: true,
             },
-            "windowed-value-state-preflight-v1".into(),
+            "windowed-value-state-two-batches-v1".into(),
             0,
-            |_| {
-                Ok(Box::new(TwoBatchSource {
-                    cursor: None,
-                    emitted: false,
-                }) as TypedUnboundedSourceReader<(i32, i32)>)
+            {
+                let opens = Arc::clone(&opens);
+                move |cursor| {
+                    opens.lock().unwrap().push(cursor.clone());
+                    Ok(Box::new(WindowedSource {
+                        cursor,
+                        emitted: false,
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
             },
         )
         .unwrap()
         .fixed_windows("window", 10_000_000)
-        .unwrap();
-    let error = stream
+        .unwrap()
         .stateful_value_map_named::<i32, i32>(
             "count",
             "tests/windowed-value-state",
             Version { major: 1, minor: 0 },
-            |_, value, prior| {
-                let count = prior.unwrap_or(0) + value;
+            |_, _, prior| {
+                let count = prior.unwrap_or(0) + 1;
                 Ok((Some(count), count))
             },
         )
-        .err()
+        .unwrap()
+        .map_named("label", |(key, count)| format!("{key}:{count}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "windowed-value-state-capture-v1".into(),
+            {
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(WindowCapture(IdempotentCapture {
+                        accepted: Arc::clone(&accepted),
+                        pending: Vec::new(),
+                    })))
+                }
+            },
+        )
         .unwrap();
-    assert!(error.message.contains("global window"));
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 2,
+            recover: true,
+            binary_build_id: "windowed-value-state-test-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let job = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while job
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        != Some(vec![1])
+    {
+        assert_ne!(job.handle().status(), JobStatus::Failed);
+        assert!(
+            Instant::now() < deadline,
+            "first windowed state batch was not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(opens.lock().unwrap().as_slice(), &[None, Some(vec![1])]);
+    let expected = "0:1:1 0:1:2 20000000:1:1 20000000:1:2 40000000:1:1"
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect::<HashSet<_>>();
+    assert_eq!(*accepted.lock().unwrap(), expected);
 }
 
 #[test]

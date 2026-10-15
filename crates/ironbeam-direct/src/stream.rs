@@ -2456,7 +2456,10 @@ fn run_stream(
                 return Err(cancelled());
             }
             let state = stateful_key
-                .map(|key| registry.checkpoint_stateful_value(key))
+                .map(|key| {
+                    registry.expire_stateful_value(key, batch.progress.event_time_ns)?;
+                    registry.checkpoint_stateful_value(key)
+                })
                 .transpose()?;
             if state
                 .as_ref()

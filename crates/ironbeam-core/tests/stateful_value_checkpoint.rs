@@ -1,4 +1,4 @@
-use ironbeam_core::{Element, Envelope, PaneInfo, Pipeline, Version, Window};
+use ironbeam_core::{Element, Envelope, PaneInfo, Pipeline, Version, Window, WindowInterval};
 
 fn pipeline() -> Pipeline {
     let pipeline = Pipeline::default();
@@ -82,6 +82,13 @@ fn malformed_value_state_snapshots_fail_before_mutation() {
             .restore_stateful_value("count", &serde_json::to_vec(&invalid_key).unwrap())
             .is_err()
     );
+    let invalid_state =
+        serde_json::json!({"version": 1, "entries": [[null, 1_i32.encode().unwrap(), [1]]]});
+    assert!(
+        registry
+            .restore_stateful_value("count", &serde_json::to_vec(&invalid_state).unwrap())
+            .is_err()
+    );
     let invalid_window = serde_json::json!({"version": 1, "entries": [[{"start_ns": 0, "end_ns": 10}, 1_i32.encode().unwrap(), 2_i32.encode().unwrap()]]});
     assert!(
         registry
@@ -89,4 +96,105 @@ fn malformed_value_state_snapshots_fail_before_mutation() {
             .is_err()
     );
     assert_eq!(apply(&registry, 1), 1);
+    assert!(registry.checkpoint_stateful_value("missing").is_err());
+    assert!(registry.restore_stateful_value("missing", b"{}").is_err());
+    assert!(registry.expire_stateful_value("missing", Some(10)).is_err());
+}
+
+#[test]
+fn clearing_a_value_cell_restarts_its_count() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("pairs", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .stateful_value_map_named::<i32, i32>(
+            "count",
+            "tests/clearing-value-state",
+            Version { major: 1, minor: 0 },
+            |_, _, prior| {
+                let count = prior.unwrap_or(0) + 1;
+                Ok((if count == 2 { None } else { Some(count) }, count))
+            },
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert_eq!(apply(&registry, 1), 1);
+    assert_eq!(apply(&registry, 1), 2);
+    assert_eq!(apply(&registry, 1), 1);
+}
+
+#[test]
+fn windowed_cells_expire_at_the_watermark_and_restore_independently() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("pairs", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .fixed_windows("window", 10)
+        .unwrap()
+        .stateful_value_map_named::<i32, i32>(
+            "count",
+            "tests/windowed-checkpoint-state",
+            Version { major: 1, minor: 0 },
+            |_, _, prior| {
+                let count = prior.unwrap_or(0) + 1;
+                Ok((Some(count), count))
+            },
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(
+        registry
+            .apply_many(
+                "count",
+                Envelope {
+                    value: Box::new((1_i32, 1_i32)),
+                    timestamp_ns: 0,
+                    window: Window::Fixed { size_ns: 10 },
+                    assigned_window: None,
+                    pane: PaneInfo::NO_FIRING,
+                }
+            )
+            .is_err()
+    );
+    let null_window = serde_json::json!({"version": 1, "entries": [[null, 1_i32.encode().unwrap(), 1_i32.encode().unwrap()]]});
+    assert!(
+        registry
+            .restore_stateful_value("count", &serde_json::to_vec(&null_window).unwrap())
+            .is_err()
+    );
+    let empty_window = serde_json::json!({"version": 1, "entries": [[{"start_ns": 10, "end_ns": 10}, 1_i32.encode().unwrap(), 1_i32.encode().unwrap()]]});
+    assert!(
+        registry
+            .restore_stateful_value("count", &serde_json::to_vec(&empty_window).unwrap())
+            .is_err()
+    );
+    let apply_window = |registry: &ironbeam_core::Registry, start_ns| {
+        let output = registry
+            .apply_many(
+                "count",
+                Envelope {
+                    value: Box::new((1_i32, 1_i32)),
+                    timestamp_ns: start_ns,
+                    window: Window::Fixed { size_ns: 10 },
+                    assigned_window: Some(WindowInterval {
+                        start_ns,
+                        end_ns: start_ns + 10,
+                    }),
+                    pane: PaneInfo::NO_FIRING,
+                },
+            )
+            .unwrap();
+        let [row] = output.try_into().ok().unwrap();
+        row.value.downcast::<(i32, i32)>().unwrap().1
+    };
+    assert_eq!(apply_window(&registry, 0), 1);
+    assert_eq!(apply_window(&registry, 20), 1);
+    registry.expire_stateful_value("count", Some(10)).unwrap();
+    let snapshot = registry.checkpoint_stateful_value("count").unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();
+    assert_eq!(parsed["entries"].as_array().unwrap().len(), 1);
+    let (_, restored) = pipeline.snapshot().unwrap();
+    restored.restore_stateful_value("count", &snapshot).unwrap();
+    assert_eq!(apply_window(&restored, 20), 2);
+    assert_eq!(apply_window(&restored, 0), 1);
 }
