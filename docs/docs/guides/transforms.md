@@ -99,6 +99,12 @@ confirms the timed path; its tested version can panic when a later count
 firing follows a timed firing in the same window, so that sequence is not yet
 a portable execution guarantee.
 
+For a general keyed group, `count_or_processing_time_trigger_named` uses
+discarding panes and `accumulating_count_or_processing_time_trigger_named`
+retains earlier values in each pane. Apply either trigger before
+`group_by_key_named`. The accumulating form is separate from batching because
+repeating earlier batch values would duplicate application records.
+
 `co_group_homogeneous_named` groups collections whose keys and values have
 the same types. The result is a key and one value vector
 per input. The first vector belongs to the collection on which the method is

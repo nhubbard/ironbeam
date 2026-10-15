@@ -59,6 +59,22 @@ fn count_or_processing_time_batch_policy_validates_and_identifies_duration() {
         graph.fingerprint().unwrap()
     };
     assert_ne!(make(5_000_000), make(6_000_000));
+    let accumulating = Pipeline::default();
+    accumulating
+        .from_vec("source", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .accumulating_count_or_processing_time_trigger_named("trigger", 2, 5_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (graph, _) = accumulating.snapshot().unwrap();
+    assert_eq!(
+        graph.node("group").unwrap().time.trigger,
+        WindowTrigger::EarlyCountOrProcessingTimeAccumulating {
+            count: 2,
+            delay_ns: 5_000_000,
+        }
+    );
     let pipeline = Pipeline::default();
     let source = pipeline.from_vec("source", vec![(1_i32, 2_i32)]).unwrap();
     for delay_ns in [0, -1_000_000, 1] {
@@ -80,6 +96,16 @@ fn count_or_processing_time_batch_policy_validates_and_identifies_duration() {
                 i32::MAX as usize + 1,
                 5_000_000,
             )
+            .is_err()
+    );
+    assert!(
+        source
+            .accumulating_count_or_processing_time_trigger_named("zero-count", 0, 5_000_000)
+            .is_err()
+    );
+    assert!(
+        source
+            .accumulating_count_or_processing_time_trigger_named("bad-delay", 2, 1)
             .is_err()
     );
 }

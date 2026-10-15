@@ -329,6 +329,46 @@ fn keyed_batch_duration_lowers_repeated_count_or_time_trigger() {
         Some(trigger::Trigger::AfterProcessingTime(ref time))
             if time.timestamp_transforms.len() == 1
     ));
+
+    let accumulating = Pipeline::default();
+    accumulating
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)])],
+        )
+        .unwrap()
+        .accumulating_count_or_processing_time_trigger_named("trigger", 2, 5_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let translated = translate_v5(&accumulating, IMAGE, BUILD).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let trigger_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "trigger")
+        .unwrap();
+    let strategy = &components.windowing_strategies[&trigger_pc.windowing_strategy_id];
+    assert_eq!(
+        strategy.accumulation_mode,
+        accumulation_mode::Enum::Accumulating as i32
+    );
+    let Some(trigger::Trigger::AfterEndOfWindow(end)) = strategy
+        .trigger
+        .as_ref()
+        .and_then(|trigger| trigger.trigger.as_ref())
+    else {
+        panic!("expected end-of-window trigger");
+    };
+    assert!(matches!(
+        end.early_firings.as_ref().and_then(|trigger| trigger.trigger.as_ref()),
+        Some(trigger::Trigger::Repeat(repeat)) if matches!(
+            repeat.subtrigger.as_ref().and_then(|trigger| trigger.trigger.as_ref()),
+            Some(trigger::Trigger::AfterAny(_))
+        )
+    ));
 }
 
 #[test]

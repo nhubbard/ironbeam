@@ -449,6 +449,78 @@ fn keyed_batch_count_firing_cancels_its_old_timer() {
     );
 }
 
+#[test]
+fn accumulating_count_or_time_retains_values_across_both_early_firings() {
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .test_stream_source(
+            "values",
+            vec![
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 2_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::Elements(vec![
+                    (('a'.to_string(), 3), 2_000_000),
+                    (('a'.to_string(), 4), 3_000_000),
+                ]),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 5), 4_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .accumulating_count_or_processing_time_trigger_named("trigger", 2, 5_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("row", |(pane, (key, values))| {
+            format!(
+                "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "accumulating-count-or-time-v1".to_owned(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "a:[2]:Early:true:false:0:-1",
+            "a:[2, 3, 4]:Early:false:false:1:-1",
+            "a:[2, 3, 4, 5]:OnTime:false:true:2:0",
+        ]
+    );
+}
+
 fn run_count_or_time_keyed_batches(events: Vec<TestStreamEvent<Row>>) -> Vec<String> {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));

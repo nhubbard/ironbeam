@@ -34,6 +34,8 @@ pub enum WindowTrigger {
     EarlyProcessingTimeAccumulating { delay_ns: i64 },
     /// Repeated early firings when either a count or processing-time delay is reached.
     EarlyCountOrProcessingTime { count: u64, delay_ns: i64 },
+    /// Count-or-processing-time firings that retain earlier values.
+    EarlyCountOrProcessingTimeAccumulating { count: u64, delay_ns: i64 },
     /// Repeated late firings after `count` new elements; panes discard prior values.
     LateElementCount { count: u64 },
     /// Repeated late firings after `count` new elements; panes retain prior values.
@@ -56,7 +58,8 @@ impl WindowTrigger {
             Self::Default | Self::LateElementCount { .. } | Self::LateElementCountAccumulating { .. }
             | Self::EarlyProcessingTime { .. } | Self::EarlyProcessingTimeAccumulating { .. } => None,
             Self::EarlyElementCount { count } | Self::EarlyElementCountAccumulating { count }
-            | Self::EarlyCountOrProcessingTime { count, .. } => {
+            | Self::EarlyCountOrProcessingTime { count, .. }
+            | Self::EarlyCountOrProcessingTimeAccumulating { count, .. } => {
                 Some(*count)
             }
             Self::EarlyAndLateElementCount { early_count, .. }
@@ -69,7 +72,8 @@ impl WindowTrigger {
         match self {
             Self::EarlyProcessingTime { delay_ns }
             | Self::EarlyProcessingTimeAccumulating { delay_ns }
-            | Self::EarlyCountOrProcessingTime { delay_ns, .. } => Some(*delay_ns),
+            | Self::EarlyCountOrProcessingTime { delay_ns, .. }
+            | Self::EarlyCountOrProcessingTimeAccumulating { delay_ns, .. } => Some(*delay_ns),
             _ => None,
         }
     }
@@ -90,6 +94,7 @@ impl WindowTrigger {
             self,
             Self::EarlyElementCountAccumulating { .. }
                 | Self::EarlyProcessingTimeAccumulating { .. }
+                | Self::EarlyCountOrProcessingTimeAccumulating { .. }
                 | Self::LateElementCountAccumulating { .. }
                 | Self::EarlyAndLateElementCountAccumulating { .. }
         )

@@ -600,6 +600,27 @@ impl<T: Element> PCollection<T> {
         count: u64,
         delay_ns: i64,
     ) -> Result<Self, Error> {
+        self.count_or_processing_time_trigger_with_mode_named(key, count, delay_ns, false)
+    }
+
+    /// Repeated count-or-processing-time firings that retain values from
+    /// previous panes in the same key and window.
+    pub fn accumulating_count_or_processing_time_trigger_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+    ) -> Result<Self, Error> {
+        self.count_or_processing_time_trigger_with_mode_named(key, count, delay_ns, true)
+    }
+
+    fn count_or_processing_time_trigger_with_mode_named(
+        &self,
+        key: &str,
+        count: u64,
+        delay_ns: i64,
+        accumulating: bool,
+    ) -> Result<Self, Error> {
         if count == 0 || count > i32::MAX as u64 {
             return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));
         }
@@ -621,7 +642,11 @@ impl<T: Element> PCollection<T> {
             Some(window),
             None,
             TimePolicyOverride {
-                trigger: Some(WindowTrigger::EarlyCountOrProcessingTime { count, delay_ns }),
+                trigger: Some(if accumulating {
+                    WindowTrigger::EarlyCountOrProcessingTimeAccumulating { count, delay_ns }
+                } else {
+                    WindowTrigger::EarlyCountOrProcessingTime { count, delay_ns }
+                }),
                 output_time: None,
                 allowed_lateness_ns: None,
             },
