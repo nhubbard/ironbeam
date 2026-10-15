@@ -33,6 +33,15 @@ pub fn try_nested_bytes_len(input: &[u8]) -> Result<Option<usize>> {
     Ok((input.len() >= end).then_some(end))
 }
 
+/// Return the byte length of one Beam interval window, whose end timestamp
+/// occupies eight bytes and whose duration is a trailing VarInt.
+pub fn try_interval_window_len(input: &[u8]) -> Result<Option<usize>> {
+    if input.len() < 8 {
+        return Ok(None);
+    }
+    Ok(try_varint(&input[8..])?.map(|(_, used)| 8 + used))
+}
+
 fn try_pane(input: &[u8]) -> Result<Option<(ironbeam_core::PaneInfo, usize)>> {
     let Some(&header) = input.first() else {
         return Ok(None);

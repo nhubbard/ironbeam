@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 
 use beam_proto::fn_execution_v1::{ProcessBundleDescriptor, RemoteGrpcPort};
 use beam_proto::pipeline_v1::{
-    state_spec, Coder, FunctionSpec, PTransform, ParDoPayload, WindowIntoPayload,
+    state_spec, time_domain, Coder, FunctionSpec, PTransform, ParDoPayload, WindowIntoPayload,
 };
 use ironbeam_graphx::{urns, v5::V5NodeRef};
 use prost::Message;
@@ -74,8 +74,54 @@ fn value_state_payload(
         reject_unsupported_state_and_timers(id, payload)?;
         return Ok(false);
     }
+    let timers_valid = payload
+        .timer_family_specs
+        .iter()
+        .all(|(family_id, family)| {
+            !family_id.is_empty()
+                && matches!(
+                    time_domain::Enum::try_from(family.time_domain),
+                    Ok(time_domain::Enum::EventTime | time_domain::Enum::ProcessingTime)
+                )
+                && pbd
+                    .coders
+                    .get(&family.timer_family_coder_id)
+                    .is_some_and(|coder| {
+                        coder.spec.as_ref().is_some_and(|spec| {
+                            spec.urn == urns::CODER_TIMER && spec.payload.is_empty()
+                        }) && coder.component_coder_ids.len() == 2
+                            && pbd
+                                .coders
+                                .get(&coder.component_coder_ids[0])
+                                .is_some_and(|key| {
+                                    key.spec.as_ref().is_some_and(|spec| {
+                                        spec.urn == urns::CODER_LENGTH_PREFIX
+                                            && spec.payload.is_empty()
+                                    }) && key.component_coder_ids.len() == 1
+                                        && pbd.coders.get(&key.component_coder_ids[0]).is_some_and(
+                                            |bytes| {
+                                                bytes.spec.as_ref().is_some_and(|spec| {
+                                                    spec.urn == urns::CODER_BYTES
+                                                        && spec.payload.is_empty()
+                                                }) && bytes.component_coder_ids.is_empty()
+                                            },
+                                        )
+                                })
+                            && pbd
+                                .coders
+                                .get(&coder.component_coder_ids[1])
+                                .is_some_and(|window| {
+                                    window.spec.as_ref().is_some_and(|spec| {
+                                        matches!(
+                                            spec.urn.as_str(),
+                                            urns::CODER_GLOBAL_WINDOW | urns::CODER_INTERVAL_WINDOW
+                                        ) && spec.payload.is_empty()
+                                    }) && window.component_coder_ids.is_empty()
+                                })
+                    })
+        });
     let valid = payload.state_specs.len() == 1
-        && payload.timer_family_specs.is_empty()
+        && timers_valid
         && payload.on_window_expiration_timer_family_spec.is_empty()
         && payload
             .state_specs
@@ -117,6 +163,9 @@ fn value_state_payload(
                     ),
                     _ => return false,
                 };
+                if !payload.timer_family_specs.is_empty() && name != "value" {
+                    return false;
+                }
                 coder_ids.into_iter().all(|coder_id| {
                     pbd.coders.get(coder_id).is_some_and(|coder| {
                         coder.spec.as_ref().is_some_and(|spec| {
@@ -138,7 +187,7 @@ fn value_state_payload(
     if !valid {
         return Err(PlanError::BadPayload {
             id: id.into(),
-            err: "v5 ParDo supports one declared value, bag, set, map, multimap, ordered-list, or combining cell without timers"
+            err: "v5 ParDo requires one supported state cell and valid timer-family coders (timers require the value cell)"
                 .into(),
         });
     }

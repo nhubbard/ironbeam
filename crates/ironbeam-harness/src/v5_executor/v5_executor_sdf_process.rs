@@ -348,6 +348,8 @@ impl V5BundleExecutor {
                         BundleInputs {
                             side_views: &mut HashMap::new(),
                             state: None,
+                            timer_data: &source_client,
+                            timer_source_key: None,
                         },
                         &mut outputs,
                     ).await?;

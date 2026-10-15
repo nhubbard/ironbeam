@@ -13,13 +13,15 @@ use std::time::Duration;
 use beam_proto::fn_execution_v1::beam_fn_data_server::{BeamFnData, BeamFnDataServer};
 use beam_proto::fn_execution_v1::beam_fn_state_server::{BeamFnState, BeamFnStateServer};
 use beam_proto::fn_execution_v1::{
-    elements::Data, state_key, state_request, state_response, Elements, RemoteGrpcPort,
-    StateAppendResponse, StateClearResponse, StateGetResponse, StateRequest, StateResponse,
+    elements::{Data, Timers},
+    state_key, state_request, state_response, Elements, RemoteGrpcPort, StateAppendResponse,
+    StateClearResponse, StateGetResponse, StateRequest, StateResponse,
 };
 use beam_proto::pipeline_v1::ApiServiceDescriptor;
 use ironbeam_core::{
-    Element, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress, Timestamped,
-    TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll, UnboundedSource, Version,
+    Element, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress, TestStreamEvent,
+    TimedStateResult, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
+    UnboundedPoll, UnboundedSource, UserTimerDomain, UserTimerRequest, Version,
 };
 use ironbeam_graphx::sdf::SourceRestriction;
 use ironbeam_graphx::v5::{collection_id, execution_identity, V5NodeRef};
@@ -34,6 +36,7 @@ use ironbeam_harness::coders::{
 use ironbeam_harness::executor::BundleRunner;
 use ironbeam_harness::sdf_wire::decode_sized;
 use ironbeam_harness::sdf_wire::{encode_pair, encode_sized, SizedSourcePair, SourcePair};
+use ironbeam_harness::timer_coder::TimerRecord;
 use ironbeam_harness::v5_executor::V5BundleExecutor;
 use prost::Message;
 use tokio::sync::{mpsc, Mutex};
@@ -315,6 +318,66 @@ impl BeamFnData for RunnerData {
             let mut stream = request.into_inner();
             while let Ok(Some(elements)) = stream.message().await {
                 received.lock().await.extend(elements.data);
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
+}
+
+struct TimedRunnerData {
+    received: Arc<Mutex<Vec<Elements>>>,
+    element: Arc<Mutex<Vec<u8>>>,
+    timer: Vec<u8>,
+}
+
+#[tonic::async_trait]
+impl BeamFnData for TimedRunnerData {
+    type DataStream = ReceiverStream<Result<Elements, Status>>;
+
+    async fn data(
+        &self,
+        request: Request<Streaming<Elements>>,
+    ) -> Result<Response<Self::DataStream>, Status> {
+        let (tx, rx) = mpsc::channel(4);
+        tx.send(Ok(Elements {
+            data: vec![
+                Data {
+                    instruction_id: "bundle".into(),
+                    transform_id: "input".into(),
+                    data: self.element.lock().await.clone(),
+                    is_last: false,
+                },
+                Data {
+                    instruction_id: "bundle".into(),
+                    transform_id: "input".into(),
+                    data: Vec::new(),
+                    is_last: true,
+                },
+            ],
+            timers: vec![
+                Timers {
+                    instruction_id: "bundle".into(),
+                    transform_id: "stateful".into(),
+                    timer_family_id: "event".into(),
+                    timers: self.timer.clone(),
+                    is_last: false,
+                },
+                Timers {
+                    instruction_id: "bundle".into(),
+                    transform_id: "stateful".into(),
+                    timer_family_id: "event".into(),
+                    timers: Vec::new(),
+                    is_last: true,
+                },
+            ],
+        }))
+        .await
+        .unwrap();
+        let received = Arc::clone(&self.received);
+        tokio::spawn(async move {
+            let mut stream = request.into_inner();
+            while let Ok(Some(elements)) = stream.message().await {
+                received.lock().await.push(elements);
             }
         });
         Ok(Response::new(ReceiverStream::new(rx)))
@@ -1556,6 +1619,224 @@ async fn stateful_value_bundle_reads_prior_writes_by_key() {
         assert_eq!(used, encoded.len());
         assert_eq!(<i32 as Element>::decode(body).unwrap(), expected);
     }
+    server.abort();
+}
+
+#[tokio::test]
+async fn timed_bundle_routes_mixed_and_timer_only_inputs() {
+    fn build() -> Pipeline {
+        let pipeline = Pipeline::default();
+        pipeline
+            .test_stream_source(
+                "source",
+                vec![TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)])],
+            )
+            .unwrap()
+            .stateful_timer_map_named::<i32, i32>(
+                "timer",
+                "tests/portable-timer",
+                Version { major: 1, minor: 0 },
+                std::collections::BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+                |_, value, _, _| {
+                    Ok(TimedStateResult {
+                        state: Some(value),
+                        outputs: Vec::new(),
+                        timers: vec![UserTimerRequest::Set {
+                            family_id: "event".into(),
+                            dynamic_tag: "flush".into(),
+                            fire_timestamp_ns: 5_000_000,
+                            output_timestamp_ns: None,
+                        }],
+                    })
+                },
+                |_, state, event| {
+                    assert_eq!(event.dynamic_tag, "flush");
+                    Ok(TimedStateResult {
+                        state: None,
+                        outputs: vec![state.unwrap()],
+                        timers: Vec::new(),
+                    })
+                },
+            )
+            .unwrap()
+            .map_named("label", |(key, value)| format!("{key}:{value}"))
+            .unwrap()
+            .output("result")
+            .unwrap();
+        pipeline
+    }
+    let driver = build();
+    let worker = build();
+    let (graph, registry) = driver.snapshot().unwrap();
+    let identity = execution_identity(&graph, &registry, "test-build").unwrap();
+    let mut body = Vec::new();
+    encode_length_prefix(&Element::encode(&1_i32).unwrap(), &mut body).unwrap();
+    encode_length_prefix(&Element::encode(&3_i32).unwrap(), &mut body).unwrap();
+    let mut element = Vec::new();
+    encode_windowed_value(0, &body, &mut element).unwrap();
+    let element = Arc::new(Mutex::new(element));
+    let mut encoded_key = Vec::new();
+    encode_length_prefix(&Element::encode(&1_i32).unwrap(), &mut encoded_key).unwrap();
+    let mut timer = Vec::new();
+    TimerRecord {
+        encoded_key: encoded_key.clone(),
+        dynamic_tag: "flush".into(),
+        encoded_windows: vec![Vec::new()],
+        clear: false,
+        fire_timestamp_millis: Some(5),
+        hold_timestamp_millis: Some(5),
+        pane: Some(ironbeam_core::PaneInfo::NO_FIRING),
+    }
+    .encode(&mut timer)
+    .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let cells = Arc::new(Mutex::new(HashMap::new()));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let server = tokio::spawn(
+        Server::builder()
+            .add_service(BeamFnDataServer::new(TimedRunnerData {
+                received: Arc::clone(&received),
+                element: Arc::clone(&element),
+                timer,
+            }))
+            .add_service(BeamFnStateServer::new(ValueRunnerState {
+                cells: Arc::clone(&cells),
+                requests: Arc::clone(&requests),
+                state_id: "value",
+            }))
+            .serve(addr),
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let port = RemoteGrpcPort {
+        api_service_descriptor: Some(ApiServiceDescriptor {
+            url: format!("http://{addr}"),
+            ..Default::default()
+        }),
+        coder_id: "opaque".into(),
+    };
+    let plan = BundlePlan {
+        pbd_id: "timed-state".into(),
+        state_endpoint: Some(format!("http://{addr}")),
+        side_inputs: HashMap::new(),
+        steps: vec![
+            Step::Source {
+                transform_id: "input".into(),
+                port: port.clone(),
+                output_pc: collection_id("source"),
+                wire: SourceWire::KvLp,
+            },
+            Step::V5ParDo {
+                transform_id: "stateful".into(),
+                node_ref: V5NodeRef {
+                    key: "timer".into(),
+                    identity: identity.clone(),
+                    co_group_input: None,
+                },
+                input_pc: collection_id("source"),
+                output_pc: collection_id("timer"),
+                stateful_value: true,
+            },
+            Step::V5ParDo {
+                transform_id: "label".into(),
+                node_ref: V5NodeRef {
+                    key: "label".into(),
+                    identity,
+                    co_group_input: None,
+                },
+                input_pc: collection_id("timer"),
+                output_pc: collection_id("label"),
+                stateful_value: false,
+            },
+            Step::Sink {
+                transform_id: "output".into(),
+                port,
+                input_pc: collection_id("label"),
+                wire: SinkWire::Opaque,
+            },
+        ],
+    };
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        V5BundleExecutor::new(&worker, "test-build")
+            .unwrap()
+            .run("bundle", &plan),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let received_guard = received.lock().await;
+    let outgoing = received_guard
+        .iter()
+        .flat_map(|message| &message.data)
+        .collect::<Vec<_>>();
+    let values = outgoing
+        .into_iter()
+        .filter(|data| data.transform_id == "output" && !data.data.is_empty())
+        .map(|data| {
+            let (windowed, _) = decode_windowed_value(&data.data).unwrap();
+            let (body, _) = decode_length_prefix(windowed.element).unwrap();
+            <String as Element>::decode(body).unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(values, ["1:3"]);
+    let timers = received_guard
+        .iter()
+        .flat_map(|message| &message.timers)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        timers
+            .iter()
+            .filter(|timer| !timer.timers.is_empty())
+            .count(),
+        1
+    );
+    assert_eq!(timers.iter().filter(|timer| timer.is_last).count(), 1);
+    assert!(cells.lock().await.is_empty());
+    assert_eq!(requests.lock().await.len(), 5);
+    drop(received_guard);
+
+    // A second bundle contains only the timer stream. The runner supplies
+    // the value cell saved by an earlier bundle, with no element input.
+    let mut prior = Vec::new();
+    encode_length_prefix(&Element::encode(&9_i32).unwrap(), &mut prior).unwrap();
+    cells.lock().await.insert((Vec::new(), encoded_key), prior);
+    *element.lock().await = Vec::new();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        V5BundleExecutor::new(&worker, "test-build")
+            .unwrap()
+            .run("bundle", &plan),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let received = received.lock().await;
+    let mut values = received
+        .iter()
+        .flat_map(|message| &message.data)
+        .filter(|data| data.transform_id == "output" && !data.data.is_empty())
+        .map(|data| {
+            let (windowed, _) = decode_windowed_value(&data.data).unwrap();
+            let (body, _) = decode_length_prefix(windowed.element).unwrap();
+            <String as Element>::decode(body).unwrap()
+        })
+        .collect::<Vec<_>>();
+    values.sort();
+    assert_eq!(values, ["1:3", "1:9"]);
+    assert_eq!(
+        received
+            .iter()
+            .flat_map(|message| &message.timers)
+            .filter(|timer| timer.is_last)
+            .count(),
+        2
+    );
+    assert!(cells.lock().await.is_empty());
     server.abort();
 }
 

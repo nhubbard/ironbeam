@@ -12,6 +12,8 @@ mod multimap_state;
 mod ordered_list_state;
 #[path = "prism_v5_run/set_state.rs"]
 mod set_state;
+#[path = "prism_v5_run/timer_state.rs"]
+mod timer_state;
 
 extern crate prost_v5 as prost;
 

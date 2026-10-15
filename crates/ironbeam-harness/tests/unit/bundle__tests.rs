@@ -465,6 +465,40 @@ fn plans_only_a_value_cell_with_length_prefixed_bytes() {
         }
     ));
     pbd.coders
+        .insert("timer-window".into(), leaf_coder(urns::CODER_GLOBAL_WINDOW));
+    pbd.coders.insert(
+        "timer-coder".into(),
+        composite_coder(urns::CODER_TIMER, &["cell-lp", "timer-window"]),
+    );
+    payload.timer_family_specs.insert(
+        "event".into(),
+        TimerFamilySpec {
+            time_domain: time_domain::Enum::EventTime as i32,
+            timer_family_coder_id: "timer-coder".into(),
+        },
+    );
+    pbd.transforms
+        .get_mut("stateful")
+        .unwrap()
+        .spec
+        .as_mut()
+        .unwrap()
+        .payload = payload.encode_to_vec();
+    assert!(matches!(
+        plan(&pbd).unwrap().steps[1],
+        Step::V5ParDo {
+            stateful_value: true,
+            ..
+        }
+    ));
+    pbd.coders
+        .insert("timer-coder".into(), leaf_coder(urns::CODER_BYTES));
+    assert!(matches!(plan(&pbd), Err(PlanError::BadPayload { .. })));
+    pbd.coders.insert(
+        "timer-coder".into(),
+        composite_coder(urns::CODER_TIMER, &["cell-lp", "timer-window"]),
+    );
+    pbd.coders
         .insert("cell-bytes".into(), leaf_coder(urns::CODER_STRING_UTF8));
     assert!(matches!(plan(&pbd), Err(PlanError::BadPayload { .. })));
 }

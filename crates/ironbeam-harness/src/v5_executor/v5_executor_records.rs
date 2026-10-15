@@ -1,6 +1,8 @@
 struct BundleInputs<'a> {
     side_views: &'a mut HashMap<String, Box<dyn Any + Send>>,
     state: Option<&'a StateClient>,
+    timer_data: &'a DataClient,
+    timer_source_key: Option<&'a str>,
 }
 
 impl V5BundleExecutor {
@@ -156,7 +158,10 @@ impl V5BundleExecutor {
                         .graph
                         .node(&node_ref.key)
                         .ok_or_else(|| anyhow!("missing v5 node {}", node_ref.key))?;
-                    let produced = match node.operation {
+                    let produced = if inputs.timer_source_key == Some(node.key.as_str()) {
+                        vec![source_value.clone()]
+                    } else {
+                    match node.operation {
                         Operation::Source { .. } if source_key == Some(node.key.as_str()) => {
                             vec![source_value.clone()]
                         }
@@ -180,6 +185,21 @@ impl V5BundleExecutor {
                                 .ok_or_else(|| anyhow!("missing v5 collection {input_pc}"))?;
                             let state = inputs.state.ok_or_else(|| anyhow!("stateful ParDo {} has no State client", node.key))?;
                             let parent = node.input.as_deref().ok_or_else(|| anyhow!("stateful ParDo {} has no input", node.key))?;
+                            if !contract.timers.is_empty() {
+                                let mut produced = Vec::new();
+                                for wire in input {
+                                    produced.extend(self.apply_timed_element_cell(
+                                        instruction_id,
+                                        transform_id,
+                                        node,
+                                        parent,
+                                        wire,
+                                        state,
+                                        inputs.timer_data,
+                                    ).await?);
+                                }
+                                produced
+                            } else {
                             let bag_state = matches!(contract.states.get("bag"), Some(UserStateKind::Bag { .. }));
                             let set_state = matches!(contract.states.get("set"), Some(UserStateKind::Set { .. }));
                             let map_state = matches!(contract.states.get("map"), Some(UserStateKind::Map { .. }));
@@ -283,6 +303,7 @@ impl V5BundleExecutor {
                                 produced.push(output);
                             }
                             produced
+                            }
                         }
                         Operation::WaitOn | Operation::WaitOnWindowed => collections
                             .get(input_pc.as_str())
@@ -375,6 +396,7 @@ impl V5BundleExecutor {
                             Vec::new()
                         }
                         _ => bail!("v5 Fn API executor does not support node {}", node.key),
+                    }
                     };
                     if !output_pc.is_empty() {
                         collections.insert(output_pc, produced);

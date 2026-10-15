@@ -240,6 +240,8 @@ impl BundleRunner for V5BundleExecutor {
                         BundleInputs {
                             side_views: &mut side_views,
                             state: state.as_ref(),
+                            timer_data: &source_client,
+                            timer_source_key: None,
                         },
                         &mut outputs,
                     ).await?;
@@ -364,6 +366,8 @@ impl BundleRunner for V5BundleExecutor {
                             BundleInputs {
                                 side_views: &mut side_views,
                                 state: state.as_ref(),
+                                timer_data: &source_client,
+                                timer_source_key: None,
                             },
                             &mut outputs,
                         ).await?;
@@ -377,6 +381,86 @@ impl BundleRunner for V5BundleExecutor {
             }
             if !encoded.is_empty() {
                 bail!("v5 runner boundary ended with a truncated record");
+            }
+        }
+        for step in &plan.steps {
+            let Step::V5ParDo {
+                transform_id,
+                node_ref,
+                ..
+            } = step else {
+                continue;
+            };
+            let Some(node) = self.graph.node(&node_ref.key) else {
+                continue;
+            };
+            let Operation::StatefulParDo { contract, .. } = &node.operation else {
+                continue;
+            };
+            for (family_id, family) in &contract.timers {
+                let scope = TimerFamilyScope::new(
+                    &source_client,
+                    contract,
+                    instruction_id,
+                    transform_id,
+                    family_id,
+                )?;
+                let (sender, mut records) = tokio::sync::mpsc::channel(1);
+                let global = node.time.window == Window::Global;
+                let producer = scope.dispatch(
+                    crate::timer_coder::try_nested_bytes_len,
+                    move |bytes| {
+                        if global {
+                            Ok(Some(0))
+                        } else {
+                            crate::timer_coder::try_interval_window_len(bytes)
+                        }
+                    },
+                    move |record| {
+                        let sender = sender.clone();
+                        async move {
+                            sender.send(record).await.map_err(|_| {
+                                anyhow!("timer callback stream closed before the family ended")
+                            })
+                        }
+                    },
+                );
+                let consumer = async {
+                    while let Some(record) = records.recv().await {
+                        for firing in record.to_firings(family_id, family.domain, global)? {
+                            let state = state.as_ref().expect("connected for timed state");
+                            let fired = self
+                                .apply_timed_firing_cell(
+                                    instruction_id,
+                                    transform_id,
+                                    node,
+                                    &firing,
+                                    state,
+                                    &source_client,
+                                )
+                                .await?;
+                            for value in fired {
+                                self.process_record(
+                                    instruction_id,
+                                    plan,
+                                    Some(node.key.as_str()),
+                                    value,
+                                    BundleInputs {
+                                        side_views: &mut side_views,
+                                        state: Some(state),
+                                        timer_data: &source_client,
+                                        timer_source_key: Some(node.key.as_str()),
+                                    },
+                                    &mut outputs,
+                                )
+                                .await?;
+                            }
+                        }
+                    }
+                    Ok::<(), anyhow::Error>(())
+                };
+                tokio::try_join!(producer, consumer)?;
+                scope.finish_output()?;
             }
         }
         for step in &plan.steps {
