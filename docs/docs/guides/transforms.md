@@ -322,6 +322,7 @@ let totals = pairs.stateful_value_map_named::<i64, i64>(
 accepts bounded input with default global, fixed, or sliding window policy on
 Direct. Beam does not preserve encounter order across keyed shuffle; callbacks
 that require an order should carry an explicit order key. The portable worker
-uses Beam Fn State for this value cell. Fake-runner execution tests pass, and a
-bounded per-key and fixed-window counts match Direct on local Prism. Retry and recovery remain
-to be proved.
+uses Beam Fn State for this value cell. Fake-runner execution tests pass, and bounded
+per-key and fixed-window counts match Direct on local Prism. A
+supervised child-loss fixture proves replay with an idempotent sink. Unbounded
+state and broader recovery remain open.

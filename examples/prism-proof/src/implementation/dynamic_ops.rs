@@ -183,6 +183,75 @@ pub fn windowed_value_state_fixture(
         )
 }
 
+struct IdempotentStateLabelSink {
+    directory: PathBuf,
+    pending: Vec<String>,
+}
+
+impl TypedSink<String> for IdempotentStateLabelSink {
+    fn write(&mut self, value: String) -> Result<(), Error> {
+        self.pending.push(value);
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        std::fs::create_dir_all(&self.directory)
+            .map_err(|error| Error::incompatible(error.to_string()))?;
+        for value in self.pending.drain(..) {
+            let path = self.directory.join(value.replace(':', "_"));
+            use std::io::Write;
+            let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)
+                .map_err(|error| Error::incompatible(error.to_string()))?;
+            temporary.write_all(value.as_bytes())
+                .and_then(|()| temporary.as_file().sync_all())
+                .map_err(|error| Error::incompatible(error.to_string()))?;
+            match temporary.persist_noclobber(&path) {
+                Ok(_) => {}
+                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if std::fs::read_to_string(&path)
+                        .map_err(|error| Error::incompatible(error.to_string()))? != value
+                    {
+                        return Err(Error::incompatible("idempotent state sink found a conflicting row"));
+                    }
+                }
+                Err(error) => return Err(Error::incompatible(error.error.to_string())),
+            }
+        }
+        Ok(())
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.pending.clear();
+        Ok(())
+    }
+}
+
+/// The same keyed count with replay-safe output for a supervised worker retry.
+pub fn replay_value_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .from_vec("value-state-input", vec![(1_i32, 11_i32), (1, 13), (2, 17), (1, 19)])?
+        .stateful_value_map_named::<i32, i32>(
+            "value-state-count",
+            "prism-proof/key-count-state",
+            Version { major: 1, minor: 0 },
+            |_, _, prior| {
+                let count = prior.unwrap_or(0) + 1;
+                Ok((Some(count), count))
+            },
+        )?
+        .map_named("value-state-label", |(key, count)| format!("{key}:{count}"))?
+        .sink_named_with_config(
+            "value-state-result",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("value-state-replay:{}", directory.display()),
+            move || Ok(Box::new(IdempotentStateLabelSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
 /// Both arms of a fallible helper must survive portable fanout and rejoin.
 pub fn dead_letter_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();

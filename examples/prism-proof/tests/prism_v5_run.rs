@@ -2159,6 +2159,47 @@ async fn prism_matches_direct_windowed_value_state() {
 }
 
 #[tokio::test]
+async fn prism_replays_bounded_value_state_after_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let portable_path = directory.path().join("replayed-state");
+    let witness = directory.path().join("killed-after-state-output");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::replay_value_state_fixture(&pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-bounded-value-state",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_REPLAY_VALUE_STATE".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_TEST_KILL_AFTER_REPLAY_OUTPUT".into(),
+                witness.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism state replay failed: {terminal:?}");
+    assert!(
+        witness.exists(),
+        "the first execution child did not exit after output"
+    );
+    let mut rows = std::fs::read_dir(&portable_path)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(rows, ["1:1", "1:2", "1:3", "2:1"]);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_bounded_runner_contract() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

@@ -414,8 +414,9 @@ the matching single value cell, retrieves it with Fn State, invokes the
 registered callback, then clears or replaces the cell. Fake-runner tests cover
 successive writes and a KV input boundary. Other user-state shapes and timer
 declarations still fail worker planning. Bounded key-scope and fixed-window
-counts match Direct on local Prism; retry and recovery remain unproved for
-this operation.
+counts match Direct on local Prism. A supervised worker-child failure after
+replay output keeps the same keyed counts with an idempotent sink. Unbounded
+state and broader recovery remain unproved for this operation.
 
 ## Bundles and committed output
 
