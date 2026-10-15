@@ -59,6 +59,11 @@ pub trait ElementwiseExt<T: Element> {
     fn distinct_named(&self, key: &str) -> Result<PCollection<T>, Error>
     where
         T: Eq + Hash + Clone;
+    /// Emit one value per key and window using a portable keyed shuffle.
+    /// An unbounded global input requires an early trigger before this call.
+    fn distinct_per_window_named(&self, key: &str) -> Result<PCollection<T>, Error>
+    where
+        T: Eq + Hash + Clone;
     fn count_per_element_named(&self, key: &str) -> Result<PCollection<(T, u64)>, Error>
     where
         T: Eq + Hash + Clone;
@@ -149,6 +154,14 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
     {
         self.fold_globally_ordered_named(&format!("{key}/collect"), Distinct)?
             .flat_map_named(key, |values| values)
+    }
+    fn distinct_per_window_named(&self, key: &str) -> Result<Self, Error>
+    where
+        T: Eq + Hash + Clone,
+    {
+        self.map_named(&format!("{key}/key"), |value| (value, 0_u8))?
+            .group_by_key_named(&format!("{key}/group"))?
+            .map_named(key, |(value, _)| value)
     }
     fn count_per_element_named(&self, key: &str) -> Result<PCollection<(T, u64)>, Error>
     where

@@ -16,6 +16,7 @@ use ironbeam_prism_proof::{
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
     bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
+    distinct_window_fixture,
     dual_count_or_time_cogroup_fixture, dual_late_cogroup_fixture, dual_late_count_cogroup_fixture,
     dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
     dual_positive_late_join_time_fixture, dual_processing_time_cogroup_fixture,
@@ -232,6 +233,9 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_BOUNDED_CONTRACT") {
         return bounded_map_filter_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DISTINCT_WINDOW") {
+        return distinct_window_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_CUSTOM_BATCHES") {
         return explicit_custom_batches_fixture(pipeline, path.into())

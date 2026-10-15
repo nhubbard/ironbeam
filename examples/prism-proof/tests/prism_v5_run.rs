@@ -31,7 +31,7 @@ use ironbeam_prism_proof::{
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
     bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_trigger_stream_fixture, dead_letter_fixture,
-    dual_count_or_time_cogroup_fixture, dual_late_cogroup_collection, dual_late_cogroup_fixture,
+    distinct_window_fixture, dual_count_or_time_cogroup_fixture, dual_late_cogroup_collection, dual_late_cogroup_fixture,
     dual_late_count_cogroup_collection, dual_late_count_cogroup_fixture,
     dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
     dual_positive_late_join_time_fixture, dual_processing_time_cogroup_collection,
@@ -5686,6 +5686,37 @@ async fn prism_matches_direct_byte_and_keyed_batch_helpers() {
     )
     .await;
     assert_eq!(terminal.0, 3, "Prism batch helper state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_per_window_distinct() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-distinct.txt");
+    let portable_path = directory.path().join("portable-distinct.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = distinct_window_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner.run_sink(&direct_sink, &JobConfig::default()).unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path).unwrap().lines().map(str::to_owned).collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = ["0:1000000:a", "10000000:11000000:a", "10000000:12000000:b"];
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    distinct_window_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "distinct-window",
+        HashMap::from([("IRONBEAM_V5_PRISM_DISTINCT_WINDOW".into(), portable_path.to_string_lossy().into_owned())]),
+    ).await;
+    assert_eq!(terminal.0, 3, "distinct-window job state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), expected);
 }
 
