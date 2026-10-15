@@ -55,3 +55,36 @@ pub fn portable_object_avro_fixture(
         },
     )
 }
+
+/// Reopens a provider-bound Avro source after the execution child is replaced.
+pub fn portable_object_avro_replay_fixture(
+    pipeline: &Pipeline,
+    object_root: &Path,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    portable_object_avro_collection(pipeline, object_root)?
+        .flat_map_fallible_named("portable-object-avro-replay-row", |row| {
+            if row == "6:first:5"
+                && std::env::var_os("IRONBEAM_V5_PRISM_KILL_OBJECT_AVRO").is_some()
+            {
+                await_supervised_source_replacement(Some(&[1]))?;
+            }
+            Ok(vec![row])
+        })?
+        .sink_named_with_config(
+            "portable-object-avro-replay-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("portable-object-avro-replay:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
