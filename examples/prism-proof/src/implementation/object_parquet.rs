@@ -10,11 +10,11 @@ pub fn portable_object_parquet_collection(
             Error::incompatible(error.to_string())
         })?)
         .map_err(|error| Error::incompatible(error.to_string()))?;
-    ironbeam_io_parquet::cloud_parquet_uri_source::<ProductionAvroRow>(
+    ironbeam_io_parquet::cloud_parquet_uri_prefix_source::<ProductionAvroRow>(
         pipeline,
         "portable-object-parquet-source",
         &stores,
-        "file://bucket/input/rows.parquet",
+        "file://bucket/input/",
     )?
     .map_named("portable-object-parquet-row", |row| {
         format!("{}:{}", row.id, row.label)

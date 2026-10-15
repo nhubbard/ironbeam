@@ -73,3 +73,52 @@ pub fn cloud_parquet_uri_source<T: Element + DeserializeOwned>(
         },
     )
 }
+
+/// Read every Parquet object under a URI prefix.
+///
+/// The matching object set is fixed when the graph is built. Each object has
+/// its own byte-bound source and stable key. Objects added later are not part
+/// of this graph; changed or removed objects fail when execution opens them.
+///
+/// # Errors
+///
+/// Returns an error for an invalid or empty prefix, missing provider, or
+/// failed object read.
+pub fn cloud_parquet_uri_prefix_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    stores: &ObjectStores,
+    uri_prefix: &str,
+) -> Result<PCollection<T>, Error> {
+    let mut locations = stores
+        .list(uri_prefix)
+        .map_err(|error| Error::io(key, "cloud", error.to_string()))?
+        .into_iter()
+        .map(|(location, _)| location.uri())
+        .collect::<Vec<_>>();
+    locations.sort();
+    if locations.is_empty() {
+        return Err(Error::io(
+            key,
+            "cloud",
+            format!("no Parquet objects matched {uri_prefix}"),
+        ));
+    }
+    let mut sources = Vec::with_capacity(locations.len());
+    for uri in locations {
+        let mut digest = String::new();
+        for byte in Sha256::digest(uri.as_bytes()) {
+            write!(digest, "{byte:02x}").expect("writing to String cannot fail");
+        }
+        let child_key = format!("{key}/object-{digest}");
+        sources.push(cloud_parquet_uri_source(
+            pipeline, &child_key, stores, &uri,
+        )?);
+    }
+    let first = sources.remove(0);
+    if sources.is_empty() {
+        first.map_named(key, |value| value)
+    } else {
+        first.flatten_named(key, &sources)
+    }
+}

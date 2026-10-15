@@ -4313,18 +4313,46 @@ async fn prism_reads_provider_bound_parquet_rows() {
         .unwrap();
     stores
         .write(
-            "file://bucket/input/rows.parquet",
+            "file://bucket/input/a.parquet",
             &std::fs::read(seed_path).unwrap(),
         )
         .unwrap();
+    let second_path = directory.path().join("second.parquet");
+    let second = Pipeline::default()
+        .from_vec(
+            "object-parquet-second-seed",
+            vec![ProductionAvroRow {
+                id: 10,
+                label: "fifth".into(),
+            }],
+        )
+        .unwrap();
+    DirectRunner
+        .run_sink(
+            &ironbeam_io_parquet::parquet_sink(
+                &second,
+                "object-parquet-second-seed-sink",
+                &second_path,
+            )
+            .unwrap(),
+            &JobConfig::default(),
+        )
+        .unwrap();
+    stores
+        .write(
+            "file://bucket/input/b.parquet",
+            &std::fs::read(second_path).unwrap(),
+        )
+        .unwrap();
     let direct_pipeline = Pipeline::default();
-    let direct = portable_object_parquet_collection(&direct_pipeline, &object_root)
+    let mut direct = portable_object_parquet_collection(&direct_pipeline, &object_root)
         .unwrap()
         .output("object-parquet-direct-output")
         .unwrap()
         .collect_seq()
         .unwrap();
-    assert_eq!(direct, ["8:third", "9:fourth"]);
+    direct.sort();
+    assert_eq!(direct, ["10:fifth", "8:third", "9:fourth"]);
 
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
@@ -4350,13 +4378,10 @@ async fn prism_reads_provider_bound_parquet_rows() {
     )
     .await;
     assert_eq!(terminal.0, 3, "portable object Parquet job: {terminal:?}");
-    assert_eq!(
-        std::fs::read_to_string(path)
-            .unwrap()
-            .lines()
-            .collect::<Vec<_>>(),
-        ["8:third", "9:fourth"]
-    );
+    let result = std::fs::read_to_string(path).unwrap();
+    let mut portable_rows = result.lines().collect::<Vec<_>>();
+    portable_rows.sort_unstable();
+    assert_eq!(portable_rows, ["10:fifth", "8:third", "9:fourth"]);
 }
 
 #[tokio::test]

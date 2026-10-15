@@ -149,13 +149,17 @@ credentials and network access in the process that builds the graph. The
 provider reads the full object into memory; large objects need a streaming
 provider and source implementation.
 
-Parquet has the corresponding opt-in `cloud_parquet_uri_source`. Enable the
-Parquet crate's `cloud` feature, register an `ObjectIO` provider, and pass a
-URI such as `file://bucket/records.parquet` or `gs://bucket/records.parquet`.
+Parquet has the corresponding opt-in `cloud_parquet_uri_source` and
+`cloud_parquet_uri_prefix_source`. Enable the Parquet crate's `cloud` feature,
+register an `ObjectIO` provider, and pass a URI such as
+`file://bucket/records.parquet` or `gs://bucket/records.parquet`. The prefix
+form fixes its matching object set when the graph is built. New objects require
+a new graph; each matched object is checked for changes when it opens.
 The URI and object bytes identify the source, and a changed object is rejected
 when execution opens it. The root `cloud` feature forwards to Parquet's
 `cloud` feature when `v5-io-parquet` is enabled. A local Prism job rebuilds a
-`file://` provider in the worker and reads the same two Parquet rows as Direct.
+`file://` provider in the worker and reads the same three rows from two
+Parquet objects as Direct. Flatten may deliver those rows in a different order.
 The provider currently reads the complete object into memory. Remote worker
 binding and a streaming Parquet object reader remain to be proved.
 
