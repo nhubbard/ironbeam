@@ -107,7 +107,7 @@ pub(super) fn plan_map_windows(
     let (outer_window, input_window, key_coder) = map_windows_coder(pbd, id, &input_pc)?;
     let (output_outer, output_window, output_key_coder) = map_windows_coder(pbd, id, &output_pc)?;
     if outer_window != output_outer
-        || key_coder != output_key_coder
+        || !coders_equivalent(pbd, &key_coder, &output_key_coder)
         || (mapping == WindowMapping::Identity && input_window != output_window)
         || (mapping == WindowMapping::Global && output_window != WindowCoder::Global)
         || (matches!(
@@ -177,6 +177,11 @@ fn map_windows_coder(
     ) {
         return Err(bad());
     }
+    if (coder_urn(key) == urns::CODER_LENGTH_PREFIX && key.component_coder_ids.len() != 1)
+        || (coder_urn(key) != urns::CODER_LENGTH_PREFIX && !key.component_coder_ids.is_empty())
+    {
+        return Err(bad());
+    }
     let value = coders
         .get(&element.component_coder_ids[1])
         .ok_or_else(bad)?;
@@ -185,9 +190,45 @@ fn map_windows_coder(
 }
 
 fn window_coder(coder: &Coder) -> Option<WindowCoder> {
+    if !coder.component_coder_ids.is_empty() {
+        return None;
+    }
     match coder_urn(coder) {
         urns::CODER_GLOBAL_WINDOW => Some(WindowCoder::Global),
         urns::CODER_INTERVAL_WINDOW => Some(WindowCoder::Interval),
         _ => None,
     }
+}
+
+/// Runner ports may use a fresh coder ID for the same wire shape. Compare the
+/// referenced definitions, including payloads and child coders, rather than
+/// treating local IDs as wire identities.
+pub(super) fn coders_equivalent(pbd: &ProcessBundleDescriptor, left: &str, right: &str) -> bool {
+    fn compare(
+        coders: &HashMap<String, Coder>,
+        left: &str,
+        right: &str,
+        visiting: &mut HashSet<(String, String)>,
+        depth: usize,
+    ) -> bool {
+        if depth > 64 {
+            return false;
+        }
+        let (Some(a), Some(b)) = (coders.get(left), coders.get(right)) else {
+            return false;
+        };
+        let pair = (left.to_owned(), right.to_owned());
+        if !visiting.insert(pair.clone()) {
+            return false;
+        }
+        let same = a.spec == b.spec
+            && a.component_coder_ids.len() == b.component_coder_ids.len()
+            && a.component_coder_ids
+                .iter()
+                .zip(&b.component_coder_ids)
+                .all(|(child_a, child_b)| compare(coders, child_a, child_b, visiting, depth + 1));
+        visiting.remove(&pair);
+        same
+    }
+    compare(&pbd.coders, left, right, &mut HashSet::new(), 0)
 }

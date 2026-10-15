@@ -27,7 +27,7 @@ use prost::Message;
 
 #[path = "bundle_map_windows.rs"]
 mod map_windows;
-use map_windows::plan_map_windows;
+use map_windows::{coders_equivalent, plan_map_windows};
 
 pub const URN_RUNNER_SOURCE: &str = "beam:runner:source:v1";
 pub const URN_RUNNER_SINK: &str = "beam:runner:sink:v1";
@@ -435,8 +435,8 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
         let sink_coder = pbd.pcollections.get(sink_pc).ok_or(PlanError::NotLinear)?;
         if source_pc != input_pc
             || output_pc != sink_pc
-            || source_port.coder_id != source_coder.coder_id
-            || sink_port.coder_id != sink_coder.coder_id
+            || !coders_equivalent(pbd, &source_port.coder_id, &source_coder.coder_id)
+            || !coders_equivalent(pbd, &sink_port.coder_id, &sink_coder.coder_id)
         {
             return Err(PlanError::NotLinear);
         }

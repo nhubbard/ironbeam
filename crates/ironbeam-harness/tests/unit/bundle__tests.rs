@@ -175,6 +175,46 @@ fn plans_global_and_identity_map_windows_with_exact_kv_coders() {
 }
 
 #[test]
+fn map_windows_accepts_equivalent_coder_trees_under_runner_local_ids() {
+    let mut pbd = map_windows_pbd(urns::WINDOW_MAPPING_IDENTITY, urns::CODER_INTERVAL_WINDOW);
+    pbd.coders
+        .insert("key-copy".into(), leaf_coder(urns::CODER_BYTES));
+    pbd.coders.get_mut("output-kv").unwrap().component_coder_ids[0] = "key-copy".into();
+    pbd.coders.insert(
+        "input-wv-copy".into(),
+        composite_coder(urns::CODER_WINDOWED_VALUE, &["input-kv", "interval"]),
+    );
+    pbd.coders.insert(
+        "output-wv-copy".into(),
+        composite_coder(urns::CODER_WINDOWED_VALUE, &["output-kv", "interval"]),
+    );
+    for (transform, port_coder) in [("source", "input-wv-copy"), ("sink", "output-wv-copy")] {
+        let spec = pbd
+            .transforms
+            .get_mut(transform)
+            .unwrap()
+            .spec
+            .as_mut()
+            .unwrap();
+        let mut port = RemoteGrpcPort::decode(spec.payload.as_slice()).unwrap();
+        port.coder_id = port_coder.into();
+        spec.payload = port.encode_to_vec();
+    }
+    assert!(plan(&pbd).is_ok());
+
+    pbd.coders
+        .insert("key-copy".into(), leaf_coder(urns::CODER_STRING_UTF8));
+    assert!(plan(&pbd).is_err());
+
+    pbd.coders.insert(
+        "key-copy".into(),
+        composite_coder(urns::CODER_LENGTH_PREFIX, &["key-copy"]),
+    );
+    assert!(!coders_equivalent(&pbd, "key-copy", "key-copy"));
+    assert!(plan(&pbd).is_err());
+}
+
+#[test]
 fn plans_fixed_and_sliding_side_window_mappings_from_beam_payloads() {
     for (mut spec, expected) in [
         (
