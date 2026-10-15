@@ -244,3 +244,47 @@ fn beam_fraction_uses_last_attempt_and_prestart_boundary() {
         (range(0, 8), range(8, 10))
     );
 }
+
+#[test]
+fn beam_fraction_truncates_negative_split_positions_toward_zero() {
+    let tenth = OffsetRangeTracker::new(range(-10, 10)).unwrap();
+    assert_eq!(
+        tenth.try_split(0.1).unwrap().unwrap(),
+        (range(-10, -8), range(-8, 10))
+    );
+
+    let half = OffsetRangeTracker::new(range(-10, 10)).unwrap();
+    assert_eq!(
+        half.try_split(0.5).unwrap().unwrap(),
+        (range(-10, 0), range(0, 10))
+    );
+}
+
+#[test]
+fn beam_decimal_fraction_preserves_extreme_split_boundaries() {
+    let tenth = OffsetRangeTracker::new(range(i64::MIN, i64::MAX)).unwrap();
+    assert_eq!(
+        tenth.try_split(0.1).unwrap().unwrap(),
+        (
+            range(i64::MIN, -7_378_697_629_483_820_647),
+            range(-7_378_697_629_483_820_647, i64::MAX)
+        )
+    );
+
+    let nine_tenths = OffsetRangeTracker::new(range(i64::MIN, i64::MAX)).unwrap();
+    assert_eq!(
+        nine_tenths.try_split(0.9).unwrap().unwrap(),
+        (
+            range(i64::MIN, 7_378_697_629_483_820_645),
+            range(7_378_697_629_483_820_645, i64::MAX)
+        )
+    );
+
+    for tiny in [f64::MIN_POSITIVE, f64::from_bits(1)] {
+        let tracker = OffsetRangeTracker::new(range(i64::MIN, i64::MAX)).unwrap();
+        assert_eq!(
+            tracker.try_split(tiny).unwrap().unwrap(),
+            (range(i64::MIN, i64::MIN), range(i64::MIN, i64::MAX))
+        );
+    }
+}

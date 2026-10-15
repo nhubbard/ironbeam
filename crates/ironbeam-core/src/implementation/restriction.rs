@@ -137,6 +137,57 @@ fn decode_varint(input: &mut &[u8]) -> Result<u64, Error> {
     ))
 }
 
+/// Match `BigDecimal.valueOf(double)` for a fraction in `[0, 1]`: Java uses
+/// the shortest decimal representation of the double, not its binary ratio.
+fn decimal_fraction(fraction: f64) -> (u128, u32) {
+    let decimal = fraction.to_string();
+    let (significand, exponent) =
+        decimal
+            .split_once(['e', 'E'])
+            .map_or((decimal.as_str(), 0), |(value, power)| {
+                (
+                    value,
+                    power.parse::<i32>().expect("formatted decimal exponent"),
+                )
+            });
+    let decimal_places = significand
+        .split_once('.')
+        .map_or(0, |(_, places)| places.len());
+    let digits = significand
+        .bytes()
+        .filter(u8::is_ascii_digit)
+        .fold(0_u128, |value, digit| value * 10 + u128::from(digit - b'0'));
+    let scale = i32::try_from(decimal_places).expect("formatted fraction length") - exponent;
+    if scale <= 0 {
+        return (digits * 10_u128.pow(scale.unsigned_abs()), 0);
+    }
+    (digits, scale.cast_unsigned())
+}
+
+/// Beam converts the final decimal split position to `long`, which truncates
+/// toward zero. Dividing the fractional offset first would floor negative
+/// positions and move their split point one place left.
+fn beam_split_position(current: i128, stop: i128, fraction: f64) -> i128 {
+    let (numerator, scale) = decimal_fraction(fraction);
+    // Any decimal smaller than 10^-38 contributes less than one offset across
+    // the entire signed 64-bit span; Beam's minimum increment is one.
+    if scale > 38 {
+        return current + 1;
+    }
+    let denominator = 10_u128.pow(scale);
+    let product = u128::try_from(stop - current).expect("valid remaining range") * numerator;
+    if product < denominator {
+        return current + 1;
+    }
+    let whole = i128::try_from(product / denominator).expect("fraction at most one");
+    let base = current + whole;
+    if base < 0 && product % denominator != 0 {
+        base + 1
+    } else {
+        base
+    }
+}
+
 /// The current primary and the residual created by a successful split.
 pub type RestrictionSplit<R> = Option<(R, R)>;
 
@@ -220,9 +271,6 @@ impl OffsetRangeTracker {
     /// Split the remaining positions. Zero checkpoints immediately after the
     /// last claim, leaving no unclaimed positions in the primary. Returns
     /// `None` when the residual would be empty.
-    // Beam specifies a floating-point fraction, so a range wider than f64's
-    // exact integer span necessarily rounds the requested split point.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     pub fn try_split(
         &self,
         fraction_of_remainder: f64,
@@ -250,10 +298,7 @@ impl OffsetRangeTracker {
         if current >= stop {
             return Ok(None);
         }
-        let offset = ((stop - current) as f64 * fraction_of_remainder)
-            .max(1.0)
-            .floor() as i128;
-        let split = current + offset;
+        let split = beam_split_position(current, stop, fraction_of_remainder);
         if split >= stop {
             return Ok(None);
         }
