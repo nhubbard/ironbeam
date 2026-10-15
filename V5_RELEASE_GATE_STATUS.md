@@ -324,8 +324,12 @@ separate watermarks after the two window ends. The public API rejects sliding
 expiration at graph construction until that runner boundary is resolved.
 Other expiration patterns remain open.
 The nine live local Prism timer fixtures and the full affected core, Direct,
-Graphx, harness, and proof-package suites pass after this change; the Linux
-coverage and package checks for this new commit remain pending.
+Graphx, harness, and proof-package suites pass after this change. At
+`5b756bb`, the Linux core job reports **6567/6836 lines (96.06%)** and
+**1340/1552 branches (86.34%)**, while Direct reports **6191/6786 lines
+(91.23%)** and **1779/1976 branches (90.03%)**; all four unchanged floors
+pass. The full portable Prism workflow passes. Feature-matrix and package
+verification checks remain in progress.
 
 | Required execution boundary | Direct | Portable worker |
 | --- | --- | --- |
@@ -596,7 +600,7 @@ The separate checkout was not changed.
 
 | Gate | Done when |
 | --- | --- |
-| ☑ Core and Direct coverage on current branch; ☑ local workspace and expanded CI verification | At `f9ec20d`, all 34 required PR checks passed. The timer additions at `3a6285c` temporarily missed the unchanged Linux core floor. Focused timer checkpoint and value-state registration tests bring commit `7310e5a` to **6523/6791 core lines (96.05% versus 96.04%)** and **1326/1536 core branches (86.33% versus 86.17%)**; the Linux core and Direct coverage jobs pass. The expanded workspace tests, non-destructive local Prism jobs, separate Control-loss proof, and Arrow IPC job passed earlier. The opt-in database proof compiled earlier but was not rerun against live database services after the import. Coverage is a release floor, not a claim that every branch is exercised. |
+| ☑ Core and Direct coverage on current branch; ☑ local workspace and expanded CI verification | At `f9ec20d`, all 34 required PR checks passed. The timer additions at `3a6285c` temporarily missed the unchanged Linux core floor. Focused tests restored it at `7310e5a`; the expiration feature at `5b756bb` also passes its Linux core and Direct coverage jobs. The exact current counts are above. The expanded workspace tests, non-destructive local Prism jobs, separate Control-loss proof, and Arrow IPC job passed earlier. The opt-in database proof compiled earlier but was not rerun against live database services after the import. Coverage is a release floor, not a claim that every branch is exercised. |
 | ☑ Performance | The paired million-row corpus matches outputs and passes explicit v5 latency and peak-memory limits. |
 | ☑ Versioning configuration; ☐ registry publication | The public facade and 33 implementation/helper crates are unpublished `5.0.0` candidates. Semantic Release uses the previous Git tag and conventional commits to select the next version; a `major:` commit selects 5.0.0 after v4.1.1. Its workspace adapter synchronizes package versions and local dependency versions, including inherited workspace dependencies, validates dependency order, and publishes every crate before the GitHub release. The release workflow obtains a temporary crates.io token through Trusted Publishing. The four imported crates and root package pass local package verification; publication remains held at the user's request. Registry authorization cannot be exercised before the workflow runs. |
 | ☑ Day-one GCP resource clients | `ironbeam-cloud-gcp` 5.0.0 packages the official Google Rust clients for Storage, Pub/Sub, BigQuery, and Secret Manager. Each service has its own feature; the root facade offers matching features and an aggregate. The client crate's unit tests, isolated feature builds, strict lint, local package verification, all-feature workspace tests, and Zensical guide pass. At the user's direction, no live GCP integration test was run; successful operations, IAM, and hosted Dataflow behavior are not claimed by this gate. |
