@@ -2960,6 +2960,7 @@ version = "5.0.0"
 dependencies = [
  "ironbeam-core",
  "ironbeam-metrics",
+ "ironbeam-transforms",
  "rayon",
  "serde",
  "serde_json",
