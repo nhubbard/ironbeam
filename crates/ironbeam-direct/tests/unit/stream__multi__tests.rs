@@ -549,6 +549,17 @@ fn dual_start_rejects_missing_coder_and_cancellation() {
     let temporary = tempfile::tempdir().unwrap();
     let config = checkpoint_config(temporary.path());
     let (graph, registry, plan, mut route, sink_key) = dual_fixture();
+    route.side_source_key.clone_from(&route.source_key);
+    route.main_stages.insert(0, "uncoded-common-stage".into());
+    route.side_stages.insert(0, "uncoded-common-stage".into());
+    assert!(matches!(
+        start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::UnsupportedCapability { .. }
+    ));
+    let (graph, registry, plan, mut route, sink_key) = dual_fixture();
     route.side_input_key = "missing-coder".into();
     assert!(matches!(
         start_dual_side_stream::<i32>(&graph, registry, plan, sink_key, &config, route)
