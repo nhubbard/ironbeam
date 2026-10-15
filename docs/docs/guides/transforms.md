@@ -590,8 +590,9 @@ timer callback shapes need further tests.
 `stateful_timer_map_with_window_expiration_named` invokes the timer callback
 for each key used in a finite window when that window expires. The expiration
 family is owned by the runner; user callbacks cannot set or clear it. The
-family must be declared as event time, and fixed or sliding window boundaries
-must align to whole milliseconds.
+family must be declared as event time, and fixed window boundaries must align
+to whole milliseconds. Sliding-window expiration is rejected while the pinned
+Prism runner's overlapping-window callback schedule differs from Direct.
 
 ```rust
 use std::collections::BTreeMap;

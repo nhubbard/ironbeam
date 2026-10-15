@@ -731,7 +731,7 @@ fn expiration_registration_requires_aligned_finite_windows_and_event_family() {
     let sliding = stream
         .sliding_windows("sliding", 10_000_000, 5_000_000, 0)
         .unwrap();
-    assert!(register(&sliding, event(), "expire", "sliding-expiry").is_ok());
+    assert!(register(&sliding, event(), "expire", "sliding-expiry").is_err());
     let unaligned_slide = stream
         .sliding_windows("unaligned-slide", 10_000_000, 500_000, 0)
         .unwrap();

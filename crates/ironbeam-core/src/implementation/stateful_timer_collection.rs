@@ -28,7 +28,7 @@ where
         )
     }
 
-    /// Run the timer callback once for each key when its finite window expires.
+    /// Run the timer callback once for each key when its fixed window expires.
     /// `expiration_family_id` must name a declared event-time family. The
     /// callback receives that family ID and the window's maximum timestamp.
     #[allow(clippy::too_many_arguments)]
@@ -85,16 +85,10 @@ where
                         && size_ns % 1_000_000 == 0
                         && offset_ns % 1_000_000 == 0
                 }
-                Window::Sliding { size_ns, period_ns, offset_ns } => {
-                    *size_ns >= 1_000_000
-                        && size_ns % 1_000_000 == 0
-                        && period_ns % 1_000_000 == 0
-                        && offset_ns % 1_000_000 == 0
-                }
-                Window::Global | Window::Session { .. } => false,
+                Window::Global | Window::Sliding { .. } | Window::Session { .. } => false,
             };
             if !aligned {
-                return Err(Error::graph(key, "window expiration requires millisecond-aligned finite windows"));
+                return Err(Error::graph(key, "window expiration requires millisecond-aligned fixed windows"));
             }
         }
         if families.is_empty() || !K::supports_coder() || !V::supports_coder()

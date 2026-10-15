@@ -308,7 +308,7 @@ Each window arms its own timer; Direct and Prism commit the same two rows
 with the shared seven-millisecond output hold and distinct interval bounds.
 
 Window-expiration callbacks now have an explicit public timer-family API for
-whole-millisecond finite windows. Graphx marks the Beam ParDo expiration
+whole-millisecond fixed windows. Graphx marks the Beam ParDo expiration
 family; the harness validates its event-time coder; Direct schedules the
 runner-owned firing after the window's maximum timestamp and invokes the
 callback before state cleanup. A coded checkpoint restores its value cell and
@@ -317,7 +317,11 @@ same timestamped rows on Direct and pinned Prism in repeated live runs when
 the source advances its watermark after each window. In one observed Prism
 schedule, both windows' elements arrived in one TestStream batch before a
 single final watermark and only the first expiration output was committed.
-That runner scheduling boundary and wider expiration patterns remain open.
+An overlapping sliding-window experiment likewise emitted only the first
+expiration callback on pinned Prism while Direct emitted both, even with
+separate watermarks after the two window ends. The public API rejects sliding
+expiration at graph construction until that runner boundary is resolved.
+Other expiration patterns remain open.
 The eight live local Prism timer fixtures and the full affected core, Direct,
 Graphx, harness, and proof-package suites pass after this change; the Linux
 coverage and package checks for this new commit remain pending.
