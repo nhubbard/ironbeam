@@ -183,6 +183,14 @@ would hide the difference between a declared state spec and a working
 stateful pipeline. The target remains open until the missing behaviors have
 executable fixtures and a documented weighting method.
 
+The bounded completion barrier now accepts a materialized signal branch on
+Direct. A two-source `Flatten` followed by `GroupByKey` finishes before an
+unbounded main source opens; pinned Prism runs the same graph and agrees on
+both output values and event times. Direct's checkpoint binds the content
+digests of both bounded sources. Replacing the second source's values rejects
+recovery before the main reader opens. This does not close the separate
+windowed early-release gap in the table.
+
 The pinned Go `state.Provider` and Python `userstate.py` clarify the first
 stateful execution gate: a keyed callback must observe its earlier writes in
 the same bundle, and a declared timer must have a callable handler. The

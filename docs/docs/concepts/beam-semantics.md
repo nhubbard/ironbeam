@@ -218,6 +218,8 @@ bounded signal before opening the main reader. On checkpoint recovery it
 repeats the signal and reopens the main reader at its saved cursor; the
 checkpoint rejects a changed signal source. A shared unbounded-main fixture
 produces the same values and event times on Direct and pinned Prism.
+Another shared fixture joins two bounded signal branches with `Flatten`, groups
+their values by key, and waits for that grouping before emitting main values.
 `wait_on_all_named` composes several bounded signal barriers of one
 element type. `wait_on_signals_named` accepts different signal element types
 through `wait_signal` handles. `wait_on_windowed_named` accepts a watermarked signal stream and

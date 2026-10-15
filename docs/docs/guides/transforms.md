@@ -246,7 +246,8 @@ a portable Flatten transform in the graph.
 completes. The main collection may be unbounded: Direct completes the bounded
 signal before opening the stream reader, then resumes that reader from its
 saved cursor after a restart. The checkpoint records the signal source's
-content identity, so changing its bounded input invalidates recovery.
+content identity, so changing any bounded input invalidates recovery. A
+bounded signal may combine multiple sources with `Flatten` and a keyed shuffle.
 `wait_on_all_named` accepts several bounded signals of the same
 element type and requires all of them to finish. For signals with different
 element types, use `wait_on_signals_named` and convert each collection with
