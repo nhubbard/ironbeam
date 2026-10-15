@@ -516,5 +516,7 @@ Here `pairs` contains `(key, amount)` values. Each output is the sum before
 the current amount is added. Direct and pinned local Prism agree on bounded
 add, clear, and replace operations and on two unbounded fixed windows. Direct
 checkpoints the coded accumulator; a local Prism job retains it after a
-supervised execution child is replaced. Timer callbacks remain separate from
-this API.
+supervised execution child is replaced. If a runner returns several partial
+accumulators, the worker merges them before invoking the callback and writes
+back one coded accumulator. A fake Fn State runner verifies this case. Timer
+callbacks remain separate from this API.

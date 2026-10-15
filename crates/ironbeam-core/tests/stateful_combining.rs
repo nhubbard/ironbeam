@@ -98,6 +98,48 @@ fn failed_combining_merge_leaves_cell_unchanged() {
     );
 }
 
+#[test]
+fn combining_merges_multiple_coded_runner_accumulators() {
+    let (_, registry) = pipeline().snapshot().unwrap();
+    let encoded = [10_i32, 20, 5]
+        .into_iter()
+        .map(|value| value.encode().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        i32::decode(
+            &registry
+                .merge_combining_accumulators("combining", &encoded)
+                .unwrap()
+        )
+        .unwrap(),
+        35
+    );
+    assert!(
+        registry
+            .merge_combining_accumulators("combining", &[])
+            .is_err()
+    );
+    assert!(
+        registry
+            .merge_combining_accumulators("missing", &encoded)
+            .is_err()
+    );
+    assert!(
+        registry
+            .merge_combining_accumulators("combining", &[encoded[0].clone(), vec![1]])
+            .is_err()
+    );
+    let overflow = [990_i32, 20]
+        .into_iter()
+        .map(|value| value.encode().unwrap())
+        .collect::<Vec<_>>();
+    assert!(
+        registry
+            .merge_combining_accumulators("combining", &overflow)
+            .is_err()
+    );
+}
+
 #[derive(Clone, Eq, Hash, PartialEq)]
 struct Uncoded;
 

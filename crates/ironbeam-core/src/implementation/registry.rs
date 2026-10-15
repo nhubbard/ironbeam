@@ -405,6 +405,16 @@ impl Registry {
     pub fn has_stateful_value(&self, key: &str) -> bool {
         matches!(self.transforms.get(key), Some(Transform::StatefulValue(_)))
     }
+    /// Merge the coded accumulator elements returned by one Beam combining-state bag.
+    pub fn merge_combining_accumulators(
+        &self,
+        key: &str,
+        encoded: &[Vec<u8>],
+    ) -> Result<Vec<u8>, Error> {
+        let merge = self.combining_mergers.get(key)
+            .ok_or_else(|| Error::incompatible("combining-state merge function is not registered"))?;
+        merge(encoded)
+    }
     /// Remove value cells whose window has expired at the source watermark.
     pub fn expire_stateful_value(&self, key: &str, watermark: Option<i64>) -> Result<(), Error> {
         match self.transforms.get(key) {

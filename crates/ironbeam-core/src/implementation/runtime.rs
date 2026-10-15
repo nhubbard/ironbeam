@@ -937,6 +937,7 @@ fn vector_source_digest<T: Element>(values: &[T]) -> Result<String, Error> {
 pub struct Registry {
     sources: BTreeMap<String, SourceRegistration>,
     transforms: BTreeMap<String, Transform>,
+    combining_mergers: BTreeMap<String, CodedAccumulatorMerger>,
     typed_transforms: BTreeMap<String, TypedTransformRegistration>,
     keyed_timestamp_reifications: BTreeSet<String>,
     aggregates: BTreeMap<String, Aggregate>,
@@ -949,6 +950,8 @@ pub struct Registry {
     join_coders: BTreeMap<String, JoinCoderRegistration>,
     side_inputs: BTreeMap<String, SideInputRegistration>,
 }
+type CodedAccumulatorMerger =
+    Arc<dyn Fn(&[Vec<u8>]) -> Result<Vec<u8>, Error> + Send + Sync>;
 #[derive(Clone, Copy)]
 struct CoderRegistration {
     encode: fn(&(dyn Any + Send)) -> Result<Vec<u8>, Error>,

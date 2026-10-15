@@ -253,16 +253,22 @@ impl V5BundleExecutor {
                                 } else {
                                     let cell_id = if combining_state { "combining" } else { "value" };
                                     access.apply_value_state(cell_id, |encoded| {
-                                        let prior = if encoded.is_empty() {
-                                            None
-                                        } else {
-                                            let (value, used) = decode_length_prefix(encoded)?;
-                                            if used != encoded.len() {
-                                                bail!("stateful value or combining cell contains more than one encoded value");
-                                            }
-                                            Some(value)
+                                        let mut remaining = encoded;
+                                        let mut accumulators = Vec::new();
+                                        while !remaining.is_empty() {
+                                            let (value, used) = decode_length_prefix(remaining)?;
+                                            accumulators.push(value.to_vec());
+                                            remaining = &remaining[used..];
+                                        }
+                                        if !combining_state && accumulators.len() > 1 {
+                                            bail!("stateful value cell contains more than one encoded value");
+                                        }
+                                        let prior = match accumulators.len() {
+                                            0 => None,
+                                            1 => accumulators.pop(),
+                                            _ => Some(self.registry.merge_combining_accumulators(&node.key, &accumulators)?),
                                         };
-                                        let (next, output) = self.apply_stateful_cell(node, parent, wire, prior)?;
+                                        let (next, output) = self.apply_stateful_cell(node, parent, wire, prior.as_deref())?;
                                         let mutation = match next {
                                             Some(bytes) => {
                                                 let mut encoded = Vec::new();

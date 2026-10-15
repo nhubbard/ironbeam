@@ -174,6 +174,7 @@ type ValueCells = HashMap<(Vec<u8>, Vec<u8>), Vec<u8>>;
 struct ValueRunnerState {
     cells: Arc<Mutex<ValueCells>>,
     requests: Arc<Mutex<Vec<StateRequest>>>,
+    state_id: &'static str,
 }
 
 #[tonic::async_trait]
@@ -187,6 +188,7 @@ impl BeamFnState for ValueRunnerState {
         let (tx, rx) = mpsc::channel(8);
         let cells = Arc::clone(&self.cells);
         let requests = Arc::clone(&self.requests);
+        let state_id = self.state_id;
         tokio::spawn(async move {
             let mut stream = request.into_inner();
             while let Ok(Some(message)) = stream.message().await {
@@ -198,7 +200,7 @@ impl BeamFnState for ValueRunnerState {
                 else {
                     break;
                 };
-                if scope.user_state_id != "value" || scope.transform_id != "stateful" {
+                if scope.user_state_id != state_id || scope.transform_id != "stateful" {
                     break;
                 }
                 let cell = (scope.window.clone(), scope.key.clone());
@@ -1456,6 +1458,7 @@ async fn stateful_value_bundle_reads_prior_writes_by_key() {
             .add_service(BeamFnStateServer::new(ValueRunnerState {
                 cells: Arc::clone(&cells),
                 requests: Arc::clone(&requests),
+                state_id: "value",
             }))
             .serve(addr),
     );
@@ -1557,6 +1560,155 @@ async fn stateful_value_bundle_reads_prior_writes_by_key() {
 }
 
 #[tokio::test]
+async fn combining_bundle_merges_two_runner_accumulators_before_callback() {
+    fn build() -> Pipeline {
+        let pipeline = Pipeline::default();
+        pipeline
+            .from_vec("pairs", vec![(1_i32, 5_i32)])
+            .unwrap()
+            .stateful_combining_map_named::<i32, i32>(
+                "running",
+                "example/running-combining",
+                Version { major: 1, minor: 0 },
+                ironbeam_core::CombiningFunction {
+                    semantic_id: "example/sum",
+                    version: Version { major: 1, minor: 0 },
+                },
+                |left, right| Ok(left + right),
+                |_, value, prior| {
+                    Ok((
+                        ironbeam_core::CombiningStateMutation::Add(value),
+                        prior.copied().unwrap_or_default(),
+                    ))
+                },
+            )
+            .unwrap()
+            .output("result")
+            .unwrap();
+        pipeline
+    }
+    let driver = build();
+    let worker = build();
+    let (graph, registry) = driver.snapshot().unwrap();
+    let identity = execution_identity(&graph, &registry, "test-build").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let mut encoded_key = Vec::new();
+    encode_length_prefix(&Element::encode(&1_i32).unwrap(), &mut encoded_key).unwrap();
+    let mut bag = Vec::new();
+    for accumulator in [10_i32, 20] {
+        encode_length_prefix(&Element::encode(&accumulator).unwrap(), &mut bag).unwrap();
+    }
+    let cells = Arc::new(Mutex::new(HashMap::from([(
+        (Vec::new(), encoded_key.clone()),
+        bag,
+    )])));
+    let server = tokio::spawn(
+        Server::builder()
+            .add_service(BeamFnDataServer::new(RunnerData {
+                received: Arc::clone(&received),
+                impulse_count: 1,
+                impulse_payload: Vec::new(),
+            }))
+            .add_service(BeamFnStateServer::new(ValueRunnerState {
+                cells: Arc::clone(&cells),
+                requests: Arc::clone(&requests),
+                state_id: "combining",
+            }))
+            .serve(addr),
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let port = RemoteGrpcPort {
+        api_service_descriptor: Some(ApiServiceDescriptor {
+            url: format!("http://{addr}"),
+            ..Default::default()
+        }),
+        coder_id: "opaque".into(),
+    };
+    let plan = BundlePlan {
+        pbd_id: "combining-state".into(),
+        state_endpoint: Some(format!("http://{addr}")),
+        side_inputs: HashMap::new(),
+        steps: vec![
+            Step::Source {
+                transform_id: "input".into(),
+                port: port.clone(),
+                output_pc: "impulse".into(),
+                wire: SourceWire::Opaque,
+            },
+            Step::V5ParDo {
+                transform_id: "source".into(),
+                node_ref: V5NodeRef {
+                    key: "pairs".into(),
+                    identity: identity.clone(),
+                    co_group_input: None,
+                },
+                input_pc: "impulse".into(),
+                output_pc: collection_id("pairs"),
+                stateful_value: false,
+            },
+            Step::V5ParDo {
+                transform_id: "stateful".into(),
+                node_ref: V5NodeRef {
+                    key: "running".into(),
+                    identity,
+                    co_group_input: None,
+                },
+                input_pc: collection_id("pairs"),
+                output_pc: collection_id("running"),
+                stateful_value: true,
+            },
+            Step::Sink {
+                transform_id: "output".into(),
+                port,
+                input_pc: collection_id("running"),
+                wire: SinkWire::Opaque,
+            },
+        ],
+    };
+    V5BundleExecutor::new(&worker, "test-build")
+        .unwrap()
+        .run("bundle", &plan)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let chunks = received.lock().await.clone();
+    let actual = chunks
+        .iter()
+        .filter(|chunk| chunk.transform_id == "output" && !chunk.data.is_empty())
+        .map(|chunk| {
+            let (windowed, _) = decode_windowed_value(&chunk.data).unwrap();
+            let (body, _) = decode_length_prefix(windowed.element).unwrap();
+            <(i32, i32)>::decode(body).unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(actual, [(1, 30)]);
+    let requests = requests.lock().await.clone();
+    assert_eq!(requests.len(), 3);
+    assert!(matches!(
+        requests[0].request,
+        Some(state_request::Request::Get(_))
+    ));
+    assert!(matches!(
+        requests[1].request,
+        Some(state_request::Request::Clear(_))
+    ));
+    assert!(matches!(
+        requests[2].request,
+        Some(state_request::Request::Append(_))
+    ));
+    let cells = cells.lock().await;
+    let encoded = &cells[&(Vec::new(), encoded_key)];
+    let (body, used) = decode_length_prefix(encoded).unwrap();
+    assert_eq!(used, encoded.len());
+    assert_eq!(<i32 as Element>::decode(body).unwrap(), 35);
+    server.abort();
+}
+
+#[tokio::test]
 async fn stateful_value_bundle_decodes_runner_kv_boundary() {
     let pipeline = Pipeline::default();
     pipeline
@@ -1600,6 +1752,7 @@ async fn stateful_value_bundle_decodes_runner_kv_boundary() {
             .add_service(BeamFnStateServer::new(ValueRunnerState {
                 cells: Arc::new(Mutex::new(HashMap::new())),
                 requests: Arc::clone(&requests),
+                state_id: "value",
             }))
             .serve(addr),
     );

@@ -61,6 +61,19 @@ where
             on_window_expiration_timer: None,
         };
         contract.validate()?;
+        let merge = Arc::new(merge);
+        let coded_merge: CodedAccumulatorMerger = {
+            let merge = Arc::clone(&merge);
+            Arc::new(move |encoded| {
+                let mut parts = encoded.iter();
+                let first = parts.next().ok_or_else(|| Error::incompatible("combining accumulator bag is empty"))?;
+                let mut accumulator = A::decode(first)?;
+                for part in parts {
+                    accumulator = merge(accumulator, A::decode(part)?)?;
+                }
+                accumulator.encode()
+            })
+        };
         let callback: StatefulValueCallback = Arc::new(move |payload, prior| {
             let pair = payload.downcast::<(K, V)>()
                 .map_err(|_| Error::incompatible("combining-state input type differs from registration"))?;
@@ -101,9 +114,11 @@ where
             Some(Transform::StatefulValue(transform)),
             None,
         )?;
-        self.pipeline.inner.lock()
-            .map_err(|_| Error::graph(key, "builder lock poisoned"))?
-            .registry.group_coders.insert(key.into(), GroupCoderRegistration::for_elements::<K, V>());
+        let mut builder = self.pipeline.inner.lock()
+            .map_err(|_| Error::graph(key, "builder lock poisoned"))?;
+        builder.registry.group_coders.insert(key.into(), GroupCoderRegistration::for_elements::<K, V>());
+        builder.registry.combining_mergers.insert(key.into(), coded_merge);
+        drop(builder);
         Ok(result)
     }
 }
