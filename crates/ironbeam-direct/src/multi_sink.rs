@@ -1,4 +1,4 @@
-//! Bounded sources feeding stateless sink branches through optional Flatten nodes.
+//! Bounded sources feeding sink branches through optional Flatten nodes.
 use crate::{
     JobConfig, JobHandle, cancelled, ensure_bounded_sink_session, open_source_safe,
     read_source_batch,
@@ -85,7 +85,8 @@ pub(crate) fn prepare(graph: &Graph, registry: &Registry, keys: &[&str]) -> Resu
             | Operation::AssignTimestamp
             | Operation::FixedWindow
             | Operation::SlidingWindow
-            | Operation::SessionWindow => {
+            | Operation::SessionWindow
+            | Operation::StatefulParDo { .. } => {
                 if !registry.has_transform(&current) {
                     return Err(Error::unsupported(&current, "direct", "transform-function"));
                 }

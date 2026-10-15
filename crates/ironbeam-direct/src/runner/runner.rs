@@ -574,11 +574,12 @@ impl DirectRunner {
     }
     /// Run two or more named idempotent sinks from bounded sources.
     /// Sources may join through `Flatten`. Each source and shared stateless
-    /// stage executes once, and each branch receives its own coded value at a
-    /// fan-out. Sinks commit in the supplied order.
+    /// stage executes once, including a shared keyed stateful stage. Each
+    /// branch receives its own coded value at a fan-out. Sinks commit in the
+    /// supplied order.
     ///
     /// # Errors
-    /// Rejects non-`Flatten` fan-in, stateful branches, uncoded splits,
+    /// Rejects non-`Flatten` fan-in, uncoded splits,
     /// non-idempotent sinks, and checkpoints before opening a source or sink.
     pub fn run_sinks(
         &self,

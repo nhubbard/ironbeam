@@ -1,6 +1,6 @@
 use ironbeam_core::{
-    Element, Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, SourceProgress, TypedSink,
-    TypedSourceIterator,
+    BagStateMutation, Element, Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec,
+    SourceProgress, TypedSink, TypedSourceIterator, Version,
 };
 use ironbeam_direct::{DirectRunner, JobConfig};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -12,6 +12,75 @@ const fn spec() -> SinkSpec {
         replay: Replay::Idempotent,
         commit: true,
     }
+}
+
+#[test]
+fn shared_stateful_stage_runs_once_before_two_sink_branches() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let first = Arc::new(Mutex::new(Vec::new()));
+    let second = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let callback_calls = Arc::clone(&calls);
+    let shared = pipeline
+        .from_vec("pairs", vec![(1_i32, 10_i32), (1, 20), (2, 30), (1, 40)])
+        .unwrap()
+        .stateful_bag_map_named::<i32, String>(
+            "stateful",
+            "tests/multi-sink-stateful-fanout",
+            Version { major: 1, minor: 0 },
+            move |key, value, prior| {
+                callback_calls.fetch_add(1, Ordering::SeqCst);
+                Ok((
+                    BagStateMutation::Append(vec![value]),
+                    format!("{key}:{value}:{}", prior.len()),
+                ))
+            },
+        )
+        .unwrap()
+        .map_named("shared-label", |(_, label)| label)
+        .unwrap();
+    let captured = Arc::clone(&first);
+    shared
+        .sink_named("first", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&captured),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    let captured = Arc::clone(&second);
+    shared
+        .map_named("second-label", |label| format!("copy:{label}"))
+        .unwrap()
+        .sink_named("second", spec(), move || {
+            Ok(Box::new(Capture {
+                rows: Arc::clone(&captured),
+                pending: Vec::new(),
+            }))
+        })
+        .unwrap();
+    DirectRunner
+        .run_sinks(&pipeline, &["first", "second"], &JobConfig::default())
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+    assert_eq!(
+        *first.lock().unwrap(),
+        ["1:10:0", "1:20:1", "2:30:0", "1:40:2"]
+    );
+    assert_eq!(
+        *second.lock().unwrap(),
+        ["copy:1:10:0", "copy:1:20:1", "copy:2:30:0", "copy:1:40:2"]
+    );
+    first.lock().unwrap().clear();
+    second.lock().unwrap().clear();
+    DirectRunner
+        .run_sinks(&pipeline, &["first", "second"], &JobConfig::default())
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 8);
+    assert_eq!(
+        *first.lock().unwrap(),
+        ["1:10:0", "1:20:1", "2:30:0", "1:40:2"]
+    );
 }
 
 struct Capture<T> {
