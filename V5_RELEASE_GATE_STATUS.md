@@ -314,15 +314,16 @@ runner-owned firing after the window's maximum timestamp and invokes the
 callback before state cleanup. A coded checkpoint restores its value cell and
 armed expiration together. One two-window TestStream fixture produces the
 same timestamped rows on Direct and pinned Prism in repeated live runs when
-the source advances its watermark after each window. In one observed Prism
-schedule, both windows' elements arrived in one TestStream batch before a
+the source advances its watermark after each window. A second fixture with
+offset fixed windows and a negative first start also matches Direct. When
+both windows' elements arrived in one TestStream batch before a
 single final watermark and only the first expiration output was committed.
 An overlapping sliding-window experiment likewise emitted only the first
 expiration callback on pinned Prism while Direct emitted both, even with
 separate watermarks after the two window ends. The public API rejects sliding
 expiration at graph construction until that runner boundary is resolved.
 Other expiration patterns remain open.
-The eight live local Prism timer fixtures and the full affected core, Direct,
+The nine live local Prism timer fixtures and the full affected core, Direct,
 Graphx, harness, and proof-package suites pass after this change; the Linux
 coverage and package checks for this new commit remain pending.
 

@@ -590,8 +590,9 @@ timer callback shapes need further tests.
 `stateful_timer_map_with_window_expiration_named` invokes the timer callback
 for each key used in a finite window when that window expires. The expiration
 family is owned by the runner; user callbacks cannot set or clear it. The
-family must be declared as event time, and fixed window boundaries must align
-to whole milliseconds. Sliding-window expiration is rejected while the pinned
+family must be declared as event time, and fixed or offset fixed window
+boundaries must align to whole milliseconds. Sliding-window expiration is
+rejected while the pinned
 Prism runner's overlapping-window callback schedule differs from Direct.
 
 ```rust
@@ -623,7 +624,8 @@ let expired = pairs
 ```
 
 The callback can read the value cell before Direct removes the expired
-window. Its output carries the window's maximum event timestamp. A local
-Direct/Prism fixture passes for two fixed windows with separate source
-watermark advances; other interleavings and allowed lateness have not been
-proved.
+window. Its output carries the window's maximum event timestamp. Local
+Direct/Prism fixtures pass for two fixed windows and two offset fixed
+windows, including a negative window start. Each source advances its
+watermark after a window; other interleavings and allowed lateness have not
+been proved.
