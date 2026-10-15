@@ -32,16 +32,18 @@ use ironbeam_prism_proof::{
     bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_and_processing_time_trigger_collection,
     count_and_processing_time_trigger_fixture, count_trigger_stream_fixture, dead_letter_fixture,
-    distinct_window_fixture, dual_count_or_time_cogroup_fixture, dual_late_cogroup_collection,
-    dual_late_cogroup_fixture, dual_late_count_cogroup_collection, dual_late_count_cogroup_fixture,
-    dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
-    dual_positive_late_join_time_fixture, dual_processing_time_cogroup_collection,
-    dual_processing_time_cogroup_fixture, dual_stream_windowed_side_collection,
-    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_collection,
-    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
-    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_collection,
-    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_collection,
-    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    distinct_window_fixture, dual_count_and_time_cogroup_collection,
+    dual_count_and_time_cogroup_fixture, dual_count_or_time_cogroup_fixture,
+    dual_late_cogroup_collection, dual_late_cogroup_fixture, dual_late_count_cogroup_collection,
+    dual_late_count_cogroup_fixture, dual_positive_late_cogroup_fixture,
+    dual_positive_late_full_join_fixture, dual_positive_late_join_time_fixture,
+    dual_processing_time_cogroup_collection, dual_processing_time_cogroup_fixture,
+    dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
+    dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
+    dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
+    dual_unbounded_fanin_output_time_collection, dual_unbounded_fanin_output_time_fixture,
+    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
+    dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -7219,6 +7221,120 @@ async fn prism_matches_direct_two_source_processing_time_panes() {
         portable.sort();
         assert_eq!(direct.len(), if accumulating { 2 } else { 1 });
         assert_eq!(portable, direct, "two-source processing-time panes differ");
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_two_source_count_and_time_panes() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        accepted: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.accepted.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    for accumulating in [false, true] {
+        let portable_path = directory
+            .path()
+            .join(format!("dual-and-{accumulating}.txt"));
+        let rows = Arc::new(Mutex::new(Vec::new()));
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = dual_count_and_time_cogroup_collection(&direct_pipeline, accumulating)
+            .unwrap()
+            .sink_named_with_config(
+                "dual-and-result",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                format!("dual-and-direct-{accumulating}-v1"),
+                {
+                    let rows = Arc::clone(&rows);
+                    let accepted = Arc::clone(&accepted);
+                    move || {
+                        Ok(Box::new(DirectRows {
+                            rows: Arc::clone(&rows),
+                            accepted: Arc::clone(&accepted),
+                            staged: Vec::new(),
+                            bundle: String::new(),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let portable_pipeline = Pipeline::default();
+        dual_count_and_time_cogroup_fixture(
+            &portable_pipeline,
+            portable_path.clone(),
+            accumulating,
+        )
+        .unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &portable_pipeline,
+            &format!("dual-and-{accumulating}"),
+            HashMap::from([
+                (
+                    "IRONBEAM_V5_PRISM_DUAL_COUNT_AND_TIME".into(),
+                    portable_path.to_string_lossy().into_owned(),
+                ),
+                (
+                    "IRONBEAM_V5_PRISM_DUAL_COUNT_AND_TIME_ACCUMULATING".into(),
+                    if accumulating { "1" } else { "0" }.into(),
+                ),
+            ]),
+        )
+        .await;
+        assert_eq!(
+            terminal.0, 3,
+            "two-source count-and-time job state: {terminal:?}"
+        );
+        let mut direct = rows.lock().unwrap().clone();
+        let mut portable = std::fs::read_to_string(&portable_path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        direct.sort();
+        portable.sort();
+        let early = "group:1:[[2], [4]]:Early:true:false:0:-1";
+        if accumulating {
+            assert_eq!(direct, [early, "group:1:[[2], [4]]:OnTime:false:true:1:0",]);
+        } else {
+            assert_eq!(direct, [early]);
+        }
+        assert_eq!(portable, direct, "two-source count-and-time panes differ");
     }
 }
 

@@ -207,6 +207,64 @@ pub fn dual_count_or_time_cogroup_collection(
         })
 }
 
+pub fn dual_count_and_time_cogroup_collection(
+    pipeline: &Pipeline,
+    accumulating: bool,
+) -> Result<PCollection<String>, Error> {
+    let source = |name: &str, value| {
+        let rows = pipeline
+            .test_stream_source(
+                name,
+                vec![
+                    TestStreamEvent::Elements(vec![((1_i32, value), 1_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(0),
+                    TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                ],
+            )?
+            .fixed_windows(&format!("{name}-window"), 10_000_000)?;
+        if accumulating {
+            rows.accumulating_count_and_processing_time_trigger_named(
+                &format!("{name}-trigger"), 2, 5_000_000,
+            )
+        } else {
+            rows.count_and_processing_time_trigger_named(
+                &format!("{name}-trigger"), 2, 5_000_000,
+            )
+        }
+    };
+    source("dual-and-first", 2)?
+        .co_group_homogeneous_named("dual-and-group", &[source("dual-and-second", 4)?])?
+        .reify_panes_named("dual-and-pane")?
+        .map_named("dual-and-row", |(pane, (key, values))| {
+            format!(
+                "group:{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                pane.timing,
+                pane.is_first,
+                pane.is_last,
+                pane.index,
+                pane.nonspeculative_index
+            )
+        })
+}
+
+pub fn dual_count_and_time_cogroup_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    accumulating: bool,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    dual_count_and_time_cogroup_collection(pipeline, accumulating)?.sink_named_with_config(
+        "dual-and-result",
+        SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+        format!("dual-and-result:{}:{accumulating}", path.display()),
+        move || Ok(Box::new(PaneCheckingSink(GlobalFoldSink {
+            path: sink_path.clone(),
+            values: Vec::new(),
+        }))),
+    )
+}
+
 pub fn dual_count_or_time_cogroup_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
