@@ -244,6 +244,69 @@ async fn bag_state_callback_reads_and_replaces_declared_cell() {
 }
 
 #[tokio::test]
+async fn bag_state_callback_keeps_unchanged_bytes_and_rejects_failed_mutations() {
+    let (client, mut requests) = test_client();
+    let contract = user_contract();
+    let access = UserStateAccess::new(
+        &client,
+        "bag-bundle",
+        "bag-transform",
+        &contract,
+        vec![],
+        vec![7],
+    )
+    .unwrap();
+    assert!(access
+        .apply_bag_state("value", |_| Ok(((), None)))
+        .await
+        .is_err());
+    assert!(requests.try_recv().is_err());
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for _ in 0..3 {
+            let request = requests.recv().await.unwrap();
+            assert!(matches!(
+                request.request,
+                Some(state_request::Request::Get(_))
+            ));
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: b"unchanged".to_vec(),
+                    })),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    let kept = access
+        .apply_bag_state("bag", |current| Ok((current.len(), Some(current.to_vec()))))
+        .await
+        .unwrap();
+    assert_eq!(kept, b"unchanged".len());
+    assert!(access
+        .apply_bag_state("bag", |_| -> anyhow::Result<((), Option<Vec<u8>>)> {
+            anyhow::bail!("callback failed")
+        })
+        .await
+        .is_err());
+    assert!(access
+        .apply_bag_state("bag", |_| -> anyhow::Result<((), Option<Vec<u8>>)> {
+            panic!("callback panicked")
+        })
+        .await
+        .is_err());
+    responder.await.unwrap();
+}
+
+#[tokio::test]
 async fn value_state_callback_reads_then_replaces_under_one_bundle_scope() {
     let (client, mut requests) = test_client();
     let contract = user_contract();

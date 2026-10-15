@@ -129,6 +129,12 @@ strict Clippy passed with the corrected shell gate. The remaining feature,
 facade, package, and live Prism jobs were still running when this audit was
 updated.
 
+The BagState implementation and its focused error tests passed the Linux
+core ratchet on `16e3b22`: **5704/5935 lines (96.11%)** against 96.04%, and
+**1167/1354 branches (86.19%)** against 86.17%. The line and branch
+denominators include the new core API. This measures source coverage, not
+Beam feature parity.
+
 The 2026-10-15 local Direct package measurement after the sequential trigger
 and multi-source progress tests is **5946/6521 source lines (91.18%)** and
 **1711/1900 source branches (90.05%)**. Both unchanged floors pass. Core's
