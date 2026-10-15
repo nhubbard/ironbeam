@@ -146,6 +146,43 @@ pub fn bounded_value_state_fixture(
         )
 }
 
+/// One state cell per key and fixed window, including a repeated key in two windows.
+pub fn windowed_value_state_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    pipeline
+        .from_vec("windowed-state-input", vec![(1_i32, 1_i32), (1, 2), (1, 11), (1, 3), (2, 4)])?
+        .assign_timestamps_named("windowed-state-time", |(_, value)| i64::from(*value) * 1_000_000)?
+        .fixed_windows("windowed-state-window", 10_000_000)?
+        .stateful_value_map_named::<i32, i32>(
+            "windowed-state-count",
+            "prism-proof/windowed-key-count-state",
+            Version { major: 1, minor: 0 },
+            |_, _, prior| {
+                let count = prior.unwrap_or(0) + 1;
+                Ok((Some(count), count))
+            },
+        )?
+        .map_named("windowed-state-label", |(key, count)| format!("{key}:{count}"))?
+        .sink_named_with_config(
+            "windowed-state-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("windowed-state-result:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Both arms of a fallible helper must survive portable fanout and rejoin.
 pub fn dead_letter_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();
