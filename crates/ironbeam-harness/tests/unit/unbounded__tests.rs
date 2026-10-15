@@ -204,3 +204,54 @@ fn rejects_unregistered_reader_and_repeated_data_cursor() {
     assert!(matches!(poller.poll(1).unwrap(), SourcePoll::Ready { .. }));
     assert!(matches!(poller.poll(1), Err(SourcePollError::Core(_))));
 }
+
+#[test]
+fn completed_batches_keep_resumed_split_and_watermark_identity() {
+    let resumed = SourceRestriction::resume(signal(Some(1), false)).unwrap();
+    let mut changed_split = signal(Some(2), true);
+    changed_split.split_id = "split-b".into();
+    let mut regressed_watermark = signal(Some(2), true);
+    regressed_watermark.event_time_ns = Some(9);
+    for (restriction, progress, expected) in [
+        (
+            resumed.clone(),
+            changed_split,
+            "source split changed during a session",
+        ),
+        (
+            resumed.clone(),
+            regressed_watermark,
+            "source watermark regressed",
+        ),
+    ] {
+        let pipeline = Pipeline::default();
+        pipeline
+            .unbounded_source_with_factory(
+                "events",
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                "source-v1".into(),
+                0,
+                move |_| {
+                    Ok(Box::new(Script(
+                        vec![UnboundedPoll::Ready(UnboundedBatch {
+                            elements: vec![Timestamped {
+                                value: 7_i32,
+                                timestamp_ns: 42,
+                            }],
+                            progress: progress.clone(),
+                        })]
+                        .into(),
+                    )) as TypedUnboundedSourceReader<i32>)
+                },
+            )
+            .unwrap();
+        let (graph, registry) = pipeline.snapshot().unwrap();
+        let mut poller = SourcePoller::open(&graph, &registry, "events", restriction).unwrap();
+        let error = poller.poll(1).unwrap_err();
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
