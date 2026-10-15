@@ -291,6 +291,17 @@ async fn main() -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let (Ok(first), Ok(second)) = (
+        std::env::var("IRONBEAM_V5_PRISM_STATEFUL_FANOUT_FIRST"),
+        std::env::var("IRONBEAM_V5_PRISM_STATEFUL_FANOUT_SECOND"),
+    ) {
+        return ironbeam_prism_proof::bounded_stateful_fanout_fixture(
+            pipeline,
+            first.into(),
+            second.into(),
+        )
+        .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_WINDOWED_ORDERED_LIST") {
         return ironbeam_prism_proof::streaming_windowed_ordered_list_fixture(pipeline, path.into())
             .map(|_| ())

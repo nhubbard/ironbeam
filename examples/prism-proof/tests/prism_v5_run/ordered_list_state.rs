@@ -1,6 +1,71 @@
 use super::*;
 
 #[tokio::test]
+async fn prism_matches_direct_bounded_stateful_fanout() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_first = directory.path().join("direct-stateful-first");
+    let direct_second = directory.path().join("direct-stateful-second");
+    let portable_first = directory.path().join("portable-stateful-first");
+    let portable_second = directory.path().join("portable-stateful-second");
+    let direct = Pipeline::default();
+    ironbeam_prism_proof::bounded_stateful_fanout_fixture(
+        &direct,
+        direct_first.clone(),
+        direct_second.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .run_sinks(
+            &direct,
+            &["stateful-fanout-first", "stateful-fanout-second"],
+            &JobConfig::default(),
+        )
+        .unwrap();
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::bounded_stateful_fanout_fixture(
+        &portable,
+        portable_first.clone(),
+        portable_second.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "bounded-stateful-fanout",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_STATEFUL_FANOUT_FIRST".into(),
+                portable_first.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_STATEFUL_FANOUT_SECOND".into(),
+                portable_second.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism stateful fanout failed: {terminal:?}");
+    let rows = |path: &Path| {
+        let mut values = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    };
+    let first = ["1:10:0", "1:20:1", "1:40:2", "2:30:0"];
+    let second = ["copy:1:10:0", "copy:1:20:1", "copy:1:40:2", "copy:2:30:0"];
+    assert_eq!(rows(&direct_first), first);
+    assert_eq!(rows(&direct_second), second);
+    assert_eq!(rows(&portable_first), first);
+    assert_eq!(rows(&portable_second), second);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_ordered_list_mutations() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
