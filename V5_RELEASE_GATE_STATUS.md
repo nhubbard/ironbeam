@@ -207,6 +207,24 @@ that checkout. This is the current accounting boundary:
 | Completion barriers | Bounded heterogeneous signals and a single windowed signal have Direct and Prism fixtures. A same-type multi-signal barrier uses one co-group; a three-source fixed-window job matches values, timestamps, and windows on Direct and pinned Prism. Differently typed text and Boolean branches use windowed handles and one co-group; three independently watermarked sources match both runners in two windows, including an empty signal window. A Direct checkpoint test retains the open heterogeneous barrier, reopens all three independent sources at cursor 1, then commits the main row once after their watermarks close the window. For one default unbounded fixed/sliding-window signal, Direct releases main values as soon as the signal window closes and restores buffered main rows after a checkpoint; portable Beam lowering uses a matching-window side view. Pinned Prism commits a fixed-window value while the main source remains open, and commits both overlapping sliding-window values after the signal source completes. Direct also proves that a sliding signal closes only one of two overlapping main windows at its first watermark. An unbounded main source waits for bounded signals on Direct; the same TestStream pipeline matches pinned Prism on values and event times. Direct rejects a failed signal before opening the main source, invalidates a completed checkpoint when the bounded signal's source content changes, and resumes a partially completed main source from its saved cursor after rerunning the bounded signal. A failed second-bundle sink commit restarts from the first bundle's checkpoint and retries the same bundle identity without repeating committed output. The tagged Prism TestStream payload still requires one source coder, so each source begins as an integer before the branches map to different types. | Pinned Prism did not release a partial sliding-window signal while that source stayed open at tested 11 ms and 16 ms watermarks. Multiple-signal early release and broader window schedules remain open. |
 | Rust-relevant I/O | Ten format crates, opt-in database helpers, provider-neutral objects, and four GCP clients have local tests. Portable JSONL object reading and publication use a local provider; a pinned-Prism Avro source binds a local object URI and reader schema in its worker and matches Direct on defaulted-field decoding. The existing portable format corpus covers the eager TFRecord source; a separate Prism fixture now proves its incremental streaming variant against Direct. The hosted object adapter now implements bounded-memory sequential reads; a chunked in-memory backend verifies short reads, provider lifetime, and missing-object errors. Direct Avro and Parquet streaming sources decode through that adapter and reject changed object bytes with recovery errors. | Bind hosted providers and credentials in the portable worker, then prove remote replay and service I/O, including Pub/Sub and BigQuery, with controlled services. The in-memory hosted-adapter tests do not establish live GCS behavior. |
 
+### Timer callback boundary
+
+The pinned Beam proto and Python worker were checked for the timer work. A
+timer mutation is scoped by bundle instruction, transform, family, encoded
+key, encoded window, and dynamic tag. Fn Data carries timer-family streams
+separately from element data, including bundles with timer input and no element
+input. For a set operation, the pinned Python worker uses the fire timestamp
+as the hold timestamp for event-time timers and the current input timestamp as
+the hold for processing-time timers. A clear operation has no timestamps or
+pane. The harness already routes and decodes these records; no registered
+pipeline callback receives them yet.
+
+| Required execution boundary | Direct | Portable worker |
+| --- | --- | --- |
+| Element callback schedules or clears a keyed timer | Save the mutation with coded state and the source cursor; replay it only if the bundle commits. | Emit the declared family record before acknowledging the bundle. |
+| Timer callback produces state and output | Fire at an event watermark or processing clock deadline; route output with its key, window, timestamp, and pane. | Drain a timer-only or mixed bundle, bind the decoded key and window to the registered callback, and send output through the normal sink path. |
+| Recovery and expiry | Checkpoint armed timers with source progress and use stable commit IDs; reject malformed restored keys and windows. | Fail the bundle on callback or State RPC error; prove worker-child replacement and a window-expiration callback. |
+
 The harness executes declared value, bag, set, map, multimap, and ordered-list
 cells through Fn State. It reads the cell, invokes the registered callback,
 and writes the new contents under the same bundle instruction. Fake Fn State
