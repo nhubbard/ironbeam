@@ -146,3 +146,40 @@ fn unbounded_beam_row_source_lowers_with_row_coder() {
     assert_eq!(row.spec.as_ref().unwrap().urn, urns::CODER_ROW);
     assert!(!row.spec.as_ref().unwrap().payload.is_empty());
 }
+
+#[test]
+fn unbounded_row_projection_keeps_distinct_writer_and_reader_coders() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::beam_row_stream_projection_fixture(
+        &pipeline,
+        directory.path().join("stream-projection"),
+    )
+    .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(
+        &pipeline,
+        "example.test/ironbeam:v5",
+        "stream-projection-build",
+    )
+    .unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let schemas = [
+        "beam-stream-projection-source",
+        "beam-stream-projection-project",
+    ]
+    .map(|name| {
+        let collection = components
+            .pcollections
+            .values()
+            .find(|collection| collection.unique_name == name)
+            .unwrap();
+        let outer = &components.coders[&collection.coder_id];
+        assert_eq!(outer.spec.as_ref().unwrap().urn, urns::CODER_LENGTH_PREFIX);
+        let row = &components.coders[&outer.component_coder_ids[0]];
+        assert_eq!(row.spec.as_ref().unwrap().urn, urns::CODER_ROW);
+        row.spec.as_ref().unwrap().payload.clone()
+    });
+    assert_ne!(schemas[0], schemas[1]);
+}

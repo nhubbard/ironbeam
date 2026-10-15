@@ -53,6 +53,24 @@ impl RowSchema for NewRow {
     }
 }
 
+fn old_row(id: i32, label: &str) -> BeamRow<OldRow> {
+    BeamRow::<OldRow>::new(Row {
+        values: vec![
+            FieldValue {
+                field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+                    value: Some(atomic_type_value::Value::Int32(id)),
+                })),
+            },
+            FieldValue {
+                field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+                    value: Some(atomic_type_value::Value::String(label.into())),
+                })),
+            },
+        ],
+    })
+    .expect("fixture row matches writer schema")
+}
+
 pub fn beam_row_projection_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
@@ -61,23 +79,7 @@ pub fn beam_row_projection_fixture(
     pipeline
         .from_vec("beam-projection-input", vec![1_i32, 2])?
         .map_named("beam-projection-build", |id| {
-            BeamRow::<OldRow>::new(Row {
-                values: vec![
-                    FieldValue {
-                        field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
-                            value: Some(atomic_type_value::Value::Int32(id)),
-                        })),
-                    },
-                    FieldValue {
-                        field_value: Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
-                            value: Some(atomic_type_value::Value::String(
-                                if id == 1 { "one" } else { "two" }.into(),
-                            )),
-                        })),
-                    },
-                ],
-            })
-            .expect("fixture row matches writer schema")
+            old_row(id, if id == 1 { "one" } else { "two" })
         })?
         .map_named("beam-projection-project", |row| {
             row.project::<NewRow>()
@@ -112,6 +114,76 @@ pub fn beam_row_projection_fixture(
                 Ok(Box::new(GlobalFoldSink {
                     path: sink_path.clone(),
                     values: Vec::new(),
+                }))
+            },
+        )
+}
+
+pub fn beam_row_stream_projection_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "beam-stream-projection-source",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (old_row(1, "one"), 1_000_000),
+                    (old_row(2, "two"), 2_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::Elements(vec![(old_row(3, "three"), 11_000_000)]),
+                TestStreamEvent::AdvanceWatermark(20_000_000),
+            ],
+        )?
+        .fixed_windows("beam-stream-projection-windows", 10_000_000)?
+        .map_named("beam-stream-projection-project", |row| {
+            row.project::<NewRow>()
+                .expect("fixture schemas are compatible")
+        })?
+        .map_named("beam-stream-projection-key", |row| ("a".to_owned(), row))?
+        .group_by_key_named("beam-stream-projection-group")?
+        .reify_timestamps_named("beam-stream-projection-time")?
+        .map_named(
+            "beam-stream-projection-output",
+            |(timestamp, (key, rows))| {
+                let mut values = rows
+                    .iter()
+                    .map(|row| {
+                        let fields = &row.as_row().values;
+                        let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+                            value: Some(atomic_type_value::Value::String(label)),
+                        })) = fields[0].field_value.as_ref()
+                        else {
+                            panic!("projected label missing");
+                        };
+                        let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+                            value: Some(atomic_type_value::Value::Int32(id)),
+                        })) = fields[1].field_value.as_ref()
+                        else {
+                            panic!("projected ID missing");
+                        };
+                        assert!(fields[2].field_value.is_none());
+                        (*id, label.clone())
+                    })
+                    .collect::<Vec<_>>();
+                values.sort_unstable();
+                format!("{key}:{timestamp}:{values:?}")
+            },
+        )?
+        .sink_named_with_config(
+            "beam-stream-projection-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("beam-stream-projection:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
                 }))
             },
         )
