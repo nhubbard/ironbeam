@@ -183,8 +183,9 @@ impl V5BundleExecutor {
                             let bag_state = matches!(contract.states.get("bag"), Some(UserStateKind::Bag { .. }));
                             let set_state = matches!(contract.states.get("set"), Some(UserStateKind::Set { .. }));
                             let map_state = matches!(contract.states.get("map"), Some(UserStateKind::Map { .. }));
-                            if !bag_state && !set_state && !map_state && !matches!(contract.states.get("value"), Some(UserStateKind::Value { .. })) {
-                                bail!("stateful ParDo {} has no executable value, bag, set, or map cell", node.key);
+                            let multimap_state = matches!(contract.states.get("multimap"), Some(UserStateKind::Multimap { .. }));
+                            if !bag_state && !set_state && !map_state && !multimap_state && !matches!(contract.states.get("value"), Some(UserStateKind::Value { .. })) {
+                                bail!("stateful ParDo {} has no executable value, bag, set, map, or multimap cell", node.key);
                             }
                             let mut produced = Vec::with_capacity(input.len());
                             for wire in input {
@@ -231,6 +232,12 @@ impl V5BundleExecutor {
                                     }).await?
                                 } else if map_state {
                                     access.apply_map_state("map", |encoded| {
+                                        let prior = (!encoded.is_empty()).then_some(encoded);
+                                        let (next, output) = self.apply_stateful_cell(node, parent, wire, prior)?;
+                                        Ok((output, next))
+                                    }).await?
+                                } else if multimap_state {
+                                    access.apply_multimap_state("multimap", |encoded| {
                                         let prior = (!encoded.is_empty()).then_some(encoded);
                                         let (next, output) = self.apply_stateful_cell(node, parent, wire, prior)?;
                                         Ok((output, next))

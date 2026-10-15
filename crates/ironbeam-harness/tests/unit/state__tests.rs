@@ -431,6 +431,95 @@ async fn map_state_callback_reads_entries_and_replaces_keys() {
 }
 
 #[tokio::test]
+async fn multimap_callback_reads_duplicate_values_and_replaces_keys() {
+    let (client, mut requests) = test_client();
+    let mut contract = user_contract();
+    contract.states.insert(
+        "multimap".into(),
+        UserStateKind::Multimap {
+            key_coder_id: "beam:coder:bytes:v1".into(),
+            value_coder_id: "beam:coder:bytes:v1".into(),
+        },
+    );
+    let access = UserStateAccess::new(
+        &client,
+        "multimap-bundle",
+        "multimap-transform",
+        &contract,
+        vec![3],
+        vec![7],
+    )
+    .unwrap();
+    let pending = Arc::clone(&client.pending);
+    let responder = tokio::spawn(async move {
+        for step in 0..5 {
+            let request = requests.recv().await.unwrap();
+            let response = match (step, request.state_key.as_ref().unwrap().r#type.as_ref()) {
+                (0, Some(state_key::Type::MultimapKeysUserState(scope))) => {
+                    assert_eq!(scope.user_state_id, "multimap");
+                    assert!(matches!(
+                        request.request,
+                        Some(state_request::Request::Get(_))
+                    ));
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: vec![1, 10],
+                    })
+                }
+                (1, Some(state_key::Type::MultimapUserState(scope))) => {
+                    assert_eq!(scope.map_key, [1, 10]);
+                    assert!(matches!(
+                        request.request,
+                        Some(state_request::Request::Get(_))
+                    ));
+                    state_response::Response::Get(StateGetResponse {
+                        continuation_token: Vec::new(),
+                        data: vec![1, 20, 1, 20],
+                    })
+                }
+                (2, Some(state_key::Type::MultimapKeysUserState(_))) => {
+                    assert!(matches!(
+                        request.request,
+                        Some(state_request::Request::Clear(_))
+                    ));
+                    state_response::Response::Clear(StateClearResponse {})
+                }
+                (3 | 4, Some(state_key::Type::MultimapUserState(scope))) => {
+                    assert_eq!(scope.map_key, [1, 10]);
+                    let Some(state_request::Request::Append(append)) = request.request else {
+                        panic!("expected multimap append");
+                    };
+                    assert_eq!(append.data, [1, if step == 3 { 20 } else { 30 }]);
+                    state_response::Response::Append(StateAppendResponse {})
+                }
+                _ => panic!("unexpected multimap RPC"),
+            };
+            pending
+                .lock()
+                .unwrap()
+                .remove(&request.id)
+                .unwrap()
+                .send(StateResponse {
+                    id: request.id,
+                    error: String::new(),
+                    response: Some(response),
+                })
+                .unwrap();
+        }
+        assert!(requests.try_recv().is_err());
+    });
+    let result = access
+        .apply_multimap_state("multimap", |current| {
+            assert_eq!(current, br"[[[10],[[20],[20]]]]");
+            Ok((19, Some(br"[[[10],[[20],[30]]]]".to_vec())))
+        })
+        .await
+        .unwrap();
+    assert_eq!(result, 19);
+    responder.await.unwrap();
+}
+
+#[tokio::test]
 async fn bag_state_callback_reads_and_replaces_declared_cell() {
     let (client, mut requests) = test_client();
     let contract = user_contract();

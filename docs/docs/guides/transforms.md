@@ -421,3 +421,33 @@ work grows with the number of entries. A bounded mutation fixture matches
 Direct and local Prism. Unbounded global and fixed-window fixtures agree
 across two batches, and a production Prism job retains its map after worker
 replacement. Timer callbacks remain unavailable.
+
+`stateful_multimap_map_named` stores multiple values per map key for each
+pipeline key and window. It retains duplicates. The callback receives a
+borrowed `HashMap<MK, Vec<MV>>` and may keep, clear, append, remove all values
+at one key, or replace the full multimap.
+
+```rust
+use ironbeam_core::{MultimapStateMutation, Version};
+
+let counts = pairs.stateful_multimap_map_named::<String, i64, usize>(
+    "account-events",
+    "billing/account-events",
+    Version { major: 1, minor: 0 },
+    |_, (account, amount), previous| {
+        let count = previous.get(&account).map_or(0, Vec::len) + 1;
+        Ok((MultimapStateMutation::Append(account, amount), count))
+    },
+)?;
+```
+
+Here `pairs` contains `(pipeline_key, (account, amount))` values. Values
+within each map key are presented in coder-byte order; this is an Ironbeam
+choice because Beam does not define multimap iteration order. Both map-key
+and value types need registered coders. Distinct map keys must encode to
+distinct bytes. Direct saves the cell with the source cursor. The portable
+worker uses Beam's multimap Fn State protocol and replaces the cell when it
+changes, so a mutation can cost work proportional to its total values.
+Bounded, unbounded, fixed-window, checkpoint restart, and Prism worker
+replacement fixtures have matching results. Timer callbacks remain
+unavailable.

@@ -420,6 +420,14 @@ results. Unbounded global and fixed-window cases agree across batches; a
 production source also retains its map through Prism execution-child
 replacement. The map key coder must distinguish unequal keys.
 
+`stateful_multimap_map_named` keeps zero or more values per map key and
+retains duplicates. It scopes entries by pipeline key and window. Direct and
+Prism agree on bounded mutations, two-batch unbounded state, and fixed-window
+isolation. Direct checkpoint restart and Prism execution-child replacement
+also retain the values. The portable worker uses the multimap Fn State
+protocol. Ironbeam presents values in coder-byte order to make callbacks
+independent of runner iteration order.
+
 The distinction matters for retries. A source cursor says which input can be
 replayed. A grouped checkpoint contains values that have not yet formed a
 completed result. A sink finalization journal records which bundle attempts

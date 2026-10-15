@@ -268,6 +268,26 @@ fn map_state_requires_coders_and_default_window_policy() {
             )
             .is_err()
     );
+    assert!(
+        pairs
+            .stateful_map_map_named::<i32, Uncoded, i32>(
+                "uncoded-value-map",
+                "tests/uncoded-value-map",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((MapStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    assert!(
+        pairs
+            .stateful_map_map_named::<i32, i32, Uncoded>(
+                "uncoded-output-map",
+                "tests/uncoded-output-map",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((MapStateMutation::Keep, Uncoded)),
+            )
+            .is_err()
+    );
     let session = pairs.session_windows_named("sessions", 10_000_000).unwrap();
     assert!(
         session
@@ -279,4 +299,20 @@ fn map_state_requires_coders_and_default_window_policy() {
             )
             .is_err()
     );
+    let fixed = pairs.fixed_windows("fixed", 10_000_000).unwrap();
+    fixed
+        .stateful_map_map_named::<i32, i32, i32>(
+            "fixed-map",
+            "tests/fixed-map",
+            Version { major: 1, minor: 0 },
+            |_, _, _| Ok((MapStateMutation::Keep, 0)),
+        )
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let ironbeam_core::Operation::StatefulParDo { contract, .. } =
+        &graph.node("fixed-map").unwrap().operation
+    else {
+        panic!("fixed map must be stateful");
+    };
+    assert_eq!(contract.window_coder_id, "c_iw");
 }

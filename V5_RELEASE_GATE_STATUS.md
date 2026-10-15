@@ -234,6 +234,17 @@ and replaces the keys cell when the map changes; mutation work grows with map
 size. Sliding-window, timer callbacks, and broader map error boundaries still
 need proof.
 
+`MultimapState` now has `Keep`, `Clear`, `Append`, `Remove`, and `Replace` for
+duplicate-preserving values at each map key. Core tests all mutations,
+duplicate values, coded checkpoint restoration, malformed values, and
+callback rollback. Direct restores the state with a production source cursor.
+Bounded mutation, unbounded two-batch, and fixed-window fixtures agree with
+pinned local Prism. A production source retains duplicate-preserving state
+after the supervised execution child is replaced and its residual reopens.
+The portable worker uses Beam's multimap Fn State keys; a changed cell is
+rewritten within the bundle. Timer callbacks and broader error boundaries
+remain open.
+
 These rows are not equally weighted. A percentage computed by counting URNs
 would hide the difference between a declared state spec and a working
 stateful pipeline. The target remains open until the missing behaviors have
