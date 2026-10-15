@@ -112,6 +112,82 @@ fn two_independent_sources_fire_one_processing_time_pane() {
 }
 
 #[test]
+fn two_sources_accumulate_count_then_processing_time_panes() {
+    let pipeline = Pipeline::default();
+    let make_source = |key: &str, value, first: bool| {
+        let mut events = vec![TestStreamEvent::Elements(vec![((1_i32, value), 1_000_000)])];
+        if first {
+            events.push(TestStreamEvent::Elements(vec![((1_i32, 3_i32), 2_000_000)]));
+        } else {
+            events.push(TestStreamEvent::AdvanceWatermark(0));
+        }
+        events.push(TestStreamEvent::AdvanceProcessingTime(5_000_000));
+        events.push(TestStreamEvent::AdvanceWatermark(10_000_000));
+        pipeline
+            .test_stream_source(key, events)
+            .unwrap()
+            .fixed_windows(&format!("{key}-window"), 10_000_000)
+            .unwrap()
+            .accumulating_count_or_processing_time_trigger_named(
+                &format!("{key}-trigger"),
+                2,
+                5_000_000,
+            )
+            .unwrap()
+    };
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let sink = make_source("first", 2, true)
+        .co_group_homogeneous_named("group", &[make_source("second", 4, false)])
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .map_named("format", |(pane, (key, values))| {
+            format!("{key}:{values:?}:{:?}:{}", pane.timing, pane.index)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "multi-count-or-time-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        fail_once: None,
+                        panic_once: None,
+                        fail_write_once: None,
+                        bundle_ids: None,
+                        staged: Vec::new(),
+                        bundle: None,
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(
+        committed.lock().unwrap().as_slice(),
+        [
+            "1:[[2], [4]]:Early:0",
+            "1:[[2, 3], [4]]:Early:1",
+            "1:[[2, 3], [4]]:OnTime:2",
+        ]
+    );
+}
+
+#[test]
 fn bounded_input_arms_timer_while_unbounded_input_is_idle() {
     let pipeline = Pipeline::default();
     let bounded = pipeline
