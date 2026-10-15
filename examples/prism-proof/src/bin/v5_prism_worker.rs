@@ -34,6 +34,7 @@ use ironbeam_prism_proof::{
     homogeneous_twelve_way_cogroup_fixture, homogeneous_twelve_way_session_fixture,
     invalid_dynop_fixture, invalid_keyed_batch_fixture, large_group_rows, large_group_summary,
     late_count_fixture, late_count_join_fixture, late_count_join_kind_fixture,
+    late_distinct_window_fixture,
     late_keyed_batches_fixture,
     latest_tie_duplicate_fixture, latest_tie_empty_fixture, latest_tie_fixture,
     mixed_boundedness_join_cogroup_fixture, mixed_flatten_fixture,
@@ -239,6 +240,10 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_DISTINCT_WINDOW") {
         return streaming_distinct_window_fixture(pipeline, path.into())
+            .map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_LATE_DISTINCT_WINDOW") {
+        return late_distinct_window_fixture(pipeline, path.into())
             .map(|_| ()).map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_CUSTOM_BATCHES") {

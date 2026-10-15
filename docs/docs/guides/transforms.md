@@ -88,6 +88,9 @@ agree on a fixture containing duplicates in two fixed windows. The existing
 With a repeated count trigger, a value can appear in more than one pane of
 the same window. Direct and local Prism both emit two early `a` panes and one
 on-time `b` pane in the tested streaming schedule.
+When allowed lateness is set, the same value can also appear in a late pane.
+Both runners emit an on-time `a` followed by a late `a` after two additional
+rows of that value arrive before the window expires.
 
 For an unbounded keyed collection, call `early_processing_time_trigger_named("timer", 5_000_000)` before `group_by_key_named` to emit an early pane five milliseconds after the first row in a key and window. A later row can arm another firing. `accumulating_processing_time_trigger_named` retains earlier values in each new pane; the other method discards values after each firing. The delay is a positive whole number of milliseconds expressed in nanoseconds. The policy accepts global, fixed, and sliding windows; session windows are rejected. Direct uses the source's scripted clock when supplied and wall time otherwise, so an idle source can still fire. Direct and local Prism have matching fixed-window results for a single TestStream source with explicit processing-time advances.
 

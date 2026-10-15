@@ -12,61 +12,8 @@ use ironbeam_io_mongodb::{mongodb_idempotent_sink, mongodb_source};
 #[cfg(feature = "database-proofs")]
 use ironbeam_io_sql::{sql_idempotent_sink_with, sql_source};
 use ironbeam_transforms::{
-    DeadLetterExt, ElementwiseExt, PartitionExt, Validate, ValidationError, ValidationExt, ValidationResult,
+    DeadLetterExt, PartitionExt, Validate, ValidationError, ValidationExt, ValidationResult,
 };
-
-pub fn distinct_window_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
-    let sink_path = path.clone();
-    pipeline
-        .from_vec("distinct-input", vec![("a".to_owned(), 1_000_000_i64), ("a".to_owned(), 2_000_000), ("a".to_owned(), 11_000_000), ("b".to_owned(), 12_000_000)])?
-        .assign_timestamps_named("distinct-timestamps", |row| row.1)?
-        .map_named("distinct-values", |row| row.0)?
-        .fixed_windows("distinct-windows", 10_000_000)?
-        .distinct_per_window_named("distinct")?
-        .reify_timestamps_named("distinct-output-time")?
-        .with_window_named("distinct-window-label")?
-        .map_named("distinct-row", |(window, (timestamp, value))| format!("{}:{timestamp}:{value}", window.start_ns))?
-        .sink_named_with_config(
-            "distinct-capture",
-            SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
-            format!("distinct-window:{}", path.display()),
-            move || Ok(Box::new(GlobalFoldSink { path: sink_path.clone(), values: Vec::new() })),
-        )
-}
-
-pub fn streaming_distinct_window_fixture(
-    pipeline: &Pipeline,
-    directory: PathBuf,
-) -> Result<Sink<String>, Error> {
-    let sink_directory = directory.clone();
-    pipeline
-        .test_stream_source(
-            "distinct-stream",
-            vec![
-                TestStreamEvent::Elements(vec![("a".to_owned(), 1_000_000), ("a".to_owned(), 2_000_000)]),
-                TestStreamEvent::Elements(vec![("a".to_owned(), 3_000_000), ("a".to_owned(), 4_000_000)]),
-                TestStreamEvent::Elements(vec![("b".to_owned(), 5_000_000)]),
-                TestStreamEvent::AdvanceWatermark(10_000_000),
-            ],
-        )?
-        .fixed_windows("distinct-windows", 10_000_000)?
-        .early_count_trigger_named("distinct-trigger", 2)?
-        .distinct_per_window_named("distinct")?
-        .reify_timestamps_named("distinct-time")?
-        .reify_panes_named("distinct-pane")?
-        .map_named("distinct-row", |(pane, (timestamp, value))| {
-            format!("{value}:{timestamp}:{:?}:{}", pane.timing, pane.index)
-        })?
-        .sink_named_with_config(
-            "distinct-capture",
-            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
-            format!("distinct-stream:{}", directory.display()),
-            move || Ok(Box::new(IdempotentRowSink {
-                directory: sink_directory.clone(),
-                pending: Vec::new(),
-            })),
-        )
-}
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
