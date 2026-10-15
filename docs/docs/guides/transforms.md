@@ -565,11 +565,19 @@ Setting the same family and dynamic tag again replaces the earlier deadline
 for that key and window. `UserTimerRequest::Clear` removes one such timer.
 With no explicit output timestamp, an event timer uses its fire time; a
 processing-time timer uses the input timestamp as its output timestamp. The
-current callback execution path is available on Direct for one unbounded
+caller may set `output_timestamp_ns: Some(metadata.timestamp_ns)` to retain
+the element's event time when the timer fires later. The emitted element keeps
+the timer's assigned window. One input may belong to two sliding windows;
+each window has its own timer slot and callback.
+
+The current callback execution path is available on Direct for one unbounded
 route with default global, fixed, or sliding windows and zero allowed
 lateness. Beam lowering records the timer families, and the portable worker
 executes them through Fn State and Fn Data. Global-window event- and
-processing-time timers have matching Direct and pinned local Prism fixtures.
+processing-time timers, two distinct fixed windows, and two overlapping
+sliding windows have matching Direct and pinned local Prism fixtures. The
+windowed fixtures compare firing deadlines, output timestamps, interval
+bounds, and sink rows.
 A production event timer also survives replacement of the Prism execution
 child after it is armed. Other failure points and timer callback shapes need
 further tests.
