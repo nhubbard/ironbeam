@@ -1065,6 +1065,88 @@ async fn fn_data_splits_a_pair_received_across_runner_boundary() {
     assert_eq!(decode_sized("events", windowed.element).unwrap().size, 1.0);
 }
 
+#[tokio::test]
+async fn fn_data_drain_discards_unbounded_sized_restriction() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let sized = encode_sized(&SizedSourcePair {
+        pair: SourcePair {
+            element: Vec::new(),
+            restriction: SourceRestriction::initial("events"),
+        },
+        size: 1.0,
+    })
+    .unwrap();
+    let mut record = Vec::new();
+    encode_windowed_value(0, &sized, &mut record).unwrap();
+    let server = tokio::spawn(
+        Server::builder()
+            .add_service(BeamFnDataServer::new(GroupedRunnerData {
+                record,
+                received: Arc::clone(&received),
+            }))
+            .serve(addr),
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let pipeline = sdf_pipeline();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    let identity = execution_identity(&graph, &registry, "test-build").unwrap();
+    let port = RemoteGrpcPort {
+        api_service_descriptor: Some(ApiServiceDescriptor {
+            url: format!("http://{addr}"),
+            ..Default::default()
+        }),
+        coder_id: "opaque".into(),
+    };
+    let plan = BundlePlan {
+        pbd_id: "sdf-drain".into(),
+        state_endpoint: None,
+        side_inputs: HashMap::new(),
+        steps: vec![
+            Step::Source {
+                transform_id: "input".into(),
+                port: port.clone(),
+                output_pc: "sized".into(),
+                wire: SourceWire::Opaque,
+            },
+            Step::Sdf {
+                stage: SdfStage::TruncateSizedRestrictions,
+                transform_id: "truncate".into(),
+                node_ref: V5NodeRef {
+                    key: "events".into(),
+                    identity,
+                    co_group_input: None,
+                },
+                input_pc: "sized".into(),
+                output_pc: "drained".into(),
+            },
+            Step::Sink {
+                transform_id: "output".into(),
+                port,
+                input_pc: "drained".into(),
+                wire: SinkWire::Opaque,
+            },
+        ],
+    };
+    let runner = V5BundleExecutor::new(&pipeline, "test-build").unwrap();
+    tokio::time::timeout(Duration::from_secs(5), runner.run("bundle", &plan))
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let chunks = received.lock().await.clone();
+    server.abort();
+    assert!(chunks
+        .iter()
+        .any(|chunk| chunk.transform_id == "output" && chunk.is_last));
+    assert!(!chunks
+        .iter()
+        .any(|chunk| chunk.transform_id == "output" && !chunk.data.is_empty()));
+}
+
 fn plan(pipeline: &Pipeline, endpoint: SocketAddr) -> BundlePlan {
     let (graph, registry) = pipeline.snapshot().unwrap();
     let identity = execution_identity(&graph, &registry, "test-build").unwrap();

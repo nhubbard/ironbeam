@@ -38,6 +38,14 @@ pub fn split_and_size(source_key: &str, pair_body: &[u8]) -> Result<Vec<u8>> {
     encode_sized(&SizedSourcePair { pair, size: 1.0 })
 }
 
+/// Apply Beam's default drain rule to a one-split unbounded source.
+/// Its restriction has no finite upper bound, so draining discards it. Decode
+/// first to reject a malformed or foreign restriction at the worker boundary.
+pub fn truncate_sized(source_key: &str, sized_body: &[u8]) -> Result<Option<Vec<u8>>> {
+    let _ = decode_sized(source_key, sized_body)?;
+    Ok(None)
+}
+
 pub fn encode_pair(pair: &SourcePair) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     encode_length_prefix(&pair.element, &mut output)?;

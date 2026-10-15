@@ -425,6 +425,13 @@ Residual work can resume in a new process after an accepted split. Final-result
 sinks keep a durable record of accepted bundle attempts so publication can be
 checked after worker restart.
 
+The worker also recognizes Beam's SDF truncation stage. When a runner drains
+the current one-split unbounded source, the default truncation rule discards
+its remaining restriction. The worker validates the sized restriction before
+dropping it and closes the output stream without emitting a work item. This
+does not provide custom finite truncation for user-defined splittable
+functions or prove that a runner can orchestrate a full drain.
+
 The source adapter accepts a Fn API checkpoint request when it names the
 active gRPC read transform, requests fraction zero, and supplies no allowed
 split points. It returns the residual when the bundle finishes. A request for

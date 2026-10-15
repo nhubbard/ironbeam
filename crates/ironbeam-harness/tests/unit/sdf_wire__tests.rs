@@ -32,6 +32,15 @@ fn one_split_source_stages_preserve_the_restriction() {
 }
 
 #[test]
+fn drain_drops_unbounded_restriction_after_validating_wire_identity() {
+    let pair = pair_with_restriction("events", &[]).unwrap();
+    let sized = split_and_size("events", &pair).unwrap();
+    assert_eq!(truncate_sized("events", &sized).unwrap(), None);
+    assert!(truncate_sized("different-source", &sized).is_err());
+    assert!(truncate_sized("events", &sized[..sized.len() - 1]).is_err());
+}
+
+#[test]
 fn fragmented_pair_and_sized_bodies_report_complete_lengths() {
     let pair = pair_with_restriction("events", &[]).unwrap();
     for len in 0..pair.len() {

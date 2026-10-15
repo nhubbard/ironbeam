@@ -143,6 +143,7 @@ pub enum Step {
 pub enum SdfStage {
     PairWithRestriction,
     SplitAndSizeRestrictions,
+    TruncateSizedRestrictions,
     ProcessSizedElements,
 }
 
@@ -180,6 +181,9 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
             }
             u if u == urns::TRANSFORM_SDF_PROCESS_SIZED => {
                 TransformKind::Sdf(SdfStage::ProcessSizedElements)
+            }
+            u if u == urns::TRANSFORM_SDF_TRUNCATE_SIZED => {
+                TransformKind::Sdf(SdfStage::TruncateSizedRestrictions)
             }
             u if u == urns::TRANSFORM_WINDOW_INTO => TransformKind::WindowInto,
             // Dataflow may wrap impulse/gbk inside a PBD boundary; skip them.

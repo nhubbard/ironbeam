@@ -14,6 +14,7 @@ pub const TRANSFORM_SDF_PAIR_WITH_RESTRICTION: &str = "beam:transform:sdf_pair_w
 pub const TRANSFORM_SDF_SPLIT_AND_SIZE: &str = "beam:transform:sdf_split_and_size_restrictions:v1";
 pub const TRANSFORM_SDF_PROCESS_SIZED: &str =
     "beam:transform:sdf_process_sized_element_and_restrictions:v1";
+pub const TRANSFORM_SDF_TRUNCATE_SIZED: &str = "beam:transform:sdf_truncate_sized_restrictions:v1";
 pub const TRANSFORM_PARDO: &str = "beam:transform:pardo:v1";
 pub const TRANSFORM_GROUP_BY_KEY: &str = "beam:transform:group_by_key:v1";
 pub const TRANSFORM_FLATTEN: &str = "beam:transform:flatten:v1";

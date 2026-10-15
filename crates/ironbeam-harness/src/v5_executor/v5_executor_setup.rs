@@ -391,12 +391,11 @@ impl V5BundleExecutor {
             if input_pc != expected_pc || output_pc.is_empty() || output_pc == input_pc {
                 bail!("v5 SDF {stage:?} collection wiring differs from worker graph");
             }
-            if matches!(
+            if !matches!(
                 (prior_stage, stage),
-                (
-                    Some(SdfStage::PairWithRestriction),
-                    SdfStage::PairWithRestriction
-                ) | (Some(SdfStage::SplitAndSizeRestrictions), _)
+                (None, _)
+                    | (Some(SdfStage::PairWithRestriction), SdfStage::SplitAndSizeRestrictions)
+                    | (Some(SdfStage::SplitAndSizeRestrictions), SdfStage::TruncateSizedRestrictions)
             ) {
                 bail!("v5 SDF preparation stages are out of order");
             }
@@ -426,39 +425,46 @@ impl V5BundleExecutor {
                 let body_len = match first {
                     SdfStage::PairWithRestriction => try_bytes_body_len(windowed.element)?,
                     SdfStage::SplitAndSizeRestrictions => try_pair_body_len(windowed.element)?,
+                    SdfStage::TruncateSizedRestrictions => try_sized_body_len(windowed.element)?,
                     SdfStage::ProcessSizedElements => unreachable!(),
                 };
                 let Some(body_len) = body_len else { break };
                 let body = &windowed.element[..body_len];
-                let mut output = body.to_vec();
+                let mut output = Some(body.to_vec());
                 for step in middle {
                     let Step::Sdf { stage, .. } = step else {
                         unreachable!()
                     };
+                    let Some(value) = output.take() else { break };
                     output = match stage {
                         SdfStage::PairWithRestriction => {
-                            let (impulse, used) = decode_length_prefix(&output)?;
-                            if used != output.len() {
+                            let (impulse, used) = decode_length_prefix(&value)?;
+                            if used != value.len() {
                                 bail!("v5 SDF Impulse has trailing bytes");
                             }
-                            pair_with_restriction(source_key, impulse)?
+                            Some(pair_with_restriction(source_key, impulse)?)
                         }
-                        SdfStage::SplitAndSizeRestrictions => split_and_size(source_key, &output)?,
+                        SdfStage::SplitAndSizeRestrictions => {
+                            Some(split_and_size(source_key, &value)?)
+                        }
+                        SdfStage::TruncateSizedRestrictions => truncate_sized(source_key, &value)?,
                         SdfStage::ProcessSizedElements => unreachable!(),
                     };
                 }
-                let mut encoded = Vec::new();
-                encode_windowed_value_with_metadata(
-                    windowed.timestamp_millis,
-                    windowed.pane,
-                    windowed.element_metadata,
-                    &output,
-                    &mut encoded,
-                )?;
-                sink_client.write_chunk(instruction_id, sink_id, encoded)?;
+                if let Some(output) = output {
+                    let mut encoded = Vec::new();
+                    encode_windowed_value_with_metadata(
+                        windowed.timestamp_millis,
+                        windowed.pane,
+                        windowed.element_metadata,
+                        &output,
+                        &mut encoded,
+                    )?;
+                    sink_client.write_chunk(instruction_id, sink_id, encoded)?;
+                    output_count += 1;
+                }
                 consumed += header_len + body_len;
                 source_count += 1;
-                output_count += 1;
                 if consumed == pending.len() {
                     break;
                 }

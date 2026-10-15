@@ -342,6 +342,23 @@ fn plans_three_v5_sdf_stages_with_their_portable_identity() {
         ]
     );
 
+    let mut draining = pbd.clone();
+    draining
+        .transforms
+        .get_mut("process")
+        .unwrap()
+        .spec
+        .as_mut()
+        .unwrap()
+        .urn = urns::TRANSFORM_SDF_TRUNCATE_SIZED.into();
+    assert!(plan(&draining).unwrap().steps.iter().any(|step| matches!(
+        step,
+        Step::Sdf {
+            stage: SdfStage::TruncateSizedRestrictions,
+            ..
+        }
+    )));
+
     let mut stateful = pbd.clone();
     let spec = stateful
         .transforms

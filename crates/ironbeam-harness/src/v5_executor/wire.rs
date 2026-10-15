@@ -38,7 +38,7 @@ use crate::executor::{element_count_info, BundleRunner};
 use crate::finalization_journal::{FileFinalizationJournal, FinalizationJournal};
 use crate::sdf_wire::{
     decode_sized, encode_sized, pair_with_restriction, split_and_size, try_bytes_body_len,
-    try_pair_body_len, try_sized_body_len, SizedSourcePair,
+    try_pair_body_len, try_sized_body_len, truncate_sized, SizedSourcePair,
 };
 use crate::state::StateClient;
 use crate::unbounded::{SourcePoll, SourcePoller};
