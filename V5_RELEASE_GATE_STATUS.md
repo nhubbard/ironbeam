@@ -317,7 +317,8 @@ same timestamped rows on Direct and pinned Prism in repeated live runs when
 the source advances its watermark after each window. A second fixture with
 offset fixed windows and a negative first start also matches Direct. When
 both windows' elements arrived in one TestStream batch before a
-single final watermark and only the first expiration output was committed.
+single final watermark, pinned Prism committed only the first expiration
+output.
 An overlapping sliding-window experiment likewise emitted only the first
 expiration callback on pinned Prism while Direct emitted both, even with
 separate watermarks after the two window ends. The public API rejects sliding
