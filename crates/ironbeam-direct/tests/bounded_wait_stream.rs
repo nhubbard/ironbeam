@@ -392,6 +392,7 @@ fn bounded_signal_route_resumes_main_cursor_after_checkpoint() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Commit failure, checkpoint, and replay form one scenario.
 fn failed_second_bundle_retries_from_checkpoint_after_bounded_wait() {
     let directory = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();

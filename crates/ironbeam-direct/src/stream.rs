@@ -924,6 +924,7 @@ impl DirectRunner {
                         Error::unsupported(source_key, "direct", "source-config-digest")
                     })?;
                 let source_digest = if let Some(wait) = &bounded_wait {
+                    use std::fmt::Write as _;
                     let mut digest = format!("{}:{main_source_digest}", main_source_digest.len());
                     for (signal_source, _) in &wait.signals {
                         let signal_digest = registry
@@ -931,7 +932,8 @@ impl DirectRunner {
                             .ok_or_else(|| {
                                 Error::unsupported(signal_source, "direct", "source-config-digest")
                             })?;
-                        digest.push_str(&format!("{}:{signal_digest}", signal_digest.len()));
+                        write!(&mut digest, "{}:{signal_digest}", signal_digest.len())
+                            .expect("writing to String cannot fail");
                     }
                     digest
                 } else if let Some(side) = &bounded_side {
