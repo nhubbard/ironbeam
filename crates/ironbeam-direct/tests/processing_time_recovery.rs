@@ -1,81 +1,18 @@
 #![allow(clippy::too_many_lines)] // The open timer, saved cursor, and resumed firing form one fixture.
 
+mod processing_time_support;
 use ironbeam_core::{
-    Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
-    Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
-    UnboundedSource,
+    Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, SourceProgress, Timestamped,
+    TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
+use processing_time_support::{Capture, TimedScript, Value, progress};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
-
-type Value = (i32, i32);
-
-struct TimedScript {
-    polls: VecDeque<(UnboundedPoll<Timestamped<Value>>, i64)>,
-    clock_ns: i64,
-}
-
-impl UnboundedSource<Timestamped<Value>> for TimedScript {
-    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<Value>>, Error> {
-        let Some((poll, clock_ns)) = self.polls.pop_front() else {
-            return Ok(UnboundedPoll::Pending);
-        };
-        self.clock_ns = clock_ns;
-        Ok(poll)
-    }
-
-    fn processing_time_ns(&self) -> Option<i64> {
-        Some(self.clock_ns)
-    }
-}
-
-struct Capture {
-    committed: Arc<Mutex<Vec<String>>>,
-    accepted: Arc<Mutex<HashSet<String>>>,
-    staged: Vec<String>,
-    bundle: Option<String>,
-}
-
-impl TypedSink<String> for Capture {
-    fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
-        self.bundle = Some(id.to_owned());
-        Ok(())
-    }
-    fn write(&mut self, value: String) -> Result<(), Error> {
-        self.staged.push(value);
-        Ok(())
-    }
-    fn commit(&mut self) -> Result<(), Error> {
-        if self
-            .accepted
-            .lock()
-            .unwrap()
-            .insert(self.bundle.take().unwrap())
-        {
-            self.committed.lock().unwrap().append(&mut self.staged);
-        }
-        Ok(())
-    }
-    fn abort(&mut self) -> Result<(), Error> {
-        self.staged.clear();
-        Ok(())
-    }
-}
-
-fn progress(cursor: u8, watermark_ns: i64, completed: bool) -> ProgressSignal {
-    ProgressSignal {
-        source_key: "source".into(),
-        split_id: "split-0".into(),
-        checkpoint_position: Some(vec![cursor]),
-        event_time_ns: Some(watermark_ns),
-        completed,
-    }
-}
 
 #[test]
 fn processing_timer_deadline_survives_checkpoint_before_first_firing() {
@@ -169,6 +106,10 @@ fn processing_timer_deadline_survives_checkpoint_before_first_firing() {
                 Ok(Box::new(Capture {
                     committed: Arc::clone(&sink_committed),
                     accepted: Arc::clone(&sink_accepted),
+                    fail_once: None,
+                    panic_once: None,
+                    fail_write_once: None,
+                    bundle_ids: None,
                     staged: Vec::new(),
                     bundle: None,
                 }))
@@ -270,6 +211,10 @@ fn processing_timer_rejects_a_negative_source_clock() {
                 Ok(Box::new(Capture {
                     committed: Arc::new(Mutex::new(Vec::new())),
                     accepted: Arc::new(Mutex::new(HashSet::new())),
+                    fail_once: None,
+                    panic_once: None,
+                    fail_write_once: None,
+                    bundle_ids: None,
                     staged: Vec::new(),
                     bundle: None,
                 }))

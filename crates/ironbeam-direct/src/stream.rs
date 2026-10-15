@@ -9,7 +9,8 @@ use crate::{
 };
 use ironbeam_core::{
     Element, Envelope, Error, ErrorKind, FoldSession, Graph, Operation, ProgressSignal, Registry,
-    Replay, Sink, SinkMode, SinkSession, UnboundedPoll, Window, WindowInterval, WindowTrigger,
+    Replay, Sink, SinkMode, SinkSession, UnboundedPoll, UnboundedSource, Window, WindowInterval,
+    WindowTrigger,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,7 +19,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod multi;
 use multi::{start_dual_side_stream, start_multi_grouped_stream_sink, start_multi_stream_sink};
@@ -1255,6 +1256,47 @@ fn bundle_id(graph_fingerprint: &str, sink_keys: &[&str], progress: &ProgressSig
     hex_bytes(&hasher.finalize())
 }
 
+fn processing_time_now_ns(source: &dyn UnboundedSource<Envelope>) -> Result<i64, Error> {
+    if let Some(now_ns) = source.processing_time_ns() {
+        return Ok(now_ns);
+    }
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| Error::resource("processing-clock", error.to_string()))?;
+    i64::try_from(elapsed.as_nanos())
+        .map_err(|_| Error::resource("processing-clock", "wall clock exceeds i64 nanoseconds"))
+}
+
+fn timer_bundle_id(
+    graph_fingerprint: &str,
+    sink_key: &str,
+    progress: &ProgressSignal,
+    prior_state: &[u8],
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"ironbeam-direct-processing-timer-v1");
+    hasher.update(bundle_id(graph_fingerprint, &[sink_key], progress).as_bytes());
+    hasher.update((prior_state.len() as u64).to_le_bytes());
+    hasher.update(prior_state);
+    hex_bytes(&hasher.finalize())
+}
+
+fn repeated_cursor_bundle_id(
+    graph_fingerprint: &str,
+    sink_key: &str,
+    progress: &ProgressSignal,
+    prior_state: &[u8],
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"ironbeam-direct-repeated-cursor-v1");
+    hasher.update(bundle_id(graph_fingerprint, &[sink_key], progress).as_bytes());
+    hasher.update(progress.event_time_ns.unwrap_or(i64::MIN).to_le_bytes());
+    hasher.update([u8::from(progress.completed)]);
+    hasher.update((prior_state.len() as u64).to_le_bytes());
+    hasher.update(prior_state);
+    hex_bytes(&hasher.finalize())
+}
+
 fn apply_grouped_stages(
     registry: &Registry,
     stages: &[String],
@@ -1595,8 +1637,116 @@ fn run_grouped_stream(
             ))
         })?;
         let UnboundedPoll::Ready(batch) = polled else {
+            if route.trigger.early_processing_time().is_some()
+                && let Some(current_progress) = progress.as_ref()
+            {
+                let now_ns = processing_time_now_ns(source.as_ref())?;
+                if let Some(deadline_ns) = folds
+                    .values()
+                    .filter_map(|(fold, _)| fold.next_processing_time_deadline())
+                    .min()
+                    .filter(|deadline| *deadline <= now_ns)
+                {
+                    let prior_state =
+                        encode_grouped_folds(&folds, config.memory_budget_bytes, &route.group_key)?;
+                    let instruction_id = timer_bundle_id(
+                        graph_fingerprint,
+                        sink_key,
+                        current_progress,
+                        &prior_state,
+                    );
+                    let mut panes = Vec::new();
+                    for (fold, rows) in folds.values_mut() {
+                        let (mut fired, released) =
+                            fold.drain_ready_processing_time(deadline_ns)?;
+                        *rows = rows.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(
+                                &route.group_key,
+                                "processing trigger released too many rows",
+                            )
+                        })?;
+                        buffered = buffered.checked_sub(released).ok_or_else(|| {
+                            Error::recovery(&route.group_key, "group buffer count underflow")
+                        })?;
+                        panes.append(&mut fired);
+                    }
+                    if panes.is_empty() {
+                        return Err(Error::recovery(
+                            &route.group_key,
+                            "armed processing timer produced no pane",
+                        ));
+                    }
+                    let mut session = None;
+                    let mut written = 0_u64;
+                    let result = (|| {
+                        write_grouped_panes(
+                            registry,
+                            route,
+                            sink_key,
+                            &instruction_id,
+                            config,
+                            handle,
+                            panes,
+                            &mut session,
+                            &mut written,
+                        )?;
+                        if config.cancellation.load(Ordering::Acquire) {
+                            return Err(cancelled());
+                        }
+                        if let Some(session) = &mut session {
+                            catch_unwind(AssertUnwindSafe(|| session.commit())).unwrap_or_else(
+                                |_| {
+                                    Err(Error::execution(
+                                        sink_key,
+                                        "direct",
+                                        "sink commit panicked",
+                                    ))
+                                },
+                            )?;
+                        }
+                        Ok(())
+                    })();
+                    if let Err(error) = result {
+                        if let Some(session) = &mut session {
+                            let _ = catch_unwind(AssertUnwindSafe(|| session.abort()));
+                        }
+                        return Err(error);
+                    }
+                    if let Some(checkpoint) = checkpoint {
+                        let state = encode_grouped_folds(
+                            &folds,
+                            config.memory_budget_bytes,
+                            &route.group_key,
+                        )?;
+                        checkpoint.save_state(
+                            current_progress,
+                            &state,
+                            config.memory_budget_bytes,
+                        )?;
+                    }
+                    let total = handle
+                        .metrics
+                        .output_elements
+                        .fetch_add(written, Ordering::Relaxed)
+                        .saturating_add(written);
+                    handle.processed.store(total, Ordering::Relaxed);
+                    continue;
+                }
+            }
             std::thread::sleep(Duration::from_millis(10));
             continue;
+        };
+        let repeated_cursor_state = if batch.elements.is_empty()
+            && progress.as_ref().is_some_and(|previous| {
+                previous.checkpoint_position == batch.progress.checkpoint_position
+            }) {
+            Some(encode_grouped_folds(
+                &folds,
+                config.memory_budget_bytes,
+                &route.group_key,
+            )?)
+        } else {
+            None
         };
         if !batch.elements.is_empty()
             && progress.as_ref().is_some_and(|previous| {
@@ -1717,9 +1867,7 @@ fn run_grouped_stream(
                 early_panes.append(&mut fired);
             }
         } else if let Some(delay_ns) = route.trigger.early_processing_time() {
-            let now_ns = source.processing_time_ns().ok_or_else(|| {
-                Error::unsupported(&route.source_key, "direct", "processing-time-clock")
-            })?;
+            let now_ns = processing_time_now_ns(source.as_ref())?;
             for (fold, rows) in folds.values_mut() {
                 fold.arm_processing_time(now_ns, delay_ns)?;
                 let (mut fired, released) = fold.drain_ready_processing_time(now_ns)?;
@@ -1759,7 +1907,10 @@ fn run_grouped_stream(
                 })
                 .collect::<Vec<_>>()
         };
-        let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &next_progress);
+        let instruction_id = repeated_cursor_state.as_ref().map_or_else(
+            || bundle_id(graph_fingerprint, &[sink_key], &next_progress),
+            |state| repeated_cursor_bundle_id(graph_fingerprint, sink_key, &next_progress, state),
+        );
         let mut session = None;
         let mut written = 0_u64;
         let result = (|| {

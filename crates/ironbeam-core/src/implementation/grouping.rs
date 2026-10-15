@@ -538,6 +538,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         Ok(())
     }
 
+    fn next_processing_time_deadline(&self) -> Option<i64> {
+        self.processing_deadlines.values().copied().min()
+    }
+
     fn drain_ready_processing_time(&mut self, now_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
         if self.trigger.early_processing_time().is_none() {
             return Err(Error::incompatible("fold has no processing-time trigger"));

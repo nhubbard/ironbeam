@@ -155,6 +155,10 @@ pub trait FoldSession: Send {
     fn arm_processing_time(&mut self, _now_ns: i64, _delay_ns: i64) -> Result<(), Error> {
         Err(Error::unsupported("fold", "runner", "processing-time-trigger"))
     }
+    /// Earliest armed processing-time deadline in this fold.
+    fn next_processing_time_deadline(&self) -> Option<i64> {
+        None
+    }
     /// Fire groups whose processing-time deadline has elapsed.
     fn drain_ready_processing_time(&mut self, _now_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
         Err(Error::unsupported("fold", "runner", "processing-time-trigger"))
