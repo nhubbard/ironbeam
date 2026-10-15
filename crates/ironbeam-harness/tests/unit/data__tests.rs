@@ -37,6 +37,55 @@ fn concurrent_reader_registration_keeps_the_complete_runner_chunk() {
     }
 }
 
+#[test]
+fn timer_registration_keeps_early_chunks_and_isolates_families() {
+    for iteration in 0..1_000_u32 {
+        let (outbound_tx, _outbound_rx) = mpsc::unbounded_channel();
+        let inbound = Arc::new(Mutex::new(InboundState::default()));
+        let client = DataClient {
+            outbound_tx,
+            inbound: Arc::clone(&inbound),
+            replay: false,
+            replay_output_budget: None,
+            outbound_progress: None,
+        };
+        let barrier = Arc::new(Barrier::new(2));
+        let producer_barrier = Arc::clone(&barrier);
+        let producer = std::thread::spawn(move || {
+            producer_barrier.wait();
+            let mut state = inbound.lock().unwrap();
+            state.route_timer(ElemTimers {
+                instruction_id: "bundle".into(),
+                transform_id: "pardo".into(),
+                timer_family_id: "first".into(),
+                timers: iteration.to_le_bytes().to_vec(),
+                is_last: true,
+            });
+            state.route_timer(ElemTimers {
+                instruction_id: "bundle".into(),
+                transform_id: "pardo".into(),
+                timer_family_id: "second".into(),
+                timers: vec![9],
+                is_last: true,
+            });
+        });
+        barrier.wait();
+        let mut first = client.open_timer_read("bundle", "pardo", "first");
+        producer.join().unwrap();
+        assert_eq!(first.try_recv().unwrap(), iteration.to_le_bytes());
+        assert!(matches!(
+            first.try_recv(),
+            Err(mpsc::error::TryRecvError::Disconnected)
+        ));
+        let mut second = client.open_timer_read("bundle", "pardo", "second");
+        assert_eq!(second.try_recv().unwrap(), vec![9]);
+        assert!(matches!(
+            second.try_recv(),
+            Err(mpsc::error::TryRecvError::Disconnected)
+        ));
+    }
+}
+
 #[tokio::test]
 async fn outbound_flush_waits_for_queued_data_and_terminal_marker() {
     let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel();
@@ -95,4 +144,30 @@ fn replay_output_budget_is_shared_by_cloned_clients() {
     assert_eq!(outbound.try_recv().unwrap().data[0].data, vec![1, 2]);
     assert_eq!(outbound.try_recv().unwrap().data[0].data, vec![3]);
     assert!(outbound.try_recv().unwrap().data[0].is_last);
+}
+
+#[test]
+fn outbound_timer_stream_keeps_family_identity_and_shares_replay_budget() {
+    let (client, mut outbound) = DataClient::for_replay_with_limit("bundle", "source", vec![], 3);
+    client
+        .write_timer_chunk("bundle", "pardo", "expiry", vec![1, 2])
+        .unwrap();
+    assert!(client
+        .write_timer_chunk("bundle", "pardo", "expiry", vec![3, 4])
+        .is_err());
+    client.write_chunk("bundle", "sink", vec![3]).unwrap();
+    client
+        .close_timer_write("bundle", "pardo", "expiry")
+        .unwrap();
+    let first = outbound.try_recv().unwrap();
+    assert!(first.data.is_empty());
+    assert_eq!(first.timers[0].instruction_id, "bundle");
+    assert_eq!(first.timers[0].transform_id, "pardo");
+    assert_eq!(first.timers[0].timer_family_id, "expiry");
+    assert_eq!(first.timers[0].timers, vec![1, 2]);
+    assert!(!first.timers[0].is_last);
+    assert_eq!(outbound.try_recv().unwrap().data[0].data, vec![3]);
+    let last = outbound.try_recv().unwrap();
+    assert!(last.timers[0].is_last);
+    assert!(last.timers[0].timers.is_empty());
 }

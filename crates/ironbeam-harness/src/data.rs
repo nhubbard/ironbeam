@@ -12,8 +12,11 @@
 //! - `open_read(instruction_id, transform_id)` returns an unbounded receiver
 //!   that yields each `data` byte-slice chunk the runner sends for that key;
 //!   when a message with `is_last=true` arrives, the receiver is closed.
-//! - `write_chunk(...)` and `close_write(...)` send `Elements.Data` messages
-//!   out, batched one-per-call.
+//! - `open_timer_read(...)` routes encoded timer-family chunks independently
+//!   of element chunks, including those received before reader registration.
+//! - `write_chunk(...)` and `write_timer_chunk(...)` send element or timer
+//!   messages out, batched one-per-call. Executable timer callbacks remain
+//!   unsupported.
 //!
 //! A single bundle typically opens one read (DataSource) and one write
 //! (DataSink), both on the same `DataClient`. Reader registration is atomic
@@ -26,7 +29,10 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use beam_proto::fn_execution_v1::beam_fn_data_client::BeamFnDataClient;
-use beam_proto::fn_execution_v1::{elements::Data as ElemData, Elements};
+use beam_proto::fn_execution_v1::{
+    elements::{Data as ElemData, Timers as ElemTimers},
+    Elements,
+};
 use futures_util::StreamExt;
 use tokio::sync::{mpsc, Notify};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -36,6 +42,7 @@ use tracing::{debug, warn};
 use crate::endpoints::{normalize_endpoint, worker_request};
 
 type Key = (String, String); // (instruction_id, transform_id)
+type TimerKey = (String, String, String); // (instruction_id, transform_id, timer_family_id)
 const MAX_REPLAY_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Per-key reader state. `sender` is dropped on `is_last=true`, which closes
@@ -59,6 +66,8 @@ struct PendingBuffer {
 struct InboundState {
     readers: HashMap<Key, ReadSlot>,
     pending: HashMap<Key, PendingBuffer>,
+    timer_readers: HashMap<TimerKey, ReadSlot>,
+    timer_pending: HashMap<TimerKey, PendingBuffer>,
 }
 
 /// Count messages handed to the Fn Data transport before acknowledging a
@@ -95,6 +104,30 @@ impl InboundState {
                 pending.chunks.push(data.data);
             }
             if data.is_last {
+                pending.is_last = true;
+            }
+        }
+    }
+
+    fn route_timer(&mut self, timer: ElemTimers) {
+        let key = (
+            timer.instruction_id,
+            timer.transform_id,
+            timer.timer_family_id,
+        );
+        if let Some(reader) = self.timer_readers.get(&key) {
+            if !timer.timers.is_empty() {
+                let _ = reader.sender.send(timer.timers);
+            }
+            if timer.is_last {
+                self.timer_readers.remove(&key);
+            }
+        } else {
+            let pending = self.timer_pending.entry(key).or_default();
+            if !timer.timers.is_empty() {
+                pending.chunks.push(timer.timers);
+            }
+            if timer.is_last {
                 pending.is_last = true;
             }
         }
@@ -228,6 +261,37 @@ impl DataClient {
         rx
     }
 
+    /// Register a byte-stream reader for one timer family in one bundle.
+    /// Timers received before registration are replayed in arrival order.
+    pub fn open_timer_read(
+        &self,
+        instruction_id: impl Into<String>,
+        transform_id: impl Into<String>,
+        timer_family_id: impl Into<String>,
+    ) -> mpsc::UnboundedReceiver<Vec<u8>> {
+        let key = (
+            instruction_id.into(),
+            transform_id.into(),
+            timer_family_id.into(),
+        );
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut inbound = self.inbound.lock().unwrap();
+        let pre_buffered = inbound.timer_pending.remove(&key);
+        let already_closed = match pre_buffered {
+            Some(buf) => {
+                for chunk in buf.chunks {
+                    let _ = tx.send(chunk);
+                }
+                buf.is_last
+            }
+            None => false,
+        };
+        if !already_closed {
+            inbound.timer_readers.insert(key, ReadSlot { sender: tx });
+        }
+        rx
+    }
+
     /// Send one outbound chunk for `(instruction_id, transform_id)`.
     pub fn write_chunk(
         &self,
@@ -268,6 +332,39 @@ impl DataClient {
         })
     }
 
+    /// Send encoded timer-family bytes to the runner for one bundle.
+    pub fn write_timer_chunk(
+        &self,
+        instruction_id: &str,
+        transform_id: &str,
+        timer_family_id: &str,
+        timers: Vec<u8>,
+    ) -> Result<()> {
+        self.send_timer(ElemTimers {
+            instruction_id: instruction_id.into(),
+            transform_id: transform_id.into(),
+            timer_family_id: timer_family_id.into(),
+            timers,
+            is_last: false,
+        })
+    }
+
+    /// Close an outbound timer-family stream after all timer bytes are sent.
+    pub fn close_timer_write(
+        &self,
+        instruction_id: &str,
+        transform_id: &str,
+        timer_family_id: &str,
+    ) -> Result<()> {
+        self.send_timer(ElemTimers {
+            instruction_id: instruction_id.into(),
+            transform_id: transform_id.into(),
+            timer_family_id: timer_family_id.into(),
+            timers: Vec::new(),
+            is_last: true,
+        })
+    }
+
     /// Wait until the outbound transport has consumed every message queued
     /// before this call. Replay clients are drained by their supervisor.
     pub async fn flush_outbound(&self) -> Result<()> {
@@ -289,11 +386,33 @@ impl DataClient {
     }
 
     fn send_data(&self, d: ElemData) -> Result<()> {
+        let payload_len = d.data.len();
+        self.send_elements(
+            Elements {
+                data: vec![d],
+                timers: Vec::new(),
+            },
+            payload_len,
+        )
+    }
+
+    fn send_timer(&self, timer: ElemTimers) -> Result<()> {
+        let payload_len = timer.timers.len();
+        self.send_elements(
+            Elements {
+                data: Vec::new(),
+                timers: vec![timer],
+            },
+            payload_len,
+        )
+    }
+
+    fn send_elements(&self, elements: Elements, payload_len: usize) -> Result<()> {
         if let Some((used, limit)) = &self.replay_output_budget {
             let mut prior = used.load(Ordering::Relaxed);
             loop {
                 let next = prior
-                    .checked_add(d.data.len())
+                    .checked_add(payload_len)
                     .filter(|next| next <= limit)
                     .ok_or_else(|| anyhow!("supervised bundle output exceeds replay limit"))?;
                 match used.compare_exchange_weak(prior, next, Ordering::Relaxed, Ordering::Relaxed)
@@ -308,10 +427,7 @@ impl DataClient {
             .as_ref()
             .map(|progress| progress.enqueued.lock().unwrap());
         self.outbound_tx
-            .send(Elements {
-                data: vec![d],
-                timers: Vec::new(),
-            })
+            .send(elements)
             .map_err(|_| anyhow!("data outbound channel closed"))?;
         if let Some(count) = &mut enqueued {
             **count += 1;
@@ -332,7 +448,9 @@ async fn run_inbound_loop(
                     // the reader. Registration and routing must be atomic.
                     state.lock().unwrap().route(d);
                 }
-                // elems.timers: ignored for MVP (no user timers).
+                for timer in elems.timers {
+                    state.lock().unwrap().route_timer(timer);
+                }
             }
             Ok(None) => {
                 debug!("data stream closed by runner");
