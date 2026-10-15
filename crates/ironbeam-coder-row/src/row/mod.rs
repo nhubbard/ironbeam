@@ -121,15 +121,24 @@ pub fn encode_row(schema: &Schema, row: &Row) -> Result<Vec<u8>> {
     Ok(output)
 }
 
-/// Decode one complete Beam row. Trailing bytes are rejected.
+/// Decode one complete Beam row. A shorter encoded row gains nullable trailing
+/// fields; a longer row drops fields beyond the reader schema. The latter is
+/// safe only here, where the byte slice bounds the complete row. Nested rows
+/// with unknown trailing fields require an explicit writer schema.
 ///
 /// # Errors
 ///
 /// Returns an error for malformed bytes or a malformed schema.
 pub fn decode_row(schema: &Schema, bytes: &[u8]) -> Result<Row> {
     let mut input = bytes;
+    let encoded_count = if static_encoding(schema) {
+        schema.fields.len() as u64
+    } else {
+        read_varint(&mut input)?
+    };
+    input = bytes;
     let row = decode_row_from(schema, &mut input, 0)?;
-    if !input.is_empty() {
+    if !input.is_empty() && encoded_count <= schema.fields.len() as u64 {
         bail!("row coder has trailing bytes");
     }
     Ok(row)
@@ -273,25 +282,31 @@ fn decode_row_from(schema: &Schema, input: &mut &[u8], depth: usize) -> Result<R
     if depth >= MAX_DEPTH {
         bail!("row nesting exceeds limit");
     }
-    let nulls = if static_encoding(schema) {
-        &[][..]
+    let (count, nulls) = if static_encoding(schema) {
+        (schema.fields.len(), &[][..])
     } else {
-        let count = read_varint(input)?;
-        if count != schema.fields.len() as u64 {
-            bail!("row field count does not match schema");
+        let count = usize::try_from(read_varint(input)?)?;
+        if depth > 0 && count > schema.fields.len() {
+            bail!("nested row has unknown trailing fields without a byte boundary");
         }
         let mask_len = usize::try_from(read_varint(input)?)?;
-        if mask_len > schema.fields.len().div_ceil(8) {
-            bail!("row null mask exceeds schema width");
+        if mask_len > count.div_ceil(8) {
+            bail!("row null mask exceeds encoded width");
         }
-        take(input, mask_len)?
+        (count, take(input, mask_len)?)
     };
     let mut values = vec![FieldValue { field_value: None }; schema.fields.len()];
-    for index in encoding_order(schema)? {
+    for (position, index) in encoding_order(schema)?.into_iter().enumerate() {
         let field_type = schema.fields[index]
             .r#type
             .as_ref()
             .ok_or_else(|| anyhow!("row field lacks type"))?;
+        if position >= count {
+            if !field_type.nullable {
+                bail!("new nonnullable row field has no encoded value");
+            }
+            continue;
+        }
         let is_null = nulls
             .get(index / 8)
             .is_some_and(|byte| byte & (1 << (index % 8)) != 0);

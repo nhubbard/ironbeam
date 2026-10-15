@@ -88,11 +88,15 @@ fn typed_projection_reorders_and_adds_nullable_field() {
     })
     .unwrap();
     let projected = old.project::<Reader>().unwrap();
+    let implicit = BeamRow::<Reader>::decode(&old.encode().unwrap()).unwrap();
+    assert_eq!(implicit.as_row(), projected.as_row());
     assert!(old.project::<IncompatibleReader>().is_err());
     assert_eq!(projected.as_row().values[0], old.as_row().values[1]);
     assert_eq!(projected.as_row().values[1], old.as_row().values[0]);
     assert!(projected.as_row().values[2].field_value.is_none());
     let bytes = projected.encode().unwrap();
+    let older = BeamRow::<Writer>::decode(&bytes).unwrap();
+    assert_eq!(older.as_row(), old.as_row());
     assert_eq!(
         BeamRow::<Reader>::decode(&bytes).unwrap().into_row(),
         projected.into_row()

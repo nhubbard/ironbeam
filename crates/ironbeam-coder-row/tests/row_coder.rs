@@ -126,6 +126,25 @@ fn beam_reference_nullable_row_and_schema_encoding_positions() {
     let expected = b"\x03\x00\x15\x04str2\x00";
     assert_eq!(encode_row(&reordered, &row).unwrap(), expected);
     assert_eq!(decode_row(&reordered, expected).unwrap(), row);
+
+    // The pinned Python RowCoder numbers null bits in schema field order,
+    // even when the value bytes follow encoding positions.
+    let null_first_on_wire = Row {
+        values: vec![
+            value(Value::String("str2".into())),
+            value(Value::Boolean(false)),
+            null(),
+        ],
+    };
+    let python_layout = b"\x03\x01\x04\x04str2\x00";
+    assert_eq!(
+        encode_row(&reordered, &null_first_on_wire).unwrap(),
+        python_layout
+    );
+    assert_eq!(
+        decode_row(&reordered, python_layout).unwrap(),
+        null_first_on_wire
+    );
 }
 
 #[test]
@@ -299,6 +318,98 @@ fn row_schema_evolution_adds_removes_and_reorders_fields() {
 
     expanded.fields[2].r#type = Some(atomic(AtomicType::Int64, false));
     assert!(decode_row_evolved(&old, &expanded, &bytes).is_err());
+}
+
+#[test]
+fn implicit_row_evolution_uses_encoded_field_count() {
+    use atomic_type_value::Value;
+    let writer = schema(vec![
+        field("number", atomic(AtomicType::Int32, false)),
+        field("label", atomic(AtomicType::String, false)),
+    ]);
+    let original = Row {
+        values: vec![value(Value::Int32(42)), value(Value::String("beam".into()))],
+    };
+    let bytes = encode_row(&writer, &original).unwrap();
+
+    let reader_new = schema(vec![
+        field("number", atomic(AtomicType::Int32, false)),
+        field("label", atomic(AtomicType::String, false)),
+        field("note", atomic(AtomicType::String, true)),
+    ]);
+    assert_eq!(
+        decode_row(&reader_new, &bytes).unwrap().values,
+        [
+            original.values[0].clone(),
+            original.values[1].clone(),
+            null()
+        ]
+    );
+    let mut required_new = reader_new.clone();
+    required_new.fields[2].r#type.as_mut().unwrap().nullable = false;
+    assert!(decode_row(&required_new, &bytes).is_err());
+
+    let reader_old = schema(vec![field("number", atomic(AtomicType::Int32, false))]);
+    assert_eq!(
+        decode_row(&reader_old, &bytes).unwrap().values,
+        [original.values[0].clone()]
+    );
+    assert!(decode_row(&writer, &[bytes.as_slice(), b"garbage"].concat()).is_err());
+    assert!(decode_row(&reader_old, &[1, 2, 0, 42]).is_err());
+}
+
+#[test]
+fn nested_row_rejects_unknown_trailing_fields_without_writer_schema() {
+    use atomic_type_value::Value;
+    let nested = schema(vec![field("number", atomic(AtomicType::Int32, false))]);
+    let outer = schema(vec![field(
+        "nested",
+        FieldType {
+            nullable: false,
+            type_info: Some(field_type::TypeInfo::RowType(RowType {
+                schema: Some(nested),
+            })),
+        },
+    )]);
+    let bytes = [1, 0, 2, 0, 42, 4, b'b', b'e', b'a', b'm'];
+    assert!(decode_row(&outer, &bytes).is_err());
+    // A newer nested reader can still fill a nullable trailing field.
+    let mut reader = outer;
+    if let Some(field_type::TypeInfo::RowType(inner)) =
+        &mut reader.fields[0].r#type.as_mut().unwrap().type_info
+    {
+        inner
+            .schema
+            .as_mut()
+            .unwrap()
+            .fields
+            .push(field("note", atomic(AtomicType::String, true)));
+    }
+    let old = Row {
+        values: vec![FieldValue {
+            field_value: Some(field_value::FieldValue::RowValue(Row {
+                values: vec![value(Value::Int32(42))],
+            })),
+        }],
+    };
+    let old_outer = schema(vec![field(
+        "nested",
+        FieldType {
+            nullable: false,
+            type_info: Some(field_type::TypeInfo::RowType(RowType {
+                schema: Some(schema(vec![field(
+                    "number",
+                    atomic(AtomicType::Int32, false),
+                )])),
+            })),
+        },
+    )]);
+    let old_bytes = encode_row(&old_outer, &old).unwrap();
+    let decoded = decode_row(&reader, &old_bytes).unwrap();
+    let Some(field_value::FieldValue::RowValue(inner)) = &decoded.values[0].field_value else {
+        panic!("expected nested row");
+    };
+    assert_eq!(inner.values, [value(Value::Int32(42)), null()]);
 }
 
 #[test]
