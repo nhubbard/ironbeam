@@ -92,6 +92,32 @@ When allowed lateness is set, the same value can also appear in a late pane.
 Both runners emit an on-time `a` followed by a late `a` after two additional
 rows of that value arrive before the window expires.
 
+`distinct_by_per_window_named` derives a key from each value and keeps one
+representative per key and window. It chooses the smallest encoded value, so
+its result is stable when a runner changes bundle order:
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let mut representatives = pipeline
+        .from_vec("names", vec!["a2".to_owned(), "a1".to_owned(), "b2".to_owned()])?
+        .distinct_by_per_window_named("by-prefix", |name| name[..1].to_owned())?
+        .collect_seq()?;
+    representatives.sort();
+    assert_eq!(representatives, ["a1", "b2"]);
+    Ok(())
+}
+```
+
+The value and derived key require stable coders. The helper groups the values
+for each open key and window; a large key can reach the configured state
+budget. On unbounded input, use a finite window or an early trigger for the
+global window. `count_per_element_named` also works on watermarked input. Its
+streaming path groups each value and emits a count when the matching window
+closes; the bounded path uses an incremental combiner.
+
 For an unbounded keyed collection, call `early_processing_time_trigger_named("timer", 5_000_000)` before `group_by_key_named` to emit an early pane five milliseconds after the first row in a key and window. A later row can arm another firing. `accumulating_processing_time_trigger_named` retains earlier values in each new pane; the other method discards values after each firing. The delay is a positive whole number of milliseconds expressed in nanoseconds. The policy accepts global, fixed, and sliding windows; session windows are rejected. Direct uses the source's scripted clock when supplied and wall time otherwise, so an idle source can still fire. Direct and local Prism have matching fixed-window results for a single TestStream source with explicit processing-time advances.
 
 `group_into_batches_named` emits vectors of values under each key. Its size
