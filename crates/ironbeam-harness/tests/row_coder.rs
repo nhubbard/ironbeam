@@ -4,6 +4,7 @@ use beam_proto::pipeline_v1::{
     MapTypeEntry, MapTypeValue, Row, RowType, Schema,
 };
 use ironbeam_harness::coders::row::{decode_row, encode_row};
+use prost::Message;
 
 fn field(name: &str, ty: FieldType) -> Field {
     Field {
@@ -74,6 +75,11 @@ fn beam_reference_row_with_strings_numbers_and_array() {
     let expected = b"\x04\x00\x03foo\xa9\x46\x3f\xb9\x99\x99\x99\x99\x99\x9a\x00\x00\x00\x03\x03foo\x03bar\x03baz";
     assert_eq!(encode_row(&schema, &row).unwrap(), expected);
     assert_eq!(decode_row(&schema, expected).unwrap(), row);
+    // Schema payload and row bytes from Beam's pinned standard_coders.yaml.
+    let payload = b"\n\t\n\x03str\x1a\x02\x10\x07\n\t\n\x03i32\x1a\x02\x10\x03\n\t\n\x03f64\x1a\x02\x10\x06\n\r\n\x03arr\x1a\x06\x1a\x04\n\x02\x10\x07\x12$4e5e554c-d4c1-4a5d-b5e1-f3293a6b9f05";
+    let beam_schema = Schema::decode(payload.as_slice()).unwrap();
+    assert_eq!(encode_row(&beam_schema, &row).unwrap(), expected);
+    assert_eq!(decode_row(&beam_schema, expected).unwrap(), row);
 }
 
 #[test]
