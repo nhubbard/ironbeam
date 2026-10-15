@@ -58,7 +58,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
     {
         let parent = self.parent()?;
         if parent.boundedness == Boundedness::Unbounded && parent.time.window == Window::Global {
-            if parent.time.trigger.early_count().is_none() {
+            if parent.time.trigger.early_count().is_none()
+                && parent.time.trigger.early_processing_time().is_none()
+            {
                 return Err(Error::graph(
                     key,
                     "unbounded global keyed combine requires an early count trigger",
@@ -464,6 +466,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         let parent = self.parent()?;
         let grouped = if parent.boundedness == Boundedness::Unbounded
             && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
         {
             self.early_count_trigger_named(
                 &format!("{key}/count-trigger"),
@@ -719,6 +722,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         if parent.boundedness == Boundedness::Unbounded
             && parent.time.window == Window::Global
             && parent.time.trigger.early_count().is_none()
+            && parent.time.trigger.early_processing_time().is_none()
         {
             return Err(Error::graph(
                 key,
@@ -742,6 +746,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 fired_panes: HashMap::new(),
                 nonspeculative_base: HashMap::new(),
                 fired_value_counts: HashMap::new(),
+                processing_deadlines: HashMap::new(),
                 latest_timestamps: HashMap::new(),
                 groups: Vec::new(),
             })
@@ -761,6 +766,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 fired_panes: HashMap::new(),
                 nonspeculative_base: HashMap::new(),
                 fired_value_counts: HashMap::new(),
+                processing_deadlines: HashMap::new(),
                 latest_timestamps: HashMap::new(),
                 groups: Vec::new(),
             });

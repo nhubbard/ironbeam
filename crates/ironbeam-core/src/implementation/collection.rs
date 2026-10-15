@@ -532,6 +532,66 @@ impl<T: Element> PCollection<T> {
         self.count_trigger_named(key, count, true)
     }
 
+    /// Fire repeated early panes after new input has waited the given
+    /// processing-time duration. The duration is a positive whole millisecond.
+    pub fn early_processing_time_trigger_named(
+        &self,
+        key: &str,
+        delay_ns: i64,
+    ) -> Result<Self, Error> {
+        self.processing_time_trigger_named(key, delay_ns, false)
+    }
+
+    /// Retain previous values in repeated processing-time early panes.
+    pub fn accumulating_processing_time_trigger_named(
+        &self,
+        key: &str,
+        delay_ns: i64,
+    ) -> Result<Self, Error> {
+        self.processing_time_trigger_named(key, delay_ns, true)
+    }
+
+    fn processing_time_trigger_named(
+        &self,
+        key: &str,
+        delay_ns: i64,
+        accumulating: bool,
+    ) -> Result<Self, Error> {
+        if delay_ns <= 0 || delay_ns % 1_000_000 != 0 {
+            return Err(Error::graph(
+                key,
+                "processing-time trigger requires a positive whole-millisecond delay",
+            ));
+        }
+        let window = self.parent()?.time.window;
+        let operation = match window {
+            Window::Fixed { .. } | Window::FixedOffset { .. } => Operation::FixedWindow,
+            Window::Sliding { .. } | Window::Global => Operation::Map,
+            Window::Session { .. } => {
+                return Err(Error::graph(
+                    key,
+                    "processing-time trigger requires global, fixed, or sliding windows",
+                ));
+            }
+        };
+        self.next_with_time_policy(
+            key,
+            operation,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(window),
+            None,
+            TimePolicyOverride {
+                trigger: Some(if accumulating {
+                    WindowTrigger::EarlyProcessingTimeAccumulating { delay_ns }
+                } else {
+                    WindowTrigger::EarlyProcessingTime { delay_ns }
+                }),
+                output_time: None,
+                allowed_lateness_ns: None,
+            },
+        )
+    }
+
     fn count_trigger_named(&self, key: &str, count: u64, accumulating: bool) -> Result<Self, Error> {
         if count == 0 || count > i32::MAX as u64 {
             return Err(Error::graph(key, "early count trigger requires a positive 32-bit count"));

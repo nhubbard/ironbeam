@@ -2,9 +2,10 @@
 
 use beam_proto::pipeline_v1::{
     accumulation_mode, closing_behavior, merge_status, on_time_behavior, output_time,
+    timestamp_transform,
     trigger::{self, Default as DefaultTrigger},
-    FixedWindowsPayload, FunctionSpec, SessionWindowsPayload, SlidingWindowsPayload, Trigger,
-    WindowingStrategy,
+    FixedWindowsPayload, FunctionSpec, SessionWindowsPayload, SlidingWindowsPayload,
+    TimestampTransform, Trigger, WindowingStrategy,
 };
 use prost::Message;
 
@@ -34,19 +35,51 @@ pub fn global_windowing_strategy() -> WindowingStrategy {
 }
 
 pub(crate) fn apply_trigger(strategy: &mut WindowingStrategy, policy: WindowTrigger) {
-    if policy.early_count().is_some() || policy.late_count().is_some() {
+    if policy.early_count().is_some()
+        || policy.early_processing_time().is_some()
+        || policy.late_count().is_some()
+    {
         if policy.is_accumulating() {
             strategy.accumulation_mode = accumulation_mode::Enum::Accumulating as i32;
         }
         strategy.trigger = Some(Trigger {
             trigger: Some(trigger::Trigger::AfterEndOfWindow(Box::new(
                 trigger::AfterEndOfWindow {
-                    early_firings: policy.early_count().map(repeated_count_trigger),
+                    early_firings: policy
+                        .early_count()
+                        .map(repeated_count_trigger)
+                        .or_else(|| {
+                            policy
+                                .early_processing_time()
+                                .map(repeated_processing_time_trigger)
+                        }),
                     late_firings: policy.late_count().map(repeated_count_trigger),
                 },
             ))),
         });
     }
+}
+
+fn repeated_processing_time_trigger(delay_ns: i64) -> Box<Trigger> {
+    Box::new(Trigger {
+        trigger: Some(trigger::Trigger::Repeat(Box::new(trigger::Repeat {
+            subtrigger: Some(Box::new(Trigger {
+                trigger: Some(trigger::Trigger::AfterProcessingTime(
+                    trigger::AfterProcessingTime {
+                        timestamp_transforms: vec![TimestampTransform {
+                            timestamp_transform: Some(
+                                timestamp_transform::TimestampTransform::Delay(
+                                    timestamp_transform::Delay {
+                                        delay_millis: delay_ns / 1_000_000,
+                                    },
+                                ),
+                            ),
+                        }],
+                    },
+                )),
+            })),
+        }))),
+    })
 }
 
 fn repeated_count_trigger(count: u64) -> Box<Trigger> {

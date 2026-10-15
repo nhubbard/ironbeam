@@ -93,6 +93,9 @@ impl DirectRunner {
         )?;
         for node in &graph.nodes {
             validate_lateness(node, unbounded_source)?;
+            if node.time.trigger.early_processing_time().is_some() && !unbounded_source {
+                return Err(Error::unsupported(&node.key, "direct", "processing-time-clock"));
+            }
             if node.time.trigger != WindowTrigger::Default
                 && !supports_trigger(node, unbounded_source)
             {

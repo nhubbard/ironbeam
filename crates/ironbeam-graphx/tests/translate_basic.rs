@@ -2,7 +2,8 @@
 
 use beam_proto::pipeline_v1::test_stream_payload::event::Event as StreamEvent;
 use beam_proto::pipeline_v1::{
-    accumulation_mode, output_time, trigger, ParDoPayload, StateSpec, TimerFamilySpec,
+    accumulation_mode, output_time, timestamp_transform, trigger, ParDoPayload, StateSpec,
+    TimerFamilySpec,
 };
 use ironbeam_core::{
     cogroup_by_key_2_named, Error, OrderedFoldFn, Pipeline, Replay, SinkMode, SinkSpec,
@@ -211,6 +212,67 @@ fn early_count_trigger_is_a_distinct_portable_windowing_strategy() {
     assert!(matches!(
         repeat.subtrigger.as_ref().and_then(|sub| sub.trigger.as_ref()),
         Some(trigger::Trigger::ElementCount(count)) if count.element_count == 1
+    ));
+}
+
+#[test]
+fn processing_time_trigger_lowers_a_repeated_millisecond_delay() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)])],
+        )
+        .unwrap()
+        .fixed_windows("windows", 10_000_000)
+        .unwrap()
+        .accumulating_processing_time_trigger_named("processing-trigger", 5_000_000)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let trigger_pc = components
+        .pcollections
+        .values()
+        .find(|pc| pc.unique_name == "processing-trigger")
+        .unwrap();
+    let strategy = &components.windowing_strategies[&trigger_pc.windowing_strategy_id];
+    assert_eq!(
+        strategy.accumulation_mode,
+        accumulation_mode::Enum::Accumulating as i32
+    );
+    let Some(trigger::Trigger::AfterEndOfWindow(end)) = strategy
+        .trigger
+        .as_ref()
+        .and_then(|trigger| trigger.trigger.as_ref())
+    else {
+        panic!("expected end-of-window trigger");
+    };
+    let Some(trigger::Trigger::Repeat(repeat)) = end
+        .early_firings
+        .as_ref()
+        .and_then(|early| early.trigger.as_ref())
+    else {
+        panic!("expected repeated early trigger");
+    };
+    let Some(trigger::Trigger::AfterProcessingTime(processing)) = repeat
+        .subtrigger
+        .as_ref()
+        .and_then(|sub| sub.trigger.as_ref())
+    else {
+        panic!("expected processing-time subtrigger");
+    };
+    assert!(matches!(
+        processing.timestamp_transforms.as_slice(),
+        [transform] if matches!(
+            transform.timestamp_transform.as_ref(),
+            Some(timestamp_transform::TimestampTransform::Delay(delay)) if delay.delay_millis == 5
+        )
     ));
 }
 

@@ -269,6 +269,7 @@ impl Graph {
                             && ((node.time.output_time == upstream.time.output_time
                                 && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
                                 && (node.time.trigger.early_count().is_some()
+                                    || node.time.trigger.early_processing_time().is_some()
                                     || node.time.trigger.late_count().is_some()))
                                 || (node.time.trigger == upstream.time.trigger
                                     && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
@@ -291,7 +292,8 @@ impl Graph {
                     ) && node.boundedness == Boundedness::Unbounded
                         && node.time.window == Window::Global
                         && !(matches!(node.operation, Operation::GroupByKey)
-                            && node.time.trigger.early_count().is_some())
+                            && (node.time.trigger.early_count().is_some()
+                                || node.time.trigger.early_processing_time().is_some()))
                     {
                         return Err(Error::graph(
                             &node.key,

@@ -151,6 +151,14 @@ pub trait FoldSession: Send {
     fn drain_ready_count(&mut self, _count: u64) -> Result<(Vec<Envelope>, usize), Error> {
         Err(Error::unsupported("fold", "runner", "early-count-trigger"))
     }
+    /// Start processing-time timers for groups with new, unfired input.
+    fn arm_processing_time(&mut self, _now_ns: i64, _delay_ns: i64) -> Result<(), Error> {
+        Err(Error::unsupported("fold", "runner", "processing-time-trigger"))
+    }
+    /// Fire groups whose processing-time deadline has elapsed.
+    fn drain_ready_processing_time(&mut self, _now_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {
+        Err(Error::unsupported("fold", "runner", "processing-time-trigger"))
+    }
     /// Remove groups whose windows end at or before the watermark. Returns
     /// their output and the number of buffered source elements released.
     fn drain_closed(&mut self, _watermark_ns: i64) -> Result<(Vec<Envelope>, usize), Error> {

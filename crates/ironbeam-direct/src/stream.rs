@@ -1716,6 +1716,24 @@ fn run_grouped_stream(
                 })?;
                 early_panes.append(&mut fired);
             }
+        } else if let Some(delay_ns) = route.trigger.early_processing_time() {
+            let now_ns = source.processing_time_ns().ok_or_else(|| {
+                Error::unsupported(&route.source_key, "direct", "processing-time-clock")
+            })?;
+            for (fold, rows) in folds.values_mut() {
+                fold.arm_processing_time(now_ns, delay_ns)?;
+                let (mut fired, released) = fold.drain_ready_processing_time(now_ns)?;
+                *rows = rows.checked_sub(released).ok_or_else(|| {
+                    Error::recovery(
+                        &route.group_key,
+                        "processing trigger released too many rows",
+                    )
+                })?;
+                buffered = buffered.checked_sub(released).ok_or_else(|| {
+                    Error::recovery(&route.group_key, "group buffer count underflow")
+                })?;
+                early_panes.append(&mut fired);
+            }
         }
         let closing = if matches!(route.window, Window::Session { .. }) {
             if next_progress.completed || next_progress.event_time_ns.is_some() {

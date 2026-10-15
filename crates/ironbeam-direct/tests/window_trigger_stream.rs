@@ -11,6 +11,141 @@ use std::time::{Duration, Instant};
 type Row = (String, i32);
 
 #[test]
+fn processing_time_trigger_fires_repeated_early_panes() {
+    for accumulating in [false, true] {
+        let committed = Arc::new(Mutex::new(Vec::new()));
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let pipeline = Pipeline::default();
+        let source = pipeline
+            .test_stream_source(
+                "processing-source",
+                vec![
+                    TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)]),
+                    TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                    TestStreamEvent::Elements(vec![((1, 3), 2_000_000)]),
+                    TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                ],
+            )
+            .unwrap()
+            .fixed_windows("processing-window", 10_000_000)
+            .unwrap();
+        let triggered = if accumulating {
+            source.accumulating_processing_time_trigger_named("processing-trigger", 5_000_000)
+        } else {
+            source.early_processing_time_trigger_named("processing-trigger", 5_000_000)
+        }
+        .unwrap();
+        let sink = triggered
+            .group_by_key_named("processing-group")
+            .unwrap()
+            .reify_panes_named("processing-pane")
+            .unwrap()
+            .map_named("processing-row", |(pane, (key, values))| {
+                format!(
+                    "{key}:{values:?}:{:?}:{}:{}:{}:{}",
+                    pane.timing, pane.is_first, pane.is_last, pane.index, pane.nonspeculative_index
+                )
+            })
+            .unwrap()
+            .sink_named_with_config(
+                "processing-sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                format!("processing-sink-{accumulating}-v1"),
+                {
+                    let committed = Arc::clone(&committed);
+                    let accepted = Arc::clone(&accepted);
+                    move || {
+                        Ok(Box::new(Capture {
+                            committed: Arc::clone(&committed),
+                            accepted: Arc::clone(&accepted),
+                            staged: Vec::new(),
+                            bundle: None,
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let rows = committed.lock().unwrap().clone();
+        if accumulating {
+            assert_eq!(
+                rows,
+                [
+                    "1:[2]:Early:true:false:0:-1",
+                    "1:[2, 3]:Early:false:false:1:-1",
+                    "1:[2, 3]:OnTime:false:true:2:0",
+                ]
+            );
+        } else {
+            assert_eq!(
+                rows,
+                [
+                    "1:[2]:Early:true:false:0:-1",
+                    "1:[3]:Early:false:false:1:-1"
+                ]
+            );
+        }
+    }
+}
+
+#[test]
+fn processing_time_trigger_rejects_deadline_overflow() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .test_stream_source(
+            "clock-source",
+            vec![
+                TestStreamEvent::AdvanceProcessingTime(i64::MAX - 1),
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)]),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .early_processing_time_trigger_named("timer", 5_000_000)
+        .unwrap();
+    let sink = source
+        .group_by_key_named("group")
+        .unwrap()
+        .map_named("row", |(key, values)| format!("{key}:{values:?}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "overflow-sink-v1".into(),
+            || {
+                Ok(Box::new(Capture {
+                    committed: Arc::new(Mutex::new(Vec::new())),
+                    accepted: Arc::new(Mutex::new(HashSet::new())),
+                    staged: Vec::new(),
+                    bundle: None,
+                }))
+            },
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Resource);
+}
+
+#[test]
 fn heterogeneous_cogroup_retains_late_pane_until_expiry() {
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));

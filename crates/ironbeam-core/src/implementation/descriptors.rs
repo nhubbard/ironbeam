@@ -28,6 +28,10 @@ pub enum WindowTrigger {
     EarlyElementCount { count: u64 },
     /// Repeated early firings that retain prior values in subsequent panes.
     EarlyElementCountAccumulating { count: u64 },
+    /// Repeated early firings after a processing-time delay from new input.
+    EarlyProcessingTime { delay_ns: i64 },
+    /// Repeated processing-time firings that retain earlier values.
+    EarlyProcessingTimeAccumulating { delay_ns: i64 },
     /// Repeated late firings after `count` new elements; panes discard prior values.
     LateElementCount { count: u64 },
     /// Repeated late firings after `count` new elements; panes retain prior values.
@@ -47,12 +51,22 @@ impl WindowTrigger {
     #[must_use]
     pub const fn early_count(&self) -> Option<u64> {
         match self {
-            Self::Default | Self::LateElementCount { .. } | Self::LateElementCountAccumulating { .. } => None,
+            Self::Default | Self::LateElementCount { .. } | Self::LateElementCountAccumulating { .. }
+            | Self::EarlyProcessingTime { .. } | Self::EarlyProcessingTimeAccumulating { .. } => None,
             Self::EarlyElementCount { count } | Self::EarlyElementCountAccumulating { count } => {
                 Some(*count)
             }
             Self::EarlyAndLateElementCount { early_count, .. }
             | Self::EarlyAndLateElementCountAccumulating { early_count, .. } => Some(*early_count),
+        }
+    }
+
+    #[must_use]
+    pub const fn early_processing_time(&self) -> Option<i64> {
+        match self {
+            Self::EarlyProcessingTime { delay_ns }
+            | Self::EarlyProcessingTimeAccumulating { delay_ns } => Some(*delay_ns),
+            _ => None,
         }
     }
 
@@ -71,6 +85,7 @@ impl WindowTrigger {
         matches!(
             self,
             Self::EarlyElementCountAccumulating { .. }
+                | Self::EarlyProcessingTimeAccumulating { .. }
                 | Self::LateElementCountAccumulating { .. }
                 | Self::EarlyAndLateElementCountAccumulating { .. }
         )

@@ -80,6 +80,8 @@ fn main() -> Result<(), ironbeam::Error> {
 
 A grouped result contains a key and its values. A shuffle may change value order, so an application that depends on order must provide an explicit order key through the corresponding ordered operation. The transform crates also include keyed reductions, joins, sampling, selection, validation, and side inputs. The [ETL example](https://github.com/nhubbard/ironbeam/blob/main/examples/etl_pipeline.rs) applies several of these operations in one pipeline.
 
+For an unbounded keyed collection, call `early_processing_time_trigger_named("timer", 5_000_000)` before `group_by_key_named` to emit an early pane five milliseconds after the first row in a key and window. A later row can arm another firing. `accumulating_processing_time_trigger_named` retains earlier values in each new pane; the other method discards values after each firing. The delay is a positive whole number of milliseconds expressed in nanoseconds. The policy currently supports global, fixed, and sliding windows; session windows are rejected. The tested Direct and local Prism behavior uses a single TestStream source with explicit processing-time advances.
+
 `group_into_batches_named` emits vectors of values under each key. Its size
 must be greater than zero and smaller than `i64::MAX`; invalid sizes fail
 while the graph is built. For an unbounded input without an existing early

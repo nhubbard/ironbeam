@@ -37,6 +37,98 @@ fn early_count_is_validated_and_changes_graph_identity() {
 }
 
 #[test]
+fn processing_time_trigger_validates_delay_and_changes_graph_identity() {
+    let make = |delay_ns, accumulating| {
+        let pipeline = Pipeline::default();
+        let source = pipeline
+            .test_stream_source(
+                "source",
+                vec![ironbeam_core::TestStreamEvent::Elements(vec![(
+                    (1_i32, 2_i32),
+                    1_000_000,
+                )])],
+            )
+            .unwrap()
+            .fixed_windows("window", 10_000_000)
+            .unwrap();
+        let triggered = if accumulating {
+            source.accumulating_processing_time_trigger_named("trigger", delay_ns)
+        } else {
+            source.early_processing_time_trigger_named("trigger", delay_ns)
+        }
+        .unwrap();
+        triggered.group_by_key_named("group").unwrap();
+        let (graph, _) = pipeline.snapshot().unwrap();
+        (
+            graph.fingerprint().unwrap(),
+            graph.node("group").unwrap().time.trigger,
+        )
+    };
+    assert_eq!(
+        make(5_000_000, false).1,
+        WindowTrigger::EarlyProcessingTime {
+            delay_ns: 5_000_000
+        }
+    );
+    assert_eq!(
+        make(5_000_000, true).1,
+        WindowTrigger::EarlyProcessingTimeAccumulating {
+            delay_ns: 5_000_000
+        }
+    );
+    assert_ne!(make(5_000_000, false).0, make(6_000_000, false).0);
+    assert_ne!(make(5_000_000, false).0, make(5_000_000, true).0);
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("values", vec![1_i32]).unwrap();
+    assert!(
+        source
+            .early_processing_time_trigger_named("zero", 0)
+            .is_err()
+    );
+    assert!(
+        source
+            .early_processing_time_trigger_named("fraction", 1)
+            .is_err()
+    );
+    assert!(
+        source
+            .early_processing_time_trigger_named("negative", -1_000_000)
+            .is_err()
+    );
+    let global = pipeline
+        .from_vec("pairs", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .early_processing_time_trigger_named("global-timer", 5_000_000)
+        .unwrap();
+    global.group_by_key_named("global-group").unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node("global-group").unwrap().time.trigger,
+        WindowTrigger::EarlyProcessingTime {
+            delay_ns: 5_000_000
+        }
+    );
+    let sessions = source.session_windows_named("sessions", 5_000_000).unwrap();
+    assert!(
+        sessions
+            .early_processing_time_trigger_named("session-timer", 5_000_000)
+            .is_err()
+    );
+    let offset = pipeline
+        .from_vec("offset-pairs", vec![(1_i32, 3_i32)])
+        .unwrap()
+        .fixed_windows_with_offset("offset", 10_000_000, 2_000_000)
+        .unwrap()
+        .allowed_lateness_named("offset-lateness", 1_000_000)
+        .unwrap();
+    let offset = offset
+        .early_processing_time_trigger_named("offset-timer", 5_000_000)
+        .unwrap();
+    offset.group_by_key_named("offset-group").unwrap();
+    pipeline.snapshot().unwrap();
+}
+
+#[test]
 fn unbounded_global_group_requires_a_finite_count_trigger() {
     let pipeline = Pipeline::default();
     let values = pipeline

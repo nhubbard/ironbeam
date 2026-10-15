@@ -66,6 +66,7 @@ use ironbeam_prism_proof::{
     panicking_keyed_fold_fixture, panicking_map_fixture, panicking_side_input_fixture,
     partition_fixture, portable_object_avro_collection, portable_object_avro_fixture,
     portable_object_parquet_collection, portable_object_parquet_fixture,
+    processing_time_trigger_collection, processing_time_trigger_fixture,
     production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
     shared_accumulating_early_cogroup_collection, shared_accumulating_early_cogroup_fixture,
     shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
@@ -6453,6 +6454,106 @@ async fn prism_and_direct_count_trigger_match_overlapping_sliding_windows() {
             .collect::<Vec<_>>();
         direct_rows.sort();
         assert_eq!(direct_rows, rows, "sliding {mode} panes differ");
+    }
+}
+
+#[tokio::test]
+async fn prism_matches_direct_processing_time_early_panes() {
+    struct DirectRows {
+        rows: Arc<Mutex<Vec<String>>>,
+        accepted: Arc<Mutex<HashSet<String>>>,
+        staged: Vec<String>,
+        bundle: String,
+    }
+    impl TypedSink<String> for DirectRows {
+        fn begin_bundle(&mut self, id: &str) -> Result<(), Error> {
+            self.bundle = id.to_owned();
+            Ok(())
+        }
+        fn write(&mut self, row: String) -> Result<(), Error> {
+            self.staged.push(row);
+            Ok(())
+        }
+        fn commit(&mut self) -> Result<(), Error> {
+            if self.accepted.lock().unwrap().insert(self.bundle.clone()) {
+                self.rows.lock().unwrap().append(&mut self.staged);
+            }
+            Ok(())
+        }
+        fn abort(&mut self) -> Result<(), Error> {
+            self.staged.clear();
+            Ok(())
+        }
+    }
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    for accumulating in [false, true] {
+        let portable_path = directory
+            .path()
+            .join(format!("portable-{accumulating}.txt"));
+        let direct_rows = Arc::new(Mutex::new(Vec::new()));
+        let accepted = Arc::new(Mutex::new(HashSet::new()));
+        let direct_pipeline = Pipeline::default();
+        let direct_sink = processing_time_trigger_collection(&direct_pipeline, accumulating)
+            .unwrap()
+            .sink_named_with_config(
+                "processing-result",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                format!("processing-direct-{accumulating}-v1"),
+                {
+                    let rows = Arc::clone(&direct_rows);
+                    let accepted = Arc::clone(&accepted);
+                    move || {
+                        Ok(Box::new(DirectRows {
+                            rows: Arc::clone(&rows),
+                            accepted: Arc::clone(&accepted),
+                            staged: Vec::new(),
+                            bundle: String::new(),
+                        }))
+                    }
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&direct_sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let pipeline = Pipeline::default();
+        processing_time_trigger_fixture(&pipeline, portable_path.clone(), accumulating).unwrap();
+        let terminal = run_shared_fixture(
+            &endpoint,
+            &pipeline,
+            &format!("processing-time-{accumulating}"),
+            HashMap::from([
+                (
+                    "IRONBEAM_V5_PRISM_PROCESSING_TIME".into(),
+                    portable_path.to_string_lossy().into_owned(),
+                ),
+                (
+                    "IRONBEAM_V5_PRISM_PROCESSING_ACCUMULATING".into(),
+                    if accumulating { "1" } else { "0" }.into(),
+                ),
+            ]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "processing-time job state: {terminal:?}");
+        let mut direct = direct_rows.lock().unwrap().clone();
+        let mut portable = std::fs::read_to_string(&portable_path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        direct.sort();
+        portable.sort();
+        assert_eq!(portable, direct, "processing-time panes differ");
     }
 }
 
