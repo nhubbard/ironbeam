@@ -1,7 +1,7 @@
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
-    Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
-    UnboundedSource,
+    TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
+    UnboundedPoll, UnboundedSource,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
 use std::collections::{HashSet, VecDeque};
@@ -204,4 +204,69 @@ fn heterogeneous_shared_source_restores_one_cursor_and_late_count_pane() {
             "1:([3, 5], []):Late:false:false:1:1",
         ]
     );
+}
+
+#[test]
+fn shared_source_can_split_before_window_assignment() {
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .test_stream_source(
+            "shared",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, 0_u8, 2_i32), 2_000_000),
+                    ((1, 1, 4), 4_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )
+        .unwrap();
+    let main = source
+        .filter_named("main-filter", |(_, tag, _)| *tag == 0)
+        .unwrap()
+        .map_named("main", |(key, _, value)| (key, value))
+        .unwrap()
+        .fixed_windows("main-window", 10_000_000)
+        .unwrap();
+    let side = source
+        .filter_named("side-filter", |(_, tag, _)| *tag == 1)
+        .unwrap()
+        .map_named("side", |(key, _, value)| (key, value.to_string()))
+        .unwrap()
+        .fixed_windows("side-window", 10_000_000)
+        .unwrap();
+    let sink = ironbeam_core::cogroup_by_key_2_named("group", &main, &side)
+        .unwrap()
+        .map_named("row", |(key, buckets)| format!("{key}:{buckets:?}"))
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "shared-branch-at-source-v1".into(),
+            {
+                let rows = Arc::clone(&rows);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(Capture {
+                        rows: Arc::clone(&rows),
+                        accepted: Arc::clone(&accepted),
+                        staged: Vec::new(),
+                        bundle: String::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(rows.lock().unwrap().as_slice(), ["1:([2], [\"4\"])"]);
 }
