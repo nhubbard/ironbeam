@@ -3,12 +3,29 @@ use ironbeam_core::{
     WindowInterval,
 };
 
-#[derive(Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 struct Uncoded;
 
 impl Element for Uncoded {
     const TYPE_ID: &'static str = "tests/uncoded-set-element";
     const CODER_ID: &'static str = "tests/uncoded-set-element-v1";
+}
+
+#[derive(Eq, Hash, PartialEq)]
+struct FailingCoder;
+
+impl Element for FailingCoder {
+    const TYPE_ID: &'static str = "tests/failing-set-coder";
+    const CODER_ID: &'static str = "tests/failing-set-coder-v1";
+    fn supports_coder() -> bool {
+        true
+    }
+    fn encode(&self) -> Result<Vec<u8>, Error> {
+        Err(Error::incompatible("set element encode failed"))
+    }
+    fn decode(_: &[u8]) -> Result<Self, Error> {
+        Ok(Self)
+    }
 }
 
 fn pipeline() -> Pipeline {
@@ -215,6 +232,12 @@ fn set_registration_rejects_invalid_identity_and_window_policy() {
             )
             .is_err()
     );
+}
+
+#[test]
+fn set_registration_rejects_uncoded_keys_values_state_and_outputs() {
+    let pipeline = Pipeline::default();
+    let pairs = pipeline.from_vec("pairs", vec![(1_i32, 1_i32)]).unwrap();
     assert!(
         pairs
             .stateful_set_map_named::<Uncoded, i32>(
@@ -222,6 +245,42 @@ fn set_registration_rejects_invalid_identity_and_window_policy() {
                 "tests/uncoded-set",
                 Version { major: 1, minor: 0 },
                 |_, _, _| Ok((SetStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    let key_pairs = pipeline
+        .from_vec("uncoded-keys", vec![(Uncoded, 1_i32)])
+        .unwrap();
+    assert!(
+        key_pairs
+            .stateful_set_map_named::<i32, i32>(
+                "uncoded-key-set",
+                "tests/uncoded-key-set",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((SetStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    let value_pairs = pipeline
+        .from_vec("uncoded-values", vec![(1_i32, Uncoded)])
+        .unwrap();
+    assert!(
+        value_pairs
+            .stateful_set_map_named::<i32, i32>(
+                "uncoded-value-set",
+                "tests/uncoded-value-set",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((SetStateMutation::Keep, 0)),
+            )
+            .is_err()
+    );
+    assert!(
+        pairs
+            .stateful_set_map_named::<i32, Uncoded>(
+                "uncoded-output-set",
+                "tests/uncoded-output-set",
+                Version { major: 1, minor: 0 },
+                |_, _, _| Ok((SetStateMutation::Keep, Uncoded)),
             )
             .is_err()
     );
@@ -273,4 +332,37 @@ fn fixed_windows_keep_independent_set_cells() {
     assert_eq!(apply_window(20_000_000), 0);
     assert_eq!(apply_window(0), 1);
     assert_eq!(apply_window(20_000_000), 1);
+}
+
+#[test]
+fn failed_set_element_encoding_does_not_commit_a_cell() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("pairs", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .stateful_set_map_named::<FailingCoder, i32>(
+            "set",
+            "tests/failing-set-coder",
+            Version { major: 1, minor: 0 },
+            |_, _, _| Ok((SetStateMutation::Insert(FailingCoder), 1)),
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert!(
+        registry
+            .apply_many(
+                "set",
+                Envelope {
+                    value: Box::new((1_i32, 1_i32)),
+                    timestamp_ns: 0,
+                    window: Window::Global,
+                    assigned_window: None,
+                    pane: PaneInfo::NO_FIRING,
+                }
+            )
+            .is_err()
+    );
+    let snapshot = registry.checkpoint_stateful_value("set").unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();
+    assert_eq!(parsed["entries"].as_array().unwrap().len(), 0);
 }

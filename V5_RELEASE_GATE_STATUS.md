@@ -213,6 +213,8 @@ An unbounded two-batch fixture agrees on membership for two keys. Direct
 restores a coded set and source cursor after cancellation. A production
 unbounded Prism job retains the set through execution-child replacement and
 residual reopen. Timer callbacks remain unproved.
+An unbounded fixed-window SetState fixture also agrees on membership in two
+separate windows for the same key across element batches.
 
 These rows are not equally weighted. A percentage computed by counting URNs
 would hide the difference between a declared state spec and a working

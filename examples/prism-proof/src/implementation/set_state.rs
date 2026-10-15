@@ -1,4 +1,4 @@
-use super::{production_state_source, IdempotentStateLabelSink};
+use super::{production_state_source, IdempotentStateLabelSink, WindowedStateLabelSink};
 use ironbeam_core::TestStreamEvent;
 use ironbeam_core::{Error, Pipeline, Replay, SetStateMutation, Sink, SinkMode, SinkSpec, Version};
 use std::path::PathBuf;
@@ -115,6 +115,57 @@ pub fn streaming_set_state_fixture(
                     directory: sink_directory.clone(),
                     pending: Vec::new(),
                 }))
+            },
+        )
+}
+
+/// Two fixed windows keep distinct sets for the same key across unbounded batches.
+pub fn streaming_windowed_set_state_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "streaming-windowed-set-input",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 0), ((1, 17), 20_000_000)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+                TestStreamEvent::Elements(vec![((1, 11), 2_000_000), ((1, 17), 22_000_000)]),
+                TestStreamEvent::AdvanceWatermark(30_000_000),
+            ],
+        )?
+        .fixed_windows("streaming-windowed-set-window", 10_000_000)?
+        .stateful_set_map_named::<i32, (i32, i32, i32)>(
+            "streaming-windowed-set-membership",
+            "prism-proof/streaming-windowed-key-set-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let observation = (
+                    value,
+                    i32::from(prior.contains(&value)),
+                    i32::try_from(prior.len()).expect("fixture set fits i32"),
+                );
+                Ok((SetStateMutation::Insert(value), observation))
+            },
+        )?
+        .map_named(
+            "streaming-windowed-set-label",
+            |(key, (value, found, size))| format!("{key}:{value}:{found}:{size}"),
+        )?
+        .sink_named_with_config(
+            "streaming-windowed-set-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("streaming-windowed-set-state:{}", directory.display()),
+            move || {
+                Ok(Box::new(WindowedStateLabelSink(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                })))
             },
         )
 }

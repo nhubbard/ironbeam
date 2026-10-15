@@ -391,4 +391,5 @@ variant on Direct and local Prism. An unbounded two-batch fixture retains
 membership across batches on both runners. Direct restores a set with its
 source cursor, and a production Prism job retains the set after a failed
 execution child is replaced and the source residual reopens. SetState has no
-timer callback yet.
+timer callback yet. A fixed-window unbounded fixture confirms that two
+windows of the same key keep separate sets on Direct and local Prism.
