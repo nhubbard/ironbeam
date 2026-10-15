@@ -613,7 +613,12 @@ fn retained_dual_pane_checkpoint_rejects_invalid_keys_indices_and_expiry() {
         false,
     )
     .unwrap();
-    assert_eq!(restored.get(&(0, 10, vec![1, 2])).map(|state| state.next_index), Some(2));
+    assert_eq!(
+        restored
+            .get(&(0, 10, vec![1, 2]))
+            .map(|state| state.next_index),
+        Some(2)
+    );
     assert_eq!(dual_late::encode_closed(&restored).len(), 1);
     assert!(matches!(
         dual_late::restore_closed(
@@ -698,6 +703,51 @@ fn accumulating_dual_pane_checkpoint_requires_a_retained_row_count() {
     assert!(dual_late::restore_closed(vec![row(2)], Some(10), 5, 1, true).is_ok());
     assert!(dual_late::restore_closed(vec![row(2)], Some(10), 5, 1, false).is_err());
     assert!(dual_late::restore_closed(vec![row(0)], Some(10), 5, 1, true).is_err());
+}
+
+#[test]
+fn accumulating_dual_pane_checkpoint_checks_retained_rows_against_coded_key() {
+    let (_, registry, _, route, _) = dual_fixture();
+    let event = Envelope {
+        value: Box::new((1_i32, 1_i32)),
+        timestamp_ns: 1,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: Some(ironbeam_core::WindowInterval {
+            start_ns: 0,
+            end_ns: 10,
+        }),
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+    };
+    let encoded = registry
+        .encode_element(&route.main_input_key, event.value.as_ref())
+        .unwrap();
+    let (key, _) = registry
+        .split_join_input(&route.aggregate_key, 0, &encoded, event.timestamp_ns)
+        .unwrap();
+    let main = BTreeMap::from([((0, 10), vec![event])]);
+    let side = BTreeMap::new();
+    let closed = |count| {
+        dual_late::restore_closed(
+            vec![CodedClosedPane {
+                start_ns: 0,
+                end_ns: 10,
+                key: key.clone(),
+                next_index: 1,
+                fired_value_count: count,
+            }],
+            Some(10),
+            5,
+            1,
+            true,
+        )
+        .unwrap()
+    };
+    assert!(
+        dual_late::validate_retained_counts(&registry, &route, &main, &side, &closed(1)).is_ok()
+    );
+    assert!(
+        dual_late::validate_retained_counts(&registry, &route, &main, &side, &closed(2)).is_err()
+    );
 }
 
 #[test]

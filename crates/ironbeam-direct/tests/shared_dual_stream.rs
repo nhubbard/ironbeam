@@ -289,10 +289,7 @@ fn typed_shared_source_join_retains_on_time_values_in_accumulating_late_pane() {
                     ((1, 1, 4), 4_000_000),
                 ]),
                 TestStreamEvent::AdvanceWatermark(10_000_000),
-                TestStreamEvent::Elements(vec![
-                    ((1, 0, 3), 3_000_000),
-                    ((1, 1, 6), 6_000_000),
-                ]),
+                TestStreamEvent::Elements(vec![((1, 0, 3), 3_000_000), ((1, 1, 6), 6_000_000)]),
                 TestStreamEvent::AdvanceWatermark(11_000_000),
                 TestStreamEvent::AdvanceWatermark(15_000_000),
             ],

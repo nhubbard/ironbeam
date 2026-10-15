@@ -167,7 +167,10 @@ pub(super) fn drain_ready(
     clock: FiringClock,
 ) -> Result<DualDrain, Error> {
     let Some(watermark) = clock.watermark else {
-        return Ok(DualDrain { firings: Vec::new(), dropped: 0 });
+        return Ok(DualDrain {
+            firings: Vec::new(),
+            dropped: 0,
+        });
     };
     let ready = main_windows
         .keys()
@@ -214,7 +217,9 @@ pub(super) fn drain_ready(
             let new_count = total.checked_sub(fired_count).ok_or_else(|| {
                 Error::recovery(
                     &route.aggregate_key,
-                    format!("retained dual-source pane count {fired_count} exceeds its {total} rows"),
+                    format!(
+                        "retained dual-source pane count {fired_count} exceeds its {total} rows"
+                    ),
                 )
             })?;
             if timing == PaneTiming::Late && new_count == 0 {
@@ -232,9 +237,9 @@ pub(super) fn drain_ready(
             }
             if timing == PaneTiming::Late
                 && !final_firing
-                && clock.late_count.is_some_and(|count| {
-                    u64::try_from(new_count).unwrap_or(u64::MAX) < count
-                })
+                && clock
+                    .late_count
+                    .is_some_and(|count| u64::try_from(new_count).unwrap_or(u64::MAX) < count)
             {
                 if !main.is_empty() {
                     main_windows.entry((start, end)).or_default().extend(main);
@@ -277,7 +282,10 @@ pub(super) fn drain_ready(
                     scope,
                     ClosedPane {
                         next_index: index.checked_add(1).ok_or_else(|| {
-                            Error::resource(&route.aggregate_key, "dual-source pane index exhausted")
+                            Error::resource(
+                                &route.aggregate_key,
+                                "dual-source pane index exhausted",
+                            )
                         })?,
                         fired_value_count: if retained { total } else { 0 },
                     },

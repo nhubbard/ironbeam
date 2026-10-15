@@ -169,7 +169,9 @@ pub(super) fn start_dual_side_stream<T: Element>(
     let (late_count, accumulating) = match aggregate.time.trigger {
         WindowTrigger::Default => (None, false),
         WindowTrigger::LateElementCount { count } if lateness_ns > 0 => (Some(count), false),
-        WindowTrigger::LateElementCountAccumulating { count } if lateness_ns > 0 => (Some(count), true),
+        WindowTrigger::LateElementCountAccumulating { count } if lateness_ns > 0 => {
+            (Some(count), true)
+        }
         _ => {
             return Err(Error::unsupported(
                 &route.aggregate_key,
@@ -236,7 +238,14 @@ pub(super) fn start_dual_side_stream<T: Element>(
         if let Some((combined, bytes)) = &saved {
             let state: DualWindowState = serde_json::from_slice(bytes)
                 .map_err(|error| Error::recovery("checkpoint", error.to_string()))?;
-            if state.version != if accumulating { 3 } else if lateness_ns > 0 { 2 } else { 1 }
+            if state.version
+                != if accumulating {
+                    3
+                } else if lateness_ns > 0 {
+                    2
+                } else {
+                    1
+                }
                 || state.sources[0]
                     .as_ref()
                     .is_some_and(|p| p.source_key != route.source_key || p.split_id.is_empty())
@@ -308,13 +317,7 @@ pub(super) fn start_dual_side_stream<T: Element>(
                 ));
             }
             if accumulating {
-                dual_late::validate_retained_counts(
-                    &registry,
-                    &route,
-                    &main,
-                    &side,
-                    &closed,
-                )?;
+                dual_late::validate_retained_counts(&registry, &route, &main, &side, &closed)?;
             }
             (sequence, state.sources, main, side, buffered, closed)
         } else {
@@ -1051,7 +1054,10 @@ fn run_dual_side_stream(
                 (firings, 0)
             };
             buffered = buffered.checked_sub(dropped).ok_or_else(|| {
-                Error::recovery(&route.aggregate_key, "dual-source retained row count underflow")
+                Error::recovery(
+                    &route.aggregate_key,
+                    "dual-source retained row count underflow",
+                )
             })?;
             let instruction_id = bundle_id(graph_fingerprint, &[sink_key], &combined);
             let mut session = None;
@@ -1066,9 +1072,15 @@ fn run_dual_side_stream(
                     } in closing
                     {
                         if !retained {
-                            buffered = buffered.checked_sub(main.len() + side.len()).ok_or_else(|| {
-                                Error::recovery(&route.aggregate_key, "dual-source buffered row count underflow")
-                            })?;
+                            buffered =
+                                buffered
+                                    .checked_sub(main.len() + side.len())
+                                    .ok_or_else(|| {
+                                        Error::recovery(
+                                            &route.aggregate_key,
+                                            "dual-source buffered row count underflow",
+                                        )
+                                    })?;
                         }
                         let branches = std::iter::once((
                             route.aggregate_key.as_str(),
@@ -1161,7 +1173,13 @@ fn run_dual_side_stream(
             }
             if let Some(checkpoint) = checkpoint {
                 let state = serde_json::to_vec(&DualWindowState {
-                    version: if accumulating { 3 } else if lateness_ns > 0 { 2 } else { 1 },
+                    version: if accumulating {
+                        3
+                    } else if lateness_ns > 0 {
+                        2
+                    } else {
+                        1
+                    },
                     sources: progress.clone(),
                     main: encode_window_rows(
                         registry,

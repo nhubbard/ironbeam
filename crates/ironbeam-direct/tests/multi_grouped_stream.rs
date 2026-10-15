@@ -225,7 +225,11 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                         None => (vec![if index == 0 { 2 } else { 4 }], 1, false),
                         Some([1]) if !hold.load(Ordering::SeqCst) => (
                             if index == 0 {
-                                if mode == LateMode::Default { vec![3] } else { vec![3, 5] }
+                                if mode == LateMode::Default {
+                                    vec![3]
+                                } else {
+                                    vec![3, 5]
+                                }
                             } else {
                                 Vec::new()
                             },
