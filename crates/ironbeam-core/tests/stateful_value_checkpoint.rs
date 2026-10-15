@@ -1,6 +1,48 @@
 use ironbeam_core::{
-    Element, Envelope, ErrorKind, PaneInfo, Pipeline, Version, Window, WindowInterval,
+    Element, Envelope, ErrorKind, PaneInfo, Pipeline, TestStreamEvent, Version, Window,
+    WindowInterval,
 };
+
+struct UncodedState;
+
+impl Element for UncodedState {
+    const TYPE_ID: &'static str = "tests/uncoded-state";
+    const CODER_ID: &'static str = "tests/uncoded-state";
+}
+
+#[test]
+fn value_state_registration_rejects_unsupported_window_and_coder_contracts() {
+    let pipeline = Pipeline::default();
+    let stream = pipeline
+        .test_stream_source(
+            "stream",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap();
+    let session = stream
+        .session_windows_named("sessions", 10_000_000)
+        .unwrap();
+    assert!(
+        session
+            .stateful_value_map_named::<i32, i32>(
+                "session-state",
+                "tests/session-value-state",
+                Version { major: 1, minor: 0 },
+                |_, value, _| Ok((Some(value), value)),
+            )
+            .is_err()
+    );
+    assert!(
+        stream
+            .stateful_value_map_named::<UncodedState, i32>(
+                "uncoded-state",
+                "tests/uncoded-value-state",
+                Version { major: 1, minor: 0 },
+                |_, value, _| Ok((None, value)),
+            )
+            .is_err()
+    );
+}
 
 fn pipeline() -> Pipeline {
     let pipeline = Pipeline::default();

@@ -138,6 +138,21 @@ fn checkpoint_restores_slots_and_rejects_corruption_atomically() {
             .restore(&snapshot, validate_key)
             .is_err()
     );
+    for field in ["version", "global_window"] {
+        let mut incompatible: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();
+        incompatible[field] = if field == "version" {
+            serde_json::json!(2)
+        } else {
+            serde_json::json!(true)
+        };
+        assert!(
+            restored
+                .restore(&serde_json::to_vec(&incompatible).unwrap(), validate_key)
+                .is_err(),
+            "incompatible {field} was accepted"
+        );
+        assert_eq!(restored.checkpoint().unwrap(), snapshot);
+    }
 
     let mut duplicate: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();
     let first = duplicate["entries"][0].clone();
@@ -177,9 +192,26 @@ fn timer_slots_require_declared_family_window_and_portable_timestamps() {
             .is_err()
     );
     assert!(finite.set(identity("event", 1, ""), schedule(1)).is_err());
+    let mut fractional_hold = schedule(1_000_000);
+    fractional_hold.hold_timestamp_ns = 1;
+    assert!(
+        finite
+            .set(identity("event", 1, ""), fractional_hold)
+            .is_err()
+    );
+    let mut invalid_pane = schedule(1_000_000);
+    invalid_pane.pane.index = -1;
+    assert!(finite.set(identity("event", 1, ""), invalid_pane).is_err());
     let mut no_window = identity("event", 1, "");
     no_window.window = None;
     assert!(finite.set(no_window.clone(), schedule(1_000_000)).is_err());
+    let mut empty_window = identity("event", 1, "");
+    empty_window.window = Some(WindowInterval {
+        start_ns: 10_000_000,
+        end_ns: 10_000_000,
+    });
+    assert!(finite.clear(&empty_window).is_err());
+    assert!(finite.clear(&identity("missing", 1, "")).is_err());
 
     let mut global = TimerQueue::new(contract(), true).unwrap();
     assert!(
