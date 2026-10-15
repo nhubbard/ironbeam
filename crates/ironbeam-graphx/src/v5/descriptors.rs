@@ -27,8 +27,6 @@ const CODER_V5_KV_ITER: &str = "v5_kv_iter_bytes";
 const SIDE_INPUT_LOCAL_ID: &str = "side";
 const SIDE_INPUT_ITERABLE_URN: &str = "beam:side_input:iterable:v1";
 const SIDE_INPUT_VIEW_URN: &str = "ironbeam:view:materialized:v5";
-const SIDE_INPUT_GLOBAL_MAPPING_URN: &str = "ironbeam:windowmapping:global:v5";
-const SIDE_INPUT_IDENTITY_MAPPING_URN: &str = "ironbeam:windowmapping:identity:v5";
 
 pub fn side_input_spec() -> SideInput {
     SideInput {
@@ -41,7 +39,7 @@ pub fn side_input_spec() -> SideInput {
             payload: Vec::new(),
         }),
         window_mapping_fn: Some(FunctionSpec {
-            urn: SIDE_INPUT_GLOBAL_MAPPING_URN.into(),
+            urn: urns::WINDOW_MAPPING_GLOBAL.into(),
             payload: Vec::new(),
         }),
     }
@@ -50,7 +48,7 @@ pub fn side_input_spec() -> SideInput {
 pub fn windowed_wait_side_input_spec() -> SideInput {
     let mut spec = side_input_spec();
     spec.window_mapping_fn = Some(FunctionSpec {
-        urn: SIDE_INPUT_IDENTITY_MAPPING_URN.into(),
+        urn: urns::WINDOW_MAPPING_IDENTITY.into(),
         payload: Vec::new(),
     });
     spec

@@ -2,7 +2,8 @@
 use super::*;
 use beam_proto::fn_execution_v1::RemoteGrpcPort;
 use beam_proto::pipeline_v1::{
-    ApiServiceDescriptor, Coder, FunctionSpec, PTransform, ParDoPayload, StateSpec, TimerFamilySpec,
+    ApiServiceDescriptor, Coder, FunctionSpec, PCollection, PTransform, ParDoPayload, StateSpec,
+    TimerFamilySpec,
 };
 use prost::Message;
 
@@ -39,6 +40,138 @@ fn test_node_ref(key: &str) -> V5NodeRef {
         },
         co_group_input: None,
     }
+}
+
+fn map_windows_pbd(mapping_urn: &str, output_window_urn: &str) -> ProcessBundleDescriptor {
+    let mut pbd = ProcessBundleDescriptor {
+        id: "map-windows-pbd".into(),
+        ..Default::default()
+    };
+    for (id, urn, components) in [
+        ("key", urns::CODER_BYTES, vec![]),
+        ("interval", urns::CODER_INTERVAL_WINDOW, vec![]),
+        ("global", urns::CODER_GLOBAL_WINDOW, vec![]),
+        ("input-kv", urns::CODER_KV, vec!["key", "interval"]),
+        (
+            "output-kv",
+            urns::CODER_KV,
+            vec![
+                "key",
+                if output_window_urn == urns::CODER_GLOBAL_WINDOW {
+                    "global"
+                } else {
+                    "interval"
+                },
+            ],
+        ),
+        (
+            "input-wv",
+            urns::CODER_WINDOWED_VALUE,
+            vec!["input-kv", "interval"],
+        ),
+        (
+            "output-wv",
+            urns::CODER_WINDOWED_VALUE,
+            vec!["output-kv", "interval"],
+        ),
+    ] {
+        pbd.coders
+            .insert(id.into(), composite_coder(urn, &components));
+    }
+    for (id, coder_id) in [("before", "input-wv"), ("after", "output-wv")] {
+        pbd.pcollections.insert(
+            id.into(),
+            PCollection {
+                coder_id: coder_id.into(),
+                ..Default::default()
+            },
+        );
+    }
+    pbd.transforms.insert(
+        "source".into(),
+        mk_port_ptransform(
+            URN_RUNNER_SOURCE,
+            "runner:1",
+            "input-wv",
+            "before",
+            "source",
+        ),
+    );
+    pbd.transforms.insert(
+        "mapping".into(),
+        PTransform {
+            spec: Some(FunctionSpec {
+                urn: urns::TRANSFORM_MAP_WINDOWS.into(),
+                payload: FunctionSpec {
+                    urn: mapping_urn.into(),
+                    payload: Vec::new(),
+                }
+                .encode_to_vec(),
+            }),
+            inputs: HashMap::from([("in".into(), "before".into())]),
+            outputs: HashMap::from([("out".into(), "after".into())]),
+            ..Default::default()
+        },
+    );
+    pbd.transforms.insert(
+        "sink".into(),
+        mk_port_ptransform(URN_RUNNER_SINK, "runner:2", "output-wv", "after", "sink"),
+    );
+    pbd
+}
+
+#[test]
+fn plans_global_and_identity_map_windows_with_exact_kv_coders() {
+    let global = map_windows_pbd(urns::WINDOW_MAPPING_GLOBAL, urns::CODER_GLOBAL_WINDOW);
+    let parsed = plan(&global).unwrap();
+    assert!(matches!(
+        &parsed.steps[1],
+        Step::MapWindows {
+            mapping: WindowMapping::Global,
+            outer_window: WindowCoder::Interval,
+            input_window: WindowCoder::Interval,
+            ..
+        }
+    ));
+
+    let identity = map_windows_pbd(urns::WINDOW_MAPPING_IDENTITY, urns::CODER_INTERVAL_WINDOW);
+    assert!(matches!(
+        &plan(&identity).unwrap().steps[1],
+        Step::MapWindows {
+            mapping: WindowMapping::Identity,
+            ..
+        }
+    ));
+    assert!(plan(&map_windows_pbd(
+        urns::WINDOW_MAPPING_IDENTITY,
+        urns::CODER_GLOBAL_WINDOW
+    ))
+    .is_err());
+    assert!(plan(&map_windows_pbd(
+        "unknown:window-mapping",
+        urns::CODER_GLOBAL_WINDOW
+    ))
+    .is_err());
+    let mut wrong_port = global;
+    let mut port = RemoteGrpcPort::decode(
+        wrong_port.transforms["source"]
+            .spec
+            .as_ref()
+            .unwrap()
+            .payload
+            .as_slice(),
+    )
+    .unwrap();
+    port.coder_id = "output-wv".into();
+    wrong_port
+        .transforms
+        .get_mut("source")
+        .unwrap()
+        .spec
+        .as_mut()
+        .unwrap()
+        .payload = port.encode_to_vec();
+    assert!(plan(&wrong_port).is_err());
 }
 
 fn mk_pardo_ptransform(key: &str, input_pc: &str, output_pc: &str) -> PTransform {

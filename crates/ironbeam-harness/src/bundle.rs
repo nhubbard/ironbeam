@@ -25,6 +25,10 @@ use beam_proto::pipeline_v1::{Coder, FunctionSpec, PTransform, ParDoPayload, Win
 use ironbeam_graphx::{urns, v5::V5NodeRef};
 use prost::Message;
 
+#[path = "bundle_map_windows.rs"]
+mod map_windows;
+use map_windows::plan_map_windows;
+
 pub const URN_RUNNER_SOURCE: &str = "beam:runner:source:v1";
 pub const URN_RUNNER_SINK: &str = "beam:runner:sink:v1";
 
@@ -130,6 +134,14 @@ pub enum Step {
         output_pc: String,
         window_fn: FunctionSpec,
     },
+    MapWindows {
+        transform_id: String,
+        input_pc: String,
+        output_pc: String,
+        mapping: WindowMapping,
+        outer_window: WindowCoder,
+        input_window: WindowCoder,
+    },
     /// Encode elements from `input_pc` with `coder_id`, write to `port`.
     Sink {
         transform_id: String,
@@ -137,6 +149,18 @@ pub enum Step {
         input_pc: String,
         wire: SinkWire,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowCoder {
+    Global,
+    Interval,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowMapping {
+    Global,
+    Identity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +210,7 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
                 TransformKind::Sdf(SdfStage::TruncateSizedRestrictions)
             }
             u if u == urns::TRANSFORM_WINDOW_INTO => TransformKind::WindowInto,
+            u if u == urns::TRANSFORM_MAP_WINDOWS => TransformKind::MapWindows,
             // Dataflow may wrap impulse/gbk inside a PBD boundary; skip them.
             u if u == urns::TRANSFORM_IMPULSE || u == urns::TRANSFORM_GROUP_BY_KEY => {
                 TransformKind::Skip
@@ -368,6 +393,43 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
                     window_fn,
                 });
             }
+            TransformKind::MapWindows => {
+                steps.push(plan_map_windows(pbd, id, t, &pc_producers)?);
+            }
+        }
+    }
+
+    if steps
+        .iter()
+        .any(|step| matches!(step, Step::MapWindows { .. }))
+    {
+        let [Step::Source {
+            port: source_port,
+            output_pc: source_pc,
+            ..
+        }, Step::MapWindows {
+            input_pc,
+            output_pc,
+            ..
+        }, Step::Sink {
+            port: sink_port,
+            input_pc: sink_pc,
+            ..
+        }] = steps.as_slice()
+        else {
+            return Err(PlanError::NotLinear);
+        };
+        let source_coder = pbd
+            .pcollections
+            .get(source_pc)
+            .ok_or(PlanError::NotLinear)?;
+        let sink_coder = pbd.pcollections.get(sink_pc).ok_or(PlanError::NotLinear)?;
+        if source_pc != input_pc
+            || output_pc != sink_pc
+            || source_port.coder_id != source_coder.coder_id
+            || sink_port.coder_id != sink_coder.coder_id
+        {
+            return Err(PlanError::NotLinear);
         }
     }
 
@@ -389,6 +451,7 @@ enum TransformKind {
     Pardo,
     Sdf(SdfStage),
     WindowInto,
+    MapWindows,
     /// Runner-native primitives that may appear in the PBD envelope but
     /// aren't the SDK's responsibility to execute.
     Skip,

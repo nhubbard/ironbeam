@@ -28,6 +28,9 @@ impl BundleRunner for V5BundleExecutor {
         if instruction_id.is_empty() {
             bail!("v5 bundle instruction id is empty");
         }
+        if plan.steps.iter().any(|step| matches!(step, Step::MapWindows { .. })) {
+            return self.run_map_windows(instruction_id, plan).await;
+        }
         if plan
             .steps
             .iter()

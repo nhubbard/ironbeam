@@ -303,6 +303,18 @@ fn describe_plan(steps: &[Step]) -> String {
                     "WindowInto {transform_id}: {input_pc} -> {output_pc}"
                 );
             }
+            Step::MapWindows {
+                transform_id,
+                input_pc,
+                output_pc,
+                mapping,
+                ..
+            } => {
+                let _ = writeln!(
+                    &mut out,
+                    "MapWindows {mapping:?} {transform_id}: {input_pc} -> {output_pc}"
+                );
+            }
             Step::Sink {
                 transform_id,
                 input_pc,

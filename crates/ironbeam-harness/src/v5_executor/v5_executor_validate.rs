@@ -9,6 +9,9 @@ impl V5BundleExecutor {
         let mut terminal_seen = false;
         for step in &plan.steps {
             match step {
+                Step::MapWindows { .. } => {
+                    bail!("MapWindows requires its runner-owned mapping bundle")
+                }
                 Step::Sdf {
                     stage,
                     transform_id,

@@ -26,9 +26,10 @@ use ironbeam_graphx::v5::{
 };
 use ironbeam_graphx::windowing::{fixed_window_fn, session_window_fn, sliding_window_fn};
 
-use crate::bundle::{BundlePlan, SdfStage, SinkWire, SourceWire, Step};
+use crate::bundle::{BundlePlan, SdfStage, SinkWire, SourceWire, Step, WindowCoder, WindowMapping};
 use crate::coders::{
-    decode_length_prefix, decode_windowed_value, encode_interval_windowed_value_with_metadata,
+    decode_interval_window, decode_length_prefix, decode_windowed_value,
+    encode_interval_windowed_value_with_metadata,
     encode_length_prefix, encode_varint, encode_windowed_value, encode_windowed_value_with_metadata,
     try_decode_windowed_value, PaneInfo,
 };

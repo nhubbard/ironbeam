@@ -23,10 +23,13 @@ use ironbeam_core::{
 };
 use ironbeam_graphx::sdf::SourceRestriction;
 use ironbeam_graphx::v5::{collection_id, execution_identity, V5NodeRef};
-use ironbeam_harness::bundle::{BundlePlan, SdfStage, SinkWire, SourceWire, Step};
+use ironbeam_harness::bundle::{
+    BundlePlan, SdfStage, SinkWire, SourceWire, Step, WindowCoder, WindowMapping,
+};
 use ironbeam_harness::coders::{
-    decode_length_prefix, decode_windowed_value, encode_length_prefix, encode_varint,
-    encode_windowed_value,
+    decode_length_prefix, decode_windowed_value, encode_interval_window,
+    encode_interval_windowed_value, encode_length_prefix, encode_varint, encode_windowed_value,
+    try_decode_windowed_value,
 };
 use ironbeam_harness::executor::BundleRunner;
 use ironbeam_harness::sdf_wire::decode_sized;
@@ -1145,6 +1148,93 @@ async fn fn_data_drain_discards_unbounded_sized_restriction() {
     assert!(!chunks
         .iter()
         .any(|chunk| chunk.transform_id == "output" && !chunk.data.is_empty()));
+}
+
+#[tokio::test]
+async fn fn_data_maps_interval_side_windows_to_global_and_identity_values() {
+    for mapping in [WindowMapping::Global, WindowMapping::Identity] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let mut body = Vec::new();
+        encode_length_prefix(b"scope-key", &mut body).unwrap();
+        let key_len = body.len();
+        encode_interval_window(100, 200, &mut body).unwrap();
+        let mut record = Vec::new();
+        encode_interval_windowed_value(150, 100, 200, &body, &mut record).unwrap();
+        let server = tokio::spawn(
+            Server::builder()
+                .add_service(BeamFnDataServer::new(GroupedRunnerData {
+                    record,
+                    received: Arc::clone(&received),
+                }))
+                .serve(addr),
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let port = RemoteGrpcPort {
+            api_service_descriptor: Some(ApiServiceDescriptor {
+                url: format!("http://{addr}"),
+                ..Default::default()
+            }),
+            coder_id: "opaque".into(),
+        };
+        let plan = BundlePlan {
+            pbd_id: "map-windows".into(),
+            state_endpoint: None,
+            side_inputs: HashMap::new(),
+            steps: vec![
+                Step::Source {
+                    transform_id: "input".into(),
+                    port: port.clone(),
+                    output_pc: "before".into(),
+                    wire: SourceWire::Opaque,
+                },
+                Step::MapWindows {
+                    transform_id: "map".into(),
+                    input_pc: "before".into(),
+                    output_pc: "after".into(),
+                    mapping,
+                    outer_window: WindowCoder::Interval,
+                    input_window: WindowCoder::Interval,
+                },
+                Step::Sink {
+                    transform_id: "output".into(),
+                    port,
+                    input_pc: "after".into(),
+                    wire: SinkWire::Opaque,
+                },
+            ],
+        };
+        let pipeline = Pipeline::default();
+        let runner = V5BundleExecutor::new(&pipeline, "test-build").unwrap();
+        tokio::time::timeout(Duration::from_secs(5), runner.run("bundle", &plan))
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let chunks = received.lock().await.clone();
+        server.abort();
+        let output = chunks
+            .iter()
+            .find(|chunk| chunk.transform_id == "output" && !chunk.data.is_empty())
+            .expect("mapped window output");
+        let (mapped, header_len) = try_decode_windowed_value(&output.data, true)
+            .unwrap()
+            .expect("complete interval header");
+        let expected = if mapping == WindowMapping::Global {
+            &body[..key_len]
+        } else {
+            body.as_slice()
+        };
+        assert_eq!(&mapped.element[..expected.len()], expected);
+        assert_eq!(output.data.len(), header_len + expected.len());
+        assert_eq!(mapped.interval_millis, Some((100, 200)));
+        assert_eq!(mapped.timestamp_millis, 150);
+        assert!(chunks
+            .iter()
+            .any(|chunk| chunk.transform_id == "output" && chunk.is_last));
+    }
 }
 
 fn plan(pipeline: &Pipeline, endpoint: SocketAddr) -> BundlePlan {
