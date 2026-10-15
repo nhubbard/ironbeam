@@ -12,7 +12,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
-const STREAM_CHECKPOINT_VERSION: u32 = 1;
+// Bundle identity now includes watermark, completion, and state-scoped timer steps.
+const STREAM_CHECKPOINT_VERSION: u32 = 2;
 
 pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";

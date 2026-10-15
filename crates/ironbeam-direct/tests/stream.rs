@@ -1729,6 +1729,43 @@ fn bounded_side_stream_run(
 }
 
 #[test]
+fn bounded_side_stream_commits_two_windows_from_one_source_cursor() {
+    let ready = |watermark, completed, values: Vec<(i32, i64)>| {
+        UnboundedPoll::Ready(UnboundedBatch {
+            elements: values
+                .into_iter()
+                .map(|(value, timestamp_ns)| Timestamped {
+                    value,
+                    timestamp_ns,
+                })
+                .collect(),
+            progress: ProgressSignal {
+                source_key: "main".into(),
+                split_id: "split-0".into(),
+                checkpoint_position: Some(vec![1]),
+                event_time_ns: Some(watermark),
+                completed,
+            },
+        })
+    };
+    for final_watermark in [10, 20] {
+        let (result, committed) = bounded_side_stream_run(
+            vec![
+                ready(0, false, vec![(1, 1), (2, 11)]),
+                ready(10, false, vec![]),
+                ready(final_watermark, true, vec![]),
+            ],
+            vec![(0, 10), (10, 20)],
+            4,
+            false,
+            false,
+        );
+        result.unwrap();
+        assert_eq!(committed, [11, 22]);
+    }
+}
+
+#[test]
 fn bounded_side_stream_drops_late_main_and_rejects_excess_open_state() {
     let ready = |cursor, watermark, completed, values: Vec<(i32, i64)>| {
         UnboundedPoll::Ready(UnboundedBatch {

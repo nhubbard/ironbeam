@@ -1253,6 +1253,14 @@ fn bundle_id(graph_fingerprint: &str, sink_keys: &[&str], progress: &ProgressSig
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(bytes);
     }
+    match progress.event_time_ns {
+        Some(watermark_ns) => {
+            hasher.update([1]);
+            hasher.update(watermark_ns.to_le_bytes());
+        }
+        None => hasher.update([0]),
+    }
+    hasher.update([u8::from(progress.completed)]);
     hex_bytes(&hasher.finalize())
 }
 

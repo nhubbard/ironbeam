@@ -633,7 +633,7 @@ fn reject_version_checksum_and_oversized_manifest() {
     let original: serde_json::Value =
         serde_json::from_slice(&fs::read(&checkpoint.path).unwrap()).unwrap();
     let mut changed = original.clone();
-    changed["version"] = serde_json::json!(2);
+    changed["version"] = serde_json::json!(1);
     fs::write(&checkpoint.path, serde_json::to_vec(&changed).unwrap()).unwrap();
     assert!(checkpoint.load().is_err());
     let mut changed = original;
