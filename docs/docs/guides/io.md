@@ -71,8 +71,8 @@ fn main() -> Result<(), ironbeam::Error> {
 The file's content hash is part of the source configuration. A worker opening
 the source after submission rejects changed file bytes. In a portable job,
 the worker must be able to read the same path as the submitting process. A
-local Prism job has exercised this source in a separate worker process and
-matched Direct's decoded records.
+local Prism job has exercised the incremental source in a separate worker
+process and matched Direct's decoded frames.
 
 ## Reading Avro with a reader schema
 

@@ -4212,7 +4212,7 @@ async fn assert_accumulating_early_cogroup_panes(global: bool) {
 }
 
 #[tokio::test]
-async fn prism_reads_tfrecord_source_in_separate_worker() {
+async fn prism_reads_streaming_tfrecord_source_in_separate_worker() {
     let directory = tempfile::tempdir().unwrap();
     let input = directory.path().join("records.tfrecord");
     let seed = Pipeline::default()
