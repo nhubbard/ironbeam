@@ -5661,6 +5661,10 @@ async fn prism_matches_direct_byte_and_keyed_batch_helpers() {
         "key:1:1",
         "key:1:1+1",
         "key:2:9+9",
+        "time-bytes:4:1000000:x+y",
+        "time-bytes:4:8000000:z",
+        "time:4:1000000:x+y",
+        "time:4:8000000:z",
     ];
     assert_eq!(read_rows(&direct_path), expected);
 

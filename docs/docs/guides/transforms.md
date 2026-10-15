@@ -88,6 +88,9 @@ while the graph is built. For an unbounded input without an existing early
 count trigger, Ironbeam installs one so a full batch can fire before the
 window closes. A final pane can contain fewer values than the requested size.
 Batch membership can depend on arrival and firing order after a shuffle.
+Each output batch receives the earliest event timestamp among the values in
+that batch. A later batch in the same key and window can therefore have a
+later timestamp than the first batch.
 
 `group_into_batches_with_max_buffering_duration_named("batches", 2, 5_000_000)`
 also flushes a partial batch five milliseconds after its first pending value.
@@ -111,7 +114,8 @@ splits a key's values at two elements or 4,096 encoded value bytes, whichever
 comes first. The byte count excludes the key and Beam's window envelope. A
 single value larger than the limit forms a one-value batch. Direct and local
 Prism produce the same batch values in the tested bounded job. The method
-rejects unbounded input because byte-triggered streaming requires keyed
+also assigns each batch its own earliest value timestamp. It rejects
+unbounded input because byte-triggered streaming requires keyed
 state and timers that this helper does not yet provide.
 
 `co_group_homogeneous_named` groups collections whose keys and values have

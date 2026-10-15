@@ -464,7 +464,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
         // Use a count firing when the caller has not already selected one;
         // the final pane still flushes a partially filled batch.
         let parent = self.parent()?;
-        let grouped = if parent.boundedness == Boundedness::Unbounded
+        let input = if parent.boundedness == Boundedness::Unbounded
             && parent.time.trigger.early_count().is_none()
             && parent.time.trigger.early_processing_time().is_none()
         {
@@ -472,32 +472,37 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 &format!("{key}/count-trigger"),
                 u64::try_from(limit).map_err(|_| Error::graph(key, "batch size exceeds count trigger range"))?,
             )?
-            .group_by_key_named(&format!("{key}/group"))?
         } else {
-            self.group_by_key_named(&format!("{key}/group"))?
+            self.clone()
         };
+        let grouped = input
+            .reify_keyed_timestamp_named(&format!("{key}/timestamp"))?
+            .group_by_key_named(&format!("{key}/group"))?;
         grouped
             .flat_map_registered(
-                key,
+                &format!("{key}/split"),
                 Some((&batch_semantic_id, BUILTIN_OPERATION_VERSION)),
                 move |(group_key, values)| {
                     let mut batches = Vec::new();
                     let mut current = Vec::with_capacity(limit);
-                    for value in values {
+                    let mut earliest = None::<i64>;
+                    for (timestamp_ns, value) in values {
+                        earliest = Some(earliest.map_or(timestamp_ns, |prior| prior.min(timestamp_ns)));
                         current.push(value);
                         if current.len() == limit {
                             batches.push((
-                                group_key.clone(),
-                                std::mem::replace(&mut current, Vec::with_capacity(limit)),
+                                earliest.take().expect("nonempty batch has a timestamp"),
+                                (group_key.clone(), std::mem::replace(&mut current, Vec::with_capacity(limit))),
                             ));
                         }
                     }
                     if !current.is_empty() {
-                        batches.push((group_key, current));
+                        batches.push((earliest.expect("nonempty batch has a timestamp"), (group_key, current)));
                     }
                     Ok(batches)
                 },
-            )
+            )?
+            .timestamps_from_pairs_in_window_named(key)
     }
     /// Flush full batches by count and partial streaming batches after a
     /// processing-time delay. The delay starts with the first pending value.
@@ -534,36 +539,46 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             return Err(Error::graph(key, "encoded byte batching currently requires a bounded input"));
         }
         let semantic_id = format!("ironbeam/group-into-batches/limits/{max_count}/{max_encoded_bytes}");
-        self.group_by_key_named(&format!("{key}/group"))?
+        self.reify_keyed_timestamp_named(&format!("{key}/timestamp"))?
+            .group_by_key_named(&format!("{key}/group"))?
             .flat_map_registered(
-                key,
+                &format!("{key}/split"),
                 Some((&semantic_id, BUILTIN_OPERATION_VERSION)),
                 move |(group_key, values)| {
                     let mut batches = Vec::new();
                     let mut current = Vec::new();
                     let mut bytes = 0_usize;
-                    for value in values {
+                    let mut earliest = None::<i64>;
+                    for (timestamp_ns, value) in values {
                         let encoded_len = value.encoded_len()?;
                         if !current.is_empty()
                             && (current.len() >= max_count
                                 || bytes.saturating_add(encoded_len) > max_encoded_bytes)
                         {
-                            batches.push((group_key.clone(), std::mem::take(&mut current)));
+                            batches.push((
+                                earliest.take().expect("nonempty batch has a timestamp"),
+                                (group_key.clone(), std::mem::take(&mut current)),
+                            ));
                             bytes = 0;
                         }
+                        earliest = Some(earliest.map_or(timestamp_ns, |prior| prior.min(timestamp_ns)));
                         bytes = bytes.saturating_add(encoded_len);
                         current.push(value);
                         if current.len() >= max_count || bytes >= max_encoded_bytes {
-                            batches.push((group_key.clone(), std::mem::take(&mut current)));
+                            batches.push((
+                                earliest.take().expect("nonempty batch has a timestamp"),
+                                (group_key.clone(), std::mem::take(&mut current)),
+                            ));
                             bytes = 0;
                         }
                     }
                     if !current.is_empty() {
-                        batches.push((group_key, current));
+                        batches.push((earliest.expect("nonempty batch has a timestamp"), (group_key, current)));
                     }
                     Ok(batches)
                 },
-            )
+            )?
+            .timestamps_from_pairs_in_window_named(key)
     }
     pub fn combine_per_key_and_window_named<U: Element>(
         &self,

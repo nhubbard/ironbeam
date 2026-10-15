@@ -235,7 +235,7 @@ fn byte_and_keyed_batch_limits_are_part_of_graph_identity() {
     let two_values = keyed(2);
     let three_values = keyed(3);
     assert_eq!(
-        two_values.node("batch").unwrap().semantic_id,
+        two_values.node("batch/split").unwrap().semantic_id,
         "ironbeam/group-into-batches/2"
     );
     assert_ne!(

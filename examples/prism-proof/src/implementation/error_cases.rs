@@ -152,8 +152,30 @@ pub fn bounded_batch_helpers_fixture(
         .map_named("batch-key-byte-label", |(key, values)| {
             format!("key-bytes:{key}:{}", values.join("+"))
         })?;
+    let time_source = pipeline
+        .from_vec(
+            "batch-time-input",
+            vec![
+                (1_000_000_i64, (4_i32, "x".to_owned())),
+                (2_000_000, (4, "y".to_owned())),
+                (8_000_000, (4, "z".to_owned())),
+            ],
+        )?
+        .timestamps_from_pairs_named("batch-time-assign")?;
+    let keyed_time_rows = time_source
+        .group_into_batches_named("batch-by-key-time", 2)?
+        .reify_timestamps_named("batch-time-reify")?
+        .map_named("batch-time-label", |(timestamp_ns, (key, values))| {
+            format!("time:{key}:{timestamp_ns}:{}", values.join("+"))
+        })?;
+    let keyed_byte_time_rows = time_source
+        .group_into_batches_with_limits_named("batch-by-key-byte-time", 10, short_bytes * 2)?
+        .reify_timestamps_named("batch-byte-time-reify")?
+        .map_named("batch-byte-time-label", |(timestamp_ns, (key, values))| {
+            format!("time-bytes:{key}:{timestamp_ns}:{}", values.join("+"))
+        })?;
     byte_rows
-        .flatten_named("batch-merge", &[keyed_rows, keyed_byte_rows])?
+        .flatten_named("batch-merge", &[keyed_rows, keyed_byte_rows, keyed_time_rows, keyed_byte_time_rows])?
         .sink_named_with_config(
             "batch-result",
             SinkSpec {

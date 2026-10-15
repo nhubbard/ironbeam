@@ -60,3 +60,42 @@ fn byte_limited_batches_reject_invalid_or_unbounded_graphs() {
     assert!(graph.node("bytes").is_none());
     assert!(graph.node("unbounded-batches").is_none());
 }
+
+#[test]
+fn keyed_batch_timestamp_follows_earliest_value_in_each_batch() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .from_vec(
+            "events",
+            vec![
+                (1_000_000_i64, (1_i32, "a".to_owned())),
+                (2_000_000, (1, "b".to_owned())),
+                (8_000_000, (1, "c".to_owned())),
+            ],
+        )
+        .unwrap()
+        .timestamps_from_pairs_named("event-time")
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap();
+    let count = source
+        .group_into_batches_named("count-batches", 2)
+        .unwrap()
+        .reify_timestamps_named("count-times")
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    let bytes = source
+        .group_into_batches_with_limits_named("byte-batches", 2, 1024)
+        .unwrap()
+        .reify_timestamps_named("byte-times")
+        .unwrap()
+        .collect_seq()
+        .unwrap();
+    let expected = [
+        (1_000_000, (1, vec!["a".to_owned(), "b".to_owned()])),
+        (8_000_000, (1, vec!["c".to_owned()])),
+    ];
+    assert_eq!(count, expected);
+    assert_eq!(bytes, expected);
+}
