@@ -41,6 +41,9 @@ pub fn streaming_event_timer_fixture(
                 if event.dynamic_tag != "flush" || event.fire_timestamp_ns != 5_000_000 {
                     return Err(Error::incompatible("unexpected event timer firing"));
                 }
+                if std::env::var_os("IRONBEAM_V5_PRISM_KILL_TIMER_CALLBACK").is_some() {
+                    super::await_supervised_source_replacement(Some(&[1]))?;
+                }
                 Ok(TimedStateResult {
                     state: None,
                     outputs: state.into_iter().collect(),

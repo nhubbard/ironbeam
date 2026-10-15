@@ -579,5 +579,7 @@ sliding windows have matching Direct and pinned local Prism fixtures. The
 windowed fixtures compare firing deadlines, output timestamps, interval
 bounds, and sink rows.
 A production event timer also survives replacement of the Prism execution
-child after it is armed. Other failure points and timer callback shapes need
+child after it is armed. A separate local Prism job replaces the execution
+child during a timer callback; the supervisor replays that timer input and
+commits each output once. Other failure points and timer callback shapes need
 further tests.

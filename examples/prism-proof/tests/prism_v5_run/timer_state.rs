@@ -150,6 +150,54 @@ async fn prism_recovers_an_armed_event_timer_after_execution_child_loss() {
 }
 
 #[tokio::test]
+async fn prism_replays_timer_input_after_execution_child_dies_in_callback() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let portable_path = directory.path().join("portable-replayed-timer-callback");
+    let trigger = directory.path().join("timer-callback-trigger");
+    let killed = directory.path().join("killed-timer-callback-child");
+    let portable_pipeline = Pipeline::default();
+    ironbeam_prism_proof::streaming_event_timer_fixture(&portable_pipeline, portable_path.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "replayed-event-timer-callback",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_EVENT_TIMER".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            ("IRONBEAM_V5_PRISM_KILL_TIMER_CALLBACK".into(), "1".into()),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism timer replay failed: {terminal:?}");
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap()
+    );
+    let mut rows = std::fs::read_dir(&portable_path)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(rows, ["1:3", "2:4"]);
+}
+
+#[tokio::test]
 async fn prism_matches_direct_fixed_window_timer_output_hold_and_metadata() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
