@@ -128,6 +128,19 @@ strict Clippy passed with the corrected shell gate. The remaining feature,
 facade, package, and live Prism jobs were still running when this audit was
 updated.
 
+### Portable harness coverage
+
+The current `cargo llvm-cov -p ironbeam-harness --branch` selection covers
+**3090/4420 source lines (69.91%)** and **828/1460 source branches (56.71%)**.
+The new Provision RPC and option tests cover 35/36 executable lines in
+`provision.rs`, including worker metadata and rejection of fractional,
+negative, nonfinite, and numerically unsafe options. Large unsigned values
+remain available through string options. The remaining low
+package total is concentrated in worker startup, supervision, and live bundle
+paths that the harness-only test selection does not exercise. The next
+coverage gate needs instrumented Prism worker processes in its selection so
+its floor measures those paths as well as unit tests.
+
 ## Portable parity work still open
 
 This ledger uses the pinned Apache Beam checkout at

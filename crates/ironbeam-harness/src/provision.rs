@@ -50,11 +50,16 @@ pub fn pipeline_option_str<'a>(info: &'a ProvisionInfo, key: &str) -> Option<&'a
     }
 }
 
-/// Pull a top-level key as u64 if it's present and numeric / string-numeric.
+/// Pull a top-level key as u64. JSON numbers must be safe integers; larger
+/// unsigned values may be supplied as decimal strings without losing bits.
 pub fn pipeline_option_u64(info: &ProvisionInfo, key: &str) -> Option<u64> {
     let struct_ = info.pipeline_options.as_ref()?;
     match &struct_.fields.get(key)?.kind {
-        Some(prost_types::value::Kind::NumberValue(n)) => Some(*n as u64),
+        Some(prost_types::value::Kind::NumberValue(n))
+            if n.is_finite() && *n >= 0.0 && n.fract() == 0.0 && *n <= 9_007_199_254_740_991.0 =>
+        {
+            Some(*n as u64)
+        }
         Some(prost_types::value::Kind::StringValue(s)) => s.parse().ok(),
         _ => None,
     }
