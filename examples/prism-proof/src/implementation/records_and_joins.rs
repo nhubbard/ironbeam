@@ -33,6 +33,40 @@ pub fn distinct_window_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sin
             move || Ok(Box::new(GlobalFoldSink { path: sink_path.clone(), values: Vec::new() })),
         )
 }
+
+pub fn streaming_distinct_window_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "distinct-stream",
+            vec![
+                TestStreamEvent::Elements(vec![("a".to_owned(), 1_000_000), ("a".to_owned(), 2_000_000)]),
+                TestStreamEvent::Elements(vec![("a".to_owned(), 3_000_000), ("a".to_owned(), 4_000_000)]),
+                TestStreamEvent::Elements(vec![("b".to_owned(), 5_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("distinct-windows", 10_000_000)?
+        .early_count_trigger_named("distinct-trigger", 2)?
+        .distinct_per_window_named("distinct")?
+        .reify_timestamps_named("distinct-time")?
+        .reify_panes_named("distinct-pane")?
+        .map_named("distinct-row", |(pane, (timestamp, value))| {
+            format!("{value}:{timestamp}:{:?}:{}", pane.timing, pane.index)
+        })?
+        .sink_named_with_config(
+            "distinct-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("distinct-stream:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink {
+                directory: sink_directory.clone(),
+                pending: Vec::new(),
+            })),
+        )
+}
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

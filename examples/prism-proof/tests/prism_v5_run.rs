@@ -74,7 +74,7 @@ use ironbeam_prism_proof::{
     shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
     shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
     side_view_shapes_fixture, sliding_allowed_lateness_fixture, sliding_late_join_fixture,
-    sliding_window_group_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
+    sliding_window_group_fixture, streaming_distinct_window_fixture, streaming_group_fixture, streaming_ordered_batch_fixture,
     streaming_ordered_keyed_fixture, streaming_partition_fixture, streaming_session_group_fixture,
     streaming_sliding_group_fixture, streaming_windowed_side_input_collection,
     streaming_windowed_side_input_fixture, timed_keyed_batches_fixture,
@@ -5717,6 +5717,39 @@ async fn prism_matches_direct_per_window_distinct() {
         HashMap::from([("IRONBEAM_V5_PRISM_DISTINCT_WINDOW".into(), portable_path.to_string_lossy().into_owned())]),
     ).await;
     assert_eq!(terminal.0, 3, "distinct-window job state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_triggered_per_window_distinct() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-stream-distinct");
+    let portable_path = directory.path().join("portable-stream-distinct");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = streaming_distinct_window_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner.start_stream_sink(&direct_sink, &JobConfig::default()).unwrap().wait().unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path).unwrap().map(|entry| {
+            std::fs::read_to_string(entry.unwrap().path()).unwrap()
+        }).collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = ["a:1000000:Early:0", "a:3000000:Early:1", "b:5000000:OnTime:0"];
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    streaming_distinct_window_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "stream-distinct-window",
+        HashMap::from([("IRONBEAM_V5_PRISM_STREAMING_DISTINCT_WINDOW".into(), portable_path.to_string_lossy().into_owned())]),
+    ).await;
+    assert_eq!(terminal.0, 3, "streaming distinct job state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), expected);
 }
 
