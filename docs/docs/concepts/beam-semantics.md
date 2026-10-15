@@ -31,7 +31,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Side inputs | Global and per-window iterable, singleton, map, and multimap views have shared tests. The worker handles `MapWindows` requests in a wire test. | Streaming updates before window closure and a public cross-window mapping API. |
 | Completion signals | Bounded and windowed barriers have shared cases, including a signal that releases one window while sources remain open. | Multiple-signal early release and partial-watermark agreement for sliding windows. |
 | Bundle recovery | Final-result journals and supervised Prism worker replacement have local proofs. | Control-owner recovery, hosted execution, and long-lived metric retention. |
-| I/O formats | CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord have separate crates and local format tests. A local Prism worker reopens a provider-bound Avro object after execution-child replacement. | Wider Avro evolution and hosted remote-object execution. |
+| I/O formats | CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord have separate crates and local format tests. A local Prism worker reopens provider-bound Avro and two-object Parquet inputs after execution-child replacement. | Wider Avro evolution and hosted remote-object execution. |
 | External services | SQL, MongoDB, object storage, and opt-in GCP clients have adapters. | Provider emulator and hosted-service proofs, including streaming commits. |
 
 `BeamShardedKey<String>` and `BeamShardedKey<Vec<u8>>` use the Beam

@@ -200,6 +200,9 @@ when execution opens it. The root `cloud` feature forwards to Parquet's
 `cloud` feature when `v5-io-parquet` is enabled. A local Prism job rebuilds a
 `file://` provider in the worker and streams the same three rows from two
 Parquet objects as Direct. Flatten may deliver those rows in a different order.
+In a separate local Prism test, the execution child is killed while it processes
+a row from the second object. The replacement reopens the prefix and commits
+all three rows once through an idempotent sink.
 The streaming variant hashes each object at graph construction. When a source
 opens, it spools the object to an automatically removed temporary file,
 checks its hash, and decodes one Parquet record batch at a time. It uses disk
