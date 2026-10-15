@@ -152,6 +152,12 @@ run executed the exact package selection, but its source-location denominator
 differs substantially from Linux, so it is not evidence that the Linux gate
 passes. The branch floor has not been lowered.
 
+The `9a40f74` Linux core job includes executable combining state and runner
+bags with multiple coded partial accumulators. It passed at **6076/6323
+(96.09%)** source lines and **1265/1468 (86.17%)** source branches against the
+same floors. The branch margin is narrow; subsequent core changes need
+targeted behavior tests rather than a lower threshold.
+
 The 2026-10-15 local Direct package measurement after the sequential trigger
 and multi-source progress tests is **5946/6521 source lines (91.18%)** and
 **1711/1900 source branches (90.05%)**. Both unchanged floors pass. Core's
