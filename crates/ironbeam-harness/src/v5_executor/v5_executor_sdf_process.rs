@@ -123,7 +123,8 @@ impl V5BundleExecutor {
                         Operation::Map
                         | Operation::Filter
                         | Operation::FlatMap
-                        | Operation::AssignTimestamp => {
+                        | Operation::AssignTimestamp
+                        | Operation::WaitOnWindowed => {
                             if output_pc != &collection_id(&node_ref.key)
                                 || !self.registry.has_coder(&node_ref.key)
                                 || collections
@@ -134,6 +135,20 @@ impl V5BundleExecutor {
                                     "v5 SDF downstream coder or output differs at {}",
                                     node_ref.key
                                 );
+                            }
+                            if matches!(next.operation, Operation::WaitOnWindowed) {
+                                let side = next.additional_inputs.first().ok_or_else(|| {
+                                    anyhow!("v5 SDF windowed wait {} has no signal", next.key)
+                                })?;
+                                if plan.side_inputs.get(&next.key)
+                                    != Some(&collection_id(&side.key))
+                                    || plan.state_endpoint.as_deref().is_none_or(str::is_empty)
+                                {
+                                    bail!(
+                                        "v5 SDF windowed wait {} differs from worker side input",
+                                        next.key
+                                    );
+                                }
                             }
                         }
                         Operation::Sink { spec } => {

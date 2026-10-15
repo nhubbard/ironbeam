@@ -168,6 +168,107 @@ pub fn dual_stream_windowed_wait_fixture(
     )
 }
 
+struct EarlyWaitReader {
+    batch: Option<UnboundedBatch<Timestamped<i32>>>,
+}
+
+impl UnboundedSource<Timestamped<i32>> for EarlyWaitReader {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+        Ok(self
+            .batch
+            .take()
+            .map_or(UnboundedPoll::Pending, UnboundedPoll::Ready))
+    }
+}
+
+/// Keep the main source open after one value while an empty signal window
+/// closes. A portable test observes the sink before the job is cancelled.
+pub fn early_windowed_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "early-wait-main",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "early-wait-main-v1".into(),
+            0,
+            |cursor| {
+                let batch = match cursor.as_deref() {
+                    None => Some(UnboundedBatch {
+                        elements: vec![Timestamped {
+                            value: 7_i32,
+                            timestamp_ns: 1_000_000,
+                        }],
+                        progress: ProgressSignal {
+                            source_key: "early-wait-main".into(),
+                            split_id: "main-split".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(1_000_000),
+                            completed: false,
+                        },
+                    }),
+                    Some([1]) => None,
+                    _ => return Err(Error::incompatible("early wait main cursor changed")),
+                };
+                Ok(Box::new(EarlyWaitReader { batch }) as TypedUnboundedSourceReader<i32>)
+            },
+        )?
+        .fixed_windows("early-wait-main-window", 10_000_000)?;
+    let signal = pipeline
+        .unbounded_source_with_factory(
+            "early-wait-signal",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "early-wait-signal-v1".into(),
+            0,
+            |cursor| {
+                if cursor.is_some() {
+                    return Err(Error::incompatible("completed early wait signal reopened"));
+                }
+                Ok(Box::new(EarlyWaitReader {
+                    batch: Some(UnboundedBatch {
+                        elements: Vec::new(),
+                        progress: ProgressSignal {
+                            source_key: "early-wait-signal".into(),
+                            split_id: "signal-split".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(10_000_000),
+                            completed: true,
+                        },
+                    }),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )?
+        .fixed_windows("early-wait-signal-window", 10_000_000)?;
+    let sink_path = path.clone();
+    main.wait_on_windowed_named("early-wait-barrier", &signal)?
+        .reshuffle_named("early-wait-sink-boundary")?
+        .map_named("early-wait-format", |value| value.to_string())?
+        .sink_named_with_config(
+            "early-wait-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("early-wait-result:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// A three-source barrier with two independently watermarked signal streams.
 pub fn triple_stream_windowed_wait_collection(
     pipeline: &Pipeline,

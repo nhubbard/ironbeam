@@ -228,9 +228,11 @@ lateness, and fixed or sliding windows, it represents the signal as a
 matching-window Beam side input. Direct releases buffered main values when
 the signal watermark closes their window, even if the main watermark remains
 behind it. The portable lowering uses an identity window mapping, and a local
-Prism job matches Direct's output values and timestamps. That job does not
-yet measure release time while the main source remains open. Other
-configurations use the co-group path and wait for both input watermarks.
+Prism job matches Direct's output values and timestamps. A second local Prism
+job emits a main value, keeps that source open, and closes an empty signal
+window. Its sink receives the value while the job is still running. The worker
+accepts this barrier in an SDF source bundle when Prism fuses the two stages.
+Other configurations use the co-group path and wait for both input watermarks.
 `wait_on_all_windowed_named` accepts several signals of one element type. It
 groups them with the main input in one shuffle and waits for every input
 watermark. A shared three-source job checks the same windows and timestamps on

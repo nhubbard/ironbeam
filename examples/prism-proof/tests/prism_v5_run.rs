@@ -49,8 +49,8 @@ use ironbeam_prism_proof::{
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_collection, dual_unbounded_session_cogroup_fixture,
     dual_unbounded_session_join_collection, dual_unbounded_session_join_fixture,
-    explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
-    finalization_probe_sink, finalization_probe_store,
+    early_windowed_wait_fixture, explicit_custom_batches_fixture, failing_wait_on_fixture,
+    finalization_failure_fixture, finalization_probe_sink, finalization_probe_store,
     global_accumulating_early_cogroup_collection, global_accumulating_early_cogroup_fixture,
     global_count_collection, global_count_fixture, global_fold_fixture,
     global_keyed_batches_fixture, global_keyed_batches_with_upstream_trigger_fixture,
@@ -4999,6 +4999,93 @@ async fn prism_matches_direct_two_unbounded_windowed_side_views_at_closure() {
         rows,
         ["0..4000000:1000000:a:11", "4000000..8000000:5000000:c:3"]
     );
+}
+
+#[tokio::test]
+async fn prism_releases_windowed_wait_while_main_source_remains_open() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("early-wait.txt");
+    let pipeline = Pipeline::default();
+    early_windowed_wait_fixture(&pipeline, path.clone()).unwrap();
+    let mut translated = prepare_v5(&pipeline, "local-process", "prism-run-fixture").unwrap();
+    let environment = translated
+        .pipeline
+        .components
+        .as_mut()
+        .unwrap()
+        .environments
+        .values_mut()
+        .next()
+        .unwrap();
+    environment.urn = "beam:env:process:v1".into();
+    environment.payload = ProcessPayload {
+        os: std::env::consts::OS.into(),
+        arch: std::env::consts::ARCH.into(),
+        command: env!("CARGO_BIN_EXE_v5_prism_worker").into(),
+        env: [(
+            "IRONBEAM_V5_PRISM_EARLY_WINDOWED_WAIT".into(),
+            path.to_string_lossy().into_owned(),
+        )]
+        .into(),
+    }
+    .encode_to_vec();
+    let url = if endpoint.contains("://") {
+        endpoint
+    } else {
+        format!("http://{endpoint}")
+    };
+    let mut client = JobServiceClient::connect(url).await.unwrap();
+    let prepared = client
+        .prepare(PrepareJobRequest {
+            pipeline: Some(translated.pipeline),
+            pipeline_options: Some(prost_types::Struct::default()),
+            job_name: format!("ironbeam-v5-early-wait-{}", std::process::id()),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let running = client
+        .run(RunJobRequest {
+            preparation_id: prepared.preparation_id,
+            retrieval_token: String::new(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let mut observed = None;
+    for _ in 0..100 {
+        let state = client
+            .get_state(GetJobStateRequest {
+                job_id: running.job_id.clone(),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .state;
+        let rows = std::fs::read_to_string(&path).unwrap_or_default();
+        if !rows.is_empty() || matches!(state, 3..=6) {
+            observed = Some((state, rows));
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let _ = tokio::time::timeout(
+        Duration::from_secs(3),
+        client.cancel(CancelJobRequest {
+            job_id: running.job_id,
+        }),
+    )
+    .await;
+    let (state, rows) = observed.expect("Prism did not release the window within 10 seconds");
+    assert!(
+        !matches!(state, 3..=6),
+        "job ended before early release: {state}"
+    );
+    assert_eq!(rows, "7\n");
 }
 
 #[tokio::test]

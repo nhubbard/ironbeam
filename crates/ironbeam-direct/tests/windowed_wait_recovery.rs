@@ -135,6 +135,116 @@ fn one_windowed_signal_releases_main_before_main_watermark() {
 }
 
 #[test]
+fn sliding_wait_releases_only_the_window_closed_by_signal() {
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "sliding-main",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "sliding-main-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![UnboundedPoll::Ready(UnboundedBatch {
+                        elements: vec![Timestamped {
+                            value: 7,
+                            timestamp_ns: 7_000_000,
+                        }],
+                        progress: ProgressSignal {
+                            source_key: "sliding-main".into(),
+                            split_id: "main-split".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(7_000_000),
+                            completed: false,
+                        },
+                    })]
+                    .into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .sliding_windows("sliding-main-window", 10_000_000, 5_000_000, 0)
+        .unwrap();
+    let signal = pipeline
+        .unbounded_source_with_factory(
+            "sliding-signal",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "sliding-signal-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: vec![UnboundedPoll::Ready(UnboundedBatch {
+                        elements: vec![Timestamped {
+                            value: 99,
+                            timestamp_ns: 7_000_000,
+                        }],
+                        progress: ProgressSignal {
+                            source_key: "sliding-signal".into(),
+                            split_id: "signal-split".into(),
+                            checkpoint_position: Some(vec![1]),
+                            event_time_ns: Some(10_000_000),
+                            completed: false,
+                        },
+                    })]
+                    .into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .sliding_windows("sliding-signal-window", 10_000_000, 5_000_000, 0)
+        .unwrap();
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
+    let sink = main
+        .wait_on_windowed_named("sliding-barrier", &signal)
+        .unwrap()
+        .with_window_named("sliding-with-window")
+        .unwrap()
+        .map_named("sliding-format", |(window, value)| {
+            format!("{}..{}:{value}", window.start_ns, window.end_ns)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sliding-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "sliding-wait-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let job = DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while committed.lock().unwrap().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(*committed.lock().unwrap(), ["0..10000000:7".to_owned()]);
+    job.cancel();
+    assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+}
+
+#[test]
 fn early_windowed_wait_releases_after_checkpoint_recovery() {
     let directory = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
