@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use ironbeam_core::{
     Element, ElementMetadata, Envelope, PCollection, PaneInfo, Pipeline, TestStreamEvent,
@@ -106,6 +107,7 @@ fn timed_state_and_timer_restore_atomically_and_fire_once() {
         restored.checkpoint_stateful_value("timer").unwrap(),
         snapshot
     );
+    assert!(restored.restore_stateful_value("timer", b"{").is_err());
     for variant in 0..5 {
         let mut corrupt: serde_json::Value = serde_json::from_slice(&snapshot).unwrap();
         match variant {
@@ -495,4 +497,102 @@ fn timer_registration_rejects_unsupported_input_time_contracts() {
     assert!(register(&triggered, family()).is_err());
     let late = fixed.allowed_lateness_named("late", 1_000_000).unwrap();
     assert!(register(&late, family()).is_err());
+}
+
+#[test]
+fn empty_value_cell_and_rejected_timer_callback_return_typed_errors() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/rejected-timer-callback",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![value],
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, _, _| {
+                Err(ironbeam_core::Error::execution(
+                    "timer",
+                    "test",
+                    "callback refused",
+                ))
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    assert_eq!(registry.apply_many("timer", input(2)).unwrap().len(), 1);
+    let checkpoint: serde_json::Value =
+        serde_json::from_slice(&registry.checkpoint_stateful_value("timer").unwrap()).unwrap();
+    assert_eq!(checkpoint["cells"].as_array().unwrap().len(), 0);
+    let error = registry
+        .drain_stateful_timers("timer", Some(5_000_000), None)
+        .err()
+        .expect("timer callback should fail");
+    assert!(error.to_string().contains("callback refused"));
+}
+
+#[test]
+fn poisoned_windowed_timer_cell_returns_recovery_errors() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/poisoned-timer-cell",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, _, _, _| panic!("injected timed cell panic"),
+            |_, _, _| unreachable!(),
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let initial = registry.checkpoint_stateful_value("timer").unwrap();
+    let windowed = registry.apply_many("window", input(2)).unwrap();
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            registry.apply_many("timer", windowed.into_iter().next().unwrap())
+        }))
+        .is_err()
+    );
+    let windowed = registry.apply_many("window", input(2)).unwrap();
+    assert!(
+        registry
+            .apply_many("timer", windowed.into_iter().next().unwrap())
+            .err()
+            .expect("poisoned state should fail")
+            .to_string()
+            .contains("lock poisoned")
+    );
+    assert!(registry.checkpoint_stateful_value("timer").is_err());
+    assert!(registry.restore_stateful_value("timer", &initial).is_err());
+    assert!(
+        registry
+            .expire_stateful_value("timer", Some(10_000_000))
+            .is_err()
+    );
 }
