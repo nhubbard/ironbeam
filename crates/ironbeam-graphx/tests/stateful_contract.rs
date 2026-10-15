@@ -118,6 +118,56 @@ fn public_value_state_api_lowers_to_valid_beam_state_contract() {
 }
 
 #[test]
+fn public_combining_state_api_lowers_versioned_merge_to_beam() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("pairs", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .stateful_combining_map_named::<i32, i32>(
+            "running-sum",
+            "example/running-sum",
+            Version { major: 1, minor: 0 },
+            ironbeam_core::CombiningFunction {
+                semantic_id: "example/checked-sum",
+                version: Version { major: 2, minor: 1 },
+            },
+            |left, right| Ok(left + right),
+            |_, value, prior| {
+                Ok((
+                    ironbeam_core::CombiningStateMutation::Add(value),
+                    prior.copied().unwrap_or_default(),
+                ))
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, "example/worker:v5", "combining-build").unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let transform = translated
+        .pipeline
+        .components
+        .as_ref()
+        .unwrap()
+        .transforms
+        .values()
+        .find(|transform| transform.unique_name == "running-sum")
+        .unwrap();
+    let payload =
+        ParDoPayload::decode(transform.spec.as_ref().unwrap().payload.as_slice()).unwrap();
+    let Some(state_spec::Spec::CombiningSpec(cell)) = &payload.state_specs["combining"].spec else {
+        panic!("expected Beam combining-state spec");
+    };
+    let merge = cell.combine_fn.as_ref().unwrap();
+    assert_eq!(merge.urn, "example/checked-sum");
+    assert_eq!(
+        serde_json::from_slice::<Version>(&merge.payload).unwrap(),
+        Version { major: 2, minor: 1 }
+    );
+}
+
+#[test]
 fn lowers_each_beam_user_state_family_and_timer_domain() {
     let mut payload = ParDoPayload::default();
     let mut requirements = vec!["beam:requirement:pardo:splittable_dofn:v1".into()];
