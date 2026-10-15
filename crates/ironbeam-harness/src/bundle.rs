@@ -95,10 +95,9 @@ pub enum SourceWire {
     /// executor reassembles each element via the predecessor's
     /// `PostcardGroupedKvCoder` before the first post-GBK ParDo runs.
     KvIterLp,
-    /// `wv<kv<lp<_>, state_backed_iterable<_>>, gw>`. Dataflow runner-v2
-    /// often substitutes this for GBK outputs; reading values requires the
-    /// BeamFnState API which the MVP harness does not yet speak. The
-    /// executor bails with a clear error when it sees this shape.
+    /// `wv<kv<lp<_>, state_backed_iterable<_>>, gw>`. Runners may substitute
+    /// this for GBK outputs. The executor obtains the iterable bytes through
+    /// the Beam Fn State API before reconstructing the grouped element.
     KvStateBackedIter,
 }
 

@@ -69,7 +69,7 @@ use ironbeam_prism_proof::{
     partition_fixture, portable_object_avro_collection, portable_object_avro_fixture,
     portable_object_parquet_collection, portable_object_parquet_fixture,
     processing_time_trigger_collection, processing_time_trigger_fixture,
-    production_join_cogroup_fixture, production_stream_fixture, session_group_fixture,
+    production_join_cogroup_fixture, production_stream_fixture, representative_distinct_fixture, session_group_fixture,
     shared_accumulating_early_cogroup_collection, shared_accumulating_early_cogroup_fixture,
     shared_accumulating_late_cogroup_collection, shared_accumulating_late_cogroup_fixture,
     shared_unbounded_homogeneous_cogroup_collection, shared_unbounded_homogeneous_cogroup_fixture,
@@ -5717,6 +5717,37 @@ async fn prism_matches_direct_per_window_distinct() {
         HashMap::from([("IRONBEAM_V5_PRISM_DISTINCT_WINDOW".into(), portable_path.to_string_lossy().into_owned())]),
     ).await;
     assert_eq!(terminal.0, 3, "distinct-window job state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_representative_distinct() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-representatives.txt");
+    let portable_path = directory.path().join("portable-representatives.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = representative_distinct_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner.run_sink(&direct_sink, &JobConfig::default()).unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path).unwrap().lines().map(str::to_owned).collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let expected = ["0:1000000:a1", "0:3000000:b1", "10000000:11000000:a3"];
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    representative_distinct_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "representative-distinct",
+        HashMap::from([("IRONBEAM_V5_PRISM_REPRESENTATIVE_DISTINCT".into(), portable_path.to_string_lossy().into_owned())]),
+    ).await;
+    assert_eq!(terminal.0, 3, "representative distinct job state: {terminal:?}");
     assert_eq!(read_rows(&portable_path), expected);
 }
 

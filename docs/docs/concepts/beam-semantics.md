@@ -22,7 +22,7 @@ This page does not assign a percentage while those tests are incomplete.
 | --- | --- | --- |
 | Graph identity, typed elements, and coders | Versioned graph and worker validation; custom types cross Fn Data in local Prism; pane and interval coder bytes match pinned Beam examples | Broader Beam coder compatibility corpus |
 | Bounded and unbounded sources | Vector, file, and resumable source fixtures; residuals cross processes | General source connector contracts and more split shapes |
-| Elementwise transforms and branching | Map, filter, flat-map, Flatten, typed Partition, per-window Distinct, and shared fanout jobs; bounded and unbounded Partition fixtures match Direct and local Prism values, timestamps, and fixed windows; stateless Flatten matches across two and three independent unbounded sources and a mixed bounded/unbounded pair; per-window Distinct matches values and earliest event times across two windows and has matching repeated early and late panes in streaming fixtures | Broader multi-output and fusion cases |
+| Elementwise transforms and branching | Map, filter, flat-map, Flatten, typed Partition, per-window Distinct, representative-based Distinct, and shared fanout jobs; bounded and unbounded Partition fixtures match Direct and local Prism values, timestamps, and fixed windows; stateless Flatten matches across two and three independent unbounded sources and a mixed bounded/unbounded pair; per-window Distinct matches values and earliest event times across two windows and has matching repeated early and late panes in streaming fixtures. Representative-based Distinct chooses the smallest encoded value in each derived-key/window group and matches across Direct and Prism. | Broader multi-output and fusion cases |
 | Keyed shuffle and aggregation | GroupByKey, co-group, joins, lifted folds, and ordered folds in shared cases; homogeneous co-group is proved with twelve bounded inputs, three independent unbounded inputs, three branches from one unbounded source, and mixed bounded/unbounded inputs in fixed windows; three independent unbounded inputs also merge a keyed session after the bridge arrives | General stateful DAG fanout, broader multi-source session schedules, and hot-key behavior |
 | Event time and watermarks | Fixed, offset, sliding, and keyed session cases; bounded and two- or three-source unbounded co-groups merge sessions across inputs when source watermarks advance after the connecting records; fixed and sliding windows have tested positive allowed lateness and zero-lateness drops | Independent bounded-source and intermediate-watermark agreement for cross-input sessions, session lateness, and broader merging cases |
 | Triggers and panes | Default, repeated early count, late count, and combined early/late count triggers run in proved fixed-window cases on Direct and Prism. Homogeneous and heterogeneous co-groups and all four typed join kinds have matching discarding late-count schedules. Accumulating late count retains values across a checkpointed Direct multi-source co-group and typed join; a shared three-input co-group matches Prism on values, timing, and pane indices. Accumulating combined early/late count lowers to Beam and survives a Direct checkpoint, but pinned Prism emits extra early and on-time panes for a late TestStream bundle. Direct restores a shared-source heterogeneous co-group's single cursor and open window state. `reify_panes_named` and sink metadata expose pane timing and indices. A merged-session fixture exposes a Prism pane-timing difference. | Processing-time and broader composite triggers, accumulating combined-count and typed-join pane scheduling, and merged-session pane agreement. |
@@ -154,6 +154,14 @@ The shuffle does not promise an encounter order. An ordered fold therefore
 needs an explicit order key; equal keys are rejected where the operation
 requires a total order. Direct can preserve encounter order for its local
 variant, but that local behavior is not a portable ordering guarantee.
+
+`distinct_by_per_window_named` groups values by a derived key and selects one
+representative in each window. It chooses the value with the smallest encoded
+bytes, so its result does not depend on bundle arrival order. The value and
+derived-key types need registered coders, and the value coder must encode the
+same value consistently. The shared Direct and Prism fixture checks the
+chosen values and group timestamps in two fixed windows. The older
+`distinct_by_named` retains its encounter-order behavior for local use.
 
 Grouping may retain all values for a key and window until the window closes.
 For a large key, this can use substantially more memory than an incremental

@@ -75,6 +75,16 @@ pub trait ElementwiseExt<T: Element> {
         key: &str,
         by: impl Fn(&T) -> K + Send + Sync + 'static,
     ) -> Result<PCollection<T>, Error>;
+    /// Emit one representative per derived key and window through a portable
+    /// shuffle. When several values share a key, choose the value with the
+    /// smallest encoded bytes, independent of bundle arrival order. The
+    /// value coder must be deterministic. An unbounded global input requires
+    /// an early trigger.
+    fn distinct_by_per_window_named<K: Element + Eq + Hash + Clone>(
+        &self,
+        key: &str,
+        by: impl Fn(&T) -> K + Send + Sync + 'static,
+    ) -> Result<PCollection<T>, Error>;
     fn sum_globally_named(&self, key: &str) -> Result<PCollection<T>, Error>
     where
         T: Add<Output = T> + Default;
@@ -183,6 +193,30 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
     ) -> Result<Self, Error> {
         self.fold_globally_ordered_named(&format!("{key}/collect"), DistinctBy(by))?
             .flat_map_named(key, |values| values)
+    }
+    fn distinct_by_per_window_named<K: Element + Eq + Hash + Clone>(
+        &self,
+        key: &str,
+        by: impl Fn(&T) -> K + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
+        if !T::supports_coder() || !K::supports_coder() {
+            return Err(Error::graph(
+                key,
+                "portable representative distinct requires coded values and keys",
+            ));
+        }
+        self.key_by_named(&format!("{key}/key"), by)?
+            .group_by_key_named(&format!("{key}/group"))?
+            .flat_map_fallible_named(key, |(_, values)| {
+                let mut chosen = None::<(Vec<u8>, T)>;
+                for value in values {
+                    let bytes = value.encode()?;
+                    if chosen.as_ref().is_none_or(|(prior, _)| bytes < *prior) {
+                        chosen = Some((bytes, value));
+                    }
+                }
+                Ok(chosen.into_iter().map(|(_, value)| value).collect())
+            })
     }
     fn sum_globally_named(&self, key: &str) -> Result<Self, Error>
     where
