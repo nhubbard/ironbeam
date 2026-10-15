@@ -59,6 +59,7 @@ jobs:
           done
           cargo test -p ironbeam-prism-proof --test prism_v5_run --locked -- --test-threads=1 --skip prism_fails_closed_on_supervised_worker_loss_with_active_bundles --skip prism_runs_production_unbounded_source_with_residual_resume
           cargo test -p ironbeam-prism-proof --test prism_arrow --locked
+          cargo test -p ironbeam-prism-proof --test hosted_object_streaming --locked
       - name: Test worker loss against fresh Prism
         env:
           IRONBEAM_PRISM_ENDPOINT: localhost:8073

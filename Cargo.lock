@@ -2812,6 +2812,7 @@ dependencies = [
 name = "ironbeam-cloud-object-store"
 version = "5.0.0"
 dependencies = [
+ "bytes",
  "futures-util",
  "ironbeam-cloud-objects",
  "object_store",
@@ -3213,6 +3214,7 @@ dependencies = [
  "beam-proto",
  "bson 3.1.0",
  "hex",
+ "ironbeam-cloud-object-store",
  "ironbeam-cloud-objects",
  "ironbeam-coder-postcard",
  "ironbeam-coder-row",
@@ -3236,6 +3238,7 @@ dependencies = [
  "ironbeam-io-xml",
  "ironbeam-transforms",
  "mongodb",
+ "object_store",
  "prost 0.13.5",
  "prost 0.14.4",
  "prost-types 0.13.5",

@@ -1,6 +1,7 @@
 use ironbeam_cloud_object_store::{RemoteObjectIO, object_stores_from_env};
 use ironbeam_cloud_objects::{ErrorKind, ObjectIO, ObjectStores};
-use object_store::{ObjectStore, memory::InMemory};
+use object_store::{ObjectStore, chunked::ChunkedStore, memory::InMemory};
+use std::io::Read;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -64,6 +65,36 @@ fn missing_object_and_invalid_path_keep_meaningful_errors() {
             .kind,
         ErrorKind::InvalidInput
     );
+}
+
+#[test]
+fn sequential_remote_read_survives_provider_drop_and_short_reads() {
+    let adapter = RemoteObjectIO::new(|_| {
+        let memory = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        Ok(Arc::new(ChunkedStore::new(memory, 1024)) as Arc<dyn ObjectStore>)
+    })
+    .unwrap();
+    let data = (0..200_000)
+        .map(|index| u8::try_from(index % 251).unwrap())
+        .collect::<Vec<_>>();
+    adapter.put_object("bucket", "records.bin", &data).unwrap();
+    assert_eq!(
+        adapter.open_object("bucket", "missing").err().unwrap().kind,
+        ErrorKind::NotFound
+    );
+    let mut reader = adapter.open_object("bucket", "records.bin").unwrap();
+    drop(adapter);
+    let mut received = Vec::new();
+    let mut buffer = [0_u8; 37];
+    loop {
+        let count = reader.read(&mut buffer).unwrap();
+        if count == 0 {
+            break;
+        }
+        received.extend_from_slice(&buffer[..count]);
+    }
+    assert_eq!(received, data);
+    assert_eq!(reader.read(&mut buffer).unwrap(), 0);
 }
 
 #[test]

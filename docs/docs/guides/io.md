@@ -151,7 +151,10 @@ enable `ironbeam-io-avro`'s `cloud` feature and
 `ironbeam-cloud-object-store`'s `gcp` feature, then build the registry with
 `object_stores_from_env()` and pass a `gs://bucket/key.avro` URI. The hosted
 adapter uses the `object_store` GCS client and Application Default
-Credentials. The separate `ironbeam-cloud-gcp` client does not itself
+Credentials. Its sequential reader keeps at most two unread transfer chunks
+and passes stream errors to the format reader. Avro and Parquet streaming
+sources have been tested through this adapter with an in-memory `object_store`
+backend. The separate `ironbeam-cloud-gcp` client does not itself
 implement this registry's `ObjectIO` contract. A local Prism fixture now
 rebuilds the same `file://` provider binding in the worker and streams an Avro
 object with a reader schema that adds a defaulted field. Direct and Prism

@@ -1,11 +1,14 @@
-use futures_util::TryStreamExt;
+use bytes::{Buf, Bytes};
+use futures_util::{StreamExt, TryStreamExt};
 use ironbeam_cloud_objects::{
     CloudIOError, CloudResult, ErrorKind, ObjectIO, ObjectMetadata, ObjectStores,
 };
 use object_store::{ObjectMeta, ObjectStore, ObjectStoreExt, PutMode, path::Path};
 use std::collections::HashMap;
 use std::future::Future;
+use std::io::{self, Read};
 use std::sync::{Arc, Mutex, mpsc};
+use tokio::sync::Semaphore;
 
 type Factory = dyn Fn(&str) -> CloudResult<Arc<dyn ObjectStore>> + Send + Sync;
 
@@ -36,7 +39,56 @@ pub fn object_stores_from_env() -> CloudResult<ObjectStores> {
 pub struct RemoteObjectIO {
     factory: Arc<Factory>,
     buckets: Mutex<HashMap<String, Arc<dyn ObjectStore>>>,
-    runtime: tokio::runtime::Runtime,
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+/// Bridges an asynchronous object stream to the synchronous object provider
+/// contract. At most two unread chunks are held in the channel or reader.
+struct StreamObjectReader {
+    receive: mpsc::Receiver<io::Result<Bytes>>,
+    current: Bytes,
+    slots: Arc<Semaphore>,
+    task: tokio::task::JoinHandle<()>,
+    _runtime: Arc<tokio::runtime::Runtime>,
+}
+
+impl Read for StreamObjectReader {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        if output.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            if !self.current.is_empty() {
+                let count = output.len().min(self.current.len());
+                output[..count].copy_from_slice(&self.current[..count]);
+                self.current.advance(count);
+                if self.current.is_empty() {
+                    self.slots.add_permits(1);
+                }
+                return Ok(count);
+            }
+            match self.receive.recv() {
+                Ok(Ok(bytes)) => {
+                    self.current = bytes;
+                    if self.current.is_empty() {
+                        self.slots.add_permits(1);
+                    }
+                }
+                Ok(Err(error)) => {
+                    self.slots.add_permits(1);
+                    return Err(error);
+                }
+                Err(_) => return Ok(0),
+            }
+        }
+    }
+}
+
+impl Drop for StreamObjectReader {
+    fn drop(&mut self) {
+        self.slots.close();
+        self.task.abort();
+    }
 }
 
 impl RemoteObjectIO {
@@ -57,7 +109,7 @@ impl RemoteObjectIO {
         Ok(Self {
             factory: Arc::new(factory),
             buckets: Mutex::new(HashMap::new()),
-            runtime,
+            runtime: Arc::new(runtime),
         })
     }
 
@@ -202,6 +254,42 @@ impl ObjectIO for RemoteObjectIO {
         let path = Path::parse(key)
             .map_err(|error| CloudIOError::new(ErrorKind::InvalidInput, error.to_string()))?;
         self.run(async move { Ok(store.get(&path).await?.bytes().await?.to_vec()) })
+    }
+
+    fn open_object(&self, bucket: &str, key: &str) -> CloudResult<Box<dyn Read + Send>> {
+        let store = self.store(bucket)?;
+        let path = Path::parse(key)
+            .map_err(|error| CloudIOError::new(ErrorKind::InvalidInput, error.to_string()))?;
+        // Resolve the object before returning the reader so a missing object
+        // retains the provider's NotFound error kind.
+        let result = self.run(async move { store.get(&path).await })?;
+        let (send, receive) = mpsc::channel();
+        let slots = Arc::new(Semaphore::new(2));
+        let producer_slots = Arc::clone(&slots);
+        let task = self.runtime.spawn(async move {
+            let mut stream = result.into_stream();
+            while let Some(chunk) = stream.next().await {
+                let Ok(permit) = producer_slots.acquire().await else {
+                    break;
+                };
+                let failed = chunk.is_err();
+                let chunk = chunk.map_err(|error| io::Error::other(error.to_string()));
+                if send.send(chunk).is_err() {
+                    break;
+                }
+                permit.forget();
+                if failed {
+                    break;
+                }
+            }
+        });
+        Ok(Box::new(StreamObjectReader {
+            receive,
+            current: Bytes::new(),
+            slots,
+            task,
+            _runtime: Arc::clone(&self.runtime),
+        }))
     }
 
     fn delete_object(&self, bucket: &str, key: &str) -> CloudResult<()> {
