@@ -1,7 +1,9 @@
 include!("records_and_joins.rs");
 mod distinct;
 pub use distinct::*;
+mod map_state;
 mod set_state;
+pub use map_state::*;
 pub use set_state::*;
 mod row;
 pub use row::*;

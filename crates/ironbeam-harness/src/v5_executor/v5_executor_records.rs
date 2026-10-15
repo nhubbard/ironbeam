@@ -182,8 +182,9 @@ impl V5BundleExecutor {
                             let parent = node.input.as_deref().ok_or_else(|| anyhow!("stateful ParDo {} has no input", node.key))?;
                             let bag_state = matches!(contract.states.get("bag"), Some(UserStateKind::Bag { .. }));
                             let set_state = matches!(contract.states.get("set"), Some(UserStateKind::Set { .. }));
-                            if !bag_state && !set_state && !matches!(contract.states.get("value"), Some(UserStateKind::Value { .. })) {
-                                bail!("stateful ParDo {} has no executable value, bag, or set cell", node.key);
+                            let map_state = matches!(contract.states.get("map"), Some(UserStateKind::Map { .. }));
+                            if !bag_state && !set_state && !map_state && !matches!(contract.states.get("value"), Some(UserStateKind::Value { .. })) {
+                                bail!("stateful ParDo {} has no executable value, bag, set, or map cell", node.key);
                             }
                             let mut produced = Vec::with_capacity(input.len());
                             for wire in input {
@@ -227,6 +228,12 @@ impl V5BundleExecutor {
                                             encode_bag_elements(&items)
                                         }).transpose()?;
                                         Ok((output, replacement))
+                                    }).await?
+                                } else if map_state {
+                                    access.apply_map_state("map", |encoded| {
+                                        let prior = (!encoded.is_empty()).then_some(encoded);
+                                        let (next, output) = self.apply_stateful_cell(node, parent, wire, prior)?;
+                                        Ok((output, next))
                                     }).await?
                                 } else {
                                     access.apply_value_state("value", |encoded| {

@@ -411,6 +411,13 @@ element coder must encode equal values identically. Unbounded membership
 persists across element batches on both runners; Direct checkpoint restart
 and Prism execution-child replacement have separate proofs.
 
+`stateful_map_map_named` exposes a map for each pipeline key and window.
+It keeps one value per coded map key and supports put, remove, clear, and
+replacement mutations. Direct checkpoints the map. Portable execution uses
+Beam's multimap state keys and replaces the entries when a mutation changes
+the cell. A bounded mutation fixture has matching Direct and local Prism
+results. The map key coder must distinguish unequal keys.
+
 The distinction matters for retries. A source cursor says which input can be
 replayed. A grouped checkpoint contains values that have not yet formed a
 completed result. A sink finalization journal records which bundle attempts

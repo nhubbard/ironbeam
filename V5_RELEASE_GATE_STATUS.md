@@ -222,6 +222,16 @@ residual reopen. Timer callbacks remain unproved.
 An unbounded fixed-window SetState fixture also agrees on membership in two
 separate windows for the same key across element batches.
 
+`MapState` now has a keyed API with `Keep`, `Clear`, `Put`, `Remove`, and
+`Replace`. Core tests coded checkpoint restoration, duplicate-key rejection,
+and callback rollback. A Direct stream test restores map values with its
+source cursor. Bounded and two-batch unbounded fixtures agree on values and
+key isolation between Direct and pinned local Prism. The portable worker
+uses Beam's multimap Fn State protocol and replaces the keys cell when the
+map changes; mutation work grows with map size. Fixed/sliding-window,
+supervised worker replacement, timer callbacks, and broader map error
+boundaries still need proof.
+
 These rows are not equally weighted. A percentage computed by counting URNs
 would hide the difference between a declared state spec and a working
 stateful pipeline. The target remains open until the missing behaviors have

@@ -82,30 +82,36 @@ fn value_state_payload(
             .iter()
             .next()
             .is_some_and(|(name, spec)| {
-                let (coder_id, protocol_urn) = match (name.as_str(), &spec.spec) {
+                let (coder_ids, protocol_urn) = match (name.as_str(), &spec.spec) {
                     ("value", Some(state_spec::Spec::ReadModifyWriteSpec(cell))) => {
-                        (&cell.coder_id, "beam:user_state:bag:v1")
+                        (vec![&cell.coder_id], "beam:user_state:bag:v1")
                     }
                     ("bag", Some(state_spec::Spec::BagSpec(cell))) => {
-                        (&cell.element_coder_id, "beam:user_state:bag:v1")
+                        (vec![&cell.element_coder_id], "beam:user_state:bag:v1")
                     }
                     ("set", Some(state_spec::Spec::SetSpec(cell))) => {
-                        (&cell.element_coder_id, "beam:user_state:multimap:v1")
+                        (vec![&cell.element_coder_id], "beam:user_state:multimap:v1")
                     }
+                    ("map", Some(state_spec::Spec::MapSpec(cell))) => (
+                        vec![&cell.key_coder_id, &cell.value_coder_id],
+                        "beam:user_state:multimap:v1",
+                    ),
                     _ => return false,
                 };
-                pbd.coders.get(coder_id).is_some_and(|coder| {
-                    coder.spec.as_ref().is_some_and(|spec| {
-                        spec.urn == urns::CODER_LENGTH_PREFIX && spec.payload.is_empty()
-                    }) && coder.component_coder_ids.len() == 1
-                        && pbd
-                            .coders
-                            .get(&coder.component_coder_ids[0])
-                            .is_some_and(|child| {
-                                child.spec.as_ref().is_some_and(|spec| {
-                                    spec.urn == urns::CODER_BYTES && spec.payload.is_empty()
-                                }) && child.component_coder_ids.is_empty()
-                            })
+                coder_ids.into_iter().all(|coder_id| {
+                    pbd.coders.get(coder_id).is_some_and(|coder| {
+                        coder.spec.as_ref().is_some_and(|spec| {
+                            spec.urn == urns::CODER_LENGTH_PREFIX && spec.payload.is_empty()
+                        }) && coder.component_coder_ids.len() == 1
+                            && pbd
+                                .coders
+                                .get(&coder.component_coder_ids[0])
+                                .is_some_and(|child| {
+                                    child.spec.as_ref().is_some_and(|spec| {
+                                        spec.urn == urns::CODER_BYTES && spec.payload.is_empty()
+                                    }) && child.component_coder_ids.is_empty()
+                                })
+                    })
                 }) && spec.protocol.as_ref().is_some_and(|protocol| {
                     protocol.urn == protocol_urn && protocol.payload.is_empty()
                 })
@@ -113,7 +119,8 @@ fn value_state_payload(
     if !valid {
         return Err(PlanError::BadPayload {
             id: id.into(),
-            err: "v5 ParDo supports one declared value, bag, or set cell without timers".into(),
+            err: "v5 ParDo supports one declared value, bag, set, or map cell without timers"
+                .into(),
         });
     }
     Ok(true)

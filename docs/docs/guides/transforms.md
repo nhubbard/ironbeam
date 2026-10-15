@@ -393,3 +393,29 @@ source cursor, and a production Prism job retains the set after a failed
 execution child is replaced and the source residual reopens. SetState has no
 timer callback yet. A fixed-window unbounded fixture confirms that two
 windows of the same key keep separate sets on Direct and local Prism.
+
+`stateful_map_map_named` stores one coded value per map key inside each
+pipeline key and window. The callback receives a borrowed `HashMap` and may
+keep, clear, put, remove, or replace entries.
+
+```rust
+use ironbeam_core::{MapStateMutation, Version};
+
+let totals = pairs.stateful_map_map_named::<String, i64, i64>(
+    "account-totals",
+    "billing/account-totals",
+    Version { major: 1, minor: 0 },
+    |_, (account, amount), previous| {
+        let total = previous.get(&account).copied().unwrap_or(0) + amount;
+        Ok((MapStateMutation::Put(account, total), total))
+    },
+)?;
+```
+
+Here `pairs` contains `(pipeline_key, (account, amount))` values. The map
+key and value types need registered coders. Distinct map keys must encode to
+distinct bytes. Direct snapshots the coded map with the source cursor. The
+portable worker uses Beam's multimap Fn State protocol. When a callback
+changes the map, the worker replaces all entries within its bundle; the
+work grows with the number of entries. A bounded mutation fixture matches
+Direct and local Prism. Timer callbacks remain unavailable.
