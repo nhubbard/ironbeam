@@ -53,7 +53,7 @@ pub fn parquet_source<T: Element + DeserializeOwned>(
 ) -> Result<PCollection<T>, Error> {
     source(pipeline, key, path, "parquet", read_parquet::<T>)
 }
-fn read_parquet_lazy<T: Element + DeserializeOwned>(
+pub fn read_parquet_lazy<T: Element + DeserializeOwned>(
     path: PathBuf,
 ) -> Result<TypedSourceIterator<T>, Error> {
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;

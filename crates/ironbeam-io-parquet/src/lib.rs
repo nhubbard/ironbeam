@@ -13,4 +13,7 @@ pub use implementation::{
 #[cfg(feature = "cloud")]
 mod cloud_io;
 #[cfg(feature = "cloud")]
-pub use cloud_io::{cloud_parquet_uri_prefix_source, cloud_parquet_uri_source};
+pub use cloud_io::{
+    cloud_parquet_streaming_uri_prefix_source, cloud_parquet_streaming_uri_source,
+    cloud_parquet_uri_prefix_source, cloud_parquet_uri_source,
+};

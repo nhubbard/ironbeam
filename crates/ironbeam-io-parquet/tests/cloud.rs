@@ -4,6 +4,7 @@ use ironbeam_cloud_objects::{LocalObjectIO, ObjectStores};
 use ironbeam_core::{Element, ErrorKind, Pipeline};
 use ironbeam_direct::{DirectRunner, JobConfig};
 use ironbeam_io_parquet::{
+    cloud_parquet_streaming_uri_prefix_source, cloud_parquet_streaming_uri_source,
     cloud_parquet_uri_prefix_source, cloud_parquet_uri_source, parquet_sink,
 };
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,21 @@ struct Row {
 impl Element for Row {
     const TYPE_ID: &'static str = "tests/cloud-parquet-row";
     const CODER_ID: &'static str = "tests/cloud-parquet-row-json";
+}
+
+fn collect_rows(output: &ironbeam_core::Output<Row>) -> Vec<Row> {
+    DirectRunner
+        .run_collect(output, &JobConfig::default())
+        .unwrap()
+        .0
+}
+
+fn collect_error(output: &ironbeam_core::Output<Row>) -> ErrorKind {
+    DirectRunner
+        .run_collect(output, &JobConfig::default())
+        .err()
+        .unwrap()
+        .kind
 }
 
 #[test]
@@ -53,9 +69,22 @@ fn object_uri_source_binds_content_and_rejects_changed_bytes() {
         .output("output")
         .unwrap();
     let original_fingerprint = pipeline.snapshot().unwrap().0.fingerprint().unwrap();
+    let streaming = Pipeline::default();
+    let streaming_output =
+        cloud_parquet_streaming_uri_source::<Row>(&streaming, "read-streaming", &stores, uri)
+            .unwrap()
+            .output("output")
+            .unwrap();
     assert_eq!(
         DirectRunner
             .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0,
+        rows
+    );
+    assert_eq!(
+        DirectRunner
+            .run_collect(&streaming_output, &JobConfig::default())
             .unwrap()
             .0,
         rows
@@ -64,6 +93,14 @@ fn object_uri_source_binds_content_and_rejects_changed_bytes() {
     assert_eq!(
         DirectRunner
             .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Recovery
+    );
+    assert_eq!(
+        DirectRunner
+            .run_collect(&streaming_output, &JobConfig::default())
             .err()
             .unwrap()
             .kind,
@@ -79,6 +116,14 @@ fn object_uri_source_binds_content_and_rejects_changed_bytes() {
     assert_eq!(
         DirectRunner
             .run_collect(&output, &JobConfig::default())
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Io
+    );
+    assert_eq!(
+        DirectRunner
+            .run_collect(&streaming_output, &JobConfig::default())
             .err()
             .unwrap()
             .kind,
@@ -149,14 +194,7 @@ fn prefix_source_binds_sorted_object_set_and_each_objects_bytes() {
         .unwrap()
         .output("output")
         .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&one, &JobConfig::default())
-            .unwrap()
-            .0
-            .len(),
-        1
-    );
+    assert_eq!(collect_rows(&one).len(), 1);
     stores
         .write("file://bucket/input/b.parquet", &second)
         .unwrap();
@@ -164,11 +202,14 @@ fn prefix_source_binds_sorted_object_set_and_each_objects_bytes() {
     let collection =
         cloud_parquet_uri_prefix_source::<Row>(&pipeline, "read", &stores, prefix).unwrap();
     let output = collection.output("output").unwrap();
+    let streaming = Pipeline::default();
+    let streaming_output =
+        cloud_parquet_streaming_uri_prefix_source::<Row>(&streaming, "read", &stores, prefix)
+            .unwrap()
+            .output("output")
+            .unwrap();
     let fingerprint = pipeline.snapshot().unwrap().0.fingerprint().unwrap();
-    let mut actual = DirectRunner
-        .run_collect(&output, &JobConfig::default())
-        .unwrap()
-        .0;
+    let mut actual = collect_rows(&output);
     actual.sort_by_key(|row| row.id);
     assert_eq!(
         actual,
@@ -183,17 +224,14 @@ fn prefix_source_binds_sorted_object_set_and_each_objects_bytes() {
             }
         ]
     );
+    let mut streaming_rows = collect_rows(&streaming_output);
+    streaming_rows.sort_by_key(|row| row.id);
+    assert_eq!(streaming_rows, actual);
     stores
         .write("file://bucket/input/c.parquet", &write(3, "c"))
         .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .unwrap()
-            .0
-            .len(),
-        2
-    );
+    assert_eq!(collect_rows(&output).len(), 2);
+    assert_eq!(collect_rows(&streaming_output).len(), 2);
     let expanded = Pipeline::default();
     cloud_parquet_uri_prefix_source::<Row>(&expanded, "read", &stores, prefix).unwrap();
     assert_ne!(
@@ -203,12 +241,6 @@ fn prefix_source_binds_sorted_object_set_and_each_objects_bytes() {
     stores
         .write("file://bucket/input/b.parquet", b"changed")
         .unwrap();
-    assert_eq!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .err()
-            .unwrap()
-            .kind,
-        ErrorKind::Recovery
-    );
+    assert_eq!(collect_error(&output), ErrorKind::Recovery);
+    assert_eq!(collect_error(&streaming_output), ErrorKind::Recovery);
 }

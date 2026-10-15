@@ -7,8 +7,10 @@ use ironbeam_core::{
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
+use std::io::{Read, Write};
+use tempfile::NamedTempFile;
 
-use crate::implementation::read_parquet;
+use crate::implementation::{read_parquet, read_parquet_lazy};
 
 fn identity(uri: &str, bytes: &[u8]) -> String {
     let mut hash = Sha256::new();
@@ -21,6 +23,53 @@ fn identity(uri: &str, bytes: &[u8]) -> String {
         write!(digest, "{byte:02x}").expect("writing to String cannot fail");
     }
     digest
+}
+
+fn stream_identity(uri: &str, length: u64, content_digest: &[u8]) -> String {
+    let mut hash = Sha256::new();
+    for part in [uri.as_bytes(), &length.to_le_bytes(), content_digest] {
+        hash.update(u64::try_from(part.len()).unwrap_or(u64::MAX).to_le_bytes());
+        hash.update(part);
+    }
+    let mut digest = String::from("cloud-parquet-stream-sha256-v1:");
+    for byte in hash.finalize() {
+        write!(digest, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    digest
+}
+
+fn hash_stream(
+    mut reader: impl Read,
+    mut writer: impl Write,
+) -> Result<(u64, [u8; 32]), std::io::Error> {
+    let mut content = Sha256::new();
+    let mut length = 0_u64;
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        length = length
+            .checked_add(u64::try_from(count).unwrap_or(u64::MAX))
+            .ok_or_else(|| std::io::Error::other("Parquet object length exceeds u64"))?;
+        content.update(&buffer[..count]);
+        writer.write_all(&buffer[..count])?;
+    }
+    Ok((length, content.finalize().into()))
+}
+
+struct TempParquetRows<T> {
+    _temp: NamedTempFile,
+    rows: TypedSourceIterator<T>,
+}
+
+impl<T> Iterator for TempParquetRows<T> {
+    type Item = Result<T, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rows.next()
+    }
 }
 
 /// Read one Parquet object from a registered URI provider.
@@ -74,6 +123,66 @@ pub fn cloud_parquet_uri_source<T: Element + DeserializeOwned>(
     )
 }
 
+/// Read one Parquet object through a provider's sequential object reader.
+///
+/// Graph construction hashes the object through `open_object`. At execution,
+/// the source streams it into an automatically removed temporary file, checks
+/// the hash before emitting a row, then decodes record batches as requested.
+/// The provider must implement streaming reads.
+///
+/// # Errors
+///
+/// Returns an error if the provider cannot stream the object or if reading
+/// the object fails. A changed object fails recovery when the source opens.
+pub fn cloud_parquet_streaming_uri_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    stores: &ObjectStores,
+    uri: &str,
+) -> Result<PCollection<T>, Error> {
+    let location =
+        ObjectLocation::parse(uri).map_err(|error| Error::io(key, "cloud", error.to_string()))?;
+    let provider = stores
+        .provider(&location.scheme)
+        .map_err(|error| Error::io(key, "cloud", error.to_string()))?;
+    let uri = location.uri();
+    let reader = provider
+        .open_object(&location.bucket, &location.key)
+        .map_err(|error| Error::io(key, "cloud", error.to_string()))?;
+    let (length, digest) = hash_stream(reader, std::io::sink())
+        .map_err(|error| Error::io(key, "cloud", error.to_string()))?;
+    let expected = stream_identity(&uri, length, &digest);
+    let source_key = key.to_owned();
+    pipeline.bounded_source_with_semantic(
+        key,
+        "ironbeam/io/cloud-parquet-streaming-source",
+        SourceProgress {
+            stable_split_id: true,
+            replay: Replay::AtLeastOnce,
+            reports_event_time: false,
+        },
+        expected.clone(),
+        None,
+        move || {
+            let reader = provider
+                .open_object(&location.bucket, &location.key)
+                .map_err(|error| Error::io(&source_key, "cloud", error.to_string()))?;
+            let mut temp = NamedTempFile::new()
+                .map_err(|error| Error::io(&source_key, "cloud", error.to_string()))?;
+            let (length, digest) = hash_stream(reader, temp.as_file_mut())
+                .map_err(|error| Error::io(&source_key, "cloud", error.to_string()))?;
+            if stream_identity(&uri, length, &digest) != expected {
+                return Err(Error::recovery(
+                    &source_key,
+                    "cloud Parquet object changed after graph construction",
+                ));
+            }
+            let rows = read_parquet_lazy::<T>(temp.path().to_path_buf())?;
+            Ok(Box::new(TempParquetRows { _temp: temp, rows }) as TypedSourceIterator<T>)
+        },
+    )
+}
+
 /// Read every Parquet object under a URI prefix.
 ///
 /// The matching object set is fixed when the graph is built. Each object has
@@ -84,11 +193,15 @@ pub fn cloud_parquet_uri_source<T: Element + DeserializeOwned>(
 ///
 /// Returns an error for an invalid or empty prefix, missing provider, or
 /// failed object read.
-pub fn cloud_parquet_uri_prefix_source<T: Element + DeserializeOwned>(
+type CloudParquetSource<T> =
+    fn(&Pipeline, &str, &ObjectStores, &str) -> Result<PCollection<T>, Error>;
+
+fn prefix_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
     stores: &ObjectStores,
     uri_prefix: &str,
+    source: CloudParquetSource<T>,
 ) -> Result<PCollection<T>, Error> {
     let mut locations = stores
         .list(uri_prefix)
@@ -111,9 +224,7 @@ pub fn cloud_parquet_uri_prefix_source<T: Element + DeserializeOwned>(
             write!(digest, "{byte:02x}").expect("writing to String cannot fail");
         }
         let child_key = format!("{key}/object-{digest}");
-        sources.push(cloud_parquet_uri_source(
-            pipeline, &child_key, stores, &uri,
-        )?);
+        sources.push(source(pipeline, &child_key, stores, &uri)?);
     }
     let first = sources.remove(0);
     if sources.is_empty() {
@@ -121,4 +232,47 @@ pub fn cloud_parquet_uri_prefix_source<T: Element + DeserializeOwned>(
     } else {
         first.flatten_named(key, &sources)
     }
+}
+
+/// Read every Parquet object under a fixed URI prefix.
+///
+/// The object set is selected when the graph is built. Each object has a
+/// stable child key and a byte-bound source configuration.
+///
+/// # Errors
+///
+/// Returns an error if the prefix is invalid or empty, a provider is missing,
+/// or an object cannot be read.
+pub fn cloud_parquet_uri_prefix_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    stores: &ObjectStores,
+    uri_prefix: &str,
+) -> Result<PCollection<T>, Error> {
+    prefix_source(pipeline, key, stores, uri_prefix, cloud_parquet_uri_source)
+}
+
+/// Stream every Parquet object under a fixed URI prefix.
+///
+/// This variant requires providers that implement sequential object reads.
+/// Each object is spooled to an automatically removed temporary file and
+/// checked before its first row is emitted.
+///
+/// # Errors
+///
+/// Returns an error if the prefix is invalid or empty, a provider cannot
+/// stream an object, or an object read fails.
+pub fn cloud_parquet_streaming_uri_prefix_source<T: Element + DeserializeOwned>(
+    pipeline: &Pipeline,
+    key: &str,
+    stores: &ObjectStores,
+    uri_prefix: &str,
+) -> Result<PCollection<T>, Error> {
+    prefix_source(
+        pipeline,
+        key,
+        stores,
+        uri_prefix,
+        cloud_parquet_streaming_uri_source,
+    )
 }
