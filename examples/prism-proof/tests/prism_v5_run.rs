@@ -49,8 +49,9 @@ use ironbeam_prism_proof::{
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_collection, dual_unbounded_session_cogroup_fixture,
     dual_unbounded_session_join_collection, dual_unbounded_session_join_fixture,
-    early_windowed_wait_fixture, explicit_custom_batches_fixture, failing_wait_on_fixture,
-    finalization_failure_fixture, finalization_probe_sink, finalization_probe_store,
+    early_sliding_windowed_wait_fixture, early_windowed_wait_fixture,
+    explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
+    finalization_probe_sink, finalization_probe_store,
     global_accumulating_early_cogroup_collection, global_accumulating_early_cogroup_fixture,
     global_count_collection, global_count_fixture, global_fold_fixture,
     global_keyed_batches_fixture, global_keyed_batches_with_upstream_trigger_fixture,
@@ -5006,11 +5007,27 @@ async fn prism_releases_windowed_wait_while_main_source_remains_open() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
+    run_early_windowed_wait_fixture(&endpoint, false).await;
+}
+
+#[tokio::test]
+async fn prism_releases_sliding_wait_windows_after_signal_completion() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    run_early_windowed_wait_fixture(&endpoint, true).await;
+}
+
+async fn run_early_windowed_wait_fixture(endpoint: &str, sliding: bool) {
     let _prism_job = prism_job_lock().lock().await;
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("early-wait.txt");
     let pipeline = Pipeline::default();
-    early_windowed_wait_fixture(&pipeline, path.clone()).unwrap();
+    if sliding {
+        early_sliding_windowed_wait_fixture(&pipeline, path.clone()).unwrap();
+    } else {
+        early_windowed_wait_fixture(&pipeline, path.clone()).unwrap();
+    }
     let mut translated = prepare_v5(&pipeline, "local-process", "prism-run-fixture").unwrap();
     let environment = translated
         .pipeline
@@ -5027,14 +5044,19 @@ async fn prism_releases_windowed_wait_while_main_source_remains_open() {
         arch: std::env::consts::ARCH.into(),
         command: env!("CARGO_BIN_EXE_v5_prism_worker").into(),
         env: [(
-            "IRONBEAM_V5_PRISM_EARLY_WINDOWED_WAIT".into(),
+            if sliding {
+                "IRONBEAM_V5_PRISM_EARLY_SLIDING_WAIT"
+            } else {
+                "IRONBEAM_V5_PRISM_EARLY_WINDOWED_WAIT"
+            }
+            .into(),
             path.to_string_lossy().into_owned(),
         )]
         .into(),
     }
     .encode_to_vec();
     let url = if endpoint.contains("://") {
-        endpoint
+        endpoint.to_owned()
     } else {
         format!("http://{endpoint}")
     };
@@ -5067,7 +5089,7 @@ async fn prism_releases_windowed_wait_while_main_source_remains_open() {
             .into_inner()
             .state;
         let rows = std::fs::read_to_string(&path).unwrap_or_default();
-        if !rows.is_empty() || matches!(state, 3..=6) {
+        if rows.lines().count() >= if sliding { 2 } else { 1 } || matches!(state, 3..=6) {
             observed = Some((state, rows));
             break;
         }
@@ -5085,7 +5107,16 @@ async fn prism_releases_windowed_wait_while_main_source_remains_open() {
         !matches!(state, 3..=6),
         "job ended before early release: {state}"
     );
-    assert_eq!(rows, "7\n");
+    let mut rows = rows.lines().collect::<Vec<_>>();
+    rows.sort_unstable();
+    assert_eq!(
+        rows,
+        if sliding {
+            vec!["0..10000000:7", "5000000..15000000:7"]
+        } else {
+            vec!["0..10000000:7"]
+        }
+    );
 }
 
 #[tokio::test]

@@ -187,6 +187,24 @@ pub fn early_windowed_wait_fixture(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
+    early_windowed_wait_fixture_for(pipeline, path, false)
+}
+
+/// Keep the main source open while a completed signal closes two overlapping
+/// windows that contain the main value.
+pub fn early_sliding_windowed_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    early_windowed_wait_fixture_for(pipeline, path, true)
+}
+
+fn early_windowed_wait_fixture_for(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    sliding: bool,
+) -> Result<Sink<String>, Error> {
+    let main_timestamp = if sliding { 7_000_000 } else { 1_000_000 };
     let main = pipeline
         .unbounded_source_with_factory(
             "early-wait-main",
@@ -197,18 +215,18 @@ pub fn early_windowed_wait_fixture(
             },
             "early-wait-main-v1".into(),
             0,
-            |cursor| {
+            move |cursor| {
                 let batch = match cursor.as_deref() {
                     None => Some(UnboundedBatch {
                         elements: vec![Timestamped {
                             value: 7_i32,
-                            timestamp_ns: 1_000_000,
+                            timestamp_ns: main_timestamp,
                         }],
                         progress: ProgressSignal {
                             source_key: "early-wait-main".into(),
                             split_id: "main-split".into(),
                             checkpoint_position: Some(vec![1]),
-                            event_time_ns: Some(1_000_000),
+                            event_time_ns: Some(main_timestamp),
                             completed: false,
                         },
                     }),
@@ -217,8 +235,12 @@ pub fn early_windowed_wait_fixture(
                 };
                 Ok(Box::new(EarlyWaitReader { batch }) as TypedUnboundedSourceReader<i32>)
             },
-        )?
-        .fixed_windows("early-wait-main-window", 10_000_000)?;
+        )?;
+    let main = if sliding {
+        main.sliding_windows("early-wait-main-window", 10_000_000, 5_000_000, 0)?
+    } else {
+        main.fixed_windows("early-wait-main-window", 10_000_000)?
+    };
     let signal = pipeline
         .unbounded_source_with_factory(
             "early-wait-signal",
@@ -229,29 +251,35 @@ pub fn early_windowed_wait_fixture(
             },
             "early-wait-signal-v1".into(),
             0,
-            |cursor| {
-                if cursor.is_some() {
-                    return Err(Error::incompatible("completed early wait signal reopened"));
-                }
-                Ok(Box::new(EarlyWaitReader {
-                    batch: Some(UnboundedBatch {
+            move |cursor| {
+                let batch = match cursor.as_deref() {
+                    None => Some(UnboundedBatch {
                         elements: Vec::new(),
                         progress: ProgressSignal {
                             source_key: "early-wait-signal".into(),
                             split_id: "signal-split".into(),
                             checkpoint_position: Some(vec![1]),
-                            event_time_ns: Some(10_000_000),
+                            event_time_ns: Some(if sliding { 16_000_000 } else { 10_000_000 }),
                             completed: true,
                         },
                     }),
-                }) as TypedUnboundedSourceReader<i32>)
+                    _ => return Err(Error::incompatible("early wait signal cursor changed")),
+                };
+                Ok(Box::new(EarlyWaitReader { batch }) as TypedUnboundedSourceReader<i32>)
             },
-        )?
-        .fixed_windows("early-wait-signal-window", 10_000_000)?;
+        )?;
+    let signal = if sliding {
+        signal.sliding_windows("early-wait-signal-window", 10_000_000, 5_000_000, 0)?
+    } else {
+        signal.fixed_windows("early-wait-signal-window", 10_000_000)?
+    };
     let sink_path = path.clone();
     main.wait_on_windowed_named("early-wait-barrier", &signal)?
+        .with_window_named("early-wait-window")?
         .reshuffle_named("early-wait-sink-boundary")?
-        .map_named("early-wait-format", |value| value.to_string())?
+        .map_named("early-wait-format", |(window, value)| {
+            format!("{}..{}:{value}", window.start_ns, window.end_ns)
+        })?
         .sink_named_with_config(
             "early-wait-result",
             SinkSpec {

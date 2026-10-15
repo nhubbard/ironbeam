@@ -232,6 +232,11 @@ Prism job matches Direct's output values and timestamps. A second local Prism
 job emits a main value, keeps that source open, and closes an empty signal
 window. Its sink receives the value while the job is still running. The worker
 accepts this barrier in an SDF source bundle when Prism fuses the two stages.
+With sliding windows, a completed signal releases both overlapping windows
+while the main source remains open. Direct can release the first sliding window
+when the signal watermark passes its end and leave the second buffered. In the
+pinned Prism version, a signal source that remains open did not release that
+first window in the tested production-source schedule.
 Other configurations use the co-group path and wait for both input watermarks.
 `wait_on_all_windowed_named` accepts several signals of one element type. It
 groups them with the main input in one shuffle and waits for every input
