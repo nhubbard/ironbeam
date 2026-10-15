@@ -82,7 +82,9 @@ impl BundleRunner for V5BundleExecutor {
                 sink_clients.insert(transform_id.clone(), self.data_client(port).await?);
             }
         }
-        let state = if !plan.side_inputs.is_empty() || *source_wire == SourceWire::KvStateBackedIter
+        let state = if !plan.side_inputs.is_empty()
+            || *source_wire == SourceWire::KvStateBackedIter
+            || plan.steps.iter().any(|step| matches!(step, Step::V5ParDo { stateful_value: true, .. }))
         {
             let endpoint = plan
                 .state_endpoint
@@ -235,9 +237,12 @@ impl BundleRunner for V5BundleExecutor {
                         plan,
                         Some(source_key),
                         wire,
-                        &side_views,
+                        BundleInputs {
+                            side_views: &mut side_views,
+                            state: state.as_ref(),
+                        },
                         &mut outputs,
-                    )?;
+                    ).await?;
                 }
             }
             source_count = 1;
@@ -356,9 +361,12 @@ impl BundleRunner for V5BundleExecutor {
                             plan,
                             None,
                             record,
-                            &side_views,
+                            BundleInputs {
+                                side_views: &mut side_views,
+                                state: state.as_ref(),
+                            },
                             &mut outputs,
-                        )?;
+                        ).await?;
                     }
                     consumed += record_len;
                     source_count += 1;

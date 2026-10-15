@@ -345,9 +345,12 @@ impl V5BundleExecutor {
                             pane: PaneInfo::NO_FIRING,
                             element_metadata: None,
                         },
-                        &HashMap::new(),
+                        BundleInputs {
+                            side_views: &mut HashMap::new(),
+                            state: None,
+                        },
                         &mut outputs,
-                    )?;
+                    ).await?;
                 }
                 if let Some(restriction) = residual {
                     let element = encode_sized(&SizedSourcePair {

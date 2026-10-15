@@ -191,7 +191,7 @@ impl V5BundleExecutor {
             .nodes
             .iter()
             .find(|node| {
-                matches!(node.operation, Operation::GroupByKey)
+                matches!(node.operation, Operation::GroupByKey | Operation::StatefulParDo { .. })
                     && self.registry.has_group_coder(&node.key)
                     && node
                         .input

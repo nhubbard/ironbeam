@@ -21,7 +21,9 @@
 use std::collections::{HashMap, HashSet};
 
 use beam_proto::fn_execution_v1::{ProcessBundleDescriptor, RemoteGrpcPort};
-use beam_proto::pipeline_v1::{Coder, FunctionSpec, PTransform, ParDoPayload, WindowIntoPayload};
+use beam_proto::pipeline_v1::{
+    state_spec, Coder, FunctionSpec, PTransform, ParDoPayload, WindowIntoPayload,
+};
 use ironbeam_graphx::{urns, v5::V5NodeRef};
 use prost::Message;
 
@@ -61,6 +63,38 @@ fn reject_unsupported_state_and_timers(id: &str, payload: &ParDoPayload) -> Resu
         });
     }
     Ok(())
+}
+
+fn value_state_payload(
+    id: &str,
+    payload: &ParDoPayload,
+    pbd: &ProcessBundleDescriptor,
+) -> Result<bool, PlanError> {
+    if payload.state_specs.is_empty() {
+        reject_unsupported_state_and_timers(id, payload)?;
+        return Ok(false);
+    }
+    let valid = payload.state_specs.len() == 1
+        && payload.timer_family_specs.is_empty()
+        && payload.on_window_expiration_timer_family_spec.is_empty()
+        && payload.state_specs.get("value").is_some_and(|spec| {
+            matches!(&spec.spec, Some(state_spec::Spec::ReadModifyWriteSpec(cell)) if pbd.coders.get(&cell.coder_id).is_some_and(|coder| {
+                coder.spec.as_ref().is_some_and(|spec| spec.urn == urns::CODER_LENGTH_PREFIX && spec.payload.is_empty())
+                    && coder.component_coder_ids.len() == 1
+                    && pbd.coders.get(&coder.component_coder_ids[0]).is_some_and(|child| {
+                        child.spec.as_ref().is_some_and(|spec| spec.urn == urns::CODER_BYTES && spec.payload.is_empty())
+                            && child.component_coder_ids.is_empty()
+                    })
+            }))
+                && spec.protocol.as_ref().is_some_and(|protocol| protocol.urn == "beam:user_state:bag:v1" && protocol.payload.is_empty())
+        });
+    if !valid {
+        return Err(PlanError::BadPayload {
+            id: id.into(),
+            err: "v5 ParDo supports only the declared value cell without timers".into(),
+        });
+    }
+    Ok(true)
 }
 
 /// Classification of the per-element wire format the runner expects on a
@@ -120,6 +154,7 @@ pub enum Step {
         node_ref: V5NodeRef,
         input_pc: String,
         output_pc: String,
+        stateful_value: bool,
     },
     Sdf {
         stage: SdfStage,
@@ -319,7 +354,7 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
                     id: id.to_string(),
                     err: error.to_string(),
                 })?;
-                reject_unsupported_state_and_timers(id, &pardo)?;
+                let stateful_value = value_state_payload(id, &pardo, pbd)?;
                 let input_pc = if t.inputs.len() == 2 {
                     if pardo.side_inputs.len() != 1
                         || !matches!(
@@ -350,6 +385,7 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
                     node_ref,
                     input_pc,
                     output_pc,
+                    stateful_value,
                 });
             }
             TransformKind::Sdf(stage) => {

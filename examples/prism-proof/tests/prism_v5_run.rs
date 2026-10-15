@@ -29,21 +29,22 @@ use ironbeam_prism_proof::{
     bounded_join_cogroup_output_time_fixture, bounded_map_filter_fixture,
     bounded_multi_source_fixture, bounded_multi_wait_fixture, bounded_session_cogroup_fixture,
     bounded_session_join_fixture, bounded_side_input_fixture, bounded_ten_way_cogroup_fixture,
-    bounded_three_way_cogroup_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
-    combined_count_fixture, completion_signal, count_and_processing_time_trigger_collection,
-    count_and_processing_time_trigger_fixture, count_then_processing_time_trigger_fixture,
-    count_trigger_stream_fixture, dead_letter_fixture, distinct_window_fixture,
-    dual_count_and_time_cogroup_collection, dual_count_and_time_cogroup_fixture,
-    dual_count_or_time_cogroup_fixture, dual_late_cogroup_collection, dual_late_cogroup_fixture,
-    dual_late_count_cogroup_collection, dual_late_count_cogroup_fixture,
-    dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
-    dual_positive_late_join_time_fixture, dual_processing_time_cogroup_collection,
-    dual_processing_time_cogroup_fixture, dual_stream_windowed_side_collection,
-    dual_stream_windowed_side_fixture, dual_stream_windowed_wait_collection,
-    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
-    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_collection,
-    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_collection,
-    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    bounded_three_way_cogroup_fixture, bounded_value_state_fixture, bounded_wait_on_fixture,
+    combine_output_time_fixture, combined_count_fixture, completion_signal,
+    count_and_processing_time_trigger_collection, count_and_processing_time_trigger_fixture,
+    count_then_processing_time_trigger_fixture, count_trigger_stream_fixture, dead_letter_fixture,
+    distinct_window_fixture, dual_count_and_time_cogroup_collection,
+    dual_count_and_time_cogroup_fixture, dual_count_or_time_cogroup_fixture,
+    dual_late_cogroup_collection, dual_late_cogroup_fixture, dual_late_count_cogroup_collection,
+    dual_late_count_cogroup_fixture, dual_positive_late_cogroup_fixture,
+    dual_positive_late_full_join_fixture, dual_positive_late_join_time_fixture,
+    dual_processing_time_cogroup_collection, dual_processing_time_cogroup_fixture,
+    dual_stream_windowed_side_collection, dual_stream_windowed_side_fixture,
+    dual_stream_windowed_wait_collection, dual_stream_windowed_wait_fixture,
+    dual_unbounded_cogroup_collection, dual_unbounded_cogroup_fixture,
+    dual_unbounded_fanin_output_time_collection, dual_unbounded_fanin_output_time_fixture,
+    dual_unbounded_flatten_collection, dual_unbounded_flatten_fixture,
+    dual_unbounded_join_collection, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -2065,6 +2066,50 @@ async fn prism_matches_direct_three_way_windowed_cogroup() {
         "Prism three-way co-group state: {terminal:?}"
     );
     assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_bounded_value_state() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-state.txt");
+    let portable_path = directory.path().join("portable-state.txt");
+
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = bounded_value_state_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+
+    let portable_pipeline = Pipeline::default();
+    bounded_value_state_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "bounded-value-state",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_VALUE_STATE".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism value state: {terminal:?}");
+    let read_rows = |path: &Path| {
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let mut direct = read_rows(&direct_path);
+    let mut portable = read_rows(&portable_path);
+    direct.sort();
+    portable.sort();
+    assert_eq!(direct, ["1:1", "1:2", "1:3", "2:1"]);
+    assert_eq!(portable, direct);
 }
 
 #[tokio::test]

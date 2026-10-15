@@ -2,8 +2,8 @@
 use super::*;
 use beam_proto::fn_execution_v1::RemoteGrpcPort;
 use beam_proto::pipeline_v1::{
-    ApiServiceDescriptor, Coder, FunctionSpec, PCollection, PTransform, ParDoPayload, StateSpec,
-    TimerFamilySpec,
+    state_spec, ApiServiceDescriptor, Coder, FunctionSpec, PCollection, PTransform, ParDoPayload,
+    ReadModifyWriteStateSpec, StateSpec, TimerFamilySpec,
 };
 use prost::Message;
 
@@ -411,6 +411,62 @@ fn rejects_unimplemented_user_state_and_timer_specs_before_execution() {
             "{fault}"
         );
     }
+}
+
+#[test]
+fn plans_only_a_value_cell_with_length_prefixed_bytes() {
+    let mut pbd = ProcessBundleDescriptor {
+        id: "value-state-contract".into(),
+        state_api_service_descriptor: Some(ApiServiceDescriptor {
+            url: "runner-state:1234".into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    pbd.coders
+        .insert("cell-bytes".into(), leaf_coder(urns::CODER_BYTES));
+    pbd.coders.insert(
+        "cell-lp".into(),
+        composite_coder(urns::CODER_LENGTH_PREFIX, &["cell-bytes"]),
+    );
+    pbd.transforms.insert(
+        "source".into(),
+        mk_port_ptransform(URN_RUNNER_SOURCE, "runner:1", "coder", "pc0", "source"),
+    );
+    let mut transform = mk_pardo_ptransform("stateful", "pc0", "pc1");
+    let spec = transform.spec.as_mut().unwrap();
+    let mut payload = ParDoPayload::decode(spec.payload.as_slice()).unwrap();
+    payload.state_specs.insert(
+        "value".into(),
+        StateSpec {
+            spec: Some(state_spec::Spec::ReadModifyWriteSpec(
+                ReadModifyWriteStateSpec {
+                    coder_id: "cell-lp".into(),
+                },
+            )),
+            protocol: Some(FunctionSpec {
+                urn: "beam:user_state:bag:v1".into(),
+                payload: Vec::new(),
+            }),
+        },
+    );
+    spec.payload = payload.encode_to_vec();
+    pbd.transforms.insert("stateful".into(), transform);
+    pbd.transforms.insert(
+        "sink".into(),
+        mk_port_ptransform(URN_RUNNER_SINK, "runner:1", "coder", "pc1", "sink"),
+    );
+    let planned = plan(&pbd).unwrap();
+    assert!(matches!(
+        planned.steps[1],
+        Step::V5ParDo {
+            stateful_value: true,
+            ..
+        }
+    ));
+    pbd.coders
+        .insert("cell-bytes".into(), leaf_coder(urns::CODER_STRING_UTF8));
+    assert!(matches!(plan(&pbd), Err(PlanError::BadPayload { .. })));
 }
 
 fn mk_port_ptransform(

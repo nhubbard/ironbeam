@@ -55,6 +55,7 @@ impl V5BundleExecutor {
                     node_ref,
                     input_pc,
                     output_pc,
+                    stateful_value,
                     ..
                 } => {
                     let parent = collections.get(input_pc.as_str()).ok_or_else(|| {
@@ -154,6 +155,16 @@ impl V5BundleExecutor {
                         .graph
                         .node(&node_ref.key)
                         .ok_or_else(|| anyhow!("v5 node {} is absent from worker", node_ref.key))?;
+                    if *stateful_value != matches!(node.operation, Operation::StatefulParDo { .. }) {
+                        bail!("v5 stateful declaration differs from worker graph at {}", node.key);
+                    }
+                    if *stateful_value
+                        && (!self.registry.has_stateful_value(&node.key)
+                            || !self.registry.has_group_coder(&node.key)
+                            || plan.state_endpoint.as_deref().is_none_or(str::is_empty))
+                    {
+                        bail!("v5 stateful value node {} lacks callback, coder, or State endpoint", node.key);
+                    }
                     if matches!(node.operation, Operation::Sink { .. }) {
                         if !output_pc.is_empty() {
                             bail!("v5 sink {} has an unexpected output", node.key);
@@ -230,6 +241,7 @@ impl V5BundleExecutor {
                                     Operation::Flatten
                                         | Operation::FixedWindow
                                         | Operation::Reshuffle
+                                        | Operation::Source { .. }
                                 ) || candidate.semantic_id == "ironbeam/test-stream"
                                     || matches!(candidate.operation, Operation::GroupByKey)
                                         && self.registry.has_group_coder(connected)
@@ -266,6 +278,7 @@ impl V5BundleExecutor {
                             | Operation::Filter
                             | Operation::FlatMap
                             | Operation::AssignTimestamp
+                            | Operation::StatefulParDo { .. }
                             | Operation::FoldPerKey
                             | Operation::FoldGlobal
                             | Operation::GlobalCombine

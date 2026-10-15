@@ -111,6 +111,41 @@ pub fn bounded_map_filter_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<
         )
 }
 
+/// One runner-owned value cell per key. Counts are independent of input order.
+pub fn bounded_value_state_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    pipeline
+        .from_vec("value-state-input", vec![(1_i32, 11_i32), (1, 13), (2, 17), (1, 19)])?
+        .stateful_value_map_named::<i32, i32>(
+            "value-state-count",
+            "prism-proof/key-count-state",
+            Version { major: 1, minor: 0 },
+            |_, _, prior| {
+                let count = prior.unwrap_or(0) + 1;
+                Ok((Some(count), count))
+            },
+        )?
+        .map_named("value-state-label", |(key, count)| format!("{key}:{count}"))?
+        .sink_named_with_config(
+            "value-state-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("value-state-result:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Both arms of a fallible helper must survive portable fanout and rejoin.
 pub fn dead_letter_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let sink_path = path.clone();

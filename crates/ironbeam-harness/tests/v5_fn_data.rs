@@ -13,13 +13,13 @@ use std::time::Duration;
 use beam_proto::fn_execution_v1::beam_fn_data_server::{BeamFnData, BeamFnDataServer};
 use beam_proto::fn_execution_v1::beam_fn_state_server::{BeamFnState, BeamFnStateServer};
 use beam_proto::fn_execution_v1::{
-    elements::Data, state_key, state_response, Elements, RemoteGrpcPort, StateGetResponse,
-    StateRequest, StateResponse,
+    elements::Data, state_key, state_request, state_response, Elements, RemoteGrpcPort,
+    StateAppendResponse, StateClearResponse, StateGetResponse, StateRequest, StateResponse,
 };
 use beam_proto::pipeline_v1::ApiServiceDescriptor;
 use ironbeam_core::{
     Element, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress, Timestamped,
-    TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll, UnboundedSource,
+    TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll, UnboundedSource, Version,
 };
 use ironbeam_graphx::sdf::SourceRestriction;
 use ironbeam_graphx::v5::{collection_id, execution_identity, V5NodeRef};
@@ -167,6 +167,78 @@ impl BeamFnData for GroupedRunnerData {
 struct GroupedRunnerState {
     suffix: Vec<u8>,
     requests: Arc<Mutex<Vec<StateRequest>>>,
+}
+
+type ValueCells = HashMap<(Vec<u8>, Vec<u8>), Vec<u8>>;
+
+struct ValueRunnerState {
+    cells: Arc<Mutex<ValueCells>>,
+    requests: Arc<Mutex<Vec<StateRequest>>>,
+}
+
+#[tonic::async_trait]
+impl BeamFnState for ValueRunnerState {
+    type StateStream = ReceiverStream<Result<StateResponse, Status>>;
+
+    async fn state(
+        &self,
+        request: Request<Streaming<StateRequest>>,
+    ) -> Result<Response<Self::StateStream>, Status> {
+        let (tx, rx) = mpsc::channel(8);
+        let cells = Arc::clone(&self.cells);
+        let requests = Arc::clone(&self.requests);
+        tokio::spawn(async move {
+            let mut stream = request.into_inner();
+            while let Ok(Some(message)) = stream.message().await {
+                requests.lock().await.push(message.clone());
+                let Some(state_key::Type::BagUserState(scope)) = message
+                    .state_key
+                    .as_ref()
+                    .and_then(|key| key.r#type.as_ref())
+                else {
+                    break;
+                };
+                if scope.user_state_id != "value" || scope.transform_id != "stateful" {
+                    break;
+                }
+                let cell = (scope.window.clone(), scope.key.clone());
+                let response = match message.request {
+                    Some(state_request::Request::Get(_)) => {
+                        state_response::Response::Get(StateGetResponse {
+                            data: cells.lock().await.get(&cell).cloned().unwrap_or_default(),
+                            continuation_token: Vec::new(),
+                        })
+                    }
+                    Some(state_request::Request::Clear(_)) => {
+                        cells.lock().await.remove(&cell);
+                        state_response::Response::Clear(StateClearResponse {})
+                    }
+                    Some(state_request::Request::Append(append)) => {
+                        cells
+                            .lock()
+                            .await
+                            .entry(cell)
+                            .or_default()
+                            .extend(append.data);
+                        state_response::Response::Append(StateAppendResponse {})
+                    }
+                    _ => break,
+                };
+                if tx
+                    .send(Ok(StateResponse {
+                        id: message.id,
+                        response: Some(response),
+                        ..Default::default()
+                    }))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
 }
 
 #[tonic::async_trait]
@@ -467,6 +539,7 @@ async fn run_sdf_process_bundle_with_branch(
             },
             input_pc: events_pc.clone(),
             output_pc: result_pc.clone(),
+            stateful_value: false,
         },
         Step::Sink {
             transform_id: "output".into(),
@@ -486,6 +559,7 @@ async fn run_sdf_process_bundle_with_branch(
             },
             input_pc: events_pc,
             output_pc: increment_pc.clone(),
+            stateful_value: false,
         });
         steps.push(Step::Sink {
             transform_id: "increment-output".into(),
@@ -1279,6 +1353,7 @@ fn plan(pipeline: &Pipeline, endpoint: SocketAddr) -> BundlePlan {
             },
             input_pc: previous_pc,
             output_pc: output_pc.clone(),
+            stateful_value: false,
         });
         previous_pc = output_pc;
     }
@@ -1338,6 +1413,251 @@ async fn fn_data_stream_round_trips_custom_rows_and_flat_map() {
         })
         .collect::<Vec<_>>();
     assert_eq!(actual, [UserRow(4), UserRow(5), UserRow(6), UserRow(7)]);
+}
+
+#[tokio::test]
+async fn stateful_value_bundle_reads_prior_writes_by_key() {
+    fn build() -> Pipeline {
+        let pipeline = Pipeline::default();
+        pipeline
+            .from_vec("pairs", vec![(1_i32, 2_i32), (1, 3), (2, 4), (1, 5)])
+            .unwrap()
+            .stateful_value_map_named::<i32, i32>(
+                "running",
+                "example/running-total",
+                Version { major: 1, minor: 0 },
+                |_, value, prior| {
+                    let total = prior.unwrap_or(0) + value;
+                    Ok((Some(total), total))
+                },
+            )
+            .unwrap()
+            .output("result")
+            .unwrap();
+        pipeline
+    }
+    let driver = build();
+    let worker = build();
+    let (graph, registry) = driver.snapshot().unwrap();
+    let identity = execution_identity(&graph, &registry, "test-build").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let cells = Arc::new(Mutex::new(HashMap::new()));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let server = tokio::spawn(
+        Server::builder()
+            .add_service(BeamFnDataServer::new(RunnerData {
+                received: Arc::clone(&received),
+                impulse_count: 1,
+                impulse_payload: Vec::new(),
+            }))
+            .add_service(BeamFnStateServer::new(ValueRunnerState {
+                cells: Arc::clone(&cells),
+                requests: Arc::clone(&requests),
+            }))
+            .serve(addr),
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let port = RemoteGrpcPort {
+        api_service_descriptor: Some(ApiServiceDescriptor {
+            url: format!("http://{addr}"),
+            ..Default::default()
+        }),
+        coder_id: "opaque".into(),
+    };
+    let plan = BundlePlan {
+        pbd_id: "stateful-value".into(),
+        state_endpoint: Some(format!("http://{addr}")),
+        side_inputs: HashMap::new(),
+        steps: vec![
+            Step::Source {
+                transform_id: "input".into(),
+                port: port.clone(),
+                output_pc: "impulse".into(),
+                wire: SourceWire::Opaque,
+            },
+            Step::V5ParDo {
+                transform_id: "source".into(),
+                node_ref: V5NodeRef {
+                    key: "pairs".into(),
+                    identity: identity.clone(),
+                    co_group_input: None,
+                },
+                input_pc: "impulse".into(),
+                output_pc: collection_id("pairs"),
+                stateful_value: false,
+            },
+            Step::V5ParDo {
+                transform_id: "stateful".into(),
+                node_ref: V5NodeRef {
+                    key: "running".into(),
+                    identity,
+                    co_group_input: None,
+                },
+                input_pc: collection_id("pairs"),
+                output_pc: collection_id("running"),
+                stateful_value: true,
+            },
+            Step::Sink {
+                transform_id: "output".into(),
+                port,
+                input_pc: collection_id("running"),
+                wire: SinkWire::Opaque,
+            },
+        ],
+    };
+    let runner = V5BundleExecutor::new(&worker, "test-build").unwrap();
+    tokio::time::timeout(Duration::from_secs(5), runner.run("bundle", &plan))
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let chunks = received.lock().await.clone();
+    let actual = chunks
+        .iter()
+        .filter(|chunk| chunk.transform_id == "output" && !chunk.data.is_empty())
+        .map(|chunk| {
+            let (windowed, _) = decode_windowed_value(&chunk.data).unwrap();
+            let (body, _) = decode_length_prefix(windowed.element).unwrap();
+            <(i32, i32)>::decode(body).unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(actual, [(1, 2), (1, 5), (2, 4), (1, 10)]);
+    let requests = requests.lock().await.clone();
+    assert_eq!(requests.len(), 12);
+    for triplet in requests.as_chunks::<3>().0 {
+        assert!(matches!(
+            triplet[0].request,
+            Some(state_request::Request::Get(_))
+        ));
+        assert!(matches!(
+            triplet[1].request,
+            Some(state_request::Request::Clear(_))
+        ));
+        assert!(matches!(
+            triplet[2].request,
+            Some(state_request::Request::Append(_))
+        ));
+        assert_eq!(triplet[0].state_key, triplet[1].state_key);
+        assert_eq!(triplet[1].state_key, triplet[2].state_key);
+    }
+    let cells = cells.lock().await;
+    assert_eq!(cells.len(), 2);
+    for (key, expected) in [(1_i32, 10_i32), (2, 4)] {
+        let encoded = &cells[&(Vec::new(), Element::encode(&key).unwrap())];
+        let (body, used) = decode_length_prefix(encoded).unwrap();
+        assert_eq!(used, encoded.len());
+        assert_eq!(<i32 as Element>::decode(body).unwrap(), expected);
+    }
+    server.abort();
+}
+
+#[tokio::test]
+async fn stateful_value_bundle_decodes_runner_kv_boundary() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("pairs", vec![(7_i32, 4_i32), (7, 5)])
+        .unwrap()
+        .stateful_value_map_named::<i32, i32>(
+            "running",
+            "example/running-total",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let total = prior.unwrap_or(0) + value;
+                Ok((Some(total), total))
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    let identity = execution_identity(&graph, &registry, "test-build").unwrap();
+    let mut record = Vec::new();
+    for pair in [(7_i32, 4_i32), (7, 5)] {
+        let (key, value) = registry
+            .split_group_input("running", &Element::encode(&pair).unwrap())
+            .unwrap();
+        let mut body = Vec::new();
+        encode_length_prefix(&key, &mut body).unwrap();
+        encode_length_prefix(&value, &mut body).unwrap();
+        encode_windowed_value(0, &body, &mut record).unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let server = tokio::spawn(
+        Server::builder()
+            .add_service(BeamFnDataServer::new(GroupedRunnerData {
+                record,
+                received: Arc::clone(&received),
+            }))
+            .add_service(BeamFnStateServer::new(ValueRunnerState {
+                cells: Arc::new(Mutex::new(HashMap::new())),
+                requests: Arc::clone(&requests),
+            }))
+            .serve(addr),
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let port = RemoteGrpcPort {
+        api_service_descriptor: Some(ApiServiceDescriptor {
+            url: format!("http://{addr}"),
+            ..Default::default()
+        }),
+        coder_id: "kv".into(),
+    };
+    let runner = V5BundleExecutor::new(&pipeline, "test-build").unwrap();
+    let plan = BundlePlan {
+        pbd_id: "stateful-kv-boundary".into(),
+        state_endpoint: Some(format!("http://{addr}")),
+        side_inputs: HashMap::new(),
+        steps: vec![
+            Step::Source {
+                transform_id: "input".into(),
+                port: port.clone(),
+                output_pc: collection_id("pairs"),
+                wire: SourceWire::KvLp,
+            },
+            Step::V5ParDo {
+                transform_id: "stateful".into(),
+                node_ref: V5NodeRef {
+                    key: "running".into(),
+                    identity,
+                    co_group_input: None,
+                },
+                input_pc: collection_id("pairs"),
+                output_pc: collection_id("running"),
+                stateful_value: true,
+            },
+            Step::Sink {
+                transform_id: "output".into(),
+                port,
+                input_pc: collection_id("running"),
+                wire: SinkWire::Opaque,
+            },
+        ],
+    };
+    tokio::time::timeout(Duration::from_secs(5), runner.run("bundle", &plan))
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let outputs = received.lock().await.clone();
+    let actual = outputs
+        .iter()
+        .filter(|chunk| chunk.transform_id == "output" && !chunk.data.is_empty())
+        .map(|chunk| {
+            let (windowed, _) = decode_windowed_value(&chunk.data).unwrap();
+            let (body, _) = decode_length_prefix(windowed.element).unwrap();
+            <(i32, i32)>::decode(body).unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(actual, [(7, 4), (7, 9)]);
+    assert_eq!(requests.lock().await.len(), 6);
+    server.abort();
 }
 
 #[tokio::test]
@@ -1465,6 +1785,7 @@ async fn one_impulse_drives_two_independent_user_sources() {
             },
             input_pc: "impulse".into(),
             output_pc: collection_id(source),
+            stateful_value: false,
         });
         steps.push(Step::V5ParDo {
             transform_id: mapped.into(),
@@ -1475,6 +1796,7 @@ async fn one_impulse_drives_two_independent_user_sources() {
             },
             input_pc: collection_id(source),
             output_pc: collection_id(mapped),
+            stateful_value: false,
         });
     }
     for (mapped, sink) in [("left", "output-left"), ("right", "output-right")] {
@@ -1755,6 +2077,7 @@ async fn source_records_reach_the_sink_before_the_next_record_is_read() {
             },
             input_pc: previous_pc,
             output_pc: output_pc.clone(),
+            stateful_value: false,
         });
         previous_pc = output_pc;
     }
@@ -1898,6 +2221,7 @@ async fn branched_bundle_opens_source_once_and_writes_both_sinks() {
             } else {
                 collection_id(key)
             },
+            stateful_value: false,
         });
     }
     let runner = V5BundleExecutor::new(&pipeline, "test-build").unwrap();
@@ -2021,6 +2345,7 @@ async fn state_backed_group_fetches_runner_suffix_before_mapping() {
                         },
                         input_pc: collection_id("group"),
                         output_pc: collection_id("sum"),
+                        stateful_value: false,
                     },
                     Step::Sink {
                         transform_id: "output".into(),
@@ -2193,6 +2518,7 @@ async fn post_flatten_boundary_processes_records_before_input_closes() {
                         },
                         input_pc: collection_id("merged"),
                         output_pc: String::new(),
+                        stateful_value: false,
                     },
                 ],
             },

@@ -1,11 +1,16 @@
+struct BundleInputs<'a> {
+    side_views: &'a mut HashMap<String, Box<dyn Any + Send>>,
+    state: Option<&'a StateClient>,
+}
+
 impl V5BundleExecutor {
-    fn process_record(
+    async fn process_record(
         &self,
         instruction_id: &str,
         plan: &BundlePlan,
         source_key: Option<&str>,
         source_value: WireValue,
-        side_views: &HashMap<String, Box<dyn Any + Send>>,
+        inputs: BundleInputs<'_>,
         outputs: &mut BundleOutputs<'_>,
     ) -> Result<()> {
         let mut collections: HashMap<&str, Vec<WireValue>> = HashMap::new();
@@ -43,6 +48,7 @@ impl V5BundleExecutor {
                     collections.insert(output_pc, values);
                 }
                 Step::V5ParDo {
+                    transform_id,
                     node_ref,
                     input_pc,
                     output_pc,
@@ -168,6 +174,65 @@ impl V5BundleExecutor {
                             }
                             produced
                         }
+                        Operation::StatefulParDo { ref contract, .. } => {
+                            let input = collections
+                                .get(input_pc.as_str())
+                                .ok_or_else(|| anyhow!("missing v5 collection {input_pc}"))?;
+                            let state = inputs.state.ok_or_else(|| anyhow!("stateful ParDo {} has no State client", node.key))?;
+                            let parent = node.input.as_deref().ok_or_else(|| anyhow!("stateful ParDo {} has no input", node.key))?;
+                            let mut produced = Vec::with_capacity(input.len());
+                            for wire in input {
+                                let (key, _) = self.registry.split_group_input(&node.key, &wire.bytes)?;
+                                let window = match wire.window {
+                                    None => Vec::new(),
+                                    Some(interval) => {
+                                        if interval.start_ns % 1_000_000 != 0 || interval.end_ns % 1_000_000 != 0 {
+                                            bail!("stateful ParDo {} requires millisecond-aligned windows", node.key);
+                                        }
+                                        let mut encoded = Vec::new();
+                                        encode_interval_window(interval.start_ns / 1_000_000, interval.end_ns / 1_000_000, &mut encoded)?;
+                                        encoded
+                                    }
+                                };
+                                let access = UserStateAccess::new(state, instruction_id, transform_id, contract, window, key)?;
+                                let output = access.apply_value_state("value", |encoded| {
+                                    let prior = if encoded.is_empty() {
+                                        None
+                                    } else {
+                                        let (value, used) = decode_length_prefix(encoded)?;
+                                        if used != encoded.len() {
+                                            bail!("stateful value cell contains more than one encoded value");
+                                        }
+                                        Some(value)
+                                    };
+                                    let envelope = Envelope {
+                                        value: self.registry.decode_element(parent, &wire.bytes)?,
+                                        timestamp_ns: wire.timestamp_ns,
+                                        window: node.time.window.clone(),
+                                        assigned_window: wire.window,
+                                        pane: wire.pane,
+                                    };
+                                    let (next, result) = self.registry.apply_stateful_value(&node.key, envelope, prior)?;
+                                    let mutation = match next {
+                                        Some(bytes) => {
+                                            let mut encoded = Vec::new();
+                                            encode_length_prefix(&bytes, &mut encoded)?;
+                                            ValueStateMutation::Set(encoded)
+                                        }
+                                        None => ValueStateMutation::Clear,
+                                    };
+                                    Ok((WireValue {
+                                        bytes: self.registry.encode_element(&node.key, result.value.as_ref())?,
+                                        timestamp_ns: result.timestamp_ns,
+                                        window: result.assigned_window,
+                                        pane: result.pane,
+                                        element_metadata: wire.element_metadata.clone(),
+                                    }, mutation))
+                                }).await?;
+                                produced.push(output);
+                            }
+                            produced
+                        }
                         Operation::WaitOn | Operation::WaitOnWindowed => collections
                             .get(input_pc.as_str())
                             .ok_or_else(|| anyhow!("missing v5 collection {input_pc}"))?
@@ -188,7 +253,7 @@ impl V5BundleExecutor {
                             let parent = node.input.as_deref().ok_or_else(|| {
                                 anyhow!("v5 side input {} has no main input", node.key)
                             })?;
-                            let view = side_views.get(&node.key).ok_or_else(|| {
+                            let view = inputs.side_views.get(&node.key).ok_or_else(|| {
                                 anyhow!("v5 side view {} was not materialized", node.key)
                             })?;
                             collections

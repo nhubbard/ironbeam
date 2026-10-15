@@ -272,6 +272,7 @@ fn describe_plan(steps: &[Step]) -> String {
                 node_ref,
                 input_pc,
                 output_pc,
+                ..
             } => {
                 let _ = writeln!(
                     &mut out,

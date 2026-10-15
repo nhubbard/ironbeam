@@ -22,7 +22,13 @@ fn bounded_value_state_is_scoped_by_key_and_resets_between_runs() {
     let expected = [(1, 2), (1, 5), (2, 4), (1, 10)];
     for _ in 0..2 {
         let (actual, _) = DirectRunner
-            .run_collect(&output, &JobConfig::default())
+            .run_collect(
+                &output,
+                &JobConfig {
+                    parallelism: 1,
+                    ..JobConfig::default()
+                },
+            )
             .unwrap();
         assert_eq!(actual, expected);
     }
@@ -57,7 +63,13 @@ fn bounded_value_state_can_clear_a_cell() {
         .output("result")
         .unwrap();
     let (actual, _) = DirectRunner
-        .run_collect(&output, &JobConfig::default())
+        .run_collect(
+            &output,
+            &JobConfig {
+                parallelism: 1,
+                ..JobConfig::default()
+            },
+        )
         .unwrap();
     assert_eq!(actual, [(1, 2), (1, 0), (1, 3)]);
 }

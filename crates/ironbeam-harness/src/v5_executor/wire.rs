@@ -41,7 +41,7 @@ use crate::sdf_wire::{
     decode_sized, encode_sized, pair_with_restriction, split_and_size, try_bytes_body_len,
     try_pair_body_len, try_sized_body_len, truncate_sized, SizedSourcePair,
 };
-use crate::state::StateClient;
+use crate::state::{StateClient, UserStateAccess, ValueStateMutation};
 use crate::unbounded::{SourcePoll, SourcePoller};
 
 #[derive(Clone)]

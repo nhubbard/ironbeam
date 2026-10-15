@@ -322,4 +322,6 @@ let totals = pairs.stateful_value_map_named::<i64, i64>(
 accepts bounded input with default global, fixed, or sliding window policy on
 Direct. Beam does not preserve encounter order across keyed shuffle; callbacks
 that require an order should carry an explicit order key. The portable worker
-can translate this graph but cannot yet execute its stateful ParDo.
+uses Beam Fn State for this value cell. Fake-runner execution tests pass, and a
+bounded per-key count matches Direct on local Prism. Retry and recovery remain
+to be proved.
