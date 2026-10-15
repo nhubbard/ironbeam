@@ -225,7 +225,10 @@ also encodes and decodes the two signed VarInts used by the pinned Java Beam
 coder, including negative boundaries and malformed bytes. Its lazy `chunks`
 iterator provides contiguous initial restrictions without allocating a list;
 tests cover empty input, invalid sizes, signed offsets, and the full signed
-64-bit span. It is not yet
+64-bit span. Tracker progress and fractional splits now use the pinned Java
+tracker's last-attempted-position boundary, including the position before the
+start when no claim has been made. Focused tests cover no claims, skipped
+offsets, fractions after claims, and concurrent splitting. It is not yet
 registered as an executable splittable transform on either runner, so the
 splittable-processing parity row remains open.
 The Linux core coverage job for commit `85a28b3` passed its unchanged floor:

@@ -161,7 +161,6 @@ pub trait RestrictionTracker: Send + Sync {
 struct TrackerState {
     range: OffsetRange,
     last_attempt: Option<i64>,
-    last_claim: Option<i64>,
 }
 
 /// A shared tracker whose claim and split operations serialize through one lock.
@@ -178,7 +177,6 @@ impl OffsetRangeTracker {
             state: Arc::new(Mutex::new(TrackerState {
                 range,
                 last_attempt: None,
-                last_claim: None,
             })),
         })
     }
@@ -215,7 +213,6 @@ impl OffsetRangeTracker {
         if position >= state.range.stop {
             return Ok(false);
         }
-        state.last_claim = Some(position);
         drop(state);
         Ok(true)
     }
@@ -244,20 +241,19 @@ impl OffsetRangeTracker {
         {
             return Ok(None);
         }
-        let next = state.last_claim.map_or_else(
-            || i128::from(state.range.start),
-            |last| i128::from(last) + 1,
-        );
+        // Beam's OffsetRangeTracker measures the fraction from the last
+        // attempted offset, or one before the start if no claim was made.
+        let current = state
+            .last_attempt
+            .map_or_else(|| i128::from(state.range.start) - 1, i128::from);
         let stop = i128::from(state.range.stop);
-        if next >= stop {
+        if current >= stop {
             return Ok(None);
         }
-        let offset = if fraction_of_remainder == 0.0 {
-            0
-        } else {
-            ((stop - next) as f64 * fraction_of_remainder).floor() as i128
-        };
-        let split = next + offset.max(i128::from(fraction_of_remainder > 0.0));
+        let offset = ((stop - current) as f64 * fraction_of_remainder)
+            .max(1.0)
+            .floor() as i128;
+        let split = current + offset;
         if split >= stop {
             return Ok(None);
         }
@@ -277,7 +273,9 @@ impl OffsetRangeTracker {
         Ok(self.lock()?.range)
     }
 
-    /// Return done and remaining work in offset units.
+    /// Return Beam's done and remaining work estimates in offset units. The
+    /// last attempted position counts as the progress boundary; claiming
+    /// position zero in `[0, 10)` therefore reports `(0, 10)`.
     // Beam's progress scalars are f64, including for a range wider than 2^53.
     #[allow(clippy::cast_precision_loss)]
     pub fn progress(&self) -> Result<(f64, f64), Error> {
@@ -285,8 +283,8 @@ impl OffsetRangeTracker {
         let start = i128::from(state.range.start);
         let stop = i128::from(state.range.stop);
         let done_until = state
-            .last_claim
-            .map_or(start, |last| (i128::from(last) + 1).min(stop));
+            .last_attempt
+            .map_or(start, |last| i128::from(last).min(stop));
         drop(state);
         Ok(((done_until - start) as f64, (stop - done_until) as f64))
     }

@@ -109,7 +109,7 @@ fn claims_increase_and_completion_requires_a_final_position() {
     assert_eq!(tracker.progress().unwrap(), (0.0, 3.0));
     assert!(tracker.check_done().is_err());
     assert!(tracker.try_claim(3).unwrap());
-    assert_eq!(tracker.progress().unwrap(), (1.0, 2.0));
+    assert_eq!(tracker.progress().unwrap(), (0.0, 3.0));
     assert!(tracker.try_claim(3).is_err());
     assert!(tracker.try_claim(2).is_err());
     assert!(tracker.try_claim(5).unwrap());
@@ -132,7 +132,7 @@ fn a_zero_fraction_split_checkpoints_without_losing_unclaimed_work() {
 
     let resumed = OffsetRangeTracker::new(residual).unwrap();
     claim_to_end(&resumed, 3, 10);
-    assert_eq!(resumed.progress().unwrap(), (7.0, 0.0));
+    assert_eq!(resumed.progress().unwrap(), (6.0, 1.0));
 }
 
 #[test]
@@ -142,14 +142,14 @@ fn a_fractional_split_keeps_primary_and_residual_disjoint() {
         assert!(tracker.try_claim(position).unwrap());
     }
     let (primary, residual) = tracker.try_split(0.5).unwrap().unwrap();
-    assert_eq!(primary, range(0, 7));
-    assert_eq!(residual, range(7, 10));
-    assert_eq!(tracker.progress().unwrap(), (4.0, 3.0));
-    for position in 4..7 {
+    assert_eq!(primary, range(0, 6));
+    assert_eq!(residual, range(6, 10));
+    assert_eq!(tracker.progress().unwrap(), (3.0, 3.0));
+    for position in 4..6 {
         assert!(tracker.try_claim(position).unwrap());
     }
     tracker.check_done().unwrap();
-    assert!(!tracker.try_claim(7).unwrap());
+    assert!(!tracker.try_claim(6).unwrap());
     assert!(tracker.try_split(0.0).unwrap().is_none());
 }
 
@@ -184,9 +184,9 @@ fn invalid_split_fractions_leave_the_restriction_unchanged() {
 fn trait_accessors_and_fractional_split_use_the_same_tracker_state() {
     let tracker = OffsetRangeTracker::new(range(0, 10)).unwrap();
     let (primary, residual) = generic_split(&tracker);
-    assert_eq!(primary, range(0, 5));
-    assert_eq!(residual, range(5, 10));
-    claim_to_end(&tracker, 0, 5);
+    assert_eq!(primary, range(0, 4));
+    assert_eq!(residual, range(4, 10));
+    claim_to_end(&tracker, 0, 4);
 }
 
 #[test]
@@ -215,7 +215,32 @@ fn concurrent_claim_and_split_share_one_primary_boundary() {
     let (primary, residual) = tracker.try_split(0.5).unwrap().unwrap();
     resume_tx.send(()).unwrap();
     let claimed = worker.join().unwrap();
-    assert_eq!(primary, range(0, 60));
-    assert_eq!(residual, range(60, 100));
-    assert_eq!(claimed, (20..60).collect::<Vec<_>>());
+    assert_eq!(primary, range(0, 59));
+    assert_eq!(residual, range(59, 100));
+    assert_eq!(claimed, (20..59).collect::<Vec<_>>());
+}
+
+#[test]
+fn beam_fraction_uses_last_attempt_and_prestart_boundary() {
+    let empty = OffsetRangeTracker::new(range(0, 10)).unwrap();
+    assert_eq!(
+        empty.try_split(0.5).unwrap().unwrap(),
+        (range(0, 4), range(4, 10))
+    );
+
+    let claimed = OffsetRangeTracker::new(range(0, 10)).unwrap();
+    assert!(claimed.try_claim(0).unwrap());
+    assert_eq!(claimed.progress().unwrap(), (0.0, 10.0));
+    assert_eq!(
+        claimed.try_split(0.5).unwrap().unwrap(),
+        (range(0, 5), range(5, 10))
+    );
+
+    let skipped = OffsetRangeTracker::new(range(0, 10)).unwrap();
+    assert!(skipped.try_claim(6).unwrap());
+    assert_eq!(skipped.progress().unwrap(), (6.0, 4.0));
+    assert_eq!(
+        skipped.try_split(0.5).unwrap().unwrap(),
+        (range(0, 8), range(8, 10))
+    );
 }
