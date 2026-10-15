@@ -31,6 +31,8 @@ where
     /// Run the timer callback once for each key when its fixed window expires.
     /// `expiration_family_id` must name a declared event-time family. The
     /// callback receives that family ID and the window's maximum timestamp.
+    /// Pinned local Prism can omit a callback when one key spans two windows
+    /// in one source batch; see the Beam semantics guide for the tested scope.
     #[allow(clippy::too_many_arguments)]
     pub fn stateful_timer_map_with_window_expiration_named<S: Element, O: Element>(
         &self,
