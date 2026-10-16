@@ -268,11 +268,14 @@ impl Registry {
         key: &str,
         resume: Option<ProgressSignal>,
     ) -> Result<UnboundedSourceReader, Error> {
+        let requires_finalization = self.source_requires_finalization(key);
         if let Some(signal) = &resume
             && (signal.source_key != key
                 || signal.split_id.is_empty()
                 || signal.completed
                 || signal.checkpoint_position.is_none()
+                || (requires_finalization
+                    && signal.checkpoint_position.as_ref().is_some_and(Vec::is_empty))
                 || signal
                     .checkpoint_position
                     .as_ref()
@@ -300,6 +303,7 @@ impl Registry {
             split_id: resume.as_ref().map(|signal| signal.split_id.clone()),
             last_watermark: resume.as_ref().and_then(|signal| signal.event_time_ns),
             completed: false,
+            requires_finalization,
         }))
     }
     #[must_use]

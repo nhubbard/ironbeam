@@ -1,7 +1,8 @@
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, ProgressSignal, Replay, SourceProgress, Timestamped,
-    TypedUnboundedSourceReader, UnboundedPoll, UnboundedSource,
+    TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll, UnboundedSource,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 struct Pending;
@@ -9,6 +10,14 @@ struct Pending;
 impl UnboundedSource<Timestamped<i32>> for Pending {
     fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
         Ok(UnboundedPoll::Pending)
+    }
+}
+
+struct Once(Option<UnboundedBatch<Timestamped<i32>>>);
+
+impl UnboundedSource<Timestamped<i32>> for Once {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+        Ok(UnboundedPoll::Ready(self.0.take().unwrap()))
     }
 }
 
@@ -130,6 +139,83 @@ fn finalized_source_requires_replay_and_catches_callback_panic() {
             .kind,
         ErrorKind::Execution
     );
+}
+
+#[test]
+fn finalized_source_rejects_missing_or_empty_cursor_before_output() {
+    for cursor in [None, Some(Vec::new())] {
+        let pipeline = Pipeline::default();
+        let opened = Arc::new(AtomicUsize::new(0));
+        let reader_opened = Arc::clone(&opened);
+        let progress = ProgressSignal {
+            source_key: "source".into(),
+            split_id: "split-0".into(),
+            checkpoint_position: cursor,
+            event_time_ns: None,
+            completed: true,
+        };
+        pipeline
+            .unbounded_source_with_finalizer(
+                "source",
+                source_progress(Replay::AtLeastOnce),
+                "empty-cursor-v1".into(),
+                0,
+                move |_| {
+                    reader_opened.fetch_add(1, Ordering::SeqCst);
+                    Ok(Box::new(Once(Some(UnboundedBatch {
+                        elements: vec![Timestamped {
+                            value: 7,
+                            timestamp_ns: 0,
+                        }],
+                        progress: progress.clone(),
+                    }))) as TypedUnboundedSourceReader<i32>)
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
+        let (_, registry) = pipeline.snapshot().unwrap();
+        let mut reader = registry.open_unbounded_source("source", None).unwrap();
+        let error = reader.poll(1).err().unwrap();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert!(error.message.contains("nonempty checkpoint position"));
+        assert_eq!(opened.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[test]
+fn finalized_source_rejects_empty_resume_cursor_before_open() {
+    let pipeline = Pipeline::default();
+    let opened = Arc::new(AtomicUsize::new(0));
+    let reader_opened = Arc::clone(&opened);
+    pipeline
+        .unbounded_source_with_finalizer(
+            "source",
+            source_progress(Replay::AtLeastOnce),
+            "empty-resume-v1".into(),
+            0,
+            move |_| {
+                reader_opened.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(Pending) as TypedUnboundedSourceReader<i32>)
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let error = registry
+        .open_unbounded_source(
+            "source",
+            Some(ProgressSignal {
+                source_key: "source".into(),
+                split_id: "split-0".into(),
+                checkpoint_position: Some(Vec::new()),
+                event_time_ns: None,
+                completed: false,
+            }),
+        )
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(opened.load(Ordering::SeqCst), 0);
 }
 
 #[test]

@@ -840,6 +840,7 @@ struct ValidatingUnboundedSource {
     split_id: Option<String>,
     last_watermark: Option<i64>,
     completed: bool,
+    requires_finalization: bool,
 }
 
 impl UnboundedSource<Envelope> for ValidatingUnboundedSource {
@@ -866,6 +867,15 @@ impl UnboundedSource<Envelope> for ValidatingUnboundedSource {
                     &self.key,
                     "source",
                     "source progress identity differs",
+                ));
+            }
+            if self.requires_finalization
+                && signal.checkpoint_position.as_ref().is_none_or(Vec::is_empty)
+            {
+                return Err(Error::execution(
+                    &self.key,
+                    "source",
+                    "finalized source requires a nonempty checkpoint position",
                 ));
             }
             if self

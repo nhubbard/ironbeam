@@ -86,6 +86,8 @@ checkpoint commit. On restart, Direct calls it again for the last saved
 position, including when the previous run completed. The callback must
 therefore tolerate duplicate calls. A Direct job using this source requires
 `JobConfig::checkpoint` with `interval_batches: 1`.
+The source must attach a nonempty checkpoint position to every ready batch;
+Ironbeam checks this before processing its elements.
 
 A portable worker records the source position for Beam's `FinalizeBundle`.
 The runner calls it after committing that bundle's output. When a source and

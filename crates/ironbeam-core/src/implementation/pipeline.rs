@@ -474,6 +474,7 @@ impl Pipeline {
     /// after the output sinks and checkpoint commit. It retries the saved
     /// position on restart, so the callback must be idempotent. The source
     /// must redeliver unacknowledged records even when reopened at that saved
+    /// position. Every emitted progress signal needs a nonempty checkpoint
     /// position. Portable workers invoke the callback from Beam's
     /// `FinalizeBundle` after the runner commits that source bundle's output.
     /// A downstream stage may still be running. Supervised workers require a
