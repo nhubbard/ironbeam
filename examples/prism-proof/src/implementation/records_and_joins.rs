@@ -4,7 +4,7 @@ use ironbeam_core::{
     BagStateMutation, CombineFn, DynOp, Element, ElementMetadata, Error, OrderedFoldFn, PCollection, Partition,
     Pipeline, ProgressSignal, Replay, Sink, SinkMode, SinkSpec, SourceProgress, TestStreamEvent,
     Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
-    UnboundedSource, Version, Window, WindowInterval, WindowOnTimeBehavior,
+    UnboundedSource, Version, Window, WindowClosingBehavior, WindowInterval, WindowOnTimeBehavior,
 };
 use ironbeam_io::final_result::LocalFinalResult;
 #[cfg(feature = "database-proofs")]

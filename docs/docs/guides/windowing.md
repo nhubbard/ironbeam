@@ -76,9 +76,44 @@ fn main() -> Result<(), ironbeam::Error> {
 ```
 
 This policy is encoded in the Beam windowing strategy. Direct preserves the
-empty on-time pane through a fold checkpoint. The pinned local Prism version accepts the portable setting but omits the
-empty on-time pane after a bounded early firing. This runner difference is
-recorded in the shared execution test.
+empty on-time pane through a fold checkpoint and timestamps it at the last
+millisecond of the window. The pinned local Prism version accepts the setting
+but omits that pane after a bounded early firing.
+
+`FireIfNonempty` checks for values that arrived since the preceding firing.
+In accumulating mode, values retained from an early pane do not by themselves
+cause an on-time pane. `FireAlways` emits that pane with the accumulated values.
+
+### Final pane at window expiration
+
+`closing_behavior_named` controls the final pane when allowed lateness
+expires. `WindowClosingBehavior::EmitIfNonempty` is the default. With
+`EmitAlways`, keyed grouping emits a final late pane even when no new values
+arrived after the preceding firing. The pane may contain an empty `Vec` in
+discarding mode; accumulating mode retains the earlier values.
+
+```rust
+use ironbeam::{Pipeline, WindowClosingBehavior};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let _grouped = pipeline
+        .from_vec("events", vec![("a".to_owned(), 2_i32)])?
+        .fixed_windows("windows", 10_000_000)?
+        .allowed_lateness_named("lateness", 5_000_000)?
+        .closing_behavior_named("closing", WindowClosingBehavior::EmitAlways)?
+        .early_count_trigger_named("early", 1)?
+        .group_by_key_named("groups")?;
+    Ok(())
+}
+```
+
+Direct retains the pending final pane in its fold checkpoint. If a watermark
+passes both the window end and lateness deadline in one step, it emits the
+final pane in that step. Empty on-time and final panes use the window's last
+millisecond as their output timestamp. The portable closing policy is encoded
+in the Beam windowing strategy. The pinned local Prism version accepts the
+setting but omits the empty final pane after the tested bounded early firing.
 
 ### Early count firings on Prism
 

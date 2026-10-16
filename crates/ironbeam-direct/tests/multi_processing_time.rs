@@ -3,7 +3,7 @@ mod processing_time_support;
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
     TestStreamEvent, Timestamped, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
-    UnboundedSource,
+    UnboundedSource, WindowOnTimeBehavior,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
 use processing_time_support::{Capture, TimedScript, Value, WallPending};
@@ -50,7 +50,7 @@ fn two_independent_sources_fire_one_processing_time_pane() {
                 .unwrap()
                 .fixed_windows(&format!("{key}-window"), 10_000_000)
                 .unwrap();
-            if accumulating {
+            let triggered = if accumulating {
                 source.accumulating_processing_time_trigger_named(
                     &format!("{key}-trigger"),
                     5_000_000,
@@ -58,7 +58,17 @@ fn two_independent_sources_fire_one_processing_time_pane() {
             } else {
                 source.early_processing_time_trigger_named(&format!("{key}-trigger"), 5_000_000)
             }
-            .unwrap()
+            .unwrap();
+            if accumulating {
+                triggered
+                    .on_time_behavior_named(
+                        &format!("{key}-on-time"),
+                        WindowOnTimeBehavior::FireAlways,
+                    )
+                    .unwrap()
+            } else {
+                triggered
+            }
         };
         let committed = Arc::new(Mutex::new(Vec::new()));
         let accepted = Arc::new(Mutex::new(HashSet::new()));
@@ -167,6 +177,8 @@ fn run_two_sources_accumulating_count_and_timer(mode: CountTimerMode) {
             ),
         }
         .unwrap()
+        .on_time_behavior_named(&format!("{key}-on-time"), WindowOnTimeBehavior::FireAlways)
+        .unwrap()
     };
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
@@ -242,6 +254,8 @@ fn bounded_input_arms_timer_while_unbounded_input_is_idle() {
         .fixed_windows("bounded-window", 10_000_000)
         .unwrap()
         .accumulating_processing_time_trigger_named("bounded-trigger", 5_000_000)
+        .unwrap()
+        .on_time_behavior_named("bounded-on-time", WindowOnTimeBehavior::FireAlways)
         .unwrap();
     let unbounded = pipeline
         .test_stream_source::<(i32, i32)>(
@@ -255,6 +269,8 @@ fn bounded_input_arms_timer_while_unbounded_input_is_idle() {
         .fixed_windows("unbounded-window", 10_000_000)
         .unwrap()
         .accumulating_processing_time_trigger_named("unbounded-trigger", 5_000_000)
+        .unwrap()
+        .on_time_behavior_named("unbounded-on-time", WindowOnTimeBehavior::FireAlways)
         .unwrap();
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
@@ -685,6 +701,8 @@ fn run_two_source_timer_recovery(composite: bool) {
         } else {
             source.accumulating_processing_time_trigger_named(&format!("{key}-timer"), 5_000_000)
         }
+        .unwrap()
+        .on_time_behavior_named(&format!("{key}-on-time"), WindowOnTimeBehavior::FireAlways)
         .unwrap()
     };
     let sink = make_source("first", 2)

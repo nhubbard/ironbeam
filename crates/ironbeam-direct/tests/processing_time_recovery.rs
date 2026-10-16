@@ -3,7 +3,7 @@
 mod processing_time_support;
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, SourceProgress, Timestamped,
-    TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
+    TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll, WindowOnTimeBehavior,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use processing_time_support::{Capture, TimedScript, Value, progress};
@@ -224,6 +224,8 @@ fn processing_timer_deadline_survives_checkpoint_before_first_firing() {
         .fixed_windows("window", 10_000_000)
         .unwrap()
         .accumulating_processing_time_trigger_named("trigger", 5_000_000)
+        .unwrap()
+        .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
         .unwrap();
     let sink_committed = Arc::clone(&committed);
     let sink_accepted = Arc::clone(&accepted);

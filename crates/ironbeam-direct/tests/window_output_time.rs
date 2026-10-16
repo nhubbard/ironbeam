@@ -1,4 +1,4 @@
-use ironbeam_core::{Pipeline, WindowOutputTime, cogroup_by_key_2_named};
+use ironbeam_core::{Pipeline, WindowOnTimeBehavior, WindowOutputTime, cogroup_by_key_2_named};
 use ironbeam_direct::{DirectRunner, JobConfig};
 
 #[test]
@@ -187,7 +187,7 @@ fn latest_in_pane_uses_maximum_event_time_independent_of_arrival_order() {
 }
 
 #[test]
-fn latest_in_pane_is_retained_by_accumulating_early_and_on_time_panes() {
+fn empty_accumulating_on_time_pane_uses_window_max_timestamp() {
     let pipeline = Pipeline::default();
     let output = pipeline
         .from_vec(
@@ -206,6 +206,8 @@ fn latest_in_pane_is_retained_by_accumulating_early_and_on_time_panes() {
         .unwrap()
         .accumulating_count_trigger_named("trigger", 1)
         .unwrap()
+        .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
+        .unwrap()
         .group_by_key_named("groups")
         .unwrap()
         .reify_timestamps_named("reify")
@@ -216,7 +218,8 @@ fn latest_in_pane_is_retained_by_accumulating_early_and_on_time_panes() {
         .run_collect(&output, &JobConfig::default())
         .unwrap();
     assert_eq!(rows.len(), 2);
-    assert!(rows.iter().all(|row| row.0 == 7_000_000));
+    assert_eq!(rows[0].0, 7_000_000);
+    assert_eq!(rows[1].0, 9_000_000);
 }
 
 #[test]

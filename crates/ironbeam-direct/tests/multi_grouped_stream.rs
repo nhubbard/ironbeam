@@ -3,7 +3,7 @@
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
     TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
-    UnboundedPoll, UnboundedSource, WindowOutputTime,
+    UnboundedPoll, UnboundedSource, WindowOnTimeBehavior, WindowOutputTime,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::{HashSet, VecDeque};
@@ -152,6 +152,8 @@ fn bounded_branch_fires_early_before_unbounded_source_polls_and_recovers() {
         .fixed_windows("bounded-window", 10_000_000)
         .unwrap()
         .accumulating_count_trigger_named("bounded-trigger", 1)
+        .unwrap()
+        .on_time_behavior_named("bounded-on-time", WindowOnTimeBehavior::FireAlways)
         .unwrap();
     let stream = pipeline
         .unbounded_source_with_factory(
@@ -188,6 +190,8 @@ fn bounded_branch_fires_early_before_unbounded_source_polls_and_recovers() {
         .fixed_windows("stream-window", 10_000_000)
         .unwrap()
         .accumulating_count_trigger_named("stream-trigger", 1)
+        .unwrap()
+        .on_time_behavior_named("stream-on-time", WindowOnTimeBehavior::FireAlways)
         .unwrap();
     let sink = bounded
         .co_group_homogeneous_named("group", &[stream])
@@ -750,6 +754,11 @@ fn assert_multi_source_late_group_restores_cursors_and_panes(mode: LateMode) {
                 .unwrap(),
             LateMode::EarlyAccumulating | LateMode::GlobalEarlyAccumulating => windowed
                 .accumulating_count_trigger_named(&format!("trigger-{index}"), 1)
+                .unwrap()
+                .on_time_behavior_named(
+                    &format!("on-time-{index}"),
+                    WindowOnTimeBehavior::FireAlways,
+                )
                 .unwrap(),
         }
     };

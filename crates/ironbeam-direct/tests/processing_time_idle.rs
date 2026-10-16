@@ -3,7 +3,7 @@
 mod processing_time_support;
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, SourceProgress, Timestamped,
-    TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
+    TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll, WindowOnTimeBehavior,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig};
 use processing_time_support::{CancelCapture, Capture, TimedScript, Value, WallPending, progress};
@@ -468,6 +468,8 @@ fn empty_progress_at_one_cursor_keeps_early_and_on_time_bundles_distinct() {
         .fixed_windows("window", 10_000_000)
         .unwrap()
         .accumulating_processing_time_trigger_named("timer", 5_000_000)
+        .unwrap()
+        .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
         .unwrap();
     let sink_committed = Arc::clone(&committed);
     let sink_accepted = Arc::clone(&accepted);

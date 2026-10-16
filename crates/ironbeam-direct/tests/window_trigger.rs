@@ -1,4 +1,4 @@
-use ironbeam_core::{PaneInfo, PaneTiming, Pipeline};
+use ironbeam_core::{PaneInfo, PaneTiming, Pipeline, WindowOnTimeBehavior};
 use ironbeam_direct::{DirectRunner, JobConfig};
 
 #[test]
@@ -70,6 +70,8 @@ fn bounded_accumulating_count_retains_values_in_on_time_pane() {
         .fixed_windows("windows", 10_000_000)
         .unwrap()
         .accumulating_count_trigger_named("count-trigger", 1)
+        .unwrap()
+        .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
         .unwrap()
         .group_by_key_named("groups")
         .unwrap()

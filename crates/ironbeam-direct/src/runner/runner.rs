@@ -13,7 +13,10 @@ fn validate_lateness(node: &ironbeam_core::Node, unbounded_source: bool) -> Resu
     let stateful_fanin = stateful_fanin_operation(&node.operation);
     if node.time.allowed_lateness_ns > 0
         && ((node.time.trigger != WindowTrigger::Default
-            && node.time.trigger.late_count().is_none())
+            && node.time.trigger.late_count().is_none()
+            && !(node.time.closing_behavior == WindowClosingBehavior::EmitAlways
+                && (node.time.trigger.early_count().is_some()
+                    || node.time.trigger.early_processing_time().is_some())))
             || (stateful_fanin
                 && (!unbounded_source || node.boundedness != ironbeam_core::Boundedness::Unbounded))
             || matches!(

@@ -118,6 +118,11 @@ impl Graph {
             {
                 return Err(Error::graph(&node.key, "allowed lateness requires finite millisecond-aligned windows"));
             }
+            if node.time.closing_behavior == WindowClosingBehavior::EmitAlways
+                && node.time.allowed_lateness_ns == 0
+            {
+                return Err(Error::graph(&node.key, "always-emitting closing behavior requires allowed lateness"));
+            }
             if matches!(node.operation, Operation::FixedWindow)
                 && !matches!(
                     node.time.window,
@@ -323,22 +328,31 @@ impl Graph {
                             && node.time.window == upstream.time.window
                             && ((node.time.output_time == upstream.time.output_time
                                 && node.time.on_time_behavior == upstream.time.on_time_behavior
+                                && node.time.closing_behavior == upstream.time.closing_behavior
                                 && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
                                 && (node.time.trigger.early_count().is_some()
                                     || node.time.trigger.early_processing_time().is_some()
                                     || node.time.trigger.late_count().is_some()))
                                 || (node.time.trigger == upstream.time.trigger
                                     && node.time.on_time_behavior == upstream.time.on_time_behavior
+                                    && node.time.closing_behavior == upstream.time.closing_behavior
                                     && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
                                     && node.time.output_time != WindowOutputTime::EarliestInPane)
                                 || (node.time.trigger == upstream.time.trigger
                                     && node.time.on_time_behavior == upstream.time.on_time_behavior
+                                    && node.time.closing_behavior == upstream.time.closing_behavior
                                     && node.time.output_time == upstream.time.output_time
                                     && node.time.allowed_lateness_ns != upstream.time.allowed_lateness_ns)
                                 || (node.time.trigger == upstream.time.trigger
                                     && node.time.output_time == upstream.time.output_time
+                                    && node.time.closing_behavior == upstream.time.closing_behavior
                                     && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
-                                    && node.time.on_time_behavior != upstream.time.on_time_behavior)))
+                                    && node.time.on_time_behavior != upstream.time.on_time_behavior)
+                                || (node.time.trigger == upstream.time.trigger
+                                    && node.time.output_time == upstream.time.output_time
+                                    && node.time.on_time_behavior == upstream.time.on_time_behavior
+                                    && node.time.allowed_lateness_ns == upstream.time.allowed_lateness_ns
+                                    && node.time.closing_behavior != upstream.time.closing_behavior)))
                     {
                         return Err(Error::graph(&node.key, "event time/window must propagate"));
                     }

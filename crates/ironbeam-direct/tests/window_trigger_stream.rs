@@ -1,7 +1,7 @@
 use ironbeam_core::{
     CombineFn, ElementMetadata, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode,
     SinkSpec, SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
-    UnboundedBatch, UnboundedPoll, UnboundedSource,
+    UnboundedBatch, UnboundedPoll, UnboundedSource, WindowOnTimeBehavior,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, StreamJob};
 use std::collections::{HashSet, VecDeque};
@@ -36,6 +36,13 @@ fn processing_time_trigger_fires_repeated_early_panes() {
             source.early_processing_time_trigger_named("processing-trigger", 5_000_000)
         }
         .unwrap();
+        let triggered = if accumulating {
+            triggered
+                .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
+                .unwrap()
+        } else {
+            triggered
+        };
         let sink = triggered
             .group_by_key_named("processing-group")
             .unwrap()
@@ -125,6 +132,13 @@ fn count_and_processing_time_waits_for_both_conditions() {
             source.count_and_processing_time_trigger_named("trigger", 2, 5_000_000)
         }
         .unwrap();
+        let triggered = if accumulating {
+            triggered
+                .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
+                .unwrap()
+        } else {
+            triggered
+        };
         let sink = triggered
             .group_by_key_named("group")
             .unwrap()
@@ -215,6 +229,13 @@ fn count_then_processing_time_fires_sequential_panes() {
             source.count_then_processing_time_trigger_named("trigger", 2, 5_000_000)
         }
         .unwrap();
+        let triggered = if accumulating {
+            triggered
+                .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
+                .unwrap()
+        } else {
+            triggered
+        };
         let sink = triggered
             .group_by_key_named("group")
             .unwrap()
@@ -943,6 +964,8 @@ fn accumulating_count_or_time_and_late_count_retains_window_values() {
         .accumulating_count_or_processing_time_and_late_count_trigger_named(
             "trigger", 2, 5_000_000, 2,
         )
+        .unwrap()
+        .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
         .unwrap()
         .group_by_key_named("group")
         .unwrap()
@@ -1770,6 +1793,13 @@ fn run_late_count_recovery(mode: LateCountMode) {
             .accumulating_early_and_late_count_trigger_named("late-count", 1, 2)
             .unwrap(),
     };
+    let triggered = if matches!(mode, LateCountMode::CombinedAccumulating) {
+        triggered
+            .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
+            .unwrap()
+    } else {
+        triggered
+    };
     let sink = triggered
         .group_by_key_named("groups")
         .unwrap()
@@ -1850,7 +1880,7 @@ fn run_late_count_recovery(mode: LateCountMode) {
     if matches!(mode, LateCountMode::CombinedAccumulating) {
         assert_eq!(
             committed.lock().unwrap().as_slice(),
-            [first.as_str(), "a:[2]:2000000:OnTime:false:false:1:0"]
+            [first.as_str(), "a:[2]:9000000:OnTime:false:false:1:0"]
         );
     } else {
         assert_eq!(committed.lock().unwrap().as_slice(), [first]);
@@ -1881,7 +1911,7 @@ fn run_late_count_recovery(mode: LateCountMode) {
         ],
         LateCountMode::CombinedAccumulating => &[
             "a:[2]:2000000:Early:true:false:0:-1",
-            "a:[2]:2000000:OnTime:false:false:1:0",
+            "a:[2]:9000000:OnTime:false:false:1:0",
             "a:[2, 3, 5]:2000000:Late:false:false:2:1",
             "a:[2, 3, 5, 7]:2000000:Late:false:true:3:2",
         ],
@@ -2036,6 +2066,13 @@ fn run_count_pane_recovery(accumulating: bool, latest_time: bool, global: bool) 
         values.early_count_trigger_named("count-trigger", 1)
     }
     .unwrap();
+    let values = if accumulating {
+        values
+            .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
+            .unwrap()
+    } else {
+        values
+    };
     let sink = values
         .group_by_key_named("groups")
         .unwrap()
@@ -2119,7 +2156,7 @@ fn run_count_pane_recovery(accumulating: bool, latest_time: bool, global: bool) 
         vec![
             "a:[2]:1000000:Early:true:false:0:-1",
             "a:[2, 3]:3000000:Early:false:false:1:-1",
-            "a:[2, 3]:3000000:OnTime:false:true:2:0",
+            "a:[2, 3]:9000000:OnTime:false:true:2:0",
         ]
     } else if accumulating {
         vec![

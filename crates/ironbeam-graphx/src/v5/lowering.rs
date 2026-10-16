@@ -104,6 +104,10 @@ fn lower(
             WindowOnTimeBehavior::FireIfNonempty => on_time_behavior::Enum::FireIfNonempty as i32,
             WindowOnTimeBehavior::FireAlways => on_time_behavior::Enum::FireAlways as i32,
         };
+        strategy.closing_behavior = match node.time.closing_behavior {
+            WindowClosingBehavior::EmitIfNonempty => closing_behavior::Enum::EmitIfNonempty as i32,
+            WindowClosingBehavior::EmitAlways => closing_behavior::Enum::EmitAlways as i32,
+        };
         strategy.allowed_lateness = node.time.allowed_lateness_ns / 1_000_000;
         windowing_strategies.insert(windowing_id(&node.time), strategy);
     }

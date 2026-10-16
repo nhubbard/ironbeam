@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use beam_proto::pipeline_v1::{
-    is_bounded, on_time_behavior, output_time, test_stream_payload, Coder, Components, DisplayData, FunctionSpec, PCollection,
+    closing_behavior, is_bounded, on_time_behavior, output_time, test_stream_payload, Coder, Components, DisplayData, FunctionSpec, PCollection,
     PTransform, ParDoPayload, Pipeline as BeamPipeline, Schema, SideInput, TestStreamPayload,
     WindowIntoPayload,
 };
 use ironbeam_core::{
     Boundedness, Capabilities, ElementDescriptor, EncodedTestStreamEvent, ExecutionIdentity, Graph,
-    Node, Operation, Pipeline, Registry, Replay, Time, Window, WindowOnTimeBehavior, WindowOutputTime, WindowTrigger, CODER_VERSION,
+    Node, Operation, Pipeline, Registry, Replay, Time, Window, WindowClosingBehavior, WindowOnTimeBehavior, WindowOutputTime, WindowTrigger, CODER_VERSION,
 };
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -189,10 +189,15 @@ fn windowing_id(time: &Time) -> String {
     } else {
         output_timed
     };
-    if time.allowed_lateness_ns == 0 {
-        on_time
+    let closing = if time.closing_behavior == WindowClosingBehavior::EmitAlways {
+        id("v5_ws", &format!("{on_time}:emit-always"))
     } else {
-        id("v5_ws", &format!("{on_time}:lateness:{}", time.allowed_lateness_ns))
+        on_time
+    };
+    if time.allowed_lateness_ns == 0 {
+        closing
+    } else {
+        id("v5_ws", &format!("{closing}:lateness:{}", time.allowed_lateness_ns))
     }
 }
 

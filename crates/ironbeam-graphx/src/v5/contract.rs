@@ -927,6 +927,10 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
             WindowOnTimeBehavior::FireIfNonempty => on_time_behavior::Enum::FireIfNonempty as i32,
             WindowOnTimeBehavior::FireAlways => on_time_behavior::Enum::FireAlways as i32,
         };
+        expected_strategy.closing_behavior = match node.time.closing_behavior {
+            WindowClosingBehavior::EmitIfNonempty => closing_behavior::Enum::EmitIfNonempty as i32,
+            WindowClosingBehavior::EmitAlways => closing_behavior::Enum::EmitAlways as i32,
+        };
         expected_strategy.allowed_lateness = node.time.allowed_lateness_ns / 1_000_000;
         if components
             .windowing_strategies

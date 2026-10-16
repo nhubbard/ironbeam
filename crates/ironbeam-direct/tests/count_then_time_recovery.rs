@@ -2,7 +2,7 @@ mod processing_time_support;
 
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, Replay, SinkMode, SinkSpec, SourceProgress, Timestamped,
-    TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
+    TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll, WindowOnTimeBehavior,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use processing_time_support::{Capture, TimedScript, Value, progress};
@@ -98,6 +98,13 @@ fn count_then_time_phase_and_deadline_survive_checkpoint() {
             source.count_then_processing_time_trigger_named("trigger", 2, 5_000_000)
         }
         .unwrap();
+        let triggered = if accumulating {
+            triggered
+                .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
+                .unwrap()
+        } else {
+            triggered
+        };
         let sink = triggered
             .group_by_key_named("group")
             .unwrap()

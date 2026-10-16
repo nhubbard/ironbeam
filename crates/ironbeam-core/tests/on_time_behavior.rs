@@ -82,7 +82,7 @@ fn fire_always_restores_empty_on_time_pane_after_early_firing() {
             usize::from(behavior == WindowOnTimeBehavior::FireAlways)
         );
         if let Some(pane) = on_time.into_iter().next() {
-            assert_eq!(pane.timestamp_ns, 1_000_000);
+            assert_eq!(pane.timestamp_ns, 9_000_000);
             assert_eq!(pane.pane.timing, PaneTiming::OnTime);
             assert_eq!(pane.pane.index, 1);
             assert!(!pane.pane.is_first);
@@ -137,6 +137,7 @@ fn processing_time_early_firing_preserves_empty_on_time_pane() {
     assert_eq!(on_time.len(), 1);
     assert_eq!(on_time[0].pane.timing, PaneTiming::OnTime);
     assert_eq!(on_time[0].pane.index, 1);
+    assert_eq!(on_time[0].timestamp_ns, 9_000_000);
     assert_eq!(
         *on_time
             .into_iter()
@@ -146,5 +147,155 @@ fn processing_time_early_firing_preserves_empty_on_time_pane() {
             .downcast::<(i32, Vec<i32>)>()
             .unwrap(),
         (1, vec![])
+    );
+}
+
+#[test]
+fn accumulating_on_time_policy_uses_new_values_since_early_firing() {
+    for behavior in [
+        WindowOnTimeBehavior::FireIfNonempty,
+        WindowOnTimeBehavior::FireAlways,
+    ] {
+        let pipeline = Pipeline::default();
+        pipeline
+            .from_vec("source", vec![(1_i32, 7_i32)])
+            .unwrap()
+            .fixed_windows("window", 10_000_000)
+            .unwrap()
+            .accumulating_count_trigger_named("early", 1)
+            .unwrap()
+            .on_time_behavior_named("on-time", behavior)
+            .unwrap()
+            .group_by_key_named("group")
+            .unwrap();
+        let (_, registry) = pipeline.snapshot().unwrap();
+        let mut fold = registry.open_fold("group").unwrap();
+        fold.add(Envelope {
+            pane: PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, 7_i32)),
+            timestamp_ns: 1_000_000,
+            window: Window::Fixed {
+                size_ns: 10_000_000,
+            },
+            assigned_window: Some(WindowInterval {
+                start_ns: 0,
+                end_ns: 10_000_000,
+            }),
+        })
+        .unwrap();
+        assert_eq!(fold.drain_ready_count(1).unwrap().0.len(), 1);
+        let (panes, released) = fold.drain_closed(10_000_000).unwrap();
+        assert_eq!(released, 1);
+        assert_eq!(
+            panes.len(),
+            usize::from(behavior == WindowOnTimeBehavior::FireAlways)
+        );
+        if let Some(pane) = panes.into_iter().next() {
+            assert_eq!(pane.pane.timing, PaneTiming::OnTime);
+            assert_eq!(pane.timestamp_ns, 9_000_000);
+            assert_eq!(
+                *pane.value.downcast::<(i32, Vec<i32>)>().unwrap(),
+                (1, vec![7])
+            );
+        }
+    }
+}
+
+#[test]
+fn skipped_accumulating_on_time_pane_keeps_state_for_late_values() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 7_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .accumulating_early_and_late_count_trigger_named("trigger", 1, 1)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut fold = registry.open_fold("group").unwrap();
+    let input = |value| Envelope {
+        pane: PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, value)),
+        timestamp_ns: 1_000_000,
+        window: Window::Fixed {
+            size_ns: 10_000_000,
+        },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10_000_000,
+        }),
+    };
+    fold.add(input(7)).unwrap();
+    assert_eq!(fold.drain_ready_count(1).unwrap().0.len(), 1);
+    assert!(fold.drain_closed(10_000_000).unwrap().0.is_empty());
+    fold.add(input(8)).unwrap();
+    let (late, _) = fold.drain_late_at(Some(10_000_000), false).unwrap();
+    assert_eq!(late.len(), 1);
+    assert_eq!(late[0].pane.timing, PaneTiming::Late);
+    assert_eq!(
+        *late
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<(i32, Vec<i32>)>()
+            .unwrap(),
+        (1, vec![7, 8])
+    );
+}
+
+#[test]
+fn skipped_discarding_on_time_pane_keeps_late_trigger_after_checkpoint() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 7_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .early_and_late_count_trigger_named("trigger", 1, 1)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut fold = registry.open_fold("group").unwrap();
+    let input = |value| Envelope {
+        pane: PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, value)),
+        timestamp_ns: 1_000_000,
+        window: Window::Fixed {
+            size_ns: 10_000_000,
+        },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10_000_000,
+        }),
+    };
+    fold.add(input(7)).unwrap();
+    assert_eq!(fold.drain_ready_count(1).unwrap().0.len(), 1);
+    let state = fold.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("group").unwrap();
+    restored.restore_checkpoint_state(&state).unwrap();
+    assert!(restored.drain_closed(10_000_000).unwrap().0.is_empty());
+    restored.add(input(8)).unwrap();
+    let (late, released) = restored.drain_late_at(Some(10_000_000), false).unwrap();
+    assert_eq!(released, 1);
+    assert_eq!(late.len(), 1);
+    assert_eq!(late[0].pane.timing, PaneTiming::Late);
+    assert_eq!(late[0].pane.index, 1);
+    assert_eq!(
+        *late
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<(i32, Vec<i32>)>()
+            .unwrap(),
+        (1, vec![8])
     );
 }

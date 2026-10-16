@@ -608,6 +608,7 @@ impl Pipeline {
                     trigger: WindowTrigger::Default,
                     output_time: WindowOutputTime::EarliestInPane,
                     on_time_behavior: WindowOnTimeBehavior::FireIfNonempty,
+                    closing_behavior: WindowClosingBehavior::EmitIfNonempty,
                     allowed_lateness_ns: 0,
                 },
                 local_id: 0,

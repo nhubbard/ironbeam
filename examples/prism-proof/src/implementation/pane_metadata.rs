@@ -906,7 +906,7 @@ pub fn pane_metadata_fixture_with_trigger(
     window: PaneFixtureWindow,
     early_count_one: bool,
 ) -> Result<Sink<String>, Error> {
-    pane_metadata_fixture_with_count_mode(pipeline, path, window, early_count_one.then_some(false), false)
+    pane_metadata_fixture_with_count_mode(pipeline, path, window, early_count_one.then_some(false), false, false)
 }
 
 /// Probe an empty on-time pane after an early count firing consumes a window.
@@ -914,7 +914,15 @@ pub fn pane_metadata_fixture_fire_always(
     pipeline: &Pipeline,
     path: PathBuf,
 ) -> Result<Sink<String>, Error> {
-    pane_metadata_fixture_with_count_mode(pipeline, path, PaneFixtureWindow::Fixed, Some(false), true)
+    pane_metadata_fixture_with_count_mode(pipeline, path, PaneFixtureWindow::Fixed, Some(false), true, false)
+}
+
+/// Probe a final empty pane at a fixed window's lateness deadline.
+pub fn pane_metadata_fixture_closing_always(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    pane_metadata_fixture_with_count_mode(pipeline, path, PaneFixtureWindow::Fixed, Some(false), false, true)
 }
 
 pub fn pane_metadata_fixture_with_accumulating_count(
@@ -922,7 +930,7 @@ pub fn pane_metadata_fixture_with_accumulating_count(
     path: PathBuf,
     window: PaneFixtureWindow,
 ) -> Result<Sink<String>, Error> {
-    pane_metadata_fixture_with_count_mode(pipeline, path, window, Some(true), false)
+    pane_metadata_fixture_with_count_mode(pipeline, path, window, Some(true), false, false)
 }
 
 fn pane_metadata_fixture_with_count_mode(
@@ -931,6 +939,7 @@ fn pane_metadata_fixture_with_count_mode(
     window: PaneFixtureWindow,
     count_mode: Option<bool>,
     fire_always: bool,
+    closing_always: bool,
 ) -> Result<Sink<String>, Error> {
     let values = pipeline
         .from_vec(
@@ -947,6 +956,13 @@ fn pane_metadata_fixture_with_count_mode(
             values.sliding_windows("pane-windows", 10_000_000, 5_000_000, 0)?
         }
         PaneFixtureWindow::Session => values.session_windows_named("pane-windows", 10_000_000)?,
+    };
+    let values = if closing_always {
+        values
+            .allowed_lateness_named("pane-lateness", 5_000_000)?
+            .closing_behavior_named("pane-closing", WindowClosingBehavior::EmitAlways)?
+    } else {
+        values
     };
     let values = match count_mode {
         Some(true) => values.accumulating_count_trigger_named("pane-count-trigger", 1)?,

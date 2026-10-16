@@ -238,6 +238,7 @@ struct GroupByKeyFoldState<K, V> {
     trigger: WindowTrigger,
     output_time: WindowOutputTime,
     on_time_behavior: WindowOnTimeBehavior,
+    closing_behavior: WindowClosingBehavior,
     allowed_lateness_ns: i64,
     last_watermark_ns: Option<i64>,
     global_indices: HashMap<K, usize>,
@@ -271,6 +272,13 @@ const fn grouped_output_timestamp(
             None => earliest_ns,
         },
         _ => earliest_ns,
+    }
+}
+
+const fn empty_pane_output_timestamp(interval: Option<WindowInterval>) -> i64 {
+    match interval {
+        Some(interval) => interval.end_ns.saturating_sub(1_000_000),
+        None => BEAM_GLOBAL_WINDOW_MAX_TIMESTAMP_NS,
     }
 }
 
@@ -477,15 +485,25 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
         if let Some(interval) = assigned_window {
             let scope = (group_key.clone(), interval);
             if let Some(&index) = self.window_indices.get(&scope) {
-                self.groups[index].1.push(value);
-                self.groups[index].2 = self.groups[index].2.min(timestamp_ns);
+                let row = &mut self.groups[index];
+                row.2 = if row.1.is_empty() {
+                    timestamp_ns
+                } else {
+                    row.2.min(timestamp_ns)
+                };
+                row.1.push(value);
                 return;
             }
             self.window_indices.insert(scope, self.groups.len());
         } else {
             if let Some(&index) = self.global_indices.get(&group_key) {
-                self.groups[index].1.push(value);
-                self.groups[index].2 = self.groups[index].2.min(timestamp_ns);
+                let row = &mut self.groups[index];
+                row.2 = if row.1.is_empty() {
+                    timestamp_ns
+                } else {
+                    row.2.min(timestamp_ns)
+                };
+                row.1.push(value);
                 return;
             }
             self.global_indices
@@ -626,7 +644,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 continue;
             }
             let interval = assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE);
-            let latest = if self.on_time_behavior == WindowOnTimeBehavior::FireAlways {
+            let latest = if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
+                || self.closing_behavior == WindowClosingBehavior::EmitAlways
+                || self.trigger.late_count().is_some()
+            {
                 self.latest_timestamps.get(&(key.clone(), interval)).copied()
             } else {
                 self.latest_timestamps.remove(&(key.clone(), interval))
@@ -639,7 +660,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 .checked_add(1)
                 .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
             released = released.saturating_add(values.len());
-            if self.on_time_behavior == WindowOnTimeBehavior::FireAlways {
+            if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
+                || self.closing_behavior == WindowClosingBehavior::EmitAlways
+                || self.trigger.late_count().is_some()
+            {
                 remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
             }
             fired.push(Envelope {
@@ -757,7 +781,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 continue;
             }
             self.processing_deadlines.remove(&scope);
-            let latest = if self.on_time_behavior == WindowOnTimeBehavior::FireAlways {
+            let latest = if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
+                || self.closing_behavior == WindowClosingBehavior::EmitAlways
+                || self.trigger.late_count().is_some()
+            {
                 self.latest_timestamps.get(&scope).copied()
             } else {
                 self.latest_timestamps.remove(&scope)
@@ -768,7 +795,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 .checked_add(1)
                 .ok_or_else(|| Error::resource(&self.key, "too many window panes"))?;
             released = released.saturating_add(values.len());
-            if self.on_time_behavior == WindowOnTimeBehavior::FireAlways {
+            if self.on_time_behavior == WindowOnTimeBehavior::FireAlways
+                || self.closing_behavior == WindowClosingBehavior::EmitAlways
+                || self.trigger.late_count().is_some()
+            {
                 remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
             }
             fired.push(Envelope {
@@ -809,22 +839,49 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 if self.allowed_lateness_ns > 0
                     && self.nonspeculative_base.contains_key(&(key.clone(), interval))
                 {
-                    if expired {
+                    if expired && self.closing_behavior == WindowClosingBehavior::EmitIfNonempty {
                         released = released.saturating_add(values.len());
                     } else {
                         remaining.push((key, values, timestamp_ns, window, assigned_window));
                     }
                     continue;
                 }
-                let value_count = values.len();
                 let scope = (key.clone(), interval);
-                let retain_for_late = accumulating_late && !expired;
+                let prior_count = if self.trigger.is_accumulating() {
+                    self.fired_value_counts.get(&scope).copied().unwrap_or(0)
+                } else {
+                    0
+                };
+                let new_count = values.len().checked_sub(prior_count).ok_or_else(|| {
+                    Error::recovery(&self.key, "on-time pane count exceeds group length")
+                })?;
+                let empty_firing = new_count == 0 && self.fired_panes.contains_key(&scope);
+                if empty_firing && self.on_time_behavior == WindowOnTimeBehavior::FireIfNonempty {
+                    if self.closing_behavior == WindowClosingBehavior::EmitAlways
+                        || (self.trigger.late_count().is_some() && !expired)
+                    {
+                        let next_index = self.fired_panes.get(&scope).copied().unwrap_or(0);
+                        self.nonspeculative_base.insert(scope, next_index);
+                        remaining.push((key, values, timestamp_ns, window, assigned_window));
+                    } else {
+                        released = released.saturating_add(values.len());
+                    }
+                    continue;
+                }
+                let value_count = values.len();
+                let retain_for_late = accumulating_late
+                    && (!expired || self.closing_behavior == WindowClosingBehavior::EmitAlways);
+                let retain_empty_for_closing = self.closing_behavior == WindowClosingBehavior::EmitAlways
+                    && !retain_for_late;
                 let output_values = if retain_for_late {
                     let copied = Vec::<V>::decode(&values.encode()?)?;
                     remaining.push((key.clone(), values, timestamp_ns, window.clone(), assigned_window));
                     copied
                 } else {
                     released = released.saturating_add(value_count);
+                    if retain_empty_for_closing {
+                        remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
+                    }
                     values
                 };
                 let index = if self.allowed_lateness_ns > 0 {
@@ -845,10 +902,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 } else {
                     self.fired_value_counts.remove(&scope);
                 }
-                let latest = if retain_for_late {
+                let latest = if retain_for_late || retain_empty_for_closing {
                     self.latest_timestamps.get(&scope).copied()
                 } else {
                     self.latest_timestamps.remove(&scope)
+                };
+                let output_timestamp_ns = if empty_firing {
+                    empty_pane_output_timestamp(assigned_window)
+                } else {
+                    grouped_output_timestamp(self.output_time, timestamp_ns, latest, assigned_window)
                 };
                 closed.push(Envelope {
                     pane: PaneInfo {
@@ -860,7 +922,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         contains_element_metadata: false,
                     },
                     value: Box::new((key, output_values)),
-                    timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, assigned_window),
+                    timestamp_ns: output_timestamp_ns,
                     window,
                     assigned_window,
                 });
@@ -869,6 +931,11 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             }
         }
         self.groups = remaining;
+        if self.closing_behavior == WindowClosingBehavior::EmitAlways {
+            let (mut final_panes, final_released) = self.drain_late_at(Some(watermark_ns), true)?;
+            closed.append(&mut final_panes);
+            released = released.saturating_add(final_released);
+        }
         let expired_sessions = self
             .session_lineage
             .iter()
@@ -923,10 +990,16 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         watermark_ns: Option<i64>,
         final_firing: bool,
     ) -> Result<(Vec<Envelope>, usize), Error> {
-        if self.allowed_lateness_ns == 0
-            || (self.trigger != WindowTrigger::Default && self.trigger.late_count().is_none())
-        {
+        if self.allowed_lateness_ns == 0 {
             return Err(Error::unsupported(&self.key, "direct", "late-window-firing"));
+        }
+        if self.trigger != WindowTrigger::Default && self.trigger.late_count().is_none() {
+            if self.closing_behavior != WindowClosingBehavior::EmitAlways {
+                return Err(Error::unsupported(&self.key, "direct", "late-window-firing"));
+            }
+            if !final_firing {
+                return Ok((Vec::new(), 0));
+            }
         }
         let mut panes = Vec::new();
         let mut remaining = Vec::new();
@@ -958,7 +1031,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             let threshold = self.trigger.late_count()
                 .and_then(|count| usize::try_from(count).ok())
                 .unwrap_or(1);
-            if new_count == 0 || (!final_firing && new_count < threshold) {
+            if (new_count == 0
+                && (!final_firing || self.closing_behavior == WindowClosingBehavior::EmitIfNonempty))
+                || (!final_firing && new_count < threshold)
+            {
                 if final_firing {
                     released = released.saturating_add(values.len());
                     self.fired_value_counts.remove(&scope);
@@ -969,7 +1045,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                 continue;
             }
             let value_count = values.len();
-            let output_values = if accumulating && !final_firing {
+            let retain_for_late = accumulating && !final_firing;
+            let retain_empty_for_closing = self.closing_behavior == WindowClosingBehavior::EmitAlways
+                && !final_firing && !retain_for_late;
+            let output_values = if retain_for_late {
                 let copied = Vec::<V>::decode(&values.encode()?)?;
                 remaining.push((key.clone(), values, timestamp_ns, window.clone(), assigned_window));
                 self.fired_value_counts.insert(scope.clone(), value_count);
@@ -977,6 +1056,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             } else {
                 released = released.saturating_add(value_count);
                 self.fired_value_counts.remove(&scope);
+                if retain_empty_for_closing {
+                    remaining.push((key.clone(), Vec::new(), timestamp_ns, window.clone(), assigned_window));
+                }
                 values
             };
             let next_index = self.fired_panes.entry(scope.clone()).or_insert(0);
@@ -993,10 +1075,15 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     0
                 }
             });
-            let latest = if accumulating && !final_firing {
+            let latest = if retain_for_late || retain_empty_for_closing {
                 self.latest_timestamps.get(&scope).copied()
             } else {
                 self.latest_timestamps.remove(&scope)
+            };
+            let output_timestamp_ns = if new_count == 0 {
+                empty_pane_output_timestamp(Some(interval))
+            } else {
+                grouped_output_timestamp(self.output_time, timestamp_ns, latest, Some(interval))
             };
             panes.push(Envelope {
                 pane: PaneInfo {
@@ -1008,7 +1095,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     contains_element_metadata: false,
                 },
                 value: Box::new((key, output_values)),
-                timestamp_ns: grouped_output_timestamp(self.output_time, timestamp_ns, latest, Some(interval)),
+                timestamp_ns: output_timestamp_ns,
                 window,
                 assigned_window,
             });
@@ -1119,6 +1206,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             trigger: self.trigger,
             output_time: self.output_time,
             on_time_behavior: self.on_time_behavior,
+            closing_behavior: self.closing_behavior,
             allowed_lateness_ns: self.allowed_lateness_ns,
             last_watermark_ns: checkpoint.last_watermark_ns,
             global_indices: HashMap::new(),
@@ -1202,6 +1290,8 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             let values = Vec::<V>::decode(&row.values)?;
             if values.is_empty()
                 && (self.on_time_behavior != WindowOnTimeBehavior::FireAlways
+                    && self.closing_behavior != WindowClosingBehavior::EmitAlways
+                    && self.trigger.late_count().is_none()
                     || !restored.fired_panes.contains_key(&(key.clone(), row.assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE))))
             {
                 return Err(Error::recovery(&self.key, "empty group in fold checkpoint"));
@@ -1311,22 +1401,42 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         } else {
             Vec::new()
         };
+        if self.closing_behavior == WindowClosingBehavior::EmitAlways {
+            early.extend(self.drain_closed(i64::MAX)?.0);
+            return Ok(early);
+        }
         let fired_panes = self.fired_panes;
         let output_time = self.output_time;
+        let on_time_behavior = self.on_time_behavior;
+        let accumulating = self.trigger.is_accumulating();
+        let fired_value_counts = self.fired_value_counts;
         let latest_timestamps = self.latest_timestamps;
         early.extend(self
             .groups
             .into_iter()
-            .map(
+            .filter_map(
                 |(key, values, timestamp_ns, window, assigned_window)| {
+                    let scope = (key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
                     let index = fired_panes
-                        .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
+                        .get(&scope)
                         .copied()
                         .unwrap_or(0);
+                    let empty_firing = index > 0
+                        && (values.is_empty()
+                            || (accumulating
+                                && fired_value_counts.get(&scope).copied() == Some(values.len())));
+                    if empty_firing && on_time_behavior == WindowOnTimeBehavior::FireIfNonempty {
+                        return None;
+                    }
                     let latest_ns = latest_timestamps
-                        .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
+                        .get(&scope)
                         .copied();
-                    Envelope {
+                    let output_timestamp_ns = if empty_firing {
+                        empty_pane_output_timestamp(assigned_window)
+                    } else {
+                        grouped_output_timestamp(output_time, timestamp_ns, latest_ns, assigned_window)
+                    };
+                    Some(Envelope {
                     pane: PaneInfo {
                         is_first: index == 0,
                         is_last: true,
@@ -1336,15 +1446,10 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                         contains_element_metadata: false,
                     },
                     value: Box::new((key, values)),
-                    timestamp_ns: grouped_output_timestamp(
-                        output_time,
-                        timestamp_ns,
-                        latest_ns,
-                        assigned_window,
-                    ),
+                    timestamp_ns: output_timestamp_ns,
                     window,
                     assigned_window,
-                }
+                })
                 },
             )
             .collect::<Vec<_>>());
@@ -1355,7 +1460,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
         self: Box<Self>,
         emit: &mut dyn FnMut(Envelope) -> Result<(), Error>,
     ) -> Result<(), Error> {
-        if self.trigger != WindowTrigger::Default {
+        if self.trigger != WindowTrigger::Default
+            || self.closing_behavior == WindowClosingBehavior::EmitAlways
+        {
             for pane in self.finish()? {
                 emit(pane)?;
             }
@@ -1372,6 +1479,11 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             let latest_ns = latest_timestamps
                 .get(&(key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE)))
                 .copied();
+            let output_timestamp_ns = if values.is_empty() {
+                empty_pane_output_timestamp(assigned_window)
+            } else {
+                grouped_output_timestamp(output_time, timestamp_ns, latest_ns, assigned_window)
+            };
             emit(Envelope {
                 pane: PaneInfo {
                     is_first: index == 0,
@@ -1382,12 +1494,7 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
                     contains_element_metadata: false,
                 },
                 value: Box::new((key, values)),
-                timestamp_ns: grouped_output_timestamp(
-                    output_time,
-                    timestamp_ns,
-                    latest_ns,
-                    assigned_window,
-                ),
+                timestamp_ns: output_timestamp_ns,
                 window,
                 assigned_window,
             })?;

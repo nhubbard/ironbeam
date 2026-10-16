@@ -1,5 +1,6 @@
 use ironbeam_core::{
     CombineFn, Element, Envelope, ErrorKind, PaneTiming, Pipeline, Window, WindowInterval,
+    WindowOnTimeBehavior,
 };
 
 #[test]
@@ -130,6 +131,8 @@ fn accumulating_count_fold_restores_values_and_threshold_progress() {
         .fixed_windows("window", 10)
         .unwrap()
         .accumulating_count_trigger_named("trigger", 2)
+        .unwrap()
+        .on_time_behavior_named("on-time", WindowOnTimeBehavior::FireAlways)
         .unwrap()
         .group_by_key_named("group")
         .unwrap();

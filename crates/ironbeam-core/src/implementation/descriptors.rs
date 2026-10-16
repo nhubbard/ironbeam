@@ -191,6 +191,22 @@ impl WindowOnTimeBehavior {
     }
 }
 
+/// Whether expiration fires a final pane without new values since the last firing.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum WindowClosingBehavior {
+    #[default]
+    EmitIfNonempty,
+    EmitAlways,
+}
+
+impl WindowClosingBehavior {
+    /// Return whether this is Ironbeam's default closing policy.
+    #[must_use]
+    pub const fn is_default(&self) -> bool {
+        matches!(self, Self::EmitIfNonempty)
+    }
+}
+
 /// Half-open event-time interval `[start_ns, end_ns)`.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct WindowInterval {
@@ -475,6 +491,8 @@ pub struct Time {
     pub output_time: WindowOutputTime,
     #[serde(default, skip_serializing_if = "WindowOnTimeBehavior::is_default")]
     pub on_time_behavior: WindowOnTimeBehavior,
+    #[serde(default, skip_serializing_if = "WindowClosingBehavior::is_default")]
+    pub closing_behavior: WindowClosingBehavior,
     #[serde(default, skip_serializing_if = "is_zero_i64")]
     pub allowed_lateness_ns: i64,
 }
@@ -492,6 +510,7 @@ impl Default for Time {
             trigger: WindowTrigger::Default,
             output_time: WindowOutputTime::EarliestInPane,
             on_time_behavior: WindowOnTimeBehavior::FireIfNonempty,
+            closing_behavior: WindowClosingBehavior::EmitIfNonempty,
             allowed_lateness_ns: 0,
         }
     }

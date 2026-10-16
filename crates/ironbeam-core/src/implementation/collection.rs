@@ -5,6 +5,7 @@ struct TimePolicyOverride {
     trigger: Option<WindowTrigger>,
     output_time: Option<WindowOutputTime>,
     on_time_behavior: Option<WindowOnTimeBehavior>,
+    closing_behavior: Option<WindowClosingBehavior>,
     allowed_lateness_ns: Option<i64>,
 }
 
@@ -102,6 +103,7 @@ impl<T: Element> PCollection<T> {
                 trigger: policy.trigger.unwrap_or(parent.time.trigger),
                 output_time: policy.output_time.unwrap_or(parent.time.output_time),
                 on_time_behavior: policy.on_time_behavior.unwrap_or(parent.time.on_time_behavior),
+                closing_behavior: policy.closing_behavior.unwrap_or(parent.time.closing_behavior),
                 allowed_lateness_ns: policy
                     .allowed_lateness_ns
                     .unwrap_or(parent.time.allowed_lateness_ns),
@@ -650,6 +652,7 @@ impl<T: Element> PCollection<T> {
                 }),
                 output_time: None,
                 on_time_behavior: None,
+                closing_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -737,6 +740,7 @@ impl<T: Element> PCollection<T> {
                 }),
                 output_time: None,
                 on_time_behavior: None,
+                closing_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -823,6 +827,7 @@ impl<T: Element> PCollection<T> {
                 }),
                 output_time: None,
                 on_time_behavior: None,
+                closing_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -855,6 +860,7 @@ impl<T: Element> PCollection<T> {
                 }),
                 output_time: None,
                 on_time_behavior: None,
+                closing_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -886,6 +892,7 @@ impl<T: Element> PCollection<T> {
                 trigger: None,
                 output_time: Some(policy),
                 on_time_behavior: None,
+                closing_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -912,6 +919,37 @@ impl<T: Element> PCollection<T> {
                 trigger: None,
                 output_time: None,
                 on_time_behavior: Some(behavior),
+                closing_behavior: None,
+                allowed_lateness_ns: None,
+            },
+        )
+    }
+
+    /// Set whether a keyed window emits its final pane when allowed lateness
+    /// expires without new values. The default is `EmitIfNonempty`.
+    ///
+    /// Set positive allowed lateness before `EmitAlways`, then apply this
+    /// policy before `group_by_key_named`.
+    pub fn closing_behavior_named(
+        &self,
+        key: &str,
+        behavior: WindowClosingBehavior,
+    ) -> Result<Self, Error> {
+        let time = self.parent()?.time;
+        if behavior == WindowClosingBehavior::EmitAlways && time.allowed_lateness_ns == 0 {
+            return Err(Error::graph(key, "always-emitting closing behavior requires allowed lateness"));
+        }
+        self.next_with_time_policy(
+            key,
+            Operation::Map,
+            Some(Transform::Single(Arc::new(|event| Ok(Some(event))))),
+            Some(time.window),
+            None,
+            TimePolicyOverride {
+                trigger: None,
+                output_time: None,
+                on_time_behavior: None,
+                closing_behavior: Some(behavior),
                 allowed_lateness_ns: None,
             },
         )
@@ -940,6 +978,7 @@ impl<T: Element> PCollection<T> {
                 trigger: None,
                 output_time: None,
                 on_time_behavior: None,
+                closing_behavior: None,
                 allowed_lateness_ns: Some(duration_ns),
             },
         )
@@ -981,6 +1020,7 @@ impl<T: Element> PCollection<T> {
                 }),
                 output_time: None,
                 on_time_behavior: None,
+                closing_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
@@ -1040,6 +1080,7 @@ impl<T: Element> PCollection<T> {
                 }),
                 output_time: None,
                 on_time_behavior: None,
+                closing_behavior: None,
                 allowed_lateness_ns: None,
             },
         )
