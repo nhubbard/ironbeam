@@ -58,7 +58,23 @@ impl TypedSink<i32> for OffsetProofSink {
 
 /// A bounded offset callback with two input elements and explicit event times.
 pub fn bounded_offset_sdf_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<i32>, Error> {
-    offset_sdf_fixture(pipeline.from_vec("offset-input", vec![1_i32, 10])?, path)
+    offset_sdf_fixture(
+        pipeline.from_vec("offset-input", vec![1_i32, 10])?,
+        path,
+        false,
+    )
+}
+
+/// A bounded callback that splits one restriction and resumes its watermark.
+pub fn bounded_offset_sdf_residual_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<i32>, Error> {
+    offset_sdf_fixture(
+        pipeline.from_vec("offset-input", vec![1_i32, 10])?,
+        path,
+        true,
+    )
 }
 
 /// The same finite offset work from a scripted unbounded input.
@@ -77,10 +93,35 @@ pub fn streaming_offset_sdf_fixture(
             ],
         )?,
         path,
+        false,
     )
 }
 
-fn offset_sdf_fixture(input: PCollection<i32>, path: PathBuf) -> Result<Sink<i32>, Error> {
+/// The residual callback driven by the same finite TestStream as the plain job.
+pub fn streaming_offset_sdf_residual_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<i32>, Error> {
+    offset_sdf_fixture(
+        pipeline.test_stream_source(
+            "offset-events",
+            vec![
+                TestStreamEvent::Elements(vec![(1_i32, 0)]),
+                TestStreamEvent::AdvanceWatermark(1_000_000),
+                TestStreamEvent::Elements(vec![(10_i32, 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(4_000_000),
+            ],
+        )?,
+        path,
+        true,
+    )
+}
+
+fn offset_sdf_fixture(
+    input: PCollection<i32>,
+    path: PathBuf,
+    split_first: bool,
+) -> Result<Sink<i32>, Error> {
     let sink_path = path.clone();
     input
         .splittable_flat_map_named(
@@ -88,10 +129,8 @@ fn offset_sdf_fixture(input: PCollection<i32>, path: PathBuf) -> Result<Sink<i32
             "prism-proof/offset-expand",
             Version { major: 1, minor: 0 },
             |_| OffsetRange::new(0, 3),
-            |value, context| {
-                if *value == 1
-                    && std::env::var_os("IRONBEAM_TEST_OFFSET_SDF_RESIDUAL_WATERMARK").is_some()
-                {
+            move |value, context| {
+                if *value == 1 && split_first {
                     let restriction = context.tracker().restriction()?;
                     if restriction.start == 0 {
                         context.tracker().try_split(0.5)?;

@@ -483,36 +483,72 @@ async fn prism_matches_direct_streaming_offset_sdf() {
 
 #[tokio::test]
 async fn prism_restores_user_offset_watermark_in_a_residual_bundle() {
-    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
-        return;
-    };
-    let _prism_job = prism_job_lock().lock().await;
-    let directory = tempfile::tempdir().unwrap();
-    let output = directory.path().join("offset-watermark-resume.txt");
-    let pipeline = Pipeline::default();
-    ironbeam_prism_proof::bounded_offset_sdf_fixture(&pipeline, output.clone()).unwrap();
-    let terminal = run_shared_fixture(
-        &endpoint,
-        &pipeline,
-        "offset-watermark-resume",
-        HashMap::from([
-            (
-                "IRONBEAM_V5_PRISM_OFFSET_SDF".into(),
-                output.to_string_lossy().into_owned(),
-            ),
-            (
-                "IRONBEAM_TEST_OFFSET_SDF_RESIDUAL_WATERMARK".into(),
-                "1".into(),
-            ),
-        ]),
-    )
-    .await;
-    assert_eq!(terminal.0, 3, "offset residual job failed: {terminal:?}");
-    let rows = std::fs::read_to_string(&output).unwrap();
-    assert_eq!(
-        rows.lines().collect::<Vec<_>>(),
-        ["1", "2", "3", "10", "11", "12"]
-    );
+    let endpoint = std::env::var("IRONBEAM_PRISM_ENDPOINT").ok();
+    for (name, streaming) in [("bounded", false), ("streaming", true)] {
+        let directory = tempfile::tempdir().unwrap();
+        let direct_path = directory.path().join("direct-offset-watermark.txt");
+        let portable_path = directory.path().join("portable-offset-watermark.txt");
+        let direct = Pipeline::default();
+        let direct_sink = if streaming {
+            ironbeam_prism_proof::streaming_offset_sdf_residual_fixture(
+                &direct,
+                direct_path.clone(),
+            )
+        } else {
+            ironbeam_prism_proof::bounded_offset_sdf_residual_fixture(&direct, direct_path.clone())
+        }
+        .unwrap();
+        if streaming {
+            DirectRunner
+                .start_stream_sink(&direct_sink, &JobConfig::default())
+                .unwrap()
+                .wait()
+                .unwrap();
+        } else {
+            DirectRunner
+                .run_sink(&direct_sink, &JobConfig::default())
+                .unwrap();
+        }
+        let rows = |path: &Path| std::fs::read_to_string(path).unwrap();
+        assert_eq!(
+            rows(&direct_path).lines().collect::<Vec<_>>(),
+            ["1", "2", "3", "10", "11", "12"]
+        );
+        let Some(endpoint) = endpoint.as_ref() else {
+            continue;
+        };
+        let _prism_job = prism_job_lock().lock().await;
+        let portable = Pipeline::default();
+        if streaming {
+            ironbeam_prism_proof::streaming_offset_sdf_residual_fixture(
+                &portable,
+                portable_path.clone(),
+            )
+        } else {
+            ironbeam_prism_proof::bounded_offset_sdf_residual_fixture(
+                &portable,
+                portable_path.clone(),
+            )
+        }
+        .unwrap();
+        let terminal = run_shared_fixture(
+            endpoint,
+            &portable,
+            &format!("{name}-offset-watermark-resume"),
+            HashMap::from([(
+                if streaming {
+                    "IRONBEAM_V5_PRISM_STREAM_OFFSET_SDF_RESIDUAL"
+                } else {
+                    "IRONBEAM_V5_PRISM_OFFSET_SDF_RESIDUAL"
+                }
+                .into(),
+                portable_path.to_string_lossy().into_owned(),
+            )]),
+        )
+        .await;
+        assert_eq!(terminal.0, 3, "{name} residual job failed: {terminal:?}");
+        assert_eq!(rows(&portable_path), rows(&direct_path));
+    }
 }
 
 #[tokio::test]

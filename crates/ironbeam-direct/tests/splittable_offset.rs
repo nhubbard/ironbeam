@@ -155,7 +155,7 @@ fn incomplete_work_and_output_without_a_claim_fail_the_job() {
 }
 
 #[test]
-fn a_local_split_cannot_silently_drop_its_residual() {
+fn direct_processes_callback_residuals_with_restored_watermarks() {
     let pipeline = Pipeline::default();
     let output = pipeline
         .from_vec("input", vec![3_i32])
@@ -164,21 +164,60 @@ fn a_local_split_cannot_silently_drop_its_residual() {
             "offsets",
             "tests/local-offset-split",
             VERSION,
-            |_| OffsetRange::new(0, 3),
+            |_| OffsetRange::new(0, 4),
             |_, context| {
-                assert!(context.try_claim(0)?);
-                context.emit(0_i32, 0)?;
-                let (_, residual) = context.tracker().try_split(0.0)?.unwrap();
-                assert_eq!(residual, OffsetRange::new(1, 3)?);
+                let restriction = context.tracker().restriction()?;
+                if restriction.start > 0 {
+                    assert_eq!(
+                        context.estimator().current()?,
+                        Some(restriction.start * 1_000_000)
+                    );
+                }
+                for offset in restriction.start..restriction.stop {
+                    if !context.try_claim(offset)? {
+                        break;
+                    }
+                    context.emit(offset as i32, offset * 1_000_000)?;
+                    if offset < 2 {
+                        context.tracker().try_split(0.0)?;
+                        context.update_watermark((offset + 1) * 1_000_000)?;
+                        break;
+                    }
+                }
                 Ok(())
             },
         )
         .unwrap()
         .output("out")
         .unwrap();
-    assert!(
-        DirectRunner
-            .run_collect(&output, &JobConfig::default())
-            .is_err()
-    );
+    let (rows, _) = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .unwrap();
+    assert_eq!(rows, [0, 1, 2, 3]);
+}
+
+#[test]
+fn direct_rejects_a_residual_that_makes_no_progress() {
+    let pipeline = Pipeline::default();
+    let output = pipeline
+        .from_vec("input", vec![1_i32])
+        .unwrap()
+        .splittable_flat_map_named::<i32>(
+            "offsets",
+            "tests/no-progress-offset-split",
+            VERSION,
+            |_| OffsetRange::new(0, 2),
+            |_, context| {
+                context.tracker().try_split(0.0)?;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let error = DirectRunner
+        .run_collect(&output, &JobConfig::default())
+        .err()
+        .expect("a repeated zero-progress split must fail");
+    assert!(error.to_string().contains("made no progress"));
 }

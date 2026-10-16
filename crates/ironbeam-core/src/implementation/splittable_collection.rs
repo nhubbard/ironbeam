@@ -3,8 +3,8 @@ impl<T: Element> PCollection<T> {
     ///
     /// The callback must claim every position it processes. The output is
     /// discarded if it returns before completing the primary restriction.
-    /// Direct executes this contract locally; portable runner execution is
-    /// enabled separately when its registered worker handler is available.
+    /// Direct processes callback-created residuals with the last reported
+    /// watermark before returning the element's output.
     pub fn splittable_flat_map_named<U: Element>(
         &self,
         key: &str,
@@ -36,29 +36,35 @@ impl<T: Element> PCollection<T> {
             let value = value.downcast::<T>().map_err(|_| {
                 Error::execution(&key_owned, "direct", "splittable input type mismatch")
             })?;
-            let restriction = direct_initial(&value)?;
-            let tracker = OffsetRangeTracker::new(restriction)?;
-            let mut context =
-                OffsetProcessContext::new(tracker.clone(), OffsetWatermarkEstimator::new(None));
-            direct_process(&value, &mut context)?;
-            if tracker.restriction()? != restriction {
-                return Err(Error::unsupported(
-                    &key_owned,
-                    "direct",
-                    "runner-owned-sdf-split",
-                ));
-            }
-            Ok(context
-                .finish()?
-                .into_iter()
-                .map(|output| Envelope {
+            let mut restriction = direct_initial(&value)?;
+            let mut watermark = None;
+            let mut outputs = Vec::new();
+            loop {
+                let tracker = OffsetRangeTracker::new(restriction)?;
+                let estimator = OffsetWatermarkEstimator::new(watermark);
+                let mut context = OffsetProcessContext::new(tracker.clone(), estimator.clone());
+                direct_process(&value, &mut context)?;
+                let primary = tracker.restriction()?;
+                outputs.extend(context.finish()?.into_iter().map(|output| Envelope {
                     pane,
                     value: Box::new(output.value),
                     timestamp_ns: output.timestamp_ns,
                     window: window.clone(),
                     assigned_window,
-                })
-                .collect())
+                }));
+                if primary.stop == restriction.stop {
+                    return Ok(outputs);
+                }
+                if primary.stop == restriction.start {
+                    return Err(Error::execution(
+                        &key_owned,
+                        "direct",
+                        "splittable callback made no progress before splitting",
+                    ));
+                }
+                watermark = estimator.current()?;
+                restriction = OffsetRange::new(primary.stop, restriction.stop)?;
+            }
         }));
         let output = self.next_with_semantic(
             key,
