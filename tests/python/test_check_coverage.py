@@ -1,6 +1,9 @@
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from check_coverage import (
     area_for,

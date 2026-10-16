@@ -27,7 +27,7 @@ jobs:
           node-version: 'lts/*'
       - name: Validate workspace publication configuration
         run: |
-          python3 -m unittest discover -s scripts -p 'test_*release*.py'
+          python3 -m unittest discover -s tests/python -p 'test_*release*.py'
           python3 scripts/check_v5_release_order.py --release
           node --check scripts/semantic_release_workspace.cjs
           npm ci
@@ -272,7 +272,7 @@ jobs:
       # code. The v5-coverage matrix measures the implementation crates.
       - name: Test portable facade and coverage gate script
         run: |
-          python3 -m unittest discover -s scripts -p 'test_*.py'
+          python3 -m unittest discover -s tests/python -p 'test_*.py'
           cargo test -p ironbeam --all-features
 
   contract-tests:

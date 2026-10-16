@@ -1,9 +1,13 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
 
 from check_v5_release_order import release_order
 
@@ -14,7 +18,7 @@ class ReleaseOrderTests(unittest.TestCase):
         environment.pop("IRONBEAM_RELEASE_CONFIRM", None)
         result = subprocess.run(
             ["bash", "scripts/publish_v5_packages.sh", "publish"],
-            cwd=Path(__file__).resolve().parent.parent,
+            cwd=ROOT,
             env=environment,
             capture_output=True,
             text=True,
@@ -86,10 +90,32 @@ class ReleaseOrderTests(unittest.TestCase):
         with temporary, self.assertRaisesRegex(ValueError, "cycle"):
             release_order(root)
 
+    def test_rejects_git_dependency(self):
+        temporary, root = self.workspace()
+        with temporary:
+            manifest = root / "Cargo.toml"
+            manifest.write_text(
+                manifest.read_text()
+                + '[dev-dependencies]\nremote = { git = "https://example.invalid/remote" }\n'
+            )
+            with self.assertRaisesRegex(ValueError, "Git dependency"):
+                release_order(root)
+
+    def test_rejects_registry_patch(self):
+        temporary, root = self.workspace()
+        with temporary:
+            manifest = root / "Cargo.toml"
+            manifest.write_text(
+                manifest.read_text()
+                + '[patch.crates-io]\nremote = { path = "../remote" }\n'
+            )
+            with self.assertRaisesRegex(ValueError, "patches"):
+                release_order(root)
+
     def test_publish_resumes_after_a_package_reaches_registry(self):
         temporary, root = self.workspace()
         with temporary:
-            source = Path(__file__).resolve().parent
+            source = ROOT / "scripts"
             scripts = root / "scripts"
             scripts.mkdir()
             for name in ("check_v5_release_order.py", "publish_v5_packages.sh"):
