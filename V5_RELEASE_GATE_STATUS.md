@@ -333,6 +333,11 @@ result once when the 2 ms watermark fires the timer. The kill witness matches
 the source's trigger PID. This proves one armed-timer replacement point; other
 failure schedules remain open.
 
+A separate TestStream replaces key 1's event timer from 3 ms to 5 ms and
+clears key 2's 3 ms timer. Direct and pinned Prism emit only `1:3:5000000`.
+The callback rejects either cancelled firing and checks that the replacement
+keeps its output hold at 0 ms.
+
 Another supervised Prism job kills the execution child inside the event-timer
 callback. Its parent replays the declared timer-family input to a replacement
 child. The job reaches `DONE`, the kill witness matches the selected child,
@@ -490,7 +495,7 @@ the worker can execute it.
 | SDF pair, split/size, process, and truncate | The first three stages execute for one-split resumable sources. The worker also accepts `sdf_truncate_sized_restrictions:v1` and applies Beam's default drain rule to the unbounded source restriction; a Fn Data fixture confirms that it validates the sized input and closes its output without a work item. `OffsetRangeTracker` supplies a claim/split/progress contract and Beam Java-compatible restriction bytes. | Execute registered user functions with offset restrictions, deliver dynamic splits and timer/watermark state, and prove runner-orchestrated drain plus custom finite truncation. |
 | Native `GroupIntoBatches` and sharded-key batching | Count and buffering-time helpers expand to grouping and Beam triggers; tested Direct and Prism cases agree. An explicit, versioned shard selector assigns one hot key to two opaque shards before batching; bounded and fixed-window TestStream jobs agree on both count batches. Direct restores two open count batches from one source checkpoint and commits each once. A supervised Prism job kills its execution child inside the sharded-batch output callback, replays the failed bundle, and publishes the same two count batches as Direct with no duplicate rows. The byte-limited variant, its shared Direct/Prism streaming fixture, Direct checkpoint restart, and Prism child-replacement proof are recorded in the byte-batch row below. | Automatic hot-key sharding remains open. Native URN emission is optional if the expansion preserves behavior. |
 | `WriteFiles`, Pub/Sub read/write, and provider operations | Format-specific worker sinks and provider-neutral/GCP clients exist. Local provider object I/O has portable jobs. | Portable service source and sink bindings, worker re-creation, and replay-safe publication under a controlled service or emulator. |
-| Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. `BeamShardedKey<String>` matches pinned standard coder examples and crosses a reshuffle on Direct and local Prism. The `Vec<u8>` key form now also crosses that boundary with non-UTF-8 bytes and exact shard IDs on both runners. Ordered-list and combining-state cells have bounded, streaming, and recovery proofs. Graphx registers and validates Beam timer-family coders; timer records have codec tests. State-backed iterables can be read from runner state. | Other timer replacement schedules, schema-coder jobs, and cross-SDK row evolution cases. |
+| Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. `BeamShardedKey<String>` matches pinned standard coder examples and crosses a reshuffle on Direct and local Prism. The `Vec<u8>` key form now also crosses that boundary with non-UTF-8 bytes and exact shard IDs on both runners. Ordered-list and combining-state cells have bounded, streaming, and recovery proofs. Graphx registers and validates Beam timer-family coders; timer records have codec tests. A shared job proves event-timer replacement for one key and cancellation for another. State-backed iterables can be read from runner state. | Processing-time timer replacement, schema-coder jobs, and cross-SDK row evolution cases. |
 
 These are evidence categories, not equal-sized percentage points. A scored
 99% claim still requires per-case inventory, runner agreement, and an explicit

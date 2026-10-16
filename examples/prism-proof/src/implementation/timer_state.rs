@@ -69,6 +69,89 @@ pub fn streaming_event_timer_fixture(
         )
 }
 
+/// One key replaces its event timer while another clears its timer. Only the
+/// replacement should fire after the watermark passes both old deadlines.
+pub fn streaming_replaced_event_timer_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "replaced-timer-source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 1_i32), 0), ((2, 4), 0)]),
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000), ((2, -4), 1_000_000)]),
+                TestStreamEvent::AdvanceWatermark(3_000_000),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+            ],
+        )?
+        .stateful_timer_map_named::<i32, String>(
+            "replaced-timer-state",
+            "prism-proof/replaced-event-timer-state",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, prior, _| {
+                let timers = if value < 0 {
+                    vec![UserTimerRequest::Clear {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                    }]
+                } else {
+                    vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: if value == 1 { 3_000_000 } else { 5_000_000 },
+                        output_timestamp_ns: Some(0),
+                    }]
+                };
+                Ok(TimedStateResult {
+                    state: Some(prior.unwrap_or(0) + value),
+                    outputs: Vec::new(),
+                    timers,
+                })
+            },
+            |key, state, event| {
+                if *key != 1
+                    || event.dynamic_tag != "flush"
+                    || event.fire_timestamp_ns != 5_000_000
+                    || event.output_timestamp_ns != 0
+                {
+                    return Err(Error::incompatible(
+                        "cancelled or replaced event timer fired",
+                    ));
+                }
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![format!(
+                        "{}:{}",
+                        state.unwrap_or_default(),
+                        event.fire_timestamp_ns
+                    )],
+                    timers: Vec::new(),
+                })
+            },
+        )?
+        .map_named("replaced-timer-label", |(key, value)| {
+            format!("{key}:{value}")
+        })?
+        .sink_named_with_config(
+            "replaced-timer-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("replaced-timer-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// One shared event timer feeds two idempotent sink branches.
 pub fn streaming_event_timer_fanout_fixture(
     pipeline: &Pipeline,

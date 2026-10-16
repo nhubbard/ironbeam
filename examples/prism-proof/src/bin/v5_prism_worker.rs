@@ -255,6 +255,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_REPLACED_EVENT_TIMER") {
+        return ironbeam_prism_proof::streaming_replaced_event_timer_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let (Ok(first), Ok(second)) = (
         std::env::var("IRONBEAM_V5_PRISM_EVENT_TIMER_FANOUT_FIRST"),
         std::env::var("IRONBEAM_V5_PRISM_EVENT_TIMER_FANOUT_SECOND"),
