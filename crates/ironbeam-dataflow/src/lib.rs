@@ -19,6 +19,9 @@ pub mod portable_publication {
 pub mod stage;
 pub mod submit;
 
+use ironbeam_cloud_objects::ObjectStores;
+use std::sync::Arc;
+
 pub use artifact::{attach_worker_binary, StagedArtifact};
 pub use auth::{GcloudCliTokenSource, GcpAuthTokenSource, StaticTokenSource, TokenSource};
 pub use driver::{Driver, JobOutcome};
@@ -53,13 +56,14 @@ pub async fn run_v5<F>(
 where
     F: Fn(&ironbeam_core::Pipeline) -> anyhow::Result<()>,
 {
-    run_v5_inner(build, Some(opts), binary_build_id).await
+    run_v5_inner(build, Some(opts), binary_build_id, None).await
 }
 
 async fn run_v5_inner<F>(
     build: F,
     opts: Option<DataflowOptions>,
     binary_build_id: &str,
+    object_journal: Option<(Arc<ObjectStores>, String)>,
 ) -> anyhow::Result<RunOutcome>
 where
     F: Fn(&ironbeam_core::Pipeline) -> anyhow::Result<()>,
@@ -92,7 +96,18 @@ where
             } else {
                 ironbeam_harness::Endpoints::from_process_argv(args).await?
             };
-            ironbeam_harness::serve_v5(endpoints, &pipeline, binary_build_id).await?;
+            if let Some((stores, uri)) = object_journal {
+                ironbeam_harness::serve_v5_with_object_journal(
+                    endpoints,
+                    &pipeline,
+                    binary_build_id,
+                    stores,
+                    uri,
+                )
+                .await?;
+            } else {
+                ironbeam_harness::serve_v5(endpoints, &pipeline, binary_build_id).await?;
+            }
             Ok(RunOutcome::HarnessExited)
         }
     }
@@ -143,11 +158,43 @@ where
     F: Fn(&ironbeam_core::Pipeline) -> anyhow::Result<()>,
 {
     if Mode::detect_portable(std::env::args().skip(1)) == Mode::Driver {
-        run_v5_inner(build, Some(DataflowOptions::from_env()?), binary_build_id).await
+        run_v5_inner(
+            build,
+            Some(DataflowOptions::from_env()?),
+            binary_build_id,
+            None,
+        )
+        .await
     } else {
         // Worker mode never reads driver credentials or staging settings.
-        run_v5_inner(build, None, binary_build_id).await
+        run_v5_inner(build, None, binary_build_id, None).await
     }
+}
+
+/// Run the same application in driver or worker mode with a shared object
+/// finalization journal. Construct the provider registry and pass this URI on
+/// every invocation of the binary, including supervised execution children.
+pub async fn run_v5_from_env_with_object_journal<F>(
+    build: F,
+    binary_build_id: &str,
+    stores: Arc<ObjectStores>,
+    journal_uri: impl Into<String>,
+) -> anyhow::Result<RunOutcome>
+where
+    F: Fn(&ironbeam_core::Pipeline) -> anyhow::Result<()>,
+{
+    let options = if Mode::detect_portable(std::env::args().skip(1)) == Mode::Driver {
+        Some(DataflowOptions::from_env()?)
+    } else {
+        None
+    };
+    run_v5_inner(
+        build,
+        options,
+        binary_build_id,
+        Some((stores, journal_uri.into())),
+    )
+    .await
 }
 
 pub use ironbeam_harness::{enable_log_buffering, init_tracing, BeamFnLoggingLayer};

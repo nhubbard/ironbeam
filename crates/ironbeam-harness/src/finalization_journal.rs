@@ -384,7 +384,8 @@ impl ObjectFinalizationJournal {
         if !base_uri.ends_with('/') {
             bail!("finalization object journal URI must end with /");
         }
-        ObjectLocation::parse(&base_uri)?;
+        let location = ObjectLocation::parse(&base_uri)?;
+        stores.provider(&location.scheme)?;
         Ok(Self {
             stores,
             base_uri,

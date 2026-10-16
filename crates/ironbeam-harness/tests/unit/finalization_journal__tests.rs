@@ -206,6 +206,12 @@ fn object_journal_reopens_exact_record_and_rejects_conflicts() {
     let stores = Arc::new(stores);
     assert!(ObjectFinalizationJournal::new(
         Arc::clone(&stores),
+        "gs://bucket/jobs/",
+        identity("graph")
+    )
+    .is_err());
+    assert!(ObjectFinalizationJournal::new(
+        Arc::clone(&stores),
         "file://bucket/jobs",
         identity("graph")
     )

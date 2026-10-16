@@ -211,6 +211,72 @@ fn restarted_registry_recovers_exact_journaled_protobuf_sinks() {
     );
 }
 
+#[tokio::test]
+async fn worker_constructor_recovers_an_object_journaled_bundle() {
+    let dir = tempfile::tempdir().unwrap();
+    let staging = dir.path().join("staging");
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![7_i32]).unwrap();
+    let sink = protobuf_fragment_sink(&source, "final", &staging, "job", "graph").unwrap();
+    let (_, registry) = sink.snapshot().unwrap();
+    let mut stores = ObjectStores::new();
+    stores
+        .register(
+            "file",
+            LocalObjectIO::new(dir.path().join("objects")).unwrap(),
+        )
+        .unwrap();
+    let stores = Arc::new(stores);
+    let journal_uri = "file://bucket/finalization/";
+    let first = V5BundleExecutor::new_for_worker_with_object_journal(
+        &pipeline,
+        "build",
+        Some("worker-a"),
+        Arc::clone(&stores),
+        journal_uri,
+    )
+    .unwrap();
+    let mut guard = SinkGuard {
+        session: registry.open_sink("final").unwrap(),
+        committed: false,
+    };
+    guard.begin_bundle("bundle-1").unwrap();
+    guard
+        .write(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
+            value: Box::new(7_i32),
+            timestamp_ns: 0,
+            window: Window::Global,
+            assigned_window: None,
+        })
+        .unwrap();
+    guard.commit().unwrap();
+    first
+        .finalizations
+        .register("bundle-1", vec![("final".into(), guard)])
+        .unwrap();
+    drop(first);
+
+    let replacement = V5BundleExecutor::new_for_worker_with_object_journal(
+        &pipeline,
+        "build",
+        Some("worker-b"),
+        Arc::clone(&stores),
+        journal_uri,
+    )
+    .unwrap();
+    replacement.finalize_bundle("bundle-1").await.unwrap();
+    replacement.finalize_bundle("bundle-1").await.unwrap();
+    let journal = ObjectFinalizationJournal::new(stores, journal_uri, replacement.identity).unwrap();
+    let manifest = journal.completed_manifest(["final"]).unwrap();
+    assert_eq!(manifest.attempts_for_sink("final").unwrap(), ["bundle-1"]);
+    let store = protobuf_fragment_store(&staging, "job", "graph", "final")
+        .unwrap()
+        .require_bundle_attempts(manifest.attempts_for_sink("final").unwrap())
+        .unwrap();
+    assert_eq!(store.accepted_fragments().unwrap().len(), 1);
+}
+
 #[test]
 fn finalized_fragment_survives_worker_process_exit() {
     const MODE: &str = "IRONBEAM_FINALIZATION_PROCESS_TEST_MODE";

@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
@@ -422,8 +422,16 @@ impl SupervisedV5Runner {
 }
 
 pub(crate) fn validate_pipeline(pipeline: &Pipeline) -> Result<()> {
+    validate_pipeline_with_object_journal(pipeline, false)
+}
+
+pub(crate) fn validate_pipeline_with_object_journal(
+    pipeline: &Pipeline,
+    has_object_journal: bool,
+) -> Result<()> {
     let (graph, registry) = pipeline.snapshot()?;
-    let has_journal = std::env::var_os("IRONBEAM_V5_FINALIZATION_JOURNAL_DIR").is_some();
+    let has_journal =
+        has_object_journal || std::env::var_os("IRONBEAM_V5_FINALIZATION_JOURNAL_DIR").is_some();
     for node in &graph.nodes {
         match &node.operation {
             Operation::Source { progress } if progress.replay == Replay::None => {
@@ -497,11 +505,22 @@ pub(crate) async fn run_child(
     binary_build_id: &str,
     request_path: &Path,
     response_path: &Path,
+    object_journal: Option<&(Arc<ironbeam_cloud_objects::ObjectStores>, String)>,
 ) -> Result<()> {
     let bytes = std::fs::read(request_path).context("read bundle replay request")?;
     let request =
         ReplayRequest::decode(bytes.as_slice()).context("decode bundle replay request")?;
-    let runner = V5BundleExecutor::new_for_worker(pipeline, binary_build_id, Some(&endpoints.id))?;
+    let runner = if let Some((stores, uri)) = object_journal {
+        V5BundleExecutor::new_for_worker_with_object_journal(
+            pipeline,
+            binary_build_id,
+            Some(&endpoints.id),
+            Arc::clone(stores),
+            uri,
+        )?
+    } else {
+        V5BundleExecutor::new_for_worker(pipeline, binary_build_id, Some(&endpoints.id))?
+    };
     let result = if request.finalize {
         match runner.finalize_bundle(&request.instruction_id).await {
             Ok(()) => ReplayResult::default(),

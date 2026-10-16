@@ -2924,6 +2924,7 @@ dependencies = [
  "bytes",
  "gcp_auth",
  "hex",
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-graphx",
  "ironbeam-harness",

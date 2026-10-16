@@ -1,5 +1,6 @@
 use super::*;
 use ironbeam_core::{Error, SinkMode, SinkSpec, TypedSink};
+use ironbeam_io_protobuf::protobuf_fragment_sink;
 
 struct Ordinary;
 
@@ -57,6 +58,27 @@ fn supervisor_accepts_an_idempotent_sink() {
         )
         .unwrap();
     validate_pipeline(&pipeline).unwrap();
+}
+
+#[test]
+fn supervisor_accepts_a_finalizing_sink_with_an_object_journal() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let source = pipeline.from_vec("source", vec![1_i32]).unwrap();
+    protobuf_fragment_sink(
+        &source,
+        "final",
+        directory.path().join("fragments"),
+        "job",
+        "graph",
+    )
+    .unwrap();
+
+    assert!(validate_pipeline_with_object_journal(&pipeline, false)
+        .unwrap_err()
+        .to_string()
+        .contains("needs a durable finalization journal"));
+    validate_pipeline_with_object_journal(&pipeline, true).unwrap();
 }
 
 #[tokio::test]

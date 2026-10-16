@@ -36,8 +36,9 @@ to 64 MiB per bundle and reports an error when it is exceeded.
 
 This mode checks the graph before opening sources. Each source needs a replay
 contract. Each sink must be idempotent or implement bundle finalization. A
-finalizing sink also needs `IRONBEAM_V5_FINALIZATION_JOURNAL_DIR` pointing to a
-durable directory shared by replacement children. The production Prism fixture
+finalizing sink also needs a durable journal. The local fixture uses
+`IRONBEAM_V5_FINALIZATION_JOURNAL_DIR` pointing to a directory shared by
+replacement children. The production Prism fixture
 uses those settings and verifies same-job recovery across a killed child,
 source residual, multiple sinks, and finalized formats. If the parent process
 itself disconnects from Prism, the active job still fails closed.
@@ -53,6 +54,14 @@ the runner's committed sink counts to authorize result publication. The object
 provider must support conditional creation, read-after-write visibility, and
 consistent prefix listing.
 
-This path has local object-provider tests. The current Dataflow driver does
-not yet retrieve the committed Fn metrics or bind the object journal to a
-hosted worker, so it does not establish a GCS publication proof.
+Use `ironbeam_dataflow::run_v5_from_env_with_object_journal` to pass an
+`ObjectStores` registry and journal URI to the worker. The harness carries the
+same binding into supervised execution children. The application must rebuild
+the same registry and pass the same URI whenever the worker binary starts.
+The file-journal environment variable must be unset when using an object
+journal.
+
+Local object-provider tests cover a replacement worker recovering a pending
+bundle and completing its finalization callback. The current Dataflow driver
+does not yet retrieve committed Fn metrics or prove the hosted GCS provider
+path, so remote result publication remains unverified.

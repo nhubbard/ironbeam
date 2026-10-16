@@ -86,22 +86,81 @@ pub async fn serve_v5(
     pipeline: &ironbeam_core::Pipeline,
     binary_build_id: &str,
 ) -> Result<()> {
+    serve_v5_inner(endpoints, pipeline, binary_build_id, None).await
+}
+
+/// Start a v5 worker whose bundle finalization journal is shared through an
+/// object provider. Rebuild the same provider registry and URI in every
+/// worker invocation, including supervised execution children.
+pub async fn serve_v5_with_object_journal(
+    endpoints: Endpoints,
+    pipeline: &ironbeam_core::Pipeline,
+    binary_build_id: &str,
+    stores: Arc<ironbeam_cloud_objects::ObjectStores>,
+    journal_uri: impl Into<String>,
+) -> Result<()> {
+    serve_v5_inner(
+        endpoints,
+        pipeline,
+        binary_build_id,
+        Some((stores, journal_uri.into())),
+    )
+    .await
+}
+
+async fn serve_v5_inner(
+    endpoints: Endpoints,
+    pipeline: &ironbeam_core::Pipeline,
+    binary_build_id: &str,
+    object_journal: Option<(Arc<ironbeam_cloud_objects::ObjectStores>, String)>,
+) -> Result<()> {
     if let Some((request, response)) = supervision::child_paths() {
-        return supervision::run_child(&endpoints, pipeline, binary_build_id, &request, &response)
-            .await;
+        return supervision::run_child(
+            &endpoints,
+            pipeline,
+            binary_build_id,
+            &request,
+            &response,
+            object_journal.as_ref(),
+        )
+        .await;
     }
     let worker_id = endpoints.id.clone();
     let cache = PbdCache::new();
     if std::env::var_os("IRONBEAM_V5_SUPERVISE_EXECUTION").is_some() {
-        supervision::validate_pipeline(pipeline)?;
+        if let Some((stores, uri)) = &object_journal {
+            supervision::validate_pipeline_with_object_journal(pipeline, true)?;
+            v5_executor::V5BundleExecutor::new_for_worker_with_object_journal(
+                pipeline,
+                binary_build_id,
+                Some(&worker_id),
+                Arc::clone(stores),
+                uri,
+            )?;
+        } else {
+            supervision::validate_pipeline(pipeline)?;
+        }
         let runner: Arc<dyn executor::BundleRunner> = Arc::new(
             supervision::SupervisedV5Runner::new(cache.clone(), worker_id)?,
         );
         return serve_inner(endpoints, 0, Some(runner), true, cache).await;
     }
-    let runner: Arc<dyn executor::BundleRunner> = Arc::new(
-        v5_executor::V5BundleExecutor::new_for_worker(pipeline, binary_build_id, Some(&worker_id))?,
-    );
+    let runner: Arc<dyn executor::BundleRunner> =
+        Arc::new(if let Some((stores, uri)) = object_journal {
+            v5_executor::V5BundleExecutor::new_for_worker_with_object_journal(
+                pipeline,
+                binary_build_id,
+                Some(&worker_id),
+                stores,
+                &uri,
+            )?
+        } else {
+            v5_executor::V5BundleExecutor::new_for_worker(
+                pipeline,
+                binary_build_id,
+                Some(&worker_id),
+            )?
+        });
     serve_inner(endpoints, 0, Some(runner), true, cache).await
 }
 

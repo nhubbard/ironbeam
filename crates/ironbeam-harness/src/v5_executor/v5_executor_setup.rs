@@ -245,6 +245,29 @@ impl V5BundleExecutor {
         })
     }
 
+    /// Build a worker with a shared object-backed bundle finalization journal.
+    /// The application must supply the same provider and URI on every worker
+    /// process, including replacement execution children.
+    pub fn new_for_worker_with_object_journal(
+        pipeline: &Pipeline,
+        binary_build_id: &str,
+        worker_id: Option<&str>,
+        stores: Arc<ironbeam_cloud_objects::ObjectStores>,
+        journal_uri: &str,
+    ) -> Result<Self> {
+        if std::env::var_os("IRONBEAM_V5_FINALIZATION_JOURNAL_DIR").is_some() {
+            bail!("file and object finalization journals cannot both be configured");
+        }
+        let mut executor = Self::new_for_worker(pipeline, binary_build_id, worker_id)?;
+        let journal = crate::finalization_journal::ObjectFinalizationJournal::new(
+            stores,
+            journal_uri,
+            executor.identity.clone(),
+        )?;
+        executor.finalizations = BundleFinalizations::with_journal(Arc::new(journal));
+        Ok(executor)
+    }
+
     /// Supply a durable journal backed by the worker's staging provider.
     /// The implementation must bind records to this executor's identity.
     pub fn with_finalization_journal(mut self, journal: Arc<dyn FinalizationJournal>) -> Self {
