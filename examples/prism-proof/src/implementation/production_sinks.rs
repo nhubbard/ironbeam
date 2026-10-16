@@ -159,24 +159,36 @@ fn production_state_source(pipeline: &Pipeline) -> Result<PCollection<(i32, i32)
             0,
             move |position| {
                 await_supervised_source_replacement(position.as_deref())?;
-                let (values, cursor, completed) = match position.as_deref() {
-                    None => (vec![7, 9], 1, false),
-                    Some([1]) => (vec![8], 2, true),
+                let batches: Vec<(Vec<i32>, u8, bool)> = match position.as_deref() {
+                    None => vec![(vec![7, 9], 1, false), (vec![8], 2, true)],
+                    Some([1]) => vec![(vec![8], 2, true)],
                     _ => return Err(Error::incompatible("unexpected production state cursor")),
                 };
-                let batch = UnboundedPoll::Ready(UnboundedBatch {
-                    elements: values.into_iter().map(|value| Timestamped {
-                        value: (1_i32, value), timestamp_ns: i64::from(cursor) * 1_000_000,
-                    }).collect(),
-                    progress: ProgressSignal {
-                        source_key: "production-state-events".into(),
-                        split_id: "stable-state-split".into(),
-                        checkpoint_position: Some(vec![cursor]),
-                        event_time_ns: Some(i64::from(cursor) * 1_000_000),
-                        completed,
-                    },
-                });
-                Ok(Box::new(ProductionSource([UnboundedPoll::Pending, batch].into()))
+                let polls = batches
+                    .into_iter()
+                    .flat_map(|(values, cursor, completed)| {
+                        [
+                            UnboundedPoll::Pending,
+                            UnboundedPoll::Ready(UnboundedBatch {
+                                elements: values
+                                    .into_iter()
+                                    .map(|value| Timestamped {
+                                        value: (1_i32, value),
+                                        timestamp_ns: i64::from(cursor) * 1_000_000,
+                                    })
+                                    .collect(),
+                                progress: ProgressSignal {
+                                    source_key: "production-state-events".into(),
+                                    split_id: "stable-state-split".into(),
+                                    checkpoint_position: Some(vec![cursor]),
+                                    event_time_ns: Some(i64::from(cursor) * 1_000_000),
+                                    completed,
+                                },
+                            }),
+                        ]
+                    })
+                    .collect();
+                Ok(Box::new(ProductionSource(polls))
                     as TypedUnboundedSourceReader<(i32, i32)>)
             },
         )

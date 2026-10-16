@@ -623,6 +623,18 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let (Ok(value), Ok(map)) = (
+        std::env::var("IRONBEAM_V5_PRISM_STATE_FANOUT_VALUE"),
+        std::env::var("IRONBEAM_V5_PRISM_STATE_FANOUT_MAP"),
+    ) {
+        return ironbeam_prism_proof::production_state_fanout_fixture(
+            pipeline,
+            value.into(),
+            map.into(),
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_SET_STATE") {
         return ironbeam_prism_proof::streaming_set_state_fixture(pipeline, path.into())
             .map(|_| ())

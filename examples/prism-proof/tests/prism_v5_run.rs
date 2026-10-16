@@ -22,6 +22,8 @@ mod pane_triggers;
 mod set_state;
 #[path = "prism_v5_run/side_input_replay.rs"]
 mod side_input_replay;
+#[path = "prism_v5_run/state_fanout.rs"]
+mod state_fanout;
 #[path = "prism_v5_run/timer_state.rs"]
 mod timer_state;
 
