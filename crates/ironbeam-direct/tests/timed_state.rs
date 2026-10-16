@@ -15,6 +15,53 @@ struct RecoverySource {
     emitted: bool,
 }
 
+struct SlidingTimerRecoverySource {
+    cursor: Option<Vec<u8>>,
+    emitted: bool,
+}
+
+impl UnboundedSource<Timestamped<(i32, i32)>> for SlidingTimerRecoverySource {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<(i32, i32)>>, Error> {
+        if self.emitted {
+            return Ok(UnboundedPoll::Pending);
+        }
+        self.emitted = true;
+        let (elements, position, watermark_ns, completed) = match self.cursor.as_deref() {
+            None => (
+                vec![
+                    Timestamped {
+                        value: (1, 3),
+                        timestamp_ns: 7_000_000,
+                    },
+                    Timestamped {
+                        value: (1, 4),
+                        timestamp_ns: 8_000_000,
+                    },
+                ],
+                1,
+                0,
+                false,
+            ),
+            Some([1]) => (Vec::new(), 2, 20_000_000, true),
+            _ => {
+                return Err(Error::incompatible(
+                    "unexpected sliding timer source cursor",
+                ));
+            }
+        };
+        Ok(UnboundedPoll::Ready(UnboundedBatch {
+            elements,
+            progress: ProgressSignal {
+                source_key: "source".into(),
+                split_id: "default".into(),
+                checkpoint_position: Some(vec![position]),
+                event_time_ns: Some(watermark_ns),
+                completed,
+            },
+        }))
+    }
+}
+
 struct AdvancingRecoverySource {
     cursor: Option<Vec<u8>>,
 }
@@ -855,6 +902,137 @@ fn armed_event_timer_and_state_resume_from_one_source_checkpoint() {
         .unwrap();
     assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
     assert_eq!(*committed.lock().unwrap(), ["7:3"]);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // Both overlapping cells and timer scopes must survive one checkpoint.
+fn overlapping_sliding_timers_resume_from_one_source_checkpoint() {
+    let directory = tempfile::tempdir().unwrap();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let sink = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "sliding-timer-recovery-source-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |cursor| {
+                    opens.lock().unwrap().push(cursor.clone());
+                    Ok(Box::new(SlidingTimerRecoverySource {
+                        cursor,
+                        emitted: false,
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap()
+        .sliding_windows("windows", 10_000_000, 5_000_000, 0)
+        .unwrap()
+        .stateful_timer_map_named::<i32, String>(
+            "timer",
+            "tests/sliding-timer-recovery",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, state, metadata| {
+                let window = metadata.assigned_window.unwrap();
+                Ok(TimedStateResult {
+                    state: Some(state.unwrap_or(0) + value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: window.end_ns - 1_000_000,
+                        output_timestamp_ns: Some(7_000_000),
+                    }],
+                })
+            },
+            |_, state, event| {
+                let window = event.window.unwrap();
+                assert_eq!(event.dynamic_tag, "flush");
+                assert_eq!(event.fire_timestamp_ns, window.end_ns - 1_000_000);
+                assert_eq!(event.output_timestamp_ns, 7_000_000);
+                let total = state.unwrap();
+                let adjusted = total + i32::try_from(window.start_ns / 5_000_000).unwrap();
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![format!(
+                        "{}:{adjusted}:{}:{}",
+                        event.output_timestamp_ns, window.start_ns, window.end_ns
+                    )],
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("row", |(_, row)| row)
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/sliding-timer-recovery-sink-v1".into(),
+            {
+                let committed = Arc::clone(&committed);
+                let accepted = Arc::clone(&accepted);
+                move || {
+                    Ok(Box::new(BundleIdempotentCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 2,
+            recover: true,
+            binary_build_id: "sliding-timer-recovery-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let first = DirectRunner.start_stream_sink(&sink, &config()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while first
+        .progress()
+        .and_then(|progress| progress.checkpoint_position)
+        != Some(vec![1])
+    {
+        assert_ne!(first.handle().status(), JobStatus::Failed);
+        assert!(
+            Instant::now() < deadline,
+            "sliding timers were not checkpointed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(committed.lock().unwrap().is_empty());
+    first.cancel();
+    assert!(first.wait().is_err());
+    DirectRunner
+        .start_stream_sink(&sink, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
+    let mut rows = committed.lock().unwrap().clone();
+    rows.sort();
+    assert_eq!(rows, ["7000000:7:0:10000000", "7000000:8:5000000:15000000"]);
 }
 
 #[test]

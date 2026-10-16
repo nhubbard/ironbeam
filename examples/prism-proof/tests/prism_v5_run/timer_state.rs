@@ -775,6 +775,63 @@ async fn prism_matches_direct_overlapping_sliding_timer_windows() {
 }
 
 #[tokio::test]
+async fn prism_replays_both_overlapping_sliding_timers_after_child_loss() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let portable_path = directory.path().join("portable-replayed-sliding-timers");
+    let trigger = directory.path().join("sliding-timer-callback-trigger");
+    let killed = directory.path().join("killed-sliding-timer-child");
+    let pipeline = Pipeline::default();
+    ironbeam_prism_proof::streaming_sliding_timer_hold_fixture(&pipeline, portable_path.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &pipeline,
+        "replayed-sliding-timer-callback",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_SLIDING_TIMER_HOLD".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_KILL_WINDOWED_TIMER_CALLBACK".into(),
+                "1".into(),
+            ),
+            ("IRONBEAM_V5_SUPERVISE_EXECUTION".into(), "1".into()),
+            (
+                "IRONBEAM_V5_SUPERVISOR_TRIGGER".into(),
+                trigger.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_SUPERVISOR_KILLED".into(),
+                killed.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Prism sliding timer replay failed: {terminal:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&killed).unwrap(),
+        std::fs::read_to_string(&trigger).unwrap()
+    );
+    let mut rows = std::fs::read_dir(&portable_path)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(
+        rows,
+        ["7000000:7:0:10000000\n", "7000000:8:5000000:15000000\n"]
+    );
+}
+
+#[tokio::test]
 async fn prism_matches_direct_window_expiration_callbacks() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
