@@ -579,6 +579,152 @@ fn run_unbounded_byte_batches(windowed: bool) {
 }
 
 #[test]
+fn timed_byte_batches_flush_partial_state_by_processing_time_and_window_end() {
+    let pipeline = Pipeline::default();
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&rows);
+    let sink = pipeline
+        .test_stream_source(
+            "values",
+            vec![
+                TestStreamEvent::AdvanceProcessingTime(2_000_000),
+                TestStreamEvent::Elements(vec![((1_i32, "a".to_owned()), 1_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(3_000_000),
+                TestStreamEvent::Elements(vec![((1_i32, "b".to_owned()), 2_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(3_000_000),
+                TestStreamEvent::Elements(vec![((1_i32, "c".to_owned()), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .group_into_batches_with_limits_and_max_buffering_duration_named(
+            "batches", 10, 1_000, 4_000_000,
+        )
+        .unwrap()
+        .reify_timestamps_named("timestamps")
+        .unwrap()
+        .map_named("row", |(timestamp, (key, values))| {
+            format!("{key}:{timestamp}:{values:?}")
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/timed-byte-batch-sink-v1".into(),
+            move || {
+                Ok(Box::new(Rows {
+                    committed: Arc::clone(&captured),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut actual = rows.lock().unwrap().clone();
+    actual.sort();
+    assert_eq!(actual, ["1:1000000:[\"a\", \"b\"]", "1:3000000:[\"c\"]"]);
+}
+
+#[test]
+fn timed_byte_batches_still_flush_at_count_or_byte_limits() {
+    let one = "a".to_owned().encoded_len().unwrap();
+    for (count, bytes) in [(2, 1_000), (10, one * 2)] {
+        let pipeline = Pipeline::default();
+        let rows = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&rows);
+        let sink = pipeline
+            .test_stream_source(
+                "values",
+                vec![
+                    TestStreamEvent::Elements(vec![
+                        ((1_i32, "a".to_owned()), 1_000_000),
+                        ((1, "b".to_owned()), 2_000_000),
+                        ((1, "c".to_owned()), 3_000_000),
+                    ]),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                ],
+            )
+            .unwrap()
+            .fixed_windows("window", 10_000_000)
+            .unwrap()
+            .group_into_batches_with_limits_and_max_buffering_duration_named(
+                "batches", count, bytes, 20_000_000,
+            )
+            .unwrap()
+            .reify_timestamps_named("timestamps")
+            .unwrap()
+            .map_named("row", |(timestamp, (key, values))| {
+                format!("{key}:{timestamp}:{values:?}")
+            })
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "tests/timed-byte-limits-sink-v1".into(),
+                move || {
+                    Ok(Box::new(Rows {
+                        committed: Arc::clone(&captured),
+                        pending: Vec::new(),
+                    }))
+                },
+            )
+            .unwrap();
+        DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .unwrap();
+        let mut actual = rows.lock().unwrap().clone();
+        actual.sort();
+        assert_eq!(
+            actual,
+            ["1:1000000:[\"a\", \"b\"]", "1:3000000:[\"c\"]"],
+            "count={count}, bytes={bytes}"
+        );
+    }
+}
+
+#[test]
+fn bounded_timed_byte_batches_flush_the_final_partial_batch() {
+    let pipeline = Pipeline::default();
+    let batches = pipeline
+        .from_vec(
+            "values",
+            vec![
+                (1_i32, "a".to_owned()),
+                (1, "b".to_owned()),
+                (1, "c".to_owned()),
+            ],
+        )
+        .unwrap()
+        .group_into_batches_with_limits_and_max_buffering_duration_named(
+            "batches", 2, 1_000, 20_000_000,
+        )
+        .unwrap();
+    assert_eq!(
+        batches.collect_seq().unwrap(),
+        [
+            (1, vec!["a".to_owned(), "b".to_owned()]),
+            (1, vec!["c".to_owned()]),
+        ]
+    );
+}
+
+#[test]
 fn keyed_batch_timestamp_follows_earliest_value_in_each_batch() {
     let pipeline = Pipeline::default();
     let source = pipeline

@@ -69,6 +69,70 @@ fn clock_aware_timer_callbacks_receive_runner_time_without_changing_legacy_invoc
 }
 
 #[test]
+fn global_timed_byte_batch_requires_clock_and_flushes_its_processing_timer() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .group_into_batches_with_limits_and_max_buffering_duration_named(
+            "batches", 10, 100, 4_000_000,
+        )
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let key = "batches/timed-byte-state";
+    assert_eq!(
+        registry
+            .invoke_timed_element(key, input(2), None)
+            .err()
+            .unwrap()
+            .kind,
+        ironbeam_core::ErrorKind::Execution
+    );
+    let change = registry
+        .invoke_timed_element_at(key, input(2), None, Some(0))
+        .unwrap();
+    assert_eq!(change.timers.len(), 1);
+    let overdue = registry
+        .invoke_timed_element_at(key, input(3), change.state.as_deref(), Some(5_000_000))
+        .unwrap();
+    assert_eq!(overdue.outputs.len(), 1);
+    assert_eq!(
+        *overdue.outputs[0]
+            .value
+            .downcast_ref::<(i32, (i64, Vec<i32>))>()
+            .unwrap(),
+        (1, (0, vec![2]))
+    );
+    assert!(overdue.state.is_some());
+    let TimerMutation::Set(identity, schedule) = &change.timers[0] else {
+        panic!("global timed byte batch did not arm a processing timer");
+    };
+    let firing = TimerFiring {
+        identity: identity.clone(),
+        schedule: *schedule,
+        domain: UserTimerDomain::ProcessingTime,
+    };
+    let empty = registry.invoke_timed_firing(key, &firing, None).unwrap();
+    assert!(empty.outputs.is_empty());
+    assert!(empty.timers.is_empty());
+    let mut invalid = firing.clone();
+    invalid.identity.dynamic_tag = "wrong".into();
+    assert!(
+        registry
+            .invoke_timed_firing(key, &invalid, change.state.as_deref())
+            .is_err()
+    );
+    let flushed = registry
+        .invoke_timed_firing(key, &firing, change.state.as_deref())
+        .unwrap();
+    assert_eq!(flushed.outputs.len(), 1);
+    assert!(matches!(flushed.timers[0], TimerMutation::Clear(_)));
+}
+
+#[test]
 #[allow(clippy::too_many_lines)] // The checkpoint and recovery assertions share one stateful pipeline.
 fn timed_state_and_timer_restore_atomically_and_fire_once() {
     let pipeline = Pipeline::default();

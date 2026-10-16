@@ -3,6 +3,28 @@ use super::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 #[test]
+fn timed_byte_deadlines_round_up_and_reject_both_overflow_paths() {
+    assert_eq!(
+        timed_byte_deadline(2_000_000, 4_000_000, "batch").unwrap(),
+        6_000_000
+    );
+    assert_eq!(
+        timed_byte_deadline(2_000_001, 4_000_000, "batch").unwrap(),
+        7_000_000
+    );
+    assert_eq!(
+        timed_byte_deadline(i64::MAX, 1, "batch").unwrap_err().kind,
+        ErrorKind::Resource
+    );
+    assert_eq!(
+        timed_byte_deadline(i64::MAX - 2, 1, "batch")
+            .unwrap_err()
+            .kind,
+        ErrorKind::Resource
+    );
+}
+
+#[test]
 fn semantic_map_records_handler_identity_and_rejects_invalid_versions() {
     let pipeline = Pipeline::default();
     let source = pipeline.from_vec("source", vec![2_i32]).unwrap();

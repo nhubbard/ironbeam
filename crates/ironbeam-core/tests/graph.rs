@@ -36,6 +36,81 @@ fn encoded_byte_batch_limits_change_graph_identity() {
     assert_ne!(make(4), make(5));
 }
 
+#[test]
+fn timed_byte_batch_limits_validate_inputs_and_duration_changes_identity() {
+    let pipeline = Pipeline::default();
+    let source = pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap();
+    for (count, bytes, duration) in [
+        (0, 2, 1),
+        (2, 0, 1),
+        (2, 2, 0),
+        (2, 2, -1),
+        (2, 2, i64::MAX),
+    ] {
+        assert_eq!(
+            source
+                .group_into_batches_with_limits_and_max_buffering_duration_named(
+                    "batches", count, bytes, duration,
+                )
+                .err()
+                .unwrap()
+                .kind,
+            ErrorKind::Graph
+        );
+    }
+    assert!(pipeline.snapshot().unwrap().0.node("batches").is_none());
+    let session = source
+        .session_windows_named("sessions", 10_000_000)
+        .unwrap();
+    assert_eq!(
+        session
+            .group_into_batches_with_limits_and_max_buffering_duration_named(
+                "session-batches",
+                2,
+                8,
+                4_000_000,
+            )
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+    let submillisecond = source.fixed_windows("submillisecond", 999_999).unwrap();
+    assert_eq!(
+        submillisecond
+            .group_into_batches_with_limits_and_max_buffering_duration_named(
+                "unaligned-batches",
+                2,
+                8,
+                4_000_000,
+            )
+            .err()
+            .unwrap()
+            .kind,
+        ErrorKind::Graph
+    );
+    let make = |duration| {
+        let pipeline = Pipeline::default();
+        pipeline
+            .test_stream_source(
+                "source",
+                vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+            )
+            .unwrap()
+            .group_into_batches_with_limits_and_max_buffering_duration_named(
+                "batches", 2, 8, duration,
+            )
+            .unwrap();
+        pipeline.snapshot().unwrap().0.fingerprint().unwrap()
+    };
+    assert_ne!(make(4_000_000), make(5_000_000));
+}
+
 struct ScriptedUnbounded {
     polls: std::collections::VecDeque<UnboundedPoll<Timestamped<i32>>>,
 }

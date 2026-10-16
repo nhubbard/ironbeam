@@ -175,6 +175,16 @@ are not whole milliseconds are rejected. Batch members have no portable order:
 Direct kept one out-of-order pair in encounter order, while Prism returned it
 in event-time order. The tested batch membership and earliest timestamp agree.
 
+`group_into_batches_with_limits_and_max_buffering_duration_named(
+"batches", 100, 4_096, 20_000_000)` also flushes a partial batch after
+20 milliseconds of processing time. The delay begins with the first value in
+each partial batch; count, encoded-byte, and window-end limits still apply.
+The deadline is rounded up to Beam's whole-millisecond timer precision. A
+replayable production-source fixture checks the processing-time flush and the
+later window-end flush on Direct and local Prism. Prism's TestStream can
+schedule downstream work after its scripted processing-time advances, so the
+production-source fixture is the timing proof for that runner.
+
 `group_into_batches_with_limits_and_sharded_key_named` applies the same count
 and byte limits after a caller supplied selector assigns each value to a
 stable shard. Its output retains the original key and shard ID. Choose a

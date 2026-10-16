@@ -705,6 +705,43 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
             )?
             .timestamps_from_pairs_in_window_named(key)
     }
+
+    /// Batch keyed values until their count, encoded byte size, or maximum
+    /// processing-time wait is reached. The delay begins with the first value
+    /// in each partial batch. For bounded input, the final partial batch
+    /// flushes at collection completion.
+    pub fn group_into_batches_with_limits_and_max_buffering_duration_named(
+        &self,
+        key: &str,
+        max_count: usize,
+        max_encoded_bytes: usize,
+        max_buffering_duration_ns: i64,
+    ) -> Result<PCollection<(K, Vec<V>)>, Error> {
+        if !matches!(i64::try_from(max_count), Ok(size) if size > 0 && size < i64::MAX)
+            || !matches!(i64::try_from(max_encoded_bytes), Ok(size) if size > 0 && size < i64::MAX)
+        {
+            return Err(Error::graph(
+                key,
+                "batch count and encoded byte limits must be in 1..i64::MAX",
+            ));
+        }
+        if max_buffering_duration_ns <= 0 || max_buffering_duration_ns == i64::MAX {
+            return Err(Error::graph(
+                key,
+                "maximum buffering duration must be in 1..i64::MAX",
+            ));
+        }
+        if self.parent()?.boundedness == Boundedness::Bounded {
+            return self.group_into_batches_with_limits_named(key, max_count, max_encoded_bytes);
+        }
+        stream_timed_byte_limited_batches(
+            self,
+            key,
+            max_count,
+            max_encoded_bytes,
+            max_buffering_duration_ns,
+        )
+    }
     pub fn combine_per_key_and_window_named<U: Element>(
         &self,
         key: &str,

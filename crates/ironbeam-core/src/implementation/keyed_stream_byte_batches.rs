@@ -10,27 +10,7 @@ where
     V: Element,
 {
     let parent = input.parent()?;
-    let aligned = match parent.time.window {
-        Window::Global => true,
-        Window::Fixed { size_ns } => size_ns >= 1_000_000 && size_ns % 1_000_000 == 0,
-        Window::FixedOffset { size_ns, offset_ns } => {
-            size_ns >= 1_000_000
-                && size_ns % 1_000_000 == 0
-                && offset_ns % 1_000_000 == 0
-        }
-        Window::Sliding {
-            size_ns,
-            period_ns,
-            offset_ns,
-        } => {
-            size_ns >= 1_000_000
-                && size_ns % 1_000_000 == 0
-                && period_ns >= 1_000_000
-                && period_ns % 1_000_000 == 0
-                && offset_ns % 1_000_000 == 0
-        }
-        Window::Session { .. } => false,
-    };
+    let aligned = byte_batch_windows_are_millisecond_aligned(&parent.time.window);
     if !aligned {
         return Err(Error::graph(
             key,
@@ -116,6 +96,30 @@ where
             (timestamp, (group_key, values))
         })?
         .timestamps_from_pairs_in_window_named(key)
+}
+
+fn byte_batch_windows_are_millisecond_aligned(window: &Window) -> bool {
+    match *window {
+        Window::Global => true,
+        Window::Fixed { size_ns } => size_ns >= 1_000_000 && size_ns % 1_000_000 == 0,
+        Window::FixedOffset { size_ns, offset_ns } => {
+            size_ns >= 1_000_000
+                && size_ns % 1_000_000 == 0
+                && offset_ns % 1_000_000 == 0
+        }
+        Window::Sliding {
+            size_ns,
+            period_ns,
+            offset_ns,
+        } => {
+            size_ns >= 1_000_000
+                && size_ns % 1_000_000 == 0
+                && period_ns >= 1_000_000
+                && period_ns % 1_000_000 == 0
+                && offset_ns % 1_000_000 == 0
+        }
+        Window::Session { .. } => false,
+    }
 }
 
 fn take_byte_batch<V>(pending: &mut Vec<(i64, V)>) -> (i64, Vec<V>) {
