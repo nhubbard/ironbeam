@@ -15,6 +15,25 @@ release work is limited to the documented and tested support boundary, API
 documentation, package verification, and passing CI. Unsupported schedules
 must fail clearly or be described as outside that boundary.
 
+## Feature scope for 5.0.0
+
+Feature development is frozen at the tested support boundary. There are **no
+additional mandatory feature families** for this release candidate. The seven
+parity families in [Portable parity work still open](#portable-parity-work-still-open)
+contain further Beam semantics and runner proofs; they are follow-up work, not
+an implied 99% claim. The two unchecked runtime subgates below are also outside
+the 5.0.0 support claim.
+
+| Deferred boundary | Current release claim |
+| --- | --- |
+| Prism Control-owner replacement | Supervised execution-child replacement is proved. A lost Control owner fails the active job. |
+| Long-running Prism metric retention | Exact local committed counts are proved. Metadata retention in an indefinitely running Prism job is unbounded. |
+| Hosted Dataflow and live GCP services | The job driver and clients compile and have local tests. Hosted execution and service operations need separate integration proof. |
+
+The remaining release tasks concern Rustdoc quality, user documentation,
+package verification, source cleanup, and green CI. Publication is a separate
+decision; it remains staged.
+
 ## Release snapshot
 
 | Area | Verified scope | Open boundary |
@@ -50,9 +69,9 @@ Passing a current check does not close a release gate unless its full proof
 below is complete.
 
 The release documentation check generates all-feature Rustdoc JSON and
-requires a direct description for public functions and public trait methods
-in all 34 publishable handwritten crates: 907 functions and 329 trait methods
-in the current all-feature JSON. Generated Beam protocol bindings
+requires a direct description for public functions, trait methods, and types
+in all 34 publishable handwritten crates: 907 functions, 329 trait methods,
+and 335 types in the current all-feature JSON. Generated Beam protocol bindings
 and nonpublishable test packages are outside that check. The Zensical site
 builds in strict mode with no issues. Both checks validate coverage and links;
 prose and examples still need review for accuracy before the release tag.
