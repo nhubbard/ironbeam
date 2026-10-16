@@ -31,6 +31,7 @@ jobs:
           python3 scripts/check_v5_release_order.py --release
           node --check scripts/semantic_release_workspace.cjs
           npm ci
+          node --test tests/node/release_changelog.test.cjs
 
   clippy:
     name: Clippy
