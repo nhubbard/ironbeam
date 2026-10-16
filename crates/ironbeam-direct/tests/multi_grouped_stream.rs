@@ -3,7 +3,7 @@
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
     TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
-    UnboundedPoll, UnboundedSource,
+    UnboundedPoll, UnboundedSource, WindowOutputTime,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::{HashSet, VecDeque};
@@ -1184,6 +1184,16 @@ fn bounded_side_is_materialized_once_and_restored_with_unbounded_group() {
 
 #[test]
 fn three_source_session_expired_bridge_arrives_after_checkpoint_restart() {
+    for policy in [
+        WindowOutputTime::EarliestInPane,
+        WindowOutputTime::EndOfWindow,
+        WindowOutputTime::LatestInPane,
+    ] {
+        check_three_source_session_recovery(policy);
+    }
+}
+
+fn check_three_source_session_recovery(policy: WindowOutputTime) {
     let directory = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
     let hold = Arc::new(AtomicBool::new(true));
@@ -1262,21 +1272,38 @@ fn three_source_session_expired_bridge_arrives_after_checkpoint_restart() {
             .session_windows_named(&format!("session-{index}"), 5_000_000)
             .unwrap()
     };
-    let first = make_source(0);
-    let second = make_source(1);
-    let third = make_source(2);
+    let apply = |index| {
+        let source = make_source(index);
+        match policy {
+            WindowOutputTime::EarliestInPane => Ok(source),
+            WindowOutputTime::EndOfWindow => {
+                source.end_of_window_output_time_named(&format!("policy-{index}"))
+            }
+            WindowOutputTime::LatestInPane => {
+                source.latest_in_pane_output_time_named(&format!("policy-{index}"))
+            }
+        }
+    };
+    let first = apply(0).unwrap();
+    let second = apply(1).unwrap();
+    let third = apply(2).unwrap();
     let sink_committed = Arc::clone(&committed);
     let sink_accepted = Arc::clone(&accepted);
     let sink = first
         .co_group_homogeneous_named("group", &[second, third])
         .unwrap()
+        .reify_timestamps_named("timestamp")
+        .unwrap()
         .with_window_named("with-window")
         .unwrap()
-        .map_named("format", |(window, (key, mut buckets))| {
+        .map_named("format", |(window, (time, (key, mut buckets)))| {
             for bucket in &mut buckets {
                 bucket.sort_unstable();
             }
-            format!("{}..{}:{key}:{buckets:?}", window.start_ns, window.end_ns)
+            format!(
+                "{}..{}:{time}:{key}:{buckets:?}",
+                window.start_ns, window.end_ns
+            )
         })
         .unwrap()
         .sink_named_with_config(
@@ -1329,12 +1356,18 @@ fn three_source_session_expired_bridge_arrives_after_checkpoint_restart() {
         .unwrap();
     let mut rows = committed.lock().unwrap().clone();
     rows.sort();
+    let (first_time, second_time) = match policy {
+        WindowOutputTime::EarliestInPane => (0, 6_000_000),
+        WindowOutputTime::EndOfWindow => (8_000_000, 10_000_000),
+        WindowOutputTime::LatestInPane => (4_000_000, 6_000_000),
+    };
     assert_eq!(
         rows,
         [
-            "0..9000000:1:[[1, 2], [10], []]".to_owned(),
-            "6000000..11000000:2:[[], [], [99]]".to_owned(),
-        ]
+            format!("0..9000000:{first_time}:1:[[1, 2], [10], []]"),
+            format!("6000000..11000000:{second_time}:2:[[], [], [99]]"),
+        ],
+        "policy {policy:?}"
     );
     let opens = opens.lock().unwrap();
     assert_eq!(opens.len(), 6);
