@@ -1,3 +1,5 @@
+use ironbeam_transforms::ElementwiseExt;
+
 pub fn global_vector_fixture(
     pipeline: &Pipeline,
     nonempty: PathBuf,
@@ -237,4 +239,52 @@ pub fn ordered_global_fixture(
             },
         )?;
     Ok((nonempty_result, empty_result))
+}
+
+/// Exercise deterministic ordered helpers on one bounded fanout graph.
+pub fn ordered_helpers_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
+    let source = pipeline.from_vec(
+        "ordered-helpers-source",
+        vec![(3_i32, 20_i32), (1, 10), (4, 10), (2, 30)],
+    )?;
+    let list = source
+        .to_list_ordered_by_named("ordered-helpers-list", |row| row.0)?
+        .flat_map_named("ordered-helpers-list-rows", |rows| {
+            rows.into_iter()
+                .enumerate()
+                .map(|(index, (rank, value))| format!("list:{index}:{rank}:{value}"))
+                .collect::<Vec<_>>()
+        })?;
+    let take = source
+        .take_ordered_by_named("ordered-helpers-take", 2, |row| row.0)?
+        .map_named("ordered-helpers-take-rows", |(rank, value)| {
+            format!("take:{rank}:{value}")
+        })?;
+    let first = source
+        .first_ordered_by_named("ordered-helpers-first", |row| row.0)?
+        .map_named("ordered-helpers-first-rows", |(rank, value)| {
+            format!("first:{rank}:{value}")
+        })?;
+    let distinct = source
+        .distinct_by_ordered_by_named("ordered-helpers-distinct", |row| row.1, |row| row.0)?
+        .map_named("ordered-helpers-distinct-rows", |(rank, value)| {
+            format!("distinct:{rank}:{value}")
+        })?;
+    let sink_path = path.clone();
+    list.flatten_named("ordered-helpers-flatten", &[take, first, distinct])?
+        .sink_named_with_config(
+            "ordered-helpers-sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::AtLeastOnce,
+                commit: true,
+            },
+            format!("ordered-helpers:{}", path.display()),
+            move || {
+                Ok(Box::new(GlobalFoldSink::<String> {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
 }

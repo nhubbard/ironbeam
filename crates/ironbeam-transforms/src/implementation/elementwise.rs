@@ -64,10 +64,29 @@ pub trait ElementwiseExt<T: Element> {
         T: Display;
     /// Collect all values into a vector in Direct encounter order.
     fn to_list_globally_named(&self, key: &str) -> Result<PCollection<Vec<T>>, Error>;
+    /// Collect values in a portable order. Order keys must be unique per window.
+    fn to_list_ordered_by_named<Q: Ord + Send + 'static>(
+        &self,
+        key: &str,
+        order_key: impl Fn(&T) -> Q + Send + Sync + 'static,
+    ) -> Result<PCollection<Vec<T>>, Error>;
     /// Emit at most `limit` values in Direct encounter order.
     fn take_named(&self, key: &str, limit: usize) -> Result<PCollection<T>, Error>;
+    /// Emit at most `limit` values by a unique order key in each window.
+    fn take_ordered_by_named<Q: Ord + Send + 'static>(
+        &self,
+        key: &str,
+        limit: usize,
+        order_key: impl Fn(&T) -> Q + Send + Sync + 'static,
+    ) -> Result<PCollection<T>, Error>;
     /// Emit the first value in Direct encounter order, if any.
     fn first_named(&self, key: &str) -> Result<PCollection<T>, Error>;
+    /// Emit the value with the smallest unique order key in each window.
+    fn first_ordered_by_named<Q: Ord + Send + 'static>(
+        &self,
+        key: &str,
+        order_key: impl Fn(&T) -> Q + Send + Sync + 'static,
+    ) -> Result<PCollection<T>, Error>;
     /// Keep the first occurrence of each value in Direct encounter order.
     fn distinct_named(&self, key: &str) -> Result<PCollection<T>, Error>
     where
@@ -90,6 +109,14 @@ pub trait ElementwiseExt<T: Element> {
         &self,
         key: &str,
         by: impl Fn(&T) -> K + Send + Sync + 'static,
+    ) -> Result<PCollection<T>, Error>;
+    /// Keep the first value for each derived key in explicit window order.
+    /// Order keys must be unique within a window, including discarded values.
+    fn distinct_by_ordered_by_named<K: Eq + Hash + Send + 'static, Q: Ord + Send + 'static>(
+        &self,
+        key: &str,
+        by: impl Fn(&T) -> K + Send + Sync + 'static,
+        order_key: impl Fn(&T) -> Q + Send + Sync + 'static,
     ) -> Result<PCollection<T>, Error>;
     /// Emit one representative per derived key and window through a portable
     /// shuffle. When several values share a key, choose the value with the
@@ -172,12 +199,35 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
     fn to_list_globally_named(&self, key: &str) -> Result<PCollection<Vec<T>>, Error> {
         self.fold_globally_ordered_named(key, CollectVec)
     }
+    fn to_list_ordered_by_named<Q: Ord + Send + 'static>(
+        &self,
+        key: &str,
+        order_key: impl Fn(&T) -> Q + Send + Sync + 'static,
+    ) -> Result<PCollection<Vec<T>>, Error> {
+        self.fold_globally_ordered_by_named(key, order_key, CollectVec)
+    }
     fn take_named(&self, key: &str, limit: usize) -> Result<Self, Error> {
         self.fold_globally_ordered_named(&format!("{key}/collect"), Take(limit))?
             .flat_map_named(key, |values| values)
     }
+    fn take_ordered_by_named<Q: Ord + Send + 'static>(
+        &self,
+        key: &str,
+        limit: usize,
+        order_key: impl Fn(&T) -> Q + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
+        self.fold_globally_ordered_by_named(&format!("{key}/collect"), order_key, Take(limit))?
+            .flat_map_named(key, |values| values)
+    }
     fn first_named(&self, key: &str) -> Result<Self, Error> {
         self.take_named(key, 1)
+    }
+    fn first_ordered_by_named<Q: Ord + Send + 'static>(
+        &self,
+        key: &str,
+        order_key: impl Fn(&T) -> Q + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
+        self.take_ordered_by_named(key, 1, order_key)
     }
     fn distinct_named(&self, key: &str) -> Result<Self, Error>
     where
@@ -221,6 +271,15 @@ impl<T: Element> ElementwiseExt<T> for PCollection<T> {
         by: impl Fn(&T) -> K + Send + Sync + 'static,
     ) -> Result<Self, Error> {
         self.fold_globally_ordered_named(&format!("{key}/collect"), DistinctBy(by))?
+            .flat_map_named(key, |values| values)
+    }
+    fn distinct_by_ordered_by_named<K: Eq + Hash + Send + 'static, Q: Ord + Send + 'static>(
+        &self,
+        key: &str,
+        by: impl Fn(&T) -> K + Send + Sync + 'static,
+        order_key: impl Fn(&T) -> Q + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
+        self.fold_globally_ordered_by_named(&format!("{key}/collect"), order_key, DistinctBy(by))?
             .flat_map_named(key, |values| values)
     }
     fn distinct_by_per_window_named<K: Element + Eq + Hash + Clone>(

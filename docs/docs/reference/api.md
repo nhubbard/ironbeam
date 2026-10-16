@@ -41,6 +41,7 @@ executes an output or sink. See [pipelines and collections](../concepts/pipeline
 | Join keyed inputs | `join_inner_named`, `join_left_named`, `join_right_named`, `join_full_named` | Keyed pairs with the selected unmatched-side behavior |
 | Reduce values | `combine_per_key_and_window_named`, `combine_globally_named` | A windowed or global aggregate |
 | Preserve order in a fold | `fold_values_ordered_by_named`, `fold_globally_ordered_by_named` | Uses an explicit order key across runners |
+| Select in portable order | `to_list_ordered_by_named`, `take_ordered_by_named`, `first_ordered_by_named`, `distinct_by_ordered_by_named` | Requires unique order keys within each window |
 | Split keyed work | `group_into_batches_named`, `group_into_batches_with_limits_named` | Bounded vectors per key and window |
 
 A portable runner may evaluate a handler again after a failed bundle. Handler

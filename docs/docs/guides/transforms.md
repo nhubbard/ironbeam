@@ -80,6 +80,40 @@ fn main() -> Result<(), ironbeam::Error> {
 
 A grouped result contains a key and its values. A shuffle may change value order, so an application that depends on order must provide an explicit order key through the corresponding ordered operation. The transform crates also include keyed reductions, joins, sampling, selection, validation, and side inputs. The [ETL example](https://github.com/nhubbard/ironbeam/blob/main/examples/etl_pipeline.rs) applies several of these operations in one pipeline.
 
+For selection within a window, the ordered helpers use a key supplied by the
+application. This example uses the default global window. It selects the
+lowest ranked row and keeps the first row for each value in rank order:
+
+```rust
+use ironbeam::{Pipeline, prelude::*};
+
+fn main() -> Result<(), ironbeam::Error> {
+    let pipeline = Pipeline::default();
+    let rows = pipeline.from_vec("rows", vec![
+        (3_i32, "b".to_owned()),
+        (1, "a".to_owned()),
+        (2, "a".to_owned()),
+    ])?;
+    let first = rows.first_ordered_by_named("first", |row| row.0)?;
+    let distinct = rows.distinct_by_ordered_by_named(
+        "distinct", |row| row.1.clone(), |row| row.0,
+    )?;
+    assert_eq!(first.collect_seq()?, vec![(1, "a".to_owned())]);
+    assert_eq!(distinct.collect_seq()?, vec![
+        (1, "a".to_owned()),
+        (3, "b".to_owned()),
+    ]);
+    Ok(())
+}
+```
+
+`to_list_ordered_by_named` and `take_ordered_by_named` use the same rule.
+Order keys must be unique within each window, including rows removed by
+`distinct_by_ordered_by_named`. A duplicate key fails the job. A shared
+Direct and local Prism fixture checks all four helpers on one graph. These
+helpers collect the window's input before selecting values; they are best
+suited to finite, bounded groups.
+
 `distinct_per_window_named` emits each distinct value once in each window. It
 uses a keyed shuffle, so output order is unspecified. Its output timestamp
 follows the earliest input for that value and window. Direct and local Prism

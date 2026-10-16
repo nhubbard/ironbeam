@@ -14,6 +14,8 @@ mod map_state;
 mod multimap_state;
 #[path = "prism_v5_run/object_io.rs"]
 mod object_io;
+#[path = "prism_v5_run/ordered_helpers.rs"]
+mod ordered_helpers;
 #[path = "prism_v5_run/ordered_list_state.rs"]
 mod ordered_list_state;
 #[path = "prism_v5_run/pane_triggers.rs"]

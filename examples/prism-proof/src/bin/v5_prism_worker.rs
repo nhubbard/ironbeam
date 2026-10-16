@@ -1645,6 +1645,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
     if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_ORDERED_KEYED") {
         return ordered_keyed_fixture(pipeline, capture.into()).map(|_| ()).map_err(Into::into);
     }
+    if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_ORDERED_HELPERS") {
+        return ironbeam_prism_proof::ordered_helpers_fixture(pipeline, capture.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(capture) = std::env::var("IRONBEAM_V5_PRISM_ORDERED_STREAM") {
         return streaming_ordered_keyed_fixture(pipeline, capture.into())
             .map(|_| ())

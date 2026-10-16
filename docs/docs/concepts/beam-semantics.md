@@ -226,6 +226,10 @@ The shuffle does not promise an encounter order. An ordered fold therefore
 needs an explicit order key; equal keys are rejected where the operation
 requires a total order. Direct can preserve encounter order for its local
 variant, but that local behavior is not a portable ordering guarantee.
+The `to_list_ordered_by_named`, `take_ordered_by_named`,
+`first_ordered_by_named`, and `distinct_by_ordered_by_named` helpers use the
+same explicit-order fold. A shared bounded Direct/Prism graph verifies their
+selected values; Direct also checks duplicate-key rejection.
 
 `distinct_by_per_window_named` groups values by a derived key and selects one
 representative in each window. It chooses the value with the smallest encoded
