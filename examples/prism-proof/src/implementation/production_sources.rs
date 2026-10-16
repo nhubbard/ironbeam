@@ -22,13 +22,12 @@ impl TypedSink<i32> for SourceAckSink {
     }
 }
 
-/// One finite source batch with a post-commit callback visible to the driver.
+/// Two finite source batches with post-commit callbacks visible to the driver.
 pub fn source_finalization_fixture(
     pipeline: &Pipeline,
     directory: impl AsRef<Path>,
 ) -> Result<(), Error> {
     let directory = directory.as_ref().to_path_buf();
-    let marker = directory.join("source-acknowledged");
     pipeline
         .unbounded_source_with_finalizer(
             "source-ack-events",
@@ -37,33 +36,39 @@ pub fn source_finalization_fixture(
                 replay: Replay::AtLeastOnce,
                 reports_event_time: true,
             },
-            format!("source-ack-fixture-v1:{}", directory.display()),
+            format!("source-ack-fixture-v2:{}", directory.display()),
             0,
-            |_| {
+            |position| {
+                let (value, completed) = match position.as_deref() {
+                    None => (7, false),
+                    Some([7]) => (8, true),
+                    _ => return Err(Error::incompatible("unexpected source acknowledgment cursor")),
+                };
                 let batch = UnboundedPoll::Ready(UnboundedBatch {
                     elements: vec![Timestamped {
-                        value: 7_i32,
-                        timestamp_ns: 1_000_000,
+                        value,
+                        timestamp_ns: i64::from(value) * 1_000_000,
                     }],
                     progress: ProgressSignal {
                         source_key: "source-ack-events".into(),
                         split_id: "split-0".into(),
-                        checkpoint_position: Some(vec![7]),
-                        event_time_ns: Some(1_000_000),
-                        completed: true,
+                        checkpoint_position: Some(vec![value as u8]),
+                        event_time_ns: Some(i64::from(value) * 1_000_000),
+                        completed,
                     },
                 });
                 Ok(Box::new(ProductionSource([batch].into())) as TypedUnboundedSourceReader<i32>)
             },
             move |progress| {
-                if progress.checkpoint_position.as_deref() != Some(&[7][..]) {
-                    return Err(Error::recovery(
+                let value = match progress.checkpoint_position.as_deref() {
+                    Some([value @ (7 | 8)]) => *value,
+                    _ => return Err(Error::recovery(
                         "source-ack-events",
                         "unexpected finalization cursor",
-                    ));
-                }
+                    )),
+                };
                 std::fs::create_dir_all(&directory)
-                    .and_then(|()| std::fs::write(&marker, b"7"))
+                    .and_then(|()| std::fs::write(directory.join(format!("source-acknowledged-{value}")), [value]))
                     .map_err(|error| {
                         Error::io("source-ack-events", "prism", error.to_string())
                     })

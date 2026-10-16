@@ -2,7 +2,7 @@ use super::*;
 use ironbeam_prism_proof::source_finalization_fixture;
 
 #[tokio::test]
-async fn prism_finalizes_a_replayable_source_bundle() {
+async fn prism_finalizes_each_replayable_source_bundle() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
     };
@@ -35,17 +35,22 @@ async fn prism_finalizes_a_replayable_source_bundle() {
         .unwrap()
         .snapshot()
         .unwrap();
-    let acknowledgment = std::fs::read(directory.path().join("source-acknowledged"));
-    assert!(
-        matches!(&acknowledgment, Ok(bytes) if bytes == b"7"),
-        "acknowledgment {acknowledgment:?}; finalization journal after Prism completion: {records:?}"
-    );
-    assert_eq!(records.len(), 1);
-    let record = records.values().next().unwrap();
-    assert!(record.completed);
-    assert!(record.sinks.is_empty());
-    assert_eq!(
-        record.sources[0].checkpoint_position.as_deref(),
-        Some(&[7][..])
-    );
+    assert_eq!(records.len(), 2, "finalization journal: {records:?}");
+    for value in [7, 8] {
+        let acknowledgment = std::fs::read(
+            directory
+                .path()
+                .join(format!("source-acknowledged-{value}")),
+        );
+        assert!(
+            matches!(&acknowledgment, Ok(bytes) if bytes.as_slice() == [value]),
+            "acknowledgment {acknowledgment:?}; finalization journal after Prism completion: {records:?}"
+        );
+        assert!(records.values().any(|record| {
+            record.completed
+                && record.sinks.is_empty()
+                && record.sources.len() == 1
+                && record.sources[0].checkpoint_position.as_deref() == Some(&[value][..])
+        }));
+    }
 }
