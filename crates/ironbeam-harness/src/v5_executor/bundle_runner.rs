@@ -10,17 +10,94 @@ impl BundleRunner for V5BundleExecutor {
             .map_err(|_| anyhow!("v5 SDF active bundle registry poisoned"))?;
         if let Some(bundle) = active.get(&request.instruction_id) {
             if let Some(desired) = request.desired_splits.get(&bundle.source_id) {
-                if desired.fraction_of_remainder == 0.0
-                    && desired.allowed_split_points.is_empty()
-                {
-                    let offset_tracker = bundle.offset_tracker.lock()
-                        .map_err(|_| anyhow!("v5 SDF offset tracker registry poisoned"))?;
-                    if let Some(tracker) = offset_tracker.as_ref() {
+                if desired.fraction_of_remainder == 0.0 && desired.allowed_split_points.is_empty() {
+                    let offset_work = bundle.offset_work.lock()
+                        .map_err(|_| anyhow!("v5 SDF offset work registry poisoned"))?;
+                    if let Some(work) = offset_work.as_ref() {
+                        if work.reported_residual.load(Ordering::Acquire) {
+                            return Ok(ProcessBundleSplitResponse::default());
+                        }
                         // The callback and split request share this tracker.
                         // The residual is returned when the bundle completes.
-                        tracker.try_split(0.0)?;
+                        work.tracker.try_split(0.0)?;
                     } else {
                         bundle.requested.store(true, Ordering::Release);
+                    }
+                } else if desired.fraction_of_remainder > 0.0
+                    && desired.fraction_of_remainder < 1.0
+                {
+                    let offset_work = bundle.offset_work.lock()
+                        .map_err(|_| anyhow!("v5 SDF offset work registry poisoned"))?;
+                    if let Some(work) = offset_work.as_ref() {
+                        if work.reported_residual.load(Ordering::Acquire)
+                            || work.tracker.restriction()?.stop != work.original_stop
+                        {
+                            // A prior callback or checkpoint split already owns
+                            // a residual that cannot be reported a second time.
+                            return Ok(ProcessBundleSplitResponse::default());
+                        }
+                        let allowed = &desired.allowed_split_points;
+                        if !allowed.is_empty()
+                            && (!allowed.contains(&work.channel_index)
+                                || !allowed.contains(&(work.channel_index + 1)))
+                        {
+                            return Ok(ProcessBundleSplitResponse::default());
+                        }
+                        if let Some((primary, residual)) =
+                            work.tracker.try_split(desired.fraction_of_remainder)?
+                        {
+                            let root = |restriction: ironbeam_core::OffsetRange| -> Result<Vec<u8>> {
+                                let mut encoded = work.input_header.clone();
+                                let size = (i128::from(restriction.stop)
+                                    - i128::from(restriction.start)) as f64;
+                                encoded.extend(crate::sdf_offset_wire::encode_sized(
+                                    &crate::sdf_offset_wire::SizedOffsetPair {
+                                        pair: crate::sdf_offset_wire::OffsetPair {
+                                            element: work.input_element.clone(),
+                                            restriction,
+                                        },
+                                        size,
+                                    },
+                                )?);
+                                Ok(encoded)
+                            };
+                            let bounded = if work.boundedness == Boundedness::Bounded {
+                                is_bounded::Enum::Bounded as i32
+                            } else {
+                                is_bounded::Enum::Unbounded as i32
+                            };
+                            let primary_root = BundleApplication {
+                                transform_id: work.process_id.clone(),
+                                input_id: "in".into(),
+                                element: root(primary)?,
+                                is_bounded: bounded,
+                                ..Default::default()
+                            };
+                            let residual_root = BundleApplication {
+                                transform_id: work.process_id.clone(),
+                                input_id: "in".into(),
+                                element: root(residual)?,
+                                output_watermarks: work.estimator.current()?.map(|watermark| {
+                                    HashMap::from([("out".into(), protobuf_timestamp(watermark))])
+                                }).unwrap_or_default(),
+                                is_bounded: bounded,
+                            };
+                            work.reported_residual.store(true, Ordering::Release);
+                            return Ok(ProcessBundleSplitResponse {
+                                primary_roots: vec![primary_root],
+                                residual_roots: vec![DelayedBundleApplication {
+                                    application: Some(residual_root),
+                                    requested_time_delay: None,
+                                }],
+                                channel_splits: vec![
+                                    beam_proto::fn_execution_v1::process_bundle_split_response::ChannelSplit {
+                                        transform_id: bundle.source_id.clone(),
+                                        last_primary_element: work.channel_index - 1,
+                                        first_residual_element: work.channel_index + 1,
+                                    },
+                                ],
+                            });
+                        }
                     }
                 }
             }

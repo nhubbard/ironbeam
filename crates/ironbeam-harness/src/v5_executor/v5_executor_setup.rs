@@ -1,7 +1,19 @@
 struct ActiveSdfBundle {
     source_id: String,
     requested: Arc<AtomicBool>,
-    offset_tracker: Arc<Mutex<Option<ironbeam_core::OffsetRangeTracker>>>,
+    offset_work: Arc<Mutex<Option<ActiveOffsetWork>>>,
+}
+
+struct ActiveOffsetWork {
+    tracker: ironbeam_core::OffsetRangeTracker,
+    estimator: ironbeam_core::OffsetWatermarkEstimator,
+    input_header: Vec<u8>,
+    input_element: Vec<u8>,
+    process_id: String,
+    boundedness: Boundedness,
+    channel_index: i64,
+    original_stop: i64,
+    reported_residual: Arc<AtomicBool>,
 }
 
 struct ActiveSdfGuard<'a> {
@@ -11,7 +23,7 @@ struct ActiveSdfGuard<'a> {
 
 struct ActiveSdfHandle<'a> {
     requested: Arc<AtomicBool>,
-    offset_tracker: Arc<Mutex<Option<ironbeam_core::OffsetRangeTracker>>>,
+    offset_work: Arc<Mutex<Option<ActiveOffsetWork>>>,
     _guard: ActiveSdfGuard<'a>,
 }
 
@@ -314,7 +326,7 @@ impl V5BundleExecutor {
         source_id: &str,
     ) -> Result<ActiveSdfHandle<'_>> {
         let requested = Arc::new(AtomicBool::new(false));
-        let offset_tracker = Arc::new(Mutex::new(None));
+        let offset_work = Arc::new(Mutex::new(None));
         let mut active = self
             .active_sdf
             .lock()
@@ -327,12 +339,12 @@ impl V5BundleExecutor {
             ActiveSdfBundle {
                 source_id: source_id.into(),
                 requested: Arc::clone(&requested),
-                offset_tracker: Arc::clone(&offset_tracker),
+                offset_work: Arc::clone(&offset_work),
             },
         );
         Ok(ActiveSdfHandle {
             requested,
-            offset_tracker,
+            offset_work,
             _guard: ActiveSdfGuard {
                 entries: &self.active_sdf,
                 instruction_id: instruction_id.into(),

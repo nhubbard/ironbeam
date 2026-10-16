@@ -261,7 +261,7 @@ impl V5BundleExecutor {
 
         let active_sdf = self.register_sdf_bundle(instruction_id, source_id)?;
         let split_requested = &active_sdf.requested;
-        let offset_tracker = &active_sdf.offset_tracker;
+        let offset_work = &active_sdf.offset_work;
 
         let source_client = self.data_client(source_port).await?;
         let mut reader = source_client.open_read(instruction_id, source_id);
@@ -300,7 +300,7 @@ impl V5BundleExecutor {
         let mut input_count = 0_u64;
         let mut residual_roots = Vec::new();
         let mut pending = Vec::new();
-        while let Some(chunk) = reader.recv().await {
+        'input: while let Some(chunk) = reader.recv().await {
             pending.extend_from_slice(&chunk);
             let mut consumed = 0;
             while let Some((windowed, header_len)) =
@@ -314,10 +314,24 @@ impl V5BundleExecutor {
                     let original = sized.pair.restriction;
                     let tracker = ironbeam_core::OffsetRangeTracker::new(original)?;
                     let estimator = ironbeam_core::OffsetWatermarkEstimator::new(None);
+                    let reported_residual = Arc::new(AtomicBool::new(false));
                     {
-                        let mut active = offset_tracker.lock()
-                            .map_err(|_| anyhow!("v5 SDF offset tracker registry poisoned"))?;
-                        *active = Some(tracker.clone());
+                        let mut active = offset_work.lock()
+                            .map_err(|_| anyhow!("v5 SDF offset work registry poisoned"))?;
+                        *active = Some(ActiveOffsetWork {
+                            tracker: tracker.clone(),
+                            estimator: estimator.clone(),
+                            input_header: pending[consumed..consumed + header_len].to_vec(),
+                            input_element: sized.pair.element.clone(),
+                            process_id: process_id.clone(),
+                            boundedness: node.boundedness,
+                            channel_index: i64::try_from(input_count)
+                                .ok()
+                                .filter(|index| *index < i64::MAX)
+                                .context("v5 SDF input index exceeds Beam's signed range")?,
+                            original_stop: original.stop,
+                            reported_residual: Arc::clone(&reported_residual),
+                        });
                     }
                     if split_requested.swap(false, Ordering::AcqRel) {
                         tracker.try_split(0.0)?;
@@ -350,7 +364,9 @@ impl V5BundleExecutor {
                         ).await?;
                     }
                     let primary = tracker.restriction()?;
-                    if primary.stop < original.stop {
+                    if primary.stop < original.stop
+                        && !reported_residual.load(Ordering::Acquire)
+                    {
                         let residual = ironbeam_core::OffsetRange::new(primary.stop, original.stop)?;
                         let body = crate::sdf_offset_wire::encode_sized(
                             &crate::sdf_offset_wire::SizedOffsetPair {
@@ -398,10 +414,16 @@ impl V5BundleExecutor {
                             requested_time_delay: None,
                         });
                     }
-                    *offset_tracker.lock()
-                        .map_err(|_| anyhow!("v5 SDF offset tracker registry poisoned"))? = None;
+                    *offset_work.lock()
+                        .map_err(|_| anyhow!("v5 SDF offset work registry poisoned"))? = None;
                     input_count += 1;
                     consumed += header_len + body_len;
+                    if reported_residual.load(Ordering::Acquire) {
+                        // The channel split transferred all later input records
+                        // back to the runner; do not process buffered records.
+                        pending.clear();
+                        break 'input;
+                    }
                     if consumed == pending.len() { break; }
                     continue;
                 }

@@ -11,7 +11,7 @@ use std::time::Duration;
 use beam_proto::fn_execution_v1::beam_fn_data_server::{BeamFnData, BeamFnDataServer};
 use beam_proto::fn_execution_v1::{
     elements::Data, process_bundle_split_request, Elements, ProcessBundleSplitRequest,
-    RemoteGrpcPort,
+    ProcessBundleSplitResponse, RemoteGrpcPort,
 };
 use beam_proto::pipeline_v1::ApiServiceDescriptor;
 use ironbeam_core::{Element, OffsetRange, Pipeline, TestStreamEvent, Version};
@@ -103,17 +103,19 @@ async fn run_bundle(
     beam_proto::fn_execution_v1::ProcessBundleResponse,
     Vec<Data>,
 ) {
-    run_bundle_with_checkpoint(pipeline, record, steps, None).await
+    let (response, chunks, _) = run_bundle_with_checkpoint(pipeline, record, steps, None).await;
+    (response, chunks)
 }
 
 async fn run_bundle_with_checkpoint(
     pipeline: &Pipeline,
     record: Vec<u8>,
     steps: Vec<Step>,
-    checkpoint: Option<(Arc<AtomicBool>, Arc<AtomicBool>)>,
+    checkpoint: Option<(Arc<AtomicBool>, Arc<AtomicBool>, f64)>,
 ) -> (
     beam_proto::fn_execution_v1::ProcessBundleResponse,
     Vec<Data>,
+    Option<ProcessBundleSplitResponse>,
 ) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -170,7 +172,7 @@ async fn run_bundle_with_checkpoint(
         steps,
     };
     let runner = Arc::new(V5BundleExecutor::new(pipeline, "test-build").unwrap());
-    let response = if let Some((started, release)) = checkpoint {
+    let (response, split_response) = if let Some((started, release, fraction)) = checkpoint {
         let executing = Arc::clone(&runner);
         let task = tokio::spawn(async move { executing.run("bundle", &plan).await });
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -180,37 +182,76 @@ async fn run_bundle_with_checkpoint(
         })
         .await
         .unwrap();
+        if fraction > 0.0 {
+            let refused = runner
+                .split_bundle(&ProcessBundleSplitRequest {
+                    instruction_id: "bundle".into(),
+                    desired_splits: HashMap::from([(
+                        "input".into(),
+                        process_bundle_split_request::DesiredSplit {
+                            fraction_of_remainder: fraction,
+                            allowed_split_points: vec![0],
+                            ..Default::default()
+                        },
+                    )]),
+                })
+                .await
+                .unwrap();
+            assert!(refused.primary_roots.is_empty());
+            assert!(refused.residual_roots.is_empty());
+        }
         let split = runner
             .split_bundle(&ProcessBundleSplitRequest {
                 instruction_id: "bundle".into(),
                 desired_splits: HashMap::from([(
                     "input".into(),
                     process_bundle_split_request::DesiredSplit {
-                        fraction_of_remainder: 0.0,
+                        fraction_of_remainder: fraction,
+                        allowed_split_points: if fraction > 0.0 { vec![0, 1] } else { vec![] },
                         ..Default::default()
                     },
                 )]),
             })
             .await
             .unwrap();
-        assert!(split.primary_roots.is_empty());
-        assert!(split.residual_roots.is_empty());
+        if fraction == 0.0 {
+            assert!(split.primary_roots.is_empty());
+            assert!(split.residual_roots.is_empty());
+        } else {
+            let repeated = runner
+                .split_bundle(&ProcessBundleSplitRequest {
+                    instruction_id: "bundle".into(),
+                    desired_splits: HashMap::from([(
+                        "input".into(),
+                        process_bundle_split_request::DesiredSplit {
+                            fraction_of_remainder: fraction,
+                            ..Default::default()
+                        },
+                    )]),
+                })
+                .await
+                .unwrap();
+            assert!(repeated.primary_roots.is_empty());
+            assert!(repeated.residual_roots.is_empty());
+        }
         release.store(true, Ordering::Release);
-        tokio::time::timeout(Duration::from_secs(5), task)
+        let response = tokio::time::timeout(Duration::from_secs(5), task)
             .await
             .unwrap()
             .unwrap()
-            .unwrap()
+            .unwrap();
+        (response, Some(split))
     } else {
-        tokio::time::timeout(Duration::from_secs(5), runner.run("bundle", &plan))
+        let response = tokio::time::timeout(Duration::from_secs(5), runner.run("bundle", &plan))
             .await
             .unwrap()
-            .unwrap()
+            .unwrap();
+        (response, None)
     };
     tokio::time::sleep(Duration::from_millis(50)).await;
     let chunks = received.lock().await.clone();
     server.abort();
-    (response, chunks)
+    (response, chunks, split_response)
 }
 
 #[tokio::test]
@@ -441,14 +482,42 @@ async fn user_split_residual_runs_in_a_fresh_worker_bundle() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runner_checkpoint_splits_active_user_restriction_without_duplicate_output() {
+    runner_split_active_user_restriction(0.0, false, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_fractional_split_returns_immediate_roots_and_no_duplicate_residual() {
+    runner_split_active_user_restriction(0.5, true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_fractional_split_keeps_unbounded_residual_metadata() {
+    runner_split_active_user_restriction(0.5, false, true).await;
+}
+
+async fn runner_split_active_user_restriction(fraction: f64, second_input: bool, unbounded: bool) {
     let started = Arc::new(AtomicBool::new(false));
     let release = Arc::new(AtomicBool::new(false));
     let callback_started = Arc::clone(&started);
     let callback_release = Arc::clone(&release);
     let pipeline = Pipeline::default();
-    pipeline
-        .from_vec("input", vec![20_i32])
-        .unwrap()
+    let input = if unbounded {
+        pipeline
+            .test_stream_source("input", vec![TestStreamEvent::Elements(vec![(20_i32, 0)])])
+            .unwrap()
+    } else {
+        pipeline
+            .from_vec(
+                "input",
+                if second_input {
+                    vec![20_i32, 30]
+                } else {
+                    vec![20]
+                },
+            )
+            .unwrap()
+    };
+    input
         .splittable_flat_map_named(
             "offsets",
             "tests/runner-checkpoint",
@@ -515,18 +584,77 @@ async fn runner_checkpoint_splits_active_user_restriction_without_duplicate_outp
     .unwrap();
     let mut initial = Vec::new();
     encode_windowed_value(0, &body, &mut initial).unwrap();
-    let (response, first_chunks) =
-        run_bundle_with_checkpoint(&pipeline, initial, steps(), Some((started, release))).await;
-    assert_eq!(response.residual_roots.len(), 1);
-    let residual = response.residual_roots[0].application.as_ref().unwrap();
+    let mut second_record = Vec::new();
+    if second_input {
+        let second_body = ironbeam_harness::sdf_offset_wire::encode_sized(
+            &ironbeam_harness::sdf_offset_wire::SizedOffsetPair {
+                pair: ironbeam_harness::sdf_offset_wire::OffsetPair {
+                    element: 30_i32.encode().unwrap(),
+                    restriction: OffsetRange::new(0, 6).unwrap(),
+                },
+                size: 6.0,
+            },
+        )
+        .unwrap();
+        encode_windowed_value(0, &second_body, &mut second_record).unwrap();
+        initial.extend_from_slice(&second_record);
+    }
+    let (response, first_chunks, split) = run_bundle_with_checkpoint(
+        &pipeline,
+        initial,
+        steps(),
+        Some((started, release, fraction)),
+    )
+    .await;
+    let residual = if fraction == 0.0 {
+        assert_eq!(response.residual_roots.len(), 1);
+        response.residual_roots[0].application.as_ref().unwrap()
+    } else {
+        assert!(response.residual_roots.is_empty());
+        let split = split.as_ref().unwrap();
+        assert_eq!(split.primary_roots.len(), 1);
+        assert_eq!(split.residual_roots.len(), 1);
+        assert_eq!(split.channel_splits.len(), 1);
+        assert_eq!(split.channel_splits[0].transform_id, "input");
+        assert_eq!(split.channel_splits[0].last_primary_element, -1);
+        assert_eq!(split.channel_splits[0].first_residual_element, 1);
+        assert_eq!(
+            split.residual_roots[0]
+                .application
+                .as_ref()
+                .unwrap()
+                .is_bounded,
+            if unbounded {
+                beam_proto::pipeline_v1::is_bounded::Enum::Unbounded as i32
+            } else {
+                beam_proto::pipeline_v1::is_bounded::Enum::Bounded as i32
+            }
+        );
+        let (primary, _) = decode_windowed_value(&split.primary_roots[0].element).unwrap();
+        assert_eq!(
+            decode_sized(primary.element).unwrap().pair.restriction,
+            OffsetRange::new(0, 3).unwrap()
+        );
+        split.residual_roots[0].application.as_ref().unwrap()
+    };
     let (windowed, _) = decode_windowed_value(&residual.element).unwrap();
     assert_eq!(
         decode_sized(windowed.element).unwrap().pair.restriction,
-        OffsetRange::new(2, 6).unwrap()
+        OffsetRange::new(if fraction == 0.0 { 2 } else { 3 }, 6).unwrap()
     );
     let (_, second_chunks) = run_bundle(&pipeline, residual.element.clone(), steps()).await;
+    let third_chunks = if second_input {
+        let (_, chunks) = run_bundle(&pipeline, second_record, steps()).await;
+        chunks
+    } else {
+        Vec::new()
+    };
     let mut values = Vec::new();
-    for chunk in first_chunks.into_iter().chain(second_chunks) {
+    for chunk in first_chunks
+        .into_iter()
+        .chain(second_chunks)
+        .chain(third_chunks)
+    {
         if chunk.transform_id != "output" || chunk.data.is_empty() {
             continue;
         }
@@ -535,10 +663,11 @@ async fn runner_checkpoint_splits_active_user_restriction_without_duplicate_outp
         values.push((i32::decode(body).unwrap(), windowed.timestamp_millis));
     }
     values.sort_unstable();
-    assert_eq!(
-        values,
-        [(20, 0), (21, 1), (22, 2), (23, 3), (24, 4), (25, 5)]
-    );
+    let mut expected = vec![(20, 0), (21, 1), (22, 2), (23, 3), (24, 4), (25, 5)];
+    if second_input {
+        expected.extend([(30, 0), (31, 1), (32, 2), (33, 3), (34, 4), (35, 5)]);
+    }
+    assert_eq!(values, expected);
 }
 
 #[tokio::test]
