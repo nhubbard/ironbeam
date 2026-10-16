@@ -68,7 +68,8 @@ use ironbeam_prism_proof::{
     dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_collection,
     dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_collection,
     dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_collection,
-    dual_unbounded_flatten_fixture, dual_unbounded_join_collection, dual_unbounded_join_fixture,
+    dual_unbounded_flatten_fixture, dual_unbounded_join_collection,
+    dual_unbounded_join_fanout_fixture, dual_unbounded_join_fixture,
     dual_unbounded_join_kind_collection, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_collection, dual_unbounded_late_join_fixture,
     dual_unbounded_map_side_collection, dual_unbounded_map_side_fixture,
@@ -3145,6 +3146,62 @@ async fn prism_matches_direct_two_unbounded_merged_session_cogroup() {
         .collect::<Vec<_>>();
     portable.sort_unstable();
     assert_eq!(portable, direct);
+}
+
+#[tokio::test]
+async fn prism_matches_direct_four_join_unbounded_fanout() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-four-join-fanout");
+    let portable_path = directory.path().join("portable-four-join-fanout");
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        dual_unbounded_join_fanout_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let direct = read_rows(&direct_path);
+    assert_eq!(
+        direct,
+        [
+            "21|1000000|0..4000000",
+            "23|5000000|4000000..8000000",
+            "31|1000000|0..4000000",
+            "41|1000000|0..4000000",
+            "43|5000000|4000000..8000000",
+            "50|5000000|4000000..8000000",
+            "51|1000000|0..4000000",
+            "60|5000000|4000000..8000000",
+        ]
+    );
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    dual_unbounded_join_fanout_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "four-join-unbounded-fanout",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_DUAL_JOIN_FANOUT".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism four-join fanout state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), direct);
 }
 
 #[tokio::test]

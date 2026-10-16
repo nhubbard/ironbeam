@@ -25,7 +25,8 @@ use ironbeam_prism_proof::{
     dual_positive_late_join_time_fixture, dual_processing_time_cogroup_fixture,
     dual_stream_windowed_side_fixture, dual_stream_windowed_wait_fixture,
     dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_fixture,
-    dual_unbounded_flatten_fixture, dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
+    dual_unbounded_flatten_fixture, dual_unbounded_join_fanout_fixture,
+    dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
     dual_unbounded_late_join_fixture, dual_unbounded_map_side_fixture,
     dual_unbounded_session_cogroup_fixture, dual_unbounded_session_join_fixture,
     early_sliding_windowed_wait_fixture, early_windowed_wait_fixture,
@@ -693,6 +694,9 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_JOIN") {
         return dual_unbounded_join_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_JOIN_FANOUT") {
+        return dual_unbounded_join_fanout_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_DUAL_FANIN_END_TIME") {
         return dual_unbounded_fanin_output_time_fixture(

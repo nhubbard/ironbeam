@@ -723,6 +723,37 @@ pub fn dual_unbounded_join_kind_fixture(
     )
 }
 
+/// Four joins share the same two unbounded source cursors and one sink.
+pub fn dual_unbounded_join_fanout_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let (main, side) = dual_unbounded_sources(pipeline)?;
+    let inner = main.join_inner_named("dual-fanout-inner", &side)?
+        .map_named("dual-fanout-inner-value", |(_, (left, right))| 10 + left + right)?;
+    let left = main.join_left_named("dual-fanout-left", &side)?
+        .map_named("dual-fanout-left-value", |(_, (left, right))| 20 + left + right.unwrap_or_default())?;
+    let right = main.join_right_named("dual-fanout-right", &side)?
+        .map_named("dual-fanout-right-value", |(_, (left, right))| 30 + left.unwrap_or_default() + right)?;
+    let full = main.join_full_named("dual-fanout-full", &side)?
+        .map_named("dual-fanout-full-value", |(_, (left, right))| {
+            40 + left.unwrap_or_default() + right.unwrap_or_default()
+        })?;
+    let sink_directory = directory.clone();
+    inner.flatten_named("dual-fanout-merge", &[left, right, full])?
+        .reify_timestamps_named("dual-fanout-time")?
+        .with_window_named("dual-fanout-window")?
+        .map_named("dual-fanout-row", |(window, (time, value))| {
+            format!("{value}|{time}|{}..{}", window.start_ns, window.end_ns)
+        })?
+        .sink_named_with_config(
+            "dual-fanout-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::Idempotent, commit: true },
+            format!("dual-fanout:{}", directory.display()),
+            move || Ok(Box::new(IdempotentRowSink { directory: sink_directory.clone(), pending: Vec::new() })),
+        )
+}
+
 /// A late event arrives after both source watermarks have closed its window.
 pub fn dual_unbounded_late_join_collection(
     pipeline: &Pipeline,
