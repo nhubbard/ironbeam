@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -103,6 +103,41 @@ struct FailOnceCapture {
     committed: Arc<Mutex<Vec<String>>>,
     attempts: Arc<AtomicUsize>,
     pending: Vec<String>,
+}
+
+struct BundleIdempotentCapture {
+    committed: Arc<Mutex<Vec<String>>>,
+    accepted: Arc<Mutex<HashSet<String>>>,
+    bundle: Option<String>,
+    pending: Vec<String>,
+}
+
+impl TypedSink<String> for BundleIdempotentCapture {
+    fn begin_bundle(&mut self, instruction_id: &str) -> Result<(), Error> {
+        self.bundle = Some(instruction_id.to_owned());
+        Ok(())
+    }
+
+    fn write(&mut self, value: String) -> Result<(), Error> {
+        self.pending.push(value);
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        let bundle = self.bundle.take().unwrap();
+        if self.accepted.lock().unwrap().insert(bundle) {
+            self.committed
+                .lock()
+                .unwrap()
+                .extend(self.pending.drain(..));
+        }
+        Ok(())
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.pending.clear();
+        Ok(())
+    }
 }
 
 struct TimerDeliverySink {
@@ -974,6 +1009,142 @@ fn failed_timer_sink_commit_retries_from_armed_checkpoint() {
     assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
     assert_eq!(*committed.lock().unwrap(), ["7:3"]);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // Two commit attempts and one saved timer are asserted together.
+fn failed_second_timer_sink_retries_same_bundle_once() {
+    let directory = tempfile::tempdir().unwrap();
+    let first_rows = Arc::new(Mutex::new(Vec::new()));
+    let first_bundles = Arc::new(Mutex::new(HashSet::new()));
+    let second_rows = Arc::new(Mutex::new(Vec::new()));
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let shared = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "failed-shared-timer-source-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |cursor| {
+                    opens.lock().unwrap().push(cursor.clone());
+                    Ok(Box::new(AdvancingRecoverySource { cursor })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/failed-shared-timer-commit",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("event".into(), UserTimerDomain::EventTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "event".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: 5_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap();
+    let first = shared
+        .sink_named_with_config(
+            "first",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "failed-shared-first-v1".into(),
+            {
+                let committed = Arc::clone(&first_rows);
+                let accepted = Arc::clone(&first_bundles);
+                move || {
+                    Ok(Box::new(BundleIdempotentCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let second = shared
+        .map_named("copy-label", |label| format!("copy:{label}"))
+        .unwrap()
+        .sink_named_with_config(
+            "second",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "failed-shared-second-v1".into(),
+            {
+                let committed = Arc::clone(&second_rows);
+                let attempts = Arc::clone(&attempts);
+                move || {
+                    Ok(Box::new(FailOnceCapture {
+                        committed: Arc::clone(&committed),
+                        attempts: Arc::clone(&attempts),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 2,
+            recover: true,
+            binary_build_id: "failed-shared-timer-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    assert!(
+        DirectRunner
+            .start_stream_sink_pair(&first, &second, &config())
+            .unwrap()
+            .wait()
+            .is_err()
+    );
+    assert_eq!(*first_rows.lock().unwrap(), ["7:3"]);
+    assert!(second_rows.lock().unwrap().is_empty());
+    DirectRunner
+        .start_stream_sink_pair(&first, &second, &config())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(*first_rows.lock().unwrap(), ["7:3"]);
+    assert_eq!(first_bundles.lock().unwrap().len(), 1);
+    assert_eq!(*second_rows.lock().unwrap(), ["copy:7:3"]);
 }
 
 #[test]
