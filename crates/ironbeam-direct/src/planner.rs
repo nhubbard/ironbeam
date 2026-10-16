@@ -104,12 +104,31 @@ pub(crate) struct PhysicalPlan {
     pub(crate) materialized: bool,
 }
 
-#[allow(clippy::too_many_lines)]
 pub(crate) fn lower(
     graph: &Graph,
     registry: &Registry,
     output_key: &str,
     batch_limit: usize,
+) -> Result<PhysicalPlan, Error> {
+    lower_inner(graph, registry, output_key, batch_limit, false)
+}
+
+pub(crate) fn lower_stream(
+    graph: &Graph,
+    registry: &Registry,
+    output_key: &str,
+    batch_limit: usize,
+) -> Result<PhysicalPlan, Error> {
+    lower_inner(graph, registry, output_key, batch_limit, true)
+}
+
+#[allow(clippy::too_many_lines)]
+fn lower_inner(
+    graph: &Graph,
+    registry: &Registry,
+    output_key: &str,
+    batch_limit: usize,
+    stream_shard_boundary: bool,
 ) -> Result<PhysicalPlan, Error> {
     let output = graph
         .node(output_key)
@@ -136,6 +155,9 @@ pub(crate) fn lower(
     for key in &selected {
         if let Some(node) = graph.node(key)
             && requires_materialization(&node.operation)
+            && !(stream_shard_boundary
+                && matches!(node.operation, Operation::Reshuffle)
+                && node.semantic_id == "ironbeam-builtin/stream-shard-boundary")
         {
             decisions.push(PlanDecision::MaterializationBarrier {
                 key: key.clone(),
@@ -205,7 +227,13 @@ pub(crate) fn lower(
         });
     }
     let mut routes = Vec::new();
-    lower_routes(graph, output_key, Vec::new(), &mut routes)?;
+    lower_routes(
+        graph,
+        output_key,
+        Vec::new(),
+        &mut routes,
+        stream_shard_boundary,
+    )?;
     let source_key = routes
         .first()
         .ok_or_else(|| Error::graph(output_key, "plan has no source"))?
@@ -308,6 +336,7 @@ fn lower_routes(
     key: &str,
     suffix: Vec<String>,
     routes: &mut Vec<Route>,
+    stream_shard_boundary: bool,
 ) -> Result<(), Error> {
     let node = graph
         .node(key)
@@ -339,16 +368,32 @@ fn lower_routes(
                 .input
                 .as_deref()
                 .ok_or_else(|| Error::graph(key, "missing parent"))?;
-            lower_routes(graph, parent, suffix, routes)?;
+            lower_routes(graph, parent, suffix, routes, stream_shard_boundary)?;
+        }
+        Operation::Reshuffle
+            if stream_shard_boundary
+                && node.semantic_id == "ironbeam-builtin/stream-shard-boundary" =>
+        {
+            let parent = node
+                .input
+                .as_deref()
+                .ok_or_else(|| Error::graph(key, "missing parent"))?;
+            lower_routes(graph, parent, suffix, routes, stream_shard_boundary)?;
         }
         Operation::Flatten => {
             let parent = node
                 .input
                 .as_deref()
                 .ok_or_else(|| Error::graph(key, "missing parent"))?;
-            lower_routes(graph, parent, suffix.clone(), routes)?;
+            lower_routes(graph, parent, suffix.clone(), routes, stream_shard_boundary)?;
             for edge in &node.additional_inputs {
-                lower_routes(graph, &edge.key, suffix.clone(), routes)?;
+                lower_routes(
+                    graph,
+                    &edge.key,
+                    suffix.clone(),
+                    routes,
+                    stream_shard_boundary,
+                )?;
             }
         }
         _ => return Err(Error::unsupported(key, "direct", "lowering")),

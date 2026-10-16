@@ -426,6 +426,15 @@ impl<T: Element> PCollection<T> {
     pub fn reshuffle_named(&self, key: &str) -> Result<Self, Error> {
         self.next(key, Operation::Reshuffle, None, None)
     }
+    pub(crate) fn reshuffle_stream_shard_boundary_named(&self, key: &str) -> Result<Self, Error> {
+        self.next_with_semantic(
+            key,
+            Operation::Reshuffle,
+            None,
+            None,
+            Some(("ironbeam-builtin/stream-shard-boundary", BUILTIN_OPERATION_VERSION)),
+        )
+    }
     /// Erase a signal's element type for a heterogeneous completion barrier.
     #[must_use]
     pub fn wait_signal(&self) -> WaitSignal {

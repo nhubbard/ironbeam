@@ -1,5 +1,5 @@
 use super::*;
-use ironbeam_core::Version;
+use ironbeam_core::{Element, Version};
 
 pub fn beam_sharded_batches_fixture(
     pipeline: &Pipeline,
@@ -102,6 +102,62 @@ pub fn beam_sharded_batches_stream_fixture(
                 commit: true,
             },
             format!("sharded-stream:{}", path.display()),
+            move || {
+                Ok(Box::new(IdempotentRowSink {
+                    directory: sink_path.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
+pub fn beam_sharded_byte_batches_stream_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    let short_bytes = (1_u8, "a".to_owned()).encoded_len()?;
+    pipeline
+        .test_stream_source(
+            "sharded-byte-stream-input",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("hot".to_owned(), (1_u8, "a".to_owned())), 1_000_000),
+                    (("hot".to_owned(), (2, "x".to_owned())), 2_000_000),
+                ]),
+                TestStreamEvent::Elements(vec![
+                    (("hot".to_owned(), (1, "b".to_owned())), 3_000_000),
+                    (("hot".to_owned(), (2, "y".to_owned())), 4_000_000),
+                    (("hot".to_owned(), (1, "oversized".to_owned())), 5_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .fixed_windows("sharded-byte-window", 10_000_000)?
+        .group_into_batches_with_limits_and_sharded_key_named(
+            "sharded-byte-batches",
+            10,
+            short_bytes * 2,
+            "proof/select-byte-shard",
+            Version { major: 1, minor: 0 },
+            |_, (shard, _)| vec![*shard],
+        )?
+        .reify_timestamps_named("sharded-byte-time")?
+        .map_named("sharded-byte-output", |(timestamp, (key, values))| {
+            let values = values
+                .into_iter()
+                .map(|(_, value)| value)
+                .collect::<Vec<_>>();
+            format!("{}:{:?}:{timestamp}:{values:?}", key.key, key.shard_id)
+        })?
+        .sink_named_with_config(
+            "sharded-byte-capture",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("sharded-byte-stream:{}", path.display()),
             move || {
                 Ok(Box::new(IdempotentRowSink {
                     directory: sink_path.clone(),

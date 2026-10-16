@@ -175,8 +175,11 @@ are not whole milliseconds are rejected.
 and byte limits after a caller supplied selector assigns each value to a
 stable shard. Its output retains the original key and shard ID. Choose a
 selector that returns the same bytes for a value after recovery; changing its
-semantic version changes the graph identity. A Direct fixture confirms that
-two shards of one hot key keep separate byte counts and batches.
+semantic version changes the graph identity. Direct and local Prism fixtures
+confirm that two shards of one hot key keep separate byte counts and batches,
+including on unbounded fixed-window input. The unbounded route inserts a Beam
+reshuffle boundary after shard assignment so that keyed state receives stable
+key framing.
 
 `co_group_homogeneous_named` groups collections whose keys and values have
 the same types. The result is a key and one value vector

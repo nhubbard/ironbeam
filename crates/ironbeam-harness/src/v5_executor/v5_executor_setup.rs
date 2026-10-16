@@ -179,7 +179,8 @@ impl V5BundleExecutor {
     }
 
     fn group_at_input(&self, pc: &str) -> Option<&str> {
-        // Mirror graphx's keyed coder propagation through native Flatten.
+        // Mirror graphx's keyed coder propagation through native forwarding
+        // boundaries, including a Reshuffle that Prism may elide.
         let candidate = self
             .graph
             .nodes
@@ -196,25 +197,25 @@ impl V5BundleExecutor {
                     && node
                         .input
                         .as_deref()
-                        .is_some_and(|input| self.flatten_input_reaches(input, candidate))
+                        .is_some_and(|input| self.forwarding_input_reaches(input, candidate))
             })
             .map(|node| node.key.as_str())
     }
 
-    fn flatten_input_reaches(&self, input: &str, candidate: &str) -> bool {
+    fn forwarding_input_reaches(&self, input: &str, candidate: &str) -> bool {
         if input == candidate {
             return true;
         }
         let Some(node) = self.graph.node(input) else {
             return false;
         };
-        matches!(node.operation, Operation::Flatten)
+        matches!(node.operation, Operation::Flatten | Operation::Reshuffle)
             && node
                 .input
                 .iter()
                 .map(String::as_str)
                 .chain(node.additional_inputs.iter().map(|edge| edge.key.as_str()))
-                .any(|parent| self.flatten_input_reaches(parent, candidate))
+                .any(|parent| self.forwarding_input_reaches(parent, candidate))
     }
 
     pub fn new(pipeline: &Pipeline, binary_build_id: &str) -> Result<Self> {

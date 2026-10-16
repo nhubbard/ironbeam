@@ -150,6 +150,30 @@ fn explicit_shards_keep_byte_limits_independent() {
             )
             .is_err()
     );
+    assert!(
+        source
+            .group_into_batches_with_limits_and_sharded_key_named(
+                "invalid-byte-shard-selector",
+                10,
+                short_bytes * 2,
+                "",
+                Version { major: 1, minor: 0 },
+                |_, _| vec![0],
+            )
+            .is_err()
+    );
+    assert!(
+        source
+            .group_into_batches_with_limits_and_sharded_key_named(
+                "byte-batches",
+                10,
+                short_bytes * 2,
+                "tests/byte-shard-selector",
+                Version { major: 1, minor: 0 },
+                |_, _| vec![0],
+            )
+            .is_err()
+    );
     assert_eq!(
         pipeline.snapshot().unwrap().0.fingerprint().unwrap(),
         fingerprint

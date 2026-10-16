@@ -148,8 +148,9 @@ fn window_fn(window: &Window) -> Result<FunctionSpec, V5Error> {
 
 fn keyed_inputs(graph: &Graph) -> HashSet<&str> {
     let mut keyed = HashSet::new();
-    // Native Flatten forwards encoded bytes unchanged, so each of its inputs
-    // needs the same KV coder when its output feeds native GroupByKey.
+    // Flatten and Reshuffle forward encoded bytes unchanged. Prism can also
+    // elide a Reshuffle, so its input must retain the same KV framing when a
+    // downstream stateful ParDo or GroupByKey needs the key.
     for group in graph
         .nodes
         .iter()
@@ -162,7 +163,7 @@ fn keyed_inputs(graph: &Graph) -> HashSet<&str> {
             }
             if let Some(flatten) = graph
                 .node(key)
-                .filter(|node| matches!(node.operation, Operation::Flatten))
+                .filter(|node| matches!(node.operation, Operation::Flatten | Operation::Reshuffle))
             {
                 pending.extend(flatten.input.iter().map(String::as_str));
                 pending.extend(

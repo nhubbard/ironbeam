@@ -536,7 +536,9 @@ impl<K: Element + Eq + Hash + Clone, V: Element> PCollection<(K, V)> {
                 Ok(vec![(BeamShardedKey::new(user_key, shard_id), value)])
             },
         )?;
-        sharded.group_into_batches_with_limits_named(key, max_count, max_encoded_bytes)
+        sharded
+            .reshuffle_stream_shard_boundary_named(&format!("{key}/shard-boundary"))?
+            .group_into_batches_with_limits_named(key, max_count, max_encoded_bytes)
     }
 
     fn group_into_batches_with_delay(

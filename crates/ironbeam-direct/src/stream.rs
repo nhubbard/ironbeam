@@ -780,7 +780,8 @@ impl DirectRunner {
         if config.spill.is_some() {
             return Err(Error::unsupported(&sink_key, "direct", "stream-spill"));
         }
-        let mut plan = planner::lower(&graph, &registry, &sink_key, config.buffer_budget_elements)?;
+        let mut plan =
+            planner::lower_stream(&graph, &registry, &sink_key, config.buffer_budget_elements)?;
         if graph.nodes.iter().any(|node| {
             node.boundedness == ironbeam_core::Boundedness::Unbounded
                 && matches!(node.operation, Operation::StatefulParDo { .. })

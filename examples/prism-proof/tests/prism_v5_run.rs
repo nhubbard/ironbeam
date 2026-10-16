@@ -7049,6 +7049,60 @@ async fn prism_matches_direct_streaming_explicit_sharded_batches() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_streaming_sharded_byte_batches() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-sharded-byte-stream");
+    let portable_path = directory.path().join("portable-sharded-byte-stream");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::beam_sharded_byte_batches_stream_fixture(
+        &direct_pipeline,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = read_open_rows(path);
+        rows.sort();
+        rows
+    };
+    let expected = [
+        "hot:[1]:1000000:[\"a\", \"b\"]",
+        "hot:[1]:5000000:[\"oversized\"]",
+        "hot:[2]:2000000:[\"x\", \"y\"]",
+    ];
+    assert_eq!(read_rows(&direct_path), expected);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_pipeline = Pipeline::default();
+    ironbeam_prism_proof::beam_sharded_byte_batches_stream_fixture(
+        &portable_pipeline,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "beam-sharded-byte-stream",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_BEAM_SHARDED_BYTE_STREAM".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(
+        terminal.0, 3,
+        "Beam sharded byte stream failed: {terminal:?}"
+    );
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_recovers_streaming_sharded_batches_after_child_failure() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

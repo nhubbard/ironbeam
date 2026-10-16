@@ -3,6 +3,24 @@ use super::*;
 use ironbeam_core::{ErrorKind, Pipeline};
 
 #[test]
+fn stream_planner_keeps_ordinary_reshuffles_as_materialization_boundaries() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![1_i32])
+        .unwrap()
+        .reshuffle_named("ordinary-boundary")
+        .unwrap()
+        .output("out")
+        .unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    assert!(
+        lower_stream(&graph, &registry, "out", 1)
+            .unwrap()
+            .materialized
+    );
+}
+
+#[test]
 fn lowering_checks_terminal_and_chain_shape() {
     let pipeline = Pipeline::default();
     pipeline

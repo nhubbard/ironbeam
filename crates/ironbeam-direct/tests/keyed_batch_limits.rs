@@ -1,7 +1,7 @@
 use ironbeam_core::{
     Element, Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec,
     SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
-    UnboundedBatch, UnboundedPoll, UnboundedSource,
+    UnboundedBatch, UnboundedPoll, UnboundedSource, Version,
 };
 use ironbeam_direct::{CheckpointConfig, DirectCollectExt, DirectRunner, JobConfig};
 use std::sync::{
@@ -13,6 +13,81 @@ use std::time::{Duration, Instant};
 struct Rows {
     committed: Arc<Mutex<Vec<String>>>,
     pending: Vec<String>,
+}
+
+#[test]
+fn unbounded_sharded_byte_batches_keep_keys_independent_across_stream_boundary() {
+    let pipeline = Pipeline::default();
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&rows);
+    let short_bytes = (1_u8, "a".to_owned()).encoded_len().unwrap();
+    let sink = pipeline
+        .test_stream_source(
+            "values",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (("hot".to_owned(), (1_u8, "a".to_owned())), 1_000_000),
+                    (("hot".to_owned(), (2, "x".to_owned())), 2_000_000),
+                    (("hot".to_owned(), (1, "b".to_owned())), 3_000_000),
+                    (("hot".to_owned(), (2, "y".to_owned())), 4_000_000),
+                    (("hot".to_owned(), (1, "oversized".to_owned())), 5_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .group_into_batches_with_limits_and_sharded_key_named(
+            "batches",
+            10,
+            short_bytes * 2,
+            "tests/stream-byte-shards",
+            Version { major: 1, minor: 0 },
+            |_, (shard, _)| vec![*shard],
+        )
+        .unwrap()
+        .reify_timestamps_named("timestamp")
+        .unwrap()
+        .map_named("row", |(timestamp, (key, values))| {
+            let values = values
+                .into_iter()
+                .map(|(_, value)| value)
+                .collect::<Vec<_>>();
+            format!("{}:{:?}:{timestamp}:{values:?}", key.key, key.shard_id)
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/stream-sharded-byte-sink-v1".into(),
+            move || {
+                Ok(Box::new(Rows {
+                    committed: Arc::clone(&captured),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut actual = rows.lock().unwrap().clone();
+    actual.sort();
+    assert_eq!(
+        actual,
+        [
+            "hot:[1]:1000000:[\"a\", \"b\"]",
+            "hot:[1]:5000000:[\"oversized\"]",
+            "hot:[2]:2000000:[\"x\", \"y\"]",
+        ]
+    );
 }
 
 impl TypedSink<String> for Rows {
