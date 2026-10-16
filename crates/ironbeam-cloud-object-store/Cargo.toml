@@ -15,7 +15,7 @@ azure = ["object_store/azure"]
 
 [dependencies]
 ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects" }
-object_store = { version = "0.14.2", default-features = false }
+object_store = { version = "0.14.2", default-features = false, features = ["tokio"] }
 futures-util = "0.3"
 bytes = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "io-util"] }

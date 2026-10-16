@@ -3023,10 +3023,12 @@ name = "ironbeam-io"
 version = "5.0.0"
 dependencies = [
  "glob",
+ "ironbeam-cloud-object-store",
  "ironbeam-cloud-objects",
  "ironbeam-compression",
  "ironbeam-core",
  "ironbeam-direct",
+ "object_store",
  "serde",
  "serde_json",
  "sha2 0.11.0",

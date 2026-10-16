@@ -29,3 +29,5 @@ glob = "0.3"
 
 [dev-dependencies]
 ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
+ironbeam-cloud-object-store = { version = "5.0.0", path = "../ironbeam-cloud-object-store" }
+object_store = { version = "0.14.2", default-features = false }

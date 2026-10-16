@@ -12,4 +12,5 @@ pub mod sequence_final;
 
 mod implementation;
 pub use implementation::*;
+#[cfg(feature = "file")]
 pub(crate) use implementation::{create_dir_all_durable, sync_directory};

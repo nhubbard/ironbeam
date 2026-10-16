@@ -182,6 +182,7 @@ jobs:
       - name: Test v5 file formats independently
         run: |
           cargo test -p ironbeam-io --no-default-features --features file
+          cargo test -p ironbeam-io --no-default-features --features cloud --test hosted_object_final
           cargo test -p ironbeam-compression --all-features
           cargo test -p ironbeam-cloud-object-store --all-features
           cargo test -p ironbeam-io-jsonl --all-features
