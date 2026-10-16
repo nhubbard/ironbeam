@@ -732,7 +732,19 @@ async fn fn_data_sdf_process_resumes_with_fresh_executor_and_graph() {
     let residual = first.residual_roots[0].application.as_ref().unwrap();
     assert_eq!(residual.transform_id, "process");
     assert_eq!(residual.input_id, "in");
-    assert!(residual.output_watermarks.contains_key("out"));
+    assert_eq!(
+        residual.output_watermarks["out"],
+        prost_types::Timestamp {
+            seconds: 0,
+            nanos: 1_000_000
+        }
+    );
+    let (windowed, _) = decode_windowed_value(&residual.element).unwrap();
+    let sized = decode_sized("events", windowed.element).unwrap();
+    assert_eq!(
+        sized.pair.restriction.progress.unwrap().event_time_ns,
+        Some(1_000_000)
+    );
 
     // Rebuild the graph and registry as a restarted worker would. The residual
     // must carry all progress needed to resume without the first executor.
@@ -920,13 +932,20 @@ fn fn_data_sdf_split_and_fanout_survive_worker_process_restart() {
         assert!(pending_branch_row.is_none());
         assert_eq!(pending.residual_roots.len(), 1);
         let pending_residual = pending.residual_roots[0].application.as_ref().unwrap();
+        assert!(pending_residual.output_watermarks.is_empty());
         let (first, first_row, first_branch_row, first_pid) =
             child(directory.path(), "first", &pending_residual.element, branch);
         assert_eq!(first_row, Some(14));
         assert_eq!(first_branch_row, branch.then_some(8));
         assert_eq!(first.residual_roots.len(), 1);
         let residual = first.residual_roots[0].application.as_ref().unwrap();
-        assert!(residual.output_watermarks.contains_key("out"));
+        assert_eq!(
+            residual.output_watermarks["out"],
+            prost_types::Timestamp {
+                seconds: 0,
+                nanos: 1_000_000
+            }
+        );
         let (second, second_row, second_branch_row, second_pid) =
             child(directory.path(), "second", &residual.element, branch);
         assert_eq!(second_row, Some(16));
