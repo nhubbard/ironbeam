@@ -190,6 +190,9 @@ pub fn streaming_processing_timer_fixture(
                 {
                     return Err(Error::incompatible("unexpected processing timer firing"));
                 }
+                if std::env::var_os("IRONBEAM_V5_PRISM_KILL_PROCESSING_TIMER_CALLBACK").is_some() {
+                    super::await_supervised_source_replacement(Some(&[1]))?;
+                }
                 Ok(TimedStateResult {
                     state: None,
                     outputs: state.into_iter().collect(),
