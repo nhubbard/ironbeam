@@ -169,7 +169,9 @@ distinct key-window batches, each with its own earliest value timestamp. A
 separate fixed-window job interleaves two keys and confirms that they retain
 independent partial batches. Unbounded event timestamps used as timer output
 holds must fall on whole milliseconds. Session windows and windows whose ends
-are not whole milliseconds are rejected.
+are not whole milliseconds are rejected. Batch members have no portable order:
+Direct kept one out-of-order pair in encounter order, while Prism returned it
+in event-time order. The tested batch membership and earliest timestamp agree.
 
 `group_into_batches_with_limits_and_sharded_key_named` applies the same count
 and byte limits after a caller supplied selector assigns each value to a
