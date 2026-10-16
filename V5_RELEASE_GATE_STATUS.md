@@ -51,7 +51,8 @@ below is complete.
 
 The release documentation check generates all-feature Rustdoc JSON and
 requires a direct description for public functions and public trait methods
-in all 34 publishable handwritten crates. Generated Beam protocol bindings
+in all 34 publishable handwritten crates: 907 functions and 329 trait methods
+in the current all-feature JSON. Generated Beam protocol bindings
 and nonpublishable test packages are outside that check. The Zensical site
 builds in strict mode with no issues. Both checks validate coverage and links;
 prose and examples still need review for accuracy before the release tag.
