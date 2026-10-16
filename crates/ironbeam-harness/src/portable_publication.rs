@@ -2,11 +2,15 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Arc;
 
-use crate::finalization_journal::{CompletedFinalizationManifest, FileFinalizationJournal};
+use crate::finalization_journal::{
+    CompletedFinalizationManifest, FileFinalizationJournal, ObjectFinalizationJournal,
+};
 use anyhow::{bail, Context, Result};
 use beam_proto::job_management_v1::{job_state, MetricResults};
 use beam_proto::pipeline_v1::ParDoPayload;
+use ironbeam_cloud_objects::ObjectStores;
 use ironbeam_core::ExecutionIdentity;
 use ironbeam_graphx::v5::TranslatedV5;
 use prost::Message;
@@ -20,10 +24,13 @@ pub struct PortablePublicationPlan {
 }
 
 /// Runner-committed counts and exact finalized attempts for every declared sink.
-pub struct ReadyLocalPublication {
+pub struct ReadyPublication {
     manifest: CompletedFinalizationManifest,
     rows: BTreeMap<String, u64>,
 }
+
+/// Compatibility name for publication decisions backed by a local journal.
+pub type ReadyLocalPublication = ReadyPublication;
 
 impl PortablePublicationPlan {
     /// Capture final-result sinks from an already validated v5 translation.
@@ -90,12 +97,38 @@ impl PortablePublicationPlan {
         state: job_state::Enum,
         metrics: &MetricResults,
         journal_dir: impl AsRef<Path>,
-    ) -> Result<ReadyLocalPublication> {
+    ) -> Result<ReadyPublication> {
         if state != job_state::Enum::Done {
             bail!("portable job ended in {state:?}; final output cannot publish");
         }
         let journal = FileFinalizationJournal::new(journal_dir, self.identity.clone())?;
         let manifest = journal.completed_manifest(self.sink_transforms.keys())?;
+        self.ready_with_metrics(metrics, manifest)
+    }
+
+    /// Validate a successful job against an object-backed finalization journal.
+    /// The caller supplies committed metrics from the same runner job. The
+    /// provider must support consistent prefix listing and conditional create.
+    pub fn complete_object(
+        &self,
+        state: job_state::Enum,
+        metrics: &MetricResults,
+        stores: Arc<ObjectStores>,
+        journal_uri: &str,
+    ) -> Result<ReadyPublication> {
+        if state != job_state::Enum::Done {
+            bail!("portable job ended in {state:?}; final output cannot publish");
+        }
+        let journal = ObjectFinalizationJournal::new(stores, journal_uri, self.identity.clone())?;
+        let manifest = journal.completed_manifest(self.sink_transforms.keys())?;
+        self.ready_with_metrics(metrics, manifest)
+    }
+
+    fn ready_with_metrics(
+        &self,
+        metrics: &MetricResults,
+        manifest: CompletedFinalizationManifest,
+    ) -> Result<ReadyPublication> {
         let mut rows = BTreeMap::new();
         for (sink, transform_id) in &self.sink_transforms {
             rows.insert(
@@ -103,11 +136,11 @@ impl PortablePublicationPlan {
                 committed_sink_input_count(metrics, transform_id)?,
             );
         }
-        Ok(ReadyLocalPublication { manifest, rows })
+        Ok(ReadyPublication { manifest, rows })
     }
 }
 
-impl ReadyLocalPublication {
+impl ReadyPublication {
     pub fn bundle_attempts(&self, sink: &str) -> Result<&[String]> {
         self.manifest.attempts_for_sink(sink)
     }

@@ -4,6 +4,7 @@ use crate::finalization_journal::FinalizationJournal;
 use beam_proto::pipeline_v1::{
     Components, FunctionSpec, MonitoringInfo, PTransform, Pipeline as BeamPipeline,
 };
+use ironbeam_cloud_objects::{LocalObjectIO, ObjectStores};
 
 fn identity() -> ExecutionIdentity {
     ExecutionIdentity {
@@ -171,4 +172,57 @@ fn local_publication_requires_done_complete_journal_and_committed_metrics() {
     assert_eq!(ready.bundle_attempts("sink").unwrap(), ["bundle"]);
     assert!(ready.committed_rows("other").is_err());
     assert!(ready.bundle_attempts("other").is_err());
+}
+
+#[test]
+fn object_publication_requires_done_complete_journal_and_committed_metrics() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("bucket/jobs")).unwrap();
+    let mut stores = ObjectStores::new();
+    stores
+        .register("file", LocalObjectIO::new(dir.path()).unwrap())
+        .unwrap();
+    let stores = Arc::new(stores);
+    let uri = "file://bucket/jobs/";
+    let plan = PortablePublicationPlan {
+        identity: identity(),
+        sink_transforms: [("sink".into(), "beam-sink".into())].into(),
+    };
+    let journal = ObjectFinalizationJournal::new(Arc::clone(&stores), uri, identity()).unwrap();
+    journal.record("bundle", &["sink".into()]).unwrap();
+    assert!(plan
+        .complete_object(
+            job_state::Enum::Failed,
+            &metrics(),
+            Arc::clone(&stores),
+            uri
+        )
+        .is_err());
+    assert!(plan
+        .complete_object(job_state::Enum::Done, &metrics(), Arc::clone(&stores), uri)
+        .is_err());
+    journal.complete("bundle").unwrap();
+    assert!(plan
+        .complete_object(
+            job_state::Enum::Done,
+            &MetricResults::default(),
+            Arc::clone(&stores),
+            uri
+        )
+        .is_err());
+    let ready = plan
+        .complete_object(job_state::Enum::Done, &metrics(), Arc::clone(&stores), uri)
+        .unwrap();
+    assert_eq!(ready.committed_rows("sink").unwrap(), 3);
+    assert_eq!(ready.bundle_attempts("sink").unwrap(), ["bundle"]);
+    let foreign = PortablePublicationPlan {
+        identity: ExecutionIdentity {
+            graph_fingerprint: "other".into(),
+            ..identity()
+        },
+        sink_transforms: [("sink".into(), "beam-sink".into())].into(),
+    };
+    assert!(foreign
+        .complete_object(job_state::Enum::Done, &metrics(), stores, uri)
+        .is_err());
 }

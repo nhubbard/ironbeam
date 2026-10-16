@@ -41,3 +41,18 @@ durable directory shared by replacement children. The production Prism fixture
 uses those settings and verifies same-job recovery across a killed child,
 source residual, multiple sinks, and finalized formats. If the parent process
 itself disconnects from Prism, the active job still fails closed.
+
+## Object-backed finalization
+
+A worker whose replacement processes do not share a filesystem can store
+bundle-finalization records under one object URI prefix. The
+`ObjectFinalizationJournal` validates each record, its completion marker, the
+execution identity, and the set of declared sinks. After a runner reports
+`DONE`, `PortablePublicationPlan::complete_object` combines that journal with
+the runner's committed sink counts to authorize result publication. The object
+provider must support conditional creation, read-after-write visibility, and
+consistent prefix listing.
+
+This path has local object-provider tests. The current Dataflow driver does
+not yet retrieve the committed Fn metrics or bind the object journal to a
+hosted worker, so it does not establish a GCS publication proof.
