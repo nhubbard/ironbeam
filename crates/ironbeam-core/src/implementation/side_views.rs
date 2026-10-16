@@ -74,15 +74,10 @@ fn mapped_side_window(main: WindowInterval, side: &Window) -> Result<WindowInter
     if size <= 0 || period <= 0 {
         return Err(Error::incompatible("mapped side window size or period is invalid"));
     }
-    let latest_start = timestamp - (timestamp - offset).rem_euclid(period);
-    let distance = timestamp - latest_start;
-    if size <= distance {
-        return Err(Error::incompatible("sliding side window has no target for main window"));
-    }
     let first_start = if sliding {
-        latest_start - ((size - 1 - distance) / period) * period
+        (timestamp - size - offset).div_euclid(period) * period + offset + period
     } else {
-        latest_start
+        timestamp - (timestamp - offset).rem_euclid(period)
     };
     Ok(WindowInterval {
         start_ns: i64::try_from(first_start)

@@ -112,8 +112,9 @@ impl V5BundleExecutor {
 }
 
 /// Beam maps an interval using its max timestamp (the exclusive end minus
-/// one millisecond). Sliding assignment returns the earliest window that
-/// contains that timestamp, matching the final item of Beam's assignment.
+/// one millisecond). Sliding mapping chooses the earliest side window whose
+/// end follows that timestamp. If side windows have gaps, this can be a later
+/// window that does not contain the main timestamp.
 fn mapped_target_window(input_end: i64, mapping: WindowMapping) -> Result<(i64, i64)> {
     let timestamp = i128::from(input_end) - 1;
     let (size, period, offset, sliding) = match mapping {
@@ -128,15 +129,10 @@ fn mapped_target_window(input_end: i64, mapping: WindowMapping) -> Result<(i64, 
     if size <= 0 || period <= 0 {
         bail!("target-window mapping size and period must be positive");
     }
-    let latest_start = timestamp - (timestamp - offset).rem_euclid(period);
-    let distance = timestamp - latest_start;
-    if size <= distance {
-        bail!("sliding side-window mapping has no target for the main window");
-    }
     let first_start = if sliding {
-        latest_start - ((size - 1 - distance) / period) * period
+        (timestamp - size - offset).div_euclid(period) * period + offset + period
     } else {
-        latest_start
+        timestamp - (timestamp - offset).rem_euclid(period)
     };
     let end = first_start + size;
     Ok((

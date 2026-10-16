@@ -3739,18 +3739,23 @@ async fn prism_matches_direct_fixed_offset_sliding_and_empty_mapped_side_views()
     };
     let expected = [
         "1000000:fixed:10:7",
+        "1000000:gapped:10:1",
         "1000000:offset:10:17",
         "1000000:sliding:10:1",
         "13000000:fixed:40:27",
+        "13000000:gapped:40:0",
         "13000000:offset:40:16",
         "13000000:sliding:40:27",
         "25000000:fixed:50:0",
+        "25000000:gapped:50:0",
         "25000000:offset:50:0",
         "25000000:sliding:50:0",
         "5000000:fixed:20:7",
+        "5000000:gapped:20:11",
         "5000000:offset:20:17",
         "5000000:sliding:20:7",
         "9000000:fixed:30:27",
+        "9000000:gapped:30:11",
         "9000000:offset:30:17",
         "9000000:sliding:30:17",
     ];

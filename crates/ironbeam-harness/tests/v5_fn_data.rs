@@ -1326,6 +1326,11 @@ async fn fn_data_maps_interval_side_windows_to_global_identity_fixed_and_sliding
             period_millis: 100,
             offset_millis: 0,
         },
+        WindowMapping::Sliding {
+            size_millis: 50,
+            period_millis: 100,
+            offset_millis: 0,
+        },
     ] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -1402,6 +1407,9 @@ async fn fn_data_maps_interval_side_windows_to_global_identity_fixed_and_sliding
             WindowMapping::Global => {}
             WindowMapping::Identity => expected.extend_from_slice(&body[key_len..]),
             WindowMapping::Fixed { .. } => encode_interval_window(150, 300, &mut expected).unwrap(),
+            WindowMapping::Sliding {
+                size_millis: 50, ..
+            } => encode_interval_window(200, 250, &mut expected).unwrap(),
             WindowMapping::Sliding { .. } => encode_interval_window(0, 250, &mut expected).unwrap(),
         }
         assert_eq!(&mapped.element[..expected.len()], expected);

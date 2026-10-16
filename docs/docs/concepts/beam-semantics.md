@@ -28,7 +28,7 @@ This page does not assign a percentage while those tests are incomplete.
 | Event time | Fixed, offset, sliding, and session windows have shared cases. Tests cover watermark-driven closure and limited allowed lateness. | More merging and cross-input lateness schedules. |
 | Triggers and panes | Count, processing-time, late, `AfterAny`, `AfterAll`, and `AfterEach` policies have selected Direct and Prism proofs. | Nested triggers, synchronized processing time, and complete multi-source pane agreement. |
 | User state and timers | Seven state-cell shapes and two timer domains run on Direct and Prism. Fixed-window expiration, checkpoint restoration, and worker-child replay have focused proofs. | General stateful fanout, broader expiration schedules, and other recovery points. |
-| Side inputs | Global and per-window iterable, singleton, map, and multimap views have shared tests. Bounded fixed, offset-fixed, and sliding side windows can differ from the main windows on Direct and local Prism. The worker handles `MapWindows` requests in a wire test. | Streaming updates before window closure and a live runner-issued `MapWindows` request. |
+| Side inputs | Global and per-window iterable, singleton, map, and multimap views have shared tests. Bounded fixed, offset-fixed, overlapping sliding, and gapped sliding side windows can differ from the main windows on Direct and local Prism. The worker handles `MapWindows` requests in a wire test. | Streaming updates before window closure and a live runner-issued `MapWindows` request. |
 | Completion signals | Bounded and windowed barriers have shared cases, including a signal that releases one window while sources remain open. | Multiple-signal early release and partial-watermark agreement for sliding windows. |
 | Bundle recovery | Final-result journals and supervised Prism worker replacement have local proofs. | Control-owner recovery, hosted execution, and long-lived metric retention. |
 | I/O formats | CSV, JSONL, Avro, Parquet, Arrow IPC, XML, MessagePack, CBOR, Protobuf, and TFRecord have separate crates and local format tests. A local Prism worker reopens provider-bound Avro and two-object Parquet inputs after execution-child replacement. | Wider Avro evolution and hosted remote-object execution. |
@@ -161,8 +161,7 @@ proof checks watermark closure and a late row; Direct also restores its
 open-window checkpoint.
 
 Session windows start at each event's timestamp and extend by a configured
-gap. On Direct and the pinned Prism runner, keyed sessions merge when their
-intervals overlap or touch. The arrival
+gap. Keyed sessions merge when their half-open intervals overlap. The arrival
 order does not determine the final interval: a later bridge event can join two
 existing groups. `session_windows_named` assigns session intervals, while
 `group_by_session_named` also groups the keyed values. Bounded and
@@ -189,9 +188,11 @@ The portable worker also handles a runner-issued `MergeWindows` bundle for
 session windows. Its Fn Data contract follows the Beam Java merge handler:
 intervals must overlap, so a window ending where another begins is reported
 separately. Direct folding and bounded joins follow the same rule. The pinned
-Prism runner merged a touching pair in an earlier pipeline fixture, so
-runner agreement at that boundary remains unresolved. Runner-issued merging
-has an isolated wire test; it has not yet been observed in a live Prism job.
+Prism runner merged a touching pair in an earlier pipeline fixture. Its
+session grouping code treats a zero gap as overlap, whereas the pinned Beam
+Java interval implementation treats touching intervals as disjoint. Ironbeam
+retains the strict overlap rule. Runner-issued merging has an isolated wire
+test; it has not yet been observed in a live Prism job.
 
 An intermediate-watermark case remains unresolved. With an `a` event at zero
 on the main input, an `a` event at four milliseconds on the side input, and a
@@ -297,19 +298,21 @@ Prism job matches Direct's output values and timestamps. A second local Prism
 job emits a main value, keeps that source open, and closes an empty signal
 window. Its sink receives the value while the job is still running. The worker
 accepts this barrier in an SDF source bundle when Prism fuses the two stages.
+
 For bounded side collections, `map_with_mapped_window_side_named` and
 `map_with_mapped_window_materialized_side_named` allow the side collection to
-use different fixed or sliding windows from the main collection. The side
-window contains the main window's last millisecond; sliding windows select
-the earliest such window. The methods require default triggers, zero allowed
-lateness, and whole-millisecond window parameters. A shared Direct and local
-Prism job checks fixed, offset-fixed, and sliding mappings, including empty
-side windows, with matching values and main timestamps. The worker also
-handles a runner-issued `MapWindows` bundle for global, identity, fixed, and
-sliding mapping functions. A Fn Data test covers those four mappings and
-checks that the worker preserves the main window, timestamp, and pane. The
-worker accepts encoded keys up to 2 MiB. A live runner-issued `MapWindows`
-request remains untested.
+use different fixed or sliding windows from the main collection. For a sliding
+side collection, Beam selects the earliest window whose end follows the main
+window's last millisecond. If side windows have gaps, the selected interval can
+start later than that millisecond. The methods require default triggers, zero
+allowed lateness, and whole-millisecond window parameters. A shared Direct and
+local Prism job checks fixed, offset-fixed, and sliding mappings, including gapped
+sliding windows and empty side windows, with matching values and main
+timestamps. The worker also handles a runner-issued `MapWindows` bundle for
+global, identity, fixed, and sliding mapping functions. A Fn Data test covers
+those mappings and checks that the worker preserves the main window,
+timestamp, and pane. The worker accepts encoded keys up to 2 MiB. A live
+runner-issued `MapWindows` request remains untested.
 
 With sliding windows, a completed signal releases both overlapping windows
 while the main source remains open. Direct can release the first sliding window

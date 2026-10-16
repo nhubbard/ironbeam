@@ -37,6 +37,11 @@ fn cross_window_side_views_keep_native_side_windows_and_mapping_specs() {
             "mapped-side-offset-windows",
             urns::WINDOW_MAPPING_FIXED,
         ),
+        (
+            "mapped-side-gapped",
+            "mapped-side-gapped-windows",
+            urns::WINDOW_MAPPING_SLIDING,
+        ),
     ] {
         let transform = components
             .transforms
@@ -64,8 +69,22 @@ fn cross_window_side_views_keep_native_side_windows_and_mapping_specs() {
             );
         } else {
             let sliding = SlidingWindowsPayload::decode(mapping.payload.as_slice()).unwrap();
-            assert_eq!(sliding.size.unwrap().nanos, 10_000_000);
-            assert_eq!(sliding.period.unwrap().nanos, 5_000_000);
+            assert_eq!(
+                sliding.size.unwrap().nanos,
+                if key == "mapped-side-gapped" {
+                    5_000_000
+                } else {
+                    10_000_000
+                }
+            );
+            assert_eq!(
+                sliding.period.unwrap().nanos,
+                if key == "mapped-side-gapped" {
+                    10_000_000
+                } else {
+                    5_000_000
+                }
+            );
         }
     }
 }

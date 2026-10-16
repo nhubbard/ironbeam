@@ -31,6 +31,8 @@ pub fn mapped_side_view_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Si
         side.fixed_windows_with_offset("mapped-side-offset-windows", 10_000_000, 2_000_000)?;
     let sliding_side =
         side.sliding_windows("mapped-side-sliding-windows", 10_000_000, 5_000_000, 0)?;
+    let gapped_side =
+        side.sliding_windows("mapped-side-gapped-windows", 5_000_000, 10_000_000, 0)?;
     let fixed = main
         .map_with_mapped_window_side_named("mapped-side-fixed", &fixed_side, |value, side| {
             format!("fixed:{value}:{}", side.iter().sum::<i32>())
@@ -55,9 +57,17 @@ pub fn mapped_side_view_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Si
         .map_named("mapped-side-offset-label", |(timestamp, value)| {
             format!("{timestamp}:{value}")
         })?;
+    let gapped = main
+        .map_with_mapped_window_side_named("mapped-side-gapped", &gapped_side, |value, side| {
+            format!("gapped:{value}:{}", side.iter().sum::<i32>())
+        })?
+        .reify_timestamps_named("mapped-side-gapped-time")?
+        .map_named("mapped-side-gapped-label", |(timestamp, value)| {
+            format!("{timestamp}:{value}")
+        })?;
     let sink_path = path.clone();
     fixed
-        .flatten_named("mapped-side-flatten", &[sliding, offset])?
+        .flatten_named("mapped-side-flatten", &[sliding, offset, gapped])?
         .sink_named_with_config(
             "mapped-side-result",
             SinkSpec {

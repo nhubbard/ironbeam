@@ -1,8 +1,9 @@
 impl<T: Element> PCollection<T> {
     /// Apply a bounded side collection from a different fixed or sliding window.
     ///
-    /// Beam maps each main window's last millisecond into the side window. For
-    /// sliding side windows, the earliest containing window is used. Both
+    /// Beam maps each main window's last millisecond into a side window. For
+    /// sliding side windows, it chooses the earliest interval whose end follows
+    /// that millisecond. With gaps, the interval may start later. Both
     /// collections need default triggers, zero lateness, and millisecond
     /// aligned windows. The side values are materialized once per mapped
     /// window; an empty window supplies an empty slice.
