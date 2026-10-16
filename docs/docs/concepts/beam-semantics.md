@@ -312,9 +312,12 @@ first window in the tested production-source schedule.
 Other configurations use the co-group path and wait for both input watermarks.
 
 `wait_on_all_windowed_named` accepts several signals of one element type. It
-groups them with the main input in one shuffle and waits for every input
-watermark. A shared three-source job checks the same windows and timestamps on
-Direct and local Prism.
+flattens independent unbounded signals into one windowed barrier. Direct can
+release a main window before its watermark closes; this early release remains
+unreliable on pinned Prism and is outside the portable support claim. Other
+graphs use a co-group and wait for every input watermark. A bounded
+three-source job checks the same windows and timestamps on Direct and local
+Prism.
 
 `wait_on_windowed_signals_named` accepts handles converted from signals of
 different element types with `windowed_wait_signal_named`. Its shared job
@@ -322,8 +325,8 @@ matches Direct and Prism with three independently watermarked sources whose
 signal branches carry text and Boolean values, including an empty signal
 window. Each handle discards the
 signal values but retains its windows and source progress. A window without
-signal elements also closes when its watermark advances. This windowed barrier
-uses a co-group, so it can
+signal elements also closes when its watermark advances. The tested
+shared-source graph uses a co-group, so it can
 buffer a full window and does not release main values early when only the
 signal watermark has advanced. These methods express a dependency between
 collections, not an order among main elements. A failing signal prevents

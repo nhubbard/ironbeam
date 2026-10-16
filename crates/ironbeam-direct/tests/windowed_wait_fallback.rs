@@ -36,6 +36,6 @@ fn bounded_multi_signal_wait_keeps_main_values_and_event_time() {
         .run_collect(&output, &JobConfig::default())
         .unwrap()
         .0;
-    rows.sort();
+    rows.sort_unstable();
     assert_eq!(rows, [(2, 7), (12, 8)]);
 }

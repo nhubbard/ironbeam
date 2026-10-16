@@ -295,17 +295,22 @@ element types, use `wait_on_signals_named` and convert each collection with
 `wait_on_windowed_named` releases main values after both sources close
 their matching window. Signal values are ignored, and a window with no signal
 elements still closes when the signal watermark passes it. The windowed method
-requires matching time and window declarations. It may buffer a full window;
-it does not release early when the signal closes before the main watermark.
+requires matching time and window declarations. A single unbounded signal can
+release a fixed window before the main watermark closes on Direct and pinned
+Prism. Other configurations may buffer the full window.
 `wait_on_all_windowed_named` accepts several signals of the same element type.
-It uses one keyed co-group to wait for the main input and every signal watermark
-to close the matching window. Direct and local Prism agree in a three-source
-fixed-window test, including windows without signal elements.
+Independent unbounded fixed or sliding signals use a flattened windowed
+barrier. Direct has an early-release and recovery proof for this path; pinned
+Prism does not yet have a reliable early-release proof. Other graphs use a
+keyed co-group and wait for every input watermark. Direct and local Prism
+agree in a bounded three-source fixed-window test, including windows without
+signal elements.
 
 For signals with different element types, convert each collection with
 `windowed_wait_signal_named` and pass the handles to
-`wait_on_windowed_signals_named`. This also uses one keyed co-group. A shared
-job checks three independently watermarked sources on Direct and local Prism.
+`wait_on_windowed_signals_named`. The tested shared-source graph uses a keyed
+co-group. A shared job checks three independently watermarked sources on Direct
+and local Prism.
 The two signal branches carry text and Boolean values after their sources.
 
 ```rust

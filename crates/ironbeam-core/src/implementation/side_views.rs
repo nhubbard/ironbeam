@@ -203,9 +203,11 @@ impl<T: Element> PCollection<T> {
     }
     /// Release each main window after it and every matching signal window close.
     /// Signals may be unbounded and their values are ignored. For default
-    /// fixed or sliding windows, unbounded signals form one watermark barrier:
-    /// the main watermark does not delay release. Other window policies use a
-    /// keyed co-group and close after all input watermarks advance.
+    /// fixed or sliding windows, independent unbounded signals form one
+    /// barrier. Direct can release before the main watermark closes. Portable
+    /// early release with several signals is not yet reliable on pinned Prism.
+    /// Other window policies use a keyed co-group and close after all input
+    /// watermarks advance.
     pub fn wait_on_all_windowed_named<S: Element>(
         &self,
         key: &str,
