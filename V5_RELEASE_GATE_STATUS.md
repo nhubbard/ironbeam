@@ -455,6 +455,18 @@ clears key 2's 3 ms timer. Direct and pinned Prism emit only `1:3:5000000`.
 The callback rejects either cancelled firing and checks that the replacement
 keeps its output hold at 0 ms.
 
+A processing-time TestStream sets a timer for 3 ms, replaces it with a 5 ms
+timer after one millisecond, and adds another value after the old deadline.
+Direct and pinned Prism emit only the accumulated `1:7` result. A separate
+ignored diagnostic sets and clears a processing timer before its deadline.
+Direct emits nothing; pinned Prism reports a timer callback for that key with
+a zero firing timestamp and fails the job. In the pinned Go checkout,
+`triageTimers` sends every decoded processing-time timer element, including a
+clear element with sequence `-1`, to `timerHandler.Persist`. That handler
+does not check the clear sequence and schedules it at the rebased zero
+timestamp. This is the observed runner-side cause for this schedule; the
+portable support claim excludes processing-time cancellation on pinned Prism.
+
 Another supervised Prism job kills the execution child inside the event-timer
 callback. Its parent replays the declared timer-family input to a replacement
 child. The job reaches `DONE`, the kill witness matches the selected child,
@@ -612,7 +624,7 @@ the worker can execute it.
 | SDF pair, split/size, process, and truncate | The worker handles all four stages for user offset callbacks and resumable sources. Initial range bytes match Beam Java; a versioned residual suffix carries estimator state. Direct, Fn Data, and pinned Prism cover residual resume; Prism also covers worker replacement. A two-batch production source followed by a user offset callback and its residual produces the same nine rows on Direct and pinned Prism, including when Prism fuses SDF preparation into the source process bundle. Separate bounded and production-source unbounded Prism jobs request a fractional split while the callback runs, execute the residual restriction, and match Direct's eight rows. | Prove broader production unbounded-source, split, and worker-loss schedules. |
 | Native `GroupIntoBatches` and sharded-key batching | Count and buffering-time helpers expand to grouping and Beam triggers; tested Direct and Prism cases agree. An explicit, versioned shard selector assigns one hot key to two opaque shards before batching; bounded and fixed-window TestStream jobs agree on both count batches. Direct restores two open count batches from one source checkpoint and commits each once. A supervised Prism job kills its execution child inside the sharded-batch output callback, replays the failed bundle, and publishes the same two count batches as Direct with no duplicate rows. The byte-limited variant, its shared Direct/Prism streaming fixture, Direct checkpoint restart, and Prism child-replacement proof are recorded in the byte-batch row below. | Automatic hot-key sharding remains open. Native URN emission is optional if the expansion preserves behavior. |
 | `WriteFiles`, Pub/Sub read/write, and provider operations | Format-specific worker sinks and provider-neutral/GCP clients exist. Local provider object I/O has portable jobs. | Portable service source and sink bindings, worker re-creation, and replay-safe publication under a controlled service or emulator. |
-| Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. `BeamShardedKey<String>` matches pinned standard coder examples and crosses a reshuffle on Direct and local Prism. The `Vec<u8>` key form now also crosses that boundary with non-UTF-8 bytes and exact shard IDs on both runners. Ordered-list and combining-state cells have bounded, streaming, and recovery proofs. Graphx registers and validates Beam timer-family coders; timer records have codec tests. A shared job proves event-timer replacement for one key and cancellation for another. State-backed iterables can be read from runner state. | Processing-time timer replacement, schema-coder jobs, and cross-SDK row evolution cases. |
+| Standard row, timer, schema, sharded-key, and state-backed iterable coders | RowCoder has wire and Direct/Prism jobs. `BeamShardedKey<String>` matches pinned standard coder examples and crosses a reshuffle on Direct and local Prism. The `Vec<u8>` key form now also crosses that boundary with non-UTF-8 bytes and exact shard IDs on both runners. Ordered-list and combining-state cells have bounded, streaming, and recovery proofs. Graphx registers and validates Beam timer-family coders; timer records have codec tests. Shared jobs prove event-timer replacement and cancellation. A processing-time replacement job waits through the old deadline for a later element and emits one matching state result on Direct and pinned Prism. State-backed iterables can be read from runner state. | Pinned Prism delivers a cancelled processing timer as a time-zero firing in an ignored diagnostic; schema-coder jobs and cross-SDK row evolution remain open. |
 
 These are evidence categories, not equal-sized percentage points. A scored
 99% claim still requires per-case inventory, runner agreement, and an explicit

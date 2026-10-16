@@ -87,6 +87,95 @@ async fn prism_matches_direct_event_timer_replacement_and_clear() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_processing_timer_replacement() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-replaced-processing-timers");
+    let portable_path = directory.path().join("portable-replaced-processing-timers");
+    let direct = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::streaming_replaced_processing_timer_fixture(
+        &direct,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let rows = |path: &Path| {
+        std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&direct_path), ["1:7"]);
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_replaced_processing_timer_fixture(
+        &portable,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "replaced-processing-timers",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_REPLACED_PROCESSING_TIMER".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism processing timer failed: {terminal:?}");
+    assert_eq!(rows(&portable_path), ["1:7"]);
+}
+
+#[tokio::test]
+#[ignore = "pinned Prism delivers a cancelled processing timer as a firing at time zero"]
+async fn prism_omits_cleared_processing_timer() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-cleared-processing");
+    let portable_path = directory.path().join("portable-cleared-processing");
+    let direct = Pipeline::default();
+    let sink = ironbeam_prism_proof::streaming_cleared_processing_timer_fixture(
+        &direct,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert!(!direct_path.exists() || std::fs::read_dir(&direct_path).unwrap().next().is_none());
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_cleared_processing_timer_fixture(
+        &portable,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "cleared-processing-timer",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_CLEARED_PROCESSING_TIMER".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism fired a cleared timer: {terminal:?}");
+    assert!(!portable_path.exists() || std::fs::read_dir(&portable_path).unwrap().next().is_none());
+}
+
+#[tokio::test]
 async fn prism_matches_direct_shared_event_timer_fanout() {
     let directory = tempfile::tempdir().unwrap();
     let direct_first = directory.path().join("direct-event-fanout-first");

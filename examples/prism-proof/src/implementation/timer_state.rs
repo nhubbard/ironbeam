@@ -152,6 +152,152 @@ pub fn streaming_replaced_event_timer_fixture(
         )
 }
 
+/// A replaced processing timer must wait for a later element to join its state.
+pub fn streaming_replaced_processing_timer_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "replaced-processing-source",
+            vec![
+                TestStreamEvent::Elements(vec![((1_i32, 1_i32), 0)]),
+                TestStreamEvent::AdvanceProcessingTime(1_000_000),
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(3_000_000),
+                TestStreamEvent::Elements(vec![((1_i32, 4_i32), 4_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(2_000_000),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .stateful_timer_map_named::<i32, String>(
+            "replaced-processing-state",
+            "prism-proof/replaced-processing-timer-state",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("process".into(), UserTimerDomain::ProcessingTime)]),
+            |_, value, prior, _| {
+                let timers = if value == 4 {
+                    Vec::new()
+                } else {
+                    vec![UserTimerRequest::Set {
+                        family_id: "process".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: if value == 1 { 3_000_000 } else { 5_000_000 },
+                        output_timestamp_ns: Some(0),
+                    }]
+                };
+                Ok(TimedStateResult {
+                    state: Some(prior.unwrap_or(0) + value),
+                    outputs: Vec::new(),
+                    timers,
+                })
+            },
+            |key, state, event| {
+                if *key != 1
+                    || event.domain != UserTimerDomain::ProcessingTime
+                    || event.dynamic_tag != "flush"
+                    || event.output_timestamp_ns != 0
+                    || state != Some(7)
+                {
+                    return Err(Error::incompatible(format!(
+                        "processing timer fired before replacement state was ready: key={key}, state={state:?}, event={event:?}"
+                    )));
+                }
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec!["7".into()],
+                    timers: Vec::new(),
+                })
+            },
+        )?
+        .map_named("replaced-processing-label", |(key, value)| {
+            format!("{key}:{value}")
+        })?
+        .sink_named_with_config(
+            "replaced-processing-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("replaced-processing-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
+/// Diagnostic for clearing a pending processing timer before its deadline.
+pub fn streaming_cleared_processing_timer_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "cleared-processing-source",
+            vec![
+                TestStreamEvent::Elements(vec![((2_i32, 4_i32), 0)]),
+                TestStreamEvent::AdvanceProcessingTime(1_000_000),
+                TestStreamEvent::Elements(vec![((2_i32, -4_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(5_000_000),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .stateful_timer_map_named::<i32, String>(
+            "cleared-processing-state",
+            "prism-proof/cleared-processing-timer-state",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("process".into(), UserTimerDomain::ProcessingTime)]),
+            |_, value, _, _| {
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: if value < 0 {
+                        vec![UserTimerRequest::Clear {
+                            family_id: "process".into(),
+                            dynamic_tag: "flush".into(),
+                        }]
+                    } else {
+                        vec![UserTimerRequest::Set {
+                            family_id: "process".into(),
+                            dynamic_tag: "flush".into(),
+                            fire_timestamp_ns: 4_000_000,
+                            output_timestamp_ns: Some(0),
+                        }]
+                    },
+                })
+            },
+            |key, _, event| {
+                Err(Error::incompatible(format!(
+                    "cleared processing timer fired: key={key}, event={event:?}"
+                )))
+            },
+        )?
+        .map_named("cleared-processing-label", |(key, value)| {
+            format!("{key}:{value}")
+        })?
+        .sink_named_with_config(
+            "cleared-processing-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("cleared-processing-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// One shared event timer feeds two idempotent sink branches.
 pub fn streaming_event_timer_fanout_fixture(
     pipeline: &Pipeline,
