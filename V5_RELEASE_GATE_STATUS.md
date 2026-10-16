@@ -1,6 +1,6 @@
 # Ironbeam 5.0.0 release gates
 
-**Decision: local 5.0.0 candidate; supervised Prism execution-child recovery is proved.** Verified 2026-10-15 on
+**Decision: local 5.0.0 candidate; supervised Prism execution-child recovery is proved.** Verified 2026-10-16 on
 `codex/ironbeam-v5-runner-core`.
 
 The root is an unpublished `5.0.0` candidate and the implementation crates
@@ -40,7 +40,7 @@ decision; it remains staged.
 | --- | --- | --- |
 | Workspace | V5-only root and 33 publishable crates are staged at 5.0.0. | Publication is held. |
 | Direct | V4 reference behavior and v5 helpers pass. Checkpointed unbounded fan-in, joins, session groups, and two independent post-split value-state branches have tested schedules. Distinct branch event timers route to their own sinks. | General stateful DAG fanout, broader timer failure schedules, and complete multi-source session pane agreement. |
-| Portable | More than 120 nondestructive local Prism entries cover Beam rows, streams, state, timers, grouping, side inputs, I/O, and worker-child replay. | Hosted Dataflow, some session panes, and remote provider replay. |
+| Portable | The 217 supported nondestructive Prism fixtures passed on Linux; they cover Beam rows, streams, state, timers, grouping, side inputs, I/O, and worker-child replay. | Hosted Dataflow, some session panes, and remote provider replay. |
 | Early count | Fixed and sliding window panes match on Direct and Prism; Direct restores a partial pane after restart. | Wider fan-in and trigger combinations. |
 | Accumulating early and late count | The combined policy has distinct graph identity and tested panes on both runners. | Exact scheduling differs in one accumulating stream. |
 | Processing-time triggers | Whole-millisecond delays have fixed-window Direct and Prism proofs, including scripted clocks and Direct restart. | Mixed clock domains, session merging, and synchronized time. |
@@ -90,7 +90,11 @@ set of fixtures and retries only the fixture interrupted by that exact panic.
 The global-window expiration and final partial global byte-batch comparisons
 are ignored diagnostics; Direct has independent completion tests for both.
 A normal supported fixture failure remains a failure.
-This workflow still needs a passing remote run before the portable gate is green.
+The sharded suite passed all **217 listed nondestructive fixtures** on Linux
+in [PR #90's Beam worker and Prism check](https://github.com/nhubbard/ironbeam/actions/runs/38907220070/job/116993717580)
+at `986a6c4a`. That run also passed the separate supervised worker-loss
+fixture. The two ignored cross-runner diagnostics remain outside the portable
+support claim.
 
 ### Merge-aware session lateness contract
 
@@ -764,7 +768,7 @@ The separate checkout was not changed.
 
 | Gate | Done when |
 | --- | --- |
-| ☑ Core and Direct coverage on current branch; ☑ local workspace and expanded CI verification | At `f9ec20d`, all 34 required PR checks passed. The timer additions at `3a6285c` temporarily missed the unchanged Linux core floor. Focused tests restored it at `7310e5a`; the expiration feature at `5b756bb` also passes its Linux core and Direct coverage jobs. The `c68c7270` push exposed a Direct branch-coverage dip. Focused malformed-state and unknown-timer tests now make the exact local Direct package gate pass at **6,463/7,092 lines (91.13%)** and **1,838/2,040 branches (90.10%)** without changing either floor. After the unbounded byte-batch addition, the unchanged local core floor also passes at **6,689/6,964 lines (96.05%)** and **1,390/1,610 branches (86.34%)**; the current PR Clippy failure was a redundant clone in the pair-state test, removed locally and verified with pedantic and nursery lint; remote verification remains pending. The expanded workspace tests, non-destructive local Prism jobs, separate Control-loss proof, and Arrow IPC job passed earlier. The opt-in database proof compiled earlier but was not rerun against live database services after the import. Coverage is a release floor, not a claim that every branch is exercised. |
+| ☑ Core and Direct coverage on current branch; ☑ local workspace and expanded CI verification | The unchanged local Direct package gate passes at **6,463/7,092 lines (91.13%)** and **1,838/2,040 branches (90.10%)**. The local core gate passes at **6,689/6,964 lines (96.05%)** and **1,390/1,610 branches (86.34%)**. On `986a6c4a`, all required PR checks pass, including Clippy, documentation, release configuration, Beam worker and Prism, facade tests, package verification, package coverage, and the v4/v5 feature matrix. The opt-in database proof compiled earlier but was not rerun against live database services after the import. Coverage is a release floor, not a claim that every branch is exercised. |
 | ☑ Performance | The paired million-row corpus matches outputs and passes explicit v5 latency and peak-memory limits. |
 | ☑ Versioning configuration; ☐ registry publication | The public facade and 33 implementation/helper crates are unpublished `5.0.0` candidates. Semantic Release uses the previous Git tag and conventional commits to select the next version; a `major:` commit selects 5.0.0 after v4.1.1. Its workspace adapter synchronizes package versions and local dependency versions, including inherited workspace dependencies, validates dependency order, and publishes every crate before the GitHub release. The release workflow obtains a temporary crates.io token through Trusted Publishing. The four imported crates and root package pass local package verification; publication remains held at the user's request. Registry authorization cannot be exercised before the workflow runs. |
 | ☑ Day-one GCP resource clients | `ironbeam-cloud-gcp` 5.0.0 packages the official Google Rust clients for Storage, Pub/Sub, BigQuery, and Secret Manager. Each service has its own feature; the root facade offers matching features and an aggregate. The client crate's unit tests, isolated feature builds, strict lint, local package verification, all-feature workspace tests, and Zensical guide pass. At the user's direction, no live GCP integration test was run; successful operations, IAM, and hosted Dataflow behavior are not claimed by this gate. |
