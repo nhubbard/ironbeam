@@ -19,22 +19,22 @@ use ironbeam_prism_proof::{
     bounded_value_state_fixture, bounded_wait_on_fixture, combine_output_time_fixture,
     combined_count_fixture, completion_signal, count_and_processing_time_trigger_fixture,
     count_then_processing_time_trigger_fixture, count_trigger_stream_fixture, dead_letter_fixture,
-    distinct_window_fixture, dual_count_and_time_cogroup_fixture,
-    dual_count_or_time_cogroup_fixture, dual_late_cogroup_fixture, dual_late_count_cogroup_fixture,
-    dual_positive_late_cogroup_fixture, dual_positive_late_full_join_fixture,
-    dual_positive_late_join_time_fixture, dual_processing_time_cogroup_fixture,
-    dual_stream_windowed_side_fixture, dual_stream_windowed_side_replay_fixture,
-    dual_stream_windowed_wait_fixture, dual_unbounded_cogroup_fixture,
-    dual_unbounded_fanin_output_time_fixture, dual_unbounded_flatten_fixture,
-    dual_unbounded_join_fanout_fixture, dual_unbounded_join_fixture,
-    dual_unbounded_join_kind_fixture, dual_unbounded_late_join_fixture,
-    dual_unbounded_map_side_fixture, dual_unbounded_session_cogroup_fixture,
-    dual_unbounded_session_join_fixture, dual_unbounded_session_join_output_time_fixture,
-    early_multi_value_windowed_wait_fixture, early_multi_windowed_wait_fixture,
-    early_sliding_windowed_wait_fixture, early_value_windowed_wait_fixture,
-    early_windowed_wait_fixture, explicit_custom_batches_fixture, failing_wait_on_fixture,
-    finalization_failure_fixture, finalization_probe_sink,
-    global_accumulating_early_cogroup_fixture, global_count_fixture,
+    discarding_latest_on_time_fixture, distinct_window_fixture,
+    dual_count_and_time_cogroup_fixture, dual_count_or_time_cogroup_fixture,
+    dual_late_cogroup_fixture, dual_late_count_cogroup_fixture, dual_positive_late_cogroup_fixture,
+    dual_positive_late_full_join_fixture, dual_positive_late_join_time_fixture,
+    dual_processing_time_cogroup_fixture, dual_stream_windowed_side_fixture,
+    dual_stream_windowed_side_replay_fixture, dual_stream_windowed_wait_fixture,
+    dual_unbounded_cogroup_fixture, dual_unbounded_fanin_output_time_fixture,
+    dual_unbounded_flatten_fixture, dual_unbounded_join_fanout_fixture,
+    dual_unbounded_join_fixture, dual_unbounded_join_kind_fixture,
+    dual_unbounded_late_join_fixture, dual_unbounded_map_side_fixture,
+    dual_unbounded_session_cogroup_fixture, dual_unbounded_session_join_fixture,
+    dual_unbounded_session_join_output_time_fixture, early_multi_value_windowed_wait_fixture,
+    early_multi_windowed_wait_fixture, early_sliding_windowed_wait_fixture,
+    early_value_windowed_wait_fixture, early_windowed_wait_fixture,
+    explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
+    finalization_probe_sink, global_accumulating_early_cogroup_fixture, global_count_fixture,
     global_count_output_time_fixture, global_fold_fixture, global_group_output_time_fixture,
     global_keyed_batches_fixture, global_keyed_batches_with_upstream_trigger_fixture,
     global_keyed_combine_fixture, global_vector_fixture, group_end_time_fixture,
@@ -1444,6 +1444,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_COUNT_LATEST") {
         return accumulating_latest_count_trigger_stream_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_LATEST_DISCARD") {
+        return discarding_latest_on_time_fixture(pipeline, path.into())
             .map(|_| ())
             .map_err(Into::into);
     }

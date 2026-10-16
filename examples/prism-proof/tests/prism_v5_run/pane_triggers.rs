@@ -1,6 +1,53 @@
 use super::*;
 
 #[tokio::test]
+async fn prism_matches_direct_latest_timestamp_after_discarding_early_pane() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-latest-discard.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        discarding_latest_on_time_fixture(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let read_rows = |path: &Path| {
+        let mut rows = std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let expected = [
+        "a:[3]:3000000:OnTime:1".to_owned(),
+        "a:[7, 8]:8000000:Early:0".to_owned(),
+    ];
+    assert_eq!(read_rows(&direct_path), expected);
+
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_path = directory.path().join("portable-latest-discard.txt");
+    let portable_pipeline = Pipeline::default();
+    discarding_latest_on_time_fixture(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "latest-discard",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_LATEST_DISCARD".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism latest-discard state: {terminal:?}");
+    assert_eq!(read_rows(&portable_path), expected);
+}
+
+#[tokio::test]
 async fn prism_omits_requested_empty_final_pane() {
     let directory = tempfile::tempdir().unwrap();
     let direct_path = directory.path().join("direct-closing-always.txt");

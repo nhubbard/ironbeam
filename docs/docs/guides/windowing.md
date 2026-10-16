@@ -227,6 +227,10 @@ latest event timestamp in each pane instead, call
 `end_of_window_output_time_named`. For events at 2 ms and 7 ms, the grouped
 output is stamped 7 ms, regardless of arrival order. An accumulating pane
 retains the latest timestamp of all values it contains.
+With discarding, each pane uses only its own values. For example, an early
+pane whose latest event is at 8 ms does not make a later on-time pane of a
+3 ms event report 8 ms. Direct preserves this distinction across a checkpoint;
+Direct and local Prism agree on the same out-of-order TestStream schedule.
 
 Both policies also apply to a global window. Its Beam end timestamp is
 `9_223_371_950_454_775` milliseconds. That value exceeds the signed

@@ -299,3 +299,46 @@ fn skipped_discarding_on_time_pane_keeps_late_trigger_after_checkpoint() {
         (1, vec![8])
     );
 }
+
+#[test]
+fn latest_timestamp_resets_between_discarding_early_and_on_time_panes() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 7_i32)])
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .latest_in_pane_output_time_named("output-time")
+        .unwrap()
+        .allowed_lateness_named("lateness", 5_000_000)
+        .unwrap()
+        .early_and_late_count_trigger_named("trigger", 1, 1)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut fold = registry.open_fold("group").unwrap();
+    let input = |value, timestamp_ns| Envelope {
+        pane: PaneInfo::NO_FIRING,
+        value: Box::new((1_i32, value)),
+        timestamp_ns,
+        window: Window::Fixed {
+            size_ns: 10_000_000,
+        },
+        assigned_window: Some(WindowInterval {
+            start_ns: 0,
+            end_ns: 10_000_000,
+        }),
+    };
+    fold.add(input(7, 8_000_000)).unwrap();
+    let (early, _) = fold.drain_ready_count(1).unwrap();
+    assert_eq!(early[0].timestamp_ns, 8_000_000);
+    let checkpoint = fold.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("group").unwrap();
+    restored.restore_checkpoint_state(&checkpoint).unwrap();
+    restored.add(input(8, 3_000_000)).unwrap();
+    let (on_time, _) = restored.drain_closed(10_000_000).unwrap();
+    assert_eq!(on_time.len(), 1);
+    assert_eq!(on_time[0].pane.timing, PaneTiming::OnTime);
+    assert_eq!(on_time[0].timestamp_ns, 3_000_000);
+}

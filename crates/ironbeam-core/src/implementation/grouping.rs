@@ -565,6 +565,19 @@ impl<K: Element + Eq + Hash + Clone, V: Element> FoldSession for GroupByKeyFoldS
             .map_err(|_| Error::execution(&self.key, "direct", "group input type mismatch"))?;
         let scope = (group_key.clone(), assigned_window.unwrap_or(GLOBAL_TRIGGER_SCOPE));
         let is_session = matches!(window, Window::Session { .. });
+        if self.output_time == WindowOutputTime::LatestInPane
+            && !is_session
+            && !self.trigger.is_accumulating()
+            && !self.nonspeculative_base.contains_key(&scope)
+        {
+            let existing = match assigned_window {
+                Some(_) => self.window_indices.get(&scope).copied(),
+                None => self.global_indices.get(&group_key).copied(),
+            };
+            if existing.is_some_and(|index| self.groups[index].1.is_empty()) {
+                self.latest_timestamps.remove(&scope);
+            }
+        }
         self.add_row(group_key, value, timestamp_ns, window, assigned_window);
         if self.output_time == WindowOutputTime::LatestInPane && !is_session {
             self.latest_timestamps

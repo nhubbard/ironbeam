@@ -1034,6 +1034,52 @@ pub fn accumulating_latest_count_trigger_stream_fixture(
     count_trigger_stream_fixture_with_mode(pipeline, path, true, true)
 }
 
+/// Keep the latest timestamp scoped to each discarding pane after an early firing.
+pub fn discarding_latest_on_time_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let rows = pipeline
+        .test_stream_source(
+            "latest-discard-events",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    (('a'.to_string(), 8_i32), 8_000_000),
+                    (('a'.to_string(), 7_i32), 7_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(0),
+                TestStreamEvent::Elements(vec![(('a'.to_string(), 3_i32), 3_000_000)]),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+                TestStreamEvent::AdvanceWatermark(15_000_000),
+            ],
+        )?
+        .fixed_windows("latest-discard-windows", 10_000_000)?
+        .latest_in_pane_output_time_named("latest-discard-time")?
+        .allowed_lateness_named("latest-discard-lateness", 5_000_000)?
+        .early_and_late_count_trigger_named("latest-discard-trigger", 2, 1)?
+        .group_by_key_named("latest-discard-group")?
+        .reify_timestamps_named("latest-discard-timestamp")?
+        .reify_panes_named("latest-discard-pane")?
+        .map_named("latest-discard-row", |(pane, (timestamp, (key, mut values)))| {
+            values.sort_unstable();
+            format!("{key}:{values:?}:{timestamp}:{:?}:{}", pane.timing, pane.index)
+        })?;
+    let sink_directory = path.clone();
+    rows.sink_named_with_config(
+        "latest-discard-result",
+        SinkSpec {
+            mode: SinkMode::Append,
+            replay: Replay::Idempotent,
+            commit: true,
+        },
+        format!("latest-discard-result:{}", path.display()),
+        move || Ok(Box::new(IdempotentRowSink {
+            directory: sink_directory.clone(),
+            pending: Vec::new(),
+        })),
+    )
+}
+
 /// Emit one on-time pane, one late pane, and drop an element after expiry.
 pub fn allowed_lateness_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<Sink<String>, Error> {
     let rows = pipeline
