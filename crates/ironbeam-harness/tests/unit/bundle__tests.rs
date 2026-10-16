@@ -476,6 +476,8 @@ fn plans_v5_node_references_without_reinterpreting_them_as_v4_ids() {
             ("side1".into(), "pc5".into())
         ]))
     );
+    assert_eq!(parsed.side_specs["add-side"], side_pardo.side_inputs);
+    assert_eq!(parsed.side_specs["wait-many"], wait_pardo.side_inputs);
     assert!(
         matches!(&parsed.steps[1], Step::V5ParDo { node_ref: actual, .. } if actual == &node_ref)
     );

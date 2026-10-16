@@ -383,6 +383,8 @@ pub struct BundlePlan {
     pub state_endpoint: Option<String>,
     /// Side PCollections by local input ID for each portable transform key.
     pub side_inputs: HashMap<String, HashMap<String, String>>,
+    /// Side-input descriptors supplied with each portable transform.
+    pub side_specs: HashMap<String, HashMap<String, SideInput>>,
 }
 
 /// Validate a ProcessBundleDescriptor and order its executable transforms.
@@ -475,6 +477,7 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
     // 3. Emit steps.
     let mut steps = Vec::new();
     let mut side_inputs = HashMap::new();
+    let mut side_specs = HashMap::new();
     for id in ordered {
         let t = pbd.transforms.get(id).expect("id in transforms");
         match kinds[id] {
@@ -536,6 +539,7 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
                         });
                     }
                     side_inputs.insert(node_ref.key.clone(), sides);
+                    side_specs.insert(node_ref.key.clone(), pardo.side_inputs.clone());
                     t.inputs.get("in").ok_or(PlanError::NotLinear)?.clone()
                 } else {
                     if !pardo.side_inputs.is_empty() {
@@ -665,6 +669,7 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
             .as_ref()
             .map(|port| port.url.clone()),
         side_inputs,
+        side_specs,
     })
 }
 

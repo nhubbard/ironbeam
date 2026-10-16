@@ -92,6 +92,7 @@ async fn panicking_bundle_returns_an_instruction_error() {
             pbd_id: "panic-pbd".into(),
             state_endpoint: None,
             side_inputs: Default::default(),
+            side_specs: Default::default(),
         },
         Arc::new(PanickingRunner),
         Arc::new(Dispatcher::new(PbdCache::new(), 0)),

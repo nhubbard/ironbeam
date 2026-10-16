@@ -637,6 +637,7 @@ async fn run_sdf_process_bundle_with_branch(
         pbd_id: "sdf-process".into(),
         state_endpoint: None,
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps,
     };
     let runner = Arc::new(V5BundleExecutor::new(pipeline, "test-build").unwrap());
@@ -1094,6 +1095,7 @@ async fn fn_data_prepares_one_source_restriction_without_opening_reader() {
         pbd_id: "sdf-preparation".into(),
         state_endpoint: None,
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps: vec![
             Step::Source {
                 transform_id: "input".into(),
@@ -1184,6 +1186,7 @@ async fn fn_data_splits_a_pair_received_across_runner_boundary() {
         pbd_id: "sdf-split".into(),
         state_endpoint: None,
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps: vec![
             Step::Source {
                 transform_id: "input".into(),
@@ -1266,6 +1269,7 @@ async fn fn_data_drain_discards_unbounded_sized_restriction() {
         pbd_id: "sdf-drain".into(),
         state_endpoint: None,
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps: vec![
             Step::Source {
                 transform_id: "input".into(),
@@ -1353,6 +1357,7 @@ async fn fn_data_maps_interval_side_windows_to_global_identity_fixed_and_sliding
             pbd_id: "map-windows".into(),
             state_endpoint: None,
             side_inputs: HashMap::new(),
+            side_specs: HashMap::new(),
             steps: vec![
                 Step::Source {
                     transform_id: "input".into(),
@@ -1443,6 +1448,7 @@ async fn fn_data_merges_session_windows_with_runner_owned_nonce_and_metadata() {
         pbd_id: "merge-windows".into(),
         state_endpoint: None,
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps: vec![
             Step::Source {
                 transform_id: "input".into(),
@@ -1539,6 +1545,7 @@ fn plan(pipeline: &Pipeline, endpoint: SocketAddr) -> BundlePlan {
         pbd_id: "v5-test".into(),
         state_endpoint: None,
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps,
     }
 }
@@ -1644,6 +1651,7 @@ async fn stateful_value_bundle_reads_prior_writes_by_key() {
         pbd_id: "stateful-value".into(),
         state_endpoint: Some(format!("http://{addr}")),
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps: vec![
             Step::Source {
                 transform_id: "input".into(),
@@ -1828,6 +1836,7 @@ async fn timed_bundle_routes_mixed_and_timer_only_inputs() {
         pbd_id: "timed-state".into(),
         state_endpoint: Some(format!("http://{addr}")),
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps: vec![
             Step::Source {
                 transform_id: "input".into(),
@@ -2020,6 +2029,7 @@ async fn combining_bundle_merges_two_runner_accumulators_before_callback() {
         pbd_id: "combining-state".into(),
         state_endpoint: Some(format!("http://{addr}")),
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps: vec![
             Step::Source {
                 transform_id: "input".into(),
@@ -2157,6 +2167,7 @@ async fn stateful_value_bundle_decodes_runner_kv_boundary() {
         pbd_id: "stateful-kv-boundary".into(),
         state_endpoint: Some(format!("http://{addr}")),
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps: vec![
             Step::Source {
                 transform_id: "input".into(),
@@ -2354,6 +2365,7 @@ async fn one_impulse_drives_two_independent_user_sources() {
         pbd_id: "two-sources".into(),
         state_endpoint: None,
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps,
     };
     let runner = V5BundleExecutor::new(&worker, "test-build").unwrap();
@@ -2633,6 +2645,7 @@ async fn source_records_reach_the_sink_before_the_next_record_is_read() {
                 pbd_id: "streaming".into(),
                 state_endpoint: None,
                 side_inputs: HashMap::new(),
+                side_specs: HashMap::new(),
                 steps,
             },
         ),
@@ -2776,6 +2789,7 @@ async fn branched_bundle_opens_source_once_and_writes_both_sinks() {
                 pbd_id: "branched".into(),
                 state_endpoint: None,
                 side_inputs: HashMap::new(),
+                side_specs: HashMap::new(),
                 steps,
             },
         ),
@@ -2872,6 +2886,7 @@ async fn state_backed_group_fetches_runner_suffix_before_mapping() {
                 pbd_id: "state-backed-group".into(),
                 state_endpoint: Some(format!("http://{addr}")),
                 side_inputs: HashMap::new(),
+                side_specs: HashMap::new(),
                 steps: vec![
                     Step::Source {
                         transform_id: "input".into(),
@@ -3045,6 +3060,7 @@ async fn post_flatten_boundary_processes_records_before_input_closes() {
                 pbd_id: "post-flatten".into(),
                 state_endpoint: None,
                 side_inputs: HashMap::new(),
+                side_specs: HashMap::new(),
                 steps: vec![
                     Step::Source {
                         transform_id: "input".into(),

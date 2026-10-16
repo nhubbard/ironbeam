@@ -84,7 +84,12 @@ fn mapped_side_input_spec(window: &Window) -> Result<SideInput, V5Error> {
     Ok(spec)
 }
 
-fn side_input_specs(graph: &Graph, node: &Node) -> Result<HashMap<String, SideInput>, V5Error> {
+/// Return the side-input descriptors required by a node in this graph.
+///
+/// # Errors
+///
+/// Returns an error if a side collection is missing or has unsupported windows.
+pub fn expected_side_input_specs(graph: &Graph, node: &Node) -> Result<HashMap<String, SideInput>, V5Error> {
     match node.operation {
         Operation::SideInputMap => {
             let side_key = &node.additional_inputs.first()

@@ -22,7 +22,7 @@ use ironbeam_core::{
 use ironbeam_graphx::v5::{
     cogroup_flatten_collection_id, cogroup_tag_collection_id, collection_id, execution_identity,
     fold_flatten_collection_id, fold_group_collection_id, fold_seed_collection_id,
-    fold_tag_collection_id, side_global_collection_id,
+    fold_tag_collection_id, side_global_collection_id, expected_side_input_specs,
 };
 use ironbeam_graphx::windowing::{fixed_window_fn, session_window_fn, sliding_window_fn};
 

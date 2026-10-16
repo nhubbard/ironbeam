@@ -852,7 +852,7 @@ pub fn validate_beam_contract(graph: &Graph, translated: &TranslatedV5) -> Resul
                     "bundle finalization contract differs for {key}"
                 )));
             }
-            let expected_side = side_input_specs(graph, node)?;
+            let expected_side = expected_side_input_specs(graph, node)?;
             if pardo.side_inputs != expected_side {
                 return Err(V5Error::Wire(format!(
                     "side input contract differs for {key}"

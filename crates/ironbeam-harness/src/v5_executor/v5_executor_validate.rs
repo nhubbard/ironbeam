@@ -200,11 +200,14 @@ impl V5BundleExecutor {
                             && !self.registry.has_side_input(&node.key))
                             || plan.side_inputs.get(&node.key)
                                 != Some(&expected_sides)
+                            || plan.side_specs.get(&node.key)
+                                != Some(&expected_side_input_specs(&self.graph, node)?)
                             || plan.state_endpoint.as_deref().is_none_or(str::is_empty)
                         {
                             bail!("v5 side input {} differs from worker graph or has no State endpoint", node.key);
                         }
-                    } else if plan.side_inputs.contains_key(&node.key) {
+                    } else if plan.side_inputs.contains_key(&node.key)
+                        || plan.side_specs.contains_key(&node.key) {
                         bail!("v5 node {} has an unexpected side input", node.key);
                     }
                     if matches!(node.operation, Operation::Source { .. }) {
@@ -422,3 +425,7 @@ impl V5BundleExecutor {
         Ok(keys)
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/v5_executor__side_specs_tests.rs"]
+mod side_specs_tests;

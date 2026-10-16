@@ -169,6 +169,7 @@ async fn run_bundle_with_checkpoint(
         pbd_id: "offset-sdf".into(),
         state_endpoint: None,
         side_inputs: HashMap::new(),
+        side_specs: HashMap::new(),
         steps,
     };
     let runner = Arc::new(V5BundleExecutor::new(pipeline, "test-build").unwrap());
