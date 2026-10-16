@@ -330,15 +330,19 @@ reopened the two-object prefix after supervised execution-child loss and
 committed both messages once, matching Direct. Hosted provider binding remains
 unproved.
 
-An independent three-source windowed wait now flattens its signal branches
+An independent three-source windowed wait uses one Beam side input per signal
 and releases a main window when every signal watermark closes it. Direct
 tests that a second signal holds the main value while the first has closed,
 then releases it while the main source remains open. The first signal carries
 an ignored value in that test. A restart restores the buffered main row and
-all three source cursors. Separate side inputs replace the flattened signal barrier. Two pinned local
+all three source cursors. Two pinned local
 Prism jobs release the main window while its source remains open: one has
 empty signals, and the other has a value-bearing first signal. The previously
-intermittent fixture is enabled again; Linux CI remains to verify it. Shared-source
+intermittent fixture is enabled again; the full Linux Beam worker and Prism
+suite passed on the `1bef345c` head. Core coverage passed. Direct coverage
+reached 91.03% of lines but 89.81% of branches against its 90.00% branch
+floor; targeted route, sink-abort, cancellation, and source-failure tests pass
+locally, with the Linux coverage rerun pending. Shared-source
 branches retain the keyed co-group route; broader trigger, lateness, and
 sliding-window partial-watermark schedules remain open.
 

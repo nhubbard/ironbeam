@@ -960,6 +960,205 @@ impl TypedSink<String> for Capture {
     }
 }
 
+struct RejectingSink {
+    aborted: Arc<AtomicUsize>,
+    failure: SinkFailure,
+    cancellation: Arc<AtomicBool>,
+}
+
+#[derive(Clone, Copy)]
+enum SinkFailure {
+    Write,
+    CommitPanic,
+    CancelAfterWrite,
+}
+
+struct RejectingReader;
+
+impl UnboundedSource<Timestamped<i32>> for RejectingReader {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<i32>>, Error> {
+        Err(Error::execution(
+            "second",
+            "source",
+            "injected poll failure",
+        ))
+    }
+}
+
+impl TypedSink<i32> for RejectingSink {
+    fn begin_bundle(&mut self, _: &str) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn write(&mut self, _: i32) -> Result<(), Error> {
+        match self.failure {
+            SinkFailure::Write => Err(Error::execution("sink", "direct", "injected write failure")),
+            SinkFailure::CommitPanic => Ok(()),
+            SinkFailure::CancelAfterWrite => {
+                self.cancellation.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+    }
+
+    fn commit(&mut self) -> Result<(), Error> {
+        match self.failure {
+            SinkFailure::CommitPanic => panic!("injected commit panic"),
+            _ => panic!("a failed or cancelled write must never commit"),
+        }
+    }
+
+    fn abort(&mut self) -> Result<(), Error> {
+        self.aborted.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[test]
+fn multi_signal_wait_aborts_a_failed_output_bundle() {
+    for (failure, expected_kind) in [
+        (SinkFailure::Write, ErrorKind::Execution),
+        (SinkFailure::CommitPanic, ErrorKind::Execution),
+        (SinkFailure::CancelAfterWrite, ErrorKind::Cancelled),
+    ] {
+        let pipeline = Pipeline::default();
+        let main = pipeline
+            .test_stream_source(
+                "main",
+                vec![
+                    TestStreamEvent::Elements(vec![(7_i32, 1_000_000)]),
+                    TestStreamEvent::AdvanceWatermark(10_000_000),
+                ],
+            )
+            .unwrap()
+            .fixed_windows("main-window", 10_000_000)
+            .unwrap();
+        let signals = ["first", "second"].map(|key| {
+            pipeline
+                .test_stream_source::<i32>(key, vec![TestStreamEvent::AdvanceWatermark(10_000_000)])
+                .unwrap()
+                .fixed_windows(&format!("{key}-window"), 10_000_000)
+                .unwrap()
+        });
+        let aborted = Arc::new(AtomicUsize::new(0));
+        let sink_aborted = Arc::clone(&aborted);
+        let config = JobConfig::default();
+        let cancellation = Arc::clone(&config.cancellation);
+        let sink = main
+            .wait_on_all_windowed_named("wait", &signals)
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "rejecting-multi-wait-sink-v1".into(),
+                move || {
+                    Ok(Box::new(RejectingSink {
+                        aborted: Arc::clone(&sink_aborted),
+                        failure,
+                        cancellation: Arc::clone(&cancellation),
+                    }))
+                },
+            )
+            .unwrap();
+        let error = DirectRunner
+            .start_stream_sink(&sink, &config)
+            .unwrap()
+            .wait()
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, expected_kind);
+        assert_eq!(aborted.load(Ordering::SeqCst), 1);
+        if matches!(failure, SinkFailure::CancelAfterWrite) {
+            let restarted = DirectRunner
+                .start_stream_sink(&sink, &config)
+                .err()
+                .unwrap();
+            assert_eq!(restarted.kind, ErrorKind::Cancelled);
+        }
+    }
+}
+
+#[test]
+fn multi_signal_wait_reports_each_source_startup_failure() {
+    for fail_at_open in [true, false] {
+        let pipeline = Pipeline::default();
+        let main = pipeline
+            .test_stream_source(
+                "main",
+                vec![TestStreamEvent::Elements(vec![(7_i32, 1_000_000)])],
+            )
+            .unwrap()
+            .fixed_windows("main-window", 10_000_000)
+            .unwrap();
+        let first = pipeline
+            .test_stream_source::<i32>("first", vec![TestStreamEvent::AdvanceWatermark(10_000_000)])
+            .unwrap()
+            .fixed_windows("first-window", 10_000_000)
+            .unwrap();
+        let second = pipeline
+            .unbounded_source_with_factory(
+                "second",
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                "rejecting-multi-wait-source-v1".into(),
+                0,
+                move |_| -> Result<TypedUnboundedSourceReader<i32>, Error> {
+                    if fail_at_open {
+                        Err(Error::execution(
+                            "second",
+                            "source",
+                            "injected open failure",
+                        ))
+                    } else {
+                        Ok(Box::new(RejectingReader))
+                    }
+                },
+            )
+            .unwrap()
+            .fixed_windows("second-window", 10_000_000)
+            .unwrap();
+        let sink = main
+            .wait_on_all_windowed_named("wait", &[first, second])
+            .unwrap()
+            .sink_named_with_config(
+                "sink",
+                SinkSpec {
+                    mode: SinkMode::Append,
+                    replay: Replay::Idempotent,
+                    commit: true,
+                },
+                "rejecting-multi-wait-sink-v1".into(),
+                || {
+                    Ok(Box::new(RejectingSink {
+                        aborted: Arc::new(AtomicUsize::new(0)),
+                        failure: SinkFailure::Write,
+                        cancellation: Arc::new(AtomicBool::new(false)),
+                    }))
+                },
+            )
+            .unwrap();
+        let error = DirectRunner
+            .start_stream_sink(&sink, &JobConfig::default())
+            .unwrap()
+            .wait()
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert!(
+            error
+                .to_string()
+                .contains(if fail_at_open { "open" } else { "poll" })
+        );
+    }
+}
+
 #[test]
 fn heterogeneous_windowed_wait_restores_open_window_and_three_cursors() {
     let directory = tempfile::tempdir().unwrap();
