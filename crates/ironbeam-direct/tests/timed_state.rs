@@ -41,6 +41,33 @@ struct WallPendingSource {
     polls: Arc<AtomicUsize>,
 }
 
+struct PendingRecoverySource {
+    cursor: Option<Vec<u8>>,
+    emitted: bool,
+}
+
+impl UnboundedSource<Timestamped<(i32, i32)>> for PendingRecoverySource {
+    fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<(i32, i32)>>, Error> {
+        if self.cursor.is_some() || self.emitted {
+            return Ok(UnboundedPoll::Pending);
+        }
+        self.emitted = true;
+        Ok(UnboundedPoll::Ready(UnboundedBatch {
+            elements: vec![Timestamped {
+                value: (5, 8),
+                timestamp_ns: 0,
+            }],
+            progress: ProgressSignal {
+                source_key: "source".into(),
+                split_id: "default".into(),
+                checkpoint_position: Some(vec![1]),
+                event_time_ns: Some(0),
+                completed: false,
+            },
+        }))
+    }
+}
+
 impl UnboundedSource<Timestamped<(i32, i32)>> for WallPendingSource {
     fn poll(&mut self, _: usize) -> Result<UnboundedPoll<Timestamped<(i32, i32)>>, Error> {
         self.polls.fetch_add(1, Ordering::SeqCst);
@@ -1240,7 +1267,9 @@ fn idle_source_fires_wall_clock_processing_timer_without_another_batch() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // The idle timer's two sink commits and checkpoint are one scenario.
 fn idle_shared_processing_timer_reaches_both_stream_sinks() {
+    let directory = tempfile::tempdir().unwrap();
     let first_rows = Arc::new(Mutex::new(Vec::new()));
     let second_rows = Arc::new(Mutex::new(Vec::new()));
     let polls = Arc::new(AtomicUsize::new(0));
@@ -1341,7 +1370,20 @@ fn idle_shared_processing_timer_reaches_both_stream_sinks() {
         )
         .unwrap();
     let job = DirectRunner
-        .start_stream_sink_pair(&first, &second, &JobConfig::default())
+        .start_stream_sink_pair(
+            &first,
+            &second,
+            &JobConfig {
+                checkpoint: Some(CheckpointConfig {
+                    directory: directory.path().into(),
+                    interval_batches: 1,
+                    max_checkpoints: 2,
+                    recover: true,
+                    binary_build_id: "idle-shared-timer-build".into(),
+                }),
+                ..JobConfig::default()
+            },
+        )
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(2);
     while second_rows.lock().unwrap().is_empty() {
@@ -1354,6 +1396,153 @@ fn idle_shared_processing_timer_reaches_both_stream_sinks() {
     assert_eq!(*first_rows.lock().unwrap(), ["5:8"]);
     assert_eq!(*second_rows.lock().unwrap(), ["copy:5:8"]);
     assert!(polls.load(Ordering::SeqCst) > 1);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // The idle timer, failed second commit, and replay share one checkpoint.
+fn failed_idle_pair_timer_retries_from_armed_checkpoint() {
+    let directory = tempfile::tempdir().unwrap();
+    let first_rows = Arc::new(Mutex::new(Vec::new()));
+    let first_bundles = Arc::new(Mutex::new(HashSet::new()));
+    let second_rows = Arc::new(Mutex::new(Vec::new()));
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let opens = Arc::new(Mutex::new(Vec::new()));
+    let pipeline = Pipeline::default();
+    let shared = pipeline
+        .unbounded_source_with_factory(
+            "source",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "failed-idle-pair-source-v1".into(),
+            0,
+            {
+                let opens = Arc::clone(&opens);
+                move |cursor| {
+                    opens.lock().unwrap().push(cursor.clone());
+                    Ok(Box::new(PendingRecoverySource {
+                        cursor,
+                        emitted: false,
+                    })
+                        as TypedUnboundedSourceReader<(i32, i32)>)
+                }
+            },
+        )
+        .unwrap()
+        .stateful_timer_map_named::<i32, i32>(
+            "timer",
+            "tests/failed-idle-pair-timer",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("process".into(), UserTimerDomain::ProcessingTime)]),
+            |_, value, _, _| {
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                let deadline = i64::try_from(now.as_nanos()).unwrap() + 50_000_000;
+                Ok(TimedStateResult {
+                    state: Some(value),
+                    outputs: Vec::new(),
+                    timers: vec![UserTimerRequest::Set {
+                        family_id: "process".into(),
+                        dynamic_tag: "idle".into(),
+                        fire_timestamp_ns: deadline - deadline % 1_000_000,
+                        output_timestamp_ns: None,
+                    }],
+                })
+            },
+            |_, state, _| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: state.into_iter().collect(),
+                    timers: Vec::new(),
+                })
+            },
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap();
+    let first = shared
+        .sink_named_with_config(
+            "first",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "failed-idle-pair-first-v1".into(),
+            {
+                let committed = Arc::clone(&first_rows);
+                let accepted = Arc::clone(&first_bundles);
+                move || {
+                    Ok(Box::new(BundleIdempotentCapture {
+                        committed: Arc::clone(&committed),
+                        accepted: Arc::clone(&accepted),
+                        bundle: None,
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let second = shared
+        .map_named("copy-label", |label| format!("copy:{label}"))
+        .unwrap()
+        .sink_named_with_config(
+            "second",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "failed-idle-pair-second-v1".into(),
+            {
+                let committed = Arc::clone(&second_rows);
+                let attempts = Arc::clone(&attempts);
+                move || {
+                    Ok(Box::new(FailOnceCapture {
+                        committed: Arc::clone(&committed),
+                        attempts: Arc::clone(&attempts),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let config = || JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            interval_batches: 1,
+            max_checkpoints: 2,
+            recover: true,
+            binary_build_id: "failed-idle-pair-build".into(),
+        }),
+        ..JobConfig::default()
+    };
+    let first_run = DirectRunner
+        .start_stream_sink_pair(&first, &second, &config())
+        .unwrap();
+    assert!(first_run.wait().is_err());
+    assert_eq!(*first_rows.lock().unwrap(), ["5:8"]);
+    assert!(second_rows.lock().unwrap().is_empty());
+    let resumed = DirectRunner
+        .start_stream_sink_pair(&first, &second, &config())
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while second_rows.lock().unwrap().is_empty() {
+        assert_ne!(resumed.handle().status(), JobStatus::Failed);
+        assert!(
+            Instant::now() < deadline,
+            "recovered idle timer did not fire"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    resumed.cancel();
+    assert!(resumed.wait().is_err());
+    assert_eq!(*opens.lock().unwrap(), [None, Some(vec![1])]);
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(*first_rows.lock().unwrap(), ["5:8"]);
+    assert_eq!(first_bundles.lock().unwrap().len(), 1);
+    assert_eq!(*second_rows.lock().unwrap(), ["copy:5:8"]);
 }
 
 #[test]

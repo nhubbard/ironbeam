@@ -168,6 +168,7 @@ fn global_value_state_recovers_with_source_cursor() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // Both sink branches and the saved state share one recovery run.
 fn shared_stream_value_state_recovers_both_sink_branches() {
     let directory = tempfile::tempdir().unwrap();
     let opens = Arc::new(Mutex::new(Vec::new()));
@@ -300,6 +301,86 @@ fn shared_stream_value_state_recovers_both_sink_branches() {
             .map(|row| format!("copy:{row}"))
             .collect()
     );
+}
+
+#[test]
+fn shared_stream_value_state_checks_budget_before_either_sink_commits() {
+    let first_rows = Arc::new(Mutex::new(HashSet::new()));
+    let second_rows = Arc::new(Mutex::new(HashSet::new()));
+    let pipeline = Pipeline::default();
+    let shared = pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 3_i32), 0)])],
+        )
+        .unwrap()
+        .stateful_value_map_named::<i32, i32>(
+            "count",
+            "tests/budgeted-shared-value-state",
+            Version { major: 1, minor: 0 },
+            |_, value, _| Ok((Some(value), value)),
+        )
+        .unwrap()
+        .map_named("label", |(key, value)| format!("{key}:{value}"))
+        .unwrap();
+    let first = shared
+        .sink_named_with_config(
+            "first",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "budgeted-first-v1".into(),
+            {
+                let accepted = Arc::clone(&first_rows);
+                move || {
+                    Ok(Box::new(IdempotentCapture {
+                        accepted: Arc::clone(&accepted),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let second = shared
+        .map_named("copy", |label| format!("copy:{label}"))
+        .unwrap()
+        .sink_named_with_config(
+            "second",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "budgeted-second-v1".into(),
+            {
+                let accepted = Arc::clone(&second_rows);
+                move || {
+                    Ok(Box::new(IdempotentCapture {
+                        accepted: Arc::clone(&accepted),
+                        pending: Vec::new(),
+                    }))
+                }
+            },
+        )
+        .unwrap();
+    let error = DirectRunner
+        .start_stream_sink_pair(
+            &first,
+            &second,
+            &JobConfig {
+                memory_budget_bytes: 1,
+                ..JobConfig::default()
+            },
+        )
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap();
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert!(first_rows.lock().unwrap().is_empty());
+    assert!(second_rows.lock().unwrap().is_empty());
 }
 
 #[test]

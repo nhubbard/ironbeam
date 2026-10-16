@@ -511,8 +511,9 @@ shared stage produces one result in each Direct and pinned Prism sink. Direct
 also fires a processing-time timer while the source is idle and restores an
 armed event timer from a checkpoint before writing to both sinks. A retry
 after the second sink rejects a timer output uses the first sink’s earlier
-bundle identity, leaving one committed row in each sink. Other paired timer
-failure schedules remain untested.
+bundle identity, leaving one committed row in each sink. The same retry
+behavior holds for a processing-time timer that fires while its source is idle.
+Other paired timer failure schedules remain untested.
 
 `stateful_timer_map_named` combines one value cell with declared timer
 families. Its element callback can set or clear a timer for its current key
