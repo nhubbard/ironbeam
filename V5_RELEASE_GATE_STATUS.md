@@ -333,9 +333,12 @@ unproved.
 An independent three-source windowed wait now flattens its signal branches
 and releases a main window when every signal watermark closes it. Direct
 tests that a second signal holds the main value while the first has closed,
-then releases it while the main source remains open. A restart restores the
-buffered main row and all three source cursors. A pinned local Prism job
-also commits the row while its main source remains open. Shared-source
+then releases it while the main source remains open. The first signal carries
+an ignored value in that test. A restart restores the buffered main row and
+all three source cursors. The pinned Prism multi-signal fixture is currently
+ignored because it intermittently stalls even when both signals carry ignored
+values; the empty-signal variant also stalled on Linux CI. Multi-signal
+early release therefore remains an open portable boundary. Shared-source
 branches retain the keyed co-group route; broader trigger, lateness, and
 sliding-window partial-watermark schedules remain open.
 

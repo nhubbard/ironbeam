@@ -209,7 +209,10 @@ fn multiple_windowed_signals_release_main_before_main_watermark() {
             |_| {
                 Ok(Box::new(Script {
                     polls: vec![UnboundedPoll::Ready(UnboundedBatch {
-                        elements: Vec::new(),
+                        elements: vec![Timestamped {
+                            value: 99,
+                            timestamp_ns: 1_000_000,
+                        }],
                         progress: ProgressSignal {
                             source_key: "signal".into(),
                             split_id: "signal-split".into(),
