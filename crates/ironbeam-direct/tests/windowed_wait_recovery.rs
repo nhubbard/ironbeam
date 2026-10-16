@@ -2,14 +2,14 @@
 
 use ironbeam_core::{
     Error, ErrorKind, Pipeline, ProgressSignal, Replay, SinkMode, SinkSpec, SourceProgress,
-    Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll,
-    UnboundedSource,
+    TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader, UnboundedBatch,
+    UnboundedPoll, UnboundedSource,
 };
 use ironbeam_direct::{CheckpointConfig, DirectRunner, JobConfig, JobStatus};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
 
@@ -297,6 +297,228 @@ fn multiple_windowed_signals_release_main_before_main_watermark() {
     assert_eq!(job.progress().unwrap().event_time_ns, Some(1_000_000));
     job.cancel();
     assert_eq!(job.wait().err().unwrap().kind, ErrorKind::Cancelled);
+}
+
+#[test]
+fn three_completed_signals_release_once_and_resume_without_reopening_sources() {
+    let directory = tempfile::tempdir().unwrap();
+    let pipeline = Pipeline::default();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let opens = Arc::new(AtomicUsize::new(0));
+    let source = |key: &str, value: Option<i32>| {
+        let source_key = key.to_owned();
+        let counted_opens = Arc::clone(&opens);
+        pipeline
+            .unbounded_source_with_factory(
+                key,
+                SourceProgress {
+                    stable_split_id: true,
+                    replay: Replay::AtLeastOnce,
+                    reports_event_time: true,
+                },
+                format!("{key}-v1"),
+                0,
+                move |cursor| {
+                    assert!(cursor.is_none());
+                    counted_opens.fetch_add(1, Ordering::SeqCst);
+                    Ok(Box::new(Script {
+                        polls: vec![UnboundedPoll::Ready(UnboundedBatch {
+                            elements: value
+                                .map(|value| Timestamped {
+                                    value,
+                                    timestamp_ns: 1_000_000,
+                                })
+                                .into_iter()
+                                .collect(),
+                            progress: ProgressSignal {
+                                source_key: source_key.clone(),
+                                split_id: format!("{source_key}-split"),
+                                checkpoint_position: Some(vec![1]),
+                                event_time_ns: Some(10_000_000),
+                                completed: true,
+                            },
+                        })]
+                        .into(),
+                    }) as TypedUnboundedSourceReader<i32>)
+                },
+            )
+            .unwrap()
+            .fixed_windows(&format!("{key}-window"), 10_000_000)
+            .unwrap()
+    };
+    let main = source("main", Some(7));
+    let signals = [
+        source("first", None),
+        source("second", Some(99)),
+        source("third", None),
+    ];
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
+    let sink = main
+        .wait_on_all_windowed_named("barrier", &signals)
+        .unwrap()
+        .map_named("format", |value| value.to_string())
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "three-signal-wait-sink-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let config = JobConfig {
+        checkpoint: Some(CheckpointConfig {
+            directory: directory.path().into(),
+            binary_build_id: "three-signal-wait-build".into(),
+            ..CheckpointConfig::default()
+        }),
+        ..JobConfig::default()
+    };
+    let first = DirectRunner.start_stream_sink(&sink, &config).unwrap();
+    assert_eq!(first.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(*committed.lock().unwrap(), ["7".to_owned()]);
+    assert_eq!(opens.load(Ordering::SeqCst), 4);
+    let recovered = DirectRunner.start_stream_sink(&sink, &config).unwrap();
+    assert_eq!(recovered.wait().unwrap().status(), JobStatus::Succeeded);
+    assert_eq!(*committed.lock().unwrap(), ["7".to_owned()]);
+    assert_eq!(opens.load(Ordering::SeqCst), 4);
+}
+
+fn multi_signal_wait_error(
+    main_polls: Vec<UnboundedPoll<Timestamped<i32>>>,
+    buffer_budget_elements: usize,
+) -> Error {
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .unbounded_source_with_factory(
+            "main",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "failing-main-v1".into(),
+            0,
+            move |_| {
+                Ok(Box::new(Script {
+                    polls: main_polls.clone().into(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .fixed_windows("main-window", 10_000_000)
+        .unwrap();
+    let first = pipeline
+        .test_stream_source::<i32>("first", vec![TestStreamEvent::AdvanceWatermark(10_000_000)])
+        .unwrap()
+        .fixed_windows("first-window", 10_000_000)
+        .unwrap();
+    let second = pipeline
+        .unbounded_source_with_factory(
+            "second",
+            SourceProgress {
+                stable_split_id: true,
+                replay: Replay::AtLeastOnce,
+                reports_event_time: true,
+            },
+            "pending-second-v1".into(),
+            0,
+            |_| {
+                Ok(Box::new(Script {
+                    polls: VecDeque::new(),
+                }) as TypedUnboundedSourceReader<i32>)
+            },
+        )
+        .unwrap()
+        .fixed_windows("second-window", 10_000_000)
+        .unwrap();
+    let committed = Arc::new(Mutex::new(Vec::new()));
+    let accepted = Arc::new(Mutex::new(HashSet::new()));
+    let sink_committed = Arc::clone(&committed);
+    let sink_accepted = Arc::clone(&accepted);
+    let sink = main
+        .wait_on_all_windowed_named("barrier", &[first, second])
+        .unwrap()
+        .map_named("format", |value| value.to_string())
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "failing-multi-wait-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    committed: Arc::clone(&sink_committed),
+                    accepted: Arc::clone(&sink_accepted),
+                    bundle: None,
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    let config = JobConfig {
+        buffer_budget_elements,
+        ..JobConfig::default()
+    };
+    DirectRunner
+        .start_stream_sink(&sink, &config)
+        .unwrap()
+        .wait()
+        .err()
+        .unwrap()
+}
+
+fn main_poll(value: i32, cursor: u8) -> UnboundedPoll<Timestamped<i32>> {
+    UnboundedPoll::Ready(UnboundedBatch {
+        elements: vec![Timestamped {
+            value,
+            timestamp_ns: 1_000_000,
+        }],
+        progress: ProgressSignal {
+            source_key: "main".into(),
+            split_id: "main-split".into(),
+            checkpoint_position: Some(vec![cursor]),
+            event_time_ns: Some(1_000_000),
+            completed: false,
+        },
+    })
+}
+
+#[test]
+fn multi_signal_wait_rejects_main_buffer_overflow() {
+    let error = multi_signal_wait_error(vec![main_poll(7, 1), main_poll(8, 2)], 1);
+    assert_eq!(error.kind, ErrorKind::Resource);
+    assert!(
+        error
+            .message
+            .contains("multi-wait buffered rows exceed budget")
+    );
+}
+
+#[test]
+fn multi_signal_wait_rejects_repeated_data_cursor() {
+    let error = multi_signal_wait_error(vec![main_poll(7, 1), main_poll(8, 1)], 2);
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert!(
+        error
+            .message
+            .contains("data batch did not advance its cursor")
+    );
 }
 
 #[test]

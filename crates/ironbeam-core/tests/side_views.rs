@@ -76,7 +76,7 @@ fn independent_unbounded_signals_use_a_window_barrier() {
         .unwrap();
     main.wait_on_all_windowed_named("shared", &[first.clone(), first])
         .unwrap();
-    let (graph, _) = pipeline.snapshot().unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
     assert!(matches!(
         graph.node("independent").unwrap().operation,
         Operation::WaitOnWindowed
@@ -85,6 +85,22 @@ fn independent_unbounded_signals_use_a_window_barrier() {
     assert_eq!(edges.len(), 2);
     assert_eq!(edges[0].key, "first-window");
     assert_eq!(edges[1].key, "second-window");
+    let main_row = Envelope {
+        pane: PaneInfo::NO_FIRING,
+        value: Box::new(7_i32),
+        timestamp_ns: 1,
+        window: Window::Fixed { size_ns: 10 },
+        assigned_window: None,
+    };
+    let rows = registry
+        .apply_aggregate("independent", vec![vec![main_row], Vec::new(), Vec::new()])
+        .unwrap();
+    assert_eq!(*rows[0].value.downcast_ref::<i32>().unwrap(), 7);
+    assert!(
+        registry
+            .apply_aggregate("independent", vec![Vec::new()])
+            .is_err()
+    );
     assert!(matches!(
         graph.node("shared/group/group").unwrap().operation,
         Operation::GroupByKey

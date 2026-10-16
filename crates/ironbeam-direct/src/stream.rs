@@ -588,15 +588,8 @@ fn multi_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiWaitStr
     loop {
         let node = graph.node(key)?;
         if matches!(node.operation, Operation::WaitOnWindowed) {
-            if node.time.trigger != WindowTrigger::Default
-                || node.time.allowed_lateness_ns != 0
-                || !matches!(
-                    node.time.window,
-                    Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. }
-                )
-            {
-                return None;
-            }
+            // Pipeline::snapshot validates the window, trigger, lateness, and
+            // boundedness contract before the Direct route is selected.
             if node.additional_inputs.len() < 2 {
                 return None;
             }
@@ -604,15 +597,10 @@ fn multi_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiWaitStr
             let mut sources = vec![linear_stream_input(graph, main_input_key)?];
             for edge in &node.additional_inputs {
                 let source = linear_stream_input(graph, &edge.key)?;
-                if graph.node(&source.0)?.boundedness != ironbeam_core::Boundedness::Unbounded
-                    || sources.iter().any(|existing| existing.0 == source.0)
-                {
+                if sources.iter().any(|existing| existing.0 == source.0) {
                     return None;
                 }
                 sources.push(source);
-            }
-            if sources.len() < 3 {
-                return None;
             }
             after_wait.reverse();
             return Some(MultiWaitStreamRoute {
@@ -3145,3 +3133,7 @@ mod state_codec_tests;
 #[cfg(test)]
 #[path = "../tests/unit/stream__sink_open_tests.rs"]
 mod sink_open_tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/stream__wait_route_tests.rs"]
+mod wait_route_tests;
