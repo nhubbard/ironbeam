@@ -73,7 +73,7 @@ impl GcpProject {
         Ok(self)
     }
 
-    /// Return the configured BigQuery job location, if any.
+    /// Return the configured `BigQuery` job location, if any.
     #[must_use]
     pub fn location(&self) -> Option<&str> {
         self.location.as_deref()

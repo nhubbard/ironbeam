@@ -21,7 +21,7 @@ fn write_msgpack<T: Serialize>(path: &Path, values: &[T]) -> Result<(), Error> {
     }
     Ok(())
 }
-/// Read a bounded MessagePack file into typed values.
+/// Read a bounded `MessagePack` file into typed values.
 pub fn msgpack_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -59,7 +59,7 @@ fn read_msgpack_lazy<T: Element + DeserializeOwned>(
         }
     })))
 }
-/// Decode a bounded MessagePack file incrementally.
+/// Decode a bounded `MessagePack` file incrementally.
 pub fn msgpack_streaming_source<T: Element + DeserializeOwned>(
     pipeline: &Pipeline,
     key: &str,
@@ -73,7 +73,7 @@ pub fn msgpack_streaming_source<T: Element + DeserializeOwned>(
         read_msgpack_lazy::<T>,
     )
 }
-/// Write typed values to a local MessagePack file.
+/// Write typed values to a local `MessagePack` file.
 pub fn msgpack_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -103,13 +103,13 @@ impl MsgpackFragmentStore {
         Ok(self)
     }
 
-    /// Return accepted MessagePack fragments after runner finalization.
+    /// Return accepted `MessagePack` fragments after runner finalization.
     pub fn accepted_fragments(&self) -> Result<Vec<AcceptedFragment>, Error> {
         self.local.accepted_fragments()
     }
 }
 
-/// Open a local MessagePack fragment store for one job and graph.
+/// Open a local `MessagePack` fragment store for one job and graph.
 pub fn msgpack_fragment_store(
     staging: impl AsRef<Path>,
     job: &str,
@@ -129,7 +129,7 @@ fn write_msgpack_record<T: Serialize>(
         .map_err(|error| ironbeam_io::io("msgpack-fragment", error))
 }
 
-/// Stage MessagePack values as replay-safe bundle fragments.
+/// Stage `MessagePack` values as replay-safe bundle fragments.
 pub fn msgpack_fragment_sink<T: Element + Serialize>(
     input: &PCollection<T>,
     key: &str,
@@ -174,7 +174,7 @@ pub fn publish_msgpack_fragments<T: DeserializeOwned>(
 }
 
 #[cfg(feature = "parallel-io")]
-/// Write MessagePack values through parallel local output shards.
+/// Write `MessagePack` values through parallel local output shards.
 pub fn msgpack_parallel_sink<T: Element + Serialize + Sync>(
     input: &PCollection<T>,
     key: &str,
