@@ -1,4 +1,4 @@
-use ironbeam_core::{Envelope, PaneInfo, Pipeline, Window};
+use ironbeam_core::{Envelope, Operation, PaneInfo, Pipeline, TestStreamEvent, Window};
 use std::collections::HashMap;
 
 #[test]
@@ -52,6 +52,43 @@ fn multiple_windowed_signals_have_distinct_dependencies() {
     graph.validate().unwrap();
     assert!(graph.node("barrier/group/flatten").is_some());
     assert!(graph.node("barrier/group/group").is_some());
+}
+
+#[test]
+fn independent_unbounded_signals_use_a_window_barrier() {
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .test_stream_source::<i32>("main", vec![TestStreamEvent::AdvanceWatermark(10)])
+        .unwrap()
+        .fixed_windows("main-window", 10)
+        .unwrap();
+    let first = pipeline
+        .test_stream_source::<i32>("first", vec![TestStreamEvent::AdvanceWatermark(10)])
+        .unwrap()
+        .fixed_windows("first-window", 10)
+        .unwrap();
+    let second = pipeline
+        .test_stream_source::<i32>("second", vec![TestStreamEvent::AdvanceWatermark(10)])
+        .unwrap()
+        .fixed_windows("second-window", 10)
+        .unwrap();
+    main.wait_on_all_windowed_named("independent", &[first.clone(), second])
+        .unwrap();
+    main.wait_on_all_windowed_named("shared", &[first.clone(), first])
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    assert!(matches!(
+        graph.node("independent").unwrap().operation,
+        Operation::WaitOnWindowed
+    ));
+    assert!(matches!(
+        graph.node("independent/signals").unwrap().operation,
+        Operation::Flatten
+    ));
+    assert!(matches!(
+        graph.node("shared/group/group").unwrap().operation,
+        Operation::GroupByKey
+    ));
 }
 
 #[test]

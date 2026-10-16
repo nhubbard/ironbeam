@@ -32,6 +32,30 @@ fn multimap_side_view<K: Eq + Hash, V>(values: Vec<(K, V)>) -> HashMap<K, Vec<V>
     view
 }
 
+fn linear_wait_source<'a>(graph: &'a Graph, mut key: &'a str) -> Option<&'a str> {
+    loop {
+        let node = graph.node(key)?;
+        if !node.additional_inputs.is_empty() {
+            return None;
+        }
+        if matches!(node.operation, Operation::Source { .. }) {
+            return Some(key);
+        }
+        if !matches!(
+            node.operation,
+            Operation::Map
+                | Operation::Filter
+                | Operation::FlatMap
+                | Operation::AssignTimestamp
+                | Operation::FixedWindow
+                | Operation::SlidingWindow
+        ) {
+            return None;
+        }
+        key = node.input.as_deref()?;
+    }
+}
+
 /// A typed collection reduced to a watermark-bearing windowed signal.
 /// Its original values are discarded; its windows and source progress remain.
 #[derive(Clone)]
@@ -178,9 +202,10 @@ impl<T: Element> PCollection<T> {
         self.map_with_windowed_side_named(key, signal, |value, _| value)
     }
     /// Release each main window after it and every matching signal window close.
-    /// Signals may be unbounded and their values are ignored. One keyed
-    /// co-group combines their watermarks, so all signal windows must close.
-    /// Main values are buffered until closure.
+    /// Signals may be unbounded and their values are ignored. For default
+    /// fixed or sliding windows, unbounded signals form one watermark barrier:
+    /// the main watermark does not delay release. Other window policies use a
+    /// keyed co-group and close after all input watermarks advance.
     pub fn wait_on_all_windowed_named<S: Element>(
         &self,
         key: &str,
@@ -200,6 +225,33 @@ impl<T: Element> PCollection<T> {
         }
         if signals.len() == 1 {
             return self.wait_on_windowed_named(key, &signals[0]);
+        }
+        let independent_sources = {
+            let inner = self
+                .pipeline
+                .inner
+                .lock()
+                .map_err(|_| Error::graph(key, "builder lock poisoned"))?;
+            std::iter::once(self.key.as_str())
+                .chain(signals.iter().map(|signal| signal.key.as_str()))
+                .map(|key| linear_wait_source(&inner.graph, key))
+                .collect::<Option<Vec<_>>>()
+                .is_some_and(|roots| {
+                    let unique = roots.iter().copied().collect::<HashSet<_>>();
+                    unique.len() == roots.len()
+                })
+        };
+        if main.boundedness == Boundedness::Unbounded
+            && independent_sources
+            && signals.iter().all(|signal| {
+                signal.parent().is_ok_and(|node| node.boundedness == Boundedness::Unbounded)
+            })
+            && matches!(main.time.window, Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. })
+            && main.time.trigger == WindowTrigger::Default
+            && main.time.allowed_lateness_ns == 0
+        {
+            let combined = signals[0].flatten_named(&format!("{key}/signals"), &signals[1..])?;
+            return self.wait_on_windowed_named(key, &combined);
         }
         let main = self
             .reify_timestamps_named(&format!("{key}/main-time"))?

@@ -24,7 +24,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod multi;
 mod pair_state;
 mod session_expiry;
-use multi::{start_dual_side_stream, start_multi_grouped_stream_sink, start_multi_stream_sink};
+use multi::{
+    start_dual_side_stream, start_multi_grouped_stream_sink, start_multi_stream_sink,
+    start_multi_wait_stream_sink,
+};
 
 /// A running unbounded Direct job. Dropping it requests cancellation and joins
 /// its worker; `wait` preserves the execution error for the caller.
@@ -83,6 +86,13 @@ struct MultiGroupedSource {
     key: String,
     branches: Vec<Vec<String>>,
     bounded: bool,
+}
+
+struct MultiWaitStreamRoute {
+    sources: Vec<(String, Vec<String>)>,
+    main_input_key: String,
+    wait_key: String,
+    after_wait: Vec<String>,
 }
 
 type WindowFolds = BTreeMap<(i64, i64), (Box<dyn FoldSession>, usize)>;
@@ -572,6 +582,72 @@ fn side_stream_route(
     }
 }
 
+fn multi_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiWaitStreamRoute> {
+    let mut key = sink_key;
+    let mut after_wait = Vec::new();
+    loop {
+        let node = graph.node(key)?;
+        if matches!(node.operation, Operation::WaitOnWindowed) {
+            if node.time.trigger != WindowTrigger::Default
+                || node.time.allowed_lateness_ns != 0
+                || !matches!(
+                    node.time.window,
+                    Window::Fixed { .. } | Window::FixedOffset { .. } | Window::Sliding { .. }
+                )
+            {
+                return None;
+            }
+            let [signal] = node.additional_inputs.as_slice() else {
+                return None;
+            };
+            let flatten = graph.node(&signal.key)?;
+            if !matches!(flatten.operation, Operation::Flatten) {
+                return None;
+            }
+            let main_input_key = node.input.as_deref()?;
+            let mut sources = vec![linear_stream_input(graph, main_input_key)?];
+            for input in std::iter::once(flatten.input.as_deref()?).chain(
+                flatten
+                    .additional_inputs
+                    .iter()
+                    .map(|edge| edge.key.as_str()),
+            ) {
+                let source = linear_stream_input(graph, input)?;
+                if graph.node(&source.0)?.boundedness != ironbeam_core::Boundedness::Unbounded
+                    || sources.iter().any(|existing| existing.0 == source.0)
+                {
+                    return None;
+                }
+                sources.push(source);
+            }
+            if sources.len() < 3 {
+                return None;
+            }
+            after_wait.reverse();
+            return Some(MultiWaitStreamRoute {
+                sources,
+                main_input_key: main_input_key.to_owned(),
+                wait_key: key.to_owned(),
+                after_wait,
+            });
+        }
+        if !node.additional_inputs.is_empty() {
+            return None;
+        }
+        match node.operation {
+            Operation::Sink { .. } | Operation::Output => {}
+            Operation::Map
+            | Operation::Filter
+            | Operation::FlatMap
+            | Operation::AssignTimestamp
+            | Operation::FixedWindow
+            | Operation::SlidingWindow => after_wait.push(key.to_owned()),
+            _ => return None,
+        }
+        key = node.input.as_deref()?;
+    }
+}
+
 fn stateful_fanout_route(graph: &Graph, sink_key: &str) -> Option<BoundedSideStreamRoute> {
     let mut key = sink_key;
     let mut after_fanout = Vec::new();
@@ -829,6 +905,11 @@ impl DirectRunner {
             && bounded_side.is_none()
             && bounded_wait.is_none()
         {
+            if let Some(wait) = multi_wait_stream_route(&graph, &sink_key) {
+                return start_multi_wait_stream_sink::<T>(
+                    &graph, registry, plan, sink_key, config, wait,
+                );
+            }
             if let Some(grouped_fan_in) = multi_grouped_stream_route(&graph, &sink_key) {
                 return start_multi_grouped_stream_sink::<T>(
                     &graph,

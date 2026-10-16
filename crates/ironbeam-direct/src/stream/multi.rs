@@ -8,8 +8,10 @@ mod dual_late;
 mod grouped;
 mod grouped_state;
 mod session;
+mod wait;
 use dual_late::{ClosedPanes, CodedClosedPane, DualFiring, FiringClock};
 pub(super) use grouped::start_multi_grouped_stream_sink;
+pub(super) use wait::start_multi_wait_stream_sink;
 
 const MULTI_SOURCE_KEY: &str = "ironbeam:multi-source";
 
