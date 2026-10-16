@@ -28,7 +28,7 @@ the open cases in this report lack runner proofs.
 | Representative Distinct | A native shuffle selects the smallest encoded representative per derived key and window on both runners. | Deterministic coders and more stream schedules. |
 | Streaming Count.PerElement | The streaming path uses checkpointable GroupByKey and matches Prism in fixed windows. | An incremental accumulator for heavily used keys. |
 | Two-source sessions | Direct restores merged open sessions across two source cursors. Selected Prism schedules agree. | Intermediate-watermark and late-pane agreement. |
-| Session allowed lateness | Core currently rejects nonzero lateness on session windows. In Direct, an open session shares one fold across intervals, but input expiry is checked against each original interval before merging; pane indices and retained state are keyed by interval. The pinned Beam Java `MergingActiveWindowSet` persists active-window to state-address mappings, and `ReduceFnRunner` merges trigger, watermark-hold, and nonempty-pane state. Its `testMergingWithClosedDoesNotPoison` case also requires a closed session not to close a newly merged session. | Add persistent merge lineage and reconcile expiry, trigger, watermark, and pane state when sessions merge. Prove closed-window reuse, late bridges, and checkpoint recovery on Direct and Prism before lifting the API guard. |
+| Session allowed lateness | Core rejects nonzero lateness on session windows. The current Direct fold merges open values, but its stream reader checks expiry before merging and its pane state is keyed by the old interval. | Implement and prove the merge-aware state and expiry contract below before lifting the guard. |
 | Intermediate session watermarks | A pinned Prism case splits a session that Direct merges. | Runner agreement is unproved for this schedule. |
 | Three-input bounded sessions | A pinned Prism case splits a connected session that Direct merges. | Independent-source session resolution. |
 | Coverage after session work | The unchanged core and Direct coverage floors passed. | Destructive Prism cases were excluded from that measurement. |
@@ -42,6 +42,32 @@ the open cases in this report lack runner proofs.
 
 Passing a current check does not close a release gate unless its full proof
 below is complete.
+
+### Merge-aware session lateness contract
+
+The pinned Beam Java `MergingActiveWindowSet` persists a map from each active
+window to its state addresses. `ReduceFnRunner` merges the value reducer,
+watermark hold, nonempty-pane state, and trigger state before it discards the
+old window addresses. Its `testMergingWithClosedDoesNotPoison` regression
+shows that a finished trigger in one session must not close a new session
+formed by merging it with open input. Ironbeam's current single-source Direct
+path drops an element using its original interval's expiry before the fold
+can see a bridge; `GroupByKeyFoldState` then tracks on-time and late pane
+indices by the premerge interval. The multi-source path has the same expiry
+order. These are implementation gaps, so the public session-lateness guard
+remains in place.
+
+| Acceptance schedule | Required evidence |
+| --- | --- |
+| Late bridge with an original interval whose expiry has passed, but a connected live session whose merged expiry has not | Establish the pinned runner's result, then match accepted or dropped rows, merged bounds, output time, and pane timing on Direct. Expiry must be evaluated against the resolved active session. |
+| A closed session that later merges with an open session | Match the Beam regression's rule: the closed trigger does not suppress the open session's later firing. Track state and pane identity through the merge. |
+| Checkpoint between on-time firing and a late bridge, including two source cursors | Restore merge lineage, trigger and pane state, and watermarks; compare committed rows with an uninterrupted Direct run and a pinned Prism job. |
+
+The implementation sequence is to persist active-window lineage with each
+key's fold state, resolve a candidate against that lineage before expiry,
+merge timer and pane state under the resulting window, and then prove all
+three schedules. A graph-validation change alone would expose incorrect
+results.
 
 The processing-time change passes the full core, Direct, Graphx, and Prism
 proof package suites, strict core/Direct and Graphx/Prism lint, and the focused
