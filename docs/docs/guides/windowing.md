@@ -398,19 +398,19 @@ including after a checkpoint restore. In the pinned local Prism comparison,
 Direct groups values `[1, 2, 3]` into `[0, 9_000_000)` ns after a six-millisecond
 watermark. Prism instead emits `[1]` in `[0, 5_000_000)` ns and `[2, 3]` in
 `[0, 9_000_000)` ns. The comparison remains an ignored diagnostic test while
-this portable mismatch is unresolved. Bounded session joins and co-groups merge intervals
-across their inputs before matching keyed
-values. Direct and local Prism agree when another input bridges two sessions;
+this portable mismatch is unresolved. Bounded session joins and co-groups
+merge intervals across their inputs before matching keyed values. Direct and
+local Prism agree when another input bridges two sessions;
 Direct also checks inner, left, right, and full join results. A three-input
 co-group fixture verifies an empty side and an isolated session on both
 runners. For two unbounded inputs, session joins and co-groups wait for both
 source watermarks before closing a keyed session. Direct and local Prism agree
 on a bridge formed by the other input and on the merged interval. Direct can
-restore the open rows and both source cursors from a checkpoint. A separate
-two-source join recovery test saves an open `[0, 9_000_000)` ns session,
-restarts after a six-millisecond watermark, and accepts a second-source row whose
-original `[0, 5_000_000)` ns interval has passed that watermark. Direct also
-accepts an expired original interval when it merges into a live keyed session
+restore the open rows and both source cursors from a checkpoint. Separate
+two-source join and co-group recovery tests save an open `[0, 9_000_000)` ns
+session, restart after a six-millisecond watermark, and accept a second-source
+row whose original `[0, 5_000_000)` ns interval has passed that watermark.
+Direct also accepts an expired original interval when it merges into a live keyed session
 from either input; its join and co-group fixtures drop a later row after
 closure. This intermediate-watermark schedule still needs a local Prism
 comparison. Sessions

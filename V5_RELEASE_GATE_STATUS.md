@@ -29,7 +29,7 @@ the open cases in this report lack runner proofs.
 | Streaming Count.PerElement | The streaming path uses checkpointable GroupByKey and matches Prism in fixed windows. | An incremental accumulator for heavily used keys. |
 | Two-source sessions | Direct restores merged open sessions across two source cursors. Selected Prism schedules agree. | Intermediate-watermark and late-pane agreement. |
 | Session interval adjacency | Core folding, bounded joins, and multi-source Direct closure keep half-open sessions that only meet at an endpoint separate. A later overlapping event merges both; core checkpoint, bounded join, and multi-source closure fixtures cover this rule. | Pinned Prism has merged a touching pair in a pipeline fixture; runner agreement and late panes remain open. |
-| Active-session expiry | Direct resolves an expired candidate against a still-open keyed session in single-source groups, multi-source groups, joins, and co-groups. Single-source and two-source join recovery fixtures pass; the grouped multi-source state codec passes a save/restore bridge test. | Pinned Prism splits the tested intermediate-watermark session. End-to-end grouped multi-source and co-group recovery at this boundary remain open. |
+| Active-session expiry | Direct resolves an expired candidate against a still-open keyed session in single-source groups, multi-source groups, joins, and co-groups. Single-source, two-source join, and two-source co-group recovery fixtures pass; the grouped multi-source state codec passes a save/restore bridge test. | Pinned Prism splits the tested intermediate-watermark session. End-to-end grouped multi-source recovery at this boundary remains open. |
 | Session allowed lateness | Core rejects nonzero lateness on session windows. Direct resolves active intervals at zero lateness across the tested single-source, grouped multi-source, join, and co-group paths, but on-time and late pane state remains keyed by old intervals. | Implement and prove merge-aware pane lineage, positive-lateness expiry, and recovery before lifting the guard. |
 | Intermediate session watermarks | A pinned Prism case splits a session that Direct merges. | Runner agreement is unproved for this schedule. |
 | Three-input bounded sessions | A pinned Prism case splits a connected session that Direct merges. | Independent-source session resolution. |
@@ -66,8 +66,15 @@ unproved. These gaps keep the public session-lateness guard in place.
 | --- | --- |
 | Single-source Direct | An event assigned to `[0, 5)` ns joins an active `[0, 9)` ns session after a six-millisecond watermark. The result survives checkpoint restore. |
 | Multi-source Direct group | A keyed transitive bridge is accepted after state save/restore; an unrelated key is dropped and a distant session stays open. The complete multi-source job checkpoint path remains unproved at this boundary. |
-| Two-source Direct join and co-group | TestStream fixtures accept a cross-input bridge and drop a row after the merged window closes. A join fixture also restores `[0, 9)` ns, accepts an expired-original-interval row from the second source, and emits both pairs once. |
+| Two-source Direct join and co-group | TestStream fixtures accept a cross-input bridge and drop a row after the merged window closes. Both recovery fixtures restore `[0, 9)` ns and accept an expired-original-interval row from the second source. The join emits both pairs once; the co-group emits one merged group. |
 | Pinned local Prism | The same single-source intermediate-watermark fixture emits `1|[1]|0|5000000` and `1|[2, 3]|0|9000000`; Direct emits `1|[1, 2, 3]|0|9000000`. The equality test is retained as an ignored diagnostic. |
+
+The pinned Prism aggregate stage (`sdks/go/pkg/beam/runners/prism/internal/engine/elementmanager.go`)
+checks expiry and trigger readiness against each assigned window before its
+GroupByKey handler (`sdks/go/pkg/beam/runners/prism/internal/handlerunner.go`)
+merges the windows in that handler's current batch. This ordering is consistent
+with the observed split, but the live fixture alone does not prove which
+internal decision separated the two outputs.
 
 | Acceptance schedule | Required evidence |
 | --- | --- |

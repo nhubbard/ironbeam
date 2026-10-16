@@ -911,15 +911,20 @@ fn unbounded_full_join_emits_bounded_side_only_and_main_only_rows() {
 
 #[test]
 fn two_unbounded_join_waits_for_both_watermarks_and_recovers_open_window() {
-    dual_join_recovers_open_window(false);
+    dual_join_recovers_open_window(false, false);
 }
 
 #[test]
 fn two_unbounded_session_join_resolves_expired_candidate_after_restore() {
-    dual_join_recovers_open_window(true);
+    dual_join_recovers_open_window(true, false);
 }
 
-fn dual_join_recovers_open_window(session: bool) {
+#[test]
+fn two_unbounded_session_cogroup_resolves_expired_candidate_after_restore() {
+    dual_join_recovers_open_window(true, true);
+}
+
+fn dual_join_recovers_open_window(session: bool, cogroup: bool) {
     let temporary = tempfile::tempdir().unwrap();
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));
@@ -1014,11 +1019,20 @@ fn dual_join_recovers_open_window(session: bool) {
     };
     let main = make_source("main", 10);
     let side = make_source("side", 20);
-    let sink = main
-        .join_inner_named("join", &side)
-        .unwrap()
-        .map_named("sum", |(key, (left, right))| key * 100 + left + right)
-        .unwrap()
+    let scored = if cogroup {
+        cogroup_by_key_2_named("co-group", &main, &side)
+            .unwrap()
+            .map_named("sum-groups", |(key, (left, right))| {
+                key * 100 + left.iter().sum::<i32>() + right.iter().sum::<i32>()
+            })
+            .unwrap()
+    } else {
+        main.join_inner_named("join", &side)
+            .unwrap()
+            .map_named("sum", |(key, (left, right))| key * 100 + left + right)
+            .unwrap()
+    };
+    let sink = scored
         .sink_named_with_config(
             "sink",
             SinkSpec {
@@ -1071,7 +1085,13 @@ fn dual_join_recovers_open_window(session: bool) {
     );
     assert_eq!(
         *committed.lock().unwrap(),
-        if session { vec![130, 131] } else { vec![130] }
+        if cogroup {
+            vec![141]
+        } else if session {
+            vec![130, 131]
+        } else {
+            vec![130]
+        }
     );
     assert_eq!(
         *opens.lock().unwrap(),
