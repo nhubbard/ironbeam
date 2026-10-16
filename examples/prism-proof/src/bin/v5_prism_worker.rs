@@ -276,6 +276,18 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let (Ok(path), Ok(trace)) = (
+        std::env::var("IRONBEAM_V5_PRISM_RUNNER_SPLIT_OFFSET_SDF"),
+        std::env::var("IRONBEAM_V5_PRISM_RUNNER_SPLIT_TRACE"),
+    ) {
+        return ironbeam_prism_proof::runner_split_offset_sdf_fixture(
+            pipeline,
+            path.into(),
+            trace.into(),
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_VALUE_STATE") {
         return bounded_value_state_fixture(pipeline, path.into())
             .map(|_| ())

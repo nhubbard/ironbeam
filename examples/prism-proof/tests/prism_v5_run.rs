@@ -592,6 +592,64 @@ async fn prism_runs_production_source_through_user_offset_residual() {
 }
 
 #[tokio::test]
+async fn prism_requests_fractional_split_of_active_user_offset_callback() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-runner-split.txt");
+    let direct_trace = directory.path().join("direct-runner-split-trace.txt");
+    let portable_path = directory.path().join("portable-runner-split.txt");
+    let portable_trace = directory.path().join("portable-runner-split-trace.txt");
+    let direct = Pipeline::default();
+    let sink = ironbeam_prism_proof::runner_split_offset_sdf_fixture(
+        &direct,
+        direct_path.clone(),
+        direct_trace.clone(),
+    )
+    .unwrap();
+    DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    let rows = |path: &Path| std::fs::read_to_string(path).unwrap();
+    assert_eq!(rows(&direct_trace), "0..8\n");
+    assert_eq!(
+        rows(&direct_path).lines().collect::<Vec<_>>(),
+        ["100", "101", "102", "103", "104", "105", "106", "107"]
+    );
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::runner_split_offset_sdf_fixture(
+        &portable,
+        portable_path.clone(),
+        portable_trace.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "runner-fractional-offset-split",
+        HashMap::from([
+            (
+                "IRONBEAM_V5_PRISM_RUNNER_SPLIT_OFFSET_SDF".into(),
+                portable_path.to_string_lossy().into_owned(),
+            ),
+            (
+                "IRONBEAM_V5_PRISM_RUNNER_SPLIT_TRACE".into(),
+                portable_trace.to_string_lossy().into_owned(),
+            ),
+        ]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "runner split job failed: {terminal:?}");
+    assert_eq!(rows(&portable_path), rows(&direct_path));
+    let traced = rows(&portable_trace);
+    assert!(traced.lines().any(|range| range == "0..8"), "{traced}");
+    assert!(
+        traced.lines().any(|range| range == "4..8"),
+        "Prism did not run the runner-requested residual: {traced}"
+    );
+}
+
+#[tokio::test]
 async fn prism_replays_user_offset_callback_after_execution_child_loss() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

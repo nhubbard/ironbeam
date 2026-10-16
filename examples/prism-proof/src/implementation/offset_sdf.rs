@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::io::{Read, Seek, Write};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use ironbeam_core::{
     Error, OffsetRange, PCollection, Pipeline, ProgressSignal, Replay, Sink, SinkMode, SinkSpec,
@@ -129,6 +130,61 @@ pub fn production_offset_sdf_residual_fixture(
         path,
         Some(70),
     )
+}
+
+/// A slow offset callback whose trace distinguishes a runner split from an initial restriction.
+pub fn runner_split_offset_sdf_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    trace: PathBuf,
+) -> Result<Sink<i32>, Error> {
+    let sink_path = path.clone();
+    pipeline
+        .from_vec("runner-split-input", vec![100_i32])?
+        .splittable_flat_map_named(
+            "runner-split-offsets",
+            "prism-proof/runner-split-offsets",
+            Version { major: 1, minor: 0 },
+            |_| OffsetRange::new(0, 8),
+            move |value, context| {
+                let restriction = context.tracker().restriction()?;
+                let mut file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&trace)
+                    .map_err(|error| Error::incompatible(error.to_string()))?;
+                file.lock()
+                    .map_err(|error| Error::incompatible(error.to_string()))?;
+                writeln!(file, "{}..{}", restriction.start, restriction.stop)
+                    .map_err(|error| Error::incompatible(error.to_string()))?;
+                drop(file);
+                for offset in restriction.start..restriction.stop {
+                    if !context.try_claim(offset)? {
+                        break;
+                    }
+                    context.emit(*value + offset as i32, offset * 1_000_000)?;
+                    if restriction.start == 0 && offset == 0 {
+                        std::thread::sleep(Duration::from_millis(1_500));
+                    }
+                }
+                Ok(())
+            },
+        )?
+        .sink_named_with_config(
+            "runner-split-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("runner-split-offset-sdf:{}", path.display()),
+            move || {
+                Ok(Box::new(OffsetProofSink {
+                    path: sink_path.clone(),
+                    values: Vec::new(),
+                }))
+            },
+        )
 }
 
 fn production_offset_source(pipeline: &Pipeline) -> Result<PCollection<i32>, Error> {
