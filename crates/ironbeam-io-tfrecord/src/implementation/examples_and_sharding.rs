@@ -66,7 +66,7 @@ fn read_tfrecord_examples_range(
 ) -> Result<TypedSourceIterator<Example>, Error> {
     read_lazy_range(path, start, end, read_tfrecord_examples_lazy)
 }
-/// Split TFRecord Example data into stable record ranges.
+/// Split `TFRecord` Example data into stable record ranges.
 pub fn tfrecord_examples_sharded_source(
     pipeline: &Pipeline,
     key: &str,
@@ -94,7 +94,7 @@ fn read_tfrecord_range(
 ) -> Result<TypedSourceIterator<Vec<u8>>, Error> {
     read_lazy_range(path, start, end, read_tfrecord_lazy)
 }
-/// Split a bounded TFRecord file into stable record ranges.
+/// Split a bounded `TFRecord` file into stable record ranges.
 pub fn tfrecord_sharded_source(
     pipeline: &Pipeline,
     key: &str,

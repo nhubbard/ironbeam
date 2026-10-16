@@ -12,7 +12,7 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use crate::Example;
-/// Read TFRecord files matching a local glob pattern.
+/// Read `TFRecord` files matching a local glob pattern.
 pub fn tfrecord_glob_source(
     pipeline: &Pipeline,
     key: &str,
@@ -81,7 +81,7 @@ fn write_tfrecord(path: &Path, values: &[Vec<u8>]) -> Result<(), Error> {
     let mut file = open_encoded_output(path, "tfrecord")?;
     write_frames(&mut file, values)
 }
-/// Read a bounded TFRecord file into typed records.
+/// Read a bounded `TFRecord` file into typed records.
 pub fn tfrecord_source(
     pipeline: &Pipeline,
     key: &str,
@@ -149,7 +149,7 @@ fn read_tfrecord_lazy(path: PathBuf) -> Result<TypedSourceIterator<Vec<u8>>, Err
         Some(Ok(payload))
     })))
 }
-/// Decode a bounded TFRecord file one record at a time.
+/// Decode a bounded `TFRecord` file one record at a time.
 pub fn tfrecord_streaming_source(
     pipeline: &Pipeline,
     key: &str,
@@ -163,7 +163,7 @@ pub fn tfrecord_streaming_source(
         read_tfrecord_lazy,
     )
 }
-/// Write typed records to a local TFRecord file.
+/// Write typed records to a local `TFRecord` file.
 pub fn tfrecord_sink(
     input: &PCollection<Vec<u8>>,
     key: &str,
