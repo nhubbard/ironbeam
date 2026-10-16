@@ -229,7 +229,7 @@ variant, but that local behavior is not a portable ordering guarantee.
 
 The explicit-order list, take, first, and distinct-by helpers run in two
 fixed windows of an unbounded source on local Prism. Direct's streaming route
-does not yet support merging four stateful helper branches into one sink.
+does not yet support unbounded `GlobalCombine`, which these helpers use.
 
 The `to_list_ordered_by_named`, `take_ordered_by_named`,
 `first_ordered_by_named`, and `distinct_by_ordered_by_named` helpers use the
