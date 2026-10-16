@@ -2,6 +2,9 @@
 
 Graph-construction errors occur before execution. Runner errors occur during planning or execution and usually identify the operation or capability involved. The following cases cover common causes.
 
+The [errors and recovery guide](../guides/errors-and-recovery.md) lists the
+structured error categories and the supported restart boundaries.
+
 ## Duplicate or invalid graph key
 
 A source, transform, sink, or output key must be unique within a pipeline. A duplicate key returns an `Error` from the call that adds the node. Stable keys are also required when later runs refer to the same graph through a checkpoint or portable job. [Pipelines and collections](../concepts/pipelines.md) describes graph identity.
