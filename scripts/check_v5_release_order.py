@@ -47,7 +47,7 @@ def release_order(root: Path = ROOT) -> list[tuple[str, str]]:
     }
     dependencies = {name: set() for name in publishable}
     followers = {name: set() for name in publishable}
-    for name, (path, data) in publishable.items():
+    for name, (path, data) in packages.items():
         for section in ("dependencies", "build-dependencies", "dev-dependencies"):
             for alias, specification in data.get(section, {}).items():
                 from_workspace = isinstance(specification, dict) and specification.get("workspace")
@@ -66,7 +66,7 @@ def release_order(root: Path = ROOT) -> list[tuple[str, str]]:
                 dependency_name = dependency["name"]
                 if specification.get("package", dependency_name) != dependency_name:
                     raise ValueError(f"{name}: {alias} aliases the wrong package")
-                if dependency_name not in publishable:
+                if name in publishable and dependency_name not in publishable:
                     raise ValueError(f"{name}: {dependency_name} is not publishable")
                 expected = dependency["version"]
                 if specification.get("version") != expected:
@@ -74,8 +74,9 @@ def release_order(root: Path = ROOT) -> list[tuple[str, str]]:
                         f"{name}: {dependency_name} requires {specification.get('version')!r}; "
                         f"local package is {expected!r}"
                     )
-                dependencies[name].add(dependency_name)
-                followers[dependency_name].add(name)
+                if name in publishable:
+                    dependencies[name].add(dependency_name)
+                    followers[dependency_name].add(name)
 
     # The public facade is the last package even when a helper is independent.
     if "ironbeam" in dependencies:

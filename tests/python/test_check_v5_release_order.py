@@ -85,6 +85,26 @@ class ReleaseOrderTests(unittest.TestCase):
         with temporary, self.assertRaisesRegex(ValueError, "requires '5.1.0'"):
             release_order(root)
 
+    def test_rejects_path_only_dependency_in_nonpublishable_package(self):
+        temporary, root = self.workspace()
+        with temporary:
+            helper = root / "crates" / "contract-tests"
+            helper.mkdir()
+            (helper / "Cargo.toml").write_text(
+                '[package]\nname = "contract-tests"\nversion = "5.0.0"\npublish = false\n'
+                '[dev-dependencies]\n'
+                'ironbeam-core = { path = "../ironbeam-core" }\n'
+            )
+            manifest = root / "Cargo.toml"
+            manifest.write_text(
+                manifest.read_text().replace(
+                    '"crates/ironbeam-core"]',
+                    '"crates/ironbeam-core", "crates/contract-tests"]',
+                )
+            )
+            with self.assertRaisesRegex(ValueError, "requires None"):
+                release_order(root)
+
     def test_rejects_dependency_cycle(self):
         temporary, root = self.workspace(reverse_dependency=True)
         with temporary, self.assertRaisesRegex(ValueError, "cycle"):

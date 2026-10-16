@@ -9,5 +9,5 @@ license = "MIT"
 
 [dev-dependencies]
 ironbeam-v4 = { package = "ironbeam", version = "=4.1.1", default-features = false }
-ironbeam-core = { path = "../ironbeam-core" }
-ironbeam-direct = { path = "../ironbeam-direct" }
+ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
+ironbeam-direct = { version = "5.0.0", path = "../ironbeam-direct" }
