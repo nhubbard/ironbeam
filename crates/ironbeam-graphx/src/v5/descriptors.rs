@@ -56,6 +56,31 @@ pub fn windowed_wait_side_input_spec() -> SideInput {
     spec
 }
 
+fn wait_side_input_id(index: usize, total: usize) -> String {
+    if total == 1 {
+        SIDE_INPUT_LOCAL_ID.into()
+    } else {
+        format!("side{index}")
+    }
+}
+
+fn side_input_specs(node: &Node) -> HashMap<String, SideInput> {
+    match node.operation {
+        Operation::SideInputMap | Operation::WaitOn => {
+            HashMap::from([(SIDE_INPUT_LOCAL_ID.into(), side_input_spec())])
+        }
+        Operation::WaitOnWindowed => node
+            .additional_inputs
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                (wait_side_input_id(index, node.additional_inputs.len()), windowed_wait_side_input_spec())
+            })
+            .collect(),
+        _ => HashMap::new(),
+    }
+}
+
 fn windowing_id(time: &Time) -> String {
     let base = match &time.window {
         Window::Global => ids::WINDOWING_ID.into(),

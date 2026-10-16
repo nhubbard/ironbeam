@@ -137,11 +137,20 @@ impl V5BundleExecutor {
                                 );
                             }
                             if matches!(next.operation, Operation::WaitOnWindowed) {
-                                let side = next.additional_inputs.first().ok_or_else(|| {
-                                    anyhow!("v5 SDF windowed wait {} has no signal", next.key)
-                                })?;
-                                if plan.side_inputs.get(&next.key)
-                                    != Some(&collection_id(&side.key))
+                                let expected_sides = next
+                                    .additional_inputs
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(index, side)| {
+                                        let local = if next.additional_inputs.len() == 1 {
+                                            "side".to_owned()
+                                        } else {
+                                            format!("side{index}")
+                                        };
+                                        (local, collection_id(&side.key))
+                                    })
+                                    .collect::<HashMap<_, _>>();
+                                if plan.side_inputs.get(&next.key) != Some(&expected_sides)
                                     || plan.state_endpoint.as_deref().is_none_or(str::is_empty)
                                 {
                                     bail!(

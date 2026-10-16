@@ -38,7 +38,13 @@ fn beam_inputs(graph: &Graph, node: &Node, impulse_pc: &str) -> HashMap<String, 
         Operation::FoldPerKey | Operation::FoldGlobal | Operation::GlobalCombine
     ) {
         HashMap::from([("in".into(), fold_group_collection_id(&node.key))])
-    } else if matches!(node.operation, Operation::SideInputMap | Operation::WaitOn | Operation::WaitOnWindowed) {
+    } else if matches!(node.operation, Operation::WaitOnWindowed) {
+        let mut inputs = HashMap::from([("in".into(), primary)]);
+        for (index, edge) in node.additional_inputs.iter().enumerate() {
+            inputs.insert(wait_side_input_id(index, node.additional_inputs.len()), collection_id(&edge.key));
+        }
+        inputs
+    } else if matches!(node.operation, Operation::SideInputMap | Operation::WaitOn) {
         HashMap::from([
             ("in".into(), primary),
             (
@@ -641,21 +647,7 @@ fn lower(
                     urn: urns::DOFN_IRONBEAM_V5.into(),
                     payload: node_ref.encode()?,
                 }),
-                side_inputs: if matches!(
-                    node.operation,
-                    Operation::SideInputMap | Operation::WaitOn | Operation::WaitOnWindowed
-                ) {
-                    HashMap::from([(
-                        SIDE_INPUT_LOCAL_ID.into(),
-                        if matches!(node.operation, Operation::WaitOnWindowed) {
-                            windowed_wait_side_input_spec()
-                        } else {
-                            side_input_spec()
-                        },
-                    )])
-                } else {
-                    HashMap::new()
-                },
+                side_inputs: side_input_specs(node),
                 requests_finalization: finalization_sinks.contains(key),
                 restriction_coder_id: if is_production_source(node) {
                     ids::CODER_BYTES.into()

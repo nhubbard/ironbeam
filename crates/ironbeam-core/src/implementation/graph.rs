@@ -208,7 +208,6 @@ impl Graph {
                     | Operation::JoinRight
                     | Operation::JoinFull
                     | Operation::WaitOn
-                    | Operation::WaitOnWindowed
                     | Operation::SideInputMap
             ) && node.additional_inputs.len() != 1
             {

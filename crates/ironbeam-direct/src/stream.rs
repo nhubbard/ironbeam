@@ -597,22 +597,13 @@ fn multi_wait_stream_route(graph: &Graph, sink_key: &str) -> Option<MultiWaitStr
             {
                 return None;
             }
-            let [signal] = node.additional_inputs.as_slice() else {
-                return None;
-            };
-            let flatten = graph.node(&signal.key)?;
-            if !matches!(flatten.operation, Operation::Flatten) {
+            if node.additional_inputs.len() < 2 {
                 return None;
             }
             let main_input_key = node.input.as_deref()?;
             let mut sources = vec![linear_stream_input(graph, main_input_key)?];
-            for input in std::iter::once(flatten.input.as_deref()?).chain(
-                flatten
-                    .additional_inputs
-                    .iter()
-                    .map(|edge| edge.key.as_str()),
-            ) {
-                let source = linear_stream_input(graph, input)?;
+            for edge in &node.additional_inputs {
+                let source = linear_stream_input(graph, &edge.key)?;
                 if graph.node(&source.0)?.boundedness != ironbeam_core::Boundedness::Unbounded
                     || sources.iter().any(|existing| existing.0 == source.0)
                 {

@@ -299,10 +299,10 @@ requires matching time and window declarations. A single unbounded signal can
 release a fixed window before the main watermark closes on Direct and pinned
 Prism. Other configurations may buffer the full window.
 `wait_on_all_windowed_named` accepts several signals of the same element type.
-Independent unbounded fixed or sliding signals use a flattened windowed
-barrier. Direct has an early-release and recovery proof for this path; pinned
-Prism does not yet have a reliable early-release proof. Other graphs use a
-keyed co-group and wait for every input watermark. Direct and local Prism
+Independent unbounded fixed or sliding signals become separate side inputs.
+Direct has early-release and recovery proofs, and local Prism releases a fixed
+window while the main source remains open. Other graphs use a keyed co-group
+and wait for every input watermark. Direct and local Prism
 agree in a bounded three-source fixed-window test, including windows without
 signal elements.
 

@@ -173,22 +173,31 @@ impl V5BundleExecutor {
                         bail!("v5 node {} output differs from worker graph", node.key);
                     }
                     if matches!(node.operation, Operation::SideInputMap | Operation::WaitOn | Operation::WaitOnWindowed) {
-                        let side = node.additional_inputs.first().ok_or_else(|| {
-                            anyhow!("v5 side input {} has no graph edge", node.key)
-                        })?;
+                        let mut expected_sides = HashMap::new();
+                        for (index, side) in node.additional_inputs.iter().enumerate() {
+                            let local = if matches!(node.operation, Operation::WaitOnWindowed)
+                                && node.additional_inputs.len() > 1
+                            {
+                                format!("side{index}")
+                            } else {
+                                "side".to_owned()
+                            };
+                            let collection = if self
+                                .graph
+                                .node(&side.key)
+                                .is_some_and(|side| side.time.window == Window::Global)
+                                || matches!(node.operation, Operation::WaitOnWindowed)
+                            {
+                                collection_id(&side.key)
+                            } else {
+                                side_global_collection_id(&node.key)
+                            };
+                            expected_sides.insert(local, collection);
+                        }
                         if (matches!(node.operation, Operation::SideInputMap)
                             && !self.registry.has_side_input(&node.key))
                             || plan.side_inputs.get(&node.key)
-                                != Some(&if self
-                                    .graph
-                                    .node(&side.key)
-                                .is_some_and(|side| side.time.window == Window::Global)
-                                || matches!(node.operation, Operation::WaitOnWindowed)
-                                {
-                                    collection_id(&side.key)
-                                } else {
-                                    side_global_collection_id(&node.key)
-                                })
+                                != Some(&expected_sides)
                             || plan.state_endpoint.as_deref().is_none_or(str::is_empty)
                         {
                             bail!("v5 side input {} differs from worker graph or has no State endpoint", node.key);

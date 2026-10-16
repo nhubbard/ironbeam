@@ -1009,6 +1009,77 @@ fn bounded_multi_signal_wait_lowers_two_portable_side_dependencies() {
     }
 }
 
+#[test]
+fn unbounded_multi_signal_wait_lowers_separate_windowed_side_inputs() {
+    let pipeline = Pipeline::default();
+    let main = pipeline
+        .test_stream_source(
+            "main",
+            vec![TestStreamEvent::Elements(vec![(7_i32, 1_000_000)])],
+        )
+        .unwrap()
+        .fixed_windows("main-window", 10_000_000)
+        .unwrap();
+    let first = pipeline
+        .test_stream_source::<i32>("first", vec![TestStreamEvent::AdvanceWatermark(10_000_000)])
+        .unwrap()
+        .fixed_windows("first-window", 10_000_000)
+        .unwrap();
+    let second = pipeline
+        .test_stream_source::<i32>(
+            "second",
+            vec![TestStreamEvent::AdvanceWatermark(10_000_000)],
+        )
+        .unwrap()
+        .fixed_windows("second-window", 10_000_000)
+        .unwrap();
+    main.wait_on_all_windowed_named("wait", &[first, second])
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, IMAGE, BUILD).unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    let transform = components
+        .transforms
+        .values()
+        .find(|transform| transform.unique_name == "wait")
+        .unwrap();
+    assert_eq!(transform.inputs.len(), 3);
+    assert_eq!(
+        transform.inputs["side0"],
+        ironbeam_graphx::v5::collection_id("first-window")
+    );
+    assert_eq!(
+        transform.inputs["side1"],
+        ironbeam_graphx::v5::collection_id("second-window")
+    );
+    let payload =
+        ParDoPayload::decode(transform.spec.as_ref().unwrap().payload.as_slice()).unwrap();
+    assert_eq!(payload.side_inputs.len(), 2);
+    assert_eq!(
+        payload.side_inputs["side0"],
+        ironbeam_graphx::v5::windowed_wait_side_input_spec()
+    );
+    assert_eq!(
+        payload.side_inputs["side1"],
+        ironbeam_graphx::v5::windowed_wait_side_input_spec()
+    );
+    let mut tampered = translated;
+    let transform = tampered
+        .pipeline
+        .components
+        .as_mut()
+        .unwrap()
+        .transforms
+        .values_mut()
+        .find(|transform| transform.unique_name == "wait")
+        .unwrap();
+    transform.inputs.remove("side1");
+    assert!(validate_beam_contract(&graph, &tampered).is_err());
+}
+
 struct EncounterSum;
 
 impl OrderedFoldFn<i32, i32, i32> for EncounterSum {

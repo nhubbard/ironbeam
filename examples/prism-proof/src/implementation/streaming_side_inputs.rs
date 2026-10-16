@@ -281,6 +281,14 @@ pub fn early_multi_windowed_wait_fixture(
     early_windowed_wait_fixture_for(pipeline, path, false, true, false)
 }
 
+/// Keep the main source open while one of two independent signals emits a value.
+pub fn early_multi_value_windowed_wait_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    early_windowed_wait_fixture_for(pipeline, path, false, true, true)
+}
+
 /// Keep the main source open while a signal emits a value and completes.
 pub fn early_value_windowed_wait_fixture(
     pipeline: &Pipeline,

@@ -203,9 +203,9 @@ impl<T: Element> PCollection<T> {
     }
     /// Release each main window after it and every matching signal window close.
     /// Signals may be unbounded and their values are ignored. For default
-    /// fixed or sliding windows, independent unbounded signals form one
-    /// barrier. Direct can release before the main watermark closes. Portable
-    /// early release with several signals is not yet reliable on pinned Prism.
+    /// fixed or sliding windows, independent unbounded signals become separate
+    /// side inputs. Direct and pinned Prism can release before the main
+    /// watermark closes.
     /// Other window policies use a keyed co-group and close after all input
     /// watermarks advance.
     pub fn wait_on_all_windowed_named<S: Element>(
@@ -252,8 +252,27 @@ impl<T: Element> PCollection<T> {
             && main.time.trigger == WindowTrigger::Default
             && main.time.allowed_lateness_ns == 0
         {
-            let combined = signals[0].flatten_named(&format!("{key}/signals"), &signals[1..])?;
-            return self.wait_on_windowed_named(key, &combined);
+            let key_owned = key.to_owned();
+            let signal_count = signals.len();
+            let aggregate: Aggregate = Arc::new(move |mut inputs| {
+                if inputs.len() != signal_count + 1 {
+                    return Err(Error::execution(&key_owned, "direct", "windowed wait input count changed"));
+                }
+                Ok(inputs.remove(0))
+            });
+            let edges = signals
+                .iter()
+                .map(|signal| InputEdge {
+                    key: signal.key.clone(),
+                    element: ElementDescriptor {
+                        type_id: S::type_identity(),
+                        coder_id: S::coder_identity(),
+                        coder_payload: S::coder_payload(),
+                        coder_version: S::CODER_VERSION,
+                    },
+                })
+                .collect();
+            return self.next_aggregate(key, Operation::WaitOnWindowed, edges, main.boundedness, aggregate, None);
         }
         let main = self
             .reify_timestamps_named(&format!("{key}/main-time"))?

@@ -81,10 +81,10 @@ fn independent_unbounded_signals_use_a_window_barrier() {
         graph.node("independent").unwrap().operation,
         Operation::WaitOnWindowed
     ));
-    assert!(matches!(
-        graph.node("independent/signals").unwrap().operation,
-        Operation::Flatten
-    ));
+    let edges = &graph.node("independent").unwrap().additional_inputs;
+    assert_eq!(edges.len(), 2);
+    assert_eq!(edges[0].key, "first-window");
+    assert_eq!(edges[1].key, "second-window");
     assert!(matches!(
         graph.node("shared/group/group").unwrap().operation,
         Operation::GroupByKey

@@ -422,15 +422,74 @@ fn plans_v5_node_references_without_reinterpreting_them_as_v4_ids() {
             ..Default::default()
         },
     );
+    let wait_ref = V5NodeRef {
+        key: "wait-many".into(),
+        ..node_ref.clone()
+    };
+    let wait_pardo = ParDoPayload {
+        do_fn: Some(FunctionSpec {
+            urn: urns::DOFN_IRONBEAM_V5.into(),
+            payload: wait_ref.encode().unwrap(),
+        }),
+        side_inputs: HashMap::from([
+            (
+                "side0".into(),
+                ironbeam_graphx::v5::windowed_wait_side_input_spec(),
+            ),
+            (
+                "side1".into(),
+                ironbeam_graphx::v5::windowed_wait_side_input_spec(),
+            ),
+        ]),
+        ..Default::default()
+    };
+    pbd.transforms.insert(
+        "wait-pardo".into(),
+        PTransform {
+            spec: Some(FunctionSpec {
+                urn: urns::TRANSFORM_PARDO.into(),
+                payload: wait_pardo.encode_to_vec(),
+            }),
+            inputs: HashMap::from([
+                ("in".into(), "pc3".into()),
+                ("side0".into(), "pc4".into()),
+                ("side1".into(), "pc5".into()),
+            ]),
+            outputs: HashMap::from([("out".into(), "pc6".into())]),
+            ..Default::default()
+        },
+    );
     let parsed = plan(&pbd).unwrap();
     assert_eq!(parsed.state_endpoint.as_deref(), Some("runner-state:1234"));
     assert_eq!(
-        parsed.side_inputs.get("add-side").map(String::as_str),
+        parsed
+            .side_inputs
+            .get("add-side")
+            .and_then(|sides| sides.get("side"))
+            .map(String::as_str),
         Some("pc2")
+    );
+    assert_eq!(
+        parsed.side_inputs.get("wait-many"),
+        Some(&HashMap::from([
+            ("side0".into(), "pc4".into()),
+            ("side1".into(), "pc5".into())
+        ]))
     );
     assert!(
         matches!(&parsed.steps[1], Step::V5ParDo { node_ref: actual, .. } if actual == &node_ref)
     );
+    let mut missing_signal = pbd.clone();
+    missing_signal
+        .transforms
+        .get_mut("wait-pardo")
+        .unwrap()
+        .inputs
+        .remove("side1");
+    assert!(matches!(
+        plan(&missing_signal),
+        Err(PlanError::BadPayload { .. })
+    ));
     let mut invalid = pbd;
     let transform = invalid.transforms.get_mut("side-pardo").unwrap();
     let spec = transform.spec.as_mut().unwrap();

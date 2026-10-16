@@ -341,8 +341,8 @@ pub struct BundlePlan {
     pub pbd_id: String,
     /// Runner state service used by side inputs and state-backed iterables.
     pub state_endpoint: Option<String>,
-    /// Side PCollection for each portable transform key in this bundle.
-    pub side_inputs: HashMap<String, String>,
+    /// Side PCollections by local input ID for each portable transform key.
+    pub side_inputs: HashMap<String, HashMap<String, String>>,
 }
 
 /// Validate a ProcessBundleDescriptor and order its executable transforms.
@@ -475,24 +475,35 @@ pub fn plan(pbd: &ProcessBundleDescriptor) -> Result<BundlePlan, PlanError> {
                     err: error.to_string(),
                 })?;
                 let stateful_value = value_state_payload(id, &pardo, pbd)?;
-                let input_pc = if t.inputs.len() == 2 {
-                    if pardo.side_inputs.len() != 1
-                        || !matches!(
-                            pardo.side_inputs.get("side"),
+                let input_pc = if t.inputs.len() > 1 {
+                    let sides = t
+                        .inputs
+                        .iter()
+                        .filter(|(local, _)| local.as_str() != "in")
+                        .map(|(local, collection)| (local.clone(), collection.clone()))
+                        .collect::<HashMap<_, _>>();
+                    if sides.len() != pardo.side_inputs.len() || sides.iter().any(|(local, _)| {
+                        !matches!(
+                            pardo.side_inputs.get(local),
                             Some(spec)
                                 if spec == &ironbeam_graphx::v5::side_input_spec()
                                     || spec == &ironbeam_graphx::v5::windowed_wait_side_input_spec()
                         )
-                    {
+                    }) {
                         return Err(PlanError::BadPayload {
                             id: id.to_string(),
                             err: "v5 side input contract differs".into(),
                         });
                     }
-                    let side = t.inputs.get("side").ok_or(PlanError::NotLinear)?;
-                    side_inputs.insert(node_ref.key.clone(), side.clone());
+                    side_inputs.insert(node_ref.key.clone(), sides);
                     t.inputs.get("in").ok_or(PlanError::NotLinear)?.clone()
                 } else {
+                    if !pardo.side_inputs.is_empty() {
+                        return Err(PlanError::BadPayload {
+                            id: id.to_string(),
+                            err: "v5 side input contract differs".into(),
+                        });
+                    }
                     single_input(id, t)?
                 };
                 let output_pc = if t.outputs.is_empty() {
