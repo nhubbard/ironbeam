@@ -13,11 +13,15 @@ impl BundleRunner for V5BundleExecutor {
                 if desired.fraction_of_remainder == 0.0
                     && desired.allowed_split_points.is_empty()
                 {
-                    // This source adapter can self-checkpoint but cannot partition
-                    // its opaque cursor at an arbitrary fraction or channel index.
-                    // The residual is emitted with ProcessBundleResponse after the
-                    // active bundle relinquishes its current restriction.
-                    bundle.requested.store(true, Ordering::Release);
+                    let offset_tracker = bundle.offset_tracker.lock()
+                        .map_err(|_| anyhow!("v5 SDF offset tracker registry poisoned"))?;
+                    if let Some(tracker) = offset_tracker.as_ref() {
+                        // The callback and split request share this tracker.
+                        // The residual is returned when the bundle completes.
+                        tracker.try_split(0.0)?;
+                    } else {
+                        bundle.requested.store(true, Ordering::Release);
+                    }
                 }
             }
         }

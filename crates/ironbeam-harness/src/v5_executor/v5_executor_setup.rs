@@ -1,11 +1,18 @@
 struct ActiveSdfBundle {
     source_id: String,
     requested: Arc<AtomicBool>,
+    offset_tracker: Arc<Mutex<Option<ironbeam_core::OffsetRangeTracker>>>,
 }
 
 struct ActiveSdfGuard<'a> {
     entries: &'a Mutex<HashMap<String, ActiveSdfBundle>>,
     instruction_id: String,
+}
+
+struct ActiveSdfHandle<'a> {
+    requested: Arc<AtomicBool>,
+    offset_tracker: Arc<Mutex<Option<ironbeam_core::OffsetRangeTracker>>>,
+    _guard: ActiveSdfGuard<'a>,
 }
 
 impl Drop for ActiveSdfGuard<'_> {
@@ -305,8 +312,9 @@ impl V5BundleExecutor {
         &self,
         instruction_id: &str,
         source_id: &str,
-    ) -> Result<(Arc<AtomicBool>, ActiveSdfGuard<'_>)> {
+    ) -> Result<ActiveSdfHandle<'_>> {
         let requested = Arc::new(AtomicBool::new(false));
+        let offset_tracker = Arc::new(Mutex::new(None));
         let mut active = self
             .active_sdf
             .lock()
@@ -319,15 +327,17 @@ impl V5BundleExecutor {
             ActiveSdfBundle {
                 source_id: source_id.into(),
                 requested: Arc::clone(&requested),
+                offset_tracker: Arc::clone(&offset_tracker),
             },
         );
-        Ok((
+        Ok(ActiveSdfHandle {
             requested,
-            ActiveSdfGuard {
+            offset_tracker,
+            _guard: ActiveSdfGuard {
                 entries: &self.active_sdf,
                 instruction_id: instruction_id.into(),
             },
-        ))
+        })
     }
 
     async fn data_client(&self, port: &RemoteGrpcPort) -> Result<DataClient> {

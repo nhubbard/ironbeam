@@ -2,11 +2,17 @@
 
 use std::collections::HashMap;
 use std::net::TcpListener;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::Duration;
 
 use beam_proto::fn_execution_v1::beam_fn_data_server::{BeamFnData, BeamFnDataServer};
-use beam_proto::fn_execution_v1::{elements::Data, Elements, RemoteGrpcPort};
+use beam_proto::fn_execution_v1::{
+    elements::Data, process_bundle_split_request, Elements, ProcessBundleSplitRequest,
+    RemoteGrpcPort,
+};
 use beam_proto::pipeline_v1::ApiServiceDescriptor;
 use ironbeam_core::{Element, OffsetRange, Pipeline, Version};
 use ironbeam_graphx::v5::{collection_id, execution_identity, V5NodeRef};
@@ -97,6 +103,18 @@ async fn run_bundle(
     beam_proto::fn_execution_v1::ProcessBundleResponse,
     Vec<Data>,
 ) {
+    run_bundle_with_checkpoint(pipeline, record, steps, None).await
+}
+
+async fn run_bundle_with_checkpoint(
+    pipeline: &Pipeline,
+    record: Vec<u8>,
+    steps: Vec<Step>,
+    checkpoint: Option<(Arc<AtomicBool>, Arc<AtomicBool>)>,
+) -> (
+    beam_proto::fn_execution_v1::ProcessBundleResponse,
+    Vec<Data>,
+) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
@@ -151,11 +169,44 @@ async fn run_bundle(
         side_inputs: HashMap::new(),
         steps,
     };
-    let runner = V5BundleExecutor::new(pipeline, "test-build").unwrap();
-    let response = tokio::time::timeout(Duration::from_secs(5), runner.run("bundle", &plan))
+    let runner = Arc::new(V5BundleExecutor::new(pipeline, "test-build").unwrap());
+    let response = if let Some((started, release)) = checkpoint {
+        let executing = Arc::clone(&runner);
+        let task = tokio::spawn(async move { executing.run("bundle", &plan).await });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !started.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
         .await
-        .unwrap()
         .unwrap();
+        let split = runner
+            .split_bundle(&ProcessBundleSplitRequest {
+                instruction_id: "bundle".into(),
+                desired_splits: HashMap::from([(
+                    "input".into(),
+                    process_bundle_split_request::DesiredSplit {
+                        fraction_of_remainder: 0.0,
+                        ..Default::default()
+                    },
+                )]),
+            })
+            .await
+            .unwrap();
+        assert!(split.primary_roots.is_empty());
+        assert!(split.residual_roots.is_empty());
+        release.store(true, Ordering::Release);
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    } else {
+        tokio::time::timeout(Duration::from_secs(5), runner.run("bundle", &plan))
+            .await
+            .unwrap()
+            .unwrap()
+    };
     tokio::time::sleep(Duration::from_millis(50)).await;
     let chunks = received.lock().await.clone();
     server.abort();
@@ -386,4 +437,106 @@ async fn user_split_residual_runs_in_a_fresh_worker_bundle() {
     }
     values.sort_unstable();
     assert_eq!(values, [(10, 0), (11, 1), (12, 2), (13, 3)]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_checkpoint_splits_active_user_restriction_without_duplicate_output() {
+    let started = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(AtomicBool::new(false));
+    let callback_started = Arc::clone(&started);
+    let callback_release = Arc::clone(&release);
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("input", vec![20_i32])
+        .unwrap()
+        .splittable_flat_map_named(
+            "offsets",
+            "tests/runner-checkpoint",
+            Version { major: 1, minor: 0 },
+            |_| OffsetRange::new(0, 6),
+            move |value, context| {
+                let range = context.tracker().restriction()?;
+                for offset in range.start..range.stop {
+                    if !context.try_claim(offset)? {
+                        break;
+                    }
+                    context.emit(*value + offset as i32, offset * 1_000_000)?;
+                    if range.start == 0 && offset == 1 {
+                        callback_started.store(true, Ordering::Release);
+                        while !callback_release.load(Ordering::Acquire) {
+                            std::thread::sleep(Duration::from_millis(1));
+                        }
+                    }
+                }
+                Ok(())
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, registry) = pipeline.snapshot().unwrap();
+    let node_ref = V5NodeRef {
+        key: "offsets".into(),
+        identity: execution_identity(&graph, &registry, "test-build").unwrap(),
+        co_group_input: None,
+    };
+    let steps = || {
+        vec![
+            Step::Source {
+                transform_id: "input".into(),
+                port: RemoteGrpcPort::default(),
+                output_pc: "sized-pc".into(),
+                wire: SourceWire::Opaque,
+            },
+            Step::Sdf {
+                stage: SdfStage::ProcessSizedElements,
+                transform_id: "process".into(),
+                node_ref: node_ref.clone(),
+                input_pc: "sized-pc".into(),
+                output_pc: collection_id("offsets"),
+            },
+            Step::Sink {
+                transform_id: "output".into(),
+                port: RemoteGrpcPort::default(),
+                input_pc: collection_id("offsets"),
+                wire: SinkWire::Opaque,
+            },
+        ]
+    };
+    let body = ironbeam_harness::sdf_offset_wire::encode_sized(
+        &ironbeam_harness::sdf_offset_wire::SizedOffsetPair {
+            pair: ironbeam_harness::sdf_offset_wire::OffsetPair {
+                element: 20_i32.encode().unwrap(),
+                restriction: OffsetRange::new(0, 6).unwrap(),
+            },
+            size: 6.0,
+        },
+    )
+    .unwrap();
+    let mut initial = Vec::new();
+    encode_windowed_value(0, &body, &mut initial).unwrap();
+    let (response, first_chunks) =
+        run_bundle_with_checkpoint(&pipeline, initial, steps(), Some((started, release))).await;
+    assert_eq!(response.residual_roots.len(), 1);
+    let residual = response.residual_roots[0].application.as_ref().unwrap();
+    let (windowed, _) = decode_windowed_value(&residual.element).unwrap();
+    assert_eq!(
+        decode_sized(windowed.element).unwrap().pair.restriction,
+        OffsetRange::new(2, 6).unwrap()
+    );
+    let (_, second_chunks) = run_bundle(&pipeline, residual.element.clone(), steps()).await;
+    let mut values = Vec::new();
+    for chunk in first_chunks.into_iter().chain(second_chunks) {
+        if chunk.transform_id != "output" || chunk.data.is_empty() {
+            continue;
+        }
+        let (windowed, _) = decode_windowed_value(&chunk.data).unwrap();
+        let (body, _) = decode_length_prefix(windowed.element).unwrap();
+        values.push((i32::decode(body).unwrap(), windowed.timestamp_millis));
+    }
+    values.sort_unstable();
+    assert_eq!(
+        values,
+        [(20, 0), (21, 1), (22, 2), (23, 3), (24, 4), (25, 5)]
+    );
 }

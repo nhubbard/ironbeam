@@ -260,7 +260,9 @@ impl V5BundleExecutor {
             bail!("v5 SDF process bundle has a branch without a terminal sink");
         }
 
-        let (split_requested, _active_guard) = self.register_sdf_bundle(instruction_id, source_id)?;
+        let active_sdf = self.register_sdf_bundle(instruction_id, source_id)?;
+        let split_requested = &active_sdf.requested;
+        let offset_tracker = &active_sdf.offset_tracker;
 
         let source_client = self.data_client(source_port).await?;
         let mut reader = source_client.open_read(instruction_id, source_id);
@@ -313,6 +315,14 @@ impl V5BundleExecutor {
                     let original = sized.pair.restriction;
                     let tracker = ironbeam_core::OffsetRangeTracker::new(original)?;
                     let estimator = ironbeam_core::OffsetWatermarkEstimator::new(None);
+                    {
+                        let mut active = offset_tracker.lock()
+                            .map_err(|_| anyhow!("v5 SDF offset tracker registry poisoned"))?;
+                        *active = Some(tracker.clone());
+                    }
+                    if split_requested.swap(false, Ordering::AcqRel) {
+                        tracker.try_split(0.0)?;
+                    }
                     let elements = self.registry.process_splittable_restriction(
                         source_key,
                         &sized.pair.element,
@@ -385,6 +395,8 @@ impl V5BundleExecutor {
                             requested_time_delay: None,
                         });
                     }
+                    *offset_tracker.lock()
+                        .map_err(|_| anyhow!("v5 SDF offset tracker registry poisoned"))? = None;
                     input_count += 1;
                     consumed += header_len + body_len;
                     if consumed == pending.len() { break; }
