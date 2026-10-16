@@ -647,15 +647,23 @@ ends that do not align to whole milliseconds are rejected.
 Completing a stream with a partial global batch remains open. Direct finished
 both exploratory schedules. Two global-window probes left one pending value
 after two full batches. One advanced the watermark near its terminal value;
-the other ended the finite
-TestStream without an explicit terminal advance. Prism failed both with
+the other ended the finite TestStream without an explicit terminal advance.
+Prism failed both with
 `negative watermark hold count -1 for time 1` in its hold tracker. Those
 runner failures are not counted as passing behavior.
+
 A smaller probe with only one pending global value finished without output on
 both runners. One key with a full batch followed by a partial batch reproduced
 the Prism hold-tracker failure. This narrows the failure to the timer transition
 between batches; it does not establish whether the fault is in Prism's hold
 accounting or in Ironbeam's timer mutations.
+
+Combined byte/count/processing-time batching needs a runner clock in the
+stateful element callback. The current callback receives event time and window
+metadata only. The pinned Java `GroupIntoBatches` starts its processing timer
+from the timer service's current relative time and holds the output watermark
+at the earliest buffered event time. Adding a delay to an element timestamp
+would give the wrong deadline, especially for TestStream's virtual clock.
 
 ## Release gates
 
