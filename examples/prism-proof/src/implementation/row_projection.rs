@@ -1,12 +1,37 @@
 use super::*;
 use beam_proto::pipeline_v1::{
     atomic_type_value, field_type, field_value, AtomicType, AtomicTypeValue, Field, FieldType,
-    FieldValue, Row, Schema,
+    FieldValue, Row, RowType, Schema,
 };
 use ironbeam_coder_row::{BeamRow, RowSchema};
 
 struct OldRow;
 struct NewRow;
+
+fn detail_type(reader: bool) -> FieldType {
+    let fields = if reader {
+        vec![
+            field("category", AtomicType::String, 1, false),
+            field("code", AtomicType::Int32, 0, false),
+            field("note", AtomicType::String, 2, true),
+        ]
+    } else {
+        vec![
+            field("code", AtomicType::Int32, 0, false),
+            field("category", AtomicType::String, 1, false),
+        ]
+    };
+    FieldType {
+        nullable: true,
+        type_info: Some(field_type::TypeInfo::RowType(RowType {
+            schema: Some(Schema {
+                encoding_positions_set: true,
+                fields,
+                ..Default::default()
+            }),
+        })),
+    }
+}
 
 fn field(name: &str, kind: AtomicType, position: i32, nullable: bool) -> Field {
     Field {
@@ -21,15 +46,21 @@ fn field(name: &str, kind: AtomicType, position: i32, nullable: bool) -> Field {
 }
 
 impl RowSchema for OldRow {
-    const TYPE_ID: &'static str = "tests/prism-row-projection-old/v1";
+    const TYPE_ID: &'static str = "tests/prism-row-projection-old/v2";
 
     fn schema() -> Schema {
         Schema {
-            id: "2e805783-88c7-4c55-9fd1-f2ce10a8acf5".into(),
+            id: "41368115-8441-4d7b-ba4c-5c325dd44b5c".into(),
             encoding_positions_set: true,
             fields: vec![
                 field("id", AtomicType::Int32, 0, false),
                 field("label", AtomicType::String, 1, false),
+                Field {
+                    name: "detail".into(),
+                    encoding_position: 2,
+                    r#type: Some(detail_type(false)),
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         }
@@ -37,16 +68,22 @@ impl RowSchema for OldRow {
 }
 
 impl RowSchema for NewRow {
-    const TYPE_ID: &'static str = "tests/prism-row-projection-new/v2";
+    const TYPE_ID: &'static str = "tests/prism-row-projection-new/v3";
 
     fn schema() -> Schema {
         Schema {
-            id: "ee0a2874-3bbb-4545-a333-8f39fc55f83f".into(),
+            id: "dbf12db1-29e6-45eb-94d1-e4f684df4a25".into(),
             encoding_positions_set: true,
             fields: vec![
                 field("label", AtomicType::String, 1, false),
                 field("id", AtomicType::Int32, 0, false),
-                field("note", AtomicType::String, 2, true),
+                Field {
+                    name: "detail".into(),
+                    encoding_position: 2,
+                    r#type: Some(detail_type(true)),
+                    ..Default::default()
+                },
+                field("note", AtomicType::String, 3, true),
             ],
             ..Default::default()
         }
@@ -66,9 +103,69 @@ fn old_row(id: i32, label: &str) -> BeamRow<OldRow> {
                     value: Some(atomic_type_value::Value::String(label.into())),
                 })),
             },
+            FieldValue {
+                field_value: (id != 2).then(|| {
+                    field_value::FieldValue::RowValue(Row {
+                        values: vec![
+                            FieldValue {
+                                field_value: Some(field_value::FieldValue::AtomicValue(
+                                    AtomicTypeValue {
+                                        value: Some(atomic_type_value::Value::Int32(id * 10)),
+                                    },
+                                )),
+                            },
+                            FieldValue {
+                                field_value: Some(field_value::FieldValue::AtomicValue(
+                                    AtomicTypeValue {
+                                        value: Some(atomic_type_value::Value::String(label.into())),
+                                    },
+                                )),
+                            },
+                        ],
+                    })
+                }),
+            },
         ],
     })
     .expect("fixture row matches writer schema")
+}
+
+fn projected_values(row: &BeamRow<NewRow>) -> (i32, String, Option<(i32, String)>) {
+    let fields = &row.as_row().values;
+    let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+        value: Some(atomic_type_value::Value::String(label)),
+    })) = fields[0].field_value.as_ref()
+    else {
+        panic!("projected label missing");
+    };
+    let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+        value: Some(atomic_type_value::Value::Int32(id)),
+    })) = fields[1].field_value.as_ref()
+    else {
+        panic!("projected ID missing");
+    };
+    let detail = match fields[2].field_value.as_ref() {
+        Some(field_value::FieldValue::RowValue(inner)) => {
+            let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+                value: Some(atomic_type_value::Value::String(category)),
+            })) = inner.values[0].field_value.as_ref()
+            else {
+                panic!("projected category missing");
+            };
+            let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
+                value: Some(atomic_type_value::Value::Int32(code)),
+            })) = inner.values[1].field_value.as_ref()
+            else {
+                panic!("projected code missing");
+            };
+            assert!(inner.values[2].field_value.is_none());
+            Some((*code, category.clone()))
+        }
+        None => None,
+        _ => panic!("projected detail has wrong type"),
+    };
+    assert!(fields[3].field_value.is_none());
+    (*id, label.clone(), detail)
 }
 
 pub fn beam_row_projection_fixture(
@@ -86,21 +183,8 @@ pub fn beam_row_projection_fixture(
                 .expect("fixture schemas are compatible")
         })?
         .map_named("beam-projection-read", |row| {
-            let values = &row.as_row().values;
-            let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
-                value: Some(atomic_type_value::Value::String(label)),
-            })) = values[0].field_value.as_ref()
-            else {
-                panic!("projected label missing");
-            };
-            let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
-                value: Some(atomic_type_value::Value::Int32(id)),
-            })) = values[1].field_value.as_ref()
-            else {
-                panic!("projected ID missing");
-            };
-            assert!(values[2].field_value.is_none());
-            format!("{id}:{label}")
+            let (id, label, detail) = projected_values(&row);
+            format!("{id}:{label}:{detail:?}")
         })?
         .sink_named_with_config(
             "beam-projection-capture",
@@ -148,26 +232,7 @@ pub fn beam_row_stream_projection_fixture(
         .map_named(
             "beam-stream-projection-output",
             |(timestamp, (key, rows))| {
-                let mut values = rows
-                    .iter()
-                    .map(|row| {
-                        let fields = &row.as_row().values;
-                        let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
-                            value: Some(atomic_type_value::Value::String(label)),
-                        })) = fields[0].field_value.as_ref()
-                        else {
-                            panic!("projected label missing");
-                        };
-                        let Some(field_value::FieldValue::AtomicValue(AtomicTypeValue {
-                            value: Some(atomic_type_value::Value::Int32(id)),
-                        })) = fields[1].field_value.as_ref()
-                        else {
-                            panic!("projected ID missing");
-                        };
-                        assert!(fields[2].field_value.is_none());
-                        (*id, label.clone())
-                    })
-                    .collect::<Vec<_>>();
+                let mut values = rows.iter().map(projected_values).collect::<Vec<_>>();
                 values.sort_unstable();
                 format!("{key}:{timestamp}:{values:?}")
             },

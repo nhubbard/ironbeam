@@ -8702,8 +8702,8 @@ async fn prism_matches_direct_streaming_row_schema_projection() {
         rows
     };
     let expected = [
-        "a:1000000:[(1, \"one\"), (2, \"two\")]",
-        "a:11000000:[(3, \"three\")]",
+        "a:1000000:[(1, \"one\", Some((10, \"one\"))), (2, \"two\", None)]",
+        "a:11000000:[(3, \"three\", Some((30, \"three\")))]",
     ];
     assert_eq!(read_rows(&direct_path), expected);
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
@@ -8751,7 +8751,7 @@ async fn prism_matches_direct_typed_row_schema_projection() {
         rows.sort();
         rows
     };
-    let expected = ["1:one", "2:two"];
+    let expected = ["1:one:Some((10, \"one\"))", "2:two:None"];
     assert_eq!(read_rows(&direct_path), expected);
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
