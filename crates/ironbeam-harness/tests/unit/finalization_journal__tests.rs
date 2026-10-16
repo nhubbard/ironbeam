@@ -241,3 +241,60 @@ fn object_journal_reopens_exact_record_and_rejects_conflicts() {
     stores.write(&marker, b"different").unwrap();
     assert!(journal.load("bundle").is_err());
 }
+
+#[test]
+fn object_journal_manifest_requires_complete_validated_attempts() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("bucket/jobs")).unwrap();
+    let mut stores = ObjectStores::new();
+    stores
+        .register("file", LocalObjectIO::new(dir.path()).unwrap())
+        .unwrap();
+    let stores = Arc::new(stores);
+    let journal = ObjectFinalizationJournal::new(
+        Arc::clone(&stores),
+        "file://bucket/jobs/",
+        identity("graph"),
+    )
+    .unwrap();
+    assert!(journal.snapshot().unwrap().is_empty());
+    assert!(journal
+        .completed_manifest(["a"])
+        .unwrap()
+        .attempts_for_sink("a")
+        .unwrap()
+        .is_empty());
+    journal
+        .record("bundle-1", &["a".into(), "b".into()])
+        .unwrap();
+    assert!(journal.completed_manifest(["a", "b"]).is_err());
+    journal.complete("bundle-1").unwrap();
+    journal.record("bundle-2", &["b".into()]).unwrap();
+    journal.complete("bundle-2").unwrap();
+    let manifest = journal.completed_manifest(["a", "b"]).unwrap();
+    assert_eq!(manifest.attempts_for_sink("a").unwrap(), ["bundle-1"]);
+    assert_eq!(
+        manifest.attempts_for_sink("b").unwrap(),
+        ["bundle-1", "bundle-2"]
+    );
+    assert_eq!(
+        journal.completed_attempts_for_sink("b").unwrap(),
+        ["bundle-1", "bundle-2"]
+    );
+    assert!(journal.completed_manifest(["a"]).is_err());
+    assert!(journal.completed_attempts_for_sink("").is_err());
+
+    let (record, marker) = journal.uris("bundle-1").unwrap();
+    stores.write(&marker, b"corrupt").unwrap();
+    assert!(journal.snapshot().is_err());
+    stores
+        .write(&marker, &stores.read(&record).unwrap())
+        .unwrap();
+    stores
+        .write("file://bucket/jobs/scratch", b"unknown")
+        .unwrap();
+    assert!(journal.snapshot().is_err());
+    stores.delete("file://bucket/jobs/scratch").unwrap();
+    stores.delete(&record).unwrap();
+    assert!(journal.snapshot().is_err());
+}

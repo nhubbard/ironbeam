@@ -49,6 +49,58 @@ pub trait FinalizationJournal: Send + Sync {
     fn complete(&self, bundle_id: &str) -> Result<()>;
 }
 
+fn completed_attempts_for_sink(
+    entries: BTreeMap<String, JournalEntry>,
+    sink: &str,
+) -> Result<Vec<String>> {
+    if sink.is_empty() {
+        bail!("finalization sink key is required");
+    }
+    if entries.values().any(|entry| !entry.completed) {
+        bail!("finalization journal has incomplete bundle callbacks");
+    }
+    Ok(entries
+        .into_iter()
+        .filter_map(|(bundle, entry)| entry.sinks.iter().any(|key| key == sink).then_some(bundle))
+        .collect())
+}
+
+fn completed_manifest<I, S>(
+    entries: BTreeMap<String, JournalEntry>,
+    sinks: I,
+) -> Result<CompletedFinalizationManifest>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut declared = BTreeSet::new();
+    for sink in sinks {
+        let sink = sink.as_ref();
+        if sink.is_empty() || !declared.insert(sink.to_owned()) {
+            bail!("finalization manifest requires distinct, nonempty sink keys");
+        }
+    }
+    if declared.is_empty() {
+        bail!("finalization manifest needs at least one declared sink");
+    }
+    let mut attempts = declared
+        .into_iter()
+        .map(|sink| (sink, Vec::new()))
+        .collect::<BTreeMap<_, _>>();
+    for (bundle_id, entry) in entries {
+        if !entry.completed {
+            bail!("finalization journal has incomplete bundle callbacks");
+        }
+        for sink in entry.sinks {
+            attempts
+                .get_mut(&sink)
+                .with_context(|| format!("journal contains undeclared sink {sink:?}"))?
+                .push(bundle_id.clone());
+        }
+    }
+    Ok(CompletedFinalizationManifest { attempts })
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 struct Payload {
     version: u32,
@@ -233,19 +285,7 @@ impl FileFinalizationJournal {
     /// Return the completed bundle IDs expected to have fragments for one sink.
     /// Publication is refused while any bundle in this job lacks finalization.
     pub fn completed_attempts_for_sink(&self, sink: &str) -> Result<Vec<String>> {
-        if sink.is_empty() {
-            bail!("finalization sink key is required");
-        }
-        let entries = self.snapshot()?;
-        if entries.values().any(|entry| !entry.completed) {
-            bail!("finalization journal has incomplete bundle callbacks");
-        }
-        Ok(entries
-            .into_iter()
-            .filter_map(|(bundle, entry)| {
-                entry.sinks.iter().any(|key| key == sink).then_some(bundle)
-            })
-            .collect())
+        completed_attempts_for_sink(self.snapshot()?, sink)
     }
 
     /// Validate the entire journal against the job's declared final-result
@@ -257,32 +297,7 @@ impl FileFinalizationJournal {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let mut declared = BTreeSet::new();
-        for sink in sinks {
-            let sink = sink.as_ref();
-            if sink.is_empty() || !declared.insert(sink.to_owned()) {
-                bail!("finalization manifest requires distinct, nonempty sink keys");
-            }
-        }
-        if declared.is_empty() {
-            bail!("finalization manifest needs at least one declared sink");
-        }
-        let mut attempts = declared
-            .into_iter()
-            .map(|sink| (sink, Vec::new()))
-            .collect::<BTreeMap<_, _>>();
-        for (bundle_id, entry) in self.snapshot()? {
-            if !entry.completed {
-                bail!("finalization journal has incomplete bundle callbacks");
-            }
-            for sink in entry.sinks {
-                attempts
-                    .get_mut(&sink)
-                    .with_context(|| format!("journal contains undeclared sink {sink:?}"))?
-                    .push(bundle_id.clone());
-            }
-        }
-        Ok(CompletedFinalizationManifest { attempts })
+        completed_manifest(self.snapshot()?, sinks)
     }
 }
 
@@ -383,6 +398,64 @@ impl ObjectFinalizationJournal {
         }
         let stem = format!("{}bundle-{}", self.base_uri, digest(bundle_id.as_bytes()));
         Ok((format!("{stem}.json"), format!("{stem}.complete")))
+    }
+
+    /// Validate all object records and completion markers after runner success.
+    /// The provider must list newly created objects consistently before this
+    /// snapshot can authorize final-result publication.
+    pub fn snapshot(&self) -> Result<BTreeMap<String, JournalEntry>> {
+        let mut records = BTreeMap::new();
+        let mut record_uris = BTreeSet::new();
+        let mut markers = Vec::new();
+        for (location, _) in self.stores.list(&self.base_uri)? {
+            let uri = location.uri();
+            if !uri.starts_with(&self.base_uri) {
+                bail!("finalization object listing escaped its journal prefix");
+            }
+            if uri.ends_with(".json") {
+                let bytes = self.stores.read(&uri)?;
+                let record: Record = serde_json::from_slice(&bytes)
+                    .context("decode finalization object journal snapshot")?;
+                let bundle_id = record.payload.bundle_id.clone();
+                decode_record(&self.identity, &bundle_id, &bytes)?;
+                if self.uris(&bundle_id)?.0 != uri {
+                    bail!("finalization object name differs from bundle identity");
+                }
+                let loaded = self
+                    .load(&bundle_id)?
+                    .context("finalization object journal record disappeared")?;
+                if records.insert(bundle_id, loaded).is_some() {
+                    bail!("duplicate finalization object bundle identity");
+                }
+                record_uris.insert(uri);
+            } else if let Some(stem) = uri.strip_suffix(".complete") {
+                markers.push(format!("{stem}.json"));
+            } else {
+                bail!("finalization object journal contains an incomplete entry");
+            }
+        }
+        for record_uri in markers {
+            if !record_uris.contains(&record_uri) {
+                bail!("completed object finalization has no journal record");
+            }
+        }
+        Ok(records)
+    }
+
+    /// Return completed attempts for one sink after validating every journal
+    /// entry. Call only after the runner reports successful job completion.
+    pub fn completed_attempts_for_sink(&self, sink: &str) -> Result<Vec<String>> {
+        completed_attempts_for_sink(self.snapshot()?, sink)
+    }
+
+    /// Validate completed attempts for all declared final-result sinks.
+    /// Call only after the runner reports successful job completion.
+    pub fn completed_manifest<I, S>(&self, sinks: I) -> Result<CompletedFinalizationManifest>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        completed_manifest(self.snapshot()?, sinks)
     }
 }
 
