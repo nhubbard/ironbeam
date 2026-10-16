@@ -9,11 +9,13 @@ repository = "https://github.com/nhubbard/ironbeam"
 
 [features]
 default = []
+cloud = ["ironbeam-io/cloud", "dep:ironbeam-cloud-objects"]
 parallel-io = ["ironbeam-io/parallel-io"]
 
 [dependencies]
 ironbeam-core = { version = "5.0.0", path = "../ironbeam-core" }
 ironbeam-io = { version = "5.0.0", path = "../ironbeam-io", default-features = false, features = ["file"] }
+ironbeam-cloud-objects = { version = "5.0.0", path = "../ironbeam-cloud-objects", optional = true }
 arrow = "59"
 serde_arrow = { version = "0.15", features = ["arrow-59"] }
 serde = { version = "1", features = ["derive"] }

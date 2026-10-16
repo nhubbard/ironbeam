@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn prism_reopens_streaming_cbor_and_msgpack_prefixes_after_execution_child_loss() {
+async fn prism_reopens_streaming_cbor_msgpack_and_arrow_prefixes_after_execution_child_loss() {
     let directory = tempfile::tempdir().unwrap();
     let object_root = directory.path().join("objects");
     for (format, name, row) in [
@@ -50,11 +50,37 @@ async fn prism_reopens_streaming_cbor_and_msgpack_prefixes_after_execution_child
         DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
     }
 
+    for (name, row) in [
+        (
+            "b.arrow",
+            ProductionAvroRow {
+                id: 6,
+                label: "six".into(),
+            },
+        ),
+        (
+            "a.arrow",
+            ProductionAvroRow {
+                id: 5,
+                label: "five".into(),
+            },
+        ),
+    ] {
+        let path = object_root.join("bucket/arrow").join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let pipeline = Pipeline::default();
+        let values = pipeline.from_vec("seed", vec![row]).unwrap();
+        let sink = ironbeam_io_arrow::arrow_ipc_sink(&values, "write", path).unwrap();
+        DirectRunner.run_sink(&sink, &JobConfig::default()).unwrap();
+    }
+
     let expected = [
         "cbor-1:one",
         "cbor-2:two",
         "msgpack-3:three",
         "msgpack-4:four",
+        "arrow-5:five",
+        "arrow-6:six",
     ];
     let direct = Pipeline::default();
     assert_eq!(
@@ -83,7 +109,9 @@ async fn prism_reopens_streaming_cbor_and_msgpack_prefixes_after_execution_child
         rows.sort();
         rows
     };
-    assert_eq!(read_rows(&direct_path), expected);
+    let mut sorted_expected = expected.map(str::to_owned);
+    sorted_expected.sort();
+    assert_eq!(read_rows(&direct_path), sorted_expected);
 
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;
@@ -130,7 +158,7 @@ async fn prism_reopens_streaming_cbor_and_msgpack_prefixes_after_execution_child
         std::fs::read_to_string(&killed).unwrap(),
         std::fs::read_to_string(&trigger).unwrap()
     );
-    assert_eq!(read_rows(&portable_path), expected);
+    assert_eq!(read_rows(&portable_path), sorted_expected);
 }
 
 #[tokio::test]

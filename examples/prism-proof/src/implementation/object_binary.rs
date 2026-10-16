@@ -1,4 +1,4 @@
-/// Build provider-bound CBOR and MessagePack sources in the driver and worker.
+/// Build provider-bound CBOR, MessagePack, and Arrow sources in both processes.
 pub fn portable_object_binary_collection(
     pipeline: &Pipeline,
     object_root: &Path,
@@ -30,7 +30,17 @@ pub fn portable_object_binary_collection(
         .map_named("portable-object-msgpack-row", |row| {
             format!("msgpack-{}:{}", row.id, row.label)
         })?;
-    cbor.flatten_named("portable-object-binary-flatten", &[msgpack])
+    let arrow =
+        ironbeam_io_arrow::cloud_arrow_ipc_streaming_uri_prefix_source::<ProductionAvroRow>(
+            pipeline,
+            "portable-object-arrow-source",
+            &stores,
+            "file://bucket/arrow/",
+        )?
+        .map_named("portable-object-arrow-row", |row| {
+            format!("arrow-{}:{}", row.id, row.label)
+        })?;
+    cbor.flatten_named("portable-object-binary-flatten", &[msgpack, arrow])
 }
 
 /// Reopen provider-bound binary objects after replacing the execution child.

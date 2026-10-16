@@ -3040,6 +3040,7 @@ name = "ironbeam-io-arrow"
 version = "5.0.0"
 dependencies = [
  "arrow",
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",

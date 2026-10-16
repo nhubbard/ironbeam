@@ -26,7 +26,7 @@ ironbeam-io-cbor = { workspace = true, features = ["cloud"] }
 ironbeam-io-csv = { workspace = true, features = ["cloud"] }
 ironbeam-io-xml = { workspace = true, features = ["cloud"] }
 ironbeam-io-parquet = { workspace = true, features = ["cloud"] }
-ironbeam-io-arrow = { workspace = true }
+ironbeam-io-arrow = { workspace = true, features = ["cloud"] }
 ironbeam-io-protobuf = { workspace = true, features = ["cloud"] }
 ironbeam-io-tfrecord = { workspace = true, features = ["cloud"] }
 ironbeam-io-sql = { workspace = true, optional = true }

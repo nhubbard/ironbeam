@@ -121,8 +121,21 @@ object fails recovery. The worker streams one object to a temporary file and
 decodes records as requested, so temporary disk use grows with the largest
 object in a source split. Portable workers need access to the same provider
 and credentials as the submitting process.
-The local Prism corpus reopens both prefixes after an execution child is
+The local Prism corpus reopens these prefixes after an execution child is
 replaced and commits each record once.
+
+## Arrow IPC in object storage
+
+The `cloud` feature of `ironbeam-io-arrow` adds provider-bound sources for
+Arrow IPC *file* objects. `cloud_arrow_ipc_streaming_uri_source` decodes rows
+from one object, while `cloud_arrow_ipc_streaming_uri_prefix_source` reads a
+sorted set of objects. The corresponding `cloud_arrow_ipc_batches_*` functions
+return `ArrowBatch` elements instead of decoded rows. These functions use the
+same content-identity and worker-provider contract as the CBOR and MessagePack
+sources. They verify each object before opening the IPC reader and require
+temporary disk space for the largest object. The root `cloud` feature forwards
+to Arrow when `v5-io-arrow` is selected. A local Prism job reopens two Arrow
+objects after an execution child is replaced and commits both rows once.
 
 ## XML in object storage
 
