@@ -163,9 +163,10 @@ millisecond-aligned fixed window. Direct checkpoints the partial batch with
 the source cursor. A global-window partial batch stays open until a limit is
 reached because it has no finite window end. The tested unbounded Direct and
 Prism jobs agree on five batches, including an oversized singleton and the
-final fixed-window remainder. Aligned sliding windows are accepted but have
-no byte-batch runner proof yet. Session windows and windows whose ends are not
-whole milliseconds are rejected.
+final fixed-window remainder. A separate Direct and local Prism job confirms
+that two values assigned to overlapping sliding windows stay in their three
+distinct key-window batches, each with its own earliest value timestamp.
+Session windows and windows whose ends are not whole milliseconds are rejected.
 
 `co_group_homogeneous_named` groups collections whose keys and values have
 the same types. The result is a key and one value vector

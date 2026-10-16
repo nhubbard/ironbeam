@@ -360,6 +360,71 @@ fn unbounded_byte_batch_timer_holds_earliest_out_of_order_timestamp() {
     );
 }
 
+#[test]
+fn unbounded_byte_batches_keep_overlapping_sliding_windows_separate() {
+    let pipeline = Pipeline::default();
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let captured = Arc::clone(&rows);
+    let sink = pipeline
+        .test_stream_source(
+            "values",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, "a".to_owned()), 1_000_000),
+                    ((1, "b".to_owned()), 4_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(9_000_000),
+            ],
+        )
+        .unwrap()
+        .sliding_windows("window", 6_000_000, 3_000_000, 0)
+        .unwrap()
+        .group_into_batches_with_limits_named("batches", 10, 1_000)
+        .unwrap()
+        .reify_timestamps_named("timestamps")
+        .unwrap()
+        .with_window_named("interval")
+        .unwrap()
+        .map_named("row", |(window, (timestamp, (key, values)))| {
+            format!(
+                "{}..{}:{key}:{timestamp}:{values:?}",
+                window.start_ns, window.end_ns
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "tests/sliding-byte-batch-sink-v1".into(),
+            move || {
+                Ok(Box::new(Rows {
+                    committed: Arc::clone(&captured),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut actual = rows.lock().unwrap().clone();
+    actual.sort();
+    assert_eq!(
+        actual,
+        [
+            "-3000000..3000000:1:1000000:[\"a\"]",
+            "0..6000000:1:1000000:[\"a\", \"b\"]",
+            "3000000..9000000:1:4000000:[\"b\"]",
+        ]
+    );
+}
+
 fn run_unbounded_byte_batches(windowed: bool) {
     let pipeline = Pipeline::default();
     let short_bytes = "a".to_owned().encoded_len().unwrap();

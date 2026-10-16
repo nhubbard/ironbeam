@@ -376,6 +376,11 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_SLIDING_BYTE_BATCHES") {
+        return ironbeam_prism_proof::streaming_sliding_byte_batches_fixture(pipeline, path.into())
+            .map(|_| ())
+            .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_STREAMING_BAG_STATE") {
         return ironbeam_prism_proof::streaming_bag_state_fixture(pipeline, path.into())
             .map(|_| ())

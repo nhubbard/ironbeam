@@ -375,6 +375,50 @@ pub fn streaming_byte_limited_batches_fixture(
         )
 }
 
+/// Two events occupy three overlapping sliding-window byte-batch cells.
+pub fn streaming_sliding_byte_batches_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "sliding-byte-batch-input",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, "a".to_owned()), 1_000_000),
+                    ((1, "b".to_owned()), 4_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(9_000_000),
+            ],
+        )?
+        .sliding_windows("sliding-byte-batch-window", 6_000_000, 3_000_000, 0)?
+        .group_into_batches_with_limits_named("sliding-byte-batches", 10, 1_000)?
+        .reify_timestamps_named("sliding-byte-timestamps")?
+        .with_window_named("sliding-byte-interval")?
+        .map_named("sliding-byte-label", |(window, (timestamp, (key, values)))| {
+            format!(
+                "{}..{}:{key}:{timestamp}:{values:?}",
+                window.start_ns, window.end_ns
+            )
+        })?
+        .sink_named_with_config(
+            "sliding-byte-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("sliding-byte-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 fn streaming_branch_value_state_fixture_impl(
     pipeline: &Pipeline,
     stateful_directory: PathBuf,
