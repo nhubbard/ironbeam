@@ -358,7 +358,7 @@ impl Registry {
             }
             Transform::StatefulValue(transform) => Ok(Some(transform.apply_direct(input)?)),
             Transform::StatefulTimer(transform) => {
-                let mut values = transform.apply_element(input)?;
+                let mut values = transform.apply_element(input, None)?;
                 if values.len() > 1 {
                     return Err(Error::execution(key, "direct", "operation emits multiple elements"));
                 }
@@ -367,6 +367,17 @@ impl Registry {
         }
     }
     pub fn apply_many(&self, key: &str, input: Envelope) -> Result<Vec<Envelope>, Error> {
+        self.apply_many_at(key, input, None)
+    }
+
+    /// Apply a transform with the runner's current processing clock. The
+    /// clock is forwarded only to stateful timer callbacks.
+    pub fn apply_many_at(
+        &self,
+        key: &str,
+        input: Envelope,
+        processing_time_ns: Option<i64>,
+    ) -> Result<Vec<Envelope>, Error> {
         match self
             .transforms
             .get(key)
@@ -375,7 +386,7 @@ impl Registry {
             Transform::Single(transform) => Ok(transform(input)?.into_iter().collect()),
             Transform::Multi(transform) => transform(input),
             Transform::StatefulValue(transform) => Ok(vec![transform.apply_direct(input)?]),
-            Transform::StatefulTimer(transform) => transform.apply_element(input),
+            Transform::StatefulTimer(transform) => transform.apply_element(input, processing_time_ns),
         }
     }
     #[must_use]
@@ -435,8 +446,19 @@ impl Registry {
         input: Envelope,
         prior: Option<&[u8]>,
     ) -> Result<TimedCallbackChange, Error> {
+        self.invoke_timed_element_at(key, input, prior, None)
+    }
+
+    /// Invoke a timer-bearing callback with the runner's processing clock.
+    pub fn invoke_timed_element_at(
+        &self,
+        key: &str,
+        input: Envelope,
+        prior: Option<&[u8]>,
+        processing_time_ns: Option<i64>,
+    ) -> Result<TimedCallbackChange, Error> {
         match self.transforms.get(key) {
-            Some(Transform::StatefulTimer(transform)) => transform.invoke_element(input, prior),
+            Some(Transform::StatefulTimer(transform)) => transform.invoke_element(input, prior, processing_time_ns),
             _ => Err(Error::execution(key, "runner", "timed state handler missing")),
         }
     }

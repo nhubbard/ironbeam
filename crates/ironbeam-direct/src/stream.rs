@@ -2566,6 +2566,11 @@ fn run_stream(
         handle.metrics.batches.fetch_add(1, Ordering::Relaxed);
         let mut session = None;
         let mut written = 0_u64;
+        let processing_time_ns = if stateful_key.is_some() {
+            Some(processing_time_now_ns(source.as_ref())?)
+        } else {
+            None
+        };
         let result = (|| {
             for input in batch.elements {
                 let mut events = vec![input];
@@ -2575,11 +2580,12 @@ fn run_stream(
                         if config.cancellation.load(Ordering::Acquire) {
                             return Err(cancelled());
                         }
-                        let produced =
-                            catch_unwind(AssertUnwindSafe(|| registry.apply_many(key, event)))
-                                .unwrap_or_else(|_| {
-                                    Err(Error::execution(key, "direct", "user transform panicked"))
-                                })?;
+                        let produced = catch_unwind(AssertUnwindSafe(|| {
+                            registry.apply_many_at(key, event, processing_time_ns)
+                        }))
+                        .unwrap_or_else(|_| {
+                            Err(Error::execution(key, "direct", "user transform panicked"))
+                        })?;
                         if produced.is_empty() {
                             handle
                                 .metrics

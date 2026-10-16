@@ -595,6 +595,16 @@ the element's event time when the timer fires later. The emitted element keeps
 the timer's assigned window. One input may belong to two sliding windows;
 each window has its own timer slot and callback.
 
+For a delay measured from processing time, use
+`stateful_timer_map_with_clock_named`. Its element callback receives a fifth
+argument, `Option<i64>`, containing the runner's current processing time in
+nanoseconds. Return an error if it is `None`. Add the delay to that clock and
+round the deadline **up** to a whole millisecond before setting a
+processing-time timer. The portable worker reads wall time; Direct reads the
+source clock, including a TestStream's virtual processing time. Event time in
+`metadata.timestamp_ns` is a separate clock and must not be used as the base
+for a processing-time delay.
+
 The current callback execution path is available on Direct for one unbounded
 route with default global, fixed, or sliding windows and zero allowed
 lateness. Beam lowering records the timer families, and the portable worker

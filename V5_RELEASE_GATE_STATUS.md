@@ -658,12 +658,19 @@ the Prism hold-tracker failure. This narrows the failure to the timer transition
 between batches; it does not establish whether the fault is in Prism's hold
 accounting or in Ironbeam's timer mutations.
 
-Combined byte/count/processing-time batching needs a runner clock in the
-stateful element callback. The current callback receives event time and window
-metadata only. The pinned Java `GroupIntoBatches` starts its processing timer
-from the timer service's current relative time and holds the output watermark
-at the earliest buffered event time. Adding a delay to an element timestamp
-would give the wrong deadline, especially for TestStream's virtual clock.
+The clock-aware stateful callback now receives Direct's source processing clock
+or the portable worker's wall clock, without changing existing callback
+signatures. A shared TestStream arms a timer four milliseconds after the first
+element, adds a second element after three milliseconds, and emits the combined
+state when the timer fires. Direct and pinned Prism both emit `1:3`. The fixture
+rounds the deadline up to a whole millisecond for Beam's timer wire format.
+This supplies the clock needed for combined byte/count/processing-time batches;
+the batching helper and its recovery proof remain to be implemented. The
+pinned Java `GroupIntoBatches` uses the timer service's current relative time
+and holds the output watermark at the earliest buffered event time.
+The exact coverage gates pass after this change: core **6,732/7,008 lines
+(96.06%)** and **1,409/1,630 branches (86.44%)**; Direct **6,488/7,119 lines
+(91.14%)** and **1,846/2,050 branches (90.05%)**.
 
 ## Release gates
 

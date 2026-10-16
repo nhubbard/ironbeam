@@ -18,6 +18,57 @@ fn input(value: i32) -> Envelope {
 }
 
 #[test]
+fn clock_aware_timer_callbacks_receive_runner_time_without_changing_legacy_invocation() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .stateful_timer_map_with_clock_named::<i32, i64>(
+            "timer",
+            "tests/clock-aware-timer",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("process".into(), UserTimerDomain::ProcessingTime)]),
+            |_, _, _, _, clock| {
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![clock.unwrap_or(-1)],
+                    timers: Vec::new(),
+                })
+            },
+            |_, _, _| unreachable!(),
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let output = registry
+        .invoke_timed_element_at("timer", input(2), None, Some(6_000_000))
+        .unwrap();
+    assert_eq!(
+        *output.outputs[0]
+            .value
+            .downcast_ref::<(i32, i64)>()
+            .unwrap(),
+        (1, 6_000_000)
+    );
+    let output = registry
+        .apply_many_at("timer", input(2), Some(7_000_000))
+        .unwrap();
+    assert_eq!(
+        *output[0].value.downcast_ref::<(i32, i64)>().unwrap(),
+        (1, 7_000_000)
+    );
+    let legacy = registry.apply_many("timer", input(2)).unwrap();
+    assert_eq!(
+        *legacy[0].value.downcast_ref::<(i32, i64)>().unwrap(),
+        (1, -1)
+    );
+}
+
+#[test]
 #[allow(clippy::too_many_lines)] // The checkpoint and recovery assertions share one stateful pipeline.
 fn timed_state_and_timer_restore_atomically_and_fire_once() {
     let pipeline = Pipeline::default();

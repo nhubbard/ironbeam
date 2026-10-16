@@ -18,6 +18,11 @@ impl V5BundleExecutor {
         let mut encoded_key = Vec::new();
         encode_length_prefix(&key, &mut encoded_key)?;
         let window = Self::timer_state_window(wire.window)?;
+        let elapsed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| anyhow!("worker processing clock: {error}"))?;
+        let processing_time_ns = i64::try_from(elapsed.as_nanos())
+            .map_err(|_| anyhow!("worker processing clock exceeds i64 nanoseconds"))?;
         let access = UserStateAccess::new(
             state,
             instruction_id,
@@ -36,7 +41,12 @@ impl V5BundleExecutor {
                     assigned_window: wire.window,
                     pane: wire.pane,
                 };
-                let change = self.registry.invoke_timed_element(&node.key, input, prior)?;
+                let change = self.registry.invoke_timed_element_at(
+                    &node.key,
+                    input,
+                    prior,
+                    Some(processing_time_ns),
+                )?;
                 let outputs = change
                     .outputs
                     .into_iter()

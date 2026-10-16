@@ -306,6 +306,96 @@ pub fn streaming_processing_timer_fixture(
         )
 }
 
+/// A processing timer starts four milliseconds after the first element's
+/// runner clock. A second element arrives after three milliseconds and must
+/// enter the same state cell before the timer fires.
+pub fn streaming_relative_processing_timer_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    pipeline
+        .test_stream_source(
+            "relative-processing-source",
+            vec![
+                TestStreamEvent::AdvanceProcessingTime(2_000_000),
+                TestStreamEvent::Elements(vec![((1_i32, 1_i32), 1_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(3_000_000),
+                TestStreamEvent::Elements(vec![((1_i32, 2_i32), 2_000_000)]),
+                TestStreamEvent::AdvanceProcessingTime(2_000_000),
+                TestStreamEvent::AdvanceWatermark(10_000_000),
+            ],
+        )?
+        .stateful_timer_map_with_clock_named::<i32, i32>(
+            "relative-processing-state",
+            "prism-proof/relative-processing-state",
+            Version { major: 1, minor: 0 },
+            BTreeMap::from([("process".into(), UserTimerDomain::ProcessingTime)]),
+            |_, value, prior, _, processing_time_ns| {
+                let timers = if prior.is_none() {
+                    let now = processing_time_ns.ok_or_else(|| {
+                        Error::incompatible("processing clock missing from element callback")
+                    })?;
+                    let deadline = now
+                        .checked_add(4_000_000)
+                        .ok_or_else(|| Error::incompatible("processing timer deadline overflow"))?;
+                    let remainder = deadline.rem_euclid(1_000_000);
+                    let deadline = if remainder == 0 {
+                        deadline
+                    } else {
+                        deadline.checked_add(1_000_000 - remainder).ok_or_else(|| {
+                            Error::incompatible("processing timer deadline overflow")
+                        })?
+                    };
+                    vec![UserTimerRequest::Set {
+                        family_id: "process".into(),
+                        dynamic_tag: "flush".into(),
+                        fire_timestamp_ns: deadline,
+                        output_timestamp_ns: Some(1_000_000),
+                    }]
+                } else {
+                    Vec::new()
+                };
+                Ok(TimedStateResult {
+                    state: Some(prior.unwrap_or(0) + value),
+                    outputs: Vec::new(),
+                    timers,
+                })
+            },
+            |_, state, event| {
+                if event.domain != UserTimerDomain::ProcessingTime
+                    || event.output_timestamp_ns != 1_000_000
+                    || state != Some(3)
+                {
+                    return Err(Error::incompatible("relative processing timer fired early"));
+                }
+                Ok(TimedStateResult {
+                    state: None,
+                    outputs: vec![3],
+                    timers: Vec::new(),
+                })
+            },
+        )?
+        .map_named("relative-processing-label", |(key, value)| {
+            format!("{key}:{value}")
+        })?
+        .sink_named_with_config(
+            "relative-processing-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("relative-processing-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Production event timer armed before a supervised execution child is replaced.
 pub fn production_recovered_event_timer_fixture(
     pipeline: &Pipeline,

@@ -277,6 +277,14 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
             .map(|_| ())
             .map_err(Into::into);
     }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_RELATIVE_PROCESSING_TIMER") {
+        return ironbeam_prism_proof::streaming_relative_processing_timer_fixture(
+            pipeline,
+            path.into(),
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_WINDOWED_TIMER_HOLD") {
         return ironbeam_prism_proof::streaming_windowed_timer_hold_fixture(pipeline, path.into())
             .map(|_| ())

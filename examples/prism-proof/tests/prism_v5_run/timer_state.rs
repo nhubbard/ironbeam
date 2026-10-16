@@ -260,6 +260,53 @@ async fn prism_matches_direct_processing_timer_callback_and_hold_timestamp() {
 }
 
 #[tokio::test]
+async fn prism_matches_direct_relative_processing_timer_clock() {
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-relative-processing");
+    let portable_path = directory.path().join("portable-relative-processing");
+    let direct = Pipeline::default();
+    let direct_sink = ironbeam_prism_proof::streaming_relative_processing_timer_fixture(
+        &direct,
+        direct_path.clone(),
+    )
+    .unwrap();
+    DirectRunner
+        .start_stream_sink(&direct_sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::streaming_relative_processing_timer_fixture(
+        &portable,
+        portable_path.clone(),
+    )
+    .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "relative-processing-timer",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_RELATIVE_PROCESSING_TIMER".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism relative timer failed: {terminal:?}");
+    let rows = |path: &Path| {
+        std::fs::read_dir(path)
+            .unwrap()
+            .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&direct_path), ["1:3"]);
+    assert_eq!(rows(&portable_path), ["1:3"]);
+}
+
+#[tokio::test]
 async fn prism_recovers_an_armed_event_timer_after_execution_child_loss() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

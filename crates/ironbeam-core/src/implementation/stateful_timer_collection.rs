@@ -23,6 +23,32 @@ where
             version,
             families,
             None,
+            move |key, value, state, metadata, _| on_element(key, value, state, metadata),
+            on_timer,
+        )
+    }
+
+    /// Like `stateful_timer_map_named`, but also supply the runner's current
+    /// processing clock to each element callback. `None` means that the
+    /// execution path has no processing clock. The clock is in nanoseconds;
+    /// processing-time timer deadlines must use this clock, not event time.
+    pub fn stateful_timer_map_with_clock_named<S: Element, O: Element>(
+        &self,
+        key: &str,
+        semantic_id: &str,
+        version: Version,
+        families: BTreeMap<String, UserTimerDomain>,
+        on_element: impl Fn(&K, V, Option<S>, ElementMetadata, Option<i64>) -> Result<TimedStateResult<S, O>, Error>
+            + Send + Sync + 'static,
+        on_timer: impl Fn(&K, Option<S>, UserTimerEvent) -> Result<TimedStateResult<S, O>, Error>
+            + Send + Sync + 'static,
+    ) -> Result<PCollection<(K, O)>, Error> {
+        self.register_stateful_timer_map(
+            key,
+            semantic_id,
+            version,
+            families,
+            None,
             on_element,
             on_timer,
         )
@@ -52,7 +78,7 @@ where
             version,
             families,
             Some(expiration_family_id.to_owned()),
-            on_element,
+            move |key, value, state, metadata, _| on_element(key, value, state, metadata),
             on_timer,
         )
     }
@@ -65,7 +91,7 @@ where
         version: Version,
         families: BTreeMap<String, UserTimerDomain>,
         expiration_family_id: Option<String>,
-        on_element: impl Fn(&K, V, Option<S>, ElementMetadata) -> Result<TimedStateResult<S, O>, Error>
+        on_element: impl Fn(&K, V, Option<S>, ElementMetadata, Option<i64>) -> Result<TimedStateResult<S, O>, Error>
             + Send + Sync + 'static,
         on_timer: impl Fn(&K, Option<S>, UserTimerEvent) -> Result<TimedStateResult<S, O>, Error>
             + Send + Sync + 'static,
@@ -123,11 +149,11 @@ where
             on_window_expiration_timer: expiration_family_id,
         };
         contract.validate()?;
-        let on_element: TimedElementCallback = Arc::new(move |payload, prior, metadata| {
+        let on_element: TimedElementCallback = Arc::new(move |payload, prior, metadata, processing_time_ns| {
             let pair = payload.downcast::<(K, V)>()
                 .map_err(|_| Error::incompatible("timed state input type differs from registration"))?;
             let state = prior.map(S::decode).transpose()?;
-            let result = on_element(&pair.0, pair.1, state, metadata)?;
+            let result = on_element(&pair.0, pair.1, state, metadata, processing_time_ns)?;
             Ok(TimedCallbackOutput {
                 state: result.state.map(|state| state.encode()).transpose()?,
                 outputs: result.outputs.into_iter()

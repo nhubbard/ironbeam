@@ -1,5 +1,5 @@
 type TimedElementCallback = Arc<
-    dyn Fn(Payload, Option<&[u8]>, ElementMetadata) -> Result<TimedCallbackOutput, Error>
+    dyn Fn(Payload, Option<&[u8]>, ElementMetadata, Option<i64>) -> Result<TimedCallbackOutput, Error>
         + Send
         + Sync,
 >;
@@ -101,6 +101,7 @@ impl StatefulTimerTransform {
         &self,
         input: Envelope,
         prior: Option<&[u8]>,
+        processing_time_ns: Option<i64>,
     ) -> Result<TimedCallbackChange, Error> {
         if self.window != Window::Global && input.assigned_window.is_none() {
             return Err(Error::execution(
@@ -116,7 +117,7 @@ impl StatefulTimerTransform {
             assigned_window: input.assigned_window,
             pane: input.pane,
         };
-        let result = (self.on_element)(input.value, prior, metadata.clone())?;
+        let result = (self.on_element)(input.value, prior, metadata.clone(), processing_time_ns)?;
         if let Some(bytes) = &result.state {
             (self.validate_state)(bytes)?;
         }
@@ -242,12 +243,16 @@ impl StatefulTimerTransform {
         }).collect()
     }
 
-    fn apply_element(&self, input: Envelope) -> Result<Vec<Envelope>, Error> {
+    fn apply_element(
+        &self,
+        input: Envelope,
+        processing_time_ns: Option<i64>,
+    ) -> Result<Vec<Envelope>, Error> {
         let key = (self.key_bytes)(input.value.as_ref())?;
         let cell = (input.assigned_window, key.clone());
         let mut cells = self.cells.lock()
             .map_err(|_| Error::execution(&self.contract.semantic_id, "direct", "timed state lock poisoned"))?;
-        let change = self.invoke_element(input, cells.get(&cell).map(Vec::as_slice))?;
+        let change = self.invoke_element(input, cells.get(&cell).map(Vec::as_slice), processing_time_ns)?;
         let mut mutations = change.timers;
         if let Some(family_id) = &self.contract.on_window_expiration_timer {
             let window = cell.0.ok_or_else(|| Error::incompatible("expiration timer has no window"))?;
