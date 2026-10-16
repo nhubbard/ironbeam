@@ -386,6 +386,9 @@ impl BundleRunner for V5BundleExecutor {
                 bail!("v5 runner boundary ended with a truncated record");
             }
         }
+        // A callback in a later family can clear a timer in an earlier one.
+        // Keep every outbound family open until all callbacks finish.
+        let mut timer_outputs_to_close = Vec::new();
         for step in &plan.steps {
             let Step::V5ParDo {
                 transform_id,
@@ -463,8 +466,11 @@ impl BundleRunner for V5BundleExecutor {
                     Ok::<(), anyhow::Error>(())
                 };
                 tokio::try_join!(producer, consumer)?;
-                scope.finish_output()?;
+                timer_outputs_to_close.push((transform_id, family_id));
             }
+        }
+        for (transform_id, family_id) in timer_outputs_to_close {
+            source_client.close_timer_write(instruction_id, transform_id, family_id)?;
         }
         for step in &plan.steps {
             if let Step::Sink { transform_id, .. } = step {

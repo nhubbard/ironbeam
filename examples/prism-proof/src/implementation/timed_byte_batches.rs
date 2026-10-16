@@ -4,11 +4,11 @@ use ironbeam_core::{
     TypedUnboundedSourceReader, UnboundedBatch, UnboundedPoll, UnboundedSource,
 };
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 struct DelayedByteSource {
     cursor: Option<u8>,
-    next_ready: Instant,
+    next_ready_millis: u64,
 }
 
 impl UnboundedSource<Timestamped<(i32, String)>> for DelayedByteSource {
@@ -20,12 +20,21 @@ impl UnboundedSource<Timestamped<(i32, String)>> for DelayedByteSource {
                 2_000_000,
                 false,
             ),
-            Some(1) if Instant::now() < self.next_ready => return Ok(UnboundedPoll::Pending),
+            Some(1) if source_clock_millis()? < self.next_ready_millis => {
+                return Ok(UnboundedPoll::Pending);
+            }
             Some(1) => (vec![("c", 3_000_000)], 2, 10_000_000, true),
             _ => return Ok(UnboundedPoll::Pending),
         };
         self.cursor = Some(cursor);
-        self.next_ready = Instant::now() + Duration::from_millis(200);
+        let checkpoint_position = if completed {
+            vec![cursor]
+        } else {
+            self.next_ready_millis = source_clock_millis()?.saturating_add(200);
+            let mut position = vec![cursor];
+            position.extend_from_slice(&self.next_ready_millis.to_be_bytes());
+            position
+        };
         Ok(UnboundedPoll::Ready(UnboundedBatch {
             elements: values
                 .into_iter()
@@ -37,12 +46,20 @@ impl UnboundedSource<Timestamped<(i32, String)>> for DelayedByteSource {
             progress: ProgressSignal {
                 source_key: "timed-byte-input".into(),
                 split_id: "default".into(),
-                checkpoint_position: Some(vec![cursor]),
+                checkpoint_position: Some(checkpoint_position),
                 event_time_ns: Some(watermark),
                 completed,
             },
         }))
     }
+}
+
+fn source_clock_millis() -> Result<u64, Error> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| Error::incompatible(error.to_string()))?;
+    u64::try_from(elapsed.as_millis())
+        .map_err(|_| Error::incompatible("timed byte source clock exceeds u64 milliseconds"))
 }
 
 /// A replayable production source leaves enough real processing time between
@@ -60,18 +77,30 @@ pub fn streaming_timed_byte_batches_fixture(
                 replay: Replay::AtLeastOnce,
                 reports_event_time: true,
             },
-            "prism-proof/timed-byte-source-v1".into(),
+            "prism-proof/timed-byte-source-v2".into(),
             0,
             move |position| {
-                let cursor = match position.as_deref() {
-                    None => None,
-                    Some([1]) => Some(1),
-                    Some([2]) => Some(2),
+                if std::env::var_os("IRONBEAM_V5_PRISM_KILL_TIMED_BYTE_BATCH").is_some()
+                    && position
+                        .as_deref()
+                        .is_some_and(|bytes| bytes.first() == Some(&1))
+                {
+                    super::await_supervised_source_replacement(Some(&[1]))?;
+                }
+                let (cursor, next_ready_millis) = match position.as_deref() {
+                    None => (None, 0),
+                    Some([1, rest @ ..]) if rest.len() == 8 => (
+                        Some(1),
+                        u64::from_be_bytes(rest.try_into().map_err(|_| {
+                            Error::incompatible("invalid timed byte source deadline")
+                        })?),
+                    ),
+                    Some([2]) => (Some(2), 0),
                     _ => return Err(Error::incompatible("unexpected timed byte source cursor")),
                 };
                 Ok(Box::new(DelayedByteSource {
                     cursor,
-                    next_ready: Instant::now() + Duration::from_millis(200),
+                    next_ready_millis,
                 })
                     as TypedUnboundedSourceReader<(i32, String)>)
             },
