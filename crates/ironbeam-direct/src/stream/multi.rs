@@ -969,11 +969,6 @@ fn run_dual_side_stream(
                             )?;
                             continue;
                         }
-                        let windows = if branch == 0 {
-                            &mut main_windows
-                        } else {
-                            &mut side_windows
-                        };
                         let branch_stages = if shared_source {
                             &stages[branch][shared_prefix_len..]
                         } else {
@@ -983,8 +978,26 @@ fn run_dual_side_stream(
                             apply_grouped_stages(registry, branch_stages, input, config, handle)?
                         {
                             let window = stream_window(&event, &route.aggregate_key)?;
-                            if old_watermark.is_some_and(|watermark| {
+                            let original_expired = old_watermark.is_some_and(|watermark| {
                                 window.1.saturating_add(lateness_ns) <= watermark
+                            });
+                            let resolved_end = if original_expired
+                                && matches!(route.window, Window::Session { .. })
+                                && !route.wait_on_signal
+                            {
+                                session::resolved_dual_session_end(
+                                    registry,
+                                    route,
+                                    &main_windows,
+                                    &side_windows,
+                                    branch,
+                                    &event,
+                                )?
+                            } else {
+                                window.1
+                            };
+                            if old_watermark.is_some_and(|watermark| {
+                                resolved_end.saturating_add(lateness_ns) <= watermark
                             }) {
                                 continue;
                             }
@@ -994,6 +1007,11 @@ fn run_dual_side_stream(
                                     "stateful stream input exceeds buffer budget",
                                 ));
                             }
+                            let windows = if branch == 0 {
+                                &mut main_windows
+                            } else {
+                                &mut side_windows
+                            };
                             windows.entry(window).or_default().push(event);
                             buffered += 1;
                         }

@@ -403,7 +403,11 @@ co-group fixture verifies an empty side and an isolated session on both
 runners. For two unbounded inputs, session joins and co-groups wait for both
 source watermarks before closing a keyed session. Direct and local Prism agree
 on a bridge formed by the other input and on the merged interval. Direct can
-restore the open rows and both source cursors from a checkpoint. Sessions
+restore the open rows and both source cursors from a checkpoint. Direct also
+accepts an expired original interval when it merges into a live keyed session
+from either input; its join and co-group fixtures drop a later row after
+closure. This intermediate-watermark schedule still needs a local Prism
+comparison. Sessions
 across three independent unbounded inputs have one tested bridge schedule;
 other watermark orders remain unproved.
 Portable session gaps must be positive whole milliseconds.

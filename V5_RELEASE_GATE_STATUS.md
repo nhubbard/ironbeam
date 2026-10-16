@@ -29,8 +29,8 @@ the open cases in this report lack runner proofs.
 | Streaming Count.PerElement | The streaming path uses checkpointable GroupByKey and matches Prism in fixed windows. | An incremental accumulator for heavily used keys. |
 | Two-source sessions | Direct restores merged open sessions across two source cursors. Selected Prism schedules agree. | Intermediate-watermark and late-pane agreement. |
 | Session interval adjacency | Core folding, bounded joins, and multi-source Direct closure keep half-open sessions that only meet at an endpoint separate. A later overlapping event merges both; core checkpoint, bounded join, and multi-source closure fixtures cover this rule. | Pinned Prism has merged a touching pair in a pipeline fixture; runner agreement and late panes remain open. |
-| Active-session expiry | Single-source Direct now resolves a candidate against the active keyed session before checking expiry. A restored fold and a resumed unbounded source accept an element whose original interval is past the watermark but whose merged interval remains open. | Multi-source expiry and a live Prism comparison remain open. |
-| Session allowed lateness | Core rejects nonzero lateness on session windows. Single-source Direct resolves active intervals at zero lateness, but its pane state is still keyed by old intervals, and multi-source readers still check the original interval before merging. | Implement and prove the merge-aware state and expiry contract below before lifting the guard. |
+| Active-session expiry | Single-source Direct resolves a candidate against the active keyed session before checking expiry. A restored fold and a resumed unbounded source accept an element whose original interval is past the watermark but whose merged interval remains open. Multi-source grouped state resolves expired candidates across rows with the same encoded key; its unit fixture proves a transitive bridge, another key's drop, and a distant session that stays open. Two-source joins and co-groups now accept a cross-input bridge after the candidate's original expiry and drop a row after closure in end-to-end TestStream fixtures. | Compare the schedules with local Prism and prove multi-source checkpoint recovery at the same boundary. |
+| Session allowed lateness | Core rejects nonzero lateness on session windows. Direct resolves active intervals at zero lateness across the tested single-source, grouped multi-source, join, and co-group paths, but on-time and late pane state remains keyed by old intervals. | Implement and prove merge-aware pane lineage, positive-lateness expiry, and recovery before lifting the guard. |
 | Intermediate session watermarks | A pinned Prism case splits a session that Direct merges. | Runner agreement is unproved for this schedule. |
 | Three-input bounded sessions | A pinned Prism case splits a connected session that Direct merges. | Independent-source session resolution. |
 | Coverage after session work | The unchanged core and Direct coverage floors passed. | Destructive Prism cases were excluded from that measurement. |
@@ -54,10 +54,11 @@ old window addresses. Its `testMergingWithClosedDoesNotPoison` regression
 shows that a finished trigger in one session must not close a new session
 formed by merging it with open input. Single-source Direct now resolves an
 incoming interval against an active keyed session before checking expiry,
-including after a checkpoint restore. `GroupByKeyFoldState` still tracks
-on-time and late pane indices by the premerge interval, and multi-source
-readers still check original interval expiry first. These are implementation
-gaps, so the public session-lateness guard remains in place.
+including after a checkpoint restore. Multi-source grouped state, joins, and
+co-groups now resolve expired candidates against active rows with the same
+encoded key. `GroupByKeyFoldState` still tracks on-time and late pane indices
+by the premerge interval; positive-lateness merge and recovery schedules are
+unproved. These gaps keep the public session-lateness guard in place.
 
 | Acceptance schedule | Required evidence |
 | --- | --- |

@@ -1328,7 +1328,7 @@ fn two_unbounded_join_drops_late_rows_after_both_watermarks_close_window() {
 }
 
 #[test]
-fn two_unbounded_session_join_merges_cross_input_bridge_before_watermark() {
+fn two_unbounded_session_join_accepts_live_bridge_then_drops_closed_row() {
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
@@ -1338,8 +1338,10 @@ fn two_unbounded_session_join_merges_cross_input_bridge_before_watermark() {
             vec![
                 TestStreamEvent::Elements(vec![((1_i32, 1_i32), 0), ((2, 99), 0)]),
                 TestStreamEvent::Elements(vec![((1, 2), 8)]),
-                TestStreamEvent::AdvanceWatermark(20),
+                TestStreamEvent::AdvanceWatermark(6),
                 TestStreamEvent::Elements(vec![((1, 3), 0)]),
+                TestStreamEvent::AdvanceWatermark(20),
+                TestStreamEvent::Elements(vec![((1, 4), 0)]),
             ],
         )
         .unwrap()
@@ -1350,6 +1352,7 @@ fn two_unbounded_session_join_merges_cross_input_bridge_before_watermark() {
             "session-side",
             vec![
                 TestStreamEvent::Elements(vec![((1_i32, 10_i32), 4)]),
+                TestStreamEvent::AdvanceWatermark(6),
                 TestStreamEvent::AdvanceWatermark(20),
             ],
         )
@@ -1396,11 +1399,11 @@ fn two_unbounded_session_join_merges_cross_input_bridge_before_watermark() {
         .unwrap();
     let mut rows = committed.lock().unwrap().clone();
     rows.sort_unstable();
-    assert_eq!(rows, [1311, 1312]);
+    assert_eq!(rows, [1311, 1312, 1313]);
 }
 
 #[test]
-fn two_unbounded_session_cogroup_merges_cross_input_bridge() {
+fn two_unbounded_session_cogroup_accepts_live_bridge_then_drops_closed_row() {
     let pipeline = Pipeline::default();
     let committed = Arc::new(Mutex::new(Vec::new()));
     let accepted = Arc::new(Mutex::new(HashSet::new()));
@@ -1409,7 +1412,10 @@ fn two_unbounded_session_cogroup_merges_cross_input_bridge() {
             "co-session-main",
             vec![
                 TestStreamEvent::Elements(vec![((1_i32, 1_i32), 0), ((1, 2), 8)]),
+                TestStreamEvent::AdvanceWatermark(6),
+                TestStreamEvent::Elements(vec![((1, 3), 0)]),
                 TestStreamEvent::AdvanceWatermark(20),
+                TestStreamEvent::Elements(vec![((1, 99), 0)]),
             ],
         )
         .unwrap()
@@ -1420,6 +1426,7 @@ fn two_unbounded_session_cogroup_merges_cross_input_bridge() {
             "co-session-side",
             vec![
                 TestStreamEvent::Elements(vec![((1_i32, 10_i32), 4)]),
+                TestStreamEvent::AdvanceWatermark(6),
                 TestStreamEvent::AdvanceWatermark(20),
             ],
         )
@@ -1470,7 +1477,7 @@ fn two_unbounded_session_cogroup_merges_cross_input_bridge() {
         .unwrap()
         .wait()
         .unwrap();
-    assert_eq!(*committed.lock().unwrap(), [1313]);
+    assert_eq!(*committed.lock().unwrap(), [1316]);
 }
 
 #[test]

@@ -1,4 +1,5 @@
 // Unit tests for src/stream/multi.rs.
+use super::grouped_state::MultiWindowState;
 use super::*;
 use crate::CheckpointConfig;
 use ironbeam_core::{Boundedness, Pipeline, SinkSpec, SourceProgress, TestStreamEvent, TypedSink};
@@ -97,6 +98,101 @@ fn joined_session_closure_keeps_touching_inputs_separate() {
     assert_eq!(merged.len(), 1);
     assert_eq!(merged[0].0.len(), 1);
     assert_eq!(merged[0].1.len(), 2);
+
+    let main = WindowRows::from([((4, 9), vec![event(4, 2)])]);
+    let side = WindowRows::from([((8, 13), vec![event(8, 3)]), ((20, 25), vec![event(20, 4)])]);
+    assert_eq!(
+        session::resolved_dual_session_end(&registry, &route, &main, &side, 0, &event(0, 1),)
+            .unwrap(),
+        13
+    );
+    let mut other_key = event(0, 99);
+    other_key.value = Box::new((2_i32, 99_i32));
+    assert_eq!(
+        session::resolved_dual_session_end(&registry, &route, &main, &side, 0, &other_key).unwrap(),
+        5
+    );
+}
+
+#[test]
+fn grouped_multi_source_accepts_expired_candidate_only_for_a_live_keyed_merge() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .session_windows_named("window", 5)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let route = MultiGroupedStreamRoute {
+        sources: Vec::new(),
+        group_input_key: "window".into(),
+        group_key: "group".into(),
+        window: ironbeam_core::Window::Session { gap_ns: 5 },
+        after_group: Vec::new(),
+    };
+    let event = |key, value, time| Envelope {
+        pane: ironbeam_core::PaneInfo::NO_FIRING,
+        value: Box::new((key, value)),
+        timestamp_ns: time,
+        window: ironbeam_core::Window::Session { gap_ns: 5 },
+        assigned_window: Some(ironbeam_core::WindowInterval {
+            start_ns: time,
+            end_ns: time + 5,
+        }),
+    };
+    let mut state = MultiWindowState::empty(0);
+    state
+        .add(&registry, &route, event(1_i32, 2_i32, 4), None, 10)
+        .unwrap();
+    state
+        .add(&registry, &route, event(1_i32, 3_i32, 8), None, 10)
+        .unwrap();
+    state
+        .add(&registry, &route, event(1_i32, 4_i32, 20), None, 10)
+        .unwrap();
+    state
+        .add(&registry, &route, event(1_i32, 1_i32, 0), Some(10), 10)
+        .unwrap();
+    state
+        .add(&registry, &route, event(2_i32, 99_i32, 0), Some(10), 10)
+        .unwrap();
+    if let MultiWindowState::Rows { windows, buffered } = &state {
+        assert_eq!(*buffered, 4);
+        assert_eq!(windows.get(&(0, 5)).unwrap().len(), 1);
+        assert_eq!(windows.get(&(4, 9)).unwrap().len(), 1);
+        assert_eq!(windows.get(&(8, 13)).unwrap().len(), 1);
+        assert_eq!(windows.get(&(20, 25)).unwrap().len(), 1);
+    } else {
+        panic!("zero-lateness grouping keeps source rows");
+    }
+    let panes = state
+        .drain(
+            &registry,
+            &route,
+            Some(10),
+            &ProgressSignal {
+                source_key: "source".into(),
+                split_id: "split".into(),
+                checkpoint_position: Some(vec![1]),
+                event_time_ns: Some(14),
+                completed: false,
+            },
+        )
+        .unwrap();
+    assert_eq!(panes.len(), 1);
+    assert_eq!(panes[0].assigned_window.unwrap().end_ns, 13);
+    let (key, mut values) = *panes
+        .into_iter()
+        .next()
+        .unwrap()
+        .value
+        .downcast::<(i32, Vec<i32>)>()
+        .unwrap();
+    values.sort_unstable();
+    assert_eq!((key, values), (1, vec![1, 2, 3]));
+    assert!(!state.is_empty(), "the distant same-key session stays open");
 }
 
 struct NullSink;

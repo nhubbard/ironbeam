@@ -251,7 +251,21 @@ impl MultiWindowState {
         let window = stream_window(&event, &route.group_key)?;
         match self {
             Self::Rows { windows, buffered } => {
-                if prior_watermark.is_some_and(|watermark| window.1 <= watermark) {
+                let original_expired =
+                    prior_watermark.is_some_and(|watermark| window.1 <= watermark);
+                let resolved_end =
+                    if original_expired && matches!(route.window, Window::Session { .. }) {
+                        session::resolved_group_session_end(
+                            registry,
+                            &route.group_input_key,
+                            &route.group_key,
+                            windows,
+                            &event,
+                        )?
+                    } else {
+                        window.1
+                    };
+                if prior_watermark.is_some_and(|watermark| resolved_end <= watermark) {
                     return Ok(());
                 }
                 if *buffered >= budget_elements {
