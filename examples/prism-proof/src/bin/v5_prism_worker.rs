@@ -55,7 +55,7 @@ use ironbeam_prism_proof::{
     panicking_global_combine_fixture, panicking_keyed_fold_fixture, panicking_map_fixture,
     panicking_side_input_fixture, partition_fixture, portable_object_avro_fixture,
     portable_object_avro_replay_fixture, portable_object_binary_replay_fixture,
-    portable_object_csv_replay_fixture, portable_object_jsonl_replay_fixture,
+    portable_object_csv_replay_fixture, portable_object_jsonl_replay_fixture_with_stores,
     portable_object_parquet_fixture, portable_object_parquet_replay_fixture,
     portable_object_protobuf_replay_fixture, portable_object_tfrecord_replay_fixture,
     portable_object_xml_replay_fixture, portable_tfrecord_fixture, processing_time_trigger_fixture,
@@ -817,18 +817,6 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
         std::env::var("IRONBEAM_V5_PRISM_OBJECT_BINARY_REPLAY_RESULT"),
     ) {
         return portable_object_binary_replay_fixture(
-            pipeline,
-            std::path::Path::new(&root),
-            path.into(),
-        )
-        .map(|_| ())
-        .map_err(Into::into);
-    }
-    if let (Ok(root), Ok(path)) = (
-        std::env::var("IRONBEAM_V5_PRISM_OBJECT_JSONL_REPLAY_ROOT"),
-        std::env::var("IRONBEAM_V5_PRISM_OBJECT_JSONL_REPLAY_RESULT"),
-    ) {
-        return portable_object_jsonl_replay_fixture(
             pipeline,
             std::path::Path::new(&root),
             path.into(),
@@ -2279,7 +2267,28 @@ fn build(pipeline: &ironbeam_core::Pipeline) -> anyhow::Result<()> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    if let (Ok(root), Ok(uri)) = (
+    if let (Ok(root), Ok(path)) = (
+        std::env::var("IRONBEAM_V5_PRISM_OBJECT_JSONL_REPLAY_ROOT"),
+        std::env::var("IRONBEAM_V5_PRISM_OBJECT_JSONL_REPLAY_RESULT"),
+    ) {
+        let mut stores = ObjectStores::new();
+        stores.register("file", LocalObjectIO::new(root)?)?;
+        ironbeam_dataflow::run_v5_from_env_with_object_stores(
+            move |pipeline, stores| {
+                portable_object_jsonl_replay_fixture_with_stores(
+                    pipeline,
+                    stores,
+                    path.clone().into(),
+                )
+                .map(|_| ())
+                .map_err(Into::into)
+            },
+            "prism-run-fixture",
+            Arc::new(stores),
+            None,
+        )
+        .await?;
+    } else if let (Ok(root), Ok(uri)) = (
         std::env::var("IRONBEAM_V5_PRISM_OBJECT_JOURNAL_ROOT"),
         std::env::var("IRONBEAM_V5_PRISM_OBJECT_JOURNAL_URI"),
     ) {

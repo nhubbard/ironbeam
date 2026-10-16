@@ -13,10 +13,18 @@ pub fn portable_object_jsonl_collection(
                 .map_err(|error| Error::incompatible(error.to_string()))?,
         )
         .map_err(|error| Error::incompatible(error.to_string()))?;
+    portable_object_jsonl_collection_with_stores(pipeline, &stores)
+}
+
+/// Read the JSONL fixture through the registry supplied to the worker builder.
+pub fn portable_object_jsonl_collection_with_stores(
+    pipeline: &Pipeline,
+    stores: &ironbeam_cloud_objects::ObjectStores,
+) -> Result<PCollection<String>, Error> {
     ironbeam_io_jsonl::cloud_jsonl_streaming_uri_glob_source::<i32>(
         pipeline,
         "portable-object-jsonl-source",
-        &stores,
+        stores,
         "file://bucket/input/*.jsonl",
     )?
     .map_named("portable-object-jsonl-row", |value| format!("row-{value}"))
@@ -28,8 +36,25 @@ pub fn portable_object_jsonl_replay_fixture(
     object_root: &Path,
     directory: PathBuf,
 ) -> Result<Sink<String>, Error> {
+    let mut stores = ironbeam_cloud_objects::ObjectStores::new();
+    stores
+        .register(
+            "file",
+            LocalObjectIO::new(object_root)
+                .map_err(|error| Error::incompatible(error.to_string()))?,
+        )
+        .map_err(|error| Error::incompatible(error.to_string()))?;
+    portable_object_jsonl_replay_fixture_with_stores(pipeline, &stores, directory)
+}
+
+/// Build a replay fixture with the same registry used by the worker runtime.
+pub fn portable_object_jsonl_replay_fixture_with_stores(
+    pipeline: &Pipeline,
+    stores: &ironbeam_cloud_objects::ObjectStores,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
     let sink_directory = directory.clone();
-    portable_object_jsonl_collection(pipeline, object_root)?
+    portable_object_jsonl_collection_with_stores(pipeline, stores)?
         .flat_map_fallible_named("portable-object-jsonl-replay-row", |row| {
             if row == "row-1"
                 && std::env::var_os("IRONBEAM_V5_PRISM_KILL_OBJECT_JSONL").is_some()

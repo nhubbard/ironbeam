@@ -30,7 +30,8 @@ pub use mode::Mode;
 pub use options::{DataflowOptions, DEFAULT_SDK_CONTAINER_IMAGE};
 pub use poll::{is_terminal, list_messages, PollConfig, TERMINAL_STATES};
 pub use runtime::{
-    prepare_v5, run_v5, run_v5_from_env, run_v5_from_env_with_object_journal, RunOutcome,
+    prepare_v5, run_v5, run_v5_from_env, run_v5_from_env_with_object_journal,
+    run_v5_from_env_with_object_stores, RunOutcome,
 };
 pub use stage::{parse_gs_url, GcsStager, MemoryStager, Stager};
 pub use submit::{build_job_request, submit_job, SubmittedJob, REQUIRED_EXPERIMENTS};

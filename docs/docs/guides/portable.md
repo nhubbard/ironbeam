@@ -54,10 +54,11 @@ the runner's committed sink counts to authorize result publication. The object
 provider must support conditional creation, read-after-write visibility, and
 consistent prefix listing.
 
-Use `ironbeam_dataflow::run_v5_from_env_with_object_journal` to pass an
-`ObjectStores` registry and journal URI to the worker. The harness carries the
-same binding into supervised execution children. The application must rebuild
-the same registry and pass the same URI whenever the worker binary starts.
+Use `ironbeam_dataflow::run_v5_from_env_with_object_stores` to pass an
+`ObjectStores` registry to graph construction in both driver and worker mode.
+The same registry can back the optional finalization journal. The harness
+carries the binding into supervised execution children. The application must
+rebuild the registry and pass the same URI whenever the worker binary starts.
 The file-journal environment variable must be unset when using an object
 journal.
 
@@ -67,19 +68,20 @@ and construct the registry in the application entry point:
 ```rust
 use std::sync::Arc;
 use ironbeam_cloud_object_store::object_stores_from_env;
-use ironbeam_dataflow::run_v5_from_env_with_object_journal;
+use ironbeam_dataflow::run_v5_from_env_with_object_stores;
 
 let stores = Arc::new(object_stores_from_env()?);
-run_v5_from_env_with_object_journal(
+run_v5_from_env_with_object_stores(
     build_pipeline,
     "worker-build-v1",
     stores,
-    "gs://my-bucket/ironbeam/finalization/",
+    Some("gs://my-bucket/ironbeam/finalization/".to_owned()),
 ).await?;
 ```
 
-`build_pipeline` is the application's pipeline-building function. The URI
-must identify a durable prefix accessible to every worker invocation.
+`build_pipeline` takes `(&Pipeline, &ObjectStores)` and uses the registry for
+object-backed sources and sinks. The journal URI must identify a durable prefix
+accessible to every worker invocation.
 Hosted GCS execution has not yet been verified by the local Prism proof.
 
 The local Prism fixture kills a supervised execution child and completes the

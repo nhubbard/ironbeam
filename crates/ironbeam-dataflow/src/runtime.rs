@@ -157,16 +157,42 @@ pub async fn run_v5_from_env_with_object_journal<F>(
 where
     F: Fn(&ironbeam_core::Pipeline) -> anyhow::Result<()>,
 {
+    run_v5_from_env_with_object_stores(
+        move |pipeline, _| build(pipeline),
+        binary_build_id,
+        stores,
+        Some(journal_uri.into()),
+    )
+    .await
+}
+
+/// Build the same object-backed graph in the driver and every portable worker.
+/// The registry passed to `build` also backs the optional finalization journal.
+/// Construct it afresh when each process starts, using the same provider
+/// configuration. `None` runs without an object journal.
+///
+/// # Errors
+/// Returns an error if graph construction, worker startup, or the job fails.
+pub async fn run_v5_from_env_with_object_stores<F>(
+    build: F,
+    binary_build_id: &str,
+    stores: Arc<ObjectStores>,
+    journal_uri: Option<String>,
+) -> anyhow::Result<RunOutcome>
+where
+    F: Fn(&ironbeam_core::Pipeline, &ObjectStores) -> anyhow::Result<()>,
+{
     let options = if Mode::detect_portable(std::env::args().skip(1)) == Mode::Driver {
         Some(DataflowOptions::from_env()?)
     } else {
         None
     };
+    let graph_stores = Arc::clone(&stores);
     run_v5_inner(
-        build,
+        move |pipeline| build(pipeline, &graph_stores),
         options,
         binary_build_id,
-        Some((stores, journal_uri.into())),
+        journal_uri.map(|uri| (stores, uri)),
     )
     .await
 }

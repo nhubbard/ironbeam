@@ -337,6 +337,15 @@ defines `FIRE_IF_NONEMPTY` in terms of new data since the previous firing, so
 the corpus records this as a runner discrepancy rather than changing Direct's
 on-time policy.
 
+The Dataflow entry point can now supply one `ObjectStores` registry to graph
+construction and the optional object finalization journal. The local Prism
+JSONL glob fixture uses this binding when it rebuilds the graph in its worker;
+after an execution child is replaced, it reopens the provider and commits both
+rows once. This proves local provider recreation. Hosted GCS credentials and
+remote object consistency remain unverified. A BigQuery pipeline adapter also
+needs a typed row contract: the current provider-neutral `WarehouseIO` returns
+string cells, while the official GCP client exposes typed `Row` values.
+
 CSV has a provider-bound sequential object source and a fixed sorted-prefix
 variant. The Direct corpus covers multiline records, changed-byte rejection,
 large inputs without whole-object downloads, and gzip decoding. A pinned-Prism
