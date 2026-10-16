@@ -80,9 +80,7 @@ pub const ARTIFACT_TYPE_URL: &str = "beam:artifact:type:url:v1";
 pub const ARTIFACT_TYPE_EMBEDDED: &str = "beam:artifact:type:embedded:v1";
 
 pub const ARTIFACT_ROLE_STAGING_TO: &str = "beam:artifact:role:staging_to:v1";
-/// The Go SDK's role for its worker binary. We reuse this role for MVP so
-/// the stock Go SDK container can exec our Rust binary — the container boot
-/// treats the binary opaquely.
+/// Artifact role used by the Go SDK container to start the staged Rust worker.
 pub const ARTIFACT_ROLE_GO_WORKER_BINARY: &str = "beam:artifact:role:go_worker_binary:v1";
 
 // ---- Requirements ---------------------------------------------------------
