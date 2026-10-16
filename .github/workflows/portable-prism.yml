@@ -60,7 +60,34 @@ jobs:
           for attempt in {1..8}; do
             cargo test -p ironbeam-prism-proof --test prism_v5_run --locked prism_runs_production_unbounded_source_with_residual_resume -- --exact
           done
-          cargo test -p ironbeam-prism-proof --test prism_v5_run --locked -- --test-threads=1 --skip prism_fails_closed_on_supervised_worker_loss_with_active_bundles --skip prism_runs_production_unbounded_source_with_residual_resume
+          if ! cargo test -p ironbeam-prism-proof --test prism_v5_run --locked -- --test-threads=1 --skip prism_fails_closed_on_supervised_worker_loss_with_active_bundles --skip prism_runs_production_unbounded_source_with_residual_resume; then
+            # The pinned Prism can panic while registering new pending work.
+            # Retry only this upstream process failure; ordinary test failures
+            # keep their first result.
+            if ! grep -q 'panic: sync: WaitGroup is reused before previous Wait has returned' "$RUNNER_TEMP/prism.log"; then
+              exit 1
+            fi
+            echo 'Pinned Prism exited with its WaitGroup panic; retrying the complete suite once.'
+            for attempt in {1..30}; do
+              if ! nc -z 127.0.0.1 8073; then break; fi
+              sleep 1
+            done
+            if nc -z 127.0.0.1 8073; then
+              echo 'Prism still holds the job port after the panic.'
+              exit 1
+            fi
+            "$RUNNER_TEMP/prism" -job_port=8073 -serve_http=false > "$RUNNER_TEMP/prism-retry.log" 2>&1 &
+            echo $! > "$RUNNER_TEMP/prism.pid"
+            for attempt in {1..60}; do
+              if nc -z 127.0.0.1 8073; then break; fi
+              sleep 1
+            done
+            if ! nc -z 127.0.0.1 8073; then
+              cat "$RUNNER_TEMP/prism-retry.log"
+              exit 1
+            fi
+            cargo test -p ironbeam-prism-proof --test prism_v5_run --locked -- --test-threads=1 --skip prism_fails_closed_on_supervised_worker_loss_with_active_bundles --skip prism_runs_production_unbounded_source_with_residual_resume
+          fi
           cargo test -p ironbeam-prism-proof --test prism_arrow --locked
           cargo test -p ironbeam-prism-proof --test hosted_object_streaming --locked
       - name: Test worker loss against fresh Prism
@@ -94,4 +121,5 @@ jobs:
         if: failure()
         run: |
           cat "$RUNNER_TEMP/prism.log" || true
+          cat "$RUNNER_TEMP/prism-retry.log" || true
           cat "$RUNNER_TEMP/prism-loss.log" || true

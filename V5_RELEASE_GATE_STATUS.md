@@ -50,11 +50,20 @@ Passing a current check does not close a release gate unless its full proof
 below is complete.
 
 The release documentation check generates all-feature Rustdoc JSON and
-requires a direct description for each public function in all 34 publishable
-handwritten crates. Generated Beam protocol bindings and nonpublishable test
-packages are outside that check. The Zensical site builds in strict mode with
-no issues. Both checks validate coverage and links; prose and examples still
-need review for accuracy before the release tag.
+requires a direct description for public functions and public trait methods
+in all 34 publishable handwritten crates. Generated Beam protocol bindings
+and nonpublishable test packages are outside that check. The Zensical site
+builds in strict mode with no issues. Both checks validate coverage and links;
+prose and examples still need review for accuracy before the release tag.
+
+The 2026-10-16 Linux Prism run passed its eight repeated residual-source
+cases and its first 99 shared cases. During the next global byte-batch job,
+the pinned Go Prism process panicked with `sync: WaitGroup is reused before
+previous Wait has returned`; later cases failed to connect to the dead job
+service. CI now retries the entire shared suite once on a fresh Prism process
+only when the original process log contains that exact upstream panic. A
+normal test failure still fails immediately. This workaround needs a passing
+remote run before the portable gate can be considered green.
 
 ### Merge-aware session lateness contract
 
