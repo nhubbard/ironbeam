@@ -315,6 +315,13 @@ large inputs without whole-object downloads, and gzip decoding. A pinned-Prism
 job reopened a two-object CSV prefix after supervised execution-child loss and
 committed each row once, matching Direct. Hosted GCS remains unproved.
 
+TFRecord now has a provider-bound sequential object source and fixed sorted
+prefix. Direct verifies changed-object rejection, length and data CRCs, sorted
+prefix contents, and a 10,000-frame read through a provider that rejects
+whole-object downloads. A pinned local Prism job reopened the two-object
+prefix after supervised execution-child loss and committed both frames once,
+matching Direct. Hosted provider binding remains unproved.
+
 ### Timer callback boundary
 
 The pinned Beam proto and Python worker were checked for the timer work. A

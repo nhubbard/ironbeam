@@ -1,5 +1,5 @@
 #[cfg(feature = "parallel-io")]
-/// Write TFRecord data through parallel local output shards.
+/// Write `TFRecord` data through parallel local output shards.
 pub fn tfrecord_parallel_sink(
     input: &PCollection<Vec<u8>>,
     key: &str,

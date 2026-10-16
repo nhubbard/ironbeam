@@ -103,6 +103,7 @@ use ironbeam_prism_proof::{
     portable_object_csv_replay_fixture, portable_object_jsonl_collection,
     portable_object_jsonl_replay_fixture, portable_object_parquet_collection,
     portable_object_parquet_fixture, portable_object_parquet_replay_fixture,
+    portable_object_tfrecord_collection, portable_object_tfrecord_replay_fixture,
     portable_tfrecord_collection, portable_tfrecord_fixture, processing_time_trigger_collection,
     processing_time_trigger_fixture, production_join_cogroup_fixture, production_stream_fixture,
     representative_distinct_fixture, session_group_fixture, session_group_output_time_fixture,

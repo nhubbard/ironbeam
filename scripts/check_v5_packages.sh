@@ -109,6 +109,7 @@ fi
 "$cargo_bin" test -p ironbeam-io-jsonl --features cloud --test cloud_eager
 "$cargo_bin" test -p ironbeam-io-protobuf --all-features
 "$cargo_bin" test -p ironbeam-io-tfrecord --all-features
+"$cargo_bin" test -p ironbeam-io-tfrecord --features cloud --test cloud
 "$cargo_bin" test -p ironbeam-io-csv --all-features
 "$cargo_bin" test -p ironbeam-io-csv --features cloud --test cloud
 "$cargo_bin" test -p ironbeam-io-xml --all-features

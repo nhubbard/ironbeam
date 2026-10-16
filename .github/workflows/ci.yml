@@ -189,6 +189,8 @@ jobs:
           cargo test -p ironbeam-io-jsonl --features cloud --test cloud_streaming
           cargo test -p ironbeam-io-protobuf --all-features
           cargo test -p ironbeam-io-tfrecord --all-features
+          cargo test -p ironbeam-io-tfrecord --features cloud --test cloud
+          cargo test -p ironbeam --no-default-features --features cloud,v5-io-tfrecord --test v5_facade_prelude
           cargo test -p ironbeam-compat --test tfrecord_wire
           cargo test -p ironbeam-io-csv --all-features
           cargo test -p ironbeam-io-csv --features cloud --test cloud

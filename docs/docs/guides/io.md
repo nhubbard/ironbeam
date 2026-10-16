@@ -116,6 +116,17 @@ the worker must be able to read the same path as the submitting process. A
 local Prism job has exercised the incremental source in a separate worker
 process and matched Direct's decoded frames.
 
+TFRecord objects can also be read with `cloud_tfrecord_streaming_uri_source`.
+The `cloud_tfrecord_streaming_uri_prefix_source` variant fixes a sorted set of
+objects at graph construction. Both functions use registered object providers,
+verify each object's bytes before emitting frames, and check frame checksums
+as they decode. They need temporary disk space proportional to each object.
+The crate's `cloud` feature enables these functions; the root `cloud` feature
+forwards to it when `v5-io-tfrecord` is enabled. A portable worker needs the
+same provider and credentials as the submitting process. In a local Prism
+job, the source reopened a two-object prefix after an execution child was
+replaced and committed each frame once.
+
 ## Reading Avro with a reader schema
 
 An Avro container stores its writer schema. A reader schema can select fields

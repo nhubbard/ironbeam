@@ -31,6 +31,7 @@ include!("object_avro.rs");
 include!("object_csv.rs");
 include!("object_jsonl.rs");
 include!("object_parquet.rs");
+include!("object_tfrecord.rs");
 include!("tfrecord_source.rs");
 include!("multiway_and_batches.rs");
 include!("homogeneous_cogroup.rs");

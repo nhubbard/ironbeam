@@ -3182,12 +3182,14 @@ name = "ironbeam-io-tfrecord"
 version = "5.0.0"
 dependencies = [
  "crc32c",
+ "ironbeam-cloud-objects",
  "ironbeam-core",
  "ironbeam-direct",
  "ironbeam-io",
  "prost 0.14.4",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
 ]
 
