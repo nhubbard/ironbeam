@@ -75,7 +75,9 @@ impl V5BundleExecutor {
                 bail!("offset SDF node has no bounded coded callback");
             }
             if *stage == SdfStage::PairWithRestriction
-                && node.input.as_deref().map(collection_id).as_deref() != Some(input_pc)
+                && node.input.as_deref().and_then(|parent| {
+                    matching_reshuffle_ancestor(&self.graph, parent, input_pc)
+                }).is_none()
             {
                 bail!("offset SDF pair stage input differs from worker graph");
             }

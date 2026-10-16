@@ -36,10 +36,34 @@ impl V5BundleExecutor {
                 }
                 Step::Sdf {
                     stage,
-                    transform_id,
+                    node_ref,
+                    input_pc,
+                    output_pc,
                     ..
                 } => {
-                    bail!("v5 SDF stage {stage:?} ({transform_id}) cannot run in a process bundle")
+                    let input = collections
+                        .get(input_pc.as_str())
+                        .ok_or_else(|| anyhow!("missing v5 SDF preparation input {input_pc}"))?;
+                    let mut produced = Vec::new();
+                    for value in input {
+                        let body = if *stage == SdfStage::PairWithRestriction {
+                            let mut coded = Vec::new();
+                            encode_length_prefix(&value.bytes, &mut coded)?;
+                            coded
+                        } else {
+                            value.bytes.clone()
+                        };
+                        for bytes in self.prepared_offset_values(
+                            &node_ref.key,
+                            std::slice::from_ref(step),
+                            body,
+                        )? {
+                            let mut output = value.clone();
+                            output.bytes = bytes;
+                            produced.push(output);
+                        }
+                    }
+                    collections.insert(output_pc, produced);
                 }
                 Step::Source { output_pc, .. } => {
                     let values = if source_key.is_some() {
@@ -465,7 +489,16 @@ impl V5BundleExecutor {
                         let timestamp_millis = encode_timestamp_millis(value.timestamp_ns)?;
                         let mut body = Vec::new();
                         match wire {
-                            SinkWire::Opaque => encode_length_prefix(&value.bytes, &mut body)?,
+                            SinkWire::Opaque => {
+                                if plan.steps.iter().any(|step| matches!(step,
+                                    Step::Sdf { stage, output_pc, .. }
+                                    if *stage != SdfStage::ProcessSizedElements && output_pc == input_pc
+                                )) {
+                                    body.extend_from_slice(&value.bytes);
+                                } else {
+                                    encode_length_prefix(&value.bytes, &mut body)?;
+                                }
+                            }
                             SinkWire::KvLp => {
                                 if let Some(group) = self.group_at_input(input_pc) {
                                     let (key, grouped_value) =
@@ -488,7 +521,7 @@ impl V5BundleExecutor {
                             }
                         }
                         let mut output = Vec::new();
-                        match self.window_for_pc(input_pc)? {
+                        match self.window_for_plan_pc(plan, input_pc)? {
                             Window::Global => {
                                 if value.window.is_some() {
                                     bail!("global v5 output has an interval window");

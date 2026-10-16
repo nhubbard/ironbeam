@@ -229,6 +229,41 @@ impl V5BundleExecutor {
                     }
                     consumed.insert(input_pc.clone());
                 }
+                Step::Sdf {
+                    stage,
+                    node_ref,
+                    input_pc,
+                    output_pc,
+                    ..
+                } if *stage != SdfStage::ProcessSizedElements => {
+                    node_ref.identity.verify(&self.identity)?;
+                    let sdf = self.graph.node(&node_ref.key).ok_or_else(|| {
+                        anyhow!("v5 SDF preparation node {} is absent", node_ref.key)
+                    })?;
+                    if node_ref.co_group_input.is_some()
+                        || !matches!(sdf.operation, Operation::SplittableParDo)
+                        || !self.registry.has_splittable(&node_ref.key)
+                        || !self.registry.has_coder(&node_ref.key)
+                        || output_pc.is_empty()
+                        || output_pc == input_pc
+                    {
+                        bail!("v5 fused SDF preparation differs from worker graph");
+                    }
+                    let input_matches = if *stage == SdfStage::PairWithRestriction {
+                        sdf.input.as_deref().and_then(|parent| {
+                            matching_reshuffle_ancestor(&self.graph, parent, input_pc)
+                        }).is_some_and(|(ancestor, _)| {
+                            collections.get(input_pc).map(String::as_str) == Some(ancestor)
+                        })
+                    } else {
+                        collections.get(input_pc).map(String::as_str)
+                            == Some(node_ref.key.as_str())
+                    };
+                    if !input_matches || collections.insert(output_pc.clone(), node_ref.key.clone()).is_some() {
+                        bail!("v5 fused SDF preparation input differs from worker graph");
+                    }
+                    consumed.insert(input_pc.clone());
+                }
                 Step::Sink {
                     transform_id,
                     input_pc,
@@ -249,7 +284,7 @@ impl V5BundleExecutor {
                     consumed.insert(input_pc.clone());
                     terminals += 1;
                 }
-                _ => bail!("v5 SDF process bundle has unsupported downstream wiring"),
+                _ => bail!("v5 SDF process bundle has unsupported downstream wiring: {step:?}"),
             }
         }
         if terminals == 0 {

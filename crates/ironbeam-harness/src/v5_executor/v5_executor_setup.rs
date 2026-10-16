@@ -91,6 +91,25 @@ impl V5BundleExecutor {
             .ok_or_else(|| anyhow!("unknown v5 window for collection {pc}"))
     }
 
+    fn window_for_plan_pc(&self, plan: &BundlePlan, pc: &str) -> Result<Window> {
+        if let Some(node_ref) = plan.steps.iter().find_map(|step| match step {
+            Step::Sdf {
+                node_ref,
+                output_pc,
+                ..
+            } if output_pc == pc => Some(node_ref),
+            _ => None,
+        }) {
+            node_ref.identity.verify(&self.identity)?;
+            return self
+                .graph
+                .node(&node_ref.key)
+                .map(|node| node.time.window.clone())
+                .ok_or_else(|| anyhow!("unknown v5 SDF window for collection {pc}"));
+        }
+        self.window_for_pc(pc)
+    }
+
     fn cogroup_parent(&self, key: &str, input_index: usize) -> Option<&str> {
         let node = self.graph.node(key)?;
         if !matches!(

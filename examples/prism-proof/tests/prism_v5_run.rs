@@ -552,6 +552,46 @@ async fn prism_restores_user_offset_watermark_in_a_residual_bundle() {
 }
 
 #[tokio::test]
+async fn prism_runs_production_source_through_user_offset_residual() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-production-offset.txt");
+    let portable_path = directory.path().join("portable-production-offset.txt");
+    let direct = Pipeline::default();
+    let sink =
+        ironbeam_prism_proof::production_offset_sdf_residual_fixture(&direct, direct_path.clone())
+            .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let rows = |path: &Path| std::fs::read_to_string(path).unwrap();
+    assert_eq!(
+        rows(&direct_path).lines().collect::<Vec<_>>(),
+        ["70", "71", "72", "80", "81", "82", "90", "91", "92"]
+    );
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable = Pipeline::default();
+    ironbeam_prism_proof::production_offset_sdf_residual_fixture(&portable, portable_path.clone())
+        .unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable,
+        "production-offset-residual",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_PRODUCTION_OFFSET_SDF".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "production offset job failed: {terminal:?}");
+    assert_eq!(rows(&portable_path), rows(&direct_path));
+}
+
+#[tokio::test]
 async fn prism_replays_user_offset_callback_after_execution_child_loss() {
     let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
         return;

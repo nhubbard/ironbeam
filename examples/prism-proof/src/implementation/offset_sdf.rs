@@ -3,8 +3,9 @@ use std::io::{Read, Seek, Write};
 use std::path::PathBuf;
 
 use ironbeam_core::{
-    Error, OffsetRange, PCollection, Pipeline, Replay, Sink, SinkMode, SinkSpec, TestStreamEvent,
-    TypedSink, Version,
+    Error, OffsetRange, PCollection, Pipeline, ProgressSignal, Replay, Sink, SinkMode, SinkSpec,
+    SourceProgress, TestStreamEvent, Timestamped, TypedSink, TypedUnboundedSourceReader,
+    UnboundedBatch, UnboundedPoll, Version,
 };
 
 struct OffsetProofSink {
@@ -61,7 +62,7 @@ pub fn bounded_offset_sdf_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<
     offset_sdf_fixture(
         pipeline.from_vec("offset-input", vec![1_i32, 10])?,
         path,
-        false,
+        None,
     )
 }
 
@@ -73,7 +74,7 @@ pub fn bounded_offset_sdf_residual_fixture(
     offset_sdf_fixture(
         pipeline.from_vec("offset-input", vec![1_i32, 10])?,
         path,
-        true,
+        Some(1),
     )
 }
 
@@ -93,7 +94,7 @@ pub fn streaming_offset_sdf_fixture(
             ],
         )?,
         path,
-        false,
+        None,
     )
 }
 
@@ -113,14 +114,71 @@ pub fn streaming_offset_sdf_residual_fixture(
             ],
         )?,
         path,
-        true,
+        Some(1),
+    )
+}
+
+/// A resumable production source followed by a user offset residual.
+pub fn production_offset_sdf_residual_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<i32>, Error> {
+    offset_sdf_fixture(
+        production_offset_source(pipeline)?
+            .map_named("production-offset-value", |value| value * 10)?,
+        path,
+        Some(70),
+    )
+}
+
+fn production_offset_source(pipeline: &Pipeline) -> Result<PCollection<i32>, Error> {
+    pipeline.unbounded_source_with_factory(
+        "production-offset-events",
+        SourceProgress {
+            stable_split_id: true,
+            replay: Replay::AtLeastOnce,
+            reports_event_time: true,
+        },
+        "prism-proof/production-offset-source-v1".into(),
+        0,
+        move |position| {
+            let batch = |values: Vec<i32>, cursor: u8, completed| {
+                UnboundedPoll::Ready(UnboundedBatch {
+                    elements: values
+                        .into_iter()
+                        .map(|value| Timestamped {
+                            value,
+                            timestamp_ns: i64::from(cursor) * 1_000_000,
+                        })
+                        .collect(),
+                    progress: ProgressSignal {
+                        source_key: "production-offset-events".into(),
+                        split_id: "stable-offset-split".into(),
+                        checkpoint_position: Some(vec![cursor]),
+                        event_time_ns: Some(i64::from(cursor) * 1_000_000),
+                        completed,
+                    },
+                })
+            };
+            let polls = match position.as_deref() {
+                None => vec![
+                    UnboundedPoll::Pending,
+                    batch(vec![7, 9], 1, false),
+                    UnboundedPoll::Pending,
+                    batch(vec![8], 2, true),
+                ],
+                Some([1]) => vec![UnboundedPoll::Pending, batch(vec![8], 2, true)],
+                _ => return Err(Error::incompatible("unexpected production offset cursor")),
+            };
+            Ok(Box::new(super::ProductionSource(polls.into())) as TypedUnboundedSourceReader<i32>)
+        },
     )
 }
 
 fn offset_sdf_fixture(
     input: PCollection<i32>,
     path: PathBuf,
-    split_first: bool,
+    split_value: Option<i32>,
 ) -> Result<Sink<i32>, Error> {
     let sink_path = path.clone();
     input
@@ -130,7 +188,7 @@ fn offset_sdf_fixture(
             Version { major: 1, minor: 0 },
             |_| OffsetRange::new(0, 3),
             move |value, context| {
-                if *value == 1 && split_first {
+                if Some(*value) == split_value {
                     let restriction = context.tracker().restriction()?;
                     if restriction.start == 0 {
                         context.tracker().try_split(0.5)?;
