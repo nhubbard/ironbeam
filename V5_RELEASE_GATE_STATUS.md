@@ -622,17 +622,27 @@ can be claimed.
 | Case | Verified result |
 | --- | --- |
 | Count and bytes | Bounded Direct and pinned Prism agree on count and encoded-value byte thresholds, an oversized singleton, and per-batch earliest timestamps. Both limits reject zero and Beam's reserved `i64::MAX` sentinel without adding graph nodes. The unbounded fixed-window fixture emits six exact batches across two interleaved keys. A separate same-batch out-of-order fixture uses `c` at 4 ms before `d` at 3 ms; both runners assign the batch a 3 ms timestamp. |
-| Windows | An event-time timer flushes a fixed-window remainder. Two same-key values assigned to overlapping sliding windows stay in three distinct key-window batches with matching timestamps on Direct and pinned Prism. A fixed window with a 7 ms offset preserves separate `[-13, -3)` and `[-3, 7)` ms batches across the epoch; both runners agree on the negative timestamps and flush at each window end. A global TestStream emits full batches for two keys after an intermediate watermark on both runners. Completing a stream with a partial global batch remains open: Direct completed both exploratory schedules, but pinned Prism panicked while dropping a watermark hold. |
+| Windows | Fixed, sliding, offset, and global schedules have shared Direct/Prism fixtures. Global partial batches on finite stream completion remain open. |
 | Explicit shards and recovery | A versioned selector splits one hot key into two stable shard IDs with independent byte counts. A shared unbounded fixed-window pipeline yields three exact shard, timestamp, and batch rows on Direct and pinned Prism. Direct restores two open shard cells and one source cursor after restart, without rereading the first source batch. Pinned Prism replaces an execution child lost during sharded output and commits those three rows once. A separate nonsharded byte-batch child-loss fixture also commits its six batches once. |
 | Wire and quality gates | Graphx and the harness retain KV coder framing across the reshuffle that Prism may elide; a keyed TestStream also retains KV framing when an ordinary reshuffle precedes stateful ParDo. Direct treats only the explicit shard boundary as an identity in its single-process stream plan; an ordinary reshuffle remains a materialization boundary. Local core coverage passes at **6,714/6,990 lines (96.05%)** and **1,409/1,630 branches (86.44%)**; Direct passed at **6,476/7,106 lines (91.13%)** and **1,844/2,048 branches (90.04%)** before the later recovery-only test. |
+
+The fixed-window remainder flushes at its event-time end. Overlapping sliding
+windows keep three distinct batches for two values of one key. A fixed window
+with a 7 ms offset keeps separate `[-13, -3)` and `[-3, 7)` ms batches, including
+negative event timestamps. Both runners agree on those intervals and flushes.
+The global fixture emits full batches for two keys after an intermediate
+watermark.
 
 Batch members have no portable order. Direct kept the out-of-order pair in
 encounter order; pinned Prism returned it in event-time order. The fixture
 sorts members only for its comparison rows. Unbounded timer output holds
 require whole-millisecond event timestamps, and session windows or window
 ends that do not align to whole milliseconds are rejected.
-Two global-window probes left one pending value after two full batches. One
-advanced the watermark near its terminal value; the other ended the finite
+
+Completing a stream with a partial global batch remains open. Direct finished
+both exploratory schedules. Two global-window probes left one pending value
+after two full batches. One advanced the watermark near its terminal value;
+the other ended the finite
 TestStream without an explicit terminal advance. Prism failed both with
 `negative watermark hold count -1 for time 1` in its hold tracker. Those
 runner failures are not counted as passing behavior.
