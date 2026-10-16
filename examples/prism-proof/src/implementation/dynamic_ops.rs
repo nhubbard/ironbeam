@@ -461,7 +461,10 @@ pub fn streaming_sliding_value_state_fixture(
         .test_stream_source(
             "streaming-sliding-state-input",
             vec![
-                TestStreamEvent::Elements(vec![((1_i32, 11_i32), 6_000_000)]),
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, 11_i32), 6_000_000),
+                    ((1, 12), 7_000_000),
+                ]),
                 TestStreamEvent::AdvanceWatermark(8_000_000),
                 TestStreamEvent::Elements(vec![((1, 13), 12_000_000)]),
                 TestStreamEvent::AdvanceWatermark(16_000_000),

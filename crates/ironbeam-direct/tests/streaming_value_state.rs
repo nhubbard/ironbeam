@@ -274,6 +274,7 @@ fn global_bag_state_recovers_with_source_cursor() {
 struct WindowedSource {
     cursor: Option<Vec<u8>>,
     emitted: bool,
+    sliding: bool,
 }
 
 impl UnboundedSource<Timestamped<(i32, i32)>> for WindowedSource {
@@ -283,6 +284,7 @@ impl UnboundedSource<Timestamped<(i32, i32)>> for WindowedSource {
         }
         self.emitted = true;
         let (times, position, watermark, completed) = match self.cursor.as_deref() {
+            None if self.sliding => (vec![0, 1_000_000, 20_000_000], 1, 0, false),
             None => (vec![0, 20_000_000], 1, 0, false),
             Some([1]) => (vec![1_000_000, 21_000_000, 40_000_000], 2, 40_000_000, true),
             _ => return Err(Error::incompatible("unexpected windowed state cursor")),
@@ -353,6 +355,7 @@ fn run_windowed_state_recovery(sliding: bool) {
                     Ok(Box::new(WindowedSource {
                         cursor,
                         emitted: false,
+                        sliding,
                     })
                         as TypedUnboundedSourceReader<(i32, i32)>)
                 }
@@ -435,7 +438,7 @@ fn run_windowed_state_recovery(sliding: bool) {
 
 fn assert_window_counts(accepted: &Arc<Mutex<HashSet<String>>>, sliding: bool) {
     let expected = if sliding {
-        "-5000000:1:1 -5000000:1:2 0:1:1 0:1:2 15000000:1:1 15000000:1:2 20000000:1:1 20000000:1:2 35000000:1:1 40000000:1:1"
+        "-5000000:1:1 -5000000:1:2 -5000000:1:3 0:1:1 0:1:2 0:1:3 15000000:1:1 15000000:1:2 20000000:1:1 20000000:1:2 35000000:1:1 40000000:1:1"
     } else {
         "0:1:1 0:1:2 20000000:1:1 20000000:1:2 40000000:1:1"
     }

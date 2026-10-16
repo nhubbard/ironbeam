@@ -522,6 +522,13 @@ and publishes timer mutations only from the accepted attempt. Fixed-window
 expiration callbacks are covered above; broader expiration schedules, other
 failure points, and general stateful fanout remain open.
 
+The sliding-window value-state fixture sends two values for one key in a
+single TestStream batch. Each value updates two overlapping window cells.
+Direct and pinned Prism agree on the eight emitted rows after later
+watermarks expire the earlier windows. A Direct checkpoint test resumes
+those cells from the first source cursor and completes without repeating
+committed rows.
+
 ## Bundles and committed output
 
 A Beam bundle is a runner-selected unit of work. A successful callback alone
