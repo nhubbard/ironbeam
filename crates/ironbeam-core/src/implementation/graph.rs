@@ -101,9 +101,9 @@ impl Graph {
                 ));
             }
             if node.time.output_time != WindowOutputTime::EarliestInPane
-                && !node.time.window.is_millisecond_aligned_finite()
+                && !node.time.window.supports_output_time_policy()
             {
-                return Err(Error::graph(&node.key, "output time policy requires a finite millisecond-aligned window"));
+                return Err(Error::graph(&node.key, "output time policy requires a global or millisecond-aligned finite window"));
             }
             if node.time.allowed_lateness_ns < 0
                 || node.time.allowed_lateness_ns % 1_000_000 != 0

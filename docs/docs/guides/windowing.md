@@ -165,6 +165,14 @@ latest event timestamp in each pane instead, call
 output is stamped 7 ms, regardless of arrival order. An accumulating pane
 retains the latest timestamp of all values it contains.
 
+Both policies also apply to a global window. Its Beam end timestamp is
+`9_223_371_950_454_775` milliseconds. That value exceeds the signed
+nanosecond range used inside Ironbeam, so timestamp reification reports
+`i64::MAX` for a global end-of-window result. The portable worker converts
+that sentinel back to Beam's timestamp on the wire. Latest-in-pane remains
+the latest input event time; for global inputs at 2 ms and 7 ms, it is 7 ms.
+Direct and the pinned local Prism runner agree on both global cases.
+
 Both policies are part of the graph identity and Beam windowing strategy.
 Window sizes, periods, offsets, and session gaps must be whole milliseconds. In
 a merged session, end-of-window uses the final merged interval; latest-in-pane

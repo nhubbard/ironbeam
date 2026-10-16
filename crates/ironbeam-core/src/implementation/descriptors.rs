@@ -291,6 +291,10 @@ impl Element for PaneInfo {
 }
 
 impl Window {
+    pub(crate) const fn supports_output_time_policy(&self) -> bool {
+        matches!(self, Self::Global) || self.is_millisecond_aligned_finite()
+    }
+
     pub(crate) const fn is_millisecond_aligned_finite(&self) -> bool {
         match *self {
             Self::Session { gap_ns } => gap_ns > 0 && gap_ns % 1_000_000 == 0,

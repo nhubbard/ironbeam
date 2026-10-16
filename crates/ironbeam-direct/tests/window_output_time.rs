@@ -2,6 +2,45 @@ use ironbeam_core::{Pipeline, WindowOutputTime, cogroup_by_key_2_named};
 use ironbeam_direct::{DirectRunner, JobConfig};
 
 #[test]
+fn global_group_uses_beam_end_or_latest_output_timestamp() {
+    for (policy, expected) in [
+        (WindowOutputTime::EndOfWindow, i64::MAX),
+        (WindowOutputTime::LatestInPane, 7_000_000),
+    ] {
+        let pipeline = Pipeline::default();
+        let keyed = pipeline
+            .from_vec(
+                "events",
+                vec![(7_000_000_i64, (1_i32, 7_i32)), (2_000_000, (1, 2))],
+            )
+            .unwrap()
+            .timestamps_from_pairs_named("timestamps")
+            .unwrap();
+        let keyed = match policy {
+            WindowOutputTime::EndOfWindow => keyed.end_of_window_output_time_named("policy"),
+            WindowOutputTime::LatestInPane => keyed.latest_in_pane_output_time_named("policy"),
+            WindowOutputTime::EarliestInPane => unreachable!(),
+        }
+        .unwrap();
+        let output = keyed
+            .group_by_key_named("group")
+            .unwrap()
+            .reify_timestamps_named("group-time")
+            .unwrap()
+            .output("result")
+            .unwrap();
+        let rows = DirectRunner
+            .run_collect(&output, &JobConfig::default())
+            .unwrap()
+            .0;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, expected);
+        assert_eq!(rows[0].1.0, 1);
+        assert_eq!(rows[0].1.1.len(), 2);
+    }
+}
+
+#[test]
 fn bounded_session_join_uses_merged_output_time_policy() {
     for (policy, expected_time) in [
         (WindowOutputTime::EndOfWindow, 12_000_000),

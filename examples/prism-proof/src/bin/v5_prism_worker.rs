@@ -31,7 +31,7 @@ use ironbeam_prism_proof::{
     early_sliding_windowed_wait_fixture, early_windowed_wait_fixture,
     explicit_custom_batches_fixture, failing_wait_on_fixture, finalization_failure_fixture,
     finalization_probe_sink, global_accumulating_early_cogroup_fixture, global_count_fixture,
-    global_fold_fixture, global_keyed_batches_fixture,
+    global_fold_fixture, global_group_output_time_fixture, global_keyed_batches_fixture,
     global_keyed_batches_with_upstream_trigger_fixture, global_keyed_combine_fixture,
     global_vector_fixture, group_end_time_fixture, group_latest_time_fixture, group_time_fixture,
     heterogeneous_late_count_cogroup_fixture, heterogeneous_windowed_wait_fixture,
@@ -1185,6 +1185,24 @@ async fn main() -> anyhow::Result<()> {
     }
     if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GROUP_LATEST_TIME") {
         return group_latest_time_fixture(pipeline, path.into()).map(|_| ()).map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_END_TIME") {
+        return global_group_output_time_fixture(
+            pipeline,
+            path.into(),
+            ironbeam_core::WindowOutputTime::EndOfWindow,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
+    }
+    if let Ok(path) = std::env::var("IRONBEAM_V5_PRISM_GLOBAL_LATEST_TIME") {
+        return global_group_output_time_fixture(
+            pipeline,
+            path.into(),
+            ironbeam_core::WindowOutputTime::LatestInPane,
+        )
+        .map(|_| ())
+        .map_err(Into::into);
     }
     if let Ok(directory) = std::env::var("IRONBEAM_V5_PRISM_PRODUCTION_CAPTURE") {
         return production_stream_fixture(pipeline, directory).map_err(Into::into);

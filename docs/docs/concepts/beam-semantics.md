@@ -108,6 +108,14 @@ time describes when a runner handles it. A source can report event-time
 progress separately from its elements. For an unbounded source, that progress
 helps the runner decide when a window is ready to close.
 
+Beam's global-window end timestamp is too large for a signed nanosecond
+value. Ironbeam represents that one timestamp as `i64::MAX` in Direct and in
+portable worker callbacks, and converts it to Beam's millisecond timestamp
+at the wire boundary. A global GroupByKey with end-of-window output time
+therefore reports `i64::MAX` when its timestamp is reified. This value is
+reserved; use the latest-in-pane policy when the output should carry an input
+event timestamp instead.
+
 A watermark is a runner's estimate of how far event time has advanced. It is
 not the timestamp of the most recently delivered element. A source can emit
 an element with a smaller timestamp after reporting progress; with the

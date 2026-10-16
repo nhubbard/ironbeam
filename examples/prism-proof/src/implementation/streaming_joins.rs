@@ -659,6 +659,43 @@ pub fn group_latest_time_fixture(pipeline: &Pipeline, path: PathBuf) -> Result<S
     group_time_fixture_with_policy(pipeline, path, Some(ironbeam_core::WindowOutputTime::LatestInPane))
 }
 
+/// A global GroupByKey uses Beam's global end timestamp or latest input time.
+pub fn global_group_output_time_fixture(
+    pipeline: &Pipeline,
+    path: PathBuf,
+    policy: ironbeam_core::WindowOutputTime,
+) -> Result<Sink<String>, Error> {
+    let sink_path = path.clone();
+    let keyed = pipeline
+        .from_vec("global-time-events", vec![(7_000_000_i64, (1_i32, 7_i32)), (2_000_000, (1, 2))])?
+        .timestamps_from_pairs_named("global-time-stamp")?;
+    let keyed = match policy {
+        ironbeam_core::WindowOutputTime::EndOfWindow => {
+            keyed.end_of_window_output_time_named("global-time-policy")?
+        }
+        ironbeam_core::WindowOutputTime::LatestInPane => {
+            keyed.latest_in_pane_output_time_named("global-time-policy")?
+        }
+        ironbeam_core::WindowOutputTime::EarliestInPane => keyed,
+    };
+    keyed
+        .group_by_key_named("global-time-group")?
+        .reify_timestamps_named("global-time-reify")?
+        .map_named("global-time-row", |(time, (key, mut values))| {
+            values.sort_unstable();
+            format!("{key}|{values:?}|{time}")
+        })?
+        .sink_named_with_config(
+            "global-time-capture",
+            SinkSpec { mode: SinkMode::Append, replay: Replay::AtLeastOnce, commit: true },
+            format!("global-time-contract:{}", path.display()),
+            move || Ok(Box::new(GlobalFoldSink {
+                path: sink_path.clone(),
+                values: Vec::new(),
+            })),
+        )
+}
+
 /// Compare vector, lifted global, and lifted keyed combines in one window.
 pub fn combine_output_time_fixture(
     pipeline: &Pipeline,

@@ -16,11 +16,9 @@ fn end_of_window_output_time_is_validated_and_changes_graph_identity() {
     let values = pipeline
         .from_vec("values", vec![("a".to_owned(), 2_i32)])
         .unwrap();
-    assert!(
-        values
-            .end_of_window_output_time_named("global-policy")
-            .is_err()
-    );
+    let global = values
+        .end_of_window_output_time_named("global-policy")
+        .unwrap();
     let windowed = values.fixed_windows("windows", 10_000_000).unwrap();
     let grouped = windowed
         .end_of_window_output_time_named("output-policy")
@@ -28,6 +26,10 @@ fn end_of_window_output_time_is_validated_and_changes_graph_identity() {
         .group_by_key_named("groups")
         .unwrap();
     let (graph, _) = pipeline.snapshot().unwrap();
+    assert_eq!(
+        graph.node(global.key()).unwrap().time.output_time,
+        WindowOutputTime::EndOfWindow
+    );
     assert_eq!(
         graph.node(grouped.key()).unwrap().time.output_time,
         WindowOutputTime::EndOfWindow
@@ -133,6 +135,37 @@ fn latest_in_pane_policy_tracks_maximum_event_time_across_checkpoint_restore() {
     assert_eq!(released, 2);
     assert_eq!(output.len(), 1);
     assert_eq!(output[0].timestamp_ns, 7_000_000);
+}
+
+#[test]
+fn global_latest_output_time_survives_fold_checkpoint_restore() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("values", vec![(1_i32, 2_i32)])
+        .unwrap()
+        .latest_in_pane_output_time_named("output-policy")
+        .unwrap()
+        .group_by_key_named("groups")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let mut fold = registry.open_fold("groups").unwrap();
+    for time in [7_000_000, 2_000_000] {
+        fold.add(Envelope {
+            pane: PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, 2_i32)),
+            timestamp_ns: time,
+            window: Window::Global,
+            assigned_window: None,
+        })
+        .unwrap();
+    }
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("groups").unwrap();
+    restored.restore_checkpoint_state(&saved).unwrap();
+    let output = restored.finish().unwrap();
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0].timestamp_ns, 7_000_000);
+    assert_eq!(output[0].assigned_window, None);
 }
 
 #[test]
