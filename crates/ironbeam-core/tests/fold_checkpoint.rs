@@ -4,6 +4,97 @@ use ironbeam_core::{
 };
 
 #[test]
+fn count_or_finally_checkpoint_validates_its_cumulative_cursor() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .from_vec("source", vec![(1_i32, 1_i32)])
+        .unwrap()
+        .fixed_windows("window", 10)
+        .unwrap()
+        .count_or_finally_trigger_named("trigger", 2, 3)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap();
+    let (_, registry) = pipeline.snapshot().unwrap();
+    let add = |fold: &mut Box<dyn ironbeam_core::FoldSession>, value| {
+        fold.add(Envelope {
+            pane: ironbeam_core::PaneInfo::NO_FIRING,
+            value: Box::new((1_i32, value)),
+            timestamp_ns: i64::from(value),
+            window: Window::Fixed { size_ns: 10 },
+            assigned_window: Some(WindowInterval {
+                start_ns: 0,
+                end_ns: 10,
+            }),
+        })
+        .unwrap();
+    };
+    let mut fold = registry.open_fold("group").unwrap();
+    add(&mut fold, 1_i32);
+    add(&mut fold, 2_i32);
+    assert_eq!(fold.drain_ready_count(2).unwrap().0.len(), 1);
+    let saved = fold.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("group").unwrap();
+    restored.restore_checkpoint_state(&saved).unwrap();
+    assert_eq!(restored.checkpoint_state().unwrap().unwrap(), saved);
+    add(&mut restored, 3_i32);
+    assert_eq!(restored.drain_ready_count(2).unwrap().0.len(), 1);
+    let finished = restored.checkpoint_state().unwrap().unwrap();
+    let mut restored = registry.open_fold("group").unwrap();
+    restored.restore_checkpoint_state(&finished).unwrap();
+    add(&mut restored, 4_i32);
+    add(&mut restored, 5_i32);
+    assert!(restored.drain_ready_count(2).unwrap().0.is_empty());
+    let (on_time, _) = restored.drain_closed(10).unwrap();
+    assert_eq!(on_time.len(), 1);
+    assert_eq!(on_time[0].pane.timing, PaneTiming::OnTime);
+    assert_eq!(
+        *on_time
+            .into_iter()
+            .next()
+            .unwrap()
+            .value
+            .downcast::<(i32, Vec<i32>)>()
+            .unwrap(),
+        (1, vec![4, 5])
+    );
+
+    let mut malformed: serde_json::Value = serde_json::from_slice(&saved).unwrap();
+    malformed["early_cursors"][0]["seen"] = 0.into();
+    assert_eq!(
+        registry
+            .open_fold("group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&malformed).unwrap())
+            .unwrap_err()
+            .kind,
+        ErrorKind::Recovery
+    );
+    malformed["early_cursors"][0]["seen"] = 2.into();
+    malformed["early_cursors"][0]["finished"] = true.into();
+    assert_eq!(
+        registry
+            .open_fold("group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&malformed).unwrap())
+            .unwrap_err()
+            .kind,
+        ErrorKind::Recovery
+    );
+    malformed["early_cursors"][0]["finished"] = false.into();
+    malformed["version"]["minor"] = 2.into();
+    assert_eq!(
+        registry
+            .open_fold("group")
+            .unwrap()
+            .restore_checkpoint_state(&serde_json::to_vec(&malformed).unwrap())
+            .unwrap_err()
+            .kind,
+        ErrorKind::Incompatible
+    );
+}
+
+#[test]
 fn global_count_fold_restores_pane_index_and_accumulated_values() {
     for accumulating in [false, true] {
         let pipeline = Pipeline::default();

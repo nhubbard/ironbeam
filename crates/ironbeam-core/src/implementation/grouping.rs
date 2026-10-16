@@ -404,10 +404,12 @@ impl<K: Element + Eq + Hash + Clone, V: Element> GroupByKeyFoldState<K, V> {
     ) -> Result<(), Error> {
         if self.trigger.final_count().is_some() {
             let scope = (key.clone(), interval.unwrap_or(GLOBAL_TRIGGER_SCOPE));
-            let seen = self.early_seen.entry(scope).or_insert(0);
-            *seen = seen.checked_add(1).ok_or_else(|| {
-                Error::resource(&self.key, "count-or-finally source count overflows")
-            })?;
+            if !self.early_finished.contains(&scope) {
+                let seen = self.early_seen.entry(scope).or_insert(0);
+                *seen = seen.checked_add(1).ok_or_else(|| {
+                    Error::resource(&self.key, "count-or-finally source count overflows")
+                })?;
+            }
         }
         Ok(())
     }

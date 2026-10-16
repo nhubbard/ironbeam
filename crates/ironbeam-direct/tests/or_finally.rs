@@ -122,6 +122,94 @@ fn count_or_finally_stops_early_firing_but_keeps_later_input_for_on_time() {
 }
 
 #[test]
+fn count_or_finally_keeps_key_and_window_cursors_independent() {
+    let pipeline = Pipeline::default();
+    let batches = [
+        vec![("a", 1), ("a", 2)],
+        vec![("b", 10), ("b", 11)],
+        vec![("a", 3)],
+        vec![("a", 4), ("a", 5)],
+        vec![("b", 12)],
+        vec![("a", 20), ("a", 21)],
+        vec![("b", 30)],
+    ];
+    let mut events = batches
+        .into_iter()
+        .map(|batch| {
+            TestStreamEvent::Elements(
+                batch
+                    .into_iter()
+                    .map(|(key, value)| {
+                        let timestamp_ns = if value >= 20 { 11_000_000 } else { 1_000_000 };
+                        ((key.to_owned(), value), timestamp_ns)
+                    })
+                    .collect(),
+            )
+        })
+        .collect::<Vec<_>>();
+    events.push(TestStreamEvent::AdvanceWatermark(10_000_000));
+    events.push(TestStreamEvent::AdvanceWatermark(20_000_000));
+    let rows = Arc::new(Mutex::new(Vec::new()));
+    let capture = Arc::clone(&rows);
+    let sink = pipeline
+        .test_stream_source("source", events)
+        .unwrap()
+        .fixed_windows("window", 10_000_000)
+        .unwrap()
+        .count_or_finally_trigger_named("trigger", 2, 3)
+        .unwrap()
+        .group_by_key_named("group")
+        .unwrap()
+        .reify_panes_named("pane")
+        .unwrap()
+        .with_window_named("interval")
+        .unwrap()
+        .map_named("row", |(window, (pane, (key, values)))| {
+            format!(
+                "{}..{}:{key}:{values:?}:{:?}:{}",
+                window.start_ns, window.end_ns, pane.timing, pane.index
+            )
+        })
+        .unwrap()
+        .sink_named_with_config(
+            "sink",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            "or-finally-key-window-v1".into(),
+            move || {
+                Ok(Box::new(Capture {
+                    rows: Arc::clone(&capture),
+                    staged: Vec::new(),
+                }))
+            },
+        )
+        .unwrap();
+    DirectRunner
+        .start_stream_sink(&sink, &JobConfig::default())
+        .unwrap()
+        .wait()
+        .unwrap();
+    let mut actual = rows.lock().unwrap().clone();
+    actual.sort();
+    let mut expected = [
+        "0..10000000:a:[1, 2]:Early:0",
+        "0..10000000:a:[3]:Early:1",
+        "0..10000000:a:[4, 5]:OnTime:2",
+        "0..10000000:b:[10, 11]:Early:0",
+        "0..10000000:b:[12]:Early:1",
+        "10000000..20000000:a:[20, 21]:Early:0",
+        "10000000..20000000:b:[30]:OnTime:0",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    expected.sort();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn count_or_finally_cursor_survives_checkpoint() {
     for accumulating in [false, true] {
         let directory = tempfile::tempdir().unwrap();
