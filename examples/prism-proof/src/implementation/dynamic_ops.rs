@@ -388,6 +388,52 @@ pub fn streaming_byte_limited_batches_fixture(
         )
 }
 
+/// A global TestStream emits complete byte-limited batches after an
+/// intermediate watermark without closing the global window.
+pub fn streaming_global_byte_batches_fixture(
+    pipeline: &Pipeline,
+    directory: PathBuf,
+) -> Result<Sink<String>, Error> {
+    let sink_directory = directory.clone();
+    let one = "a".to_owned().encoded_len()?;
+    pipeline
+        .test_stream_source(
+            "global-byte-input",
+            vec![
+                TestStreamEvent::Elements(vec![
+                    ((1_i32, "a".to_owned()), 1_000_000),
+                    ((2, "x".to_owned()), 2_000_000),
+                ]),
+                TestStreamEvent::AdvanceWatermark(5_000_000),
+                TestStreamEvent::Elements(vec![
+                    ((1, "b".to_owned()), 3_000_000),
+                    ((2, "y".to_owned()), 4_000_000),
+                ]),
+            ],
+        )?
+        .group_into_batches_with_limits_named("global-byte-batches", 10, one * 2)?
+        .reify_timestamps_named("global-byte-time")?
+        .map_named("global-byte-label", |(timestamp, (key, mut values))| {
+            values.sort();
+            format!("{key}:{timestamp}:{values:?}")
+        })?
+        .sink_named_with_config(
+            "global-byte-result",
+            SinkSpec {
+                mode: SinkMode::Append,
+                replay: Replay::Idempotent,
+                commit: true,
+            },
+            format!("global-byte-result:{}", directory.display()),
+            move || {
+                Ok(Box::new(IdempotentStateLabelSink {
+                    directory: sink_directory.clone(),
+                    pending: Vec::new(),
+                }))
+            },
+        )
+}
+
 /// Two events occupy three overlapping sliding-window byte-batch cells.
 pub fn streaming_sliding_byte_batches_fixture(
     pipeline: &Pipeline,
