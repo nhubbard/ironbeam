@@ -1,5 +1,64 @@
 use super::*;
 
+#[tokio::test]
+async fn prism_omits_requested_empty_on_time_pane_after_early_firing() {
+    let directory = tempfile::tempdir().unwrap();
+    let direct_path = directory.path().join("direct-fire-always.txt");
+    let direct_pipeline = Pipeline::default();
+    let direct_sink =
+        pane_metadata_fixture_fire_always(&direct_pipeline, direct_path.clone()).unwrap();
+    DirectRunner
+        .run_sink(&direct_sink, &JobConfig::default())
+        .unwrap();
+    let rows = |path: &Path| {
+        let mut rows = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    };
+    let direct_rows = rows(&direct_path);
+    assert_eq!(
+        direct_rows,
+        [
+            "group:a:[2, 3]:Early:true:false:0:-1",
+            "group:a:[]:OnTime:false:true:1:0",
+            "source:a:2:Unknown:true:true:0:0",
+            "source:a:3:Unknown:true:true:0:0",
+        ]
+    );
+    let Ok(endpoint) = std::env::var("IRONBEAM_PRISM_ENDPOINT") else {
+        return;
+    };
+    let _prism_job = prism_job_lock().lock().await;
+    let portable_path = directory.path().join("portable-fire-always.txt");
+    let portable_pipeline = Pipeline::default();
+    pane_metadata_fixture_fire_always(&portable_pipeline, portable_path.clone()).unwrap();
+    let terminal = run_shared_fixture(
+        &endpoint,
+        &portable_pipeline,
+        "fire-always",
+        HashMap::from([(
+            "IRONBEAM_V5_PRISM_FIRE_ALWAYS".into(),
+            portable_path.to_string_lossy().into_owned(),
+        )]),
+    )
+    .await;
+    assert_eq!(terminal.0, 3, "Prism fire-always state: {terminal:?}");
+    let portable_rows = rows(&portable_path);
+    assert_eq!(portable_rows.len(), direct_rows.len() - 1);
+    assert_eq!(
+        portable_rows,
+        [
+            "group:a:[2, 3]:Early:true:false:0:-1",
+            "source:a:2:Unknown:true:true:0:0",
+            "source:a:3:Unknown:true:true:0:0",
+        ]
+    );
+}
+
 async fn assert_default_pane_metadata(
     window: PaneFixtureWindow,
     expected_direct: &[&str],

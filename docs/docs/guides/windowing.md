@@ -76,8 +76,9 @@ fn main() -> Result<(), ironbeam::Error> {
 ```
 
 This policy is encoded in the Beam windowing strategy. Direct preserves the
-empty on-time pane through a fold checkpoint. The tested local Prism version
-has not yet been checked against this explicit-policy fixture.
+empty on-time pane through a fold checkpoint. The pinned local Prism version accepts the portable setting but omits the
+empty on-time pane after a bounded early firing. This runner difference is
+recorded in the shared execution test.
 
 ### Early count firings on Prism
 

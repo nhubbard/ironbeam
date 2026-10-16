@@ -906,7 +906,15 @@ pub fn pane_metadata_fixture_with_trigger(
     window: PaneFixtureWindow,
     early_count_one: bool,
 ) -> Result<Sink<String>, Error> {
-    pane_metadata_fixture_with_count_mode(pipeline, path, window, early_count_one.then_some(false))
+    pane_metadata_fixture_with_count_mode(pipeline, path, window, early_count_one.then_some(false), false)
+}
+
+/// Probe an empty on-time pane after an early count firing consumes a window.
+pub fn pane_metadata_fixture_fire_always(
+    pipeline: &Pipeline,
+    path: PathBuf,
+) -> Result<Sink<String>, Error> {
+    pane_metadata_fixture_with_count_mode(pipeline, path, PaneFixtureWindow::Fixed, Some(false), true)
 }
 
 pub fn pane_metadata_fixture_with_accumulating_count(
@@ -914,7 +922,7 @@ pub fn pane_metadata_fixture_with_accumulating_count(
     path: PathBuf,
     window: PaneFixtureWindow,
 ) -> Result<Sink<String>, Error> {
-    pane_metadata_fixture_with_count_mode(pipeline, path, window, Some(true))
+    pane_metadata_fixture_with_count_mode(pipeline, path, window, Some(true), false)
 }
 
 fn pane_metadata_fixture_with_count_mode(
@@ -922,6 +930,7 @@ fn pane_metadata_fixture_with_count_mode(
     path: PathBuf,
     window: PaneFixtureWindow,
     count_mode: Option<bool>,
+    fire_always: bool,
 ) -> Result<Sink<String>, Error> {
     let values = pipeline
         .from_vec(
@@ -943,6 +952,11 @@ fn pane_metadata_fixture_with_count_mode(
         Some(true) => values.accumulating_count_trigger_named("pane-count-trigger", 1)?,
         Some(false) => values.early_count_trigger_named("pane-count-trigger", 1)?,
         None => values,
+    };
+    let values = if fire_always {
+        values.on_time_behavior_named("pane-on-time", WindowOnTimeBehavior::FireAlways)?
+    } else {
+        values
     };
     let raw = values.reify_panes_named("source-pane")?.map_named(
         "source-pane-row",
