@@ -80,3 +80,34 @@ fn stateful_sharded_batch_keeps_kv_coder_before_reshuffle() {
         );
     }
 }
+
+#[test]
+fn keyed_test_stream_reaches_stateful_consumer_through_reshuffle() {
+    let pipeline = Pipeline::default();
+    pipeline
+        .test_stream_source(
+            "source",
+            vec![TestStreamEvent::Elements(vec![((1_i32, 2_i32), 0)])],
+        )
+        .unwrap()
+        .reshuffle_named("boundary")
+        .unwrap()
+        .stateful_value_map_named::<i32, i32>(
+            "state",
+            "tests/reshuffled-state",
+            Version { major: 1, minor: 0 },
+            |_, value, prior| {
+                let next = prior.unwrap_or(0) + value;
+                Ok((Some(next), next))
+            },
+        )
+        .unwrap()
+        .output("result")
+        .unwrap();
+    let (graph, _) = pipeline.snapshot().unwrap();
+    let translated = translate_v5(&pipeline, "image", "reshuffled-state-build").unwrap();
+    validate_beam_contract(&graph, &translated).unwrap();
+    let components = translated.pipeline.components.as_ref().unwrap();
+    assert_eq!(components.pcollections[&collection_id("source")].coder_id, CODER_V5_KV);
+    assert_eq!(components.pcollections[&collection_id("boundary")].coder_id, CODER_V5_KV);
+}

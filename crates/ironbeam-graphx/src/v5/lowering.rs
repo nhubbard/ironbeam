@@ -12,7 +12,7 @@ fn keyed_input_reaches(graph: &Graph, current: &str, target: &str) -> bool {
     let Some(node) = graph.node(current) else {
         return false;
     };
-    matches!(node.operation, Operation::Flatten)
+    matches!(node.operation, Operation::Flatten | Operation::Reshuffle)
         && node.input.iter().map(String::as_str)
             .chain(node.additional_inputs.iter().map(|edge| edge.key.as_str()))
             .any(|input| keyed_input_reaches(graph, input, target))
