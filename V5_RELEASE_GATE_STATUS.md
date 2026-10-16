@@ -6,11 +6,14 @@
 The root is an unpublished `5.0.0` candidate and the implementation crates
 are `5.0.0`. Publication remains staged locally. Local Prism is the
 portable runner proof for this release; hosted Dataflow is a later extension.
-The 99% parity target is measured against portable Beam semantics and
-Rust-relevant I/O in the pinned local Beam checkout, not every SDK, runner,
-or connector in that checkout. No percentage is assigned while broader
-stateful DAGs, other timer recovery schedules, general source splitting, and
-the open cases in this report lack runner proofs.
+The seven parity families below remain the longer-term comparison with
+portable Beam semantics and Rust-relevant I/O in the pinned local checkout.
+They are not a numerical release gate: no percentage is assigned while
+broader stateful DAGs, other timer recovery schedules, general source
+splitting, and the open cases in this report lack runner proofs. For 5.0.0,
+release work is limited to the documented and tested support boundary, API
+documentation, package verification, and passing CI. Unsupported schedules
+must fail clearly or be described as outside that boundary.
 
 ## Release snapshot
 
@@ -45,6 +48,13 @@ the open cases in this report lack runner proofs.
 
 Passing a current check does not close a release gate unless its full proof
 below is complete.
+
+The release documentation check generates all-feature Rustdoc JSON and
+requires a direct description for each public function in all 34 publishable
+handwritten crates. Generated Beam protocol bindings and nonpublishable test
+packages are outside that check. The Zensical site builds in strict mode with
+no issues. Both checks validate coverage and links; prose and examples still
+need review for accuracy before the release tag.
 
 ### Merge-aware session lateness contract
 

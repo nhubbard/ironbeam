@@ -11,10 +11,13 @@ The 5.0.0 source is a release candidate. Local Direct execution and the workspac
 | [Getting started](getting-started.md) | A complete local pipeline and its output |
 | [Pipelines and collections](concepts/pipelines.md) | Graph nodes, typed handles, and stable keys |
 | [Runners](concepts/runners.md) | Direct execution and the portable boundary |
+| [Packages and features](guides/packages-and-features.md) | Dependency and build choices |
 | [Input and output](guides/io.md) | File formats, sinks, and feature selection |
 | [Transforms](guides/transforms.md) | Element operations, grouping, and keyed work |
+| [Streaming pipelines](guides/streaming.md) | Event time, triggers, and source progress |
 | [Direct checkpoints](guides/checkpoints.md) | Recovery state and identity |
 | [Migration from v4](migration/index.md) | API and operational changes |
+| [5.0.0 support boundary](reference/support.md) | Tested behavior and limits |
 | [Package reference](reference/packages.md) | Crate ownership |
 | [Example programs](reference/examples.md) | Runnable programs in the repository |
 

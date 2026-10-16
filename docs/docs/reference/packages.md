@@ -1,6 +1,6 @@
 # Package map
 
-Ironbeam 5 is a workspace of small crates. Applications can depend on the root facade or select individual crates.
+Ironbeam 5 is a workspace of small crates. Applications can depend on the root facade or select individual crates. The [package and feature guide](../guides/packages-and-features.md) shows dependency entries and format choices.
 
 | Package | Responsibility |
 | --- | --- |

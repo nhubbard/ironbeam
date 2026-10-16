@@ -9,9 +9,9 @@ nav = [
   { "Overview" = "index.md" },
   { "Getting started" = "getting-started.md" },
   { "Concepts" = ["concepts/pipelines.md", "concepts/runners.md", "concepts/elements.md", "concepts/beam-semantics.md"] },
-  { "Guides" = ["guides/transforms.md", "guides/io.md", "guides/gcp.md", "guides/windowing.md", "guides/checkpoints.md", "guides/schema-rows.md", "guides/sharded-keys.md", "guides/testing.md", "guides/portable.md"] },
+  { "Guides" = ["guides/packages-and-features.md", "guides/transforms.md", "guides/streaming.md", "guides/io.md", "guides/gcp.md", "guides/windowing.md", "guides/checkpoints.md", "guides/schema-rows.md", "guides/sharded-keys.md", "guides/testing.md", "guides/portable.md"] },
   { "Migration from v4" = ["migration/index.md", "migration/api.md", "migration/operations.md"] },
-  { "Reference" = ["reference/packages.md", "reference/examples.md", "reference/troubleshooting.md"] },
+  { "Reference" = ["reference/support.md", "reference/packages.md", "reference/examples.md", "reference/troubleshooting.md"] },
 ]
 
 [project.theme]

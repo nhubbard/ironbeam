@@ -59,4 +59,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `numbers`, `double`, and `result` are graph keys. Each key must be unique within this pipeline. Stable keys also matter to [checkpoint recovery](guides/checkpoints.md) and [portable execution](guides/portable.md).
 
-The [pipeline concepts](concepts/pipelines.md) page describes collection handles. The [I/O guide](guides/io.md) replaces the in-memory source with a file source. Complete programs appear in the [example index](reference/examples.md).
+The [pipeline concepts](concepts/pipelines.md) page describes collection handles. The [package and feature guide](guides/packages-and-features.md) explains dependency choices. The [streaming guide](guides/streaming.md) introduces event-time input, while the [I/O guide](guides/io.md) replaces the in-memory source with a file source. Complete programs appear in the [example index](reference/examples.md).

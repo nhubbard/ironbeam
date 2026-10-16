@@ -60,8 +60,10 @@ Keyed batching can use encoded-value byte and count limits. On unbounded
 input, Ironbeam retains a coded partial batch per key and window and flushes it
 when either limit is reached. A fixed-window event timer flushes the remainder
 when the window closes. Direct and pinned Prism agree on a five-batch streaming
-fixture, and Direct restores a partial batch from a checkpoint. Global-window
-partial batches remain open without a closing trigger.
+fixture, and Direct restores a partial batch from a checkpoint. A finite
+global-window source flushes its last partial batch at source completion. A
+continuing global source needs a count, byte, or processing-time limit to
+release a partial batch.
 
 A bounded RowCoder fixture carries Beam date, time, and UUID logical fields
 through a reshuffle. Direct and the pinned local Prism job produce the same
